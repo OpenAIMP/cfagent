@@ -37,7 +37,7 @@ import {
   cfpaySendEmail,
   cfpaySendEmailWithAttachments,
 } from "../services/cfpayA2A";
-import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
+import { deliverScreenerToSlack, deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
 
 export interface ScreenerPublisherDeps {
   env: Env;
@@ -347,32 +347,19 @@ async function publishCompleted(
   const slackBody = pdf || cfpay
     ? plainTextWithDigest
     : `${plainTextWithDigest}${event.pdfKey ? `\n\n📄 PDF report: ${reportUrl}` : ""}`;
-  if (cfpay) {
-    const delivery = await deliverScreenerToSlackA2A(deps.env, {
-      text: plainTextWithDigest,
-      channel: slackChannel,
-      ...(pdf ? {
-        pdf: {
-          ...pdf,
-          title: `Market Screen — ${event.universe || "TECH"} ${event.timestamp.slice(0, 10)}`,
-          comment: plainText,
-        },
-      } : {}),
-    });
-    if (!delivery.ok) {
-      console.warn("[ScreenerPublishers] Slack A2A delivery failed:", delivery.error);
-    }
-  } else if (deps.env.SLACK_BOT_TOKEN || deps.env.SLACK_WEBHOOK_URL) {
-    try {
-      if (pdf && deps.env.SLACK_BOT_TOKEN) {
-        await deliverPdfToSlack(deps, pdf, event, plainText);
-      } else {
-        const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
-        await slack.postSlackMessage({ text: slackBody, channel: slackChannel } as any);
-      }
-    } catch (err) {
-      console.warn("[ScreenerPublishers] Slack publish failed:", err instanceof Error ? err.message : String(err));
-    }
+  const slackDelivery = await deliverScreenerToSlack(deps.env, {
+    text: slackBody,
+    channel: slackChannel,
+    ...(pdf ? {
+      pdf: {
+        ...pdf,
+        title: `Market Screen — ${event.universe || "TECH"} ${event.timestamp.slice(0, 10)}`,
+        comment: plainTextWithDigest,
+      },
+    } : {}),
+  });
+  if (!slackDelivery.ok) {
+    console.warn("[ScreenerPublishers] Slack delivery failed:", slackDelivery.error);
   }
 
   // 2. Email — try cfpay via A2A first, fall back to local.

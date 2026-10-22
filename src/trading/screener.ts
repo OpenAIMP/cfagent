@@ -39,6 +39,18 @@ export function inferSectorFromCompanyName(name: string): string | undefined {
   return undefined;
 }
 
+export function resolveStockSector(symbol: string, companyName?: string, rawSector?: string): string {
+  if (rawSector && rawSector.toLowerCase() !== "equities" && rawSector.toLowerCase() !== "unknown" && rawSector.trim() !== "") {
+    return rawSector;
+  }
+  const cleanSym = (symbol || "").trim().toUpperCase();
+  const curated = getCuratedStockBySymbol(cleanSym);
+  if (curated?.sector) return curated.sector;
+  const inferred = inferSectorFromCompanyName(companyName || symbol);
+  if (inferred) return inferred;
+  return rawSector || "Equities";
+}
+
 export function calculateDynamicRsi(
   symbol: string,
   price: number,
@@ -213,7 +225,9 @@ export class DynamicMarketScreener implements IMarketScreener {
       const sectorLower = (filter.sector || "").toLowerCase().trim();
       if (filter.sector && sectorLower !== "all" && sectorLower !== "any") {
         const sec = filter.sector.toLowerCase().trim();
-        const itemSec = (stock.sector || "").toLowerCase().trim();
+        const effectiveSector = resolveStockSector(stock.symbol, stock.companyName, stock.sector);
+        stock.sector = effectiveSector;
+        const itemSec = effectiveSector.toLowerCase().trim();
         const sectorMatches =
           (sec === "semiconductors")
             ? (itemSec === "semiconductors")
@@ -493,7 +507,7 @@ export class DynamicMarketScreener implements IMarketScreener {
       return {
         ...q,
         price: q.lastPrice,
-        sector: q.sector || "Equities",
+        sector: resolveStockSector(q.symbol, q.companyName, q.sector),
         rsi14,
         macdSignal: "MACD unavailable from listing feed",
         signal: (rsi14 !== undefined && rsi14 > 70 ? "OVERBOUGHT" : rsi14 !== undefined && rsi14 < 35 ? "OVERSOLD_BOUNCE" : q.changePercent > 0.5 ? "BULLISH_MOMENTUM" : "RANGE_BOUND") as any,

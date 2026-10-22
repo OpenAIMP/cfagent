@@ -103,6 +103,10 @@ export interface ScreenerRunResult {
   pdfStatus?: "generated" | "failed" | "skipped";
   /** When pdfStatus is 'failed', the error that caused it. */
   pdfError?: string;
+  /** Per-run XLSX key populated by persistRun after the XLSX report is stored. */
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed" | "skipped";
+  xlsxError?: string;
   /** Issue #816: quote pipeline trace summary for the UI. */
   quoteTrace?: {
     traceId: string;
@@ -137,6 +141,9 @@ const HISTORY_KEY = "screener:history";
 // Each run gets its own key to prevent franken-PDFs.
 const PDF_KEY_PREFIX = "screener:pdf:";
 const PDF_LATEST_KEY = "screener:latest.pdf";
+// XLSX report storage
+const XLSX_KEY_PREFIX = "screener:xlsx:";
+const XLSX_LATEST_KEY = "screener:latest.xlsx";
 // Issue #361: Options PDF storage (mirrors stock pattern).
 const OPTIONS_PDF_KEY_PREFIX = "options:pdf:";
 const OPTIONS_PDF_LATEST_KEY = "options:latest.pdf";
@@ -661,6 +668,22 @@ export class ScreenerAgent extends Agent<Env> {
   }
 
   /**
+   * Latest report XLSX — generated at run time, served by GET /api/screener/report.xlsx.
+   */
+  async getLatestXlsx(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, XLSX_LATEST_KEY);
+  }
+
+  /**
+   * Get a specific run's XLSX report by its storage key.
+   */
+  async getXlsxByKey(xlsxKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, xlsxKey);
+  }
+
+  /**
    * Get the latest options PDF (issue #361).
    */
   async getLatestOptionsPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
@@ -757,6 +780,22 @@ export class ScreenerAgent extends Agent<Env> {
         result.pdfError = pipelineResult.pdfError || (fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr));
         console.error("[ScreenerAgent] PDF generation failed:", result.pdfError);
       }
+    }
+
+    // XLSX Multi-tab report generation (Screened Stocks + Formulas & Methodology)
+    try {
+      const { generateScreenerXlsx, screenerXlsxFileName } = await import("../trading");
+      const xlsxBytes = generateScreenerXlsx(result);
+      const xlsxFileName = screenerXlsxFileName(result);
+      const xlsxKey = `${XLSX_KEY_PREFIX}${crypto.randomUUID().slice(0, 8)}`;
+      await putReportPdf(this.env, this.ctx.storage as any, xlsxKey, xlsxFileName, xlsxBytes);
+      await putReportPdf(this.env, this.ctx.storage as any, XLSX_LATEST_KEY, xlsxFileName, xlsxBytes);
+      result.xlsxKey = xlsxKey;
+      result.xlsxStatus = "generated";
+    } catch (xlsxErr) {
+      result.xlsxStatus = "failed";
+      result.xlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
+      console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
     }
     // Issue #783: no report-store write happens here. The #732 block that
     // persisted a second copy into this DO's own report table is removed:

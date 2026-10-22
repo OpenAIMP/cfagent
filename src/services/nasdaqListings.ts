@@ -59,61 +59,70 @@ function parseRow(row: NasdaqScreenerRow, exchange: NasdaqExchange): NasdaqStock
 
 import { getExternalApisConfig } from "../config/etapiConfig";
 import { getCachedQuote, setCachedQuote } from "./quoteCache";
+import { getCuratedStockListings } from "../config/curatedStockUniverse";
 
 export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Promise<NasdaqStockListing[]> {
   // #411: the full-universe sweep is cached for 5 minutes in memory.
   const cachedListings = getCachedQuote<NasdaqStockListing[]>("nasdaq:listings:all");
-  if (cachedListings) return cachedListings;
+  if (cachedListings && cachedListings.length > 0) return cachedListings;
   const extConfig = getExternalApisConfig();
   const exchanges: NasdaqExchange[] = (extConfig?.nasdaqListings?.exchanges as NasdaqExchange[]) || ["nasdaq", "nyse", "amex"];
   const pageSize = extConfig?.nasdaqListings?.pageSize || 5000;
   const timeoutMs = extConfig?.nasdaqListings?.timeoutMs || 2500;
   const baseUrl = extConfig?.nasdaqListings?.url || "https://api.nasdaq.com/api/screener/stocks";
 
-  const pages = await Promise.all(exchanges.map(async (exchange) => {
-    const listings: NasdaqStockListing[] = [];
-    let offset = 0;
-    let totalRecords = Number.POSITIVE_INFINITY;
+  let pages: NasdaqStockListing[][] = [];
+  try {
+    pages = await Promise.all(exchanges.map(async (exchange) => {
+      const listings: NasdaqStockListing[] = [];
+      let offset = 0;
+      let totalRecords = Number.POSITIVE_INFINITY;
 
-    while (offset < totalRecords) {
-      const url = new URL(baseUrl);
-      url.searchParams.set("tableonly", "true");
-      url.searchParams.set("limit", String(pageSize));
-      url.searchParams.set("offset", String(offset));
-      url.searchParams.set("exchange", exchange);
+      while (offset < totalRecords) {
+        const url = new URL(baseUrl);
+        url.searchParams.set("tableonly", "true");
+        url.searchParams.set("limit", String(pageSize));
+        url.searchParams.set("offset", String(offset));
+        url.searchParams.set("exchange", exchange);
 
-      let response: Response;
-      try {
-        response = await fetcher(url.toString(), {
-          signal: typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(timeoutMs) : undefined,
-          headers: {
-            Accept: "application/json, text/plain, */*",
-            Origin: "https://www.nasdaq.com",
-            "User-Agent": "Mozilla/5.0",
-          },
-        });
-      } catch (fetchErr) {
-        throw new Error(`Nasdaq ${exchange.toUpperCase()} listings timed out or failed: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`);
-      }
-      if (!response.ok) {
-        throw new Error(`Nasdaq ${exchange.toUpperCase()} listings failed [HTTP ${response.status}]`);
-      }
+        let response: Response;
+        try {
+          response = await fetcher(url.toString(), {
+            signal: typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(timeoutMs) : undefined,
+            headers: {
+              Accept: "application/json, text/plain, */*",
+              Origin: "https://www.nasdaq.com",
+              "User-Agent": "Mozilla/5.0",
+            },
+          });
+        } catch (fetchErr) {
+          throw new Error(`Nasdaq ${exchange.toUpperCase()} listings timed out or failed: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`);
+        }
+        if (!response.ok) {
+          throw new Error(`Nasdaq ${exchange.toUpperCase()} listings failed [HTTP ${response.status}]`);
+        }
 
-      const payload = await response.json() as {
-        data?: {
-          totalrecords?: number | string;
-          table?: { rows?: NasdaqScreenerRow[] };
+        const payload = await response.json() as {
+          data?: {
+            totalrecords?: number | string;
+            table?: { rows?: NasdaqScreenerRow[] };
+          };
         };
-      };
-      const rows = payload.data?.table?.rows || [];
-      totalRecords = Number(payload.data?.totalrecords ?? rows.length);
-      listings.push(...rows.map((row) => parseRow(row, exchange)).filter((row): row is NasdaqStockListing => row !== null));
-      if (rows.length === 0) break;
-      offset += rows.length;
-    }
+        const rows = payload.data?.table?.rows || [];
+        totalRecords = Number(payload.data?.totalrecords ?? rows.length);
+        listings.push(...rows.map((row) => parseRow(row, exchange)).filter((row): row is NasdaqStockListing => row !== null));
+        if (rows.length === 0) break;
+        offset += rows.length;
+      }
 
-    return listings;
-  }));
+      return listings;
+    }));
+  } catch (err) {
+    console.warn(`[NasdaqListings] Live Nasdaq listing feed failed: ${err instanceof Error ? err.message : String(err)}; falling back to curated universe.`);
+    const fallback = getCuratedStockListings();
+    setCachedQuote("nasdaq:listings:all", fallback);
+    return fallback;
+  }
 
   const unique = new Map<string, NasdaqStockListing>();
   for (const exchangeListings of pages) {
@@ -122,6 +131,12 @@ export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Pr
     }
   }
   const listings = Array.from(unique.values());
+  if (listings.length === 0) {
+    console.warn("[NasdaqListings] 0 listings returned from live Nasdaq feed; falling back to curated universe.");
+    const fallback = getCuratedStockListings();
+    setCachedQuote("nasdaq:listings:all", fallback);
+    return fallback;
+  }
   setCachedQuote("nasdaq:listings:all", listings);
   return listings;
 }

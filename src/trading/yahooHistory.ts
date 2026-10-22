@@ -12,6 +12,7 @@
 
 import { computeRsi14, computeMacd } from "../services/fossResearch";
 import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
+import { getCachedQuote, setCachedQuote } from "../services/quoteCache";
 
 export interface YahooDailyBar {
   date: string;
@@ -50,6 +51,10 @@ export async function fetchYahooDailyHistory(
   config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
 ): Promise<YahooDailyBar[] | null> {
   const clean = symbol.toUpperCase().trim();
+  const cacheKey = `yahoo:bars:${clean}`;
+  const cached = getCachedQuote<YahooDailyBar[]>(cacheKey);
+  if (cached && cached.length >= 5) return cached;
+
   const range = config.yahoo.historyRange;
   const urls = [
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(clean)}?interval=1d&range=${range}`,
@@ -88,7 +93,10 @@ export async function fetchYahooDailyHistory(
           volume: quote.volume?.[i] ?? 0,
         });
       }
-      if (bars.length >= 5) return bars;
+      if (bars.length >= 5) {
+        setCachedQuote(cacheKey, bars);
+        return bars;
+      }
       console.warn(`[YahooHistory] ${clean}: Only ${bars.length} bars (need 5+)`);
     } catch (err) {
       // Issue #295: Log fetch errors for diagnostics (was silent).
@@ -182,6 +190,9 @@ export async function fetchTechnicalsBatch(
     // Issue #624: optional progress hook (e.g. task heartbeats during
     // long batches); absent for existing callers.
     if (onBatch) await onBatch(Math.min(i + conc, symbols.length), symbols.length);
+    if (i + conc < symbols.length) {
+      await new Promise((r) => setTimeout(r, 60));
+    }
   }
   return out;
 }

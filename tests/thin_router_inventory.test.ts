@@ -256,6 +256,7 @@ const EXPECTED_INVENTORY = [
   "handleFossCompareScreenRoutes :: endsWith(\"/yfinance/screen\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/latest\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/report.pdf\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screener/report.xlsx\")",
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/run\")",

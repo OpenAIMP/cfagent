@@ -120,6 +120,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const [rows, setRows] = useState<ScreenRow[]>([]);
   // Issue #261: manual run result for the unified ScreenerResultsView.
   const [universe, setUniverse] = useState("TECH");
+  const [sector, setSector] = useState("ALL");
+  const [minScore, setMinScore] = useState("");
   const [shardedResults, setShardedResults] = useState<any[]>([]);
   const [manualResult, setManualResult] = useState<{
     timestamp: string;
@@ -149,6 +151,12 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       source: string;
     }>;
     discoveryMessage?: string;
+    pdfStatus?: "generated" | "failed" | "skipped";
+    pdfError?: string;
+    xlsxKey?: string;
+    xlsxStatus?: "generated" | "failed" | "skipped";
+    xlsxError?: string;
+    xlsxUrl?: string;
   } | null>(null);
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(false);
@@ -209,6 +217,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
     try {
       const filters = {
         universe,
+        ...(sector && sector !== "ALL" ? { sector } : {}),
+        ...(minScore.trim() !== "" ? { minScore: Number(minScore) } : {}),
         ...(providerSupportsFilter(activeProvider, assetClass, "search") ? { search: symbolSearch.trim() || undefined } : {}),
         ...(providerSupportsFilter(activeProvider, assetClass, "limit") ? { limit: numberFilter(stockLimit) } : {}),
         ...(providerSupportsFilter(activeProvider, assetClass, "exchange") ? { exchange } : {}),
@@ -691,6 +701,31 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                 <option value="LEV_ETF">Leveraged ETFs</option>
                 <option value="ALL">All (auto-sharded, parallel)</option>
               </select>
+            </label>
+            <label className="options-field">
+              <span>Sector</span>
+              <select value={sector} onChange={(event) => setSector(event.target.value)} title="Industry sector filter">
+                <option value="ALL">All Sectors</option>
+                <option value="Technology">Technology</option>
+                <option value="Semiconductors">Semiconductors</option>
+                <option value="Financial">Financial / Banking</option>
+                <option value="Healthcare">Healthcare / Biotech</option>
+                <option value="Consumer Discretionary">Consumer Discretionary</option>
+                <option value="Communication Services">Communication Services</option>
+                <option value="Energy">Energy</option>
+                <option value="Industrials">Industrials</option>
+              </select>
+            </label>
+            <label className="options-field">
+              <span>Min Score (0–100)</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={minScore}
+                onChange={(event) => setMinScore(event.target.value)}
+                placeholder="Optional; e.g. 50"
+              />
             </label>
             {providerSupportsFilter(activeProvider, assetClass, "trend") && (
               <label className="options-field">

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { deliverScreenerToSlackA2A } from "../src/services/screenerSlackDelivery";
+import {
+  deliverScreenerToSlack,
+  deliverScreenerToSlackA2A,
+  deliverScreenerToSlackDirect,
+} from "../src/services/screenerSlackDelivery";
+import * as slackFiles from "../src/services/slackFiles";
 import { ETradeSlackTradingService } from "../src/trading/slack/agent";
 import { ETradeBrowserService } from "../src/services/browserAgent";
 import * as cfpayA2A from "../src/services/cfpayA2A";
@@ -110,6 +115,58 @@ describe("Omnichannel Slack Delivery over cfpay A2A", () => {
       );
     });
   });
+
+  describe("deliverScreenerToSlack (Master Slack Delivery with Direct Preservation)", () => {
+    it("delivers directly using postFilesToSlack when bot token is configured and A2A is not configured", async () => {
+      const spyFiles = vi.spyOn(slackFiles, "postFilesToSlack").mockResolvedValue({
+        configured: true,
+        posted: 1,
+      });
+
+      const env = { SLACK_BOT_TOKEN: "xoxb-test-bot-token", SLACK_CHANNEL: "#trading-desk" };
+      const res = await deliverScreenerToSlack(env, {
+        text: "Direct Slack screen completed",
+        pdf: {
+          bytes: new Uint8Array([1, 2, 3]),
+          fileName: "direct-report.pdf",
+          title: "Direct Report",
+          comment: "Here is the direct PDF",
+        },
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.method).toBe("direct");
+      expect(spyFiles).toHaveBeenCalled();
+    });
+
+    it("tries A2A first and automatically falls back to direct Slack if A2A fails", async () => {
+      vi.spyOn(cfpayA2A, "cfpayPostToSlack").mockResolvedValue({ ok: false, error: "A2A agent offline" });
+      const spyFiles = vi.spyOn(slackFiles, "postFilesToSlack").mockResolvedValue({
+        configured: true,
+        posted: 1,
+      });
+
+      const env = {
+        CFPAY_A2A_TOKEN: "test-a2a-token",
+        SLACK_BOT_TOKEN: "xoxb-test-bot-token",
+        SLACK_CHANNEL: "#trading-desk",
+      };
+      const res = await deliverScreenerToSlack(env, {
+        text: "Screen completed with A2A fallback",
+        pdf: {
+          bytes: new Uint8Array([1, 2, 3]),
+          fileName: "report.pdf",
+          title: "Report",
+          comment: "Comment",
+        },
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.method).toBe("direct");
+      expect(spyFiles).toHaveBeenCalled();
+    });
+  });
+
 
   describe("ETradeSlackTradingService.postSlackMessage over cfpay A2A", () => {
     it("delivers over cfpay A2A when only CFPAY_A2A_TOKEN is configured", async () => {

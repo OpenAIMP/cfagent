@@ -58,6 +58,11 @@ export interface ScreenerResultData {
   /** Issue #912: PDF generation status for error surfacing. */
   pdfStatus?: "generated" | "failed" | "skipped";
   pdfError?: string;
+  /** Durable, per-run XLSX key returned by ScreenerAgent. */
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed" | "skipped";
+  xlsxError?: string;
+  xlsxUrl?: string;
   trigger: "manual" | "scheduled";
   sector: string;
   success: boolean;
@@ -351,6 +356,9 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
   const reportUrl = result.reportUrl || (result.pdfKey
     ? `/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}`
     : undefined);
+  const xlsxUrl = result.xlsxUrl || (result.xlsxKey
+    ? `/api/screener/report.xlsx?key=${encodeURIComponent(result.xlsxKey)}`
+    : (result.pdfKey ? `/api/screener/report.xlsx?key=${encodeURIComponent(result.pdfKey)}` : undefined));
   const opps = useSortable(result.opportunities, "screenScore");
   const all = useSortable(result.allStocks ?? [], "screenScore");
 
@@ -418,6 +426,23 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             }}
           >
             📄 Download PDF report
+          </a>
+        )}
+        {xlsxUrl && (
+          <a
+            href={xlsxUrl}
+            download
+            className="screener-download-xlsx"
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px solid var(--color-accent)",
+              color: "var(--color-accent)",
+              textDecoration: "none",
+            }}
+          >
+            📊 Download XLSX report
           </a>
         )}
         {/* Issue #912: surface PDF generation failure instead of silent missing button. */}
