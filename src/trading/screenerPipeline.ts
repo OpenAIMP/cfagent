@@ -1,11 +1,19 @@
 /**
  * Shared screener pipeline (issue #259).
  *
- * Single entry point for ALL stock screening — manual ("Run stock screen")
- * and scheduled (5-min autonomous). Reusability is a core architecture
- * tenet: trigger-specific code lives in the trigger (endpoint handler /
- * scheduled job); everything else — universe acquisition, screening,
- * result shaping — lives here, exactly once.
+ * The shared pipeline helper library used by ScreenerAgent: universe
+ * acquisition, screening and result shaping live here, exactly once,
+ * and both the manual and scheduled stock-screen paths run through
+ * ScreenerAgent into it. It is NOT itself an entry point — the entry
+ * points are the REST routes (POST /api/etrade/screen,
+ * POST /api/foss/screen), the NLQ port, and the autonomousMarketScreen
+ * schedule callback, and since issue #959 every one of them validates
+ * its criteria through the single shared schema module,
+ * src/trading/screeningSchemas.ts, before anything reaches this
+ * pipeline. (The original #259 header claimed this module was the one
+ * entry point through which every stock screen flows; that was never
+ * true of the routes, the NLQ port, or the schedules, and the claim
+ * is corrected here under #959.)
  *
  * Capability union (all preserved, none lost):
  * - Manual: full listings universe (6,629), user filters (search/limit/
