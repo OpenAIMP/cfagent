@@ -916,7 +916,14 @@ After merging, before starting the next issue:
 
 ### 17.4. When CI is unavailable
 
-If CI PR events are not firing (e.g. API-created PRs), the agent MAY merge after local verification (`tsc` + relevant vitest files), per standing authorization. This is a degraded mode, not the norm. The post-merge verification in §17.2 becomes MORE important, not less — it is the only safety net when CI is bypassed.
+If CI PR events are not firing (e.g. API-created PRs), the agent MAY merge after local verification (`tsc` + relevant vitest files), per standing authorization. This is a degraded mode, not the norm — and it is conditional on a mandatory compensating control, not a softer version of the gate:
+
+1. **Before merging**, run `scripts/verify-before-merge.sh` (or its checks by hand): fetch `main`, confirm the branch is rebased onto current `main`, and pass typecheck plus the full test suite on that rebased head. Local verification on a stale base does not satisfy this section — a tree that lacks another lane's merged change cannot catch a semantic conflict with it.
+2. **After merging, before starting the next issue**, verify the CI run on `main` for the merged commit (the push-triggered CI and deploy runs). The merge is not complete until that run is green or its failures are classified under §18.2.
+3. **If the post-merge run is red**, §18.2 applies immediately: restoring green is the next issue, ahead of all feature work, however small the repair. Do not merge further work on top of red `main`.
+4. **If the post-merge run cannot be verified** (CI unavailable, runs not visible, no access), the merge stays unverified: record that fact on the PR, keep the issue open, and report the gap to the owner instead of declaring the issue done. An unverified merge is never described as verified.
+
+The 2026-10-22 incident is the reason this is mandatory: API merges on stale local trees landed on top of an already-red `main`, and the red state was only discovered when a human shared the CI run links. "Post-merge verification is more important" without a required check step did not prevent it.
 
 ## 18. Regression-prevention discipline
 
@@ -985,6 +992,15 @@ Before merging, the gate MUST also screen for the failure shapes a green suite c
 - `main` in every repository under this policy MUST be protected with required status checks covering at minimum the CI test/build job and secret scanning, so a red or unfinished pipeline cannot be merged by any lane or tool. Where merge volume makes stale-base merges a live risk, the branch MUST also be required to be up to date before merging.
 - Enabling or changing branch protection is an owner-side repository setting (§3). Agents MUST record, per repository, whether protection is enabled and which checks are required; a repository without it is an open enforcement gap and MUST be reported as one — never described as covered.
 - Until protection is enabled for a repository, every merge in it remains auditable against §18 and this section after the fact. A merge that proceeded over a red or running check outside §18.1's emergency exception is a policy deviation and MUST be recorded on the PR or its issue, with the reason.
+
+### 19.5 Merge queue and multi-lane integration
+
+Manual rebasing does not scale to concurrent lanes: two PRs can each be green on their own base, each be rebased, and still break each other when both land, because no run ever tested their combination. The merge queue is the mechanical answer, and it only works if the workflows cooperate:
+
+- **Owner setting (Settings → Branches → Branch protection rule for `main` → Merge queue):** enable the merge queue with "Require merge queue" (and, once proven, "Only merge non-failing pull requests"). The queue builds a temporary merge commit of each PR against current `main` plus earlier queued PRs and runs required checks on that commit; a PR that fails there never lands.
+- **Workflow support (already in this repository):** `ci.yml` MUST listen for the `merge_group` event, or the queue's validation commits run no checks and the queue gates nothing. `deploy.yml` stays push-only: a queued merge that lands on `main` triggers deploy via the push event, so deploy does not need a `merge_group` trigger and MUST NOT be a required PR check (it never runs on PRs).
+- **Required-check names are fragile by construction:** the CI test job's name embeds the active environment (`Test & Build (Node 22) [PROD]`), which is read from `environment.config.json`. If that config flips environment, the job name changes and the protection rule's required checks silently stop matching. Whenever `environment.config.json` changes, the owner MUST re-check the required-check list against the actual job names on the next CI run.
+- **Until the queue is enabled**, the AGENTS.md pre-merge checklist is the manual substitute: rebase, re-test on the rebased head, verify post-merge CI — and treat any merge that skipped those steps as a §19.4 deviation, recorded on the PR.
 
 ***
 
