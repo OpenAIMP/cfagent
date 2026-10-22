@@ -70,6 +70,78 @@ export async function getSession(env: Env, sessionId: string): Promise<SessionDa
   }
 }
 
+export type UpdateSessionResult =
+  | { ok: true; remainingTtlSeconds: number }
+  | {
+      ok: false;
+      code: "SESSION_INVALID_CREATED_AT" | "SESSION_ABSOLUTE_EXPIRED";
+      error: string;
+    };
+
+/**
+ * #945 Wiring Phase 2a — persist an updated session record under
+ * the SAME session id, with TTL = remaining absolute time.
+ *
+ * Absolute expiry is NEVER extended: the new TTL is
+ * floor((createdAt + SESSION_TTL - nowMs) / 1000), so a touch
+ * cannot push a session past its original deadline. A session
+ * already past absolute expiry, or with under one second of
+ * absolute life left (a TTL of 0 must never be written), is
+ * refused and nothing is stored. An invalid createdAt is
+ * refused for the same reason: without it there is no deadline
+ * to preserve.
+ *
+ * TTL-overshoot note for the caller: if the underlying store
+ * clamps small TTLs upward (Workers KV, for example, has a 60s
+ * minimum), a session in its final minute could persist in the
+ * store past its absolute deadline. That cannot resurrect it:
+ * getValidatedSession re-checks absolute expiry on every read.
+ * The caller MUST also call invalidateSessionCache(sessionId)
+ * in the same isolate after a successful update (this module
+ * cannot import sessionCache.ts without a circular import), or
+ * the isolate keeps serving the pre-touch copy until TTL.
+ *
+ * `updateSessionWithStore` takes the store so tests can use a
+ * fake; `updateSession` is the production thin wrapper.
+ */
+export async function updateSessionWithStore(
+  store: KvLike,
+  sessionId: string,
+  data: SessionData,
+  nowMs: number
+): Promise<UpdateSessionResult> {
+  if (typeof data.createdAt !== "number" || !Number.isFinite(data.createdAt)) {
+    return {
+      ok: false,
+      code: "SESSION_INVALID_CREATED_AT",
+      error: "session has no valid createdAt, so its absolute deadline cannot be preserved",
+    };
+  }
+  const remainingMs = data.createdAt + SESSION_TTL * 1000 - nowMs;
+  const remainingTtlSeconds = Math.floor(remainingMs / 1000);
+  if (remainingTtlSeconds < 1) {
+    return {
+      ok: false,
+      code: "SESSION_ABSOLUTE_EXPIRED",
+      error: "session is past (or within one second of) its absolute expiry; nothing was stored",
+    };
+  }
+  await store.put(sessionId, JSON.stringify(data), {
+    expirationTtl: remainingTtlSeconds,
+  });
+  return { ok: true, remainingTtlSeconds };
+}
+
+/** Production wrapper: the store is the SessionStore DO. */
+export async function updateSession(
+  env: Env,
+  sessionId: string,
+  data: SessionData,
+  nowMs: number = Date.now()
+): Promise<UpdateSessionResult> {
+  return updateSessionWithStore(sessionStore(env), sessionId, data, nowMs);
+}
+
 export async function deleteSession(env: Env, sessionId: string): Promise<void> {
   await sessionStore(env).delete(sessionId);
 }
