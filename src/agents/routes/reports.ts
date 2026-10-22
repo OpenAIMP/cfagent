@@ -16,6 +16,8 @@
 
 import type { AgentName } from "../../types";
 import type { SqlStorage } from "../../orm";
+import type { ScreenerAgent } from "../screener-agent";
+import type { RunSummary } from "../../services/runSummaries";
 import {
   canonicalResearchEmailBody,
   canonicalResearchWebhookBody,
@@ -24,6 +26,13 @@ import {
 /** The subset of OrchestratorAgent surface the reports/HITL handlers need. */
 export interface ReportsRouteContext {
   ensureTables(): SqlStorage;
+  /** ScreenerAgent accessor (owner: OrchestratorAgent.getScreenerAgent) —
+   *  the #1057 Runs merge reads the agent's latest/history feed via it. */
+  getScreenerAgent(userLogin?: string): ScreenerAgent;
+  /** Execution-context accessor (owner: OrchestratorAgent.getScreenerExecutionContext). */
+  getScreenerExecutionContext(): Promise<
+    { userLogin: string; environment?: "TEST" | "PROD" } | undefined
+  >;
   getReportDispatchHitl(): boolean;
   setReportDispatchHitl(enabled: boolean): void;
   getReportConfirmation(id: string): any | null;
@@ -418,6 +427,87 @@ export async function handleReportsRoutes(
       });
     } catch {
       return Response.json({ error: "Failed to load research browse" }, { status: 500 });
+    }
+  }
+
+  // Issue #1057 (consolidation S5): the one Runs read surface. Merges
+  // run summaries from all four run stores (mas_reports,
+  // mas_opportunity_scans, mas_discovery_runs, and the ScreenerAgent
+  // latest/history feed) into the single normalized shape defined in
+  // src/services/runSummaries.ts — newest first, de-duplicated on the
+  // exact canonical joins (the canonical row wins). Scoping matches
+  // each store's own route: canonical reports use the header login or
+  // stay unscoped; the scan/discovery stores use header, session, or
+  // default_trader; the screener feed uses header, execution context,
+  // or default_trader. A store that fails to read is named in
+  // storeErrors — never silently presented as empty.
+  if (path.endsWith("/runs") && request.method === "GET") {
+    try {
+      const { parseRunsListKind } = await import("../../trading");
+      const kindResult = parseRunsListKind(url.searchParams.get("kind") || "all");
+      if (!kindResult.ok) {
+        return Response.json({ error: kindResult.error, runs: [] }, { status: 400 });
+      }
+      const kind = kindResult.value;
+      const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 100));
+      const headerLogin = request.headers.get("x-user-login");
+      const reportLogin = headerLogin && headerLogin.trim() ? headerLogin : undefined;
+      const storeLogin = headerLogin || sessionId || "default_trader";
+      const sql = ctx.ensureTables();
+      const lists: RunSummary[][] = [];
+      const storeErrors: Record<string, string> = {};
+      const readStore = async (name: string, read: () => Promise<RunSummary[]>) => {
+        try {
+          const rows = await read();
+          lists.push(kind === "all" ? rows : rows.filter((row) => row.kind === kind));
+        } catch (err: any) {
+          storeErrors[name] = err?.message || String(err);
+        }
+      };
+      if (kind === "all" || kind === "screener" || kind === "options_scanner") {
+        await readStore("reports", async () => {
+          const { listScheduledReports, ensureScheduledReportsTable } = await import("../../services/scheduledReports");
+          const { runSummaryFromReport } = await import("../../services/runSummaries");
+          ensureScheduledReportsTable(sql);
+          return listScheduledReports(sql, { userLogin: reportLogin, limit }).map(runSummaryFromReport);
+        });
+      }
+      if (kind === "all" || kind === "options_scanner") {
+        await readStore("scans", async () => {
+          const { SqlScanRunStore } = await import("../../trading");
+          const { runSummaryFromScanRun } = await import("../../services/runSummaries");
+          const scans = await new SqlScanRunStore(sql).list({ limit, userLogin: storeLogin });
+          return scans.map(runSummaryFromScanRun);
+        });
+      }
+      if (kind === "all" || kind === "discovery") {
+        await readStore("discovery", async () => {
+          const { SqlDiscoveryRunStore } = await import("../../trading");
+          const { runSummaryFromDiscoveryRun } = await import("../../services/runSummaries");
+          const runs = await new SqlDiscoveryRunStore(sql).list({ limit, userLogin: storeLogin });
+          return runs.map(runSummaryFromDiscoveryRun);
+        });
+      }
+      if (kind === "all" || kind === "screener") {
+        await readStore("screener", async () => {
+          const { runSummaryFromScreenerRun } = await import("../../services/runSummaries");
+          const context = await ctx.getScreenerExecutionContext();
+          const agent = ctx.getScreenerAgent(headerLogin || context?.userLogin || "default_trader");
+          const history = await agent.getHistory();
+          return history.map(runSummaryFromScreenerRun);
+        });
+      }
+      const { mergeRunSummaries } = await import("../../services/runSummaries");
+      const merged = mergeRunSummaries(lists, limit);
+      return Response.json({
+        count: merged.length,
+        kind,
+        runs: merged,
+        ...(Object.keys(storeErrors).length ? { storeErrors } : {}),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to list runs", runs: [] }, { status: 500 });
     }
   }
 
