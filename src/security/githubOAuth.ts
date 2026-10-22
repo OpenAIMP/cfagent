@@ -1,6 +1,12 @@
 import type { Env, SessionData } from "../types";
 import { createState, verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId, isSessionIdFormat, getSession, deleteSession } from "./session";
 import { invalidateSessionCache } from "./sessionCache";
+import {
+  buildLogoutAuditEventInput,
+  recordWiredAuthAudit,
+} from "./iaaaAuthAudit";
+import type { AuditStore } from "./iaaaAudit";
+import { logoutAuditTenant } from "./iaaaGates";
 import { revokeStoredTokens } from "./etradeOAuth";
 import { SERVER_PALETTE } from "../theme/serverPalette";
 
@@ -134,7 +140,24 @@ export async function handleOAuthCallback(env: Env, request: Request): Promise<R
   }
 }
 
-export async function handleLogout(env: Env, request: Request): Promise<Response> {
+/**
+ * Audit seam for the logout hook (Phase 2b-part1). The caller —
+ * server.ts /auth/logout — supplies the wiring flag, a store, and
+ * the raw tenant id; logoutAuditTenant (iaaaGates.ts, a leaf
+ * module) resolves them to a tenant or null. Without a resolved
+ * tenant the hook is dormant and nothing is recorded. The tenant
+ * is never defaulted here: inventing one would fabricate
+ * attribution. No import of providers.ts here on purpose:
+ * providers.ts imports this module, so importing the wiring
+ * predicate back would create a cycle.
+ */
+export interface LogoutAuditOptions {
+  wiringEnabled?: boolean;
+  auditStore?: AuditStore;
+  tenantId?: string;
+}
+
+export async function handleLogout(env: Env, request: Request, options?: LogoutAuditOptions): Promise<Response> {
   const sessionId = getSessionId(request);
 
   // Issue #329: only a UUID-shaped cookie can name a session; skipping the
@@ -147,6 +170,27 @@ export async function handleLogout(env: Env, request: Request): Promise<Response
       const session = await getSession(env, sessionId);
       if (session?.githubLogin) {
         await revokeStoredTokens(env, session.githubLogin);
+      }
+      // #945 Phase 2b-part1 logout audit hook: record BEFORE
+      // deleteSession, only for wired sessions (internalUserId
+      // present), only when wiring is ON, and only when a tenant
+      // resolves. Best-effort: recordWiredAuthAudit never throws,
+      // and a failed write never changes the logout outcome.
+      const tenantId = logoutAuditTenant({
+        wiringEnabled: options?.wiringEnabled ?? false,
+        internalUserId: session?.internalUserId,
+        tenantId: options?.tenantId,
+      });
+      if (tenantId && options?.auditStore && session?.internalUserId) {
+        await recordWiredAuthAudit(
+          options.auditStore,
+          buildLogoutAuditEventInput({
+            internalUserId: session.internalUserId,
+            tenantId,
+            timestamp: Date.now(),
+            correlationId: sessionId,
+          }),
+        );
       }
       invalidateSessionCache(sessionId);
       await deleteSession(env, sessionId);
