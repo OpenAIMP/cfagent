@@ -1,4 +1,10 @@
 import { resolveEnvironmentConfig } from "../../config/environment";
+import {
+  buildSchedulePayload,
+  parseOptionScreenerFilter,
+  parseStockScreenerFilter,
+  SCREENING_SCHEDULE_CALLBACKS,
+} from "../../trading";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../../services/agenticPayments";
 import { ETradeBrowserService } from "../../services/browserAgent";
 import { ETradeService } from "../../services/etrade";
@@ -276,13 +282,30 @@ function executeNLQQueryCore(
     }
 
     if (action === "screen") {
-      const screenRes = etrade.screenStocks(plan.tradingData?.filters);
+      // Issue #959: NLQ stock screens validate through the ONE shared
+      // stock-filter schema — a mis-shaped plan filter is an explicit
+      // error, never a silently-mis-shaped engine run.
+      const parsedFilters = parseStockScreenerFilter(plan.tradingData?.filters ?? {});
+      if (!parsedFilters.ok) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "etrade_market_screener",
+          count: 0,
+          status: "error",
+          summary: `Market Scanner: ${parsedFilters.error}`,
+          rows: [],
+          executedAt,
+        };
+      }
+      const screenFilters = parsedFilters.value;
+      const screenRes = etrade.screenStocks(screenFilters);
       let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
       let summary = "";
 
       const hasMismatch = screenRes.status === "SCAN_INVALID_DATA_MISMATCH" || screenRes.stocks.some((s) => {
-        if (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) return true;
-        if (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0) return true;
+        if (screenFilters.gainersOnly && s.changePercent <= 0) return true;
+        if (screenFilters.losersOnly && s.changePercent >= 0) return true;
         return false;
       });
 
@@ -1150,14 +1173,49 @@ async function executeSchedulingAction(
   // Payload contracts are owned by the orchestrator callbacks:
   // sendScheduledReminder expects { reminderId, message, userLogin? }
   // (its reminderId is the dispatch/audit identifier, distinct from
-  // the schedule id the SDK returns); autonomousMarketScreen takes the
-  // same sector payload the onStart baseline registration uses.
-  const payload: Record<string, unknown> =
-    callback === "sendScheduledReminder"
-      ? { reminderId: crypto.randomUUID(), message: description, userLogin }
-      : callback === "autonomousMarketScreen"
-        ? { sector: "Technology", maxItems: 5 }
-        : { userLogin, description };
+  // the schedule id the SDK returns).
+  //
+  // Issue #959 (screening consolidation S1): the three screening
+  // callbacks' payloads are built by the ONE shared builder —
+  // buildSchedulePayload in src/trading/screeningSchemas.ts — from the
+  // plan's criteria, exactly as REST schedule creation builds them, so
+  // the same criteria arm the identical payload through every door.
+  // The pre-#959 hardcoded market-screen payload (a fixed Technology
+  // sector with a 5-item cap, regardless of what was asked) is gone:
+  // a criteria-less plan arms only the identity stamps, and the
+  // market-screen service's own defaults apply at run time.
+  // Mis-shaped criteria fail the action explicitly; nothing is armed.
+  let payload: Record<string, unknown>;
+  if (callback === "sendScheduledReminder") {
+    payload = { reminderId: crypto.randomUUID(), message: description, userLogin };
+  } else if ((SCREENING_SCHEDULE_CALLBACKS as readonly string[]).includes(callback)) {
+    const criteria: Record<string, unknown> = {};
+    for (const key of [
+      "sector",
+      "universe",
+      "maxItems",
+      "symbols",
+      "thesis",
+      "riskProfile",
+      "filters",
+      "inputModel",
+      "requests",
+      "constraintSets",
+      "profileId",
+      "watchlistName",
+    ] as const) {
+      if (sd[key] !== undefined) criteria[key] = sd[key];
+    }
+    const built = buildSchedulePayload(callback, criteria, { userLogin, trigger: "scheduled" });
+    if (!built.ok) {
+      return failure(
+        `Schedule creation failed: ${built.error} The schedule was NOT created.`
+      );
+    }
+    payload = built.value;
+  } else {
+    payload = { userLogin, description };
+  }
 
   let created: AgentScheduleItem;
   try {
@@ -1262,13 +1320,28 @@ async function executeNLQQueryAsyncCore(
     }
 
     if (action === "screen") {
-      const screenRes = await etrade.screenMarketsAsync(plan.tradingData?.filters);
+      // Issue #959: same shared stock-filter schema as the sync path.
+      const parsedFilters = parseStockScreenerFilter(plan.tradingData?.filters ?? {});
+      if (!parsedFilters.ok) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "etrade_market_screener",
+          count: 0,
+          status: "error",
+          summary: `Market Scanner: ${parsedFilters.error}`,
+          rows: [],
+          executedAt,
+        };
+      }
+      const screenFilters = parsedFilters.value;
+      const screenRes = await etrade.screenMarketsAsync(screenFilters);
       let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
       let summary = "";
 
       const hasMismatch = screenRes.status === "SCAN_INVALID_DATA_MISMATCH" || screenRes.stocks.some((s) => {
-        if (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) return true;
-        if (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0) return true;
+        if (screenFilters.gainersOnly && s.changePercent <= 0) return true;
+        if (screenFilters.losersOnly && s.changePercent >= 0) return true;
         return false;
       });
 
@@ -1572,8 +1645,25 @@ async function executeNLQQueryAsyncCore(
       // live scan never fans out over every U.S. listing (sanitize clamps it to MAX_SCAN_SYMBOLS).
       const DEFAULT_BROAD_SCAN_UNDERLYINGS = 10;
       const filters = hasUniverse ? rawFilters : { ...rawFilters, maxUnderlyings: DEFAULT_BROAD_SCAN_UNDERLYINGS };
+      // Issue #959: the effective filter validates through the ONE
+      // shared options-filter schema before the engine sees it — a
+      // mis-shaped plan filter is an explicit error naming the field,
+      // not a silent engine sanitization.
+      const parsedFilters = parseOptionScreenerFilter(filters);
+      if (!parsedFilters.ok) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "etrade_options_screener",
+          count: 0,
+          status: "error",
+          summary: `Options Screener: ${parsedFilters.error}`,
+          rows: [],
+          executedAt,
+        };
+      }
       const screener = new DynamicOptionsScreener(etrade.client);
-      const res = await screener.screenOptions(filters);
+      const res = await screener.screenOptions(parsedFilters.value);
       const freshnessNote = res.quoteQuality?.staleContractsReturned || res.quoteQuality?.unknownFreshnessContracts
         ? ` Freshness: ${res.quoteQuality.staleContractsReturned} returned contracts are stale and ${res.quoteQuality.unknownFreshnessContracts} have unknown timestamps; freshest stale quote was ${Math.round(res.quoteQuality.freshestStaleQuoteAgeSeconds || 0)}s old (freshness reference ${res.quoteQuality.referenceAgeSeconds ?? res.quoteQuality.maxAgeSeconds ?? 60}s).`
         : "";
@@ -1715,11 +1805,26 @@ async function executeNLQQueryAsyncCore(
       const login = userLogin || sessionId || "default_trader";
       const etrade = new ETradeService(orm, env, login);
       const screener = new DynamicOptionsScreener(etrade.client);
-      const res = await screener.screenOptions({
+      // Issue #959: the paid scan's literal filter validates through
+      // the ONE shared options-filter schema like every other screen.
+      const parsedPaidFilter = parseOptionScreenerFilter({
         underlyingSymbols: sym ? [sym] : undefined,
         maxUnderlyings: plan.agenticPaymentsData?.maxUnderlyings,
         contractType: plan.agenticPaymentsData?.contractType,
       });
+      if (!parsedPaidFilter.ok) {
+        return {
+          plan,
+          domain: "agentic_payments",
+          targetTable: "agentic_payments",
+          count: 0,
+          status: "error",
+          summary: `Paid options scan: ${parsedPaidFilter.error}`,
+          rows: [],
+          executedAt,
+        };
+      }
+      const res = await screener.screenOptions(parsedPaidFilter.value);
 
       const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
       // Issue #122: no payment is collected or verified on this path — the
