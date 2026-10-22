@@ -41,7 +41,6 @@ import { marketDateKey, readAutopilotStateRaw, getAutopilotState, writeAutopilot
 import { readSettingRaw, writeSetting, getReportDispatchHitl, setReportDispatchHitl, createReportConfirmation, getReportConfirmation, decideReportConfirmation, storeResearchReportCanonicalAsync, confirmationDeliveryMeta, deliverStoredReportEmail, deliverStoredReportWebhook, persistScreenerReportCanonical, sendReportEmail, sendReportWebhook, type ReportDispatchContext } from "./orchestrator/reportDispatch";
 import { extractMessageText, createTurnTools, deriveTurn, assembleGrounding, type ChatTurnHelpersContext } from "./orchestrator/chatTurnHelpers";
 import { logChatActivity, enqueueHttpRequest, type HttpEntryContext } from "./orchestrator/httpEntry";
-import { runResearchAndPublish, deliverResearchReport, sendResearchSummaryEmail, type ResearchPublishContext } from "./orchestrator/researchPublish";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
@@ -274,22 +273,6 @@ export class OrchestratorAgent extends Think<Env> {
       submitAsyncJob: (job) => this.submitAsyncJob(job),
     };
   }
-
-  private researchPublishContext(): ResearchPublishContext {
-    return {
-      env: this.env,
-      agentCtx: this.ctx,
-      ensureTables: () => this.ensureTables(),
-      getOrm: () => this.getOrm(),
-      getResearchAgent: (userLogin?: string) => this.getResearchAgent(userLogin),
-      runAgentTool: (cls, options) => this.runAgentTool(cls as any, options),
-      getReportDispatchHitl: () => this.getReportDispatchHitl(),
-      createReportConfirmation: (kind, payloadJson, reportId) =>
-        this.createReportConfirmation(kind, payloadJson, reportId),
-      RESEARCH_TASK_HEARTBEAT_MS,
-    };
-  }
-
   /**
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
    * E*TRADE-only market data; honest failure when unavailable.
@@ -326,7 +309,13 @@ export class OrchestratorAgent extends Think<Env> {
     return ns.get(id) as unknown as ResearchAgent;
   }
 
-  // Issue #992: extracted to ./orchestrator/researchPublish.ts (runResearchAndPublish);
+  /**
+   * Issue #319: THE single publish entry for autonomous options research.
+   * The manual route and the scheduled tick are thin triggers over this
+   * method (amendment 2). The ResearchAgent runs the pipeline; the
+   * canonical copy is stored here via the #308 seam on the orchestrator's
+   * mas_reports — the table the Reports tab (#318) and AI Search read.
+   */
   async runResearchAndPublish(
     trigger: "manual" | "scheduled",
     userLogin?: string
@@ -340,10 +329,205 @@ export class OrchestratorAgent extends Think<Env> {
     taskId?: string | null;
     executionPath?: ResearchExecutionPath;
   }> {
-    return runResearchAndPublish(this.researchPublishContext(), trigger, userLogin);
+    const login = userLogin || "default";
+    const agent = this.getResearchAgent(login);
+    if (!agent) {
+      return { success: false, error: "ResearchAgent binding not configured." };
+    }
+    // Dispatch discovery through the Think agent-tool workflow. The child
+    // invokes its deterministic, read-only pipeline tool and persists the
+    // typed report before returning its summary.
+    const { ResearchAgent } = await import("./research-agent");
+    const previousRunId = (await agent.getLatest())?.runId;
+    // Issue #577: durable task record for this delegated run (mandate §6;
+    // design in docs/agents/agentic-architecture.md §5/§7). The ledger
+    // dedups the *record* for duplicate dispatches after the same
+    // predecessor report; execution suppression is deliberately not
+    // implied. Ledger failures never break research — warn, continue.
+    let taskId: string | null = null;
+    try {
+      const created = await agent.createResearchTask({
+        trigger,
+        userLogin: login,
+        idempotencyKey: `research:${trigger}:${login}:${previousRunId ?? "none"}`,
+      });
+      taskId = created.task.id;
+      if (created.task.status === "queued") {
+        await agent.beginResearchTask(taskId);
+      }
+    } catch (err) {
+      console.warn(
+        `[OrchestratorAgent] Research task ledger unavailable (create/begin): ${err instanceof Error ? err.message : String(err)}`
+      );
+      taskId = null;
+    }
+    // Issue #624: heartbeat the task while dispatch is in flight —
+    // both the Think turn and the fallback run below are awaited here,
+    // so one timer bounds the heartbeat gap for either path. Cleared
+    // in the finally on every exit; the ledger rejects heartbeats
+    // from terminal states, so a stray tick would be harmless anyway.
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    if (taskId) {
+      const id = taskId;
+      heartbeatTimer = setInterval(() => {
+        void agent.heartbeatResearchTask(id).catch(() => undefined);
+      }, RESEARCH_TASK_HEARTBEAT_MS);
+    }
+    try {
+      let executionPath: ResearchExecutionPath = "think";
+      const child = await this.runAgentTool(ResearchAgent, {
+        input: { trigger, userLogin: login },
+      });
+      let report = await agent.getLatest();
+      if (child.status !== "completed" || !report || report.runId === previousRunId || report.trigger !== trigger || report.userLogin !== login) {
+        // Keep scheduled discovery dependable if a provider cannot complete
+        // the Think turn. The same read-only deterministic pipeline remains
+        // the recovery path and persists through the same ResearchAgent.
+        // Issue #543: the fallback must not silently mask which execution
+        // path ran — emit a structured warning carrying the identifiers an
+        // operator needs to correlate the bypass in Workers Logs.
+        console.warn(
+          `[OrchestratorAgent] Think research turn bypassed — falling back to direct pipeline: trigger=${trigger} userLogin=${login} childStatus=${child.status} childError=${child.error ?? "none"} previousRunId=${previousRunId ?? "none"} latestRunId=${report?.runId ?? "none"}`
+        );
+        const fallback = await agent.runResearch({ trigger, userLogin: login });
+        if (!fallback.success || !fallback.report) {
+          const failure = fallback.error || child.error || `Research agent finished with status ${child.status}.`;
+          // Issue #577: a total failure escalates the task for a human
+          // instead of vanishing into this error return.
+          if (taskId) {
+            try {
+              await agent.failResearchTask(taskId, failure, true);
+            } catch {
+              // Ledger is best-effort; the error return stands either way.
+            }
+          }
+          return { success: false, error: failure, taskId };
+        }
+        executionPath = "fallback";
+        report = fallback.report;
+      }
+      const sql = this.ensureTables();
+      const stored = storeReportAtGeneration(sql, {
+        runId: report.runId,
+        generationId: report.generationId,
+        title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
+        source: "options_research",
+        summary: report.summary,
+        body: report as unknown as Record<string, unknown>,
+      });
+      // #337: index the canonical report for semantic search (best-effort).
+      if (stored?.reportId) {
+        try {
+          const { indexReport } = await import("../services/reportSemanticIndex");
+          const ideaText = report.ideas
+            .slice(0, 5)
+            .map((i) => `${i.symbol} ${i.outlook} ${i.structure}: ${i.thesis}`)
+            .join("\n");
+          void indexReport(this.env, {
+            reportId: stored.reportId,
+            title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
+            source: "options_research",
+            text: `${report.summary}\n${ideaText}`,
+          });
+        } catch {
+          // Indexing never fails the run.
+        }
+      }
+      // #335: render the run PDF from the canonical stored report (best-effort;
+      // the PDF is a delivery artifact, never a second copy).
+      // #680: PDF generation is owned by ReportAssetAgent (single owner for
+      // the Generate step). Best-effort; never fails the run.
+      let pdfKey: string | null = null;
+      try {
+        const { generatePdfAsset } = await import("./report-asset-agent");
+        const asset = await generatePdfAsset(this.env, login, "research", report);
+        pdfKey = asset?.key ?? null;
+      } catch (err) {
+        console.warn("[OrchestratorAgent] Research PDF generation failed:", err);
+      }
+      // #336: full delivery through the #308 seams (Slack, email, webhook),
+      // delivering the canonical stored copy. Best-effort; never fails the run.
+      let emailed = false;
+      try {
+        const delivery = await this.deliverResearchReport(
+          agent,
+          report,
+          {
+            reportId: stored?.reportId ?? null,
+            pdfKey,
+            trigger,
+            userLogin: login,
+          }
+        );
+        emailed = delivery.emailed;
+      } catch (err) {
+        console.warn("[OrchestratorAgent] Research delivery failed:", err);
+      }
+      // Issue #577: complete the task with the path actually taken and a
+      // deterministic evaluation of the outcome (never a model grading
+      // itself). Best-effort — the published result stands either way.
+      if (taskId) {
+        try {
+          const evaluation = evaluateResearchOutcome(
+            {
+              reportRunId: report.runId,
+              previousRunId: previousRunId ?? null,
+              expectedTrigger: trigger,
+              expectedUserLogin: login,
+              reportTrigger: report.trigger,
+              reportUserLogin: report.userLogin,
+              summary: report.summary,
+              ideas: report.ideas.length,
+              watchlist: report.watchlist.length,
+              rejected: report.rejected.length,
+            },
+            new Date().toISOString()
+          );
+          await agent.completeResearchTask(taskId, {
+            path: executionPath,
+            reportRunId: report.runId,
+            evaluation,
+          });
+        } catch (err) {
+          console.warn(
+            `[OrchestratorAgent] Research task ledger unavailable (complete): ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+      // #584 EP-009: meter the research run — attribute compute to tenant + task.
+      // Best-effort and never throws; metering must not break the run.
+      try {
+        const { recordUsageEvent } = await import("../services/scheduledReports");
+        recordUsageEvent(this.ctx.storage.sql, {
+          userLogin: login,
+          runId: report.runId,
+          category: "research_run",
+          detail: { trigger, ideas: report.ideas.length, taskId },
+        });
+      } catch {
+        // Metering is advisory; the published result stands either way.
+      }
+      return {
+        success: true,
+        reportId: stored?.reportId ?? null,
+        created: stored?.created ?? false,
+        emailed,
+        report,
+        taskId,
+        executionPath,
+      };
+    } finally {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+    }
   }
 
-  // Issue #992: extracted to ./orchestrator/researchPublish.ts (deliverResearchReport);
+  /**
+   * #336: dispatch a research run's report through the #308 delivery seams
+   * (Slack, email, webhook), delivering the canonical stored copy — never a
+   * regenerated one. Respects the #277 HITL setting; attaches the run PDF
+   * where the channel supports files; flags pre-entry-refresh outcomes.
+   * Best-effort: delivery never fails the run.
+   */
   private async deliverResearchReport(
     agent: { getResearchPdfByKey(k: string): Promise<{ bytes: Uint8Array; fileName: string } | null>; refreshIdeaQuotes(r: unknown, u?: string): Promise<Array<{ symbol: string; status: string; detail: string }>>; getResearchConfig(): Promise<{ autoEmail?: boolean; emailTo?: string }> },
     report: {
@@ -358,10 +542,163 @@ export class OrchestratorAgent extends Think<Env> {
     },
     opts: { reportId: string | null; pdfKey: string | null; trigger: string; userLogin: string }
   ): Promise<{ emailed: boolean; slack: boolean; webhook: boolean; held: boolean }> {
-    return deliverResearchReport(this.researchPublishContext(), agent, report, opts);
+    const result = { emailed: false, slack: false, webhook: false, held: false };
+
+    // Pre-entry refresh: flag ideas that moved or went stale.
+    const refreshFlags = await agent.refreshIdeaQuotes(report as never, opts.userLogin);
+    const flagLines = refreshFlags.map(
+      (f) => `⚠ ${f.symbol}: ${f.detail}`
+    );
+
+    // Delivery text from the canonical report.
+    const ideaLines = report.ideas.slice(0, 5).map(
+      (i) => `• #${i.rank} ${i.symbol} (${i.outlook}, ${i.structure}, score ${i.score.toFixed(1)})`
+    );
+    const text = [
+      `🔬 Options research — ${report.trigger} run ${report.runId}`,
+      report.summary,
+      "",
+      `Qualified ideas (${report.ideas.length}):`,
+      ...ideaLines,
+      ...(report.watchlist.length > 0 ? ["", `Watchlist: ${report.watchlist.map((w) => w.symbol).join(", ")}`] : []),
+      ...(flagLines.length > 0 ? ["", "Pre-entry refresh:", ...flagLines] : []),
+      "",
+      "Research only; no trades were placed.",
+    ].join("\n");
+
+    // #277 HITL: hold for approval instead of delivering.
+    if (this.getReportDispatchHitl()) {
+      try {
+        this.createReportConfirmation(
+          "email",
+          JSON.stringify({
+            kind: "research",
+            runId: report.runId,
+            reportId: opts.reportId,
+            pdfKey: opts.pdfKey,
+            trigger: opts.trigger,
+            userLogin: opts.userLogin,
+          }),
+          opts.reportId
+        );
+        result.held = true;
+      } catch (err) {
+        console.warn("[OrchestratorAgent] HITL hold failed:", err);
+      }
+      return result;
+    }
+
+    const pdf = opts.pdfKey
+      ? await agent.getResearchPdfByKey(opts.pdfKey).catch(() => null)
+      : null;
+    const reportUrl = `${this.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/research/report.pdf${opts.pdfKey ? `?key=${encodeURIComponent(opts.pdfKey)}` : ""}`;
+
+    // 1. Slack via cfpay A2A (with PDF attach where supported).
+    try {
+      const { getCfpayConfig } = await import("../services/cfpayA2A");
+      const { deliverScreenerToSlackA2A } = await import("../services/screenerSlackDelivery");
+      const cfpay = getCfpayConfig(this.env);
+      const slackChannel =
+        (this.env as any).SCREENER_SLACK_CHANNEL || (this.env as any).SLACK_CHANNEL;
+      if (cfpay) {
+        const delivery = await deliverScreenerToSlackA2A(this.env, {
+          text,
+          channel: slackChannel,
+          ...(pdf
+            ? {
+                pdf: {
+                  ...pdf,
+                  title: `Options research — ${report.trigger} ${report.createdAt.slice(0, 10)}`,
+                  comment: text,
+                },
+              }
+            : {}),
+        });
+        result.slack = delivery.ok;
+        if (!delivery.ok) console.warn("[OrchestratorAgent] Research Slack delivery failed:", delivery.error);
+      }
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Research Slack delivery failed:", err);
+    }
+
+    // 2. Email (opt-in via research config), with PDF attachment.
+    try {
+      const cfg = await agent.getResearchConfig();
+      if (cfg.autoEmail && cfg.emailTo) {
+        const { validateEmailRecipient } = await import("../security/webhookReplay");
+        const check = validateEmailRecipient(cfg.emailTo, this.env.EMAIL_TO_ALLOWED_DOMAINS);
+        if (check.ok) {
+          const { getCfpayConfig, cfpaySendEmail, cfpaySendEmailWithAttachments } = await import("../services/cfpayA2A");
+          const cfpay = getCfpayConfig(this.env);
+          const subject = `🔬 Options research — ${report.ideas.length} qualified idea(s)${flagLines.length > 0 ? " (⚠ refresh flags)" : ""}`;
+          let sent = false;
+          if (cfpay) {
+            let r;
+            if (pdf) {
+              let binary = "";
+              for (let i = 0; i < pdf.bytes.length; i += 8192)
+                binary += String.fromCharCode(...pdf.bytes.subarray(i, i + 8192));
+              r = await cfpaySendEmailWithAttachments(cfpay, {
+                to: cfg.emailTo,
+                subject,
+                body: `${text}\n\nPDF report: ${reportUrl}`,
+                attachments: [{ filename: pdf.fileName, contentB64: btoa(binary), contentType: "application/pdf" }],
+              });
+            } else {
+              r = await cfpaySendEmail(cfpay, cfg.emailTo, subject, `${text}\n\nPDF report: ${reportUrl}`);
+            }
+            sent = r.ok;
+          }
+          if (!sent) {
+            const emailService = new ETradeEmailTradingService(this.env, this.getOrm(), opts.userLogin);
+            sent = await emailService.sendOutboundEmail(
+              cfg.emailTo,
+              subject,
+              `<p>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br/>")}</p>`,
+              `${text}\n\nPDF report: ${reportUrl}`,
+              pdf
+                ? (() => {
+                    let binary = "";
+                    for (let i = 0; i < pdf.bytes.length; i += 8192)
+                      binary += String.fromCharCode(...pdf.bytes.subarray(i, i + 8192));
+                    return { fileName: pdf.fileName, contentType: "application/pdf", contentBase64: btoa(binary) };
+                  })()
+                : undefined
+            );
+          }
+          result.emailed = sent;
+        }
+      }
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Research email delivery failed:", err);
+    }
+
+    // 3. Webhook.
+    try {
+      const webhookUrl = (this.env as any).OUTBOUND_WEBHOOK_URL;
+      if (webhookUrl) {
+        const { ETradeWebhookService } = await import("../services/tradingWebhooks");
+        const webhook = new ETradeWebhookService(this.getOrm(), this.env, opts.userLogin);
+        await webhook.dispatchOutboundWebhook("research.completed", {
+          runId: report.runId,
+          trigger: report.trigger,
+          qualified: report.ideas.length,
+          watchlist: report.watchlist.length,
+          rejected: report.rejected.length,
+          refreshFlags,
+          reportUrl,
+          reportId: opts.reportId,
+        });
+        result.webhook = true;
+      }
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Research webhook delivery failed:", err);
+    }
+
+    return result;
   }
 
-  // Issue #992: extracted to ./orchestrator/researchPublish.ts (sendResearchSummaryEmail);
+  /** Issue #319: opt-in email delivery of the stored research summary. */
   private async sendResearchSummaryEmail(
     recipient: string,
     summary: string,
@@ -369,7 +706,20 @@ export class OrchestratorAgent extends Think<Env> {
     reportId: string | null,
     userLogin: string
   ): Promise<boolean> {
-    return sendResearchSummaryEmail(this.researchPublishContext(), recipient, summary, ideaCount, reportId, userLogin);
+    const { validateEmailRecipient } = await import("../security/webhookReplay");
+    const check = validateEmailRecipient(recipient, this.env.EMAIL_TO_ALLOWED_DOMAINS);
+    if (!check.ok) return false;
+    try {
+      const emailService = new ETradeEmailTradingService(this.env, this.getOrm(), userLogin);
+      return await emailService.sendOutboundEmail(
+        recipient,
+        `Options research report — ${ideaCount} qualified idea(s)`,
+        `<p>${summary.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</p><p>Full report${reportId ? ` (id ${reportId})` : ""} is available in the dashboard Reports tab. Research only; no trades were placed.</p>`,
+        `${summary}\n\nFull report${reportId ? ` (id ${reportId})` : ""} is available in the dashboard Reports tab.\nResearch only; no trades were placed.`
+      );
+    } catch {
+      return false;
+    }
   }
 
   /** Cloudflare Agents lifecycle: initialize SQLite and recover durable work. */

@@ -20,18 +20,13 @@ import type {
 import type { RiskProfile } from "../trading";
 import { buildTypeRollup, type StrategyTypeRollup } from "../trading";
 import { getEventCalendarCoverage, getSymbolEventCalendar } from "../services/eventCalendar";
-import {
-  formatDiscoveryRunSummary,
-  type DiscoveryRunOutcome,
-  type DiscoveryRunRequest,
-} from "../services/discoveryService";
 import { validateStrategyRequest, type StrategyScreenFilter } from "../trading";
 import { parseScanRequestTemplate } from "../trading";
 
 export { buildTypeRollup } from "../trading";
 export type { StrategyTypeRollup } from "../trading";
 
-export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities" | "options_discovery";
+export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities";
 
 export type OpportunityScope =
   | { kind: "watchlist"; name?: string }
@@ -227,31 +222,6 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
     || (PICK_TRADE.test(question) && OPTIONS_CONTEXT.test(question));
   const isStrategies = STRATEGY_SCREEN.test(question);
   let scope = detectScope(question);
-
-  // Issue #14: discovery phrasing ("discover setups", "find setups",
-  // "what's setting up") is view-less by definition — it routes to
-  // the discovery pipeline, never to a thesis-bearing action, and it
-  // bypasses the strategy-keyword gates below (a discovery question
-  // names no strategy). The default scope is the caller's watchlists
-  // (Decision 1); caps ride in the request at the parser's scan
-  // defaults, overridable by the question's own stated caps.
-  if (
-    /\b(?:discover\w*|find\s+(?:me\s+)?setups?|setups?\s+(?:are\s+)?forming|what(?:'s|\s+is)\s+setting\s+up)\b/i.test(
-      question,
-    )
-  ) {
-    return {
-      action: "options_discovery",
-      filters: {
-        request: { maxPlannedLoss: 500, minRewardRisk: 1.5 },
-        riskProfile: "balanced",
-        strategyFilter: {},
-        targetPriceInferred: false,
-        thesisInferred: false,
-        scope: scope ?? { kind: "watchlist" },
-      },
-    };
-  }
 
   const cleanedForStrategy = question.replace(/\b(?:bid[-/ ]?ask\s+spread|spread\s*(?:under|below|<|<=|at most|\d+\s*%))\b/gi, "");
   const hasStrategyKeywords = /\b(opportunit\w*|(?:option\s+)?trades?|trade\s+ideas?|spreads?|strateg\w*|best\s+trades?|condors?|straddles?|strangles?|butterfl\w*|max\s*profit|max\s*loss)\b/i.test(cleanedForStrategy);
@@ -491,11 +461,6 @@ export interface OptionsStrategyDeps {
   scanRunStore?: ScanRunStore;
   profileStore?: StrategyProfileStore;
   userLogin?: string;
-  /** Issue #14: the Phase 1 discovery runner (createDiscoveryService's
-   *  return shape). When absent, an options_discovery action fails
-   *  with an availability error — the same discipline as the profile
-   *  store — rather than silently answering a different question. */
-  discoveryRunner?: { run(request: DiscoveryRunRequest): Promise<DiscoveryRunOutcome> };
 }
 
 /**
@@ -530,11 +495,8 @@ export async function runOptionsStrategyAction(
   action: OptionsStrategyAction,
   filters: OptionsStrategyIntent["filters"] | undefined,
   deps?: OptionsStrategyDeps,
-): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean; typeRollup?: StrategyTypeRollup[] | ScanTypeRollup[]; profileRef?: ProfileRef | null; discoveryRunId?: string }> {
+): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean; typeRollup?: StrategyTypeRollup[] | ScanTypeRollup[]; profileRef?: ProfileRef | null }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
-  if (action === "options_discovery") {
-    return runDiscoveryAction(etrade, filters, deps);
-  }
   if (action === "options_opportunities" || !filters?.request?.symbol) {
     if (filters && !filters.scope) {
       filters.scope = { kind: "universe", filters: { minMarketCap: 50 }, maxSymbols: 25 };
@@ -676,89 +638,6 @@ export async function runOptionsStrategyAction(
   };
 }
 
-/**
- * Issue #14: the NLQ discovery action. View-less: the scope resolves
- * to a universe (watchlists by default, per Decision 1), the
- * discovery runner characterizes/infers/expresses per name, and the
- * formatted setup cards are the answer. The scope key makes
- * successive runs over the same scope comparable for deltas.
- */
-async function runDiscoveryAction(
-  etrade: Parameters<typeof runOptionsStrategyAction>[0],
-  filters: OptionsStrategyIntent["filters"] | undefined,
-  deps?: OptionsStrategyDeps,
-): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; discoveryRunId?: string }> {
-  const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
-  if (!deps?.discoveryRunner) return fail("Discovery isn't wired in this context.");
-  const scope: OpportunityScope = filters?.scope ?? { kind: "watchlist" };
-  const resolvedScope = await resolveScopeSymbols(etrade, scope);
-  if ("error" in resolvedScope) return fail(resolvedScope.error);
-  const symbols = [...new Set(resolvedScope.symbols.map((s) => s.toUpperCase().trim()).filter(Boolean))];
-  if (symbols.length === 0) return fail("The selected scope contained no symbols.");
-  const userLogin = deps.userLogin ?? "default_trader";
-  const scopeKey = `nlq:${userLogin}:${scope.kind}:${
-    scope.kind === "watchlist" ? (scope.name ?? "all") : symbols.join(",")
-  }`;
-  const outcome = await deps.discoveryRunner.run({
-    symbols,
-    scopeKey,
-    source: "nlq",
-    caps: {
-      maxPlannedLoss: filters?.request?.maxPlannedLoss ?? 500,
-      minRewardRisk: filters?.request?.minRewardRisk ?? 1.5,
-    },
-    userLogin,
-  });
-  return {
-    count: outcome.run.counts.setups,
-    status: "success",
-    summary: formatDiscoveryRunSummary(outcome),
-    rows: outcome.run.items as unknown as Array<Record<string, unknown>>,
-    discoveryRunId: outcome.run.id,
-  };
-}
-
-/**
- * Resolve an opportunity scope to its symbol list (issue #14: shared
- * by the opportunity scan and the discovery action so both read the
- * caller's watchlists / screened universe identically). Failures
- * return the user-facing message the scan has always produced.
- */
-async function resolveScopeSymbols(
-  etrade: Parameters<typeof runOptionsStrategyAction>[0],
-  scope: OpportunityScope,
-): Promise<{ symbols: string[]; scopeLabel: string } | { error: string }> {
-  if (scope.kind === "symbols") {
-    return { symbols: scope.symbols, scopeLabel: `${scope.symbols.length} listed symbols` };
-  }
-  if (scope.kind === "watchlist") {
-    const lists = await etrade.getWatchlists();
-    const chosen = scope.name
-      ? lists.filter((l) => l.name.toLowerCase().includes(scope.name!.toLowerCase()))
-      : lists;
-    if (chosen.length === 0) {
-      return {
-        error: scope.name
-          ? `No watchlist matching "${scope.name}". Say "list watchlists" to see yours.`
-          : "You have no saved watchlists. Save one first, e.g. \"save these as watchlist Semis NVDA AMD AVGO\".",
-      };
-    }
-    return {
-      symbols: chosen.flatMap((l) => l.symbols),
-      scopeLabel: `watchlist ${chosen.map((l) => l.name).join(", ")}`,
-    };
-  }
-  const screened = await etrade.screenMarketsAsync(scope.filters);
-  const symbols = [...screened.stocks]
-    .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0))
-    .slice(0, scope.maxSymbols)
-    .map((s) => s.symbol);
-  return {
-    symbols,
-    scopeLabel: `top ${symbols.length} stocks from the screened universe (${screened.stocks.length} matches)`,
-  };
-}
-
 async function runOpportunityScan(
   etrade: Parameters<typeof runOptionsStrategyAction>[0],
   filters: OptionsStrategyIntent["filters"] | undefined,
@@ -771,10 +650,22 @@ async function runOpportunityScan(
 
   let symbols: string[] = [];
   let scopeLabel = "";
-  const resolvedScope = await resolveScopeSymbols(etrade, scope);
-  if ("error" in resolvedScope) return fail(resolvedScope.error);
-  symbols = resolvedScope.symbols;
-  scopeLabel = resolvedScope.scopeLabel;
+  if (scope.kind === "symbols") {
+    symbols = scope.symbols;
+    scopeLabel = `${symbols.length} listed symbols`;
+  } else if (scope.kind === "watchlist") {
+    const lists = await etrade.getWatchlists();
+    const chosen = scope.name ? lists.filter((l) => l.name.toLowerCase().includes(scope.name!.toLowerCase())) : lists;
+    if (chosen.length === 0) {
+      return fail(scope.name ? `No watchlist matching "${scope.name}". Say "list watchlists" to see yours.` : "You have no saved watchlists. Save one first, e.g. \"save these as watchlist Semis NVDA AMD AVGO\".");
+    }
+    symbols = chosen.flatMap((l) => l.symbols);
+    scopeLabel = `watchlist ${chosen.map((l) => l.name).join(", ")}`;
+  } else {
+    const screened = await etrade.screenMarketsAsync(scope.filters);
+    symbols = [...screened.stocks].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)).slice(0, scope.maxSymbols).map((s) => s.symbol);
+    scopeLabel = `top ${symbols.length} stocks from the screened universe (${screened.stocks.length} matches)`;
+  }
   if (symbols.length === 0) return fail("The selected scope contained no symbols.");
 
   // Issue #28: resolve the selected profile BEFORE scanning — an

@@ -199,7 +199,7 @@ describe("evaluateResearchOutcome (deterministic, not model-graded)", () => {
 
 describe("slice wiring (source evidence)", () => {
   const orchestrator = fs.readFileSync(
-    path.resolve(__dirname, "../src/agents/orchestrator/researchPublish.ts"),
+    path.resolve(__dirname, "../src/agents/orchestrator.ts"),
     "utf8"
   );
   const researchAgent = fs.readFileSync(
@@ -207,8 +207,8 @@ describe("slice wiring (source evidence)", () => {
     "utf8"
   );
   const section = orchestrator.slice(
-    orchestrator.indexOf("function runResearchAndPublish("),
-    orchestrator.indexOf("export async function sendResearchSummaryEmail")
+    orchestrator.indexOf("async runResearchAndPublish("),
+    orchestrator.indexOf("private async sendResearchSummaryEmail")
   );
 
   it("ResearchAgent persists the ledger in its own DO store", () => {

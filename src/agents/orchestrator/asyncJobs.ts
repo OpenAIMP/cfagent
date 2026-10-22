@@ -22,7 +22,6 @@ import { executeMCPTool } from "../../mcp";
 import { executeNaturalLanguageQuery } from "../nlq";
 import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
-import { createDiscoveryService } from "../../services/discoveryService";
 
 /**
  * Ports the async-job functions receive from the class. Table/state
@@ -272,7 +271,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         ctx.env,
         typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey(),
         getUserDid(ctx.sessionKey()),
-        { scanRunStore: new SqlScanRunStore(ctx.agentCtx.storage.sql), profileStore: new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), schedulingPort: ctx.nlqSchedulingPort(), stockScreenPort: ctx.nlqStockScreenPort(), discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin: typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey(), orm: ctx.getOrm(), sql: ctx.agentCtx.storage.sql }) },
+        { scanRunStore: new SqlScanRunStore(ctx.agentCtx.storage.sql), profileStore: new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), schedulingPort: ctx.nlqSchedulingPort(), stockScreenPort: ctx.nlqStockScreenPort() },
       );
     } else {
       throw new Error(`Unsupported async capability: ${job.capability}`);

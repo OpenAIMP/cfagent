@@ -49,7 +49,6 @@ import { executeNaturalLanguageQuery, type NLQSchedulingPort } from "../nlq";
 import { resolveAiModelName } from "../model";
 import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
-import { createDiscoveryService } from "../../services/discoveryService";
 
 /** The subset of OrchestratorAgent surface the MCP/chat/NLQ handlers need. */
 export interface McpChatNlqRouteContext {
@@ -246,7 +245,7 @@ export async function handleMcpChatNlqRoutes(
         ctx.env,
         userLogin,
         userDid,
-        { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql() }) }
+        { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort() }
       );
       ctx.audit("nlq.executed", "nlq", {
         query,

@@ -8,13 +8,11 @@
  * the route dispatcher. #992 extracted 45 methods into eight modules
  * under src/agents/orchestrator/ (scheduleMaintenance,
  * scheduledCallbacks, nlqPorts, asyncJobs, autopilot, reportDispatch,
- * chatTurnHelpers, httpEntry). Subset 2 then extracted the
- * research-publish cluster into a ninth module (researchPublish),
- * leaving the class at 1,977 lines / 89,925 B: state/lifecycle
- * ownership, the Think lifecycle, ensureTables, the stale-task
- * sweep, autonomousOptionsAnalysis and routeRequest stay in the
- * class; the extracted clusters execute only through thin delegating
- * wrappers + the per-module context builders.
+ * chatTurnHelpers, httpEntry), leaving the class at 2,327 lines /
+ * 104,916 B: state/lifecycle ownership, the Think lifecycle, the
+ * research-publish cluster, ensureTables, the stale-task sweep and
+ * routeRequest stay in the class; the extracted clusters execute only
+ * through thin delegating wrappers + the per-module context builders.
  *
  * This pin fails if:
  *  (a) orchestrator.ts grows beyond the post-refactor budget —
@@ -37,15 +35,9 @@
  * pin rule); the pin's purpose is that class-body regrowth is never
  * unintentional. The one retained inline construction,
  * `new ScheduledTasksService(` for autonomousOptionsAnalysis (count
- * exactly 1), is deliberate: that method is pinned in place by
- * tests/options_latest_runs.test.ts, whose span pin asserts the
- * class-scope call form `recordOptionsRun(this.ctx.storage…`, which
- * the module-call pattern cannot reproduce. The stale-task sweep
- * pair (sweepStaleLedgerTasks / ensureStaleSweepSchedule) is
- * retained for the same reason: tests/stale-sweep-wiring.test.ts
- * asserts the class-scope form
- * `scheduleEvery(STALE_SWEEP_INTERVAL_SECONDS…`. Both clusters stay
- * until those pins are revisited deliberately in a follow-up slice.
+ * exactly 1), is deliberate: that cluster is pinned in place by
+ * tests/options_latest_runs.test.ts and is the subject of a separate
+ * follow-up slice.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync, statSync } from "node:fs";
@@ -53,9 +45,9 @@ import { readFileSync, statSync } from "node:fs";
 const src = (rel: string) => readFileSync(`src/${rel}`, "utf8");
 const ORCH = "agents/orchestrator.ts";
 
-/** Post-refactor budget for orchestrator.ts (result: 1,977 lines / 89,925 B). */
-const BUDGET_LINES = 2075;
-const BUDGET_BYTES = 94_400;
+/** Post-refactor budget for orchestrator.ts (result: 2,327 lines / 104,916 B). */
+const BUDGET_LINES = 2450;
+const BUDGET_BYTES = 110_000;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;
@@ -114,10 +106,6 @@ const DELEGATED_METHODS = [
   // httpEntry
   "logChatActivity",
   "enqueueHttpRequest",
-  // researchPublish
-  "runResearchAndPublish",
-  "deliverResearchReport",
-  "sendResearchSummaryEmail",
 ];
 
 describe("orchestrator class inventory (#992 standing gate)", () => {
@@ -178,9 +166,6 @@ describe("orchestrator class inventory (#992 standing gate)", () => {
     );
     expect(src("agents/orchestrator/scheduledCallbacks.ts")).toContain(
       "new SqlIvHistoryStore(",
-    );
-    expect(src("agents/orchestrator/researchPublish.ts")).toContain(
-      "storeReportAtGeneration(",
     );
   });
 });

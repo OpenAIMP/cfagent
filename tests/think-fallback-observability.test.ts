@@ -24,13 +24,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const orchestrator = fs.readFileSync(
-  path.resolve(__dirname, "../src/agents/orchestrator/researchPublish.ts"),
+  path.resolve(__dirname, "../src/agents/orchestrator.ts"),
   "utf8"
 );
 
 /** The runResearchAndPublish method body, bounded by the next method. */
 function methodSection(): string {
-  const start = orchestrator.indexOf("function runResearchAndPublish(");
+  const start = orchestrator.indexOf("async runResearchAndPublish(");
   expect(start).toBeGreaterThan(-1);
   const rest = orchestrator.slice(start);
   const nextMethod = rest.indexOf("\n  async ", 10);

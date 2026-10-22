@@ -31,8 +31,6 @@ function region(src: string, from: string, to = "\n  async "): string {
 const researchAgent = read("src/agents/research-agent.ts");
 const screenerAgent = read("src/agents/screener-agent.ts");
 const orchestrator = read("src/agents/orchestrator.ts");
-// Issue #992 subset 2: the research-publish bodies moved to this module.
-const researchPublish = read("src/agents/orchestrator/researchPublish.ts");
 const yahooHistory = read("src/trading/yahooHistory.ts");
 
 describe("task heartbeat wiring (#624)", () => {
@@ -48,14 +46,14 @@ describe("task heartbeat wiring (#624)", () => {
 
   it("research dispatch heartbeats on a 2-minute timer while in flight", () => {
     expect(orchestrator).toContain("RESEARCH_TASK_HEARTBEAT_MS = 120_000");
-    const dispatch = region(researchPublish, "function runResearchAndPublish(");
+    const dispatch = region(orchestrator, "async runResearchAndPublish(");
     expect(dispatch).toContain("setInterval(");
     expect(dispatch).toContain("RESEARCH_TASK_HEARTBEAT_MS");
     expect(dispatch).toContain("heartbeatResearchTask(");
   });
 
   it("the research heartbeat timer is always cleared (finally)", () => {
-    const dispatch = region(researchPublish, "function runResearchAndPublish(");
+    const dispatch = region(orchestrator, "async runResearchAndPublish(");
     expect(dispatch).toContain("finally");
     expect(dispatch).toContain("clearInterval(");
     expect(dispatch.indexOf("setInterval(")).toBeLessThan(dispatch.indexOf("clearInterval("));
