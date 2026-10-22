@@ -20,9 +20,12 @@ import type {
 } from "../../types";
 import { DatabaseORM } from "../../orm";
 import { ETradeService } from "../../services/etrade";
+import type { ETradeRestClient } from "../etrade/client";
 import { DynamicOptionsScreener } from "../optionsScreener";
 import {
   OptionsAgentPipeline,
+  type PipelineOptions,
+  type PipelineResult,
   recommendOptionStrategies,
   type EventCalendarInfo,
   type StrategyRequest,
@@ -32,7 +35,7 @@ import {
   type OptionStrategyType,
   type StrategyCandidate,
 } from "./index";
-import { OpportunityScanner, type OpportunityScanResult, type ScanMode, type ScanRequestRecord, type ScanSymbolOverride } from "./opportunityScanner";
+import { OpportunityScanner, type OpportunityScanResult, type ScanMode, type ScanRequestRecord, type ScanRequestTemplate, type ScanSymbolOverride } from "./opportunityScanner";
 import type { ScanRunStore } from "./scanRunStore";
 import { applyProfileFields, toProfileRef, type StrategyProfile } from "./strategyProfile";
 import type { StrategyProfileStore } from "./strategyProfileStore";
@@ -166,6 +169,49 @@ const MEMORY_CACHE = new Map<string, CacheEntry>();
 // the same change that grew the request to carry them; a body that
 // states DTE bounds must win over the profile's, like every other
 // expressed field.
+/** Issue #986: the screener filter's fields, in a fixed order, for
+ *  deterministic cache-key serialization — defined fields only, so two
+ *  semantically identical filters produce the same segment (a hit) and
+ *  any differing field produces a different one (a miss). */
+const FILTER_CACHE_FIELDS = [
+  "underlyingSymbols", "maxUnderlyings", "sector", "contractType",
+  "minVolume", "minOpenInterest", "maxSpreadPct", "maxQuoteAgeSeconds",
+  "minDelta", "maxDelta", "minGamma", "maxGamma", "minTheta", "maxTheta",
+  "minVega", "maxVega", "minRho", "maxRho", "minPrice", "maxPrice",
+  "minImpliedVolatility", "maxImpliedVolatility", "minDte", "maxDte",
+  "expirationDteBands", "moneyness", "maxStrikeDistancePct", "limit", "sortBy",
+] as const;
+
+function filterCacheSegment(filter: OptionScreenerFilter): string {
+  return FILTER_CACHE_FIELDS.map((field) => {
+    const v = filter[field];
+    if (v === undefined) return "";
+    if (field === "underlyingSymbols") {
+      // The screener normalizes underlyings (uppercase/dedupe) before
+      // screening — set semantics, so the segment is order/case-free.
+      return [...new Set((v as string[]).map((s) => s.toUpperCase()))].sort().join("+");
+    }
+    if (field === "expirationDteBands") {
+      return (v as NonNullable<OptionScreenerFilter["expirationDteBands"]>)
+        .map((b) => `${b.minDte}-${b.maxDte}-${b.maxExpirations ?? ""}`)
+        .join("+");
+    }
+    return String(v);
+  }).join("|");
+}
+
+/** Issue #986: stable stringify for plain-data request fragments (the
+ *  per-symbol event calendars) — object keys sorted recursively, so
+ *  key order in the caller's object never changes the segment. */
+function stableCacheStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "";
+  if (Array.isArray(value)) return `[${value.map(stableCacheStringify).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableCacheStringify(v)}`).join(",")}}`;
+}
+
 const PROFILE_BODY_FIELDS = ["thesis", "expectedIvDirection", "maxPlannedLoss", "minRewardRisk", "allowedStrategies", "optimizationBias", "minDte", "maxDte"] as const;
 function bodyPresentFields(req: UnifiedOptionsRequest, includePosture: boolean): string[] {
   const present: string[] = PROFILE_BODY_FIELDS.filter((field) => req[field] !== undefined);
@@ -200,6 +246,42 @@ export class UnifiedOptionsService {
     this.orm = orm;
     this.scanRunStore = scanRunStore;
     this.profileStore = profileStore;
+  }
+
+  /**
+   * Issue #982 (screening consolidation S2): the service layer's engine
+   * execution primitives. The three options engines are constructed
+   * ONLY here (execute() runs through these same methods) — entry
+   * points that cannot express their request as a UnifiedOptionsRequest
+   * without losing semantics (the NLQ strategy actions carry a full
+   * StrategyRequest, a strategyFilter, and caller-resolved profiles the
+   * unified request type has no fields for) call these with the client
+   * they already hold, so engine construction and execution live in
+   * exactly one layer while their result assembly stays their own.
+   * `client` is the E*TRADE REST data plane (ETradeService's `.client`).
+   */
+  static async screenContracts(
+    client: ETradeRestClient | undefined,
+    filter: OptionScreenerFilter
+  ): Promise<OptionScreenResult> {
+    return new DynamicOptionsScreener(client).screenOptions(filter);
+  }
+
+  static async runStrategyPipeline(
+    client: ETradeRestClient | undefined,
+    request: StrategyRequest,
+    options: PipelineOptions = {}
+  ): Promise<PipelineResult> {
+    return new OptionsAgentPipeline(new DynamicOptionsScreener(client)).run(request, options);
+  }
+
+  static async scanOpportunities(
+    client: ETradeRestClient | undefined,
+    symbols: string[],
+    template: ScanRequestTemplate,
+    options: Parameters<OpportunityScanner["scan"]>[2] = {}
+  ): Promise<OpportunityScanResult> {
+    return new OpportunityScanner(new DynamicOptionsScreener(client)).scan(symbols, template, options);
   }
 
   private getCacheKey(req: UnifiedOptionsRequest, profile?: StrategyProfile): string {
@@ -241,7 +323,44 @@ export class UnifiedOptionsService {
     const statedTargetSegment = req.statedTarget
       ? `${req.statedTarget.symbol ?? ""}@${req.statedTarget.price}`
       : "";
-    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}:${req.limit ?? ""}:${statedTargetSegment}:${req.minDte ?? ""}:${req.maxDte ?? ""}:${req.offset ?? ""}`;
+    // Issue #986: MEMORY_CACHE is module-level — shared across ALL
+    // service instances — so the key must also segment by everything
+    // instance- or request-scoped that changes the result:
+    //  - this.userLogin: a second user's identical request must never
+    //    be served the first user's entry. Since #982 routed the paid
+    //    premium scan and NLQ screens through execute(), the first
+    //    payer's result was servable to a second payer with E*TRADE
+    //    never constructed under their identity.
+    //  - the effective environment (the instance's overrideEnv over
+    //    the env's ETRADE_ENVIRONMENT): a different data source
+    //    entirely (PROD vs TEST chains).
+    //  - req.filter: the screen action's whole criteria object was
+    //    unsegmented, so two differing filters collided.
+    //  - the remaining forwarded fields the original key missed —
+    //    maxSymbols, the effective targetDate (the +30d default the
+    //    actions resolve to), expectedIvDirection, allowedStrategies
+    //    (an allowlist — set semantics, serialized sorted), the risk
+    //    caps, optimizationBias, the per-symbol event calendars, and
+    //    question (echoed into the llm actions' payload). Each steers
+    //    the scan/pipeline or appears in the result.
+    //  - scanRunStore presence: an opportunities result gains
+    //    scanRunId/persisted only when a store is injected — a
+    //    store-less instance served a stored instance's entry would
+    //    report a persistence that never happened for it, and the
+    //    reverse would silently skip a run the caller expected saved.
+    // Segmentation is conservative throughout: an extra miss is always
+    // safe; a wrong hit never is. (Deliberately NOT segmented: channel
+    // — formatting is applied per call from the cached data, which is
+    // channel-independent; and the request's own userLogin/overrideEnv
+    // fields, which execute() never reads — the instance's are the
+    // effective identity.)
+    const filterSegment = req.filter ? filterCacheSegment(req.filter) : "";
+    const envSegment = `${this.overrideEnv ?? ""}|${this.env.ETRADE_ENVIRONMENT ?? ""}`;
+    const effectiveTargetDate =
+      req.targetDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
+    const allowedSegment = req.allowedStrategies ? [...req.allowedStrategies].sort().join("+") : "";
+    const calendarSegment = req.eventCalendarBySymbol ? stableCacheStringify(req.eventCalendarBySymbol) : "";
+    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}:${req.limit ?? ""}:${statedTargetSegment}:${req.minDte ?? ""}:${req.maxDte ?? ""}:${req.offset ?? ""}:${this.userLogin}:${envSegment}:${filterSegment}:${req.maxSymbols ?? ""}:${effectiveTargetDate}:${req.expectedIvDirection || ""}:${allowedSegment}:${req.maxPlannedLoss ?? ""}:${req.minRewardRisk ?? ""}:${req.optimizationBias ?? ""}:${calendarSegment}:${req.question ?? ""}:${this.scanRunStore ? "store" : "nostore"}`;
   }
 
   async execute(req: UnifiedOptionsRequest): Promise<FormattedOmnichannelResponse> {
@@ -299,8 +418,6 @@ export class UnifiedOptionsService {
       const etrade = this.orm
         ? new ETradeService(this.orm, this.env, this.userLogin, this.overrideEnv)
         : new ETradeService(this.env, undefined, this.userLogin, this.overrideEnv);
-      const screener = new DynamicOptionsScreener(etrade.client);
-
       switch (req.action) {
         case "screen": {
           const filter: OptionScreenerFilter = {
@@ -308,7 +425,7 @@ export class UnifiedOptionsService {
             underlyingSymbols: req.symbols || (req.symbol ? [req.symbol.toUpperCase()] : undefined),
             limit: req.limit || this.config.screener.maxReturnedContracts,
           };
-          const screenResult = await screener.screenOptions(filter);
+          const screenResult = await UnifiedOptionsService.screenContracts(etrade.client, filter);
           executionData = screenResult;
           summary = `Screened ${screenResult.matchedCount} options contracts across ${screenResult.totalUnderlyingsScanned} symbols.`;
           break;
@@ -339,8 +456,7 @@ export class UnifiedOptionsService {
             ? applyProfileFields(strategyRequest, strategyProfile, new Set(bodyPresentFields(req, false))).merged
             : strategyRequest;
 
-          const pipeline = new OptionsAgentPipeline(screener);
-          const pipelineResult = await pipeline.run(effectiveRequest, {
+          const pipelineResult = await UnifiedOptionsService.runStrategyPipeline(etrade.client, effectiveRequest, {
             riskProfile: req.riskProfile || "balanced",
           });
 
@@ -373,9 +489,8 @@ export class UnifiedOptionsService {
           if (symbols.length === 0) {
             throw new Error("Provide explicit symbols or a live universe for options screening; no static symbols are substituted.");
           }
-          const scanner = new OpportunityScanner(screener);
           const targetDate = req.targetDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
-          const scanResult = await scanner.scan(symbols, {
+          const scanResult = await UnifiedOptionsService.scanOpportunities(etrade.client, symbols, {
             thesis: req.thesis || "bullish",
             targetDate,
             expectedIvDirection: req.expectedIvDirection || "unchanged",
@@ -533,8 +648,7 @@ export class UnifiedOptionsService {
           const effectiveRequest = strategyProfile
             ? applyProfileFields(strategyRequest, strategyProfile, new Set(bodyPresentFields(req, false))).merged
             : strategyRequest;
-          const pipeline = new OptionsAgentPipeline(screener);
-          const pipelineResult = await pipeline.run(effectiveRequest, {
+          const pipelineResult = await UnifiedOptionsService.runStrategyPipeline(etrade.client, effectiveRequest, {
             riskProfile: req.riskProfile || "balanced",
           });
           const candidates = pipelineResult.ranked.slice(0, 10).map((r) => r.candidate);
@@ -598,8 +712,7 @@ export class UnifiedOptionsService {
           const effectiveRequest = strategyProfile
             ? applyProfileFields(strategyRequest, strategyProfile, new Set(bodyPresentFields(req, false))).merged
             : strategyRequest;
-          const pipeline = new OptionsAgentPipeline(screener);
-          const pipelineResult = await pipeline.run(effectiveRequest, {
+          const pipelineResult = await UnifiedOptionsService.runStrategyPipeline(etrade.client, effectiveRequest, {
             riskProfile: req.riskProfile || "balanced",
           });
           const candidates = pipelineResult.ranked.slice(0, 10).map((r) => r.candidate);

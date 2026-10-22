@@ -1,6 +1,6 @@
 import { type OptionsStrategyDeps } from "../nlqOptionsStrategy";
 import type { ProfileRef, ScanRunStore } from "../../trading";
-import type { AgentScheduleItem, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../../types";
+import type { AgentScheduleItem, OptionScreenRejection, StockScreenerFilter, StockScreenLedger, StockScreenResult } from "../../types";
 import { NLQPlan } from "./schema";
 export interface NLQValidationResult {
   validated: boolean;
@@ -78,10 +78,56 @@ export interface NLQSchedulingPort {
   listSchedules(): Promise<AgentScheduleItem[]>;
 }
 
+/** The service-run shape the stock-screen port returns: the fields of
+ *  the ScreenerAgent's run result the NLQ envelope is built from
+ *  (structural — the agent's ScreenerRunResult satisfies it). */
+export interface NLQStockScreenRunResult {
+  timestamp: string;
+  universe: string;
+  sector: string;
+  success: boolean;
+  totalScanned: number;
+  matchedCount: number;
+  filterSummary?: string;
+  discoveryMessage: string;
+  error?: string;
+  pdfKey?: string;
+  rejections?: Array<{ symbol: string; reason: string }>;
+  allStocks: Array<{
+    symbol: string;
+    companyName: string;
+    sector?: string;
+    lastPrice: number;
+    changePercent: number;
+    source: string;
+  }>;
+  opportunities: Array<{ symbol: string }>;
+}
+
+/**
+ * Issue #982: narrow port over the stock screening service — the
+ * ScreenerAgent pipeline the REST /etrade/screen route delegates to
+ * (issue #261). The orchestrator binds its getScreenerAgent stub into
+ * this shape and injects it through the NLQ execution deps, so NLQ
+ * stock screens run through the same service (and persist like REST
+ * runs) instead of the executor's local listings screener. Contexts
+ * without a port (e.g. the MCP facade, the synchronous executor —
+ * a Durable Object call is async-only, the #109 constraint) keep the
+ * pre-#982 behaviour, exactly as store-less scan contexts do (#27).
+ */
+export interface NLQStockScreenPort {
+  runScreen(req: {
+    filters: StockScreenerFilter;
+    userLogin: string;
+  }): Promise<NLQStockScreenRunResult>;
+}
+
 /** Execution deps for executeNLQQueryAsync: the options-strategy deps
- *  plus the optional scheduling port (issue #109). */
+ *  plus the optional scheduling port (issue #109) and the optional
+ *  stock-screen port (issue #982). */
 export interface NLQExecutionDeps extends OptionsStrategyDeps {
   schedulingPort?: NLQSchedulingPort;
+  stockScreenPort?: NLQStockScreenPort;
 }
 
 export interface NLQPlanOptions {

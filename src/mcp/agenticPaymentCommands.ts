@@ -8,8 +8,7 @@ import { z } from "zod";
 import { optionScreenerFilterFields, parseOptionScreenerFilter } from "../trading";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
-import { DynamicOptionsScreener } from "../trading";
-import { ETradeService } from "../services/etrade";
+import { UnifiedOptionsService } from "../trading";
 import { FossResearchService } from "../services/fossResearch";
 
 /**
@@ -144,9 +143,18 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
     if (!parsedFilter.ok) {
       return { status: 400, error: parsedFilter.error };
     }
-    const etrade = new ETradeService(context.orm, context.env, context.sessionId || "default_trader");
-    const screener = new DynamicOptionsScreener(etrade.client);
-    const result = await screener.screenOptions(parsedFilter.value);
+    // Issue #982: the paid tool executes through UnifiedOptionsService
+    // (the service the REST routes call); its screen data is the raw
+    // screen result the response below is built from.
+    const service = new UnifiedOptionsService(context.env, context.sessionId || "default_trader", undefined, context.orm);
+    const serviceResponse = await service.execute({
+      action: "screen",
+      channel: "mcp",
+      filter: parsedFilter.value,
+      symbols: parsedFilter.value.underlyingSymbols,
+      limit: parsedFilter.value.limit,
+    });
+    const result = serviceResponse.data;
 
     context.audit("agentic_payment.tool_executed", "trading", {
       tool: "paid_options_screener",

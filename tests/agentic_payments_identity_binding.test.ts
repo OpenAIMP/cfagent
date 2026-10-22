@@ -471,6 +471,7 @@ describe("premium routes bind persisted state to the verified payer (#183)", () 
     txHash: string;
     headers?: Record<string, string>;
     sessionId?: string;
+    url?: URL;
   }): Promise<Response> {
     const nonce = await issueNonce();
     const proof: X402PaymentProof = {
@@ -480,15 +481,16 @@ describe("premium routes bind persisted state to the verified payer (#183)", () 
       nonce,
       timestamp: Date.now(),
     } as X402PaymentProof;
+    const scanUrl = opts.url || premiumUrl;
     const res = await handlePremiumRoutes(
-      new Request(premiumUrl, {
+      new Request(scanUrl, {
         method: "GET",
         headers: {
           "PAYMENT-SIGNATURE": Buffer.from(JSON.stringify(proof)).toString("base64"),
           ...(opts.headers || {}),
         },
       }),
-      premiumUrl,
+      scanUrl,
       "/premium/options-scan",
       opts.sessionId || "gateway-instance-id",
       ctx,
@@ -536,10 +538,19 @@ describe("premium routes bind persisted state to the verified payer (#183)", () 
   });
 
   it("anonymous fulfillment constructs E*TRADE under the payer scope, never an asserted login", async () => {
+    // Since #982 the paid scan executes through UnifiedOptionsService,
+    // whose result cache (#986: keyed by user, environment, filter and
+    // the other result-changing fields) correctly serves a TRULY
+    // IDENTICAL repeat scan by the same payer from cache — no E*TRADE
+    // construction occurs, legitimately. The preceding test's scans are
+    // this payer's identical default scan, so this witness's scan is
+    // made distinct (a limit the default scan doesn't carry) to observe
+    // the construction its assertions are about. Assertions unchanged.
     const res = await paidScan({
       payer: "0xPayer183",
       txHash: "0x_tx_183_d1",
       headers: { "x-user-id": "victim-login" },
+      url: new URL("https://agent.internal/premium/options-scan?limit=7"),
     });
     expect(res.status).toBe(200);
     expect(etradeCapture.logins).toHaveLength(1);

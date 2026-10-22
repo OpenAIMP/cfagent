@@ -17,6 +17,8 @@ export * from "./iaaaAudit";
 export * from "./lifecycle";
 export * from "./providers";
 export * from "./iaaaLogin";
+export * from "./iaaaSessionActivity";
+export * from "./iaaaAuthAudit";
 export * from "./etradeOAuth";
 export * from "./session";
 export * from "./webhookSecurity";

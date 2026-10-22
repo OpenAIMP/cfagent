@@ -5,7 +5,7 @@ import { getWorkersAIModel } from "./model";
 import { buildOrchestratorSystemPrompt, resolveShadowMaxSteps } from "./chatPrompt";
 import { LLMJudge } from "./judge";
 import { VectorMemory } from "../memory/vector-memory";
-import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, type NLQSchedulingPort } from "./nlq";
+import { planNLQ, executeNLQQuery, executeNLQQueryAsync, executeNaturalLanguageQuery, type NLQSchedulingPort, type NLQStockScreenPort } from "./nlq";
 import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
@@ -1447,6 +1447,34 @@ export class OrchestratorAgent extends Think<Env> {
     };
   }
 
+  /**
+   * Issue #982: the NLQ stock-screen port — binds the ScreenerAgent
+   * (the stock screening service the REST /etrade/screen route
+   * delegates to) into the NLQ execution deps, so NLQ stock screens
+   * run the same pipeline as REST screens. The agent persists its
+   * own run record; the canonical mas_reports copy is persisted by
+   * the NLQ executor at its layer, mirroring how the REST route
+   * persists it at its layer (persistScreenerReportCanonical).
+   * maxItems 10: the port's consumers take up to ten standout picks
+   * (the watchlist_save fallback's top-10).
+   */
+  private nlqStockScreenPort(): NLQStockScreenPort {
+    return {
+      runScreen: async ({ filters, userLogin }) => {
+        const universe = typeof (filters as { universe?: unknown })?.universe === "string"
+          ? ((filters as { universe?: string }).universe as ScreenerRunRequest["universe"])
+          : undefined;
+        return this.getScreenerAgent(userLogin).runScreen({
+          trigger: "manual",
+          filters,
+          universe,
+          userLogin,
+          maxItems: 10,
+        });
+      },
+    };
+  }
+
   private ensureTables() {
     const storage = this.ctx.storage;
     const sql = storage.sql;
@@ -1880,7 +1908,7 @@ export class OrchestratorAgent extends Think<Env> {
           this.env,
           typeof payload.userLogin === "string" ? payload.userLogin : this.sessionKey(),
           getUserDid(this.sessionKey()),
-          { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql), schedulingPort: this.nlqSchedulingPort() },
+          { scanRunStore: new SqlScanRunStore(this.ctx.storage.sql), profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql), schedulingPort: this.nlqSchedulingPort(), stockScreenPort: this.nlqStockScreenPort() },
         );
       } else {
         throw new Error(`Unsupported async capability: ${job.capability}`);
@@ -2898,6 +2926,7 @@ export class OrchestratorAgent extends Think<Env> {
       scanRunStore: new SqlScanRunStore(this.ctx.storage.sql),
       profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql),
       schedulingPort: this.nlqSchedulingPort(),
+      stockScreenPort: this.nlqStockScreenPort(),
     };
   }
 
