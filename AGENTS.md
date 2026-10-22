@@ -29,4 +29,29 @@ In brief:
 - Update any pin your change alters in the same PR (§7, the pin rule).
 - Close each issue with the §15 completion report.
 
+## Pre-merge checklist (multi-developer integration)
+
+A green result on a stale base proves nothing about the merge, and a
+rebase merge creates a commit CI has never tested. Before merging any PR:
+
+- Fetch `main`, rebase the branch onto it, and re-run typecheck and
+  affected tests on the rebased head — not on an older one.
+- Confirm required checks are green on that head. A green gate expires
+  when `main` advances (§18.1); never merge over a red required check.
+- After merging, check post-merge CI on `main` before starting the next
+  issue. If `main` is red, restoring green is the next issue (§18.2);
+  do not merge feature work on top of red `main`.
+- If the PR merged without a CI gate (e.g. API-created PRs, §17.4
+  degraded mode), verifying the post-merge CI run is mandatory, not
+  optional — it is the only safety net when the gate was bypassed.
+- Prefer the merge queue when configured (§11); it tests each PR
+  against the latest `main` plus earlier queued PRs, which is what
+  catches clean-looking merges that break each other semantically.
+
+Repository settings (human owner, not agents): branch protection on
+`main` should require a PR, require the typecheck/test/build checks,
+require branches to be up to date before merging, require linear
+history, and block force pushes and bypasses except for the owner.
+Policy in `docs/agents/gitops.md` (§10, §11, §18) cannot enforce itself.
+
 This file only points at the policy; `docs/agents/gitops.md` governs.
