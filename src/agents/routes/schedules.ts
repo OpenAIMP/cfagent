@@ -41,14 +41,11 @@ import { resolveEnvironmentConfig } from "../../config/environment";
 import { getStoredTokens, isTokenExpiredEt } from "../../security/etradeOAuth";
 import { runStorageRetention } from "../../security/storageRetention";
 import {
+  buildSchedulePayload,
   SqlDiscoveryRunStore,
   SqlIvHistoryStore,
   SqlScanRunStore,
   SqlStrategyProfileStore,
-  UNIVERSES,
-  validateNoViewRequest,
-  validateStrategyRequest,
-  MAX_SAVED_REQUESTS_PER_RUN,
 } from "../../trading";
 import { ScheduledTasksService } from "../../services/scheduledTasks";
 import {
@@ -459,138 +456,36 @@ export async function handleSchedulesRoutes(
         }
         const { userLogin: _untrustedUserLogin, environment: _untrustedEnvironment, ...safePayload } =
           payload && typeof payload === "object" ? payload : {};
-        const universe = typeof safePayload.universe === "string" ? safePayload.universe : undefined;
-        if (universe && !(universe in UNIVERSES)) {
-          return Response.json({ success: false, error: `Unknown screening universe '${universe}'.` }, { status: 400 });
-        }
-        if (universe === "ALL") {
-          return Response.json({ success: false, error: "Choose one specific universe for a scheduled screen." }, { status: 400 });
-        }
-        if (callback === "autonomousMarketScreen" && !universe) {
-          return Response.json({ success: false, error: "Stock schedules require one explicit universe." }, { status: 400 });
-        }
-        if (safePayload.symbols !== undefined &&
-            (!Array.isArray(safePayload.symbols) || safePayload.symbols.some((symbol: unknown) => typeof symbol !== "string" || !/^[A-Z0-9./-]{1,16}$/i.test(symbol)))) {
-          return Response.json({ success: false, error: "symbols must be an array of valid ticker strings." }, { status: 400 });
-        }
-        if (callback === "autonomousStrategyDiscovery") {
-          // Issue #126: a discovery schedule re-runs SAVED requests
-          // verbatim, so the payload must carry complete, valid
-          // StrategyRequests at creation time — an empty or malformed
-          // list is rejected here rather than armed to fail honestly
-          // on every fire. The service re-validates at execution.
-          // Issue #533 adds the profile-derived input model: the
-          // payload names a Strategy Profile plus ONE symbol source
-          // (explicit symbols, or a watchlist name resolved at fire
-          // time). Arm-time validation there is SHAPE ONLY — the
-          // profile may be edited or deleted after arming, and both
-          // are honest fire-time outcomes, so existence is
-          // deliberately NOT checked here. Issue #534 adds the
-          // no-view model: the payload carries constraintSets only,
-          // each validated in full at arm time (a constraint set is
-          // static configuration, unlike a profile — nothing about
-          // it resolves later, so an invalid or view-smuggling set
-          // is rejected here and never armed). The three shapes are
-          // mutually exclusive; a payload mixing them is rejected.
-          const inputModel = (safePayload as any).inputModel;
-          if (
-            inputModel !== undefined &&
-            inputModel !== "saved-request" &&
-            inputModel !== "profile-derived" &&
-            inputModel !== "no-view"
-          ) {
-            return Response.json({ success: false, error: `Unknown discovery inputModel '${inputModel}'. Use "saved-request", "profile-derived", or "no-view".` }, { status: 400 });
+        // Issue #959 (screening consolidation S1): criteria validation
+        // and payload assembly live in ONE shared builder —
+        // buildSchedulePayload in src/trading/screeningSchemas.ts —
+        // used identically by this route, the trigger routes below, and
+        // the NLQ scheduling executor, so the same criteria arm the same
+        // payload through every door. The builder reproduces this
+        // route's historical checks and error strings (universe,
+        // symbols, the three discovery input models, maxItems) and
+        // stamps identity from the trusted context only.
+        let screeningPayload: unknown;
+        if (ctx.accountScopedScheduleCallbacks.has(callback)) {
+          const built = buildSchedulePayload(callback, safePayload, {
+            userLogin: trustedUserLogin || undefined,
+            environment: trustedEnvironment || undefined,
+            trigger: "scheduled",
+          });
+          if (!built.ok) {
+            return Response.json({ success: false, error: built.error }, { status: 400 });
           }
-          if (inputModel !== "no-view" && (safePayload as any).constraintSets !== undefined) {
-            return Response.json({ success: false, error: "payload.constraintSets belongs to the no-view discovery input model (inputModel \"no-view\") and cannot be combined with saved requests or a profile." }, { status: 400 });
+          // Creation policy (route-level, unchanged): a stock schedule
+          // must name its universe explicitly. The shared builder
+          // deliberately does not require one — the trigger and NLQ
+          // paths rely on the market-screen service's own default.
+          if (callback === "autonomousMarketScreen" && safePayload.universe === undefined) {
+            return Response.json({ success: false, error: "Stock schedules require one explicit universe." }, { status: 400 });
           }
-          if (inputModel === "no-view") {
-            if (
-              (safePayload as any).requests !== undefined ||
-              (safePayload as any).symbols !== undefined ||
-              (safePayload as any).watchlistName !== undefined ||
-              (safePayload as any).profileId !== undefined
-            ) {
-              return Response.json({ success: false, error: "No-view discovery schedules carry payload.constraintSets only — requests, symbols, watchlistName and profileId belong to the other discovery input models." }, { status: 400 });
-            }
-            const constraintSets = (safePayload as any).constraintSets;
-            if (!Array.isArray(constraintSets) || constraintSets.length === 0) {
-              return Response.json({ success: false, error: "No-view discovery schedules require at least one constraint set in payload.constraintSets." }, { status: 400 });
-            }
-            if (constraintSets.length > MAX_SAVED_REQUESTS_PER_RUN) {
-              return Response.json({ success: false, error: `No-view discovery schedules are capped at ${MAX_SAVED_REQUESTS_PER_RUN} symbols per schedule.` }, { status: 400 });
-            }
-            for (let i = 0; i < constraintSets.length; i++) {
-              const setError = validateNoViewRequest(constraintSets[i]);
-              if (setError) {
-                const symbol = typeof constraintSets[i]?.symbol === "string" ? constraintSets[i].symbol : "?";
-                return Response.json({ success: false, error: `No-view constraint set ${i + 1} (${symbol}) is invalid: ${setError}` }, { status: 400 });
-              }
-            }
-          } else if (inputModel === "profile-derived") {
-            const profileId = (safePayload as any).profileId;
-            if (typeof profileId !== "string" || !profileId.trim()) {
-              return Response.json({ success: false, error: "Profile-derived discovery schedules require payload.profileId (the Strategy Profile to derive targets under)." }, { status: 400 });
-            }
-            const hasSymbols = (safePayload as any).symbols !== undefined;
-            const hasWatchlist = (safePayload as any).watchlistName !== undefined;
-            if (hasSymbols === hasWatchlist) {
-              return Response.json({ success: false, error: "Profile-derived discovery schedules require exactly one symbol source: payload.symbols or payload.watchlistName." }, { status: 400 });
-            }
-            if (hasSymbols) {
-              const derivedSymbols = (safePayload as any).symbols;
-              if (!Array.isArray(derivedSymbols) || derivedSymbols.length === 0) {
-                return Response.json({ success: false, error: "payload.symbols must name at least one symbol for a profile-derived discovery schedule." }, { status: 400 });
-              }
-              if (derivedSymbols.length > MAX_SAVED_REQUESTS_PER_RUN) {
-                return Response.json({ success: false, error: `Profile-derived discovery schedules are capped at ${MAX_SAVED_REQUESTS_PER_RUN} symbols per schedule.` }, { status: 400 });
-              }
-              // Ticker shape itself is enforced by the generic
-              // payload.symbols check above, which runs for every
-              // callback.
-            }
-            if (hasWatchlist) {
-              const watchlistName = (safePayload as any).watchlistName;
-              if (typeof watchlistName !== "string" || !watchlistName.trim()) {
-                return Response.json({ success: false, error: "payload.watchlistName must be a non-empty watchlist name." }, { status: 400 });
-              }
-            }
-          } else {
-            const savedRequests = (safePayload as any).requests;
-            if (!Array.isArray(savedRequests) || savedRequests.length === 0) {
-              return Response.json({ success: false, error: "Discovery schedules require at least one saved strategy request in payload.requests." }, { status: 400 });
-            }
-            if (savedRequests.length > MAX_SAVED_REQUESTS_PER_RUN) {
-              return Response.json({ success: false, error: `Discovery schedules are capped at ${MAX_SAVED_REQUESTS_PER_RUN} saved requests per schedule.` }, { status: 400 });
-            }
-            for (let i = 0; i < savedRequests.length; i++) {
-              const requestError = validateStrategyRequest(savedRequests[i]);
-              if (requestError) {
-                const symbol = typeof savedRequests[i]?.symbol === "string" ? savedRequests[i].symbol : "?";
-                return Response.json({ success: false, error: `Saved discovery request ${i + 1} (${symbol}) is invalid: ${requestError}` }, { status: 400 });
-              }
-            }
-          }
+          screeningPayload = built.value;
+        } else {
+          screeningPayload = payload;
         }
-        if (ctx.accountScopedScheduleCallbacks.has(callback) && safePayload.maxItems !== undefined &&
-            (!Number.isSafeInteger(safePayload.maxItems) || safePayload.maxItems < 0 || safePayload.maxItems > 10000)) {
-          return Response.json({ success: false, error: "maxItems must be a whole number from 0 to 10000." }, { status: 400 });
-        }
-        const effectiveUniverse = universe ||
-          (callback === "autonomousOptionsAnalysis" && (!safePayload.symbols || safePayload.symbols.length === 0) ? "NASDAQ100" : undefined);
-        const defaultMaxItems = effectiveUniverse
-          ? UNIVERSES[effectiveUniverse as keyof typeof UNIVERSES].defaultMaxSymbols
-          : (safePayload.symbols?.length || 0);
-        const screeningPayload = ctx.accountScopedScheduleCallbacks.has(callback)
-          ? {
-              ...safePayload,
-              ...(effectiveUniverse ? { universe: effectiveUniverse } : {}),
-              maxItems: safePayload.maxItems ?? defaultMaxItems,
-              ...(trustedUserLogin ? { userLogin: trustedUserLogin } : {}),
-              ...(trustedEnvironment ? { environment: trustedEnvironment } : {}),
-              trigger: "scheduled",
-            }
-          : payload;
 
         // No fabricated success (#111): this route never invents a
         // schedule id or reports success for a schedule that does not
@@ -636,7 +531,15 @@ export async function handleSchedulesRoutes(
         const userLogin = request.headers.get("x-user-login") || undefined;
         const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
         const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD" ? rawEnvironment : undefined;
-        await ctx.autonomousMarketScreen({ ...body, userLogin, environment, trigger: "manual" });
+        // Issue #959: trigger bodies validate through the same shared
+        // schedule builder as schedule creation — identity keys in the
+        // body are stripped and re-stamped from the trusted context.
+        const { userLogin: _bodyLogin, environment: _bodyEnv, ...triggerCriteria } = body ?? {};
+        const built = buildSchedulePayload("autonomousMarketScreen", triggerCriteria, { userLogin, environment, trigger: "manual" }, { applyCreationDefaults: false });
+        if (!built.ok) {
+          return Response.json({ success: false, error: built.error }, { status: 400 });
+        }
+        await ctx.autonomousMarketScreen(built.value);
         return Response.json({ success: true, message: "Autonomous market screen triggered" });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger market screen" }, { status: 500 });
@@ -669,7 +572,13 @@ export async function handleSchedulesRoutes(
           ? rawEnvironment
           : context?.environment;
         const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin, new SqlScanRunStore(ctx.agentCtx.storage.sql));
-        const result = await service.autonomousOptionsAnalysis({ ...body, userLogin, environment, trigger: "manual" });
+        // Issue #959: validate through the shared schedule builder.
+        const { userLogin: _bodyLogin, environment: _bodyEnv, ...triggerCriteria } = body ?? {};
+        const built = buildSchedulePayload("autonomousOptionsAnalysis", triggerCriteria, { userLogin: userLogin || undefined, environment, trigger: "manual" }, { applyCreationDefaults: false });
+        if (!built.ok) {
+          return Response.json({ success: false, error: built.error }, { status: 400 });
+        }
+        const result = await service.autonomousOptionsAnalysis(built.value as any);
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger options analysis" }, { status: 500 });
@@ -748,7 +657,14 @@ export async function handleSchedulesRoutes(
           new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
           new SqlStrategyProfileStore(ctx.agentCtx.storage.sql)
         );
-        const result = await service.autonomousStrategyDiscovery({ ...body, userLogin, environment, trigger: "manual" });
+        // Issue #959: validate through the shared schedule builder
+        // (the service's own derivation validation still runs inside).
+        const { userLogin: _bodyLogin, environment: _bodyEnv, ...triggerCriteria } = body ?? {};
+        const built = buildSchedulePayload("autonomousStrategyDiscovery", triggerCriteria, { userLogin, environment, trigger: "manual" }, { applyCreationDefaults: false });
+        if (!built.ok) {
+          return Response.json({ success: false, error: built.error }, { status: 400 });
+        }
+        const result = await service.autonomousStrategyDiscovery(built.value as any);
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger strategy discovery" }, { status: 500 });
