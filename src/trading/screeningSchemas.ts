@@ -616,6 +616,10 @@ export const marketScreenScheduleCriteriaSchema = z.strictObject({
   symbols: z.array(z.string()).optional(),
   broadcast: z.boolean().optional(),
   filters: stockScreenerFilterSchema.optional(),
+  // Issue #1007: a scheduled stock screen may name its data provider
+  // (the Yahoo data-source adapter inside the one pipeline). Absent =
+  // the E*TRADE default every existing schedule already runs under.
+  provider: z.enum(["etrade", "yahoo"]).optional(),
   ...deliveryFields,
   ...triggerField,
 });
