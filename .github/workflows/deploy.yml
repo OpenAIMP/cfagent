@@ -296,6 +296,20 @@ jobs:
           optional_secret LEMONSQUEEZY_WEBHOOK_SECRET "$LEMONSQUEEZY_WEBHOOK_SECRET"
           optional_secret MPP_SECRET_KEY "$MPP_SECRET_KEY"
 
+      - name: Set Google OAuth secrets on Cloudflare Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          S_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          S_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          source scripts/ci/put-secret.sh
+      
+          optional_secret GOOGLE_CLIENT_ID "$S_GOOGLE_CLIENT_ID"
+          optional_secret GOOGLE_CLIENT_SECRET "$S_GOOGLE_CLIENT_SECRET"
+          
+
       - name: Finish secret sync summary
         if: always()
         run: |
