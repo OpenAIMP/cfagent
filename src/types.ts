@@ -39,6 +39,17 @@ export interface Env {
   // no default tenant — inventing one (e.g. "default") would fabricate
   // tenant attribution for login/logout events.
   IAAA_TENANT_ID?: string;
+  // #945 Wiring Phase 2b-part2 — bootstrap admin list for membership
+  // provisioning. Optional, comma-separated. Each entry is either a
+  // bare internal user id (UUID) or a provider subject in
+  // issuer:subject form (resolved through the Slice 1 binding).
+  // When unset, blank, or empty, ZERO members are provisioned:
+  // there is no hardcoded admin, no default user, and no fallback
+  // to a GitHub login. Parsed by parseBootstrapAdmins, provisioned
+  // only from an admin-only setup path (never from a route or a
+  // login path), and granting tenant-admin only — never
+  // platform-admin. See src/security/iaaaBootstrap.ts.
+  IAAA_BOOTSTRAP_ADMINS?: string;
   MAS_MAX_STEPS?: string;
   AI_MODEL?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
