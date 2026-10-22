@@ -112,6 +112,11 @@ export interface DiscoveryRunRequest {
   source: string;
   caps: DiscoveryRiskCaps;
   userLogin?: string;
+  /** Issue #18: Strategy Profile biasing — the resolved profile's
+   *  allowed strategy types. Ranking only: the service adds the
+   *  configured boost for pick selection; signals, inference, and
+   *  recorded scores are unaffected. */
+  profileBias?: { preferredTypes: readonly string[] };
 }
 
 export interface DiscoveryRunOutcome {
@@ -238,6 +243,9 @@ export async function runDiscovery(
         { run: (req) => deps.runPipeline(req) },
         built.request,
         gate,
+        request.profileBias && request.profileBias.preferredTypes.length > 0
+          ? { preferredTypes: request.profileBias.preferredTypes, points: discoveryConfig.profileBiasPoints }
+          : undefined,
       );
       const best = expression.pick.best;
       if (!best || expression.gate.bucket === "no_fit") {

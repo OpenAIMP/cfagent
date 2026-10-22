@@ -495,6 +495,17 @@ export class UnifiedOptionsService {
               minRewardRisk: req.minRewardRisk ?? 1.5,
             },
             userLogin: this.userLogin,
+            // Issue #18: a resolved profile biases pick selection
+            // by its allowed strategy types (ranking only — the
+            // "all" sentinel prefers nothing in particular).
+            ...(strategyProfile?.allowedStrategies &&
+            strategyProfile.allowedStrategies.some((t) => t !== "all")
+              ? {
+                  profileBias: {
+                    preferredTypes: strategyProfile.allowedStrategies.filter((t) => t !== "all"),
+                  },
+                }
+              : {}),
           });
           executionData = { run: outcome.run, deltas: outcome.deltas, errors: outcome.errors };
           summary = formatDiscoveryRunSummary(outcome);
