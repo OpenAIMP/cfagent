@@ -6,6 +6,7 @@ import { validateAndTouchWiredSession } from "./security/iaaaEnforcement";
 import { requiresStepUpForMint } from "./security/iaaaGates";
 import { createWiredAuditStore } from "./security/iaaaAuditStore";
 import { createKvMembershipStore } from "./security/iaaaMembershipStore";
+import { buildAdminOverview } from "./security/iaaaAdminOverview";
 import {
   checkRoutePermission,
   resolveIaaaTenant,
@@ -693,6 +694,46 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           ? { internalUserId: session.internalUserId }
           : {}),
       });
+    }
+
+    // --- IAAA Admin overview (issue #945, IAAA-UI v1: READ-ONLY) ---
+    // GET /api/iaaa/overview: the caller's own memberships, the
+    // tenant's platform-genesis status, and recent tenant audit
+    // events. Gating is fail-closed and server-side (see
+    // iaaaAdminOverview.ts): unauthenticated → 401; legacy session
+    // (no internalUserId) or wired non-admin → 403 with NO data;
+    // only a live platform-admin membership returns 200. This route
+    // performs no store write of any kind, and a corrupt store read
+    // answers 500 with a generic error and no partial data.
+    if (path === "/api/iaaa/overview") {
+      const session = await requireAuth(request, env);
+      if (!session) {
+        return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      }
+      if (request.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+      if (!session.internalUserId) {
+        return Response.json({ error: "Forbidden: IAAA admin access requires a wired session." }, { status: 403 });
+      }
+      try {
+        const overview = await buildAdminOverview(
+          {
+            membershipStore: createKvMembershipStore(sessionStore(env)),
+            auditStore: createWiredAuditStore(env),
+            kv: sessionStore(env),
+            tenantId: resolveIaaaTenant(env),
+            nowMs: Date.now(),
+          },
+          { callerInternalUserId: session.internalUserId },
+        );
+        if (!overview.allowed) {
+          return Response.json({ error: "Forbidden: IAAA admin access requires platform-admin membership." }, { status: 403 });
+        }
+        return Response.json(overview);
+      } catch {
+        return Response.json({ error: "IAAA admin overview unavailable." }, { status: 500 });
+      }
     }
 
     // --- API Keys (issue #180): per-user keys for the MCP transport ---
