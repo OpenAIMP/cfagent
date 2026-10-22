@@ -299,6 +299,8 @@ describe("liquidity gate and the full catalog", () => {
     const expected: DiscoverySignalType[] = [
       "BREAKOUT_WATCH",
       "EVENT_NEAR",
+      "FLOW_BEARISH",
+      "FLOW_BULLISH",
       "IV_CHEAP",
       "IV_EXPENSIVE",
       "LIQUIDITY_OK",

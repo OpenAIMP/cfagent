@@ -177,6 +177,7 @@ function makeDeps(store: InMemoryDiscoverySetupStore, score = 72): DiscoveryServ
       daysToExDiv: null,
       fetchedAt: "2026-10-22T12:00:00.000Z",
     }),
+    flowFor: async () => [],
     runPipeline: async () => pipelineResult(score),
     store,
     now: () => new Date("2026-10-22T12:00:00.000Z"),

@@ -36,6 +36,8 @@ export type DiscoverySignalType =
   | "BREAKOUT_WATCH"
   | "EVENT_NEAR"
   | "MOVE_UNDERPRICED"
+  | "FLOW_BULLISH"
+  | "FLOW_BEARISH"
   | "LIQUIDITY_OK";
 
 /** Chain aggregates the characterization needs — computed by the
@@ -58,6 +60,53 @@ export interface DiscoveryNameInputs {
    *  caller fetched one. Absent or uncovered, the event signals
    *  abstain — an unknown catalyst calendar is not "no catalyst". */
   eventCalendar?: EventCalendarInfo | null;
+  /** Phase 2 (issue #18): the name's flow aggregates, built by
+   *  flowAggregatesFromItems from flowService items. Absent, the
+   *  FLOW_* signals abstain. */
+  flow?: FlowAggregates | null;
+}
+
+/** The structural subset of a flowService LiveFlowItem the flow
+ *  aggregator reads. */
+export interface FlowItemLike {
+  provenance: "chain-derived" | "static" | "generated";
+  sentiment: "bullish" | "bearish" | "neutral";
+  premium: number;
+}
+
+/** Directional flow premium over CHAIN-DERIVED records only.
+ *
+ *  THE GUARDRAIL (issue #18 acceptance): flowService merges live
+ *  flow with seed rows (`static` fixtures, `generated` samples) to
+ *  complete its leaderboards. Discovery signals must never read
+ *  those rows — this aggregator filters on provenance BEFORE
+ *  anything sums, and reports how much it excluded so the evidence
+ *  line can say so. Seeded premium cannot fire a signal, tilt a
+ *  share, or pad the record count. */
+export interface FlowAggregates {
+  bullishPremium: number;
+  bearishPremium: number;
+  /** Chain-derived records aggregated (all sentiments). */
+  derivedCount: number;
+  /** Records excluded by the provenance filter. */
+  excludedCount: number;
+}
+
+export function flowAggregatesFromItems(items: readonly FlowItemLike[]): FlowAggregates {
+  let bullishPremium = 0;
+  let bearishPremium = 0;
+  let derivedCount = 0;
+  let excludedCount = 0;
+  for (const item of items) {
+    if (item.provenance !== "chain-derived") {
+      excludedCount++;
+      continue;
+    }
+    derivedCount++;
+    if (item.sentiment === "bullish") bullishPremium += item.premium;
+    else if (item.sentiment === "bearish") bearishPremium += item.premium;
+  }
+  return { bullishPremium, bearishPremium, derivedCount, excludedCount };
 }
 
 /** The per-name feature vector (spec §6.1), computed from inputs. */
@@ -102,6 +151,9 @@ export interface NameCharacterization {
    *  The yardstick MOVE_UNDERPRICED measures the implied move
    *  against. */
   realizedVol: number | null;
+  /** Phase 2 (issue #18): chain-derived flow aggregates for the
+   *  name, or null when the caller supplied no flow data. */
+  flow: FlowAggregates | null;
 }
 
 export interface DiscoverySignal {
@@ -208,6 +260,7 @@ export function characterizeName(
     earningsDate: inputs.eventCalendar?.earningsDate ?? null,
     daysToEarnings: inputs.eventCalendar?.daysToEarnings ?? null,
     realizedVol: realizedVolatility(closes, config.trendSlowWindow),
+    flow: inputs.flow ?? null,
   };
 }
 
@@ -322,6 +375,35 @@ export function detectSignals(
       : !moveKnown
         ? "implied or realized volatility unavailable — MOVE_UNDERPRICED abstains"
         : `implied move (ATM IV ${fmt(c.atmIv! * 100, 0)}%) is ${fmt(moveRatio!, 2)}× the realized vol ${fmt(c.realizedVol! * 100, 0)}% (≤ ${config.moveUnderpricedMaxRatio}× = underpriced)`,
+  });
+
+  // --- Flow direction (Phase 2, #18): chain-derived records only
+  // (the aggregator enforced it); one side must dominate the
+  // directional premium across at least the minimum record count.
+  // Flow confirms or opposes a view in inference — it is never a
+  // view by itself, and the two sides are mutually exclusive by
+  // construction (a share cannot be ≥ the dominance bar both ways).
+  const flow = c.flow;
+  const directionalPremium = flow ? flow.bullishPremium + flow.bearishPremium : 0;
+  const bullShare = flow && directionalPremium > 0 ? flow.bullishPremium / directionalPremium : null;
+  const flowKnown = flow !== null && flow.derivedCount >= config.flowMinRecords && bullShare !== null;
+  const flowEvidence =
+    flow === null
+      ? `no flow data supplied for ${c.symbol} — FLOW signals abstain`
+      : flow.derivedCount === 0
+        ? `0 chain-derived flow records for ${c.symbol} (${flow.excludedCount} seeded rows excluded) — FLOW signals abstain`
+        : `chain-derived flow over ${flow.derivedCount} records (${flow.excludedCount} seeded rows excluded): ` +
+          `bullish $${Math.round(flow.bullishPremium).toLocaleString("en-US")} vs bearish $${Math.round(flow.bearishPremium).toLocaleString("en-US")}` +
+          (bullShare !== null ? ` — bullish share ${fmt(bullShare, 2)} (dominance ≥ ${config.flowDominanceShare})` : "");
+  signals.push({
+    type: "FLOW_BULLISH",
+    fired: flowKnown && bullShare! >= config.flowDominanceShare,
+    evidence: flowEvidence,
+  });
+  signals.push({
+    type: "FLOW_BEARISH",
+    fired: flowKnown && bullShare! <= 1 - config.flowDominanceShare,
+    evidence: flowEvidence,
   });
 
   // --- Liquidity gate ---
