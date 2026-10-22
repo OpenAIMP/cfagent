@@ -66,7 +66,15 @@ vi.mock("../src/services/fossResearch", () => {
   };
 });
 
-vi.mock("../src/trading", () => {
+vi.mock("../src/trading", async () => {
+  // Issue #959 harness note: the foss screen route now imports
+  // parseStockScreenRequest from the trading barrel, so the barrel
+  // fake must provide it. It re-exports the REAL parser (imported
+  // from its definition module to avoid loading the whole barrel) —
+  // the route's validation behaviour under test stays genuine; only
+  // the engine class is faked, exactly as before. No assertion in
+  // this file changed.
+  const schemas = await vi.importActual<any>("../src/trading/screeningSchemas");
   const fns = {
     screenMarkets: vi.fn(async (filters: any) => ({
       filterSummary: "mocked",
@@ -81,7 +89,11 @@ vi.mock("../src/trading", () => {
       Object.assign(this, fns);
     }
   }
-  return { YFinanceMarketScreener: MockYFinanceMarketScreener, __mockYfs: { fns, seen } };
+  return {
+    YFinanceMarketScreener: MockYFinanceMarketScreener,
+    parseStockScreenRequest: schemas.parseStockScreenRequest,
+    __mockYfs: { fns, seen },
+  };
 });
 
 import {
