@@ -46,6 +46,14 @@ import {
   type FlowItemLike,
 } from "../trading";
 import { fetchRealMarketFlowsForSymbol } from "../trading";
+import { SqlDiscoveryAlertStore, type DiscoveryAlertStore } from "../trading";
+import {
+  dispatchDiscoveryAlerts,
+  signedWebhookAlertSender,
+  slackWebhookAlertSender,
+  type DiscoveryAlertChannelSender,
+  type DiscoveryAlertDispatchResult,
+} from "./discoveryAlerts";
 import { inferThesis } from "../trading";
 import {
   buildDiscoveryRequest,
@@ -87,6 +95,12 @@ export interface DiscoveryServiceDeps {
   flowFor(symbol: string): Promise<readonly FlowItemLike[]>;
   runPipeline(request: StrategyRequest): Promise<PipelineResult>;
   store: DiscoverySetupStore;
+  /** Issue #18: alert dispatch wiring (Decision 2). Absent, runs
+   *  never alert — dispatch is opt-in per caller. */
+  alerts?: {
+    store: DiscoveryAlertStore;
+    senders: readonly DiscoveryAlertChannelSender[];
+  };
   now(): Date;
 }
 
@@ -104,6 +118,10 @@ export interface DiscoveryRunOutcome {
   run: StoredDiscoverySetupRun;
   deltas: DiscoveryDelta[];
   errors: Array<{ symbol: string; message: string }>;
+  /** Issue #18 Decision 2: present only when the caller wired
+   *  alert dispatch — interactive surfaces leave it off; scheduled
+   *  runs opt in. */
+  alerts?: DiscoveryAlertDispatchResult;
 }
 
 /** Stable fingerprint of the config a run executed under: the
@@ -276,7 +294,13 @@ export async function runDiscovery(
     ...(request.userLogin !== undefined ? { userLogin: request.userLogin } : {}),
   });
 
-  return { run, deltas, errors };
+  // Issue #18 Decision 2: alerts dispatch after the run is saved
+  // and its deltas classified — the alert records link this run.
+  const alerts = deps.alerts
+    ? await dispatchDiscoveryAlerts(deps.alerts, run, deltas, discoveryConfig)
+    : undefined;
+
+  return { run, deltas, errors, ...(alerts ? { alerts } : {}) };
 }
 
 /** Production wiring: ETrade chains (the unified service's own
@@ -288,6 +312,13 @@ export function createDiscoveryService(args: {
   overrideEnv?: string;
   orm?: DatabaseORM;
   sql: { exec(query: string, ...params: unknown[]): Iterable<unknown> };
+  /** Issue #18: opt into Decision 2 alert dispatch for runs from
+   *  this service instance. Channels are built from the
+   *  environment: SLACK_WEBHOOK_URL (Slack), and
+   *  DISCOVERY_ALERT_WEBHOOK_URL + DISCOVERY_ALERT_WEBHOOK_SECRET
+   *  (signed webhook); the alert-log record is the in-app channel
+   *  and always lands. */
+  alerts?: boolean;
 }): { run(request: DiscoveryRunRequest): Promise<DiscoveryRunOutcome> } {
   const etrade = args.orm
     ? new ETradeService(args.orm, args.env, args.userLogin, args.overrideEnv)
@@ -307,9 +338,31 @@ export function createDiscoveryService(args: {
     flowFor: (symbol) => fetchRealMarketFlowsForSymbol(symbol),
     runPipeline: (request) => pipeline.run(request),
     store: new SqlDiscoverySetupStore(args.sql),
+    ...(args.alerts
+      ? {
+          alerts: {
+            store: new SqlDiscoveryAlertStore(args.sql),
+            senders: buildAlertSenders(args.env),
+          },
+        }
+      : {}),
     now: () => new Date(),
   };
   return { run: (request) => runDiscovery(deps, request) };
+}
+
+/** Channel senders from the environment — a channel exists only
+ *  when its configuration does. */
+function buildAlertSenders(env: Env): DiscoveryAlertChannelSender[] {
+  const senders: DiscoveryAlertChannelSender[] = [];
+  const record = env as unknown as Record<string, string | undefined>;
+  if (record.SLACK_WEBHOOK_URL) senders.push(slackWebhookAlertSender(record.SLACK_WEBHOOK_URL));
+  if (record.DISCOVERY_ALERT_WEBHOOK_URL && record.DISCOVERY_ALERT_WEBHOOK_SECRET) {
+    senders.push(
+      signedWebhookAlertSender(record.DISCOVERY_ALERT_WEBHOOK_URL, record.DISCOVERY_ALERT_WEBHOOK_SECRET),
+    );
+  }
+  return senders;
 }
 
 /** The omnichannel text rendering of a discovery run: one card line
