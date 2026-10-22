@@ -21,7 +21,6 @@ import { UniversalChart } from "../components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
 import { EtapiConfigModal } from "./EtapiConfigModal";
-import { ScheduledOptionsManager } from "./ScheduledOptionsManager";
 import { AutonomousOptionsRuns } from "./AutonomousOptionsRuns";
 import { RawContractsScreener } from "./RawContractsScreener";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
@@ -1085,15 +1084,23 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
 
       {researchMode === "schedules" && (
         <>
-          <ScheduledOptionsManager
-            activeEnv={activeEnv}
-            userLogin={userLogin}
-            onPreviewTrade={(cand) => previewTrade?.(cand)}
-            onSendPrompt={onSendPrompt}
-          />
+          {/* S7 (consolidation #958): schedule management moved to the
+              one schedule UI — the hub's Schedules tab hosts the
+              screening section (this manager's successor) over the
+              one schedule store. This mode keeps only the redirect
+              and the autonomous-runs record below it. */}
+          <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
+            <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>⏰ Schedule Management Moved to the Schedules Tab</h4>
+            <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
+              Every screening schedule — stock screens, options analysis, and strategy discovery in all three input models (saved views, profile-derived, no-view) — is now created and managed in one place: the <strong>Schedules</strong> tab, alongside the system and queued jobs that share the same schedule store.
+            </p>
+            <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
+              Nothing was retired: the create/edit forms, run-now triggers, latest runs, and audit trail all live on that surface now.
+            </p>
+          </div>
           {/* Issue #223: the persisted autonomous runs (hourly scheduled
-              scans + manual runs) below the schedule manager — the record
-              of what the scheduler actually produced. */}
+              scans + manual runs) — the record of what the scheduler
+              actually produced. */}
           <AutonomousOptionsRuns />
         </>
       )}
