@@ -214,6 +214,36 @@ describe("PaymentsAgent records into mas_transactions (#896)", () => {
     expect(list[0].amountCents).toBe(20);
     expect(ctx._store.has("payments")).toBe(false);
   });
+
+  it("listPayments stays newest-first when two payments share a millisecond timestamp", async () => {
+    // Regression: createdAt is millisecond-resolution, so two payments
+    // recorded in the same millisecond tie on timestamp. A plain
+    // timestamp sort is stable, so it returned them in insertion
+    // (oldest-first) order and broke the newest-first contract.
+    const ledger = makeLedger();
+    const ctx = makeCtx();
+    const agent = new (PaymentsAgent as any)(ctx, makeEnv(ledger));
+    const ts = "2026-10-22T05:36:43.000Z";
+    const seed = (id: string, key: string, amount: number) =>
+      ledger.orm.transactions.create({
+        id,
+        sessionId: "payments-agent:a1",
+        action: "micropayment",
+        amount,
+        currency: "USD",
+        customer: "a1",
+        gateway: "x402",
+        gatewayRef: key,
+        status: "completed",
+        note: "search.query",
+        createdAt: ts,
+        updatedAt: ts,
+      } as any);
+    seed("tx_tie_1", "tie-1", 0.1);
+    seed("tx_tie_2", "tie-2", 0.2);
+    const list = await agent.listPayments();
+    expect(list.map((p: any) => p.idempotencyKey)).toEqual(["tie-2", "tie-1"]);
+  });
 });
 
 describe("Budget truth reconciles with mas_transactions (#896)", () => {
