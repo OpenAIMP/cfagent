@@ -85,6 +85,8 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
   webhookUrl?: string;
   pushToSlack?: boolean;
   filters?: import("../../types").StockScreenerFilter;
+  /** Issue #1007: data provider for the scheduled run (default "etrade"). */
+  provider?: import("../../trading").StockScreenProvider;
 }): Promise<void> {
   try {
     await ctx.waitUntilStable({ timeout: 30_000 });
@@ -136,6 +138,9 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
         timestamp: res.timestamp,
         sector: res.data?.sector || payload?.sector || "ALL",
         universe: res.data?.universe || payload?.universe || "NASDAQ100",
+        // Issue #1007: provider provenance rides into the stored run
+        // and the canonical report body below.
+        provider: res.data?.provider || payload?.provider || "etrade",
         success: res.success,
         totalScanned: res.data?.totalScanned ?? 0,
         matchedCount: res.data?.matchedCount ?? 0,
