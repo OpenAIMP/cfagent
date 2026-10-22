@@ -156,6 +156,12 @@ export interface EtapiDiscoveryConfig {
    *  before either FLOW_* signal may fire — a pair of prints is
    *  anecdote, not flow. */
   flowMinRecords: number;
+  /** Phase 2 (issue #18, Decision 2): a NEW setup alerts only at
+   *  or above this discoveryScore. */
+  alertMinScore: number;
+  /** Phase 2 (issue #18, Decision 2): maximum discovery alerts
+   *  per day per scope — the anti-spam budget. */
+  alertDailyCap: number;
 }
 
 export interface DiscoveryDteWindow {
@@ -365,6 +371,8 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
     moveUnderpricedMaxRatio: 0.8,
     flowDominanceShare: 0.65,
     flowMinRecords: 3,
+    alertMinScore: 70,
+    alertDailyCap: 5,
   },
   llmIdeas: {
     inputTokenBudget: 90000,

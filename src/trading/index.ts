@@ -58,6 +58,7 @@ export * from "./options/discoverySignals";
 export * from "./options/discoveryInference";
 export * from "./options/discoveryExpression";
 export * from "./options/discoverySetupStore";
+export * from "./options/discoveryAlertStore";
 export * from "./options/discoveryDelta";
 export * from "./options/ivCollector";
 export * from "./options/optionsDataAgent";
