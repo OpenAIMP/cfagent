@@ -1,6 +1,6 @@
 /**
  * Issue #126 (PR-F): serializers for a persisted discovery run's
- * result-set downloads (discoveryExport.ts), following the PR-B/PR-C
+ * result-set downloads (src/client/runExport.ts; originally discoveryExport.ts, #1065), following the PR-B/PR-C
  * pattern — pure functions over the stored run, pinned here:
  *
  *  - CSV = one row per ranked candidate across the run's symbols,
@@ -17,7 +17,7 @@ import {
   discoveryExportFilename,
   discoveryRunHasCandidates,
   discoveryRunJson,
-} from "../src/client/discoveryExport";
+} from "../src/client/runExport";
 import type { StoredDiscoveryRun } from "../src/client/discoveryApi";
 
 // Fixtures -----------------------------------------------------------------
