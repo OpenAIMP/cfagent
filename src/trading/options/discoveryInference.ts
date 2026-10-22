@@ -101,6 +101,12 @@ export function inferThesis(
     return abstain(`conflicting signals for ${c.symbol}: TREND_UP with TREND_DOWN`);
   }
 
+  const CONFIDENCE_STEPS: DiscoveryConfidence[] = ["LOW", "MEDIUM", "HIGH"];
+  const stepConfidence = (confidence: DiscoveryConfidence, delta: number): DiscoveryConfidence =>
+    CONFIDENCE_STEPS[
+      Math.max(0, Math.min(CONFIDENCE_STEPS.length - 1, CONFIDENCE_STEPS.indexOf(confidence) + delta))
+    ];
+
   const infer = (
     ruleId: string,
     thesis: OptionThesis,
@@ -113,7 +119,21 @@ export function inferThesis(
     targetEmMultiple: targetEmMultiples[thesis],
     expectedIvDirection,
     dteWindow: config.dteWindows[thesis],
-    confidence,
+    // Phase 2 (#18): flow is a confidence modifier only — aligned
+    // chain-derived flow steps a directional inference up, opposing
+    // flow steps it down; range_bound has no direction for flow to
+    // confirm, and flow can never create or veto a thesis.
+    confidence: (() => {
+      if (thesis === "range_bound") return confidence;
+      const aligned =
+        (thesis === "bullish" && has("FLOW_BULLISH")) ||
+        (thesis === "bearish" && has("FLOW_BEARISH")) ||
+        (thesis === "large_move" && (has("FLOW_BULLISH") || has("FLOW_BEARISH")));
+      const opposed =
+        (thesis === "bullish" && has("FLOW_BEARISH")) ||
+        (thesis === "bearish" && has("FLOW_BULLISH"));
+      return stepConfidence(confidence, aligned ? 1 : opposed ? -1 : 0);
+    })(),
     firedSignals: firedTypes,
     rationale,
   });
