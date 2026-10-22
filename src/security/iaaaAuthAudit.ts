@@ -33,12 +33,15 @@
  *
  * Not yet audited here (Phase 2b): token-exchange / profile-fetch
  * failures in the wired callback (they fail before any binding
- * context exists), and logout — the logout builder exists, but
- * the logout hook lives in githubOAuth.ts handleLogout (reached
- * from server.ts /auth/logout), not in iaaaLogin.ts, so wiring
- * it is a parent step, not a change made here. See the hook note
- * at the bottom of this header: record the logout event BEFORE
- * deleteSession, using the session's internalUserId when present.
+ * context exists). Logout IS hooked since Phase 2b-part1: the
+ * hook lives in githubOAuth.ts handleLogout (reached from
+ * server.ts /auth/logout), records BEFORE deleteSession, and
+ * fires only when wiring is ON, the session has an
+ * internalUserId, and IAAA_TENANT_ID resolves — otherwise it is
+ * dormant. Login events still use this module's seam only: the
+ * wired callback records them only when its caller supplies a
+ * store and a tenant, and server.ts dispatch supplies neither,
+ * so in production no login event is recorded yet.
  */
 
 import {
