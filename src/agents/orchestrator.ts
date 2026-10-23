@@ -36,7 +36,8 @@ import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErr
 import { getScreenerExecutionContext, migrateLegacyScreenSchedules, removeUnownedBaselineSchedules, ensureStrategyScanSchedule, type ScheduleMaintenanceContext } from "./orchestrator/scheduleMaintenance";
 import { autoRenewETradeTokens, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
 import { nlqSchedulingPort, nlqStockScreenPort, type NlqPortsContext } from "./orchestrator/nlqPorts";
-import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobGraphColumns, type AsyncJobsContext } from "./orchestrator/asyncJobs";
+import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobGraphColumns, scheduleScreenerFollowups, type AsyncJobsContext } from "./orchestrator/asyncJobs";
+import type { ScreenerRunOutcome } from "../services/screenerFollowups";
 import { marketDateKey, readAutopilotStateRaw, getAutopilotState, writeAutopilotState, incrementAutopilotOrdersToday, fetchBrokerBalanceSnapshot, openNotionalForSymbol, evaluateAndRecordAutopilotVerdict, type AutopilotContext } from "./orchestrator/autopilot";
 import { readSettingRaw, writeSetting, getReportDispatchHitl, setReportDispatchHitl, createReportConfirmation, getReportConfirmation, decideReportConfirmation, storeResearchReportCanonicalAsync, confirmationDeliveryMeta, deliverStoredReportEmail, deliverStoredReportWebhook, persistScreenerReportCanonical, sendReportEmail, sendReportWebhook, type ReportDispatchContext } from "./orchestrator/reportDispatch";
 import { extractMessageText, createTurnTools, deriveTurn, assembleGrounding, type ChatTurnHelpersContext } from "./orchestrator/chatTurnHelpers";
@@ -1825,6 +1826,8 @@ export class OrchestratorAgent extends Think<Env> {
     const etradeBrokerResponse = await handleEtradeBrokerRoutes(request, url, path, sessionId, {
       env: this.env,
       asyncJobId: request.headers.get("x-async-job-id") || undefined,
+      scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string) =>
+        scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin),
       getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
@@ -1893,6 +1896,8 @@ export class OrchestratorAgent extends Think<Env> {
     const etradeOptionsResponse = await handleEtradeOptionsRoutes(request, url, path, sessionId, {
       env: this.env,
       asyncJobId: request.headers.get("x-async-job-id") || undefined,
+      scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string) =>
+        scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin),
       getOrm: () => this.getOrm(),
       agentCtx: this.ctx,
       ensureTables: () => this.ensureTables(),
