@@ -20,6 +20,7 @@ import {
   handleSocialSlackInteraction,
   parseSocialAction,
 } from "./agents/social/interactions";
+import { checkAllTokenHealth } from "./agents/social/tokenHealth";
 import { validateAndTouchWiredSession } from "./security/iaaaEnforcement";
 import { requiresStepUpForMint } from "./security/iaaaGates";
 import { createWiredAuditStore } from "./security/iaaaAuditStore";
@@ -893,6 +894,32 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         channel,
         publish: approved.channelResult,
       });
+    }
+
+    // #1077 token-health slice (#1160) — token presence + validity probe.
+    // Session-gated (401 unauthenticated), like the brief/approval
+    // routes. Any signed-in user may query; no admin gate invented.
+    // GET only; 405 other methods. The response is status only:
+    // configured/unconfigured + valid/invalid/unknown per channel,
+    // never a token value. No live transport is wired in this slice,
+    // so validity is unknown by design until activation wiring passes
+    // one — never assumed valid. The goal executor does NOT call this.
+    if (path === "/api/social/token-health") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      if (request.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+      const rawEnv = env as unknown as Record<string, string | undefined>;
+      const channels = await checkAllTokenHealth({
+        X_ACCESS_TOKEN: rawEnv.X_ACCESS_TOKEN,
+        THREADS_ACCESS_TOKEN: rawEnv.THREADS_ACCESS_TOKEN,
+        FACEBOOK_PAGE_ACCESS_TOKEN: rawEnv.FACEBOOK_PAGE_ACCESS_TOKEN,
+        INSTAGRAM_ACCESS_TOKEN: rawEnv.INSTAGRAM_ACCESS_TOKEN,
+        LINKEDIN_ACCESS_TOKEN: rawEnv.LINKEDIN_ACCESS_TOKEN,
+        LINKEDIN_AUTHOR_URN: rawEnv.LINKEDIN_AUTHOR_URN,
+      });
+      return Response.json({ ok: true, channels });
     }
 
     // --- User Profile API ---
