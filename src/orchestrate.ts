@@ -59,6 +59,17 @@ export const OPERATION_CATALOG: CatalogEntry[] = [
     blurb:
       "Provider-neutral trading competency (issue #291): stock/options screening and approval-gated trading across registered broker providers.",
   },
+  {
+    // #1077 Phase 5b slice 1: social.publish is NOT an orchestrator
+    // job. ScheduledAgent executes it directly through the social goal
+    // executor; the catalog entry exists so addGoal accepts the
+    // operation and the dashboard can list it.
+    agent: "social",
+    binding: "SCHEDULED_AGENT",
+    operations: ["social.publish"],
+    blurb:
+      "Build the day's social drafts and publish them under the channel gating (issue #1077).",
+  },
 ];
 
 export function catalogAgent(agent: string): CatalogEntry | undefined {
