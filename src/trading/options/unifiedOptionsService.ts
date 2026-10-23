@@ -31,6 +31,7 @@ import {
   type DataRunContext,
   type ETradeCaptureDeps,
   type OptionsChainRequest,
+  type Tier,
 } from "../dataProviders";
 import { DynamicOptionsScreener } from "../optionsScreener";
 import {
@@ -293,6 +294,14 @@ export class UnifiedOptionsService {
    *  captured. */
   private platformDeps?: ETradeCaptureDeps;
 
+  /** The entitlement tier this service instance presents to route
+   *  resolution (E5, issue #1202). Defaults to "freemium": every
+   *  in-app host (REST screen, scheduled scans, NLQ, MCP) is a
+   *  freemium surface, so an operator-tiered premium route refuses
+   *  them with DataProviderTierError instead of serving. A host
+   *  serving a premium surface passes "premium" explicitly. */
+  private callerTier: Tier;
+
   constructor(
     private env: Env,
     private userLogin: string = "default_trader",
@@ -301,7 +310,8 @@ export class UnifiedOptionsService {
     scanRunStore?: ScanRunStore,
     profileStore?: StrategyProfileStore,
     discoverySql?: { exec(query: string, ...params: unknown[]): Iterable<unknown> },
-    platformDeps?: ETradeCaptureDeps
+    platformDeps?: ETradeCaptureDeps,
+    callerTier: Tier = "freemium"
   ) {
     this.config = getEtapiConfig(env, overrideEnv);
     this.orm = orm;
@@ -309,6 +319,7 @@ export class UnifiedOptionsService {
     this.profileStore = profileStore;
     this.discoverySql = discoverySql;
     this.platformDeps = platformDeps;
+    this.callerTier = callerTier;
   }
 
   /**
@@ -513,7 +524,8 @@ export class UnifiedOptionsService {
         const assignment = registry.resolveRoute(
           "optionsChains",
           listProviderConfigs(this.platformDeps.sql),
-          listCapabilityRoutes(this.platformDeps.sql)
+          listCapabilityRoutes(this.platformDeps.sql),
+          this.callerTier
         );
         engineClient = createPlatformOptionsClient(etrade.client, assignment.primary, {
           runId: platformRunId,
