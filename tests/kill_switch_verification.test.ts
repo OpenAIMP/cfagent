@@ -85,8 +85,20 @@ describe("entry-point enumeration (#756)", () => {
   });
 
   it("nothing writes mas_strategy_weights outside the weights service", () => {
+    // Deliberately declared weights services (#1096 Phase 5): the v1
+    // service (strategyWeights.ts) and the v2 service
+    // (strategyWeightsV2.ts — regime-conditioned, versioned records in
+    // mas_strategy_weights_v2 / mas_strategy_weight_versions). The v2
+    // service's halt story: it applies only through applyAdaptation and
+    // consults isAdaptationHalted before applying (pinned by the
+    // applyAdaptation enumeration above and phase5_rsi_loop.test.ts).
+    // Any OTHER writer of a mas_strategy_weights* table fails here.
+    const weightsServices = new Set([
+      "services/strategyWeights.ts",
+      "services/strategyWeightsV2.ts",
+    ]);
     const writers = prodFiles
-      .filter((f) => f.rel !== "services/strategyWeights.ts")
+      .filter((f) => !weightsServices.has(f.rel))
       .filter((f) => /INSERT[^;]*mas_strategy_weights/i.test(f.text))
       .map((f) => f.rel);
     expect(writers).toEqual([]);
