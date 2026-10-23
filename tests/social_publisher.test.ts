@@ -103,7 +103,11 @@ describe("live publish over a fake transport", () => {
 
   it("publishes to Threads in two steps, threading the container id", async () => {
     const transport = fakeTransport((url) => {
-      if (url.includes("threads_publish")) return { status: 200, body: { id: "threads-post-9" } };
+      // Exact match, not a substring guard (see the approval test note
+      // on CodeQL's incomplete-URL-substring-sanitization rule).
+      if (url === "https://graph.threads.net/v1.0/me/threads_publish") {
+        return { status: 200, body: { id: "threads-post-9" } };
+      }
       return { status: 200, body: { id: "container-7" } };
     });
     const res = await publishWithPublisher(getPublisherDef("threads")!, {
@@ -113,9 +117,9 @@ describe("live publish over a fake transport", () => {
     });
     expect(res).toEqual({ ok: true, platformPostId: "threads-post-9" });
     expect(transport.calls).toHaveLength(2);
-    expect(transport.calls[0].url).toContain("/me/threads");
+    expect(transport.calls[0].url).toBe("https://graph.threads.net/v1.0/me/threads");
     expect(JSON.parse(transport.calls[0].body)).toEqual({ media_type: "TEXT", text: "hello" });
-    expect(transport.calls[1].url).toContain("threads_publish");
+    expect(transport.calls[1].url).toBe("https://graph.threads.net/v1.0/me/threads_publish");
     expect(JSON.parse(transport.calls[1].body)).toEqual({ creation_id: "container-7" });
   });
 
@@ -138,13 +142,16 @@ describe("live publish over a fake transport", () => {
       transport,
     });
     expect(res).toEqual({ ok: true, platformPostId: "fb-2" });
-    expect(transport.calls[0].url).toContain("/me/feed");
+    expect(transport.calls[0].url).toBe("https://graph.facebook.com/v21.0/me/feed");
     expect(JSON.parse(transport.calls[0].body)).toEqual({ message: "hello" });
   });
 
   it("publishes to Instagram in two steps with a caption", async () => {
     const transport = fakeTransport((url) => {
-      if (url.includes("media_publish")) return { status: 200, body: { id: "ig-post-3" } };
+      // Exact match, not a substring guard (see above).
+      if (url === "https://graph.instagram.com/v21.0/me/media_publish") {
+        return { status: 200, body: { id: "ig-post-3" } };
+      }
       return { status: 200, body: { id: "ig-container-4" } };
     });
     const res = await publishWithPublisher(getPublisherDef("instagram")!, {
