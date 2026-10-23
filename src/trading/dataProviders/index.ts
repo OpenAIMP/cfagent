@@ -8,6 +8,7 @@
 export * from "./contract";
 export * from "./registry";
 export * from "./providerConfigStore";
+export * from "./lifecycle";
 export * from "./adapters";
 export * from "./conformance";
 export * from "./captureStore";
