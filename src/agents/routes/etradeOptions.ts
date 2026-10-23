@@ -109,6 +109,9 @@ import {
 export interface EtradeOptionsRouteContext {
   /** Worker environment (owner: OrchestratorAgent - was `this.env`). */
   env: Env;
+  /** Issue #1123: set when this request is executed as an async job —
+   *  inline deliveries defer to the tracked follow-up pipeline. */
+  asyncJobId?: string;
   /** ORM accessor (owner: OrchestratorAgent - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
   /** Durable Object agent context (owner: OrchestratorAgent - was `this.ctx`),
@@ -625,10 +628,10 @@ export async function handleEtradeOptionsRoutes(
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const screener = new DynamicOptionsScreener(etrade.client);
-        return await executeOptionsScreen({ ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel });
+        return await executeOptionsScreen({ ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, deferDelivery: Boolean(ctx.asyncJobId) });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Options screening failed";
-        if (filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1") {
+        if (!ctx.asyncJobId && (filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1")) {
           const sent = await deliverScreenerToSlackA2A(ctx.env, {
             channel: filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL,
             text: `⚠️ Options Contract Screen FAILED — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\nError: ${error}`,

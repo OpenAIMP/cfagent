@@ -78,6 +78,10 @@ import type { Schedule } from "agents";
 export interface EtradeBrokerRouteContext {
   /** Worker environment (owner: OrchestratorAgent - was `this.env`). */
   env: Env;
+  /** Issue #1123: set when this request is executed as an async job —
+   *  follow-ups then belong to the tracked pipeline, and inline
+   *  publishers must defer (no double delivery). */
+  asyncJobId?: string;
   /** ORM accessor (owner: OrchestratorAgent - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
   /** Audit writer (owner: OrchestratorAgent - was `this.audit`). */

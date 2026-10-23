@@ -21,6 +21,16 @@ import type { AsyncJobChannel, AsyncJobSubmission } from "../types";
 
 export type ScreenerKind = "stock" | "options";
 
+/** One standout opportunity, as carried for delivery content (S3). */
+export interface ScreenerOutcomeOpportunity {
+  symbol: string;
+  companyName?: string;
+  signal?: string;
+  momentumScore?: number;
+  lastPrice?: number;
+  changePercent?: number;
+}
+
 /** The canonical record of a finished screener run, from any source. */
 export interface ScreenerRunOutcome {
   kind: ScreenerKind;
@@ -36,6 +46,8 @@ export interface ScreenerRunOutcome {
   universe?: string;
   thesis?: string;
   summary?: string;
+  /** Top opportunities for delivery content (stock screens). */
+  opportunities?: ScreenerOutcomeOpportunity[];
   /** Stable per-run delivery id (dedupe for notifications/deliveries). */
   deliveryId?: string;
   error?: string;
@@ -107,6 +119,88 @@ export type FollowupReportSubmission = Extract<
   { capability: "followup.report" }
 >;
 
+export type FollowupDeliverySubmission = Extract<
+  AsyncJobSubmission,
+  { capability: "followup.deliver" }
+>;
+
+/** The report sub-job's result, as consumed by the delivery planner. */
+export interface FollowupReportResult {
+  status: "ready" | "skipped" | string;
+  artifacts?: Array<{ key: string; fileName: string }>;
+  reason?: string;
+}
+
+const CHANNEL_ORDER: AsyncJobChannel[] = ["slack", "email", "webhook"];
+const CHANNEL_LABEL: Record<AsyncJobChannel, string> = {
+  slack: "Slack",
+  email: "email",
+  webhook: "webhook",
+};
+
+/**
+ * Issue #1123 S3: when the report sub-job completes, plan one delivery
+ * sub-job per configured channel, parented to the MAIN job (the tree
+ * reads main → report / deliveries / notifications as siblings). A
+ * skipped report still plans its deliveries, each carrying the skip
+ * reason so the tree shows them completing as 'skipped' instead of
+ * silently vanishing — and nothing is sent.
+ */
+export function planDeliveryFollowups(
+  outcome: ScreenerRunOutcome,
+  config: ScreenerFollowupConfig,
+  reportResult: FollowupReportResult,
+  mainJobId: string,
+  userLogin: string,
+): FollowupDeliverySubmission[] {
+  if (!config.enabled) return [];
+  const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
+  const artifacts = reportResult.artifacts ?? [];
+  const skipReason = reportResult.status === "skipped"
+    ? reportResult.reason || "Report was skipped."
+    : artifacts.length === 0
+      ? "Report produced no artifact to deliver."
+      : undefined;
+  const specs: FollowupDeliverySubmission[] = [];
+  for (const channel of CHANNEL_ORDER) {
+    if (!config.channels[channel].configured) continue;
+    specs.push({
+      capability: "followup.deliver",
+      payload: { outcome, userLogin, channel, artifacts, skipReason },
+      parentJobId: mainJobId,
+      jobKind: "delivery",
+      channel,
+      displayName: `Deliver by ${CHANNEL_LABEL[channel]} — ${kindLabel} screen`,
+    });
+  }
+  return specs;
+}
+
+/** Delivery/notification text for a run outcome (S3; reused by S4). */
+export function formatFollowupDeliveryText(outcome: ScreenerRunOutcome): string {
+  const kindLabel = outcome.kind === "stock" ? "Stock screen" : "Options screen";
+  const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
+  const lines: string[] = [
+    `📊 ${kindLabel}${scope ? ` — ${scope}` : ""}`,
+  ];
+  if (outcome.matchedCount !== undefined || outcome.totalScanned !== undefined) {
+    lines.push(`${outcome.matchedCount ?? "?"} matched · ${outcome.totalScanned ?? "?"} scanned`);
+  }
+  if (outcome.summary) lines.push(outcome.summary);
+  if (outcome.opportunities && outcome.opportunities.length > 0) {
+    lines.push("");
+    for (const opp of outcome.opportunities.slice(0, 10)) {
+      const price = opp.lastPrice !== undefined ? ` @ $${opp.lastPrice}` : "";
+      const change = opp.changePercent !== undefined ? ` (${opp.changePercent > 0 ? "+" : ""}${opp.changePercent}%)` : "";
+      lines.push(`• ${opp.symbol}${opp.companyName ? ` — ${opp.companyName}` : ""}${opp.signal ? ` [${opp.signal}]` : ""}${price}${change}`);
+    }
+  }
+  if (outcome.reportUrl) {
+    lines.push("", `📄 Report: ${outcome.reportUrl}`);
+  }
+  return lines.join("\n");
+}
+
 /**
  * The initial plan for a completed run: exactly one report sub-job.
  * Deliveries are planned when the report completes (S3) and lifecycle
@@ -151,6 +245,23 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function asOpportunities(value: unknown): ScreenerOutcomeOpportunity[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: ScreenerOutcomeOpportunity[] = [];
+  for (const item of value as Array<Record<string, unknown>>) {
+    if (!item || typeof item.symbol !== "string") continue;
+    out.push({
+      symbol: item.symbol,
+      companyName: typeof item.companyName === "string" ? item.companyName : undefined,
+      signal: typeof item.signal === "string" ? item.signal : undefined,
+      momentumScore: asNumber(item.momentumScore),
+      lastPrice: asNumber(item.lastPrice),
+      changePercent: asNumber(item.changePercent),
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 /**
  * Adapt a completed http.request job (path, response status, body) into
  * the canonical outcome. Returns null when the job is not a screener
@@ -185,6 +296,7 @@ export function screenerOutcomeFromHttpJob(
       const pdfKeys = shards
         .map((s) => (typeof s.pdfKey === "string" ? s.pdfKey : pdfKeyFromReportUrl(s.reportUrl)))
         .filter((k): k is string => Boolean(k));
+      const shardOpportunities = shards.flatMap((s) => asOpportunities(s.opportunities) ?? []);
       return {
         kind,
         trigger: "manual",
@@ -194,6 +306,7 @@ export function screenerOutcomeFromHttpJob(
         matchedCount: shards.reduce((n, s) => n + (asNumber(s.matchedCount) ?? 0), 0),
         totalScanned: shards.reduce((n, s) => n + (asNumber(s.totalScanned) ?? 0), 0),
         universe: "ALL",
+        opportunities: shardOpportunities.length > 0 ? shardOpportunities : undefined,
         reportUrl: typeof body.reportUrl === "string" ? body.reportUrl : undefined,
       };
     }
@@ -212,6 +325,7 @@ export function screenerOutcomeFromHttpJob(
       matchedCount: asNumber(body.matchedCount),
       totalScanned: asNumber(body.totalScanned),
       universe: typeof body.universe === "string" ? body.universe : undefined,
+      opportunities: asOpportunities(body.opportunities),
       reportUrl: typeof body.reportUrl === "string" ? body.reportUrl : undefined,
     };
   }

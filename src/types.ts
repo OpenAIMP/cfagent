@@ -1765,6 +1765,18 @@ export type AsyncJobSubmission =
         outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
         userLogin: string;
       };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1123 S3: one delivery of the shared report artifact on
+       *  one channel. skipReason pre-completes it as 'skipped'. */
+      capability: "followup.deliver";
+      payload: {
+        outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
+        userLogin: string;
+        channel: AsyncJobChannel;
+        artifacts: Array<{ key: string; fileName: string }>;
+        skipReason?: string;
+      };
     } & AsyncJobGraphFields);
 
 export interface TWAPOrderConfig {
