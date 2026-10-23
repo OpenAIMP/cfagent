@@ -26,9 +26,12 @@ import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
 import { createDiscoveryService } from "../../services/discoveryService";
 import {
+  isEmailAllowed,
+  planDeliveryFollowups,
   planInitialFollowups,
   resolveScreenerFollowupConfig,
   screenerOutcomeFromHttpJob,
+  type FollowupReportResult,
 } from "../../services/screenerFollowups";
 
 /**
@@ -53,6 +56,17 @@ export interface AsyncJobsContext {
   followupReportPort: () => {
     getStockPdf: (userLogin: string, key: string) => Promise<{ fileName: string } | null>;
     getOptionsPdf: (userLogin: string, key: string) => Promise<{ fileName: string } | null>;
+  };
+  /** Issue #1123 S3: channel deliveries for followup.deliver jobs. The
+   *  port owns content + transport (Slack/email/webhook services); the
+   *  executor owns policy (allowlist, skip) and job state. */
+  followupDeliveryPort: () => {
+    deliver: (input: {
+      channel: AsyncJobChannel;
+      userLogin: string;
+      outcome: import("../../services/screenerFollowups").ScreenerRunOutcome;
+      artifacts: Array<{ key: string; fileName: string }>;
+    }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
   };
 }
 
@@ -127,7 +141,9 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
         ? `NLQ: ${job.payload.query.slice(0, 100)}`
         : job.capability === "followup.report"
           ? "Generate report"
-          : `Task: ${job.payload.title}`);
+          : job.capability === "followup.deliver"
+            ? "Deliver report"
+            : `Task: ${job.payload.title}`);
   // Single-line column list: the shared MockSqlStorage INSERT parser does
   // not span newlines inside the column list (tests would silently drop
   // the row) — keep this statement on one line.
@@ -358,6 +374,29 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         }
         result = { status: "ready", artifacts, missingKeys: missing };
       }
+    } else if (job.capability === "followup.deliver") {
+      // Issue #1123 S3: deliver the shared report artifact on one
+      // channel. Policy lives here (skip passthrough, the Assessment's
+      // email allowlist); transport lives behind the delivery port.
+      const channel = payload.channel as AsyncJobChannel;
+      const outcome = payload.outcome as import("../../services/screenerFollowups").ScreenerRunOutcome;
+      const artifacts = (payload.artifacts ?? []) as Array<{ key: string; fileName: string }>;
+      const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
+      if (typeof payload.skipReason === "string" && payload.skipReason) {
+        result = { status: "skipped", reason: payload.skipReason, channel };
+      } else {
+        if (channel === "email") {
+          const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
+          const to = config.channels.email.to;
+          if (!to) throw new Error("Email delivery is not configured (SCREENER_EMAIL_TO is unset).");
+          if (!isEmailAllowed(config, to)) {
+            throw new Error(`Email recipient ${to} is not in the screener email allowlist; delivery refused.`);
+          }
+        }
+        const delivery = await ctx.followupDeliveryPort().deliver({ channel, userLogin, outcome, artifacts });
+        if (!delivery.ok) throw new Error(delivery.error || `Delivery via ${channel} failed.`);
+        result = { status: "sent", channel, detail: delivery.detail };
+      }
     } else if (job.capability === "nlq.execute") {
       const query = String(payload.query || "").trim();
       if (!query) throw new Error("NLQ job requires a non-empty query.");
@@ -415,6 +454,37 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           error: followupError instanceof Error ? followupError.message : String(followupError),
         });
         console.error(`[OrchestratorAgent] Follow-up scheduling failed for job ${jobId}:`, followupError);
+      }
+    }
+
+    // Issue #1123 S3: a completed report sub-job chains the deliveries
+    // (parented to the MAIN job, not the report). Same never-fail rule.
+    if (job.capability === "followup.report") {
+      try {
+        const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
+        const outcome = (payload as { outcome?: import("../../services/screenerFollowups").ScreenerRunOutcome }).outcome;
+        const userLogin = typeof (payload as { userLogin?: unknown }).userLogin === "string"
+          ? (payload as { userLogin: string }).userLogin
+          : ctx.sessionKey();
+        if (outcome) {
+          const mainJobId = getAsyncJob(ctx, jobId)?.parentJobId ?? jobId;
+          const specs = planDeliveryFollowups(
+            outcome,
+            config,
+            (result ?? {}) as FollowupReportResult,
+            mainJobId,
+            userLogin,
+          );
+          for (const spec of specs) {
+            await submitAsyncJob(ctx, spec);
+          }
+        }
+      } catch (followupError) {
+        ctx.audit("followup.schedule_failed", "orchestrator", {
+          jobId,
+          error: followupError instanceof Error ? followupError.message : String(followupError),
+        });
+        console.error(`[OrchestratorAgent] Delivery scheduling failed for job ${jobId}:`, followupError);
       }
     }
   } catch (error) {

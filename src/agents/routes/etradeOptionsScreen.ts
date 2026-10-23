@@ -35,8 +35,11 @@ export async function executeOptionsScreen(args: {
   screenPushToSlack: OptionsScreenValue["pushToSlack"];
   screenSlackChannel: OptionsScreenValue["slackChannel"];
   screenUniverseLabel: OptionsScreenValue["universe"];
+  /** Issue #1123: when the screen runs as a tracked job, the follow-up
+   *  pipeline owns delivery — skip the inline Slack delivery. */
+  deferDelivery?: boolean;
 }): Promise<Response> {
-  const { ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel } = args;
+  const { ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, deferDelivery } = args;
   let result = await screener.screenOptions(screenFilter);
 
   // Demo-mode fallback (issue #65): generated chains may substitute for an
@@ -106,7 +109,8 @@ export async function executeOptionsScreen(args: {
   }
 
   // Deliver over A2A to Slack channel unless caller explicitly opted out
-  const shouldNotifySlack = screenPushToSlack !== false;
+  // (or the tracked follow-up pipeline owns delivery — issue #1123).
+  const shouldNotifySlack = screenPushToSlack !== false && !deferDelivery;
   if (shouldNotifySlack) {
     const slackChannel = screenSlackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
     const summary = `📊 Options Contract Screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;

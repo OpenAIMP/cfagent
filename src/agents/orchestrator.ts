@@ -46,6 +46,7 @@ import { ETradeEmailTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
+import { createFollowupDeliveryPort } from "../services/screenerFollowupDelivery";
 import { ScheduledTasksService, type AutonomousOptionsAnalysisOptions, type AutonomousStrategyDiscoveryOptions } from "../services/scheduledTasks";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
 // Issue #308: the single generate→store seam + canonical report bodies.
@@ -233,6 +234,11 @@ export class OrchestratorAgent extends Think<Env> {
           const pdf = await this.getScreenerAgent(userLogin).getOptionsPdfByKey(key);
           return pdf ? { fileName: pdf.fileName } : null;
         },
+      }),
+      followupDeliveryPort: () => createFollowupDeliveryPort({
+        env: this.env,
+        getOrm: () => this.getOrm(),
+        getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
       }),
     };
   }
@@ -1818,6 +1824,7 @@ export class OrchestratorAgent extends Think<Env> {
     // a non-null return matched.
     const etradeBrokerResponse = await handleEtradeBrokerRoutes(request, url, path, sessionId, {
       env: this.env,
+      asyncJobId: request.headers.get("x-async-job-id") || undefined,
       getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
@@ -1885,6 +1892,7 @@ export class OrchestratorAgent extends Think<Env> {
     // passed through the context.
     const etradeOptionsResponse = await handleEtradeOptionsRoutes(request, url, path, sessionId, {
       env: this.env,
+      asyncJobId: request.headers.get("x-async-job-id") || undefined,
       getOrm: () => this.getOrm(),
       agentCtx: this.ctx,
       ensureTables: () => this.ensureTables(),
