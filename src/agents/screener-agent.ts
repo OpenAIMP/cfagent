@@ -121,6 +121,14 @@ export interface ScreenerRunResult {
   partial?: PartialQuoteQualification;
   /** Issue #728: per-symbol rejection reasons for the Slack breakdown. */
   rejections?: { symbol: string; reason: string }[];
+  /**
+   * Issue #1184 (#1173 R2): technicals coverage for this run — how
+   * many quoted symbols the Yahoo history leg actually produced
+   * MACD / gap values for. Recorded so a technicals outage is data
+   * (the 2026-10-23 run showed blank MACD/Gap on every row with no
+   * signal anywhere that history coverage was zero).
+   */
+  technicalsCoverage?: { symbols: number; withMacd: number; withGap: number };
   /** Per-run PDF key populated by persistRun after the PDF is stored. */
   pdfKey?: string;
   /** Issue #822: explicit PDF generation status. 'failed' means generatePdfAsset
@@ -575,6 +583,15 @@ export class ScreenerAgent extends Agent<Env> {
         undefined,
         () => beat()
       );
+      // Issue #1184 (#1173 R2): record technicals coverage on the
+      // result — symbols quoted vs symbols with real MACD / gap
+      // values. Zero coverage after a throttle storm is now visible
+      // in the run record instead of silently blank columns.
+      const technicalsCoverage = {
+        symbols: acquired.quotes.length,
+        withMacd: [...technicalsBySymbol.values()].filter((t) => t.macdLine != null).length,
+        withGap: [...technicalsBySymbol.values()].filter((t) => t.gapPercent != null).length,
+      };
 
       // Issue #266: SA-style factor grades, computed percentile-relative
       // across the full scanned universe, then joined onto opportunities.
@@ -607,6 +624,7 @@ export class ScreenerAgent extends Agent<Env> {
         opportunities,
         allStocks,
         discoveryMessage: acquired.discovery.message,
+        technicalsCoverage,
         filterSummary: screenResult.filterSummary,
         ...(acquired.partial ? { partial: acquired.partial } : {}),
         // Issue #728: rejection reasons for the Slack breakdown.
