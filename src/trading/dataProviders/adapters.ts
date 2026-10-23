@@ -19,10 +19,14 @@
  *   nasdaq — fetchAllUsStockListings (src/services/nasdaqListings.ts),
  *            promoted from a listings helper to a provider: it serves
  *            the screenUniverse capability (universe membership).
- *
- * There is deliberately NO public adapter: public is seeded in the
- * config store as a descriptor in "registered" state, and its
- * integration is its own later slice under #1116.
+ *   public — Public.com's hosted MCP server (src/services/publicMcp.ts
+ *            + publicData.ts), added by #1247: unlike the wrappers
+ *            above there is no pre-existing in-repo implementation to
+ *            wrap — the adapter maps the MCP tools' payloads into the
+ *            contract shapes at this boundary (fields the payloads do
+ *            not carry stay absent; see publicData.ts). Its credential
+ *            is the signed-in user's Public token set
+ *            (src/security/publicOAuth.ts), never an app-level secret.
  *
  * E1 (issue #1133): the E*TRADE adapter optionally takes capture deps;
  * wired with them, every fetch through it writes a capture
@@ -44,10 +48,26 @@
  */
 
 import { ETradeService } from "../../services/etrade";
+import { PublicMcpClient } from "../../services/publicMcp";
+import {
+  PublicDataError,
+  extractPublicQuoteRows,
+  mapPublicQuoteRow,
+  readPublicOptionChain,
+  readPublicOptionExpirations,
+  readPublicQuotes,
+  expiryDateFromYmd,
+  type PublicToolRead,
+} from "../../services/publicData";
+import {
+  getPublicAccessToken,
+  resolvePublicCredentialRef,
+} from "../../security/publicOAuth";
 import type { IFossMarketDataProvider } from "../../patterns/interfaces";
 import type {
   Env,
   ETradeOptionChain,
+  ETradeOptionExpireDate,
   ETradeQuote,
 } from "../../types";
 import type { SqlStorage } from "../../orm";
@@ -531,5 +551,258 @@ export function createNasdaqDataProvider(
     isConfigured: () => true,
     getScreenUniverse: async () =>
       tag("nasdaq", "screenUniverse", await fetchListings()),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Public.com (issue #1247)                                            */
+/* ------------------------------------------------------------------ */
+
+/** Capture wiring for the Public adapter: identical shape to E*TRADE's (E1). */
+export type PublicCaptureDeps = ETradeCaptureDeps;
+
+export interface PublicDataProviderOptions {
+  capture?: PublicCaptureDeps;
+  /** Transport seam (tests); production uses the global fetch. */
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Public adapter — the platform's first MCP-backed provider.
+ *
+ * Unlike the wrappers above, there is no pre-existing implementation
+ * whose results pass through by reference: the wrapped surface is
+ * Public's hosted MCP server, whose tool payloads are unpublished.
+ * The reads (src/services/publicData.ts) map those payloads into the
+ * contract shapes at this boundary — liberally in field naming (the
+ * shapes are not published), strictly in honesty (a field the payload
+ * does not carry stays absent; Greeks map only where the payload
+ * carries them). Provenance rides the same envelope as every adapter.
+ *
+ * Declared capabilities are exactly the grounded ones: quotes and
+ * optionsChains (expirations + chain). News and historical bars are
+ * NOT declared — the MCP tool surface this slice is grounded on
+ * (cfpay, verified live) covers the three data tools only.
+ *
+ * With capture deps (E1), every fetch writes a capture whose raw
+ * payload is the tool call's wire payload (the parsed tool result;
+ * the raw text when it does not parse), rawKind "provider-response",
+ * with the exact schema-mapped args in the request params — the same
+ * audit posture as the E*TRADE adapter.
+ *
+ * isConfigured reports construction wiring only: the credential lives
+ * behind the async SessionStore, so the REAL configuration check is
+ * verifyPublicDataProvider (token resolution + tools/list +
+ * conformance), which the lifecycle's verify action binds.
+ */
+export function createPublicDataProvider(
+  client: PublicMcpClient,
+  options?: PublicDataProviderOptions
+): DataProvider {
+  const capture = options?.capture;
+
+  async function captureRead(
+    capability: "quotes" | "optionsChains",
+    read: PublicToolRead,
+    normalizedResult: unknown,
+    runContext?: DataRunContext
+  ): Promise<void> {
+    if (!capture) return;
+    const ctx = resolveRunContext(runContext);
+    await recordCapture(
+      capture.sql,
+      { storage: capture.blobStorage, env: capture.env },
+      {
+        providerId: "public",
+        capability,
+        requestParams: { tool: read.tool, args: read.args },
+        runId: ctx.runId,
+        tenantId: ctx.tenantId,
+        userLogin: ctx.userLogin,
+        rawPayload: read.payload !== undefined ? read.payload : read.text,
+        rawKind: "provider-response" as DataCaptureRawKind,
+        normalizedResult,
+        retentionClass: capture.retentionClass,
+      }
+    );
+  }
+
+  async function captureNoPayload(
+    capability: "quotes" | "optionsChains",
+    requestParams: Record<string, unknown>,
+    normalizedResult: unknown,
+    runContext?: DataRunContext
+  ): Promise<void> {
+    if (!capture) return;
+    const ctx = resolveRunContext(runContext);
+    // A completed fetch with no payload: an audit row records the
+    // attempt (status no_payload); no raw is fabricated for it — the
+    // E*TRADE adapter's null-chain treatment.
+    await recordCapture(
+      capture.sql,
+      { storage: capture.blobStorage, env: capture.env },
+      {
+        providerId: "public",
+        capability,
+        requestParams,
+        runId: ctx.runId,
+        tenantId: ctx.tenantId,
+        userLogin: ctx.userLogin,
+        normalizedResult,
+        retentionClass: capture.retentionClass,
+      }
+    );
+  }
+
+  return {
+    id: "public",
+    name: "Public.com",
+    capabilities: ["quotes", "optionsChains"] as const,
+    isConfigured: () => true,
+    getQuote: async (symbol: string, runContext?: DataRunContext) => {
+      const read = await readPublicQuotes(client, [symbol]);
+      const fetchedAt = new Date().toISOString();
+      const wanted = symbol.toUpperCase();
+      const row = extractPublicQuoteRows(read.payload).find((r) => {
+        const direct = typeof r.symbol === "string" ? r.symbol : undefined;
+        const nested =
+          r.instrument && typeof r.instrument === "object"
+            ? (r.instrument as { symbol?: unknown }).symbol
+            : undefined;
+        return (
+          (typeof direct === "string" && direct.toUpperCase() === wanted) ||
+          (typeof nested === "string" && nested.toUpperCase() === wanted)
+        );
+      });
+      const quote = row ? mapPublicQuoteRow(row, fetchedAt) : null;
+      if (!quote) {
+        throw new PublicDataError(
+          `Public.com get_quotes returned no usable quote for ${symbol}.`
+        );
+      }
+      await captureRead("quotes", read, quote, runContext);
+      return tag("public", "quotes", quote);
+    },
+    getQuotesBatch: async (symbols: string[], runContext?: DataRunContext) => {
+      const read = await readPublicQuotes(client, symbols);
+      const fetchedAt = new Date().toISOString();
+      const quotes = extractPublicQuoteRows(read.payload)
+        .map((r) => mapPublicQuoteRow(r, fetchedAt))
+        .filter((q): q is ETradeQuote => q !== null);
+      await captureRead("quotes", read, quotes, runContext);
+      return tag("public", "quotes", quotes);
+    },
+    getOptionExpiryDates: async (symbol: string, runContext?: DataRunContext) => {
+      const read = await readPublicOptionExpirations(client, symbol);
+      const dates = read.expirations
+        .map((ymd) => expiryDateFromYmd(ymd))
+        .filter((d): d is ETradeOptionExpireDate => d !== null);
+      if (dates.length > 0) {
+        await captureRead("optionsChains", read, dates, runContext);
+      } else {
+        await captureNoPayload(
+          "optionsChains",
+          { tool: read.tool, args: read.args },
+          dates,
+          runContext
+        );
+      }
+      return tag("public", "optionsChains", dates);
+    },
+    getOptionsChain: async (
+      request: OptionsChainRequest,
+      runContext?: DataRunContext
+    ) => {
+      const expiry =
+        request.expiryYear && request.expiryMonth && request.expiryDay
+          ? `${request.expiryYear}-${String(request.expiryMonth).padStart(2, "0")}-${String(
+              request.expiryDay
+            ).padStart(2, "0")}`
+          : null;
+      const read = await readPublicOptionChain(client, request.symbol, expiry);
+      let chain = read.chain;
+      if (chain && request.chainType && request.chainType !== "CALLPUT") {
+        const keep = request.chainType === "CALL" ? "call" : "put";
+        chain = {
+          ...chain,
+          pairs: chain.pairs.map((p) => ({ [keep]: p[keep] })),
+        };
+      }
+      if (chain === null) {
+        await captureNoPayload(
+          "optionsChains",
+          { tool: read.tool, args: read.args },
+          null,
+          runContext
+        );
+      } else {
+        await captureRead("optionsChains", read, chain, runContext);
+      }
+      return tag("public", "optionsChains", chain);
+    },
+  };
+}
+
+/**
+ * Construct the Public adapter straight from an environment + login —
+ * the from-env factory the platform surfaces share, mirroring
+ * createETradeDataProviderFromEnv. The token source is the user's
+ * stored Public token set (src/security/publicOAuth.ts), read for
+ * EXACTLY this login: a missing login resolves to no token (an honest
+ * refusal downstream), never to another identity's credential.
+ */
+export function createPublicDataProviderFromEnv(
+  env: Env,
+  userLogin: string,
+  options?: PublicDataProviderOptions
+): DataProvider {
+  const fetchImpl = options?.fetchImpl;
+  const client = new PublicMcpClient({
+    accessTokenProvider: () => getPublicAccessToken(env, userLogin, fetchImpl),
+    fetchImpl,
+  });
+  return createPublicDataProvider(client, options);
+}
+
+/**
+ * The Public verification check the provisioning lifecycle's verify
+ * action binds to — verifyETradeDataProvider's shape: resolve the
+ * configured credential REFERENCE first (no reference, or a reference
+ * with nothing usable behind it, fails with that reason and no probe
+ * is attempted), then run the P1 conformance kit against the live
+ * adapter. Returns { ok, summary }; never throws.
+ */
+export async function verifyPublicDataProvider(
+  env: Env,
+  userLogin: string,
+  credentialRef: string | null,
+  options?: { fetchImpl?: typeof fetch }
+): Promise<{ ok: boolean; summary: string }> {
+  const resolution = await resolvePublicCredentialRef(
+    env,
+    userLogin,
+    credentialRef,
+    options?.fetchImpl
+  );
+  if (!resolution.ok) {
+    return { ok: false, summary: resolution.error };
+  }
+  const client = new PublicMcpClient({
+    accessTokenProvider: async () => resolution.accessToken,
+    fetchImpl: options?.fetchImpl,
+  });
+  const adapter = createPublicDataProvider(client);
+  const report = await runDataProviderConformance(adapter);
+  if (!report.ok) {
+    const failures = report.checks
+      .flatMap((c) => c.failures.map((f) => `${c.capability}: ${f}`))
+      .join("; ");
+    return { ok: false, summary: `Public adapter conformance failed — ${failures}` };
+  }
+  return {
+    ok: true,
+    summary: `Public credential resolved via its configured reference; conformance passed for ${report.checks
+      .map((c) => c.capability)
+      .join(", ")}.`,
   };
 }
