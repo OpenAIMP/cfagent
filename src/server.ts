@@ -62,6 +62,15 @@ import {
   getValidTokens,
   renewAllStoredETradeTokens,
 } from "./services/etradeOAuth";
+import {
+  PublicClientRejectedError,
+  completePublicOAuth,
+  connectPublicPersonalToken,
+  disconnectPublic,
+  getPublicConnectionStatus,
+  publicClientMetadataDocument,
+  startPublicOAuth,
+} from "./security/publicOAuth";
 import { ETradeRestClient } from "./trading";
 import { resolveEnvironmentConfig } from "./config/environment";
 import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./trading";
@@ -276,6 +285,24 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       }
       return null;
     };
+
+    // Issue #1247: Public.com Client ID Metadata Document — the
+    // OAuth client_id for the Public resource provider IS this URL
+    // (no RFC 7591 registration exists; see src/security/publicOAuth.ts).
+    // Served ahead of the A2A well-known branch, which would otherwise
+    // claim every /.well-known/* path. Public by design: the
+    // authorization server fetches it unauthenticated.
+    if (path === "/.well-known/oauth-client-id-metadata-document") {
+      const origin = new URL(request.url).origin;
+      return new Response(JSON.stringify(publicClientMetadataDocument(origin)), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, max-age=300",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
+    }
 
     // PR #2 — A2A routing (issue #160): agent discovery + JSON-RPC dispatch
     if (path.startsWith("/a2a/") || path.startsWith("/.well-known/")) {
@@ -558,6 +585,115 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       if (!session) return new Response("Unauthorized", { status: 401 });
       const result = await revokeRemoteAccessToken(env, session.githubLogin, reqEnv);
       return Response.json(result);
+    }
+
+    // --- Public.com OAuth 2.1 Resource-Provider Lifecycle (issue #1247) ---
+    // Public is a RESOURCE provider in the E*TRADE shape: tokens are
+    // data-API credentials bound to the signed-in user, held in the
+    // SessionStore (src/security/publicOAuth.ts), and never create a
+    // login session. The pasted personal access token is the alternate
+    // credential and stores through the same token-set record.
+    if (path === "/auth/public/start") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      // Same #945 PDP gate as the E*TRADE start route.
+      if (shouldEnforcePdp(env, session)) {
+        const allowed = await checkRoutePermission(
+          createKvMembershipStore(sessionStore(env)),
+          session,
+          resolveIaaaTenant(env),
+          "integration:connect",
+          Date.now(),
+        );
+        if (!allowed) {
+          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+        }
+      }
+      try {
+        const origin = new URL(request.url).origin;
+        const { authorizeUrl } = await startPublicOAuth(env, session.githubLogin, origin);
+        return Response.redirect(authorizeUrl, 302);
+      } catch (err: any) {
+        if (err instanceof PublicClientRejectedError) {
+          return new Response(err.message, { status: 502 });
+        }
+        return new Response(
+          "Could not start the Public.com sign-in: " + (err?.message || String(err)) +
+            "\n\nYou can still connect with a personal access token (POST /api/public/connect).",
+          { status: 502 }
+        );
+      }
+    }
+
+    if (path === "/auth/public/callback") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.redirect("/?error=unauthorized", 302);
+      const errorParam = url.searchParams.get("error");
+      if (errorParam) {
+        const detail = url.searchParams.get("error_description") || errorParam;
+        return Response.redirect(`/?tab=settings&public_error=${encodeURIComponent(detail)}`, 302);
+      }
+      const code = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      if (!code || !state) {
+        return Response.redirect("/?tab=settings&public_error=missing_code_or_state", 302);
+      }
+      try {
+        // The state is verified inside (session.ts primitives), and the
+        // pending flow must belong to THIS session's login.
+        const result = await completePublicOAuth(env, state, code, session.githubLogin);
+        return Response.redirect(`/?tab=settings&public_connected=${result.toolCount}`, 302);
+      } catch (err: any) {
+        return Response.redirect(
+          `/?tab=settings&public_error=${encodeURIComponent(err?.message || "exchange_failed")}`,
+          302
+        );
+      }
+    }
+
+    if (path === "/api/public/status") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ connected: false });
+      return Response.json(await getPublicConnectionStatus(env, session.githubLogin));
+    }
+
+    if (path === "/api/public/connect" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      // Same #945 PDP gate as the E*TRADE verifier route (this stores
+      // a broker credential).
+      if (shouldEnforcePdp(env, session)) {
+        const allowed = await checkRoutePermission(
+          createKvMembershipStore(sessionStore(env)),
+          session,
+          resolveIaaaTenant(env),
+          "integration:connect",
+          Date.now(),
+        );
+        if (!allowed) {
+          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+        }
+      }
+      const body = (await request.json().catch(() => null)) as { token?: string } | null;
+      const token = (body?.token || "").trim();
+      if (!token) return Response.json({ error: "A personal access token is required." }, { status: 400 });
+      try {
+        // Verified against the MCP server before it is stored.
+        const result = await connectPublicPersonalToken(env, session.githubLogin, token);
+        return Response.json({ ok: true, toolCount: result.toolCount, tools: result.tools });
+      } catch (err: any) {
+        return Response.json(
+          { error: "Public.com rejected that token: " + (err?.message || String(err)) },
+          { status: 502 }
+        );
+      }
+    }
+
+    if (path === "/api/public/disconnect" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      await disconnectPublic(env, session.githubLogin);
+      return Response.json({ ok: true });
     }
 
     // --- Factor 14 Telemetry: Health & Observability Endpoint ---
