@@ -26,6 +26,7 @@ TradingPlatformRegistry.register("sandbox", (env, orm, userLogin, overrideEnv) =
 export * from "./interfaces";
 export * from "./registry";
 export * from "./screeningProvider";
+export * from "./dataProviders";
 export * from "./screener";
 export * from "./agent";
 export * from "./etrade/client";
