@@ -74,6 +74,9 @@ import {
   MarketCapCategory,
   AssetClassCategory,
 } from "./trading";
+import { runSocialDailyTick } from "./agents/social/tick";
+import { MemorySocialLedger } from "./agents/social/ledger";
+import { MemoryPendingApprovalStore } from "./agents/social/approvals";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
 export { BrowserAgent } from "./agents/browserAgent";
@@ -1612,6 +1615,42 @@ export default {
       );
       if (ctx?.waitUntil) ctx.waitUntil(weightsPromise);
       else await weightsPromise;
+      // Issue #1077 Phase 5a — social daily tick (dry-run, no-op today).
+      // briefProvider returns null until the owner supplies a content
+      // source, so this runs the fire check and stops: no drafts, no
+      // posts, no network calls. Posting additionally requires
+      // SOCIAL_POSTING_ENABLED=1, and live publishing additionally
+      // requires SOCIAL_LIVE_PUBLISHING=1 plus a per-channel token
+      // (tokens: {} here — no token is wired in this phase).
+      // The in-memory ledger is intentional for this phase: with a
+      // null brief nothing is ever written, so no durable store is
+      // needed yet; durable social storage is a Phase 5b wiring step.
+      // Tick errors are logged, never thrown, so a social failure
+      // cannot break the other jobs riding this tick.
+      const socialTickPromise = runSocialDailyTick({
+        // Env does not declare the SOCIAL_* vars (they are runtime
+        // vars, like any wrangler.jsonc var not yet added to types.ts),
+        // so narrow explicitly instead of passing the whole Env: the
+        // weak-type check rejects an Env with no SOCIAL_* properties.
+        env: {
+          SOCIAL_POSTING_ENABLED: (env as { SOCIAL_POSTING_ENABLED?: string }).SOCIAL_POSTING_ENABLED,
+          SOCIAL_LIVE_PUBLISHING: (env as { SOCIAL_LIVE_PUBLISHING?: string }).SOCIAL_LIVE_PUBLISHING,
+          SOCIAL_AUTONOMOUS_CHANNELS: (env as { SOCIAL_AUTONOMOUS_CHANNELS?: string })
+            .SOCIAL_AUTONOMOUS_CHANNELS,
+          SOCIAL_APPROVAL_CHANNELS: (env as { SOCIAL_APPROVAL_CHANNELS?: string })
+            .SOCIAL_APPROVAL_CHANNELS,
+        },
+        tokens: {},
+        nowMs: Date.now(),
+        store: new MemorySocialLedger(),
+        approvals: new MemoryPendingApprovalStore(),
+        briefProvider: () => null,
+        dryRunSink: { record: () => {} },
+      }).catch((tickErr) => {
+        console.warn("[scheduled] social daily tick failed", tickErr);
+      });
+      if (ctx?.waitUntil) ctx.waitUntil(socialTickPromise);
+      else await socialTickPromise;
       return;
     }
     // Renew all account-scoped Durable Object tokens before midnight ET.
