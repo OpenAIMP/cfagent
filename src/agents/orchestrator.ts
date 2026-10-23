@@ -224,6 +224,16 @@ export class OrchestratorAgent extends Think<Env> {
       routeRequest: (request) => this.routeRequest(request),
       nlqSchedulingPort: () => this.nlqSchedulingPort(),
       nlqStockScreenPort: () => this.nlqStockScreenPort(),
+      followupReportPort: () => ({
+        getStockPdf: async (userLogin: string, key: string) => {
+          const pdf = await this.getScreenerAgent(userLogin).getPdfByKey(key);
+          return pdf ? { fileName: pdf.fileName } : null;
+        },
+        getOptionsPdf: async (userLogin: string, key: string) => {
+          const pdf = await this.getScreenerAgent(userLogin).getOptionsPdfByKey(key);
+          return pdf ? { fileName: pdf.fileName } : null;
+        },
+      }),
     };
   }
 

@@ -1756,6 +1756,15 @@ export type AsyncJobSubmission =
         priority?: "low" | "medium" | "high" | "urgent";
         assignee?: string;
       };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1123: screener follow-up sub-jobs (report first; the
+       *  delivery/notification capabilities arrive with S3/S4). */
+      capability: "followup.report";
+      payload: {
+        outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
+        userLogin: string;
+      };
     } & AsyncJobGraphFields);
 
 export interface TWAPOrderConfig {
