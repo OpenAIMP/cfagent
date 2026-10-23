@@ -10,6 +10,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   authBlockedMessage,
+  authMissingMessage,
   etradeAuthEpisodeKey,
   fireAuthEpisodeAlertOnce,
   guardScheduledETradeAuth,
@@ -48,6 +49,24 @@ describe("preflightETradeAuth", () => {
     );
     expect(res.status).toBe("no-tokens");
     expect(renew).not.toHaveBeenCalled();
+  });
+
+  it("#1200: no stored tokens in production → blocked(no-session)", async () => {
+    const res = await preflightETradeAuth(
+      deps({ getTokens: async () => null, isProduction: () => true }),
+      "venus"
+    );
+    expect(res.status).toBe("blocked");
+    if (res.status === "blocked") expect(res.reason).toBe("no-session");
+  });
+
+  it("#1200: expired + renewal failed → blocked(expired)", async () => {
+    const res = await preflightETradeAuth(
+      deps({ isExpired: () => true, renew: async () => null }),
+      "venus"
+    );
+    expect(res.status).toBe("blocked");
+    if (res.status === "blocked") expect(res.reason).toBe("expired");
   });
 
   it("fresh token → ok, renewal never attempted", async () => {
@@ -173,6 +192,65 @@ describe("guardScheduledETradeAuth", () => {
       kind: "stock",
       label: "SP100 stock screen",
       deps: deps({ getTokens: async () => null }),
+      sendSlackAlert: async () => {},
+    });
+    expect(res.blocked).toBe(false);
+  });
+
+  it("#1200: no session in PRODUCTION → blocked(no-session), one connect alert per episode", async () => {
+    const store = mapStore();
+    const sendSlackAlert = vi.fn(async () => {});
+    const bridge = vi.fn(async () => {});
+    const base = {
+      env: {} as any,
+      userLogin: "venus",
+      store,
+      bridge,
+      kind: "options" as const,
+      label: "bullish options screen",
+      deps: deps({
+        getTokens: async () => null,
+        isProduction: () => true,
+      }),
+      sendSlackAlert,
+    };
+    const first = await guardScheduledETradeAuth(base);
+    expect(first.blocked).toBe(true);
+    if (first.blocked) {
+      expect(first.alerted).toBe(true);
+      expect(first.error).toContain(authMissingMessage(true).slice(0, 40));
+      expect(first.error).toContain("no stored session");
+    }
+    expect(sendSlackAlert).toHaveBeenCalledTimes(1);
+    expect(String((sendSlackAlert.mock.calls[0] as any[])[0])).toContain(
+      "connection missing"
+    );
+    expect(bridge).toHaveBeenCalledTimes(1);
+    const outcome = (bridge.mock.calls[0] as any[])[0];
+    expect(outcome).toMatchObject({
+      kind: "options",
+      trigger: "scheduled",
+      success: false,
+    });
+    expect(String(outcome.error)).toContain("no stored session");
+
+    const second = await guardScheduledETradeAuth(base);
+    expect(second.blocked).toBe(true);
+    if (second.blocked) expect(second.alerted).toBe(false);
+    expect(sendSlackAlert).toHaveBeenCalledTimes(1);
+    expect(bridge).toHaveBeenCalledTimes(1);
+  });
+
+  it("#1200: no session outside production → still pass-through", async () => {
+    const res = await guardScheduledETradeAuth({
+      env: {} as any,
+      userLogin: "venus",
+      kind: "stock",
+      label: "SP100 stock screen",
+      deps: deps({
+        getTokens: async () => null,
+        isProduction: () => false,
+      }),
       sendSlackAlert: async () => {},
     });
     expect(res.blocked).toBe(false);

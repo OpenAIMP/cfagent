@@ -16,11 +16,18 @@
  *   raise ONE deduplicated reconnect alert per expiry episode —
  *   subsequent runs in the episode short-circuit quietly.
  *
+ * #1200 (same day): production was found to have NO stored session at
+ * all — a state the original preflight passed through, so scheduled
+ * runs failed identically every cycle with the raw broker errors.
+ * No-session in PROD is therefore also a blocked episode (the remedy
+ * differs: connect, not reconnect); non-production keeps pass-through.
+ *
  * All effects are injected (deps + store + alert sink), so the policy
  * is unit-testable without a broker, a DO, or Slack.
  */
 
 import type { Env } from "../types";
+import { resolveEnvironmentConfig } from "../config/environment";
 import {
   getStoredTokens,
   isTokenExpiredEt,
@@ -46,16 +53,24 @@ export interface ETradeAuthPreflightDeps {
   ) => Promise<unknown | null>;
   isExpired: (storedAtIso: string, nowMs: number) => boolean;
   now: () => number;
+  /** #1200: is the resolved environment the production one? Bound in
+   *  production deps; absent in test seams (legacy no-tokens
+   *  pass-through is preserved there). */
+  isProduction?: (environment?: string) => boolean;
 }
 
 export type ETradeAuthPreflightResult =
   | { status: "ok"; renewed: boolean }
-  /** No tokens stored — the account was never connected (or was
-   *  revoked). Not an episode: the caller's normal auth-failure path
-   *  owns this state, exactly as before #1174. */
+  /** No tokens stored and the environment is NOT production — the
+   *  account was never connected here; the caller's normal
+   *  auth-failure path owns this state (sandbox/dev semantics). */
   | { status: "no-tokens" }
-  /** Tokens exist but are past expiry and renewal failed. */
-  | { status: "blocked"; episodeKey: string };
+  /** The run must not proceed. reason "expired": tokens exist but are
+   *  past expiry and renewal failed. reason "no-session" (#1200): no
+   *  stored session exists in PRODUCTION — a scheduled broker run can
+   *  only fail identically every cycle in that state, so it blocks
+   *  under the same one-alert-per-episode semantics. */
+  | { status: "blocked"; episodeKey: string; reason: "expired" | "no-session" };
 
 /**
  * Episode identity: one alert per user per ET calendar day. A token
@@ -74,8 +89,9 @@ export function etradeAuthEpisodeKey(userLogin: string, nowMs: number): string {
 }
 
 /**
- * The pure policy: no tokens → no-tokens; fresh token → ok; expired
- * token → one renewal attempt → ok(renewed) or blocked.
+ * The pure policy: no tokens → blocked(no-session) in production,
+ * no-tokens elsewhere; fresh token → ok; expired token → one renewal
+ * attempt → ok(renewed) or blocked(expired).
  */
 export async function preflightETradeAuth(
   deps: ETradeAuthPreflightDeps,
@@ -83,7 +99,16 @@ export async function preflightETradeAuth(
   environment?: string
 ): Promise<ETradeAuthPreflightResult> {
   const tokens = await deps.getTokens(userLogin, environment);
-  if (!tokens) return { status: "no-tokens" };
+  if (!tokens) {
+    if (deps.isProduction?.(environment)) {
+      return {
+        status: "blocked",
+        reason: "no-session",
+        episodeKey: etradeAuthEpisodeKey(userLogin, deps.now()),
+      };
+    }
+    return { status: "no-tokens" };
+  }
   if (!deps.isExpired(tokens.storedAt, deps.now())) {
     return { status: "ok", renewed: false };
   }
@@ -91,6 +116,7 @@ export async function preflightETradeAuth(
   if (renewed) return { status: "ok", renewed: true };
   return {
     status: "blocked",
+    reason: "expired",
     episodeKey: etradeAuthEpisodeKey(userLogin, deps.now()),
   };
 }
@@ -104,6 +130,8 @@ export function bindETradeAuthPreflightDeps(env: Env): ETradeAuthPreflightDeps {
       renewETradeAccessToken(env, userLogin, environment),
     isExpired: (storedAtIso, nowMs) => isTokenExpiredEt(storedAtIso, nowMs),
     now: () => Date.now(),
+    isProduction: (environment) =>
+      resolveEnvironmentConfig(env, environment).name === "PROD",
   };
 }
 
@@ -134,7 +162,7 @@ export async function fireAuthEpisodeAlertOnce(
   }
 }
 
-/** The user-facing blocked message recorded on the run. */
+/** The user-facing blocked message recorded on the run (expired). */
 export function authBlockedMessage(alerted: boolean): string {
   return (
     "E*TRADE connection expired: the access token is past its midnight-ET " +
@@ -143,6 +171,18 @@ export function authBlockedMessage(alerted: boolean): string {
     (alerted
       ? "A reconnect alert has been sent for this episode."
       : "A reconnect alert was already sent for this episode; further runs today stay quiet.")
+  );
+}
+
+/** The user-facing blocked message recorded on the run (no session, #1200). */
+export function authMissingMessage(alerted: boolean): string {
+  return (
+    "E*TRADE connection missing: no stored session exists for this account " +
+    "in PROD mode. Connect your E*TRADE account in Settings to resume " +
+    "scheduled runs. " +
+    (alerted
+      ? "A connect alert has been sent for this episode."
+      : "A connect alert was already sent for this episode; further runs today stay quiet.")
   );
 }
 
@@ -185,12 +225,21 @@ export async function guardScheduledETradeAuth(
     const deps = opts.deps ?? bindETradeAuthPreflightDeps(opts.env);
     const pre = await preflightETradeAuth(deps, opts.userLogin, opts.environment);
     if (pre.status !== "blocked") return { blocked: false };
+    const blockedMessage = (alerted: boolean): string =>
+      pre.reason === "no-session"
+        ? authMissingMessage(alerted)
+        : authBlockedMessage(alerted);
 
     const fire = async (): Promise<void> => {
       const text =
-        `⚠️ E*TRADE connection expired — scheduled ${opts.label} is blocked. ` +
-        "Reconnect your account in Settings to resume scheduled runs. " +
-        "Runs stay blocked (quietly) until you reconnect.";
+        pre.reason === "no-session"
+          ? `⚠️ E*TRADE connection missing — scheduled ${opts.label} is blocked. ` +
+            "No stored E*TRADE session exists for this account in PROD mode. " +
+            "Connect your E*TRADE account in Settings to resume scheduled runs. " +
+            "Runs stay blocked (quietly) until you connect."
+          : `⚠️ E*TRADE connection expired — scheduled ${opts.label} is blocked. ` +
+            "Reconnect your account in Settings to resume scheduled runs. " +
+            "Runs stay blocked (quietly) until you reconnect.";
       const sends: Array<Promise<unknown>> = [];
       if (opts.sendSlackAlert) {
         sends.push(opts.sendSlackAlert(text));
@@ -209,7 +258,7 @@ export async function guardScheduledETradeAuth(
           trigger: "scheduled",
           success: false,
           pdfKeys: [],
-          error: authBlockedMessage(true),
+          error: blockedMessage(true),
         };
         sends.push(opts.bridge(outcome, opts.userLogin, false));
       }
@@ -227,7 +276,7 @@ export async function guardScheduledETradeAuth(
         alerted = false;
       }
     }
-    return { blocked: true, error: authBlockedMessage(alerted), alerted };
+    return { blocked: true, error: blockedMessage(alerted), alerted };
   } catch (err) {
     // The guard must never take a run down with it: on any internal
     // failure the run proceeds and the pipeline's own auth surfacing
