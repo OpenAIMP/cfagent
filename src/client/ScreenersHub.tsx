@@ -11,12 +11,31 @@ import {
 import type { ScreenedStockItem } from "../types";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "./components/CapabilityNavBar";
 import { ScreenerResultsView } from "./ScreenerResultsView";
+import { ScannerPanel } from "./ScannerPanel";
+import { ErrorBoundary } from "./ErrorBoundary";
+import { IvHistoryPanel } from "./IvHistoryPanel";
+import { OptionsResearchHost } from "./options/OptionsResearchHost";
+import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import "./optionsResearch.css";
+
+/** S8 (consolidation, umbrella #958): the hub's tabs — the screening
+ *  asset classes plus the folded Strategy/Symbol Scanner and IV
+ *  History surfaces (formerly Trading Hub subtabs). */
+export type ScreenersHubTab = ScreeningAssetClass | "scanner" | "iv-history";
 
 interface ScreenersHubProps {
   activeEnv: "TEST" | "PROD";
   userLogin?: string;
   onStocksLoaded?: (rows: ScreenedStockItem[]) => void;
+  /** S8: the trade-preview handoff threaded into the folded panels —
+   *  the Trading Hub passes its order-ticket handler, exactly as it
+   *  did when the panels were its own subtabs. */
+  onPreviewTrade?: (ctx: TradeOrderContext) => void;
+  onSendPrompt?: (prompt: string, sourceTab?: string) => void;
+  onJobStateChange?: (state: "idle" | "running" | "ready") => void;
+  /** S8: the tab to open on — the Trading Hub's screening redirects
+   *  deep-link into the hub with the folded surface's tab. */
+  initialTab?: ScreenersHubTab;
 }
 
 type ScreenRow = Record<string, unknown>;
@@ -107,8 +126,21 @@ function displayValue(value: unknown): string {
   return String(value);
 }
 
-export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: ScreenersHubProps) {
-  const [assetClass, setAssetClass] = useState<ScreeningAssetClass>("stocks");
+export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded, onPreviewTrade, onSendPrompt, onJobStateChange, initialTab }: ScreenersHubProps) {
+  const [hubTab, setHubTab] = useState<ScreenersHubTab>(initialTab ?? "stocks");
+  // The provider-adapter machinery below serves the asset classes;
+  // the folded scanner / iv-history tabs have no adapter, so they
+  // borrow "stocks" for the (unused) provider lookups.
+  const assetClass: ScreeningAssetClass =
+    hubTab === "scanner" || hubTab === "iv-history" ? "stocks" : hubTab;
+  // S8: the options research surface keeps the mount semantics it
+  // had as a Trading Hub subtab — mounted on first visit, kept
+  // mounted (hidden) afterwards so in-flight work survives tab
+  // switches inside the hub.
+  const [optionsVisited, setOptionsVisited] = useState(initialTab === "options");
+  useEffect(() => {
+    if (hubTab === "options") setOptionsVisited(true);
+  }, [hubTab]);
   const providers = useMemo(() => getScreeningProviders(assetClass), [assetClass]);
   const [providerId, setProviderId] = useState("etrade");
   const [symbolSearch, setSymbolSearch] = useState("");
@@ -347,9 +379,9 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         icon: "📈",
       },
       options: {
-        eyebrow: "DERIVATIVES · CONSOLIDATED",
-        title: "Options · Auto Options Research",
-        desc: "All options capabilities, raw contracts screening, and strategy discovery are in the dedicated Auto Options Research tab.",
+        eyebrow: "DERIVATIVES SCREENING",
+        title: "Options Research",
+        desc: "Strategy discovery, the raw contracts screener, custom thesis scans, NLQ, and the LLM idea experiment — the full options research surface, hosted here.",
         icon: "⚡",
       },
       forex: {
@@ -378,7 +410,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       },
     };
 
-    return SCREENING_ASSET_CLASSES.map((asset) => {
+    const assetTabs: CapabilityTabItem[] = SCREENING_ASSET_CLASSES.map((asset) => {
       const info = descriptions[asset.id] || {
         eyebrow: "MARKET SCREENER",
         title: asset.label,
@@ -399,6 +431,36 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         },
       };
     });
+
+    // S8: the folded surfaces ride the same tab bar, right after
+    // Options — the Strategy/Symbol Scanner and IV History, formerly
+    // Trading Hub subtabs.
+    const optionsIndex = assetTabs.findIndex((tab) => tab.id === "options");
+    assetTabs.splice(optionsIndex + 1, 0,
+      {
+        id: "scanner",
+        label: "Strategy Scanner",
+        icon: "🎯",
+        badge: "AI",
+        badgeType: "purple",
+        tooltip: {
+          eyebrow: "STRATEGY / SYMBOL SCANNING",
+          title: "Strategy/Symbol Scanner",
+          description: "Best strategy for a name, or names that fit your strategy — across the full strategy catalog.",
+        },
+      },
+      {
+        id: "iv-history",
+        label: "IV History",
+        icon: "📈",
+        tooltip: {
+          eyebrow: "IMPLIED VOLATILITY",
+          title: "IV History",
+          description: "Daily option-chain IV snapshots: per-symbol coverage, IV rank, and the latest readings.",
+        },
+      },
+    );
+    return assetTabs;
   }, []);
 
   return (
@@ -406,8 +468,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       <CapabilityNavBar
         ariaLabel="Instrument class capabilities"
         tabs={screenerTabs}
-        activeTabId={assetClass}
-        onTabChange={(id) => setAssetClass(id as ScreeningAssetClass)}
+        activeTabId={hubTab}
+        onTabChange={(id) => setHubTab(id as ScreenersHubTab)}
         rightContent={
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
             <CopilotTriggerButton label="✨ Ask Copilot" />
@@ -434,7 +496,22 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         }
       />
 
-      {assetClass === "stocks" ? (
+      {/* S8: the folded options research surface — mounted on first
+          visit, kept mounted (hidden) afterwards, the mount
+          semantics it had as a Trading Hub subtab. */}
+      {optionsVisited && (
+        <div hidden={hubTab !== "options"}>
+          <OptionsResearchHost
+            activeEnv={activeEnv}
+            userLogin={userLogin}
+            onPreviewTrade={onPreviewTrade}
+            onJobStateChange={onJobStateChange}
+            onSendPrompt={onSendPrompt}
+          />
+        </div>
+      )}
+
+      {hubTab === "stocks" ? (
         <>
           {/* Issue #212: autonomous screener panel — latest scheduled runs. */}
           <div className="screener-feed-callout" style={{ marginBottom: "1rem" }}>
@@ -869,16 +946,18 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
             )
           )}
         </>
-      ) : assetClass === "options" ? (
-        <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
-          <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>⚡ Options Capabilities Moved to Auto Options Research</h4>
-          <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
-            All options screening, analysis, and execution tools—including the <strong>📋 Raw Contracts Screener</strong>, <strong>🎯 Strategy Discovery &amp; Payoff Analyzer</strong>, <strong>⚙️ Custom Thesis Universe</strong>, <strong>💬 Natural Language Screen (NLQ)</strong>, and <strong>⏰ Scheduled Options Schedulers</strong>—are now centralized under the <strong>Auto Options Research</strong> tab.
-          </p>
-          <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
-            The Options tab in this Multi-Asset Screener is marked as planned to keep this screener focused on equities and future multi-asset feeds without duplication.
-          </p>
-        </div>
+      ) : hubTab === "options" ? (
+        /* Rendered above the chain (kept mounted); nothing here. */
+        null
+      ) : hubTab === "scanner" ? (
+        /* S8: the Strategy/Symbol Scanner, formerly a Trading Hub
+           subtab — same panel, same props the hub threaded. */
+        <ErrorBoundary label="Strategy/Symbol Scanner panel">
+          <ScannerPanel activeEnv={activeEnv} userLogin={userLogin} onPreviewTrade={onPreviewTrade} />
+        </ErrorBoundary>
+      ) : hubTab === "iv-history" ? (
+        /* S8: the IV History surface, formerly a Trading Hub subtab. */
+        <IvHistoryPanel />
       ) : (
         <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
           <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)", fontSize: "1.05rem" }}>🚧 {SCREENING_ASSET_CLASSES.find((a) => a.id === assetClass)?.label || "Asset"} Screener · Planned</h4>

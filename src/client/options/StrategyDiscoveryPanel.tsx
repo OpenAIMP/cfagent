@@ -28,6 +28,7 @@ import {
   type ServerDiscoveryInputs,
 } from "./serverDiscovery";
 import { etToUtcCron } from "./cronTime";
+import { buildDiscoveryCaptureSubmission } from "../scheduledOptionsManager/payloadBuilders";
 import {
   STRATEGY_LIBRARY,
   type StrategyDefinition,
@@ -705,24 +706,25 @@ export function StrategyDiscoveryPanel({
   const handleCreateDiscoverySchedule = async () => {
     if (!capturedRequest) return;
     setCaptureError("");
-    const body: Record<string, any> = {
-      callback: "autonomousStrategyDiscovery",
+    // S8 (consolidation #958): the create body is built by the one
+    // schedule payload-builder module (the S7 builders), not
+    // hand-assembled here — same saved-request payload, same cadence
+    // keys, same one-shot date error; the payload now also carries
+    // the trigger: "scheduled" stamp the route applied server-side.
+    const built = buildDiscoveryCaptureSubmission({
+      request: capturedRequest,
+      environment: activeEnv,
       scheduleType: captureScheduleType,
-      payload: { requests: [capturedRequest], environment: activeEnv },
-    };
-    if (captureScheduleType === "interval") {
-      body.intervalSeconds = Number(captureIntervalSeconds);
-    } else if (captureScheduleType === "cron") {
-      body.cron = captureCron.trim();
-    } else if (captureScheduleType === "delayed") {
-      body.delayInSeconds = Number(captureDelaySeconds);
-    } else {
-      if (!captureDate) {
-        setCaptureError("Pick a date and time for the one-shot run.");
-        return;
-      }
-      body.date = new Date(captureDate).toISOString();
+      intervalSeconds: captureIntervalSeconds,
+      cronExpression: captureCron,
+      delaySeconds: captureDelaySeconds,
+      scheduledDate: captureDate,
+    });
+    if ("error" in built) {
+      setCaptureError(built.error);
+      return;
     }
+    const body = built.requestBody;
     setCaptureSubmitting(true);
     try {
       const res = await fetch("/api/schedules/create", {
