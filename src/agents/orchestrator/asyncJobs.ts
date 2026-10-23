@@ -28,6 +28,7 @@ import { createDiscoveryService } from "../../services/discoveryService";
 import { createFitDiscoveryRunner } from "../../services/fitDiscoveryRunner";
 import {
   followupChannelLabel,
+  formatHeldNotification,
   formatLifecycleNotification,
   isEmailAllowed,
   planDeliveryFollowups,
@@ -40,6 +41,7 @@ import {
   type FollowupReportResult,
   type ScreenerRunOutcome,
 } from "../../services/screenerFollowups";
+import { resolvePipelinePolicy, shouldNotify } from "../../services/pipelinePolicy";
 
 /**
  * Ports the async-job functions receive from the class. Table/state
@@ -492,19 +494,32 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         result = { status: "skipped", reason: "The run produced no report artifact key." };
       } else {
         const port = ctx.followupReportPort();
-        const artifacts: Array<{ key: string; fileName: string }> = [];
+        const artifacts: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" }> = [];
         const missing: string[] = [];
         for (const key of outcome.pdfKeys) {
           const pdf = outcome.kind === "stock"
             ? await port.getStockPdf(userLogin, key)
             : await port.getOptionsPdf(userLogin, key);
-          if (pdf) artifacts.push({ key, fileName: pdf.fileName });
+          if (pdf) artifacts.push({ key, fileName: pdf.fileName, kind: "pdf" });
           else missing.push(key);
         }
         if (artifacts.length === 0) {
           throw new Error(`Report artifact(s) referenced by the run are missing from storage: ${missing.join(", ")}`);
         }
-        result = { status: "ready", artifacts, missingKeys: missing };
+        // Issue #1191 (#1173 R3): adopt the run's XLSX alongside the
+        // PDF so deliveries carry text + PDF + XLSX. persistRun only
+        // stamps the key after a successful store, so the outcome's
+        // word is the adoption evidence (the delivery port's byte
+        // fetch is the verification — a missing XLSX is reported in
+        // the delivery detail, never fabricated). A failed XLSX
+        // generation is recorded on the result, not silent.
+        let xlsxNote: string | undefined;
+        if (outcome.kind === "stock" && outcome.xlsxKey && outcome.xlsxStatus !== "failed") {
+          artifacts.push({ key: outcome.xlsxKey, fileName: "screener-report.xlsx", kind: "xlsx" });
+        } else if (outcome.kind === "stock" && outcome.xlsxStatus === "failed") {
+          xlsxNote = outcome.xlsxError || "XLSX generation failed during the run.";
+        }
+        result = { status: "ready", artifacts, missingKeys: missing, ...(xlsxNote ? { xlsxNote } : {}) };
       }
     } else if (job.capability === "followup.deliver") {
       // Issue #1123 S3: deliver the shared report artifact on one
@@ -512,10 +527,18 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       // email allowlist); transport lives behind the delivery port.
       const channel = payload.channel as AsyncJobChannel;
       const outcome = payload.outcome as import("../../services/screenerFollowups").ScreenerRunOutcome;
-      const artifacts = (payload.artifacts ?? []) as Array<{ key: string; fileName: string }>;
+      const artifacts = (payload.artifacts ?? []) as Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" }>;
       const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
+      // Issue #1191 (#1173 R3): the pipeline policy gates deliveries
+      // per channel + event — an operator's explicit off switch
+      // completes the job as 'skipped' with the reason recorded,
+      // instead of the pre-R3 behavior where coverage depended on
+      // incidental config.
+      const pipelinePolicy = resolvePipelinePolicy(ctx.env as unknown as Record<string, unknown>);
       if (typeof payload.skipReason === "string" && payload.skipReason) {
         result = { status: "skipped", reason: payload.skipReason, channel };
+      } else if (!shouldNotify(pipelinePolicy, "completed", channel)) {
+        result = { status: "skipped", reason: `Pipeline policy disables completed-run deliveries on ${channel}.`, channel };
       } else if (typeof payload.approvedConfirmationId !== "string" && ctx.reportDispatchHitlEnabled()) {
         // Issue #1123 S5c / #277: with the confirmation gate on, the
         // delivery HOLDS — it is recorded as a pending 'screener'
@@ -539,6 +562,25 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           confirmationId,
           reason: "Report-dispatch confirmation (#277) is enabled; delivery held for approval.",
         };
+        // Issue #1191 (#1173 R3): a held delivery announces itself —
+        // before R3 the hold was silent, which is how completed runs
+        // produced no message of any kind. Best-effort: announcement
+        // failure never changes the hold outcome. (Webhook is a
+        // delivery channel, not a notification channel — slack/email
+        // only, and only when the policy allows held notices.)
+        if (channel !== "webhook" && shouldNotify(pipelinePolicy, "held", channel)) {
+          try {
+            await ctx.followupDeliveryPort().notify({
+              channel,
+              userLogin,
+              text: formatHeldNotification(outcome),
+              ...(channel === "email" && outcome.emailTo ? { emailTo: outcome.emailTo } : {}),
+              ...(channel === "slack" && outcome.slackChannel ? { slackChannel: outcome.slackChannel } : {}),
+            });
+          } catch (announceError) {
+            console.warn("[asyncJobs] held-delivery announcement failed:", announceError instanceof Error ? announceError.message : String(announceError));
+          }
+        }
       } else {
         if (channel === "email") {
           const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
@@ -562,11 +604,20 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       const event = payload.event as FollowupLifecycleEvent;
       const outcome = payload.outcome as ScreenerRunOutcome;
       const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
+      // Issue #1191 (#1173 R3): pipeline policy gate, mirroring the
+      // deliver branch — a policy-off event/channel completes as
+      // 'skipped' with the reason on the job, never a silent drop.
+      const notifyPolicy = resolvePipelinePolicy(ctx.env as unknown as Record<string, unknown>);
+      if (!shouldNotify(notifyPolicy, event, channel)) {
+        result = { status: "skipped", reason: `Pipeline policy disables ${event} notifications on ${channel}.`, channel, event };
+      } else {
       if (channel === "email") {
         const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
-        const to = config.channels.email.to;
+        // Issue #1191: per-task recipient wins (mirrors deliveries);
+        // the allowlist applies to the effective recipient.
+        const to = outcome.emailTo ?? config.channels.email.to;
         if (!to) throw new Error("Email notification is not configured (SCREENER_EMAIL_TO is unset).");
-        if (!isEmailAllowed(config, to)) {
+        if (!isEmailAllowed(config, to, outcome)) {
           throw new Error(`Email recipient ${to} is not in the screener email allowlist; notification refused.`);
         }
       }
@@ -575,9 +626,16 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         outcome,
         typeof payload.detail === "string" ? payload.detail : undefined,
       );
-      const sent = await ctx.followupDeliveryPort().notify({ channel, userLogin, text });
+      const sent = await ctx.followupDeliveryPort().notify({
+        channel,
+        userLogin,
+        text,
+        ...(channel === "email" && outcome.emailTo ? { emailTo: outcome.emailTo } : {}),
+        ...(channel === "slack" && outcome.slackChannel ? { slackChannel: outcome.slackChannel } : {}),
+      });
       if (!sent.ok) throw new Error(sent.error || `Notification via ${channel} failed.`);
       result = { status: "notified", channel, event };
+      }
     } else if (job.capability === "nlq.execute") {
       const query = String(payload.query || "").trim();
       if (!query) throw new Error("NLQ job requires a non-empty query.");

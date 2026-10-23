@@ -247,7 +247,8 @@ describe("delivery chaining (executor)", () => {
       expect(rec?.result).toMatchObject({ status: "sent", channel: d.channel });
     }
     expect(delivered.map((d) => d.channel)).toEqual(["slack", "email"]);
-    expect(delivered[0].artifacts).toEqual([{ key: "k1", fileName: "screen.pdf" }]);
+    // #1191: artifacts carry their kind (pdf/xlsx) since R3.
+    expect(delivered[0].artifacts).toEqual([{ key: "k1", fileName: "screen.pdf", kind: "pdf" }]);
   });
 
   it("email to a non-allowlisted recipient fails the delivery job and never reaches the port", async () => {

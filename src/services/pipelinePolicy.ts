@@ -30,6 +30,7 @@ export interface RetryPolicy {
 }
 
 export type NotificationEvent =
+  | "started"
   | "completed"
   | "partial"
   | "failed"
@@ -72,6 +73,7 @@ export const DEFAULT_PIPELINE_POLICY: PipelinePolicy = {
     email: true,
     webhook: true,
     events: {
+      started: true,
       completed: true,
       partial: true,
       failed: true,
@@ -116,7 +118,7 @@ function parseEvents(
   raw: string | undefined
 ): Partial<Record<NotificationEvent, boolean>> | undefined {
   if (raw === undefined || raw === null || String(raw).trim() === "") return undefined;
-  const known: NotificationEvent[] = ["completed", "partial", "failed", "blocked", "held", "delivered"];
+  const known: NotificationEvent[] = ["started", "completed", "partial", "failed", "blocked", "held", "delivered"];
   const out: Partial<Record<NotificationEvent, boolean>> = {};
   // A list sets exactly the named events ON and all others OFF
   // ("failed,blocked" = only failures and blocks notify). Prefix an

@@ -34,6 +34,11 @@ export interface ScreenerCompletedEvent {
    *  fall back to a stale PDF — log the error and skip the attachment. */
   pdfStatus?: "generated" | "failed" | "skipped";
   pdfError?: string;
+  /** Issue #1191 (#1173 R3): per-run XLSX artifact, mirroring the PDF
+   *  triple — outcomes carry it so deliveries attach text+PDF+XLSX. */
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed" | "skipped";
+  xlsxError?: string;
   /** Stable delivery id used to suppress duplicate scheduled notifications. */
   deliveryId?: string;
   sector: string;
