@@ -47,21 +47,23 @@ const quotePayload = {
 
 function stubYahoo(batchStatus = 200) {
   vi.stubGlobal("fetch", async (url: string) => {
-    const u = String(url);
-    if (u.includes("fc.yahoo.com")) {
+    // Route by parsed hostname + exact pathname (never raw URL
+    // substring matching — CodeQL incomplete-sanitization rule).
+    const u = new URL(String(url));
+    if (u.hostname === "fc.yahoo.com") {
       return { ok: true, status: 200, headers: { get: () => "A3=testcookie" } };
     }
-    if (u.includes("getcrumb")) {
+    if (u.hostname === "query1.finance.yahoo.com" && u.pathname === "/v1/test/getcrumb") {
       return { ok: true, status: 200, text: async () => "testcrumb" };
     }
-    if (u.includes("v7/finance/quote")) {
+    if (u.hostname === "query1.finance.yahoo.com" && u.pathname === "/v7/finance/quote") {
       return {
         ok: batchStatus >= 200 && batchStatus < 300,
         status: batchStatus,
         json: async () => quotePayload,
       };
     }
-    throw new Error(`unexpected fetch: ${u}`);
+    throw new Error(`unexpected fetch: ${u.toString()}`);
   });
 }
 
