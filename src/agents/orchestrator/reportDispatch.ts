@@ -15,7 +15,7 @@ import { ETradeWebhookService } from "../../services/tradingWebhooks";
 import {
   getCanonicalReport,
   parseResearchReportBody,
-  resolveCanonicalReportBody,
+  resolveCanonicalReportBodyWithBackfill,
   sha256Hex,
   storeReportAtGenerationWithR2,
 } from "../../services/scheduledReports";
@@ -192,9 +192,10 @@ export async function deliverStoredReportEmail(ctx: ReportDispatchContext,
 ): Promise<"sent" | "missing" | "failed"> {
   const stored = getCanonicalReport(ctx.ensureTables(), reportId);
   if (!stored) return "missing";
-  // Issue #338 S2: resolve the body through the pointer (inline rows
-  // resolve to themselves; a lost R2 object resolves to null = missing).
-  const body = await resolveCanonicalReportBody(ctx.env, stored);
+  // Issue #338 S2+S4: resolve the body through the pointer (inline rows
+  // resolve to themselves and backfill to R2 on this read; a lost R2
+  // object resolves to null = missing).
+  const body = await resolveCanonicalReportBodyWithBackfill(ctx.ensureTables(), ctx.env, stored);
   if (body === null) return "missing";
   const delivery = parseResearchReportBody(body);
   if (!delivery || !delivery.attachmentBase64) return "missing";
@@ -218,8 +219,8 @@ export async function deliverStoredReportWebhook(ctx: ReportDispatchContext,
 ): Promise<{ outcome: "sent" | "missing" | "failed"; result?: { success: boolean; status?: number; error?: string; notConfigured?: boolean } }> {
   const stored = getCanonicalReport(ctx.ensureTables(), reportId);
   if (!stored) return { outcome: "missing" };
-  // Issue #338 S2: resolve the body through the pointer (see email leg).
-  const body = await resolveCanonicalReportBody(ctx.env, stored);
+  // Issue #338 S2+S4: resolve the body through the pointer (see email leg).
+  const body = await resolveCanonicalReportBodyWithBackfill(ctx.ensureTables(), ctx.env, stored);
   if (body === null) return { outcome: "missing" };
   const delivery = parseResearchReportBody(body);
   if (!delivery || !Array.isArray(delivery.sheets) || delivery.sheets.length === 0) {

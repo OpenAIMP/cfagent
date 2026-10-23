@@ -504,18 +504,19 @@ export async function handleReportsRoutes(
       };
       if (kind === "all" || kind === "screener" || kind === "options_scanner") {
         await readStore("reports", async () => {
-          const { listScheduledReports, ensureScheduledReportsTable, resolveCanonicalReportBody } = await import("../../services/scheduledReports");
+          const { listScheduledReports, ensureScheduledReportsTable, resolveCanonicalReportBodyWithBackfill } = await import("../../services/scheduledReports");
           const { runSummaryFromReport } = await import("../../services/runSummaries");
           ensureScheduledReportsTable(sql);
           const hits = listScheduledReports(sql, { userLogin: reportLogin, limit });
-          // Issue #338 S2: run summaries read body fields (pdfKey,
-          // reportUrl) — resolve pointer rows from R2 first; inline
-          // rows pass through untouched.
+          // Issue #338 S2+S4: run summaries read body fields (pdfKey,
+          // reportUrl) — resolve every row's body first; pointer rows
+          // read from R2, inline rows serve inline and backfill.
           const reportEnv = (ctx as any).env || {};
           const resolved = await Promise.all(
-            hits.map(async (h) =>
-              h.bodyR2Key ? { ...h, body: (await resolveCanonicalReportBody(reportEnv, h)) ?? "" } : h
-            )
+            hits.map(async (h) => ({
+              ...h,
+              body: (await resolveCanonicalReportBodyWithBackfill(sql, reportEnv, h)) ?? "",
+            }))
           );
           return resolved.map(runSummaryFromReport);
         });
@@ -567,7 +568,7 @@ export async function handleReportsRoutes(
   const reportDetailMatch = path.match(/\/api\/reports\/([^/]+)$/);
   if (reportDetailMatch && request.method === "GET") {
     try {
-      const { getScheduledReportById, scheduledReportPdfUrl, resolveCanonicalReportBody } = await import("../../services/scheduledReports");
+      const { getScheduledReportById, scheduledReportPdfUrl, resolveCanonicalReportBodyWithBackfill } = await import("../../services/scheduledReports");
       const headerLogin = request.headers.get("x-user-login");
       const userLogin = headerLogin && headerLogin.trim() ? headerLogin : undefined;
       const hit = getScheduledReportById(ctx.ensureTables(), decodeURIComponent(reportDetailMatch[1]), { userLogin });
@@ -579,7 +580,7 @@ export async function handleReportsRoutes(
       // resolve to themselves; a lost object resolves to null and the
       // detail view renders body: null, as for an unparseable body).
       const reportEnv = (ctx as any).env || {};
-      const bodyText = (await resolveCanonicalReportBody(reportEnv, hit)) ?? "";
+      const bodyText = (await resolveCanonicalReportBodyWithBackfill(ctx.ensureTables(), reportEnv, hit)) ?? "";
       let body: unknown = null;
       let hasAttachment = false;
       try {
