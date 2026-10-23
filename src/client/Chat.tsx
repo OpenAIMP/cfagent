@@ -140,9 +140,9 @@ export function Chat({ user }: { user: User }) {
     return 15;
   });
 
-  // Issue #277: server-owned setting for optional HITL confirmation on
-  // research-report dispatch. Default OFF (autonomous, current behavior).
-  const [reportDispatchHitl, setReportDispatchHitl] = useState<boolean>(false);
+  // Issue #277: server-owned setting for HITL confirmation on
+  // research-report dispatch. Default ON (#1144, owner decision).
+  const [reportDispatchHitl, setReportDispatchHitl] = useState<boolean>(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -155,7 +155,7 @@ export function Chat({ user }: { user: User }) {
         const data = (await res.json()) as { enabled?: unknown };
         if (!cancelled && typeof data.enabled === "boolean") setReportDispatchHitl(data.enabled);
       } catch {
-        // Server unreachable or setting unavailable: keep default OFF.
+        // Server unreachable or setting unavailable: keep default ON.
       }
     })();
     return () => {

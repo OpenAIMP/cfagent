@@ -147,8 +147,9 @@ export async function handleReportsRoutes(
     }
   }
 
-  // Issue #277: server-side setting for optional HITL confirmation on
-  // report dispatch. Default OFF (autonomous, today's behavior).
+  // Issue #277: server-side setting for HITL confirmation on report
+  // dispatch. Default ON (#1144) — held for confirmation unless the
+  // setting explicitly opts out.
   if (path.endsWith("/trading/settings/report-dispatch-hitl") && request.method === "GET") {
     return Response.json({ enabled: ctx.getReportDispatchHitl() });
   }
