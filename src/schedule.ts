@@ -3,7 +3,9 @@
  *
  * The ScheduledAgent Durable Object (src/agents/scheduled-agent.ts)
  * consumes these on each cron tick: it pulls active goals from SQL,
- * budget-checks via PaymentsAgent, and creates Orchestrator jobs.
+ * budget-checks via PaymentsAgent, and creates Orchestrator jobs —
+ * except goals whose operation is "social.publish", which it executes
+ * through the social goal executor instead (issue #1077 Phase 5b).
  */
 
 export interface ScheduledGoal {
@@ -19,6 +21,12 @@ export interface ScheduledGoal {
   enabled: boolean;
   /** Last time this goal was evaluated (ISO timestamp) */
   lastRun?: string;
+  /**
+   * IANA time zone the cron wall-clock is read in. Absent means the
+   * historical UTC behavior of isDue (see below). Goals created with
+   * a timeZone use zone wall-clock matching instead.
+   */
+  timeZone?: string;
 }
 
 export interface ScheduleTick {
@@ -32,6 +40,9 @@ export interface ScheduleTick {
 /**
  * Default schedules. Goals themselves live in the ScheduledAgent's
  * SQL; these are the built-in evaluations that ship with the system.
+ * Stored goals are seeded from this list only when storage is empty,
+ * so adding an entry here does not inject it into already-running
+ * deployments — an operator adds it via the schedule dashboard API.
  */
 export const DEFAULT_SCHEDULES: ScheduledGoal[] = [
   {
@@ -50,26 +61,206 @@ export const DEFAULT_SCHEDULES: ScheduledGoal[] = [
     budgetCents: 1000,
     enabled: true,
   },
+  {
+    // #1077 Phase 5b slice 1: the social posting schedule, shipped
+    // DISABLED. The owner enables it via the schedule dashboard API
+    // (POST /api/schedule/goals or the enabled toggle) once tokens and
+    // a content source are in place. budgetCents is a cap, not a
+    // charge: posting spends nothing, so the 1-cent floor exists only
+    // because addGoal requires a positive budget.
+    id: "daily-social-post",
+    name: "Daily social post",
+    cron: "0 9 * * 1-5",
+    timeZone: "America/New_York",
+    operation: "social.publish",
+    budgetCents: 1,
+    enabled: false,
+  },
 ];
 
+/** Weekday convention: 0 = Sunday … 6 = Saturday (JS Date convention). */
+const WEEKDAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+export interface ZonedDateParts {
+  /** YYYY-MM-DD in the zone. */
+  date: string;
+  weekday: number;
+  hour: number;
+  minute: number;
+  day: number;
+  month: number;
+  year: number;
+}
+
 /**
- * Check whether a cron expression is due given the last run time.
- * Minimal parser supporting the schedules above (minute hour * * *).
+ * Wall-clock parts of an instant in an IANA time zone. Pure; throws
+ * RangeError for an unknown zone (callers that must never throw, like
+ * isDue, catch it and treat the instant as not due).
  */
-export function isDue(cron: string, lastRun: string | undefined, now: Date): boolean {
-  const [minute, hour] = cron.split(" ").map(Number);
-  if (Number.isNaN(minute) || Number.isNaN(hour)) return false;
+export function zonedDateParts(nowMs: number, timeZone: string): ZonedDateParts {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "long",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(nowMs));
+  const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? "";
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    weekday: WEEKDAY_NAMES.indexOf(get("weekday") as (typeof WEEKDAY_NAMES)[number]),
+    hour: Number(get("hour")),
+    minute: Number(get("minute")),
+    day: Number(get("day")),
+    month: Number(get("month")),
+    year: Number(get("year")),
+  };
+}
 
-  const currentHour = now.getUTCHours();
-  const currentMinute = now.getUTCMinutes();
+/**
+ * Expand one cron field into its value set, or null when invalid.
+ * Supports "*", "*\/step", single values, comma lists, and "a-b"
+ * ranges (with an optional "/step"). Values must fall in [min, max].
+ */
+function expandField(field: string, min: number, max: number): Set<number> | null {
+  const out = new Set<number>();
+  for (const part of field.split(",")) {
+    if (part === "") return null;
+    let base = part;
+    let step = 1;
+    if (part.includes("/")) {
+      const segments = part.split("/");
+      if (segments.length !== 2) return null;
+      [base, ] = segments;
+      step = Number(segments[1]);
+      if (!Number.isInteger(step) || step < 1) return null;
+    }
+    if (base === "*") {
+      for (let v = min; v <= max; v += step) out.add(v);
+    } else if (base.includes("-")) {
+      const bounds = base.split("-");
+      if (bounds.length !== 2) return null;
+      const start = Number(bounds[0]);
+      const end = Number(bounds[1]);
+      if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
+      if (start < min || end > max || start > end) return null;
+      for (let v = start; v <= end; v += step) out.add(v);
+    } else {
+      if (part.includes("/")) return null;
+      const value = Number(base);
+      if (!Number.isInteger(value) || value < min || value > max) return null;
+      out.add(value);
+    }
+  }
+  return out.size > 0 ? out : null;
+}
 
-  // Due if we're in the target hour/minute window
-  if (currentHour !== hour || currentMinute < minute) return false;
-
-  // And we haven't run in the last 23 hours (avoid double-fire)
+function isDueInZone(
+  cron: string,
+  lastRun: string | undefined,
+  now: Date,
+  timeZone: string,
+): boolean {
+  const fields = cron.trim().split(/\s+/);
+  if (fields.length !== 5) return false;
+  const [minuteField, hourField, domField, monthField, dowField] = fields;
+  const minutes = expandField(minuteField, 0, 59);
+  const hours = expandField(hourField, 0, 23);
+  const days = expandField(domField, 1, 31);
+  const months = expandField(monthField, 1, 12);
+  const weekdaysRaw = expandField(dowField, 0, 7);
+  if (!minutes || !hours || !days || !months || !weekdaysRaw) return false;
+  // Cron convention: 7 is also Sunday.
+  const weekdays = new Set([...weekdaysRaw].map((d) => (d === 7 ? 0 : d)));
+  const parts = zonedDateParts(now.getTime(), timeZone);
+  // Minute window rule (same tolerance as the historical code): any
+  // tick inside the matching hour at or after a scheduled minute
+  // counts as due; the 23h guard below prevents a second firing.
+  const minuteDue = [...minutes].some((m) => m <= parts.minute);
+  if (!minuteDue) return false;
+  if (!hours.has(parts.hour)) return false;
+  if (!days.has(parts.day)) return false;
+  if (!months.has(parts.month)) return false;
+  if (!weekdays.has(parts.weekday)) return false;
   if (lastRun) {
     const last = new Date(lastRun).getTime();
     if (now.getTime() - last < 23 * 60 * 60 * 1000) return false;
   }
   return true;
+}
+
+/**
+ * Whether a cron string is well-formed for isDue: exactly five fields,
+ * each expanding to a non-empty value set in its range. Used by
+ * addGoal so invalid schedules are rejected at creation, not at the
+ * first tick. (isDue itself never throws and returns false instead.)
+ */
+export function isValidCron(cron: string): boolean {
+  const fields = cron.trim().split(/\s+/);
+  if (fields.length !== 5) return false;
+  const ranges: Array<[number, number]> = [
+    [0, 59],
+    [0, 23],
+    [1, 31],
+    [1, 12],
+    [0, 7],
+  ];
+  return fields.every((field, i) => expandField(field, ranges[i][0], ranges[i][1]) !== null);
+}
+
+/**
+ * Check whether a cron expression is due given the last run time.
+ *
+ * Without a timeZone this is the historical behavior, preserved
+ * byte-for-byte: minimal parser supporting the built-in schedules
+ * ("minute hour * * *") read in UTC, day fields ignored. That
+ * includes the opportunity-hunt quirk: "0 *\/6 * * *" maps the hour
+ * through Number() to NaN and is therefore NEVER due. The quirk is
+ * deliberately preserved here, not fixed — fixing it would change
+ * the firing behavior of a shipped goal.
+ *
+ * With a timeZone, the cron is matched against wall-clock parts in
+ * that zone, with lists, ranges, and steps in every field and weekday
+ * matching (0 = Sunday … 6 = Saturday, 7 also Sunday). isDue never
+ * throws: an unparseable cron or an unknown zone returns false.
+ */
+export function isDue(
+  cron: string,
+  lastRun: string | undefined,
+  now: Date,
+  timeZone?: string,
+): boolean {
+  if (timeZone === undefined) {
+    const [minute, hour] = cron.split(" ").map(Number);
+    if (Number.isNaN(minute) || Number.isNaN(hour)) return false;
+
+    const currentHour = now.getUTCHours();
+    const currentMinute = now.getUTCMinutes();
+
+    // Due if we're in the target hour/minute window
+    if (currentHour !== hour || currentMinute < minute) return false;
+
+    // And we haven't run in the last 23 hours (avoid double-fire)
+    if (lastRun) {
+      const last = new Date(lastRun).getTime();
+      if (now.getTime() - last < 23 * 60 * 60 * 1000) return false;
+    }
+    return true;
+  }
+  try {
+    return isDueInZone(cron, lastRun, now, timeZone);
+  } catch {
+    return false;
+  }
 }

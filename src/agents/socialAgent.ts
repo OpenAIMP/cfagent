@@ -50,7 +50,7 @@ import {
 } from "./social/config";
 import { createDraft, type SocialDraft } from "./social/draft";
 import { getOrCreateDraft, type SocialLedger } from "./social/ledger";
-import { nyParts } from "./social/scheduler";
+import { zonedDateParts } from "../schedule";
 import type { PendingApprovalStore } from "./social/approvals";
 import {
   resolvePublishTarget,
@@ -75,12 +75,18 @@ export interface DailyDraftsResult {
   channels: ChannelBuildResult[];
 }
 
-export function buildDailyDrafts(input: {
+export async function buildDailyDrafts(input: {
   env: SocialEnv;
   brief: string;
   nowMs: number;
   store: SocialLedger;
-}): DailyDraftsResult {
+  /**
+   * IANA zone the draft date is read in. Defaults to America/New_York
+   * (the Phase 4/5a behavior); the social goal executor passes the
+   * goal's timeZone here.
+   */
+  timeZone?: string;
+}): Promise<DailyDraftsResult> {
   const config = parseSocialConfig(input.env);
   if (!config.postingEnabled) {
     return { status: "postingDisabled", date: null, channels: [] };
@@ -89,7 +95,7 @@ export function buildDailyDrafts(input: {
     return { status: "noBrief", date: null, channels: [] };
   }
 
-  const date = nyParts(input.nowMs).date;
+  const date = zonedDateParts(input.nowMs, input.timeZone ?? "America/New_York").date;
   const channels: ChannelBuildResult[] = [];
   for (const channel of enabledChannels(config)) {
     const disposition = resolveChannelDisposition(channel, config);
@@ -103,7 +109,7 @@ export function buildDailyDrafts(input: {
       channels.push({ channel, disposition, draft: null, error: created.error });
       continue;
     }
-    const draft = getOrCreateDraft(input.store, date, channel, () => created.draft);
+    const draft = await getOrCreateDraft(input.store, date, channel, () => created.draft);
     channels.push({ channel, disposition, draft });
   }
   return { status: "drafts", date, channels };
@@ -150,7 +156,7 @@ export async function publishDueDrafts(input: {
     SOCIAL_LIVE_PUBLISHING: input.env.SOCIAL_LIVE_PUBLISHING,
   };
   const results: ChannelPublishResult[] = [];
-  for (const draft of input.store.listDrafts(input.date)) {
+  for (const draft of await input.store.listDrafts(input.date)) {
     const channel = draft.channel;
     try {
       if (!(KNOWN_SOCIAL_CHANNELS as readonly string[]).includes(channel)) {
@@ -176,7 +182,7 @@ export async function publishDueDrafts(input: {
       }
       if (disposition === "approval" && draft.status !== "approved") {
         // Record the request; delivery (Slack approval card) is Phase 5b.
-        input.approvals.recordPending({
+        await input.approvals.recordPending({
           date: input.date,
           channel,
           draftId: draft.id,
@@ -229,8 +235,8 @@ export async function publishDueDrafts(input: {
         });
         continue;
       }
-      input.store.putDraft({ ...draft, status: "posted" });
-      input.approvals.clearPending(input.date, channel);
+      await input.store.putDraft({ ...draft, status: "posted" });
+      await input.approvals.clearPending(input.date, channel);
       results.push({
         channel,
         disposition,
