@@ -33,9 +33,14 @@ export interface PendingApproval {
 }
 
 export interface PendingApprovalStore {
-  recordPending(approval: PendingApproval): void;
-  listPending(date: string): PendingApproval[];
-  clearPending(date: string, channel: string): void;
+  /**
+   * Methods return T | Promise<T>, as in SocialLedger: sync
+   * implementations satisfy this with plain values, async ones with
+   * promises, and callers MUST await every call.
+   */
+  recordPending(approval: PendingApproval): void | Promise<void>;
+  listPending(date: string): PendingApproval[] | Promise<PendingApproval[]>;
+  clearPending(date: string, channel: string): void | Promise<void>;
 }
 
 export class MemoryPendingApprovalStore implements PendingApprovalStore {
@@ -63,15 +68,15 @@ export type ApprovalResult =
   | { ok: true; draft: SocialDraft }
   | { ok: false; error: string };
 
-export function approveDraft(
+export async function approveDraft(
   store: SocialLedger,
   approvals: PendingApprovalStore,
   date: string,
   channel: string,
   approver: string,
   nowMs: number,
-): ApprovalResult {
-  const existing = store.getDraft(date, channel);
+): Promise<ApprovalResult> {
+  const existing = await store.getDraft(date, channel);
   if (!existing) {
     return { ok: false, error: `no draft for ${channel} on ${date}` };
   }
@@ -86,18 +91,18 @@ export function approveDraft(
     status: "approved",
     approval: { approver, approvedAtMs: nowMs },
   };
-  store.putDraft(draft);
-  approvals.clearPending(date, channel);
+  await store.putDraft(draft);
+  await approvals.clearPending(date, channel);
   return { ok: true, draft };
 }
 
-export function rejectDraft(
+export async function rejectDraft(
   store: SocialLedger,
   approvals: PendingApprovalStore,
   date: string,
   channel: string,
-): ApprovalResult {
-  const existing = store.getDraft(date, channel);
+): Promise<ApprovalResult> {
+  const existing = await store.getDraft(date, channel);
   if (!existing) {
     return { ok: false, error: `no draft for ${channel} on ${date}` };
   }
@@ -105,7 +110,7 @@ export function rejectDraft(
     return { ok: false, error: `draft for ${channel} on ${date} is already posted` };
   }
   const draft: SocialDraft = { ...existing, status: "failed" };
-  store.putDraft(draft);
-  approvals.clearPending(date, channel);
+  await store.putDraft(draft);
+  await approvals.clearPending(date, channel);
   return { ok: true, draft };
 }

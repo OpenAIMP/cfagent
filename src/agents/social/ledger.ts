@@ -22,9 +22,16 @@ import type { SocialDraft } from "./draft";
 export type { SocialDraft };
 
 export interface SocialLedger {
-  getDraft(date: string, channel: string): SocialDraft | undefined;
-  putDraft(draft: SocialDraft): void;
-  listDrafts(date: string): SocialDraft[];
+  /**
+   * Methods return T | Promise<T>: a synchronous implementation (the
+   * in-memory ledger) satisfies this with plain values, and an async
+   * implementation (the SessionStore-backed ledger) with promises.
+   * Callers MUST await every call — awaiting a plain value is
+   * transparent, so sync and async stores share one call path.
+   */
+  getDraft(date: string, channel: string): SocialDraft | undefined | Promise<SocialDraft | undefined>;
+  putDraft(draft: SocialDraft): void | Promise<void>;
+  listDrafts(date: string): SocialDraft[] | Promise<SocialDraft[]>;
 }
 
 /**
@@ -33,16 +40,16 @@ export interface SocialLedger {
  * create callback runs ONLY when no draft exists, so a second call can
  * never overwrite or duplicate the first draft.
  */
-export function getOrCreateDraft(
+export async function getOrCreateDraft(
   ledger: SocialLedger,
   date: string,
   channel: string,
   create: () => SocialDraft,
-): SocialDraft {
-  const existing = ledger.getDraft(date, channel);
+): Promise<SocialDraft> {
+  const existing = await ledger.getDraft(date, channel);
   if (existing) return existing;
   const draft = create();
-  ledger.putDraft(draft);
+  await ledger.putDraft(draft);
   return draft;
 }
 
@@ -70,7 +77,7 @@ export class MemorySocialLedger implements SocialLedger {
     return out;
   }
 
-  getOrCreateDraft(date: string, channel: string, create: () => SocialDraft): SocialDraft {
+  getOrCreateDraft(date: string, channel: string, create: () => SocialDraft): Promise<SocialDraft> {
     return getOrCreateDraft(this, date, channel, create);
   }
 }
@@ -98,7 +105,7 @@ export interface AsyncSocialLedger {
   ): Promise<SocialDraft>;
 }
 
-function isSocialDraft(value: unknown): value is SocialDraft {
+export function isSocialDraft(value: unknown): value is SocialDraft {
   return (
     typeof value === "object" &&
     value !== null &&
