@@ -11,6 +11,8 @@ import type { AgentContext, ScheduleOptions } from "agents";
 import type { DatabaseORM } from "../../orm";
 import type {
   AgentName,
+  AsyncJobChannel,
+  AsyncJobKind,
   AsyncJobPayload,
   AsyncJobRecord,
   AsyncJobStatus,
@@ -23,6 +25,14 @@ import { executeNaturalLanguageQuery } from "../nlq";
 import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
 import { createDiscoveryService } from "../../services/discoveryService";
+import {
+  isEmailAllowed,
+  planDeliveryFollowups,
+  planInitialFollowups,
+  resolveScreenerFollowupConfig,
+  screenerOutcomeFromHttpJob,
+  type FollowupReportResult,
+} from "../../services/screenerFollowups";
 
 /**
  * Ports the async-job functions receive from the class. Table/state
@@ -41,9 +51,66 @@ export interface AsyncJobsContext {
   routeRequest: (request: Request) => Promise<Response>;
   nlqSchedulingPort: () => NLQSchedulingPort;
   nlqStockScreenPort: () => NLQStockScreenPort;
+  /** Issue #1123: artifact lookups for followup.report jobs — the
+   *  ScreenerAgent's stored PDFs, by kind and run key. */
+  followupReportPort: () => {
+    getStockPdf: (userLogin: string, key: string) => Promise<{ fileName: string } | null>;
+    getOptionsPdf: (userLogin: string, key: string) => Promise<{ fileName: string } | null>;
+  };
+  /** Issue #1123 S3: channel deliveries for followup.deliver jobs. The
+   *  port owns content + transport (Slack/email/webhook services); the
+   *  executor owns policy (allowlist, skip) and job state. */
+  followupDeliveryPort: () => {
+    deliver: (input: {
+      channel: AsyncJobChannel;
+      userLogin: string;
+      outcome: import("../../services/screenerFollowups").ScreenerRunOutcome;
+      artifacts: Array<{ key: string; fileName: string }>;
+    }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
+  };
 }
 
-export async function submitAsyncJob(ctx: AsyncJobsContext, 
+const ASYNC_JOB_KINDS: readonly AsyncJobKind[] = ["main", "report", "delivery", "notification"];
+const ASYNC_JOB_CHANNELS: readonly AsyncJobChannel[] = ["email", "slack", "webhook"];
+
+/**
+ * Issue #1123: additive job-graph migration for mas_async_jobs —
+ * parent_job_id / job_kind / channel, probed and added when missing so
+ * existing DO tables upgrade in place. Called from
+ * OrchestratorAgent.ensureTables after the CREATE TABLE.
+ */
+export function ensureAsyncJobGraphColumns(sql: AgentContext["storage"]["sql"]): void {
+  const cols = Array.from(sql.exec("PRAGMA table_info(mas_async_jobs)")) as Array<{ name?: unknown }>;
+  const names = new Set(cols.map((c) => String(c?.name ?? "")));
+  if (!names.has("parent_job_id")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN parent_job_id TEXT");
+  }
+  if (!names.has("job_kind")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN job_kind TEXT NOT NULL DEFAULT 'main'");
+  }
+  if (!names.has("channel")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN channel TEXT");
+  }
+  sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_parent ON mas_async_jobs(parent_job_id)");
+}
+
+/** Issue #1123: map a row's graph columns onto record fields, tolerating
+ *  legacy rows (job_kind NULL/'main', no parent/channel). */
+function jobGraphFields(row: Record<string, unknown>): {
+  parentJobId?: string;
+  jobKind: AsyncJobKind;
+  channel?: AsyncJobChannel;
+} {
+  const kind = ASYNC_JOB_KINDS.find((k) => k === row.job_kind);
+  const channel = ASYNC_JOB_CHANNELS.find((c) => c === row.channel);
+  return {
+    parentJobId: typeof row.parent_job_id === "string" && row.parent_job_id ? row.parent_job_id : undefined,
+    jobKind: kind ?? "main",
+    channel,
+  };
+}
+
+export async function submitAsyncJob(ctx: AsyncJobsContext,
   job: AsyncJobSubmission,
 ): Promise<{ jobId: string; status: "queued"; statusUrl: string }> {
   const sql = ctx.ensureTables();
@@ -66,17 +133,22 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
   );
   const jobId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const displayName = job.capability === "http.request"
+  const displayName = job.displayName ?? (job.capability === "http.request"
     ? `${job.payload.method} ${job.payload.pathAndQuery.split("?")[0]}`
     : job.capability === "mcp.tool"
       ? `MCP: ${job.payload.toolName}`
       : job.capability === "nlq.execute"
         ? `NLQ: ${job.payload.query.slice(0, 100)}`
-        : `Task: ${job.payload.title}`;
+        : job.capability === "followup.report"
+          ? "Generate report"
+          : job.capability === "followup.deliver"
+            ? "Deliver report"
+            : `Task: ${job.payload.title}`);
+  // Single-line column list: the shared MockSqlStorage INSERT parser does
+  // not span newlines inside the column list (tests would silently drop
+  // the row) — keep this statement on one line.
   sql.exec(
-    `INSERT INTO mas_async_jobs
-      (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)`,
+    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at, parent_job_id, job_kind, channel) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)",
     jobId,
     ctx.sessionKey(),
     job.capability,
@@ -84,6 +156,9 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
     payloadJson,
     now,
     now,
+    job.parentJobId ?? null,
+    job.jobKind ?? "main",
+    job.channel ?? null,
   );
 
   try {
@@ -128,7 +203,7 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
   const sql = ctx.ensureTables();
   const rows = Array.from(sql.exec(
     `SELECT job_id, session_id, capability, display_name, status, result_json, response_status,
-            error, created_at, updated_at, started_at, completed_at
+            error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel
      FROM mas_async_jobs WHERE job_id = ? AND session_id = ?`,
     jobId,
     ctx.sessionKey(),
@@ -162,6 +237,7 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
     capability: String(row.capability),
     label: String(row.display_name),
     status: row.status as AsyncJobStatus,
+    ...jobGraphFields(row),
     result,
     responseStatus: typeof row.response_status === "number" ? row.response_status : undefined,
     error: typeof row.error === "string" ? row.error : undefined,
@@ -174,7 +250,7 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
 
 export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord[] {
   const rows = Array.from(ctx.ensureTables().exec(
-    `SELECT job_id, session_id, capability, display_name, status, error, created_at, updated_at, started_at, completed_at
+    `SELECT job_id, session_id, capability, display_name, status, error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel
      FROM mas_async_jobs WHERE session_id = ?
      ORDER BY created_at DESC LIMIT ?`,
     ctx.sessionKey(),
@@ -191,6 +267,7 @@ export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord
       capability: String(row.capability),
       label: String(row.display_name),
       status: row.status as AsyncJobStatus,
+      ...jobGraphFields(row),
       error: typeof row.error === "string" ? row.error : undefined,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -230,6 +307,11 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       const pathAndQuery = String(payload.pathAndQuery || "");
       const method = String(payload.method || "GET");
       const headers = new Headers(payload.headers as HeadersInit);
+      // Issue #1123: the harmonization seam — a route executed as a job
+      // can see its main-job id and defer follow-ups (report, delivery,
+      // notifications) to the tracked pipeline instead of firing its
+      // own untracked publishers.
+      headers.set("x-async-job-id", jobId);
       const body = typeof payload.body === "string" ? payload.body : undefined;
       const response = await ctx.routeRequest(new Request(new URL(pathAndQuery, "https://agent.internal"), {
         method,
@@ -262,6 +344,59 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         ...payload,
         message: "Task draft created. Awaiting human confirmation.",
       };
+    } else if (job.capability === "followup.report") {
+      // Issue #1123 S2: secure the run's report artifact for the
+      // pipeline. The run generates the PDF once (inside the screening
+      // pipeline); this sub-job verifies and adopts the stored artifact
+      // so S3's deliveries all share the same bytes. A failed run
+      // generation completes as 'skipped' with the reason — never a
+      // stale-PDF fallback (the #822 honesty rule).
+      const outcome = payload.outcome as import("../../services/screenerFollowups").ScreenerRunOutcome;
+      const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
+      if (!outcome || typeof outcome !== "object") throw new Error("followup.report job requires an outcome payload.");
+      if (outcome.pdfStatus === "failed") {
+        result = { status: "skipped", reason: outcome.pdfError || "Report generation failed during the run." };
+      } else if (!outcome.pdfKeys || outcome.pdfKeys.length === 0) {
+        result = { status: "skipped", reason: "The run produced no report artifact key." };
+      } else {
+        const port = ctx.followupReportPort();
+        const artifacts: Array<{ key: string; fileName: string }> = [];
+        const missing: string[] = [];
+        for (const key of outcome.pdfKeys) {
+          const pdf = outcome.kind === "stock"
+            ? await port.getStockPdf(userLogin, key)
+            : await port.getOptionsPdf(userLogin, key);
+          if (pdf) artifacts.push({ key, fileName: pdf.fileName });
+          else missing.push(key);
+        }
+        if (artifacts.length === 0) {
+          throw new Error(`Report artifact(s) referenced by the run are missing from storage: ${missing.join(", ")}`);
+        }
+        result = { status: "ready", artifacts, missingKeys: missing };
+      }
+    } else if (job.capability === "followup.deliver") {
+      // Issue #1123 S3: deliver the shared report artifact on one
+      // channel. Policy lives here (skip passthrough, the Assessment's
+      // email allowlist); transport lives behind the delivery port.
+      const channel = payload.channel as AsyncJobChannel;
+      const outcome = payload.outcome as import("../../services/screenerFollowups").ScreenerRunOutcome;
+      const artifacts = (payload.artifacts ?? []) as Array<{ key: string; fileName: string }>;
+      const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
+      if (typeof payload.skipReason === "string" && payload.skipReason) {
+        result = { status: "skipped", reason: payload.skipReason, channel };
+      } else {
+        if (channel === "email") {
+          const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
+          const to = config.channels.email.to;
+          if (!to) throw new Error("Email delivery is not configured (SCREENER_EMAIL_TO is unset).");
+          if (!isEmailAllowed(config, to)) {
+            throw new Error(`Email recipient ${to} is not in the screener email allowlist; delivery refused.`);
+          }
+        }
+        const delivery = await ctx.followupDeliveryPort().deliver({ channel, userLogin, outcome, artifacts });
+        if (!delivery.ok) throw new Error(delivery.error || `Delivery via ${channel} failed.`);
+        result = { status: "sent", channel, detail: delivery.detail };
+      }
     } else if (job.capability === "nlq.execute") {
       const query = String(payload.query || "").trim();
       if (!query) throw new Error("NLQ job requires a non-empty query.");
@@ -293,6 +428,65 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       jobId,
     );
     ctx.audit("async_job.completed", "orchestrator", { jobId, capability: job.capability });
+
+    // Issue #1123 S2: a completed screener main-job schedules its
+    // follow-ups (report first; deliveries/notifications chain from
+    // there in S3/S4). Scheduling must never fail the main job.
+    if (job.capability === "http.request") {
+      try {
+        const httpResult = result as { body?: string } | undefined;
+        const outcome = screenerOutcomeFromHttpJob(
+          String(payload.pathAndQuery || ""),
+          responseStatus,
+          typeof httpResult?.body === "string" ? httpResult.body : "",
+        );
+        if (outcome) {
+          const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
+          const headers = (payload.headers || {}) as Record<string, string>;
+          const userLogin = typeof headers["x-user-login"] === "string" ? headers["x-user-login"] : ctx.sessionKey();
+          for (const spec of planInitialFollowups(outcome, config, jobId, userLogin)) {
+            await submitAsyncJob(ctx, spec);
+          }
+        }
+      } catch (followupError) {
+        ctx.audit("followup.schedule_failed", "orchestrator", {
+          jobId,
+          error: followupError instanceof Error ? followupError.message : String(followupError),
+        });
+        console.error(`[OrchestratorAgent] Follow-up scheduling failed for job ${jobId}:`, followupError);
+      }
+    }
+
+    // Issue #1123 S3: a completed report sub-job chains the deliveries
+    // (parented to the MAIN job, not the report). Same never-fail rule.
+    if (job.capability === "followup.report") {
+      try {
+        const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
+        const outcome = (payload as { outcome?: import("../../services/screenerFollowups").ScreenerRunOutcome }).outcome;
+        const userLogin = typeof (payload as { userLogin?: unknown }).userLogin === "string"
+          ? (payload as { userLogin: string }).userLogin
+          : ctx.sessionKey();
+        if (outcome) {
+          const mainJobId = getAsyncJob(ctx, jobId)?.parentJobId ?? jobId;
+          const specs = planDeliveryFollowups(
+            outcome,
+            config,
+            (result ?? {}) as FollowupReportResult,
+            mainJobId,
+            userLogin,
+          );
+          for (const spec of specs) {
+            await submitAsyncJob(ctx, spec);
+          }
+        }
+      } catch (followupError) {
+        ctx.audit("followup.schedule_failed", "orchestrator", {
+          jobId,
+          error: followupError instanceof Error ? followupError.message : String(followupError),
+        });
+        console.error(`[OrchestratorAgent] Delivery scheduling failed for job ${jobId}:`, followupError);
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const completedAt = new Date().toISOString();

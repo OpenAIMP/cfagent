@@ -1690,12 +1690,33 @@ export interface FiberExecutionRecord {
 
 export type AsyncJobStatus = "queued" | "running" | "completed" | "failed";
 
+/** Issue #1123: job-graph classification. 'main' jobs own sub-jobs:
+ *  'report' (generate the artifact), 'delivery' (send it on a channel),
+ *  'notification' (lifecycle notice). */
+export type AsyncJobKind = "main" | "report" | "delivery" | "notification";
+
+/** Issue #1123: delivery/notification channel for sub-jobs. */
+export type AsyncJobChannel = "email" | "slack" | "webhook";
+
+/** Issue #1123: optional graph fields on a job submission. */
+export interface AsyncJobGraphFields {
+  parentJobId?: string;
+  jobKind?: AsyncJobKind;
+  channel?: AsyncJobChannel;
+  /** Overrides the capability-derived label (sub-jobs carry human names). */
+  displayName?: string;
+}
+
 export interface AsyncJobRecord {
   jobId: string;
   sessionId: string;
   capability: string;
   label: string;
   status: AsyncJobStatus;
+  /** Issue #1123: graph fields; jobKind defaults to 'main' for legacy rows. */
+  parentJobId?: string;
+  jobKind: AsyncJobKind;
+  channel?: AsyncJobChannel;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -1710,7 +1731,7 @@ export interface AsyncJobPayload {
 }
 
 export type AsyncJobSubmission =
-  | {
+  | ({
       capability: "http.request";
       payload: {
         pathAndQuery: string;
@@ -1718,16 +1739,16 @@ export type AsyncJobSubmission =
         headers: Record<string, string>;
         body: string;
       };
-    }
-  | {
+    } & AsyncJobGraphFields)
+  | ({
       capability: "mcp.tool";
       payload: { toolName: string; arguments: Record<string, unknown> };
-    }
-  | {
+    } & AsyncJobGraphFields)
+  | ({
       capability: "nlq.execute";
       payload: { query: string; userLogin: string };
-    }
-  | {
+    } & AsyncJobGraphFields)
+  | ({
       capability: "task.draft";
       payload: {
         title: string;
@@ -1735,7 +1756,28 @@ export type AsyncJobSubmission =
         priority?: "low" | "medium" | "high" | "urgent";
         assignee?: string;
       };
-    };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1123: screener follow-up sub-jobs (report first; the
+       *  delivery/notification capabilities arrive with S3/S4). */
+      capability: "followup.report";
+      payload: {
+        outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
+        userLogin: string;
+      };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1123 S3: one delivery of the shared report artifact on
+       *  one channel. skipReason pre-completes it as 'skipped'. */
+      capability: "followup.deliver";
+      payload: {
+        outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
+        userLogin: string;
+        channel: AsyncJobChannel;
+        artifacts: Array<{ key: string; fileName: string }>;
+        skipReason?: string;
+      };
+    } & AsyncJobGraphFields);
 
 export interface TWAPOrderConfig {
   symbol: string;

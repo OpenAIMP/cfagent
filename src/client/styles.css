@@ -1565,6 +1565,25 @@ body {
   margin-top: 0.2rem;
 }
 
+/* Issue #1123: sub-jobs nested under their main job. */
+.async-jobs-children {
+  display: grid;
+  gap: 0.25rem;
+  list-style: none;
+  margin: 0.4rem 0 0.2rem 0.75rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--color-border-subtle);
+}
+
+.async-jobs-children li {
+  padding: 0.3rem 0;
+  border-top: none;
+}
+
+.job-tag-subjobs {
+  color: var(--color-text-secondary);
+}
+
 .async-jobs-result {
   max-height: 18rem;
   overflow: auto;
