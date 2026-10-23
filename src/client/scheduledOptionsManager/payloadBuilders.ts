@@ -2,7 +2,10 @@
  * S7 (consolidation, umbrella #958): THE payload-construction path
  * for screening schedules in the client — one builder per kind,
  * used by the one schedule UI's create/update submit and by the
- * hero Run Now. Before S7 the same construction lived inline in the
+ * hero Run Now. Since S8 the StrategyDiscoveryPanel's "schedule
+ * this view" capture (buildDiscoveryCaptureSubmission) builds here
+ * too — no client code hand-assembles a schedule create body.
+ * Before S7 the same construction lived inline in the
  * options manager's submit handler while the nav panel's create form
  * posted raw user-typed JSON for the same callbacks — two builders
  * for one kind. The nav form is gone; this module is the only path.
@@ -187,19 +190,81 @@ export function buildScheduleSubmission(
     payload,
   };
 
-  if (form.scheduleType === "interval") {
-    requestBody.intervalSeconds = Number(form.intervalSeconds);
-  } else if (form.scheduleType === "cron") {
-    requestBody.cron = form.cronExpression.trim();
-  } else if (form.scheduleType === "delayed") {
-    requestBody.delayInSeconds = Number(form.delaySeconds);
-  } else if (form.scheduleType === "scheduled") {
-    if (!form.scheduledDate) {
-      return { error: "Pick a date and time for the one-shot run." };
-    }
-    requestBody.date = new Date(form.scheduledDate).toISOString();
-  }
+  const cadenceError = applyScheduleCadence(requestBody, form);
+  if (cadenceError) return { error: cadenceError };
 
+  return { requestBody };
+}
+
+/** The cadence fields of a create body, shared by every builder in
+ *  this module (the schedule form above and the discovery capture
+ *  below): exactly one key is added, per scheduleType. Returns the
+ *  one-shot date error string, or null. */
+export interface ScheduleCadenceInput {
+  scheduleType: ScheduleFormState["scheduleType"];
+  intervalSeconds?: number;
+  cronExpression?: string;
+  delaySeconds?: number;
+  scheduledDate?: string;
+}
+
+function applyScheduleCadence(
+  requestBody: Record<string, any>,
+  cadence: ScheduleCadenceInput
+): string | null {
+  if (cadence.scheduleType === "interval") {
+    requestBody.intervalSeconds = Number(cadence.intervalSeconds);
+  } else if (cadence.scheduleType === "cron") {
+    requestBody.cron = (cadence.cronExpression ?? "").trim();
+  } else if (cadence.scheduleType === "delayed") {
+    requestBody.delayInSeconds = Number(cadence.delaySeconds);
+  } else if (cadence.scheduleType === "scheduled") {
+    if (!cadence.scheduledDate) {
+      return "Pick a date and time for the one-shot run.";
+    }
+    requestBody.date = new Date(cadence.scheduledDate).toISOString();
+  }
+  return null;
+}
+
+/**
+ * S8 (consolidation, umbrella #958): the StrategyDiscoveryPanel
+ * "schedule this view" capture (issue #126) builds its create body
+ * HERE — the same builder module as the schedule form — instead of
+ * hand-assembling it in the panel. The capture snapshots ONE already
+ * built StrategyRequest (the exact view on screen), so this builder
+ * takes the request as-is rather than form drafts: the payload is
+ * the saved-request discovery payload ({ requests, environment,
+ * trigger: "scheduled" }) the form builder above produces for the
+ * saved-request model, validated through the same S1 schema check,
+ * with the cadence applied by the same helper.
+ *
+ * Named correction vs the panel's legacy hand-assembled body: the
+ * payload now carries `trigger: "scheduled"` — the value the create
+ * route stamps server-side when it is absent
+ * (src/agents/routes/schedules.ts), so the stored schedule is
+ * identical; the client body gains the stamp the form path has
+ * always sent. Golden-pinned in tests/screening_hub_s8.test.tsx.
+ */
+export function buildDiscoveryCaptureSubmission(input: {
+  request: Record<string, any>;
+  environment: string;
+} & ScheduleCadenceInput): { requestBody: Record<string, any> } | { error: string } {
+  const payload: Record<string, any> = {
+    requests: [input.request],
+    environment: input.environment,
+    trigger: "scheduled",
+  };
+  const validationError = validateScheduleCriteriaClient(JOB_CALLBACKS.strategyDiscovery, payload);
+  if (validationError) return { error: validationError };
+
+  const requestBody: Record<string, any> = {
+    callback: JOB_CALLBACKS.strategyDiscovery,
+    scheduleType: input.scheduleType,
+    payload,
+  };
+  const cadenceError = applyScheduleCadence(requestBody, input);
+  if (cadenceError) return { error: cadenceError };
   return { requestBody };
 }
 
