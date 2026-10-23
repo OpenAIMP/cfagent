@@ -7,19 +7,19 @@ const MON_0900 = Date.parse("2026-10-26T13:00:00Z");
 const ENABLED = { SOCIAL_POSTING_ENABLED: "1" };
 
 describe("buildDailyDrafts early returns", () => {
-  it("returns postingDisabled and writes nothing when posting is off", () => {
+  it("returns postingDisabled and writes nothing when posting is off", async () => {
     const store = new MemorySocialLedger();
-    const res = buildDailyDrafts({ env: {}, brief: "Morning brief.", nowMs: MON_0900, store });
+    const res = await buildDailyDrafts({ env: {}, brief: "Morning brief.", nowMs: MON_0900, store });
     expect(res.status).toBe("postingDisabled");
     expect(res.date).toBeNull();
     expect(res.channels).toEqual([]);
     expect(store.listDrafts("2026-10-26")).toEqual([]);
   });
 
-  it("returns noBrief and writes nothing for an empty or whitespace-only brief", () => {
+  it("returns noBrief and writes nothing for an empty or whitespace-only brief", async () => {
     for (const brief of ["", "   "]) {
       const store = new MemorySocialLedger();
-      const res = buildDailyDrafts({ env: ENABLED, brief, nowMs: MON_0900, store });
+      const res = await buildDailyDrafts({ env: ENABLED, brief, nowMs: MON_0900, store });
       expect(res.status).toBe("noBrief");
       expect(store.listDrafts("2026-10-26")).toEqual([]);
     }
@@ -27,9 +27,9 @@ describe("buildDailyDrafts early returns", () => {
 });
 
 describe("buildDailyDrafts draft set", () => {
-  it("builds one draft per default channel with the confirmed dispositions", () => {
+  it("builds one draft per default channel with the confirmed dispositions", async () => {
     const store = new MemorySocialLedger();
-    const res = buildDailyDrafts({ env: ENABLED, brief: "Morning brief.", nowMs: MON_0900, store });
+    const res = await buildDailyDrafts({ env: ENABLED, brief: "Morning brief.", nowMs: MON_0900, store });
     expect(res.status).toBe("drafts");
     expect(res.date).toBe("2026-10-26");
     const byChannel = new Map(res.channels.map((c) => [c.channel, c]));
@@ -53,29 +53,29 @@ describe("buildDailyDrafts draft set", () => {
     expect(store.listDrafts("2026-10-26")).toHaveLength(5);
   });
 
-  it("is idempotent: a second build the same day returns the first draft set", () => {
+  it("is idempotent: a second build the same day returns the first draft set", async () => {
     const store = new MemorySocialLedger();
-    const first = buildDailyDrafts({ env: ENABLED, brief: "Morning brief.", nowMs: MON_0900, store });
-    const second = buildDailyDrafts({ env: ENABLED, brief: "Morning brief.", nowMs: MON_0900, store });
+    const first = await buildDailyDrafts({ env: ENABLED, brief: "Morning brief.", nowMs: MON_0900, store });
+    const second = await buildDailyDrafts({ env: ENABLED, brief: "Morning brief.", nowMs: MON_0900, store });
     const firstIds = first.channels.map((c) => c.draft?.id).sort();
     const secondIds = second.channels.map((c) => c.draft?.id).sort();
     expect(secondIds).toEqual(firstIds);
     expect(store.listDrafts("2026-10-26")).toHaveLength(5);
   });
 
-  it("truncates a long brief per channel instead of failing", () => {
+  it("truncates a long brief per channel instead of failing", async () => {
     const store = new MemorySocialLedger();
     const brief = Array.from({ length: 200 }, (_, i) => `word${i}`).join(" ");
-    const res = buildDailyDrafts({ env: ENABLED, brief, nowMs: MON_0900, store });
+    const res = await buildDailyDrafts({ env: ENABLED, brief, nowMs: MON_0900, store });
     const x = res.channels.find((c) => c.channel === "x");
     expect(x?.draft?.truncated).toBe(true);
     expect(x?.draft?.text.length).toBeLessThanOrEqual(280);
     expect(x?.draft?.originalLength).toBe(brief.length);
   });
 
-  it("reports an unknown configured channel as an error entry, never a draft", () => {
+  it("reports an unknown configured channel as an error entry, never a draft", async () => {
     const store = new MemorySocialLedger();
-    const res = buildDailyDrafts({
+    const res = await buildDailyDrafts({
       env: { ...ENABLED, SOCIAL_AUTONOMOUS_CHANNELS: "threads,tiktok" },
       brief: "Morning brief.",
       nowMs: MON_0900,
@@ -88,9 +88,9 @@ describe("buildDailyDrafts draft set", () => {
     expect(bad?.disposition).toBe("approval");
   });
 
-  it("respects a moved channel: approval-listed x needs approval", () => {
+  it("respects a moved channel: approval-listed x needs approval", async () => {
     const store = new MemorySocialLedger();
-    const res = buildDailyDrafts({
+    const res = await buildDailyDrafts({
       env: {
         ...ENABLED,
         SOCIAL_AUTONOMOUS_CHANNELS: "threads",
