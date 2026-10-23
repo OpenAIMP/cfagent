@@ -139,6 +139,28 @@ export interface SchedulesRouteContext {
 }
 
 /**
+ * Issue #1170 (E3): the runScheduleCallback closure that used to be
+ * built inline in OrchestratorAgent.routeRequest's schedules
+ * context now lives here with the routes it serves (the #992
+ * extraction pattern — this is what keeps orchestrator.ts inside
+ * its size budget as new dispatch blocks land). Behaviour is
+ * identical to the inline closure: resolve the named method on the
+ * host, refuse non-callables with the same error, invoke with the
+ * host as `this`.
+ */
+export function makeRunScheduleCallback(
+  host: unknown
+): SchedulesRouteContext["runScheduleCallback"] {
+  return async (callback: string, payload: unknown) => {
+    const fn = (host as Record<string, unknown>)[callback];
+    if (typeof fn !== "function") {
+      throw new Error(`Schedule callback '${callback}' is not callable on the orchestrator.`);
+    }
+    await (fn as (p: unknown) => Promise<void>).call(host, payload);
+  };
+}
+
+/**
  * Task schedule management routes. Invoked from routeRequest at the exact
  * position the original block occupied (after the
  * handleScreenerResearchRoutes delegation, before the Not-found
