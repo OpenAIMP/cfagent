@@ -4,9 +4,10 @@
  * PDF blobs move from base64-in-DO-storage to R2. The migration is designed
  * to be safe to merge BEFORE the bucket exists:
  *
- * - When `env.REPORTS_BUCKET` is bound, blobs go to R2 (keyed by the storage
- *   key) and DO storage keeps only a small metadata pointer
- *   `{ r2Key, fileName, storedAt }`.
+ * - When `env.REPORTS_BUCKET` is bound, blobs go to R2 (under the bucket
+ *   folder layout — see r2KeyFor below) and DO storage keeps only a small
+ *   metadata pointer `{ r2Key, fileName, storedAt }`, keyed by the original
+ *   storage key.
  * - When the binding is absent (pre-migration), blobs stay in DO storage as
  *   base64, exactly as before.
  * - Reads try R2 first (via the metadata pointer), then fall back to the
@@ -28,6 +29,28 @@ interface ReportPdfMeta {
   r2Key?: string;
   /** Legacy pre-#605 blobs only. */
   base64?: string;
+}
+
+/**
+ * Bucket folder layout (issue #605): the `screener` bucket is organised into
+ * two folders — `options/` for options reports and `stocks/` for everything
+ * else (stock screener, research, report-asset). The folder is derived from
+ * the storage key alone:
+ *
+ *   - `options:*`            (per-run `options:pdf:*`, `options:latest.pdf`
+ *                             from screener-agent)            → `options/`
+ *   - `report:pdf:options:*` (ReportAssetAgent, type "options") → `options/`
+ *   - all other keys (`screener:pdf:*`, `screener:latest.pdf`,
+ *     `research:pdf:*`, `report:pdf:screener:*`, `report:pdf:research:*`,
+ *     and any unrecognised key)                              → `stocks/`
+ *
+ * Only the R2 object key is mapped. The DO metadata record stays keyed by
+ * the ORIGINAL storage key and stores the mapped key as `r2Key`.
+ */
+function r2KeyFor(key: string): string {
+  const isOptions =
+    key.startsWith("options:") || key.startsWith("report:pdf:options:");
+  return `${isOptions ? "options" : "stocks"}/${key}`;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -55,13 +78,14 @@ export async function putReportPdf(
 ): Promise<void> {
   const bucket = env.REPORTS_BUCKET;
   if (bucket) {
-    await bucket.put(key, bytes, {
+    const r2Key = r2KeyFor(key);
+    await bucket.put(r2Key, bytes, {
       httpMetadata: { contentType: "application/pdf" },
       customMetadata: { fileName },
     });
     const meta: ReportPdfMeta = {
       fileName,
-      r2Key: key,
+      r2Key,
       storedAt: new Date().toISOString(),
     };
     await storage.put(key, meta);
@@ -86,7 +110,7 @@ export async function getReportPdf(
     const bucket = env.REPORTS_BUCKET;
     if (bucket) {
       try {
-        const obj = await bucket.get(key);
+        const obj = await bucket.get(r2KeyFor(key));
         if (obj) {
           const bytes = new Uint8Array(await obj.arrayBuffer());
           const fileName = obj.customMetadata?.fileName || `${key.split(":").pop() || "report"}.pdf`;
