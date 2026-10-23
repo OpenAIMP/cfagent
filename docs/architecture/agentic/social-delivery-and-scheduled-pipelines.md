@@ -86,9 +86,9 @@ gated on a verified contact address), not a social channel.
   to/as/:`, `use … as/:` variants) writes the brief. Deliberate
   non-match: "Use the social brief to explain X" does not set it.
 - Webhook NLQ withholds the brief port (`x-nlq-source: webhook`)
-  — untrusted external content never writes briefs. This is the
-  standing recommendation: keep webhook NLQ untrusted for social
-  writes (owner decision still open).
+  — untrusted external content never writes briefs. DECIDED
+  2026-10-23 (owner): keep Slack NLQ untrusted for social brief
+  writes — Slack NLQ never writes briefs.
 
 ### 1.6 What is automated today, in one list
 
@@ -236,5 +236,5 @@ Honest boundaries, not claims:
 - Pipeline goals (staged scheduling): designed in §3.3,
   implementation tracked in its own issue linked from #1077.
 - Automated digest feed: open content decision (§2), not built.
-- Webhook NLQ trust for brief writes: open owner decision
-  (recommended: keep untrusted).
+- Webhook NLQ trust for brief writes: DECIDED 2026-10-23 (owner):
+  keep untrusted.
