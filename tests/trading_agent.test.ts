@@ -264,8 +264,7 @@ describe("TradingAgent A2A outcome + instance unification (#291 A1/A2)", () => {
     expect(tradingAgentName("alice")).toBe("trading:alice");
   });
 
-  it("the edge dispatcher parses the body, calls handleA2A(body, origin), and shapes text+data parts", async () => {
-    const { handleA2A } = await import("../src/a2a/index");
+  it("the edge dispatcher parses the body, calls handleA2A(body, origin), and shapes text+data parts", async () => {    const { handleA2A } = await import("../src/a2a/index");
     const seen: unknown[] = [];
     const fakeEnv = {
       TRADING_AGENT: {
@@ -310,5 +309,106 @@ describe("TradingAgent A2A outcome + instance unification (#291 A1/A2)", () => {
     expect(seen[0][0]).toBe("trading");
     expect((seen[0][1] as any).method).toBe("message/send");
     expect(seen[0][2]).toBe("https://agent.example");
+  });
+});
+
+describe("TradingAgent stable error tokens + dispatch logging (#291 A3/A6)", () => {
+  it("each classified failure carries its stable token on the A2A surface", async () => {
+    const missing = await dispatchTradingA2A(env, fakeConfig as any, { hello: 1 });
+    expect(missing.code).toBe("missing_operation");
+    const unknown = await dispatchTradingA2A(env, fakeConfig as any, {
+      operation: "trading.nope",
+    });
+    expect(unknown.code).toBe("unknown_operation");
+    const notEnabled = await dispatchTradingA2A(env, TRADING_AGENT_CONFIG_BASELINE, {
+      operation: "trading.screen_stocks",
+      provider: "fake291",
+    });
+    expect(notEnabled.code).toBe("provider_not_enabled");
+    const unsupported = await dispatchTradingA2A(env, fakeConfig as any, {
+      operation: "trading.screen_stocks",
+      provider: "noscreen291",
+    });
+    expect(unsupported.code).toBe("provider_unsupported");
+    const disabled = await dispatchTradingA2A(
+      env,
+      { ...fakeConfig, enabledServices: ["options_screening"] } as any,
+      { operation: "trading.screen_stocks", provider: "fake291" },
+    );
+    expect(disabled.code).toBe("service_disabled");
+    const invalid = await dispatchTradingA2A(env, fakeConfig as any, {
+      operation: "trading.screen_stocks",
+      provider: "fake291",
+      filter: { minPrice: "not-a-number" },
+    });
+    expect(invalid.code).toBe("invalid_input");
+    // Every dispatch result carries the correlation id.
+    for (const r of [missing, unknown, notEnabled, unsupported, disabled, invalid]) {
+      expect(typeof r.correlationId).toBe("string");
+      expect(r.correlationId!.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("the execution path throws typed errors with the same tokens", async () => {
+    const { TradingServiceError } = await import("../src/agents/trading-agent");
+    const err: any = await executeTradingService(env, fakeConfig as any, {
+      serviceId: "nope",
+      input: {},
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(TradingServiceError);
+    expect(err.code).toBe("unknown_service");
+  });
+
+  it("unclassified failures ship internal_error and never leak exception text", async () => {
+    const { TRADING_SERVICE_REGISTRY } = await import("../src/agents/trading-agent");
+    TRADING_SERVICE_REGISTRY.push({
+      id: "exploding",
+      toolName: "explode",
+      a2aOperation: "trading.explode",
+      access: "read",
+      description: "test double",
+      inputSchema: (await import("zod")).z.object({}).passthrough(),
+      execute: async () => {
+        throw new Error("secret internals: db password hunter2");
+      },
+    } as any);
+    try {
+      const result = await dispatchTradingA2A(
+        env,
+        { ...fakeConfig, enabledServices: [...fakeConfig.enabledServices, "exploding"] } as any,
+        { operation: "trading.explode" },
+      );
+      expect(result.ok).toBe(false);
+      expect(result.code).toBe("internal_error");
+      expect(result.error).not.toMatch(/hunter2|secret internals/);
+    } finally {
+      TRADING_SERVICE_REGISTRY.pop();
+    }
+  });
+
+  it("executions emit one structured dispatch log line", async () => {
+    const lines: string[] = [];
+    const original = console.info;
+    console.info = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      await executeTradingService(env, fakeConfig as any, {
+        serviceId: "stock_screening",
+        input: { provider: "fake291" },
+        door: "rpc",
+        traceId: "trace-test-1",
+      });
+    } finally {
+      console.info = original;
+    }
+    const entry = lines
+      .filter((l) => l.includes("[TradingAgent]"))
+      .map((l) => JSON.parse(l.replace("[TradingAgent] ", "")))
+      .find((e) => e.correlationId === "trace-test-1");
+    expect(entry).toBeDefined();
+    expect(entry.ok).toBe(true);
+    expect(entry.service).toBe("stock_screening");
+    expect(entry.access).toBe("read");
   });
 });
