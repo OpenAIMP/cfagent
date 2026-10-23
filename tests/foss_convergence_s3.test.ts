@@ -258,23 +258,34 @@ describe("S3 (b) — FOSS route persists a canonical report with provider proven
     );
   });
 
-  it("the REST canonical seam stores source 'screener' with provider + trigger in the body", () => {
-    const store = vi.fn(() => ({ reportId: "r1", created: true }));
+  it("the REST canonical seam stores source 'screener' with provider + trigger in the body", async () => {
+    // Issue #338 S2b: the seam is async now and stores through the R2
+    // write path (ensureTables + env, inline when no bucket is bound) —
+    // the assertions read the stored rows back instead of spying on the
+    // old synchronous ORM call.
+    const sql = new MockSqlStorage();
     const ctx = {
       env: {},
-      getOrm: () => ({ storeCanonicalReport: store }),
+      ensureTables: () => sql,
     } as any;
-    persistScreenerReportCanonical(ctx, fossResult() as any);
-    expect(store).toHaveBeenCalledTimes(1);
-    const arg = store.mock.calls[0][0] as any;
-    expect(arg.source).toBe("screener");
-    expect(arg.runId).toBe("screener:2026-10-22T12:00:00.000Z");
-    expect(arg.body.provider).toBe("yahoo");
-    expect(arg.body.trigger).toBe("manual");
+    await persistScreenerReportCanonical(ctx, fossResult() as any);
+    const { listScheduledReports } = await import("../src/services/scheduledReports");
+    let hits = listScheduledReports(sql as any, {});
+    expect(hits).toHaveLength(1);
+    expect(hits[0].source).toBe("screener");
+    expect(hits[0].runId).toBe("screener:2026-10-22T12:00:00.000Z");
+    expect(JSON.parse(hits[0].body).provider).toBe("yahoo");
+    expect(JSON.parse(hits[0].body).trigger).toBe("manual");
     // An E*TRADE run (no provider named) records the etrade default.
-    const { provider: _drop, ...etradeResult } = fossResult() as any;
-    persistScreenerReportCanonical(ctx, etradeResult);
-    expect((store.mock.calls[1][0] as any).body.provider).toBe("etrade");
+    // (Distinct timestamp: the seam dedupes on screener:<timestamp>.)
+    const { provider: _drop, ...etradeResult } = fossResult({
+      timestamp: "2026-10-22T12:05:00.000Z",
+    }) as any;
+    await persistScreenerReportCanonical(ctx, etradeResult);
+    hits = listScheduledReports(sql as any, {});
+    expect(hits).toHaveLength(2);
+    const etradeHit = hits.find((h) => h.runId === "screener:2026-10-22T12:05:00.000Z");
+    expect(JSON.parse(etradeHit!.body).provider).toBe("etrade");
   });
 
   it("Yahoo failure → visible 502, and the failed run is still stored (REST idiom)", async () => {

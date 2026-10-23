@@ -64,7 +64,7 @@ export interface PremiumRouteContext {
     error?: string;
     trigger?: unknown;
     userLogin?: string;
-  }): void;
+  }): Promise<void>;
 }
 
 /**
@@ -319,7 +319,7 @@ export async function handlePremiumRoutes(
           }
           throw screenErr;
         }
-        ctx.persistScreenerReportCanonical({ ...result, userLogin });
+        await ctx.persistScreenerReportCanonical({ ...result, userLogin });
         if (!result.success) {
           // Honest failure (the options-scan idiom above): Yahoo
           // unavailable fails the fulfillment visibly — no signals are

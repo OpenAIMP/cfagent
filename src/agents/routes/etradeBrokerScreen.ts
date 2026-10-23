@@ -70,7 +70,7 @@ export async function executeEtradeScreen(args: {
     // Issue #307/#308: store each shard's canonical report copy
     // (one row per generation) so manual screens are searchable.
     // Issue #911: pass userLogin for correct user scoping.
-    for (const r of shards) ctx.persistScreenerReportCanonical({ ...r, userLogin });
+    for (const r of shards) await ctx.persistScreenerReportCanonical({ ...r, userLogin });
     return Response.json({
       sharded: true,
       universes: shards.map((r) => ({
@@ -128,7 +128,7 @@ export async function executeEtradeScreen(args: {
   // generation) so manual screens are searchable like scheduled ones.
   // Issue #911: pass userLogin so the report is stored under the
   // correct user scope (not "default").
-  ctx.persistScreenerReportCanonical({ ...result, userLogin });
+  await ctx.persistScreenerReportCanonical({ ...result, userLogin });
   await publishOrBridge(ctx, userLogin, result);
   if (!result.success) {
     return Response.json({ error: result.error || "E*TRADE unavailable" }, { status: 502 });

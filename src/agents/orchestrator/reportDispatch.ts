@@ -243,7 +243,7 @@ export async function deliverStoredReportWebhook(ctx: ReportDispatchContext,
  * keyed by generationId `screener:<timestamp>`, so the scheduled
  * wrapper and manual runs cannot create duplicate rows for one run.
  */
-export function persistScreenerReportCanonical(ctx: ReportDispatchContext, result: {
+export async function persistScreenerReportCanonical(ctx: ReportDispatchContext, result: {
   timestamp: string;
   universe?: unknown;
   sector?: unknown;
@@ -258,11 +258,13 @@ export function persistScreenerReportCanonical(ctx: ReportDispatchContext, resul
   error?: string;
   trigger?: unknown;
   userLogin?: string;
-}): void {
+}): Promise<void> {
   try {
-    const orm = ctx.getOrm();
     const generationId = `screener:${result.timestamp}`;
-    orm.storeCanonicalReport({
+    // Issue #338 S2b: store through the R2 seam (pointer row when
+    // REPORTS_BUCKET is bound, inline fallback otherwise) — the same
+    // flip the research path took in S2.
+    await storeReportAtGenerationWithR2(ctx.ensureTables(), ctx.env, {
       runId: generationId,
       generationId,
       title: `Market screen — ${String(result.universe ?? result.sector ?? "ALL")} (${String(result.trigger ?? "scheduled")})`,
