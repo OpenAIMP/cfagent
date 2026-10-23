@@ -38,6 +38,16 @@ import {
 } from "../services/researchPipeline";
 import { EtradeResearchDataProvider } from "../services/researchProviders";
 import {
+  runGoalScenarioDiscovery,
+  persistDiscoveredGoals,
+  type DiscoveredGoalProposal,
+  type PortfolioDiscoveryState,
+} from "../services/goalScenarioEngine";
+import {
+  shouldFireResearchTick,
+  researchTickDateKey,
+} from "../services/researchScheduleGuard";
+import {
   DEFAULT_STALE_AFTER_MS,
   ResearchTaskLedger,
   type ResearchTask,
@@ -65,6 +75,40 @@ export interface ResearchRunResult {
   error?: string;
 }
 
+/**
+ * Issue #1122 (epic #1096 Phase 3): discovery is a research-agent RUN
+ * TYPE. The scheduled variant rides the existing every-30-minutes tick behind
+ * the #354 guard idiom, keyed by this agent-local marker in
+ * research_settings — no new cron trigger (Workers cron ceiling).
+ */
+export const RESEARCH_DISCOVERY_LAST_RUN_KEY = "research_discovery_last_run";
+
+export interface ResearchDiscoveryRunRequest {
+  trigger: TriggerSource;
+  userLogin?: string;
+  /**
+   * The caller's portfolio state, when a seam supplies one. Null (the
+   * scheduled/tool path) SKIPS portfolio discovery triggers with the
+   * limitation recorded — the portfolio is never assumed healthy.
+   */
+  portfolio?: PortfolioDiscoveryState | null;
+  symbols?: string[];
+  ivRank?: number | null;
+  eventsBySymbol?: Record<
+    string,
+    { earningsInDays?: number | null; exDivInDays?: number | null }
+  >;
+}
+
+export interface ResearchDiscoveryRunResult {
+  success: boolean;
+  proposals: DiscoveredGoalProposal[];
+  /** Goals persisted (proposed-only) by this run. */
+  persisted: number;
+  limitations: string[];
+  error?: string;
+}
+
 export interface ResearchRunSummary {
   runId: string;
   trigger: TriggerSource;
@@ -84,7 +128,7 @@ export class ResearchAgent extends Think<Env> {
   }
 
   getSystemPrompt(): string {
-    return "You are the read-only options research agent. For a research request, call run_options_research exactly once and then summarize its result faithfully. You may discover, analyze, validate, and recommend strategies, but must never place, preview, or submit trades. Use only source-backed market data; report uncertainty and do not fabricate missing fields.";
+    return "You are the read-only options research agent. For a research request, call run_options_research exactly once and then summarize its result faithfully. For a goal/scenario discovery request, call run_goal_discovery exactly once; discovered goals are proposals for human confirmation, never activated goals. You may discover, analyze, validate, and recommend strategies, but must never place, preview, or submit trades. Use only source-backed market data; report uncertainty and do not fabricate missing fields.";
   }
 
   getTools(): ToolSet {
@@ -98,6 +142,24 @@ export class ResearchAgent extends Think<Env> {
         execute: async (input) => {
           const result = await this.runResearch(input);
           return JSON.stringify({ success: result.success, error: result.error, runId: result.report?.runId, ideas: result.report?.ideas.length, summary: result.report?.summary });
+        },
+      }),
+      run_goal_discovery: tool({
+        description: "Run goal/scenario discovery (epic #1096 Phase 1 engine, Phase 3 run type): regime + event triggers over the research provider seam, persisting discovered goals as PROPOSED only. Portfolio triggers run only when the caller supplies portfolio state; on this tool path they are skipped and that limitation is reported.",
+        inputSchema: z.object({
+          trigger: z.enum(["manual", "scheduled"]),
+          userLogin: z.string().optional(),
+          symbols: z.array(z.string()).optional(),
+          ivRank: z.number().nullable().optional(),
+        }),
+        execute: async (input) => {
+          const result = await this.runDiscovery({
+            trigger: input.trigger,
+            userLogin: input.userLogin,
+            symbols: input.symbols,
+            ivRank: input.ivRank ?? null,
+          });
+          return JSON.stringify({ success: result.success, error: result.error, persisted: result.persisted, proposals: result.proposals.map((p) => ({ kind: p.kind, trigger: p.trigger })), limitations: result.limitations });
         },
       }),
     };
@@ -361,6 +423,79 @@ export class ResearchAgent extends Think<Env> {
         error: err instanceof Error ? err.message : String(err),
       };
     }
+  }
+
+  /**
+   * Issue #1122 (epic #1096 Phase 3): the discovery RUN TYPE. Runs the
+   * Phase 1 goal/scenario discovery engine over this agent's provider
+   * seam (the same EtradeResearchDataProvider as runResearch — one
+   * pipeline, discovery is a mode of it) and persists every proposal
+   * through persistDiscoveredGoals: source "discovered", status
+   * "proposed", tenant-scoped. There is deliberately no activation
+   * path — a discovered goal becomes active only by a separate human
+   * decision outside this agent.
+   */
+  async runDiscovery(
+    req: ResearchDiscoveryRunRequest
+  ): Promise<ResearchDiscoveryRunResult> {
+    const userLogin = req.userLogin || "default";
+    try {
+      this.ensureTables();
+      const provider = new EtradeResearchDataProvider(this.env, userLogin);
+      const out = await runGoalScenarioDiscovery({
+        provider,
+        portfolio: req.portfolio ?? null,
+        symbols: req.symbols ?? [],
+        ivRank: req.ivRank ?? null,
+        eventsBySymbol: req.eventsBySymbol,
+      });
+      const created = persistDiscoveredGoals(
+        this.storageSql(),
+        userLogin,
+        out.proposals
+      );
+      return {
+        success: true,
+        proposals: out.proposals,
+        persisted: created.length,
+        limitations: out.limitations,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        proposals: [],
+        persisted: 0,
+        limitations: [],
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /**
+   * Scheduled discovery: guard-gated by the #354 idiom (weekday,
+   * ≥21:00 UTC, durable agent-local marker in research_settings), so
+   * the orchestrator's every-30-minutes scheduled tick can invoke it after the
+   * scheduled research run without any new cron trigger. The marker
+   * is written only after a successful run, so a failed night
+   * retries on the next tick. Portfolio state is not supplied on
+   * this path — portfolio triggers skip with their limitation
+   * recorded by the engine.
+   */
+  async runDiscoveryIfDue(
+    now: Date,
+    req: Omit<ResearchDiscoveryRunRequest, "trigger">
+  ): Promise<{ fired: boolean; dateKey: string; result?: ResearchDiscoveryRunResult }> {
+    const store = this.settingsStore();
+    const decision = shouldFireResearchTick(
+      now,
+      store.get(RESEARCH_DISCOVERY_LAST_RUN_KEY)
+    );
+    if (!decision.fire) return { fired: false, dateKey: decision.dateKey };
+    const result = await this.runDiscovery({ ...req, trigger: "scheduled" });
+    if (result.success) {
+      store.set(RESEARCH_DISCOVERY_LAST_RUN_KEY, researchTickDateKey(now));
+    }
+    return { fired: true, dateKey: decision.dateKey, result };
   }
 
   async getLatest(): Promise<ResearchReport | null> {

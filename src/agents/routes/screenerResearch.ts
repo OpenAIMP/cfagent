@@ -280,6 +280,25 @@ export async function handleScreenerResearchRoutes(
         } catch {
           // Evaluation is advisory; the research run already succeeded.
         }
+        // Issue #1122 (epic #1096 Phase 3): discovery run type on the
+        // same tick — guard-gated inside the agent (own durable
+        // marker, #354 idiom, no new cron trigger). Best-effort:
+        // discovery is advisory and never fails the tick. Portfolio
+        // state is not supplied on this path, so portfolio discovery
+        // triggers skip with the limitation recorded by the engine.
+        try {
+          const agent = ctx.getResearchAgent(userLogin);
+          if (agent) {
+            const disc = await agent.runDiscoveryIfDue(new Date(), { userLogin });
+            (out as Record<string, unknown>).discoveryFired = disc.fired;
+            if (disc.fired) {
+              (out as Record<string, unknown>).discoveryPersisted =
+                disc.result?.persisted ?? 0;
+            }
+          }
+        } catch {
+          // Discovery is advisory; the research run already succeeded.
+        }
         ctx.writeSetting(RESEARCH_SCHEDULED_LAST_RUN_KEY, decision.dateKey);
         return Response.json(out);
       } catch (err: any) {
