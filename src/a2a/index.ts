@@ -39,7 +39,43 @@ export async function handleA2A(request: Request, env: any): Promise<Response> {
     if (typeof stub.handleA2A !== "function") {
       return new Response("Agent does not expose handleA2A", { status: 500 });
     }
-    return stub.handleA2A(request);
+
+    // Agents implement handleA2A(body, origin) and return a collected
+    // { text, data } outcome (cfpay pattern): a Request cannot cross the
+    // DO RPC boundary, so the body is parsed HERE at the edge and the
+    // wire shape is built here too. (Passing the raw Request, the
+    // original port, could never execute over RPC.)
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json(
+        { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } },
+        { status: 400 },
+      );
+    }
+    const outcome = (await stub.handleA2A(body, url.origin)) as {
+      text?: string;
+      data?: unknown;
+    };
+    const id =
+      body && typeof body === "object" && "id" in body ? (body as any).id : null;
+    return Response.json({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        artifacts: [
+          {
+            parts: [
+              { kind: "text", text: outcome?.text ?? "" },
+              ...(outcome?.data !== undefined
+                ? [{ kind: "data", data: outcome.data }]
+                : []),
+            ],
+          },
+        ],
+      },
+    });
   }
 
   return new Response("Method not allowed", { status: 405 });
