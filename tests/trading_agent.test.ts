@@ -222,4 +222,93 @@ describe("TradingAgent A2A door (#291)", () => {
   it("the registry's first slice registers exactly the stock screening service", () => {
     expect(TRADING_SERVICE_REGISTRY.map((s) => s.id)).toEqual(["stock_screening"]);
   });
+
+  it("every registered service declares a cfpay access class", () => {
+    for (const service of TRADING_SERVICE_REGISTRY) {
+      expect(["read", "write", "action"]).toContain(service.access);
+    }
+    expect(TRADING_SERVICE_REGISTRY[0].access).toBe("read");
+  });
+});
+
+describe("TradingAgent A2A outcome + instance unification (#291 A1/A2)", () => {
+  it("outcomes always carry a text part next to the data part", async () => {
+    const { tradingA2AOutcome, a2aReplyFromOutcome } = await import(
+      "../src/agents/trading-agent"
+    );
+    const ok = tradingA2AOutcome({
+      ok: true,
+      operation: "trading.screen_stocks",
+      service: "stock_screening",
+      result: { matchedCount: 2 },
+    });
+    expect(ok.text).toMatch(/trading\.screen_stocks completed/);
+    const reply = a2aReplyFromOutcome(ok);
+    expect(reply.text).toBe(ok.text);
+    expect((reply.data as any).result.matchedCount).toBe(2);
+    const bad = tradingA2AOutcome({
+      ok: false,
+      operation: "trading.screen_stocks",
+      error: "boom",
+    });
+    expect(bad.text).toMatch(/failed: boom/);
+    expect(a2aReplyFromOutcome(null).text).toBe("");
+    expect(a2aReplyFromOutcome({}).text).toBe("");
+  });
+
+  it("one instance name per user across every door", async () => {
+    const { tradingAgentName } = await import("../src/agents/trading-agent");
+    // The A2A dispatcher resolves idFromName("trading") from the URL —
+    // the default user's instance must be exactly that name.
+    expect(tradingAgentName("default_trader")).toBe("trading");
+    expect(tradingAgentName("alice")).toBe("trading:alice");
+  });
+
+  it("the edge dispatcher parses the body, calls handleA2A(body, origin), and shapes text+data parts", async () => {
+    const { handleA2A } = await import("../src/a2a/index");
+    const seen: unknown[] = [];
+    const fakeEnv = {
+      TRADING_AGENT: {
+        idFromName: (name: string) => ({ name }),
+        get: (id: { name: string }) => ({
+          handleA2A: async (body: unknown, origin: string) => {
+            seen.push([id.name, body, origin]);
+            return {
+              text: "trading.screen_stocks completed (stock_screening).",
+              data: { ok: true, operation: "trading.screen_stocks", result: { matchedCount: 1 } },
+            };
+          },
+        }),
+      },
+    };
+    const request = new Request("https://agent.example/a2a/trading", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "req-1",
+        method: "message/send",
+        params: {
+          message: {
+            parts: [{ kind: "data", data: { operation: "trading.screen_stocks" } }],
+          },
+        },
+      }),
+    });
+    const response = await handleA2A(request, fakeEnv);
+    expect(response.status).toBe(200);
+    const wire: any = await response.json();
+    expect(wire.id).toBe("req-1");
+    const parts = wire.result.artifacts[0].parts;
+    expect(parts[0]).toEqual({
+      kind: "text",
+      text: "trading.screen_stocks completed (stock_screening).",
+    });
+    expect(parts[1].kind).toBe("data");
+    expect(parts[1].data.ok).toBe(true);
+    // The stub received the parsed body + origin, not the raw Request.
+    expect(seen[0][0]).toBe("trading");
+    expect((seen[0][1] as any).method).toBe("message/send");
+    expect(seen[0][2]).toBe("https://agent.example");
+  });
 });

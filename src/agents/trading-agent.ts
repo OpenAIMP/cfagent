@@ -67,6 +67,13 @@ export interface TradingServiceDef {
   toolName: string;
   /** A2A structured operation name. */
   a2aOperation: string;
+  /**
+   * Access class (cfpay A2A_OPS convention): "read" observes, "write"
+   * mutates account/portfolio state, "action" executes in the world
+   * (order placement). Write/action services get the stricter gates
+   * (edge auth + approval flow) as they land.
+   */
+  access: "read" | "write" | "action";
   description: string;
   inputSchema: z.ZodType<any>;
   execute: (ctx: TradingServiceContext, input: any) => Promise<unknown>;
@@ -85,6 +92,7 @@ const stockScreeningService: TradingServiceDef = {
   id: "stock_screening",
   toolName: "screen_stocks",
   a2aOperation: "trading.screen_stocks",
+  access: "read",
   description:
     "Screen stocks on a provider against price/sector/momentum filters. Read-only. " +
     "Returns the screen result (matches, filter summary, counts).",
@@ -306,6 +314,46 @@ export async function dispatchTradingA2A(
   }
 }
 
+/**
+ * The collected A2A outcome (cfpay shape): every capability reply is
+ * `{ text, data? }` — a human-readable text part is MANDATORY, the data
+ * part carries the structured result. A DO method returns this plain
+ * object; the HTTP transport (src/a2a) shapes it onto the wire, because
+ * a Request/Response cannot cross the DO RPC boundary.
+ */
+export interface TradingA2AOutcome {
+  text: string;
+  data: A2ADataResult;
+}
+
+export function tradingA2AOutcome(data: A2ADataResult): TradingA2AOutcome {
+  if (data.ok) {
+    return {
+      text: `${data.operation} completed${data.service ? ` (${data.service})` : ""}.`,
+      data,
+    };
+  }
+  return {
+    text: `${data.operation ?? "trading operation"} failed: ${data.error ?? "unknown error"}`,
+    data,
+  };
+}
+
+/**
+ * Extract the { text, data } reply from a collected outcome (cfpay's
+ * a2aReplyFromOutcome) — the way in-process callers read an A2A result
+ * without the HTTP transport.
+ */
+export function a2aReplyFromOutcome(outcome: unknown): { text: string; data?: unknown } {
+  if (outcome && typeof outcome === "object") {
+    const o = outcome as Record<string, unknown>;
+    if (typeof o.text === "string") {
+      return { text: o.text, data: o.data };
+    }
+  }
+  return { text: "" };
+}
+
 // ---------------------------------------------------------------------------
 // The agent
 // ---------------------------------------------------------------------------
@@ -344,33 +392,28 @@ export class TradingAgent extends Think<Env> {
     return executeTradingService(this.env, this.config(), call);
   }
 
-  /** Door 2: A2A endpoint (the dispatcher in src/a2a forwards the raw request). */
-  async handleA2A(request: Request): Promise<Response> {
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch {
-      return Response.json(
-        { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } },
-        { status: 400 },
-      );
-    }
-    const id =
-      body && typeof body === "object" && "id" in body ? (body as any).id : null;
+  /**
+   * Door 2: A2A endpoint, cfpay signature — the dispatcher in src/a2a
+   * parses the HTTP request at the edge and calls this with the plain
+   * body + origin (a Request cannot cross the DO RPC boundary). Returns
+   * the collected { text, data } outcome; the transport shapes the wire.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<TradingA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
     const data = await dispatchTradingA2A(this.env, this.config(), body);
-    return Response.json({
-      jsonrpc: "2.0",
-      id,
-      result: {
-        artifacts: [{ parts: [{ kind: "data", data }] }],
-      },
-    });
+    return tradingA2AOutcome(data);
   }
 }
 
-/** Stable per-user instance name (assets-style namespacing). */
+/**
+ * The one instance-name scheme, shared by every door: the default user's
+ * instance is "trading" — the same name the A2A dispatcher resolves from
+ * the URL — and other users get "trading:<login>". (Before the #291 A2
+ * fix, the RPC helper used "default"/"trading:<login>" while A2A used
+ * "trading", forking state per door.)
+ */
 export function tradingAgentName(userLogin: string): string {
-  return userLogin === "default_trader" ? "default" : `trading:${userLogin}`;
+  return userLogin === "default_trader" ? "trading" : `trading:${userLogin}`;
 }
 
 /**
