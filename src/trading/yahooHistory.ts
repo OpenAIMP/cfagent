@@ -93,7 +93,7 @@ async function fetchYahooDailyHistoryOnce(
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(clean)}?interval=1d&range=${range}`,
     `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(clean)}?interval=1d&range=${range}`,
   ];
-  for (const url of urls) {
+  for (const [urlIdx, url] of urls.entries()) {
     try {
       const res = await fetch(url, {
         headers: { "User-Agent": UA, Accept: "application/json" },
@@ -101,7 +101,8 @@ async function fetchYahooDailyHistoryOnce(
       });
       if (!res.ok) {
         // Issue #295: Log non-OK responses for diagnostics (was silent).
-        console.warn(`[YahooHistory] ${clean}: HTTP ${res.status} from ${url.includes('query1') ? 'query1' : 'query2'}`);
+        // (Host label by index, not URL substring matching — CodeQL.)
+        console.warn(`[YahooHistory] ${clean}: HTTP ${res.status} from ${urlIdx === 0 ? 'query1' : 'query2'}`);
         continue;
       }
       const data = (await res.json().catch(() => ({}))) as any;
