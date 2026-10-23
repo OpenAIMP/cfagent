@@ -1,0 +1,152 @@
+/* Data Providers settings section (issue #1180) — dpp- prefixed, token-only. */
+
+.dpp-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dpp-desc {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--color-text-muted);
+}
+
+.dpp-desc code,
+.dpp-item-id,
+.dpp-item-meta code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+}
+
+.dpp-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.dpp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dpp-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.dpp-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.dpp-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dpp-item-name {
+  font-weight: 600;
+}
+
+.dpp-item-id {
+  color: var(--color-accent);
+}
+
+.dpp-item-state {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.dpp-item-enabled {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.dpp-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: var(--font-size-body-sm);
+  color: var(--color-text-muted);
+}
+
+.dpp-routes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.dpp-route {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.dpp-route-capability {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.dpp-route-error {
+  color: var(--color-danger-text, var(--color-text-muted));
+}
+
+.dpp-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dpp-confirm-text {
+  font-size: var(--font-size-body-sm);
+  color: var(--color-text-muted);
+}
+
+.dpp-configure-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.dpp-configure-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dpp-register-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dpp-register-field {
+  flex: 1 1 10rem;
+}
