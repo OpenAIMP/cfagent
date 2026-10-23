@@ -19,7 +19,8 @@ import { formatMarketCap, formatTradingQuoteBidAsk, formatTradingQuoteHeadline }
 import { planNLQ, validateNLQPlanWithLLM } from "./llmPlanning";
 import { STOP_WORDS_REGEX } from "./orderParams";
 import { NLQPlan, isNlqTableAllowed } from "./schema";
-import { NLQExecutionDeps, NLQQueryResult, NLQSchedulingPort, type NLQStockScreenPort, type NLQStockScreenRunResult } from "./types";
+import { NLQExecutionDeps, NLQQueryResult, NLQSchedulingPort, type NLQSocialBriefPort, type NLQStockScreenPort, type NLQStockScreenRunResult } from "./types";
+import { SOCIAL_BRIEF_MAX_CHARS, resolveBriefDate } from "../social/briefStore";
 function auditNlqExecution(
   orm: DatabaseORM,
   sessionId: string,
@@ -285,6 +286,22 @@ function executeNLQQueryCore(
       count: 0,
       status: "error",
       summary: `Scheduling (${action}): this action requires the asynchronous NLQ executor (executeNLQQueryAsync) with a live agent scheduling port. Nothing was created, cancelled, or listed by this call.`,
+      rows: [],
+      executedAt,
+    };
+  }
+
+  // #1077 Phase 5b slice 2: the sync executor cannot write a brief
+  // (the store is async-only), so it refuses honestly like
+  // scheduling above. The async executor with a live social brief
+  // port is the only write path.
+  if (plan.domain === "social") {
+    return {
+      plan,
+      domain: "social",
+      count: 0,
+      status: "error",
+      summary: "Social brief: this action requires the asynchronous NLQ executor (executeNLQQueryAsync) with a live social brief port. Nothing was stored by this call.",
       rows: [],
       executedAt,
     };
@@ -2179,6 +2196,77 @@ async function executeNLQQueryAsyncCore(
     );
   }
 
+  if (plan.domain === "social") {
+    // #1077 Phase 5b slice 2: NLQ brief provisioning. The plan's text
+    // is user-provided content, never agent-invented: the executor
+    // writes exactly what the plan carries, and only through the
+    // injected port. No port (MCP facade, Slack, async jobs, the
+    // webhook-forwarded route) means an honest error, never a write
+    // through a fallback store. The summary names the date only —
+    // the brief text itself is not echoed into result envelopes
+    // (they are audited and, on the webhook path, emailed).
+    const text = plan.socialData?.text ?? "";
+    if (!text.trim()) {
+      return {
+        plan,
+        domain: "social",
+        count: 0,
+        status: "error",
+        summary: "Social brief: no content was provided, so nothing was stored.",
+        rows: [],
+        executedAt,
+      };
+    }
+    if (text.length > SOCIAL_BRIEF_MAX_CHARS) {
+      return {
+        plan,
+        domain: "social",
+        count: 0,
+        status: "error",
+        summary: `Social brief: text must be ${SOCIAL_BRIEF_MAX_CHARS} characters or fewer; nothing was stored.`,
+        rows: [],
+        executedAt,
+      };
+    }
+    if (!deps?.socialBriefPort) {
+      return {
+        plan,
+        domain: "social",
+        count: 0,
+        status: "error",
+        summary: "Social brief: this action requires the asynchronous NLQ executor with a live social brief port. Nothing was stored.",
+        rows: [],
+        executedAt,
+      };
+    }
+    const date = resolveBriefDate(
+      Date.now(),
+      "America/New_York",
+      plan.socialData?.dayOffset === 1 ? 1 : 0,
+    );
+    try {
+      await deps.socialBriefPort.setBrief({ date, text });
+    } catch (err) {
+      return {
+        plan,
+        domain: "social",
+        count: 0,
+        status: "error",
+        summary: `Social brief: the brief store failed (${err instanceof Error ? err.message : "unknown error"}); nothing was stored.`,
+        rows: [],
+        executedAt,
+      };
+    }
+    return {
+      plan,
+      domain: "social",
+      count: 1,
+      summary: `Social brief set for ${date}.`,
+      rows: [],
+      executedAt,
+    };
+  }
+
   return executeNLQQueryCore(orm, sessionId, plan, env, effectiveUserDid);
 }
 
@@ -2215,7 +2303,7 @@ export async function executeNaturalLanguageQuery(
   env: Env,
   userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean },
   userDid?: string,
-  options?: { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort; stockScreenPort?: NLQStockScreenPort; discoveryRunner?: NLQExecutionDeps["discoveryRunner"] }
+  options?: { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort; stockScreenPort?: NLQStockScreenPort; socialBriefPort?: NLQSocialBriefPort; discoveryRunner?: NLQExecutionDeps["discoveryRunner"] }
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
   let userLogin: string | undefined;
   let resolvedOptions = options;
@@ -2235,8 +2323,8 @@ export async function executeNaturalLanguageQuery(
     env,
     userLogin,
     userDid,
-    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort || resolvedOptions?.stockScreenPort || resolvedOptions?.discoveryRunner
-      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort, stockScreenPort: resolvedOptions?.stockScreenPort, discoveryRunner: resolvedOptions?.discoveryRunner }
+    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort || resolvedOptions?.stockScreenPort || resolvedOptions?.socialBriefPort || resolvedOptions?.discoveryRunner
+      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort, stockScreenPort: resolvedOptions?.stockScreenPort, socialBriefPort: resolvedOptions?.socialBriefPort, discoveryRunner: resolvedOptions?.discoveryRunner }
       : undefined,
   );
   if (!result.planSource && plan.planSource) {
