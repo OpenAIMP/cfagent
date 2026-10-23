@@ -108,6 +108,7 @@ const PINNED_NAMED_REEXPORTS = ["MAX_SCAN_SYMBOLS from ./options/opportunityScan
  * researchProviders resolved through the registry with the LIVE_STRICT
  * quote policy named at the call site: 49 -> 48. Q3 (2026-10-23) —
  * the broker quote route onto the registry + LIVE_STRICT: 48 -> 47.
+ * Q4 (2026-10-23) — the MCP quote command likewise: 47 -> 46.
  */
 const CONSTRUCTION_LEDGER: Record<string, number> = {
   "agents/nlq/execution.ts": 2,
@@ -116,7 +117,7 @@ const CONSTRUCTION_LEDGER: Record<string, number> = {
   "agents/routes/watchlists.ts": 5,
   "agents/screener-agent.ts": 1,
   "mcp/cloudflareAgentCommands.ts": 1,
-  "mcp/etradeCommands.ts": 7,
+  "mcp/etradeCommands.ts": 6,
   "mcp/index.ts": 1,
   "services/discoveryService.ts": 2,
   "services/scheduledTasks.ts": 2,
@@ -145,6 +146,6 @@ describe("trading extraction ledger (issue #291 T0)", () => {
     }
     expect(actual).toEqual(CONSTRUCTION_LEDGER);
     const total = Object.values(actual).reduce((a, b) => a + b, 0);
-    expect(total).toBe(47);
+    expect(total).toBe(46);
   });
 });
