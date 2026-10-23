@@ -64,6 +64,12 @@ export interface RunSummary {
   resultCount: number | null;
   pdfKey: string | null;
   reportUrl: string | null;
+  /** Issue #1239 (#1209 F3): the run's recorded PDF generation state
+   *  ("generated" / "failed" / …) and its failure reason, when the
+   *  home store records them — so the Reports list can say a PDF is
+   *  unavailable instead of silently showing no link. */
+  pdfStatus: string | null;
+  pdfError: string | null;
   /** The canonical mas_reports id when this run has a canonical row
    *  (the detail/download affordance key), else null. */
   reportId: string | null;
@@ -136,6 +142,14 @@ export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
     resultCount,
     pdfKey: strOrNull(body?.pdfKey) ?? strOrNull(body?.report?.result?.pdfKey),
     reportUrl: scheduledReportPdfUrl(hit.source, hit.body) ?? null,
+    pdfStatus:
+      strOrNull(body?.pdfStatus) ??
+      strOrNull(body?.report?.result?.pdfStatus) ??
+      strOrNull(body?.result?.pdfStatus),
+    pdfError:
+      strOrNull(body?.pdfError) ??
+      strOrNull(body?.report?.result?.pdfError) ??
+      strOrNull(body?.result?.pdfError),
     reportId: hit.id,
     scanRunId: kind === "options_scanner" ? canonicalScanRunId(hit.body) : null,
     source: hit.source,
@@ -159,8 +173,12 @@ export function runSummaryFromScanRun(scan: ScanRunSummary): RunSummary {
     createdAt: scan.generatedAt,
     status: null,
     resultCount: evaluated,
-    pdfKey: null,
-    reportUrl: null,
+    pdfKey: scan.pdfKey ?? null,
+    reportUrl: scan.pdfKey
+      ? `/api/options/report.pdf?key=${encodeURIComponent(scan.pdfKey)}`
+      : null,
+    pdfStatus: scan.pdfKey ? "generated" : null,
+    pdfError: null,
     reportId: null,
     scanRunId: scan.id,
     source: "options_scanner",
@@ -182,6 +200,8 @@ export function runSummaryFromDiscoveryRun(run: DiscoveryRunSummary): RunSummary
     resultCount: run.completedCount,
     pdfKey: null,
     reportUrl: null,
+    pdfStatus: null,
+    pdfError: null,
     reportId: null,
     scanRunId: null,
     source: "discovery",
@@ -206,6 +226,8 @@ export function runSummaryFromScreenerRun(run: ScreenerRunResult): RunSummary {
     reportUrl: run.pdfKey
       ? `/api/screener/report.pdf?key=${encodeURIComponent(run.pdfKey)}`
       : null,
+    pdfStatus: run.pdfStatus ?? null,
+    pdfError: run.pdfError ?? null,
     reportId: null,
     scanRunId: null,
     source: "screener",
@@ -221,9 +243,18 @@ export function runSummaryFromScreenerRun(run: ScreenerRunResult): RunSummary {
 export function mergeRunSummaries(lists: RunSummary[][], limit: number): RunSummary[] {
   const canonicalScanIds = new Set<string>();
   const canonicalScreenerRunIds = new Set<string>();
+  // Issue #1239 (#1209 F3): the detail-store twins a canonical row is
+  // about to absorb, keyed by the same exact joins — the winner
+  // inherits any PDF facts it lacks from the twin it drops.
+  const scanTwins = new Map<string, RunSummary>();
+  const screenerTwins = new Map<string, RunSummary>();
   for (const list of lists) {
     for (const row of list) {
-      if (row.reportId === null) continue; // only canonical rows claim twins
+      if (row.reportId === null) {
+        if (row.kind === "options_scanner") scanTwins.set(row.id, row);
+        if (row.kind === "screener") screenerTwins.set(row.runId, row);
+        continue;
+      }
       if (row.kind === "options_scanner" && row.scanRunId) canonicalScanIds.add(row.scanRunId);
       if (row.kind === "screener") canonicalScreenerRunIds.add(row.runId);
     }
@@ -241,6 +272,29 @@ export function mergeRunSummaries(lists: RunSummary[][], limit: number): RunSumm
       const key = `${row.kind}:${row.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      if (row.reportId !== null) {
+        const twin = row.kind === "options_scanner" && row.scanRunId
+          ? scanTwins.get(row.scanRunId)
+          : row.kind === "screener"
+            ? screenerTwins.get(row.runId)
+            : undefined;
+        if (twin) {
+          // The status/error describe ONE artifact: they inherit only
+          // when they belong to the winner's key — i.e. the key itself
+          // was inherited, or both rows name the same key. A twin
+          // pointing at a DIFFERENT artifact never rewrites the
+          // winner's story.
+          const sameArtifact = row.pdfKey === null || twin.pdfKey === row.pdfKey;
+          merged.push({
+            ...row,
+            pdfKey: row.pdfKey ?? twin.pdfKey,
+            reportUrl: row.reportUrl ?? twin.reportUrl,
+            pdfStatus: row.pdfStatus ?? (sameArtifact ? twin.pdfStatus : null),
+            pdfError: row.pdfError ?? (sameArtifact ? twin.pdfError : null),
+          });
+          continue;
+        }
+      }
       merged.push(row);
     }
   }
