@@ -92,6 +92,7 @@ import { DEFAULT_IDLE_TIMEOUT_MS } from "./sessionPolicy";
 import {
   createMemoryIdentityBindingStore,
   deriveInternalUserId,
+  getInternalUserId,
   resolveOrCreateBinding,
   type IdentityBinding,
   type IdentityBindingStore,
@@ -103,6 +104,7 @@ import {
 } from "./authorization";
 import {
   recordIdMigration,
+  repairStrandedPlatformAdmin,
 } from "./iaaaMigration";
 import {
   createSession,
@@ -113,6 +115,7 @@ import {
 import { sessionStore } from "./session";
 import { createKvMembershipStore } from "./iaaaMembershipStore";
 import {
+  parseBootstrapListWithGenesis,
   resolveIaaaTenant,
   runWiredPostLogin,
 } from "./iaaaGithubEndToEnd";
@@ -506,6 +509,39 @@ export interface NormalizedLoginProfile {
   avatarUrl: string;
 }
 
+/**
+ * #1210 — does the logging-in user match a `platform:` bootstrap entry?
+ * Reuses the existing bootstrap parser (parseBootstrapListWithGenesis);
+ * it does not reimplement entry parsing. A platform: entry matches
+ * when it resolves to the logging-in user's id: a bare id compares
+ * directly, an issuer:subject entry resolves through the binding
+ * store (post-migration, so it yields the derived id). Rejected or
+ * malformed entries never match, and a plain (non-platform:) entry
+ * never counts.
+ */
+export async function isPlatformBootstrapListed(
+  bindingStore: IdentityBindingStore,
+  bootstrapRaw: string | undefined,
+  targetInternalUserId: string,
+): Promise<boolean> {
+  if (bootstrapRaw === undefined || bootstrapRaw.trim() === "") return false;
+  const parsed = parseBootstrapListWithGenesis(bootstrapRaw);
+  for (const { genesis, entry } of parsed.entries) {
+    if (!genesis) continue;
+    if (entry.kind === "internalUserId") {
+      if (entry.internalUserId === targetInternalUserId) return true;
+    } else {
+      const resolved = await getInternalUserId(
+        bindingStore,
+        entry.providerIssuer,
+        entry.providerSubject,
+      );
+      if (resolved !== null && resolved === targetInternalUserId) return true;
+    }
+  }
+  return false;
+}
+
 /** Options for the generic wired login tail (same shape as the GitHub delegate's). */
 export interface WiredLoginOptions {
   bindingStore?: IdentityBindingStore;
@@ -600,6 +636,28 @@ export async function completeWiredLogin(
       );
     }
     return errorPage(bindingResult.error, 400);
+  }
+
+  // #1210: one-time repair of the stranded Oct 22 platform-admin
+  // grant, at the same point as normal binding migration (before
+  // post-login bootstrap, so bootstrap observes the repaired state
+  // as already-admin). Best-effort: the repair never throws, and
+  // this catch is belt-and-braces — a repair failure must never
+  // change the login outcome.
+  try {
+    const platformListed = await isPlatformBootstrapListed(
+      store,
+      env.IAAA_BOOTSTRAP_ADMINS,
+      bindingResult.binding.internalUserId,
+    );
+    await repairStrandedPlatformAdmin({
+      membershipStore: migrationDeps.membershipStore,
+      isPlatformListed: platformListed,
+      targetInternalUserId: bindingResult.binding.internalUserId,
+      nowMs,
+    });
+  } catch {
+    // Repair is best-effort; login proceeds regardless.
   }
 
   const sessionData = buildExtendedSessionData(
