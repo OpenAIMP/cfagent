@@ -138,6 +138,11 @@ const CHANNEL_LABEL: Record<AsyncJobChannel, string> = {
   webhook: "webhook",
 };
 
+/** Display label for a channel ("Slack" / "email" / "webhook"). */
+export function followupChannelLabel(channel: AsyncJobChannel): string {
+  return CHANNEL_LABEL[channel];
+}
+
 /**
  * Issue #1123 S3: when the report sub-job completes, plan one delivery
  * sub-job per configured channel, parented to the MAIN job (the tree
@@ -174,6 +179,74 @@ export function planDeliveryFollowups(
     });
   }
   return specs;
+}
+
+export type FollowupNotifySubmission = Extract<
+  AsyncJobSubmission,
+  { capability: "followup.notify" }
+>;
+
+/** Lifecycle transitions that emit notification sub-jobs (S4). */
+export type FollowupLifecycleEvent = "started" | "completed" | "failed" | "delivered";
+
+const NOTIFICATION_CHANNELS: AsyncJobChannel[] = ["slack", "email"];
+const EVENT_LABEL: Record<FollowupLifecycleEvent, string> = {
+  started: "screen started",
+  completed: "screen completed",
+  failed: "screen failed",
+  delivered: "report delivered",
+};
+
+/**
+ * Issue #1123 S4: plan the notification sub-jobs for one lifecycle
+ * transition — Slack + email only (the webhook is a delivery
+ * channel). Each transition is planned exactly once by the executor
+ * that claims the job, so (main job, event, channel) is the natural
+ * dedupe key; no duplicates by construction.
+ */
+export function planLifecycleNotifications(
+  event: FollowupLifecycleEvent,
+  outcome: ScreenerRunOutcome,
+  config: ScreenerFollowupConfig,
+  mainJobId: string,
+  userLogin: string,
+  detail?: string,
+): FollowupNotifySubmission[] {
+  if (!config.enabled) return [];
+  const specs: FollowupNotifySubmission[] = [];
+  for (const channel of NOTIFICATION_CHANNELS) {
+    if (!config.channels[channel].configured) continue;
+    specs.push({
+      capability: "followup.notify",
+      payload: { event, outcome, userLogin, channel, detail },
+      parentJobId: mainJobId,
+      jobKind: "notification",
+      channel,
+      displayName: `Notify: ${EVENT_LABEL[event]} via ${CHANNEL_LABEL[channel]}`,
+    });
+  }
+  return specs;
+}
+
+/** Notification text for one lifecycle transition. */
+export function formatLifecycleNotification(
+  event: FollowupLifecycleEvent,
+  outcome: ScreenerRunOutcome,
+  detail?: string,
+): string {
+  const kindLabel = outcome.kind === "stock" ? "Stock screen" : "Options screen";
+  const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
+  const scopeText = scope ? ` — ${scope}` : "";
+  switch (event) {
+    case "started":
+      return `🔔 ${kindLabel}${scopeText} started`;
+    case "completed":
+      return `✅ Screen completed\n${formatFollowupDeliveryText(outcome)}`;
+    case "failed":
+      return `❌ ${kindLabel}${scopeText} failed${outcome.error ? `\nError: ${outcome.error}` : ""}`;
+    case "delivered":
+      return `📬 Report delivered${detail ? ` ${detail}` : ""} — ${kindLabel}${scopeText}${outcome.reportUrl ? `\n📄 Report: ${outcome.reportUrl}` : ""}`;
+  }
 }
 
 /** Delivery/notification text for a run outcome (S3; reused by S4). */

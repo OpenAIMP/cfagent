@@ -39,6 +39,7 @@ export interface FollowupDeliveryInput {
 
 export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
   deliver: (input: FollowupDeliveryInput) => Promise<{ ok: boolean; error?: string; detail?: string }>;
+  notify: (input: { channel: AsyncJobChannel; userLogin: string; text: string }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
 } {
   return {
     deliver: async ({ channel, userLogin, outcome, artifacts }) => {
@@ -99,6 +100,26 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
         webhookUrl,
       );
       return { ok: true };
+    },
+    // Issue #1123 S4: text-only lifecycle notifications (no artifact).
+    notify: async ({ channel, userLogin, text }) => {
+      const config = resolveScreenerFollowupConfig(deps.env as unknown as Record<string, unknown>);
+      if (channel === "slack") {
+        return deliverScreenerToSlack(deps.env, { text, channel: config.channels.slack.channel });
+      }
+      if (channel === "email") {
+        const to = config.channels.email.to;
+        if (!to) return { ok: false, error: "Email notification is not configured (SCREENER_EMAIL_TO is unset)." };
+        const email = new ETradeEmailTradingService(deps.env, deps.getOrm(), userLogin);
+        await email.sendOutboundEmail(
+          to,
+          text.split("\n")[0].slice(0, 120),
+          `<pre>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`,
+          text,
+        );
+        return { ok: true };
+      }
+      return { ok: false, error: "Webhook is a delivery channel, not a notification channel." };
     },
   };
 }
