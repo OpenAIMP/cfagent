@@ -625,7 +625,7 @@ export class OrchestratorAgent extends Think<Env> {
         }
         await this.ctx.storage.put(key, { slot });
       }
-      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql), undefined, undefined, undefined, (outcome, schedulerUserLogin, chainReport) => scheduleScreenerFollowups(this.asyncJobsContext(), outcome, schedulerUserLogin, chainReport));
+      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql), undefined, undefined, undefined, (outcome, schedulerUserLogin, chainReport) => scheduleScreenerFollowups(this.asyncJobsContext(), outcome, schedulerUserLogin, chainReport), { sql: this.ctx.storage.sql, blobStorage: this.ctx.storage, env: this.env });
       const res = await service.autonomousOptionsAnalysis({ ...payload, userLogin, environment });
       if ((res as any).skipped) return;
       // Issue #223: persist the run so GET /api/options/latest can report what
@@ -1168,7 +1168,7 @@ export class OrchestratorAgent extends Think<Env> {
     error?: string;
     trigger?: unknown;
     userLogin?: string;
-  }): Promise<void> {
+  }): void {
     return persistScreenerReportCanonical(this.reportDispatchContext(), result);
   }
 
