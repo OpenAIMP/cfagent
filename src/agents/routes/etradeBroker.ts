@@ -39,7 +39,8 @@ import {
   type CandidateGreekContribution,
 } from "../../services/portfolioRisk";
 import { ETradeThinkHarness } from "../../services/thinkHarness";
-import { parseStockScreenRequest } from "../../trading";
+import { parseStockScreenRequest, TradingPlatformRegistry, fetchQuoteLiveStrict } from "../../trading";
+import { resolveEnvironmentConfig } from "../../config/environment";
 import { assessPortfolioConcentration } from "../../services/portfolioConcentration";
 import {
   sizeCandidateAgainstPortfolio,
@@ -297,8 +298,13 @@ export async function handleEtradeBrokerRoutes(
       const rawSym = url.searchParams.get("symbol") || "NVDA";
       const symbol = rawSym.toUpperCase().trim() || "NVDA";
       const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
-      const quote = await etrade.fetchQuoteRemote(symbol);
+      // #291 Q3: registry-resolved platform + the LIVE_STRICT policy —
+      // the exact semantics fetchQuoteRemote enforced here (live failure
+      // throws into the 500 below; sandbox uses the platform chain).
+      const platform = TradingPlatformRegistry.getPlatform("etrade", ctx.env, ctx.getOrm(), userLogin, requestedEnv);
+      const quote = await fetchQuoteLiveStrict(platform, symbol, {
+        isLive: resolveEnvironmentConfig(ctx.env, requestedEnv).isLive,
+      });
       return Response.json(quote, {
         headers: {
           "Cache-Control": "no-cache, no-store, must-revalidate",

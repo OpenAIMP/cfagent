@@ -156,7 +156,9 @@ describe("route module re-split (#995)", () => {
     // expire-dates handlers to the platform registry (ledger 51 -> 49),
     // shrinking this count in the migrating PR per the ledger's rule.
     expect(count(OPTIONS_FILE)).toBe(5);
-    expect(count(BROKER_FILE)).toBe(20);
+    // Was 20 at the re-split; #291 Q3 migrated the quote route to the
+    // registry + LIVE_STRICT policy (ledger 48 -> 47).
+    expect(count(BROKER_FILE)).toBe(19);
     for (const file of NEW_MODULES) {
       expect(count(file), `${file} must not construct ETradeService`).toBe(0);
     }
