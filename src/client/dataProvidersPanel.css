@@ -120,6 +120,40 @@
   color: var(--color-danger-text, var(--color-text-muted));
 }
 
+.dpp-health {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: var(--font-size-body-sm);
+  color: var(--color-text-muted);
+}
+
+.dpp-health-head,
+.dpp-health-meta {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.dpp-health-status {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.dpp-health-status-down {
+  color: var(--color-danger-text, var(--color-text-primary));
+}
+
+.dpp-health-caps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: var(--font-size-caption);
+}
+
 .dpp-item-actions {
   display: flex;
   align-items: center;
