@@ -43,6 +43,7 @@ function* tsFiles(dir: string): Generator<string> {
 const PINNED_STAR_REEXPORTS = [
   "./interfaces",
   "./registry",
+  "./screeningProvider",
   "./screener",
   "./agent",
   "./etrade/client",

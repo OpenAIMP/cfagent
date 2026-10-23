@@ -91,6 +91,7 @@ export { ScreenerAgent } from "./agents/screener-agent";
 // the entrypoint, otherwise `wrangler deploy` fails.
 export { ResearchAgent } from "./agents/research-agent";
 export { TradingAgent } from "./agents/trading-agent";
+export { TradingTradeWorkflow } from "./agents/trading-trade-workflow";
 export { ReportAssetAgent } from "./agents/report-asset-agent";
 export { SessionStore } from "./security/sessionStore";
 
