@@ -12,6 +12,7 @@ import type { DatabaseORM } from "../../orm";
 import type { ITradingPlatform, OrderPreviewParams } from "../interfaces";
 import { etradeOrderKind, validateTradingOrderLegs } from "./optionOrders";
 import { ETradeRestClient } from "./client";
+import { isStubQuote } from "../quotePolicies";
 import { DynamicMarketScreener } from "../screener";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
@@ -131,11 +132,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     try {
       const live = await this.client.fetchQuote(cleanSym);
       if (live && live.lastPrice > 0) {
-        const isStub =
-          (live.lastPrice === 577.51 || live.companyName.toUpperCase().includes("GOOGLE INC")) &&
-          cleanSym !== "GOOG" &&
-          cleanSym !== "GOOGL";
-        if (!isStub) return live;
+        if (!isStubQuote(live, cleanSym)) return live;
       }
     } catch {
       // Ignore

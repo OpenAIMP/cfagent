@@ -82,4 +82,5 @@ export * from "./voice/agent";
 // named export — which always wins over `export *` — pins that binding.
 export { MAX_SCAN_SYMBOLS } from "./options/opportunityScanner";
 export * from "./etrade/quoteTrace";
+export * from "./quotePolicies";
 
