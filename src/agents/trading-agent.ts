@@ -39,6 +39,7 @@ import { resolveAiModelName } from "./model";
 import type { Env } from "../types";
 import {
   TradingPlatformRegistry,
+  UnifiedOptionsService,
   type ITradingPlatform,
   type TradingPlatformId,
 } from "../trading";
@@ -183,8 +184,49 @@ const stockScreeningService: TradingServiceDef = {
   },
 };
 
+const optionsScreeningService: TradingServiceDef = {
+  id: "options_screening",
+  toolName: "screen_options",
+  a2aOperation: "trading.screen_options",
+  access: "read",
+  description:
+    "Screen options contracts across underlyings with the unified options pipeline " +
+    "(the same engine behind the scanner UI): filter by underlying symbols, expiry, " +
+    "moneyness, greeks and liquidity. Read-only. The pipeline is E*TRADE-backed today; " +
+    "other providers return provider_unsupported until their pipeline lands.",
+  inputSchema: z.object({
+    provider: providerField,
+    userLogin: userLoginField,
+    symbols: z.array(z.string()).max(100).optional(),
+    symbol: z.string().optional(),
+    limit: z.number().int().positive().max(500).optional(),
+    filter: z.record(z.string(), z.unknown()).optional(),
+  }),
+  execute: async (ctx, input) => {
+    const platform = ctx.resolvePlatform(input.provider);
+    if (platform.platformId !== "etrade") {
+      throw new TradingServiceError(
+        "provider_unsupported",
+        `Options screening runs on the unified options pipeline, which is E*TRADE-backed ` +
+          `today; provider "${platform.platformId}" does not support it yet.`,
+      );
+    }
+    const service = new UnifiedOptionsService(ctx.env, ctx.userLogin);
+    return service.execute({
+      action: "screen",
+      symbols: input.symbols,
+      symbol: input.symbol,
+      filter: input.filter as never,
+      limit: input.limit,
+    });
+  },
+};
+
 /** The service registry. Add a service = one module + one line here. */
-export const TRADING_SERVICE_REGISTRY: TradingServiceDef[] = [stockScreeningService];
+export const TRADING_SERVICE_REGISTRY: TradingServiceDef[] = [
+  stockScreeningService,
+  optionsScreeningService,
+];
 
 export function getTradingService(serviceId: string): TradingServiceDef | undefined {
   return TRADING_SERVICE_REGISTRY.find((s) => s.id === serviceId);
