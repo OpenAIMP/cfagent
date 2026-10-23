@@ -118,7 +118,7 @@ export interface EtradeBrokerRouteContext {
     error?: string;
     trigger?: unknown;
     userLogin?: string;
-  }): void;
+  }): Promise<void>;
   /** Autopilot policy evaluation (owner: OrchestratorAgent - was `this.evaluateAndRecordAutopilotVerdict`). */
   evaluateAndRecordAutopilotVerdict(params: {
     userLogin: string;

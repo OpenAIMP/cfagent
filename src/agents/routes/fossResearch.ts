@@ -67,7 +67,7 @@ export interface FossResearchRouteContext {
     error?: string;
     trigger?: unknown;
     userLogin?: string;
-  }): void;
+  }): Promise<void>;
 }
 
 /**
@@ -242,7 +242,7 @@ export async function handleFossCompareScreenRoutes(
           filters: parsedScreen.value.filters,
           userLogin,
         });
-        for (const r of shards) ctx.persistScreenerReportCanonical({ ...r, userLogin });
+        for (const r of shards) await ctx.persistScreenerReportCanonical({ ...r, userLogin });
         const failedShards = shards.filter((r) => !r.success);
         ctx.audit("foss.screener.executed", "research", {
           filterSummary: `ALL (sharded: ${shards.length} universes)`,
@@ -296,7 +296,7 @@ export async function handleFossCompareScreenRoutes(
       // Issue #307/#308 + #1007: store the canonical report copy (one
       // row per generation) so FOSS runs are visible in GET /api/reports
       // and Reports history, with provider provenance in the body.
-      ctx.persistScreenerReportCanonical({ ...result, userLogin });
+      await ctx.persistScreenerReportCanonical({ ...result, userLogin });
       ctx.audit("foss.screener.executed", "research", {
         filterSummary: result.filterSummary,
         count: result.allStocks.length,

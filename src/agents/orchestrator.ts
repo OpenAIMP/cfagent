@@ -1168,7 +1168,7 @@ export class OrchestratorAgent extends Think<Env> {
     error?: string;
     trigger?: unknown;
     userLogin?: string;
-  }): void {
+  }): Promise<void> {
     return persistScreenerReportCanonical(this.reportDispatchContext(), result);
   }
 
