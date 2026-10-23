@@ -4,8 +4,9 @@
  * PDF blobs move from base64-in-DO-storage to R2. The migration is designed
  * to be safe to merge BEFORE the bucket exists:
  *
- * - When `env.REPORTS_BUCKET` is bound, blobs go to R2 (keyed by the storage
- *   key) and DO storage keeps only a small metadata pointer
+ * - When `env.REPORTS_BUCKET` is bound, blobs go to R2 (under the
+ *   bucket layout from `r2KeyForStorageKey`: stocks/ + options/
+ *   prefixes) and DO storage keeps only a small metadata pointer
  *   `{ r2Key, fileName, storedAt }`.
  * - When the binding is absent (pre-migration), blobs stay in DO storage as
  *   base64, exactly as before.
@@ -46,6 +47,25 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
+/**
+ * Issue #605: the R2 bucket layout (bucket `screener`, provisioned by
+ * the owner) groups blobs by family — DO storage keys are namespaced
+ * `screener:` / `options:`, and the bucket key is the matching folder
+ * prefix with the remaining key segments as the path:
+ * `screener:pdf:<id>` → `stocks/pdf/<id>`, `options:latest.pdf` →
+ * `options/latest.pdf`. Keys outside those families pass through
+ * unchanged.
+ */
+export function r2KeyForStorageKey(key: string): string {
+  if (key.startsWith("screener:")) {
+    return `stocks/${key.slice("screener:".length).replaceAll(":", "/")}`;
+  }
+  if (key.startsWith("options:")) {
+    return `options/${key.slice("options:".length).replaceAll(":", "/")}`;
+  }
+  return key;
+}
+
 export async function putReportPdf(
   env: { REPORTS_BUCKET?: R2Bucket },
   storage: BlobStorage,
@@ -55,13 +75,14 @@ export async function putReportPdf(
 ): Promise<void> {
   const bucket = env.REPORTS_BUCKET;
   if (bucket) {
-    await bucket.put(key, bytes, {
+    const r2Key = r2KeyForStorageKey(key);
+    await bucket.put(r2Key, bytes, {
       httpMetadata: { contentType: "application/pdf" },
       customMetadata: { fileName },
     });
     const meta: ReportPdfMeta = {
       fileName,
-      r2Key: key,
+      r2Key,
       storedAt: new Date().toISOString(),
     };
     await storage.put(key, meta);
@@ -86,7 +107,7 @@ export async function getReportPdf(
     const bucket = env.REPORTS_BUCKET;
     if (bucket) {
       try {
-        const obj = await bucket.get(key);
+        const obj = await bucket.get(r2KeyForStorageKey(key));
         if (obj) {
           const bytes = new Uint8Array(await obj.arrayBuffer());
           const fileName = obj.customMetadata?.fileName || `${key.split(":").pop() || "report"}.pdf`;
@@ -110,7 +131,30 @@ export async function getReportPdf(
     }
   }
   if (meta.base64) {
-    return { bytes: base64ToBytes(meta.base64), fileName: meta.fileName };
+    const bytes = base64ToBytes(meta.base64);
+    if (bucket) {
+      // Issue #605 lazy migration: a legacy DO blob read while the
+      // bucket is bound is copied to R2 and its DO record rewritten
+      // as a pointer, so existing PDFs migrate on first serve and DO
+      // storage stops holding PDF bytes. Best-effort — the read
+      // itself never fails because a migration write did.
+      try {
+        const r2Key = r2KeyForStorageKey(key);
+        await bucket.put(r2Key, bytes, {
+          httpMetadata: { contentType: "application/pdf" },
+          customMetadata: { fileName: meta.fileName },
+        });
+        const pointer: ReportPdfMeta = {
+          fileName: meta.fileName,
+          r2Key,
+          storedAt: new Date().toISOString(),
+        };
+        await storage.put(key, pointer);
+      } catch (err) {
+        console.warn("[reportBlobStore] Lazy R2 migration failed:", err);
+      }
+    }
+    return { bytes, fileName: meta.fileName };
   }
   return null;
 }
