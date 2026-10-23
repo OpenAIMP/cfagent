@@ -762,6 +762,74 @@ export class TradingAgent extends Think<Env> {
     return executeTradingService(this.env, this.config(), { ...call, door: "rpc" });
   }
 
+  // -- Read surface (#291 T5a) ---------------------------------------------
+  // The platform reads, exposed as typed RPC so callers can stop
+  // constructing broker services directly. Each resolves the platform
+  // through the registry for THIS instance's user (the instance name
+  // encodes the login) — provider-pluggable, env-only, no ORM: the
+  // positions read here is the broker's live view; the caller's
+  // ORM-merged view stays caller-side by design (see #291 T5 note).
+
+  private readPlatform(provider?: string): ITradingPlatform {
+    return resolveTradingPlatform(
+      this.env,
+      this.config(),
+      provider,
+      tradingAgentUserLogin(this.name ?? "trading"),
+    );
+  }
+
+  async getStatus(provider?: string): Promise<unknown> {
+    return this.readPlatform(provider).getStatus();
+  }
+
+  async getQuote(symbol: string, provider?: string): Promise<unknown> {
+    return this.readPlatform(provider).getQuote(symbol);
+  }
+
+  async getAccounts(provider?: string): Promise<unknown> {
+    return this.readPlatform(provider).getAccounts();
+  }
+
+  async getPositions(accountKey?: string, provider?: string): Promise<unknown> {
+    return this.readPlatform(provider).getPositions(accountKey);
+  }
+
+  async getOptionChains(
+    params: {
+      symbol: string;
+      expiryYear?: number;
+      expiryMonth?: number;
+      expiryDay?: number;
+      strikePrice?: number;
+      noOfStrikes?: number;
+      includeWeekly?: boolean;
+      chainType?: "CALL" | "PUT" | "CALLPUT";
+      includeRawResponse?: boolean;
+    },
+    provider?: string,
+  ): Promise<unknown> {
+    const platform = this.readPlatform(provider);
+    if (typeof platform.getOptionChains !== "function") {
+      throw new TradingServiceError(
+        "provider_unsupported",
+        `Provider "${platform.platformId}" does not expose options chain data.`,
+      );
+    }
+    return platform.getOptionChains(params);
+  }
+
+  async getOptionExpireDates(symbol: string, provider?: string): Promise<unknown> {
+    const platform = this.readPlatform(provider);
+    if (typeof platform.getOptionExpireDates !== "function") {
+      throw new TradingServiceError(
+        "provider_unsupported",
+        `Provider "${platform.platformId}" does not expose options expiry data.`,
+      );
+    }
+    return platform.getOptionExpireDates(symbol);
+  }
+
   /**
    * The approval door — the ONLY path that can place an order (#291 T3,
    * cfpay proposal -> approval -> verify -> execute). Deliberately NOT a
@@ -870,6 +938,13 @@ export class TradingAgent extends Think<Env> {
  */
 export function tradingAgentName(userLogin: string): string {
   return userLogin === "default_trader" ? "trading" : `trading:${userLogin}`;
+}
+
+/** Inverse of tradingAgentName: the user login an instance name encodes. */
+export function tradingAgentUserLogin(instanceName: string): string {
+  return instanceName.startsWith("trading:")
+    ? instanceName.slice("trading:".length)
+    : "default_trader";
 }
 
 /**
