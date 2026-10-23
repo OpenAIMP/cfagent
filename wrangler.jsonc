@@ -59,6 +59,13 @@
     { "binding": "SESSIONS", "id": "f169a71089264590baeef28f851ebfc5" },
     { "binding": "ETRADE_KV", "id": "f169a71089264590baeef28f851ebfc5" }
   ],
+  // Issue #605: report PDF blobs live in R2 — bucket "screener", organised
+  // into stocks/ and options/ folders (key mapping in
+  // src/services/reportBlobStore.ts). Without this binding the blob store
+  // falls back to legacy base64-in-DO-storage blobs.
+  "r2_buckets": [
+    { "binding": "REPORTS_BUCKET", "bucket_name": "screener" }
+  ],
   // Issue #257 (Assessment P1): explicit Workers Logs pipeline. `enabled` is the
   // shorthand for logs.enabled; `invocation_logs` captures one log per
   // invocation (request/response metadata + console output) visible under
