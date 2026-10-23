@@ -11,6 +11,10 @@
 import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from "../types";
 import { DatabaseORM } from "../orm";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
+import {
+  guardScheduledETradeAuth,
+  type AuthEpisodeStore,
+} from "./etradeAuthPreflight";
 import { DynamicMarketScreener } from "../trading";
 import {
   type ScannedStock,
@@ -208,6 +212,43 @@ export class ScheduledTasksService {
   }
 
   /**
+   * Issue #1174 (#1173 S1): the scheduled-run auth guard. Delegates
+   * the policy to etradeAuthPreflight (verify → renew → block) with
+   * this host's seams: the episode dedup store rides platformDeps'
+   * blob storage (the host DO storage, when the host supplied it) and
+   * the alert/record path is the follow-up bridge plus a direct Slack
+   * alert inside the guard. Never throws.
+   */
+  private async guardScheduledAuth(
+    userLogin: string,
+    environment: string | undefined,
+    kind: "stock" | "options",
+    label: string
+  ): Promise<{ blocked: true; error: string } | { blocked: false }> {
+    const blob = this.platformDeps?.blobStorage as unknown as
+      | AuthEpisodeStore
+      | undefined;
+    const store =
+      blob && typeof blob.get === "function" && typeof blob.put === "function"
+        ? blob
+        : undefined;
+    const res = await guardScheduledETradeAuth({
+      env: this.env,
+      userLogin,
+      environment,
+      store,
+      bridge: this.followupScheduler,
+      kind,
+      label,
+    });
+    if (res.blocked) {
+      this.audit("etrade.auth_blocked", { userLogin, kind, alerted: res.alerted });
+      return { blocked: true, error: res.error };
+    }
+    return { blocked: false };
+  }
+
+  /**
    * Issue #210: publish a screener event to the bus, registering the
    * Slack/email/webhook subscribers on first use. Never throws.
    */
@@ -360,6 +401,23 @@ export class ScheduledTasksService {
       const userLogin = options.userLogin || this.userLogin;
       if (!userLogin) {
         throw new Error("No authenticated E*TRADE account is associated with this scheduled screen. Open the schedules panel while signed in and run it again.");
+      }
+      // Issue #1174 (#1173 S1): pre-flight the broker token for
+      // E*TRADE-provider runs. An expired, unrenewable token blocks
+      // the run up front — recorded with the remedy, one alert per
+      // expiry episode — instead of failing inside quote acquisition
+      // every hour (the 2026-10-23 overnight incident). Yahoo runs
+      // never touch the broker (#1007) and skip the guard.
+      if ((options.provider ?? "etrade") === "etrade") {
+        const guard = await this.guardScheduledAuth(
+          userLogin,
+          options.environment,
+          "stock",
+          `${options.universe || "NASDAQ100"} stock screen`
+        );
+        if (guard.blocked) {
+          return { success: false, taskType: "market_screen", error: guard.error, timestamp };
+        }
       }
       // Issue #261/#270: delegate screening to ScreenerAgent (E*TRADE-only).
       // Issue #421: pass the sector through unset when none was chosen —
@@ -704,6 +762,20 @@ export class ScheduledTasksService {
       const userLogin = options.userLogin || this.userLogin;
       if (!userLogin) {
         throw new Error("No authenticated E*TRADE account is associated with this options screen. Sign in and run it again.");
+      }
+      // Issue #1174 (#1173 S1): same auth pre-flight as the stock
+      // screen — options scans die on the same midnight-ET token
+      // cliff; block up front with one alert per episode instead.
+      {
+        const guard = await this.guardScheduledAuth(
+          userLogin,
+          options.environment,
+          "options",
+          "options screen"
+        );
+        if (guard.blocked) {
+          return { success: false, taskType: "options_analysis", error: guard.error, timestamp };
+        }
       }
       if (options.trigger === "scheduled") {
         const jobKey = `options:${options.universe || (options.symbols || []).join(",")}:${targetThesis}:${options.maxItems ?? "all"}`;

@@ -72,6 +72,21 @@ export async function autoRenewETradeTokens(ctx: ScheduledCallbacksContext, payl
   const res = await service.autoRenewETradeTokens(user, environment);
   if (!res.success) {
     console.warn("[OrchestratorAgent] autoRenewETradeTokens error:", res.error);
+    // Issue #1174 (#1173 S1): a failed renewal is tonight's outage
+    // warning — raise the deduplicated reconnect alert NOW (shared
+    // episode flag with the run-time guard) instead of leaving it as
+    // a log line nobody reads until six runs have failed.
+    const { etradeAuthEpisodeKey, fireAuthEpisodeAlertOnce } = await import("../../services/etradeAuthPreflight");
+    const { deliverScreenerToSlackA2A } = await import("../../services/screenerSlackDelivery");
+    await fireAuthEpisodeAlertOnce(
+      ctx.agentCtx.storage as any,
+      etradeAuthEpisodeKey(user, Date.now()),
+      async () => {
+        await deliverScreenerToSlackA2A(ctx.env, {
+          text: "⚠️ E*TRADE connection expired — automatic token renewal failed. Reconnect your account in Settings to keep scheduled runs working. Runs stay blocked (quietly) until you reconnect.",
+        });
+      }
+    );
   }
 }
 
@@ -134,7 +149,7 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
     const orm = ctx.getOrm();
     // Scheduled callbacks have no authenticated HTTP headers. Use the
     // identity and environment saved from the user's schedules requests.
-    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
+    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env });
     const res = await service.autonomousMarketScreen({ ...payload, userLogin, environment, trigger });
     if ((res as any).skipped) return;
     // Issue #212: persist the run for the "last results" UX endpoint.
