@@ -395,6 +395,45 @@ export async function deleteCanonicalReport(
 }
 
 /**
+ * Issue #338 S4: resolve with lazy backfill — the design's migration
+ * path ("NULL → serve inline, optionally backfill on first read"). A
+ * pointer row resolves exactly as resolveCanonicalReportBody. An inline
+ * row served while REPORTS_BUCKET is bound is first copied to R2 and
+ * its row rewritten to the pointer shape (body "", body_r2_key set,
+ * guarded on the pointer still being NULL so a racing writer wins);
+ * the inline body is returned either way. Backfill is best-effort: any
+ * failure is logged and the row stays inline for the next read — a
+ * read never fails because the migration hiccuped.
+ */
+export async function resolveCanonicalReportBodyWithBackfill(
+  sql: SqlStorage,
+  env: { REPORTS_BUCKET?: R2Bucket },
+  hit: ScheduledReportHit
+): Promise<string | null> {
+  if (hit.bodyR2Key) return resolveCanonicalReportBody(env, hit);
+  const bucket = env?.REPORTS_BUCKET;
+  if (!bucket || !hit.body) return hit.body;
+  const key = reportBodyR2Key(hit.id);
+  try {
+    await bucket.put(key, hit.body, {
+      httpMetadata: { contentType: "application/json" },
+    });
+    ensureScheduledReportsTable(sql);
+    sql.exec(
+      `UPDATE ${SCHEDULED_REPORTS_TABLE} SET body_r2_key = ?, body = '' WHERE id = ? AND body_r2_key IS NULL`,
+      key,
+      hit.id
+    );
+  } catch (err) {
+    console.error(
+      `[scheduledReports] resolveCanonicalReportBodyWithBackfill: backfill failed for report ${hit.id}; serving inline (retried on next read): ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
+  }
+  return hit.body;
+}
+
+/**
  * Issue #338 S2: resolve a stored report's canonical body. A null pointer
  * means the body is inline — return it as-is. A set pointer reads the R2
  * object; a missing bucket, missing object, or read error resolves to
