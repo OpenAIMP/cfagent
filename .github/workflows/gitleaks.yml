@@ -42,10 +42,10 @@ jobs:
     name: Gitleaks secret scan
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 Checkout Repository
+      - name: 📥 Checkout Repository (full history)
         uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
+          fetch-depth: 0
 
       - name: 🔎 Scan for secrets with Gitleaks
         uses: gitleaks/gitleaks-action@v2
