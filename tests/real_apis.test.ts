@@ -440,7 +440,7 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
         )
       );
 
-      const etrade = new ETradeService(env);
+      const etrade = new ETradeService(env, undefined, "real-api-user");
       const result = await etrade.placeOrderRemote({
         orderId: "ord_draft_1122",
         symbol: "NVDA",
@@ -476,7 +476,7 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
         APP_ENV: "PROD",
       } as Env;
 
-      const etrade = new ETradeService(liveNoKeysEnv);
+      const etrade = new ETradeService(liveNoKeysEnv, undefined, "real-api-user");
       const result = await etrade.placeOrderRemote({
         orderId: "ord_live_no_keys",
         symbol: "TSLA",

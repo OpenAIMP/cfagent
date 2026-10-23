@@ -16,6 +16,7 @@
 
 import { Agent } from "agents";
 import type { Env } from "../types";
+import { getServiceUserLogin } from "../security/serviceIdentity";
 import { putReportPdf } from "../services/reportBlobStore";
 
 export type AssetType = "research" | "screener" | "options";
@@ -101,8 +102,12 @@ export class ReportAssetAgent extends Agent<Env> {
  * Helper for callers: get the ReportAssetAgent for a user and generate.
  * The agent name is stable per user so assets are namespaced.
  */
-export function reportAssetAgentName(userLogin: string): string {
-  return userLogin === "default_trader" ? "default" : `assets:${userLogin}`;
+export function reportAssetAgentName(userLogin: string, serviceUserLogin?: string | null): string {
+  // Issue #1185: the bare "default" instance name belongs to the
+  // configured service identity — the only login that maps to it.
+  return serviceUserLogin && userLogin === serviceUserLogin
+    ? "default"
+    : `assets:${userLogin}`;
 }
 
 /**
@@ -123,7 +128,7 @@ export async function generatePdfAsset(
       console.error(`[ReportAssetAgent] generatePdfAsset(${type}) skipped: REPORT_ASSET_AGENT binding not configured in worker env. PDF will not be generated.`);
       return null;
     }
-    const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin))) as unknown as ReportAssetAgent;
+    const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin, getServiceUserLogin(env as Env)))) as unknown as ReportAssetAgent;
     return await agent.generateAsset({ type, data, userLogin });
   } catch (err) {
     console.warn(`[ReportAssetAgent] generatePdfAsset(${type}) failed:`, err);
@@ -145,7 +150,7 @@ export async function generatePdfAssetWithBytes(
   if (!asset) return null;
   try {
     const ns = (env as any).REPORT_ASSET_AGENT;
-    const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin))) as unknown as ReportAssetAgent;
+    const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin, getServiceUserLogin(env as Env)))) as unknown as ReportAssetAgent;
     const stored = await agent.getAsset(asset.key);
     if (!stored) return null;
     return { key: asset.key, fileName: asset.fileName, bytes: stored.bytes };
@@ -165,7 +170,7 @@ export async function getPdfAsset(
   try {
     const ns = (env as any).REPORT_ASSET_AGENT;
     if (!ns) return null;
-    const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin))) as unknown as ReportAssetAgent;
+    const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin, getServiceUserLogin(env as Env)))) as unknown as ReportAssetAgent;
     return await agent.getAsset(key);
   } catch (err) {
     console.warn(`[ReportAssetAgent] getPdfAsset(${key}) failed:`, err);

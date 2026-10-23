@@ -12,6 +12,7 @@
  */
 
 import type { Env, InboundEmailPayload, EmailTradingResult, ETradeOrderDraft } from "../../types";
+import { getServiceUserLogin, SHARED_ORCHESTRATOR_INSTANCE } from "../../security/serviceIdentity";
 import { DatabaseORM, requireOrm } from "../../orm";
 import { ETradeService } from "../../services/etrade";
 import { executeNaturalLanguageQuery } from "../../agents/nlq";
@@ -718,7 +719,7 @@ export class ETradeEmailTradingService {
  * address is caller-controlled and is NEVER used to select the instance
  * or the identity header (issue #815).
  */
-export const INBOUND_EMAIL_ORCHESTRATOR_INSTANCE = "default_trader";
+export const INBOUND_EMAIL_ORCHESTRATOR_INSTANCE = SHARED_ORCHESTRATOR_INSTANCE;
 
 /**
  * Cloudflare Worker email handler helper for exported email(message, env, ctx) handler
@@ -764,13 +765,23 @@ export async function handleCloudflareEmailMessage(
       "Inbound email trading requires the SEARCH_AGENT (orchestrator) binding to reach the user's Durable Object ORM; refusing to process the email without it (issue #815)."
     );
   }
+  // Issue #1185: the instance constant is the ADDRESS; the identity
+  // asserted on the forward is the configured service identity. With
+  // none configured the forward fails closed (mirrors the worker
+  // scheduled() handler's skip) instead of asserting a synthetic login.
+  const serviceLogin = getServiceUserLogin(env);
+  if (!serviceLogin) {
+    throw new Error(
+      "Inbound email trading requires a configured service identity (SERVICE_USER_LOGIN) to forward under; refusing to process the email without it (issue #1185)."
+    );
+  }
   const agentId = namespace.idFromName(INBOUND_EMAIL_ORCHESTRATOR_INSTANCE);
   const response = await namespace.get(agentId).fetch(
     new Request("https://agent.internal/trading/email/inbound", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-user-login": INBOUND_EMAIL_ORCHESTRATOR_INSTANCE,
+        "x-user-login": serviceLogin,
       },
       body: JSON.stringify({ from, to, subject, text, html }),
     })
