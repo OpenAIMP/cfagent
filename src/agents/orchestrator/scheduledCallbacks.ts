@@ -249,6 +249,88 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
 }
 
 /**
+ * Cloudflare Agents Scheduled Callback: Goal-Driven Screen
+ * (consolidation C1, issue #1201, epic #1151 R1). Runs the schedule
+ * payload's goal/scenario screen through the Phase 0 registry +
+ * Phase 3 semantics via ScheduledTasksService.autonomousGoalScreen.
+ * Mirrors the autonomousMarketScreen wrapper: saved execution
+ * context wins for identity/environment, unowned scheduled fires are
+ * skipped, and results AND failures are broadcast (issue #112) — the
+ * service itself audits, records the canonical report + activity
+ * entry, and delivers over the Phase 6 channels when the payload
+ * asks. Deliberately no throw: see the failure contract on
+ * ScheduledTasksService.
+ */
+export async function autonomousGoalScreen(ctx: ScheduledCallbacksContext, payload?: {
+  goalKind?: string;
+  direction?: string;
+  scenarioId?: string;
+  symbols?: string[];
+  assetClasses?: ("stocks" | "options")[];
+  trigger?: "manual" | "scheduled";
+  userLogin?: string;
+  environment?: ETradeEnvironment;
+  emailTo?: string;
+  slackChannel?: string;
+  pushToSlack?: boolean;
+}): Promise<void> {
+  try {
+    await ctx.waitUntilStable({ timeout: 30_000 });
+  } catch {
+    // Continue if timeout or unhandled
+  }
+  const runGoalScreen = async () => {
+    const trigger = payload?.trigger || "scheduled";
+    const savedContext = await ctx.getScreenerExecutionContext();
+    const userLogin = savedContext?.userLogin || payload?.userLogin;
+    const environment = savedContext?.environment || payload?.environment;
+    if (trigger === "scheduled" && !userLogin) {
+      await ctx.removeUnownedBaselineSchedules();
+      console.warn("[OrchestratorAgent] Skipping unowned scheduled goal screen.");
+      return;
+    }
+    const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env });
+    const res = await service.autonomousGoalScreen({ ...payload, userLogin, environment, trigger });
+    if ((res as any).skipped) return;
+    if (typeof (ctx.self as any).broadcast === "function") {
+      try {
+        (ctx.self as any).broadcast(
+          JSON.stringify(
+            res.success
+              ? {
+                  type: "goal_screen_alert",
+                  title: "Autonomous Goal Screen",
+                  success: true,
+                  goalKind: res.data?.goalKind || payload?.goalKind,
+                  status: res.data?.status,
+                  hits: res.data?.hits,
+                  taskId: res.data?.taskId,
+                  timestamp: res.timestamp,
+                }
+              : {
+                  type: "goal_screen_alert",
+                  title: "Autonomous Goal Screen Failed",
+                  success: false,
+                  goalKind: payload?.goalKind,
+                  error: res.error,
+                  timestamp: res.timestamp,
+                }
+          )
+        );
+      } catch {
+        // Non-critical broadcast error
+      }
+    }
+  };
+
+  if (typeof (ctx.self as any).keepAliveWhile === "function") {
+    await (ctx.self as any).keepAliveWhile(runGoalScreen);
+  } else {
+    await runGoalScreen();
+  }
+}
+
+/**
  * Cloudflare Agents Scheduled Callback: Scheduled Strategy Discovery
  * (issue #126, PR-E). Re-runs the schedule payload's SAVED
  * StrategyRequests verbatim through the discovery pipeline and

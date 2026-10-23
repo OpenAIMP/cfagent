@@ -59,6 +59,13 @@ import {
 } from "../services/screenerTaskLedger";
 import { DEFAULT_SCREENER_CONFIG } from "../trading";
 import type { StockScreenerFilter } from "../types";
+import {
+  DynamicOptionsScreener,
+  type ScreeningProviderAssetClass,
+} from "../trading";
+import type { OptionScreenerFilter } from "../types";
+import type { ScenarioDefinition } from "../services/goalScenarioEngine";
+import type { GoalDrivenScreenResult } from "../services/goalDrivenScreen";
 
 export interface ScreenerRunRequest {
   /** Who triggered the screen. */
@@ -721,6 +728,50 @@ export class ScreenerAgent extends Agent<Env> {
   }
 
   /** Latest run for the unified results UI. */
+  /**
+   * Consolidation C1 (issue #1201, epic #1151 R1): run a goal-driven
+   * screen (epic #1096 Phase 3 semantics) as a production citizen of
+   * this agent — the Phase 0 registry over production engines,
+   * executed under this DO's screener task ledger (the same ledger
+   * store runScreen uses). The composition lives in
+   * services/screeningRuntime.ts (runProductionGoalScreen); this
+   * method only binds the DO-owned pieces: the ledger and the
+   * E*TRADE client behind the options leg. A duplicate delivery
+   * returns the existing ledger record without re-executing.
+   */
+  async runGoalScreen(req: {
+    scenario: ScenarioDefinition;
+    trigger: "manual" | "scheduled";
+    idempotencyKey: string;
+    userLogin?: string;
+    environment?: "TEST" | "PROD";
+    assetClasses?: ScreeningProviderAssetClass[];
+    symbols?: string[];
+    baseStockFilter?: StockScreenerFilter;
+    baseOptionsFilter?: OptionScreenerFilter;
+  }): Promise<{ task: ScreenerTask; executed: boolean; result?: GoalDrivenScreenResult }> {
+    const userLogin = req.userLogin || this.userLogin();
+    const etrade = new ETradeService(
+      this.getOrm(),
+      this.env,
+      userLogin,
+      req.environment
+    );
+    const { runProductionGoalScreen } = await import("../services/screeningRuntime");
+    return runProductionGoalScreen({
+      ledger: this.taskLedger(),
+      optionsScreener: new DynamicOptionsScreener(etrade.client),
+      scenario: req.scenario,
+      trigger: req.trigger,
+      idempotencyKey: req.idempotencyKey,
+      userLogin,
+      assetClasses: req.assetClasses,
+      symbols: req.symbols,
+      baseStockFilter: req.baseStockFilter,
+      baseOptionsFilter: req.baseOptionsFilter,
+    });
+  }
+
   async getLatest(): Promise<ScreenerRunResult | null> {
     return (await this.ctx.storage.get<ScreenerRunResult>(LATEST_KEY)) ?? null;
   }

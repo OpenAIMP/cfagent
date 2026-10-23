@@ -12,6 +12,7 @@ import type { ScreenedStockItem } from "../types";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "./components/CapabilityNavBar";
 import { ScreenerResultsView } from "./ScreenerResultsView";
 import { ScannerPanel } from "./ScannerPanel";
+import { GoalScreenPanel } from "./GoalScreenPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { IvHistoryPanel } from "./IvHistoryPanel";
 import { OptionsResearchHost } from "./options/OptionsResearchHost";
@@ -20,8 +21,10 @@ import "./optionsResearch.css";
 
 /** S8 (consolidation, umbrella #958): the hub's tabs — the screening
  *  asset classes plus the folded Strategy/Symbol Scanner and IV
- *  History surfaces (formerly Trading Hub subtabs). */
-export type ScreenersHubTab = ScreeningAssetClass | "scanner" | "iv-history";
+ *  History surfaces (formerly Trading Hub subtabs).
+ *  C1 (consolidation #1151, issue #1201): the Goal Screen tab — the
+ *  #1096 unified stack's surface (goal-driven screens + backtest). */
+export type ScreenersHubTab = ScreeningAssetClass | "scanner" | "iv-history" | "goal-screen";
 
 interface ScreenersHubProps {
   activeEnv: "TEST" | "PROD";
@@ -132,7 +135,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded, onPreviewTr
   // the folded scanner / iv-history tabs have no adapter, so they
   // borrow "stocks" for the (unused) provider lookups.
   const assetClass: ScreeningAssetClass =
-    hubTab === "scanner" || hubTab === "iv-history" ? "stocks" : hubTab;
+    hubTab === "scanner" || hubTab === "iv-history" || hubTab === "goal-screen" ? "stocks" : hubTab;
   // S8: the options research surface keeps the mount semantics it
   // had as a Trading Hub subtab — mounted on first visit, kept
   // mounted (hidden) afterwards so in-flight work survives tab
@@ -457,6 +460,21 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded, onPreviewTr
           eyebrow: "IMPLIED VOLATILITY",
           title: "IV History",
           description: "Daily option-chain IV snapshots: per-symbol coverage, IV rank, and the latest readings.",
+        },
+      },
+      {
+        // C1 (consolidation #1151, issue #1201): the goal-driven
+        // screen — one goal, one screen across stocks + options
+        // through the unified screening stack, with backtest-on-screen.
+        id: "goal-screen",
+        label: "Goal Screen",
+        icon: "🧭",
+        badge: "AI",
+        badgeType: "purple",
+        tooltip: {
+          eyebrow: "GOAL-DRIVEN SCREENING",
+          title: "Goal Screen",
+          description: "Pick a goal; the unified screening stack screens stocks and options for it — and can backtest the hits.",
         },
       },
     );
@@ -958,6 +976,12 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded, onPreviewTr
       ) : hubTab === "iv-history" ? (
         /* S8: the IV History surface, formerly a Trading Hub subtab. */
         <IvHistoryPanel />
+      ) : hubTab === "goal-screen" ? (
+        /* C1 (consolidation #1151, issue #1201): the goal-driven
+           screen over the unified #1096 stack, with backtest-on-screen. */
+        <ErrorBoundary label="Goal Screen panel">
+          <GoalScreenPanel activeEnv={activeEnv} userLogin={userLogin} />
+        </ErrorBoundary>
       ) : (
         <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
           <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)", fontSize: "1.05rem" }}>🚧 {SCREENING_ASSET_CLASSES.find((a) => a.id === assetClass)?.label || "Asset"} Screener · Planned</h4>

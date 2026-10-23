@@ -892,6 +892,185 @@ export async function handleScreenerResearchRoutes(
         ...readScreeningControls((key) => ctx.readSettingRaw(key)),
       });
     }
+
+    // Consolidation C1 (issue #1201, epic #1151 R1): the goal-driven
+    // screen's production entry — the #1096 unified stack (Phase 0
+    // registry + Phase 3 goal-driven semantics) reachable from the
+    // hub and this route. The run executes via ScreenerAgent and is
+    // recorded on the canonical seams inside executeGoalScreenRun
+    // (mas_reports + screening activity log + optional Phase 6
+    // channel delivery). A stored scenario is resolved tenant-scoped
+    // through the Phase 0 store; otherwise the scenario is built
+    // from the goal kind (+ optional direction).
+    if (path.endsWith("/screening/goal-screen") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const body = (await request.json().catch(() => null)) as {
+        goalKind?: string;
+        direction?: string;
+        scenarioId?: string;
+        symbols?: string[];
+        assetClasses?: string[];
+        environment?: string;
+        deliver?: string[];
+        emailTo?: string;
+      } | null;
+      if (!body || typeof body !== "object") {
+        return Response.json({ error: "A JSON body with goalKind or scenarioId is required." }, { status: 400 });
+      }
+      const { GOAL_KINDS, buildScenario } = await import("../../services/goalScenarioEngine");
+      const runtime = await import("../../services/screeningRuntime");
+      const orm = ctx.getOrm();
+      let scenario: ReturnType<typeof buildScenario>;
+      let scenarioSource: "built" | "stored";
+      if (body.scenarioId) {
+        const store = await import("../../services/goalScenarioStore");
+        store.ensureGoalScenarioTables(orm as any);
+        const record = store.getScenario(orm as any, userLogin, body.scenarioId);
+        if (!record) {
+          return Response.json(
+            { error: `Stored scenario '${body.scenarioId}' was not found for this account.` },
+            { status: 404 }
+          );
+        }
+        const goal = store.getGoal(orm as any, userLogin, record.goalId);
+        if (!goal) {
+          return Response.json(
+            { error: `The goal owning scenario '${body.scenarioId}' was not found for this account.` },
+            { status: 404 }
+          );
+        }
+        scenario = runtime.scenarioFromStoredRecord(goal, record);
+        scenarioSource = "stored";
+      } else {
+        if (!body.goalKind || !(GOAL_KINDS as readonly string[]).includes(body.goalKind)) {
+          return Response.json(
+            { error: `goalKind must be one of: ${GOAL_KINDS.join(", ")}.` },
+            { status: 400 }
+          );
+        }
+        const outlooks = ["bullish", "bearish", "volatile", "range_bound", "unknown"];
+        if (body.direction !== undefined && !outlooks.includes(body.direction)) {
+          return Response.json(
+            { error: `direction must be one of: ${outlooks.join(", ")}.` },
+            { status: 400 }
+          );
+        }
+        scenario = buildScenario({
+          goalKind: body.goalKind as (typeof GOAL_KINDS)[number],
+          portfolioRef: { kind: "hypothetical" },
+          ...(body.direction
+            ? { direction: body.direction as ReturnType<typeof buildScenario>["direction"] }
+            : {}),
+        });
+        scenarioSource = "built";
+      }
+      if (
+        body.symbols !== undefined &&
+        (!Array.isArray(body.symbols) ||
+          body.symbols.some((s) => typeof s !== "string" || !/^[A-Z0-9./-]{1,16}$/i.test(s)))
+      ) {
+        return Response.json({ error: "symbols must be an array of valid ticker strings." }, { status: 400 });
+      }
+      if (
+        body.assetClasses !== undefined &&
+        (!Array.isArray(body.assetClasses) ||
+          body.assetClasses.some((c) => c !== "stocks" && c !== "options"))
+      ) {
+        return Response.json(
+          { error: "assetClasses must be a subset of [\"stocks\", \"options\"]." },
+          { status: 400 }
+        );
+      }
+      const channels = ["slack", "email", "webhook", "voice"];
+      if (
+        body.deliver !== undefined &&
+        (!Array.isArray(body.deliver) || body.deliver.some((c) => !channels.includes(c)))
+      ) {
+        return Response.json(
+          { error: `deliver must be a subset of: ${channels.join(", ")}.` },
+          { status: 400 }
+        );
+      }
+      const out = await runtime.executeGoalScreenRun({
+        agent: ctx.getScreenerAgent(userLogin),
+        orm,
+        env: ctx.env,
+        userLogin,
+        scenario,
+        scenarioSource,
+        trigger: "manual",
+        idempotencyKey: `goal-screen:manual:${userLogin}:${scenario.goalKind}:${new Date().toISOString()}`,
+        ...(body.environment === "TEST" || body.environment === "PROD"
+          ? { environment: body.environment }
+          : {}),
+        ...(body.assetClasses
+          ? { assetClasses: body.assetClasses as ("stocks" | "options")[] }
+          : {}),
+        ...(body.symbols ? { symbols: body.symbols } : {}),
+        ...(body.deliver ? { deliver: body.deliver as ("slack" | "email" | "webhook" | "voice")[] } : {}),
+        ...(body.emailTo ? { emailTo: body.emailTo } : {}),
+        actor: sessionId,
+      });
+      const payload = {
+        success: true,
+        executed: out.executed,
+        taskId: out.taskId,
+        taskStatus: out.taskStatus,
+        scenarioSource,
+        ...(out.result ? { result: out.result } : {}),
+        ...(out.delivery ? { delivery: out.delivery } : {}),
+      };
+      // A run that failed on every requested asset class is a failed
+      // screen: the REST screen idiom answers 502, with the labeled
+      // result in the body — never a bare error, never a fake success.
+      return Response.json(payload, { status: out.result?.status === "failed" ? 502 : 200 });
+    }
+
+    // Consolidation C1 (issue #1201, epic #1151 R1): backtest-on-
+    // screen's production entry — walk-forward over live Yahoo daily
+    // history (services/screeningRuntime.executeScreenBacktest). A
+    // symbol without fetchable history is excluded by the engine
+    // with its reason; nothing is fabricated.
+    if (path.endsWith("/screening/backtest") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const body = (await request.json().catch(() => null)) as {
+        symbols?: unknown;
+        folds?: number;
+        holdingBars?: number;
+        capital?: number;
+      } | null;
+      if (!body || typeof body !== "object" || !Array.isArray(body.symbols) || body.symbols.length === 0) {
+        return Response.json(
+          { error: "symbols must be a non-empty array of ticker strings." },
+          { status: 400 }
+        );
+      }
+      if (body.symbols.some((s) => typeof s !== "string" || !/^[A-Z0-9./-]{1,16}$/i.test(s))) {
+        return Response.json(
+          { error: "symbols must be an array of valid ticker strings." },
+          { status: 400 }
+        );
+      }
+      const { executeScreenBacktest } = await import("../../services/screeningRuntime");
+      const result = await executeScreenBacktest({
+        symbols: body.symbols as string[],
+        ...(typeof body.folds === "number" ? { folds: body.folds } : {}),
+        ...(typeof body.holdingBars === "number" ? { holdingBars: body.holdingBars } : {}),
+        ...(typeof body.capital === "number" ? { capital: body.capital } : {}),
+      });
+      const { recordScreeningActivity } = await import("../../services/screeningActivity");
+      recordScreeningActivity(ctx.getOrm() as any, {
+        userLogin,
+        kind: "screen_run",
+        summary:
+          `Backtest-on-screen — ${(body.symbols as string[]).length} symbol(s), ` +
+          `${result.aggregate.totalTrades} trade(s), net $${result.aggregate.totalNetPnl} ` +
+          `(provenance ${result.provenance}).`,
+        detail: { symbols: body.symbols, aggregate: result.aggregate, provenance: result.provenance },
+        actor: sessionId,
+      });
+      return Response.json({ success: true, ...result });
+    }
   return null;
 }
 

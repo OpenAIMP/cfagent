@@ -62,6 +62,10 @@
  * /screening/activity and GET|POST /screening/controls (in
  * handleScreenerResearchRoutes, after /research/evaluate, last in
  * that handler) — bringing the pinned array to 192 entries.
+ * Issue #1201 (consolidation C1) added two more — POST
+ * /screening/goal-screen and POST /screening/backtest (in
+ * handleScreenerResearchRoutes, after /screening/controls, last in
+ * that handler) — bringing the pinned array to 197 entries.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -296,6 +300,8 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/screening/activity\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/controls\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/controls\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/backtest\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules\")",
   "handleSchedulesRoutes :: endsWith(\"/api/schedules\")",
   "handleSchedulesRoutes :: === \"/schedules\"",

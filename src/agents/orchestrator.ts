@@ -34,7 +34,7 @@ import { createDidAttestation, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErrorFallback";
 import { getScreenerExecutionContext, migrateLegacyScreenSchedules, removeUnownedBaselineSchedules, ensureStrategyScanSchedule, type ScheduleMaintenanceContext } from "./orchestrator/scheduleMaintenance";
-import { autoRenewETradeTokens, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
+import { autoRenewETradeTokens, autonomousGoalScreen, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
 import { nlqSchedulingPort, nlqSocialBriefPort, nlqStockScreenPort, type NlqPortsContext } from "./orchestrator/nlqPorts";
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
 import type { DoNamespaceLike } from "../security/durableKv";
@@ -126,12 +126,16 @@ export const CREATABLE_SCHEDULE_CALLBACKS = [
   "autonomousOptionsAnalysis",
   "autonomousMarketScreen",
   "autonomousStrategyDiscovery",
+  // Consolidation C1 (issue #1201, epic #1151 R1): goal-driven
+  // screens are schedulable through the one schedule store.
+  "autonomousGoalScreen",
 ] as const;
 
 const ACCOUNT_SCOPED_SCHEDULE_CALLBACKS = new Set<string>([
   "autonomousOptionsAnalysis",
   "autonomousMarketScreen",
   "autonomousStrategyDiscovery",
+  "autonomousGoalScreen",
 ]);
 
 export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[number];
@@ -589,6 +593,23 @@ export class OrchestratorAgent extends Think<Env> {
     provider?: import("../trading").StockScreenProvider;
   }): Promise<void> {
     return autonomousMarketScreen(this.scheduledCallbacksContext(), payload);
+  }
+
+  // Consolidation C1 (issue #1201): extracted to ./orchestrator/scheduledCallbacks.ts (autonomousGoalScreen);
+  async autonomousGoalScreen(payload?: {
+    goalKind?: string;
+    direction?: string;
+    scenarioId?: string;
+    symbols?: string[];
+    assetClasses?: ("stocks" | "options")[];
+    trigger?: "manual" | "scheduled";
+    userLogin?: string;
+    environment?: ETradeEnvironment;
+    emailTo?: string;
+    slackChannel?: string;
+    pushToSlack?: boolean;
+  }): Promise<void> {
+    return autonomousGoalScreen(this.scheduledCallbacksContext(), payload);
   }
 
   /**

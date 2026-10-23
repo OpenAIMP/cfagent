@@ -18,6 +18,8 @@ import {
   SqlScanRunStore,
   SqlStrategyProfileStore,
   buildCalibratedOptionChains,
+  createOptionsScreeningProvider,
+  OPTIONS_SCREENING_PROVIDER_ID,
   parseOptionsScreenRequest,
 } from "../../trading";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
@@ -41,7 +43,18 @@ export async function executeOptionsScreen(args: {
   deferDelivery?: boolean;
 }): Promise<Response> {
   const { ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, deferDelivery } = args;
-  let result = await screener.screenOptions(screenFilter);
+  // Consolidation C1 (issue #1201, epic #1151 R1): the manual options
+  // screen executes through the Phase 0 ScreeningProvider (the
+  // registry's options provider wrapping this same screener) — the
+  // unified stack is the production path here, not a parallel one.
+  // Same engine, same result object; the provider only stamps its
+  // provenance id. The demo-fallback logic below is untouched.
+  const provider = createOptionsScreeningProvider(OPTIONS_SCREENING_PROVIDER_ID, screener);
+  const screened = await provider.screen({ assetClass: "options", filter: screenFilter });
+  if (screened.assetClass !== "options") {
+    throw new Error("Options screening provider returned a non-options result.");
+  }
+  let result = screened.result;
 
   // Demo-mode fallback (issue #65): generated chains may substitute for an
   // empty live screen ONLY in dev/demo deployments with the gate enabled,

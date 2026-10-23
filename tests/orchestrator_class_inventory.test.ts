@@ -53,9 +53,13 @@ import { readFileSync, statSync } from "node:fs";
 const src = (rel: string) => readFileSync(`src/${rel}`, "utf8");
 const ORCH = "agents/orchestrator.ts";
 
-/** Post-refactor budget for orchestrator.ts (result: 1,977 lines / 89,925 B). */
+/** Post-refactor budget for orchestrator.ts (result: 1,977 lines / 89,925 B).
+ *  Raised deliberately in the same change (the pin rule above):
+ *  consolidation C1 (#1201) adds the autonomousGoalScreen delegating
+ *  wrapper + its creatable/account-scoped list entries — measured
+ *  95,030 B after the addition; budget keeps ~270 B headroom. */
 const BUDGET_LINES = 2075;
-const BUDGET_BYTES = 94_400;
+const BUDGET_BYTES = 95_300;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

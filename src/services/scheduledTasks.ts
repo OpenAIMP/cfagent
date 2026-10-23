@@ -567,6 +567,155 @@ export class ScheduledTasksService {
   }
 
   /**
+   * Consolidation C1 (issue #1201, epic #1151 R1): runs a goal-driven
+   * screen (Phase 1 scenario + Phase 3 semantics through the Phase 0
+   * registry) via ScreenerAgent — the same one-agent-owns-screening
+   * delegation as autonomousMarketScreen. Canonical recording
+   * (mas_reports + screening activity log) and optional Phase 6
+   * channel delivery happen inside executeGoalScreenRun; the run is
+   * ledger-idempotent on its minute slot, so a duplicate scheduled
+   * delivery reports skipped, exactly like the market screen. Failure
+   * contract mirrors autonomousMarketScreen (issue #112): audit +
+   * session message + a failure result, never a silent vanish.
+   */
+  async autonomousGoalScreen(options: {
+    goalKind?: string;
+    direction?: string;
+    scenarioId?: string;
+    symbols?: string[];
+    assetClasses?: ("stocks" | "options")[];
+    userLogin?: string;
+    environment?: "TEST" | "PROD";
+    trigger?: "manual" | "scheduled";
+    emailTo?: string;
+    slackChannel?: string;
+    pushToSlack?: boolean;
+  } = {}): Promise<ScheduledTaskResult<{
+    taskId: string;
+    status?: string;
+    hits?: number;
+    goalKind?: string;
+  }>> {
+    const timestamp = new Date().toISOString();
+    try {
+      const userLogin = options.userLogin || this.userLogin;
+      if (!userLogin) {
+        throw new Error("No authenticated account is associated with this scheduled goal screen. Open the schedules panel while signed in and run it again.");
+      }
+      if (!this.orm) {
+        throw new Error("Goal-screen schedules require the ORM-backed schedule service.");
+      }
+      const { GOAL_KINDS, buildScenario } = await import("./goalScenarioEngine");
+      const runtime = await import("./screeningRuntime");
+      let scenario: ReturnType<typeof buildScenario>;
+      let scenarioSource: "built" | "stored";
+      if (options.scenarioId) {
+        const store = await import("./goalScenarioStore");
+        store.ensureGoalScenarioTables(this.orm as any);
+        const record = store.getScenario(this.orm as any, userLogin, options.scenarioId);
+        if (!record) {
+          throw new Error(`Stored scenario '${options.scenarioId}' was not found for this account.`);
+        }
+        const goal = store.getGoal(this.orm as any, userLogin, record.goalId);
+        if (!goal) {
+          throw new Error(`The goal owning scenario '${options.scenarioId}' was not found for this account.`);
+        }
+        scenario = runtime.scenarioFromStoredRecord(goal, record);
+        scenarioSource = "stored";
+      } else {
+        if (!options.goalKind || !(GOAL_KINDS as readonly string[]).includes(options.goalKind)) {
+          throw new Error(`goalKind must be one of: ${GOAL_KINDS.join(", ")}.`);
+        }
+        const outlooks = ["bullish", "bearish", "volatile", "range_bound", "unknown"];
+        if (options.direction !== undefined && !outlooks.includes(options.direction)) {
+          throw new Error(`direction must be one of: ${outlooks.join(", ")}.`);
+        }
+        scenario = buildScenario({
+          goalKind: options.goalKind as (typeof GOAL_KINDS)[number],
+          portfolioRef: { kind: "hypothetical" },
+          ...(options.direction
+            ? { direction: options.direction as ReturnType<typeof buildScenario>["direction"] }
+            : {}),
+        });
+        scenarioSource = "built";
+      }
+      const trigger = options.trigger || "scheduled";
+      const idempotencyKey =
+        trigger === "scheduled"
+          ? `goal-screen:scheduled:${userLogin}:${scenario.goalKind}:${timestamp.slice(0, 16)}`
+          : `goal-screen:manual:${userLogin}:${scenario.goalKind}:${timestamp}`;
+      const deliver: ("slack" | "email" | "webhook" | "voice")[] = [
+        ...(options.emailTo ? ["email" as const] : []),
+        ...(options.pushToSlack || options.slackChannel ? ["slack" as const] : []),
+      ];
+      const out = await runtime.executeGoalScreenRun({
+        agent: this.getScreenerAgent(userLogin),
+        orm: this.orm,
+        env: this.env,
+        userLogin,
+        scenario,
+        scenarioSource,
+        trigger,
+        idempotencyKey,
+        environment: options.environment,
+        assetClasses: options.assetClasses,
+        symbols: options.symbols,
+        ...(deliver.length > 0 ? { deliver } : {}),
+        ...(options.emailTo ? { emailTo: options.emailTo } : {}),
+      });
+      if (!out.executed) {
+        return { success: true, taskType: "goal_screen", skipped: true, timestamp } as any;
+      }
+      this.audit("goal_screen.run_completed", {
+        goalKind: out.result?.goalKind,
+        status: out.result?.status,
+        hits: out.result?.counts.hits,
+        taskId: out.taskId,
+      });
+      if (out.result?.status === "failed") {
+        throw new Error("Goal-driven screen failed on every requested asset class.");
+      }
+      return {
+        success: true,
+        taskType: "goal_screen",
+        timestamp,
+        data: {
+          taskId: out.taskId,
+          status: out.result?.status,
+          hits: out.result?.counts.hits,
+          goalKind: out.result?.goalKind,
+        },
+      };
+    } catch (err: any) {
+      this.audit("goal_screen.run_failed", {
+        goalKind: options.goalKind,
+        scenarioId: options.scenarioId,
+        error: err.message,
+      });
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `⚠️ Scheduled Goal Screen failed: ${err.message || "Goal screen execution error"}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: false,
+        taskType: "goal_screen",
+        error: err.message || "Goal screen execution error",
+        timestamp,
+      };
+    }
+  }
+
+  /**
    * Automatically expires a previewed order draft after timeout (15-minute HITL window)
    */
   async expireStaleOrderDraft(
