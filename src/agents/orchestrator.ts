@@ -199,6 +199,8 @@ export class OrchestratorAgent extends Think<Env> {
       waitUntilStable: (options) => this.waitUntilStable(options),
       scheduledScreenerSlots: (this.scheduledScreenerSlots ??= new Set<string>()),
       scheduledDiscoverySlots: (this.scheduledDiscoverySlots ??= new Set<string>()),
+      scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string, chainReport?: boolean) =>
+        scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin, chainReport),
     };
   }
 
@@ -614,7 +616,7 @@ export class OrchestratorAgent extends Think<Env> {
         }
         await this.ctx.storage.put(key, { slot });
       }
-      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql));
+      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql), undefined, undefined, undefined, (outcome, schedulerUserLogin, chainReport) => scheduleScreenerFollowups(this.asyncJobsContext(), outcome, schedulerUserLogin, chainReport));
       const res = await service.autonomousOptionsAnalysis({ ...payload, userLogin, environment });
       if ((res as any).skipped) return;
       // Issue #223: persist the run so GET /api/options/latest can report what
@@ -1993,6 +1995,8 @@ export class OrchestratorAgent extends Think<Env> {
       scheduleEvery: (intervalSeconds, callback, payload) => this.scheduleEvery(intervalSeconds, callback as keyof this, payload),
       getScreenerExecutionContext: () => this.getScreenerExecutionContext(),
       getOrm: () => this.getOrm(),
+      scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string, chainReport?: boolean) =>
+        scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin, chainReport),
       autonomousMarketScreen: (payload) => this.autonomousMarketScreen(payload),
       autoRenewETradeTokens: (payload) => this.autoRenewETradeTokens(payload),
       creatableScheduleCallbacks: CREATABLE_SCHEDULE_CALLBACKS,

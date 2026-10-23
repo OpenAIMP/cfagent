@@ -104,6 +104,14 @@ export interface SchedulesRouteContext {
   getScreenerExecutionContext(): Promise<ScreenerExecutionContext | undefined>;
   /** ORM accessor (owner: OrchestratorAgent.getOrm - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
+  /** Issue #1123 S5b: follow-up bridge for screener runs triggered
+   *  through the schedule routes (optional — hosts without it keep
+   *  the service's event-bus behavior). */
+  scheduleScreenerFollowups?: (
+    outcome: import("../../services/screenerFollowups").ScreenerRunOutcome,
+    userLogin: string,
+    chainReport?: boolean,
+  ) => Promise<void>;
   /** Scheduled market screen (owner: OrchestratorAgent.autonomousMarketScreen - was `this.autonomousMarketScreen`). */
   autonomousMarketScreen(payload?: {
     sector?: string;
@@ -572,7 +580,7 @@ export async function handleSchedulesRoutes(
         const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD"
           ? rawEnvironment
           : context?.environment;
-        const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin, new SqlScanRunStore(ctx.agentCtx.storage.sql));
+        const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin, new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
         // Issue #959: validate through the shared schedule builder.
         const { userLogin: _bodyLogin, environment: _bodyEnv, ...triggerCriteria } = body ?? {};
         const built = buildSchedulePayload("autonomousOptionsAnalysis", triggerCriteria, { userLogin: userLogin || undefined, environment, trigger: "manual" }, { applyCreationDefaults: false });
@@ -618,7 +626,10 @@ export async function handleSchedulesRoutes(
           ctx.getOrm(),
           userLogin,
           new SqlScanRunStore(ctx.agentCtx.storage.sql),
-          new SqlIvHistoryStore(ctx.agentCtx.storage.sql)
+          new SqlIvHistoryStore(ctx.agentCtx.storage.sql),
+          undefined,
+          undefined,
+          ctx.scheduleScreenerFollowups
         );
         const result = await service.collectDailyIvHistory({ ...body, userLogin, environment });
         return Response.json(result);
@@ -656,7 +667,8 @@ export async function handleSchedulesRoutes(
           new SqlScanRunStore(ctx.agentCtx.storage.sql),
           undefined,
           new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
-          new SqlStrategyProfileStore(ctx.agentCtx.storage.sql)
+          new SqlStrategyProfileStore(ctx.agentCtx.storage.sql),
+          ctx.scheduleScreenerFollowups
         );
         // Issue #959: validate through the shared schedule builder
         // (the service's own derivation validation still runs inside).
