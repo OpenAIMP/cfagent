@@ -5,7 +5,7 @@ import { getWorkersAIModel } from "./model";
 import { buildOrchestratorSystemPrompt, resolveShadowMaxSteps } from "./chatPrompt";
 import { LLMJudge } from "./judge";
 import { VectorMemory } from "../memory/vector-memory";
-import { planNLQ, executeNLQQuery, executeNLQQueryAsync, type NLQSchedulingPort, type NLQStockScreenPort } from "./nlq";
+import { planNLQ, executeNLQQuery, executeNLQQueryAsync, type NLQSchedulingPort, type NLQSocialBriefPort, type NLQStockScreenPort } from "./nlq";
 import { resolveErrorAspect, AgentErrorCode } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import { DatabaseORM } from "../orm";
@@ -35,7 +35,9 @@ import { createMAS } from "./mas";
 import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErrorFallback";
 import { getScreenerExecutionContext, migrateLegacyScreenSchedules, removeUnownedBaselineSchedules, ensureStrategyScanSchedule, type ScheduleMaintenanceContext } from "./orchestrator/scheduleMaintenance";
 import { autoRenewETradeTokens, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
-import { nlqSchedulingPort, nlqStockScreenPort, type NlqPortsContext } from "./orchestrator/nlqPorts";
+import { nlqSchedulingPort, nlqSocialBriefPort, nlqStockScreenPort, type NlqPortsContext } from "./orchestrator/nlqPorts";
+import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
+import type { DoNamespaceLike } from "../security/durableKv";
 import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobGraphColumns, scheduleScreenerFollowups, type AsyncJobsContext } from "./orchestrator/asyncJobs";
 import type { ScreenerRunOutcome } from "../services/screenerFollowups";
 import { marketDateKey, readAutopilotStateRaw, getAutopilotState, writeAutopilotState, incrementAutopilotOrdersToday, fetchBrokerBalanceSnapshot, openNotionalForSymbol, evaluateAndRecordAutopilotVerdict, type AutopilotContext } from "./orchestrator/autopilot";
@@ -213,6 +215,10 @@ export class OrchestratorAgent extends Think<Env> {
       cancelSchedule: (id) => this.cancelSchedule(id),
       listSchedules: () => this.listSchedules(),
       getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
+      getSocialBriefStore: () =>
+        createSocialBriefStoreFromNamespace(
+          this.env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+        ),
     };
   }
 
@@ -757,6 +763,13 @@ export class OrchestratorAgent extends Think<Env> {
   // Issue #992: extracted to ./orchestrator/nlqPorts.ts (nlqStockScreenPort);
   private nlqStockScreenPort(): NLQStockScreenPort {
     return nlqStockScreenPort(this.nlqPortsContext());
+  }
+
+  // #1077 Phase 5b slice 2: extracted to ./orchestrator/nlqPorts.ts
+  // (nlqSocialBriefPort); null when SESSION_STORE is unavailable, so
+  // NLQ brief writes fail honestly instead of writing to nowhere.
+  private nlqSocialBriefPort(): NLQSocialBriefPort | null {
+    return nlqSocialBriefPort(this.nlqPortsContext());
   }
 
   private ensureTables() {
@@ -1720,6 +1733,7 @@ export class OrchestratorAgent extends Think<Env> {
       runAgenticChatTurn: (opts) => this.runAgenticChatTurn(opts),
       buildChatErrorFallback: (err, userText, userLogin) => this.buildChatErrorFallback(err, userText, userLogin),
       nlqSchedulingPort: () => this.nlqSchedulingPort(),
+      nlqSocialBriefPort: () => this.nlqSocialBriefPort(),
     });
     if (mcpChatNlqResponse) return mcpChatNlqResponse;
 
