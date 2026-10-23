@@ -44,6 +44,7 @@ const PINNED_STAR_REEXPORTS = [
   "./interfaces",
   "./registry",
   "./screeningProvider",
+  "./dataProviders",
   "./screener",
   "./agent",
   "./etrade/client",
