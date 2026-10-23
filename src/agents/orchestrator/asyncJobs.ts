@@ -30,10 +30,12 @@ import {
   followupChannelLabel,
   formatHeldNotification,
   formatLifecycleNotification,
+  formatUndeliverableNotification,
   isEmailAllowed,
   planDeliveryFollowups,
   planInitialFollowups,
   planLifecycleNotifications,
+  plannedDeliveryChannels,
   resolveScreenerFollowupConfig,
   screenerKindForPath,
   screenerOutcomeFromHttpJob,
@@ -89,6 +91,10 @@ export interface AsyncJobsContext {
    *  the same pending-review store (same 24h TTL). */
   reportDispatchHitlEnabled: () => boolean;
   createScreenerConfirmation: (payloadJson: string) => string;
+  /** Issue #1228: the #277 confirmation TTL, so a held delivery's
+   *  announcement can state its exact expiry. Optional — the hold
+   *  branch defaults to 24h (the store's TTL) when unbound. */
+  reportConfirmationTtlMs?: () => number;
 }
 
 const ASYNC_JOB_KINDS: readonly AsyncJobKind[] = ["main", "report", "delivery", "notification"];
@@ -310,9 +316,10 @@ async function submitLifecycleNotifications(
   mainJobId: string,
   userLogin: string,
   detail?: string,
+  suppressChannels?: readonly AsyncJobChannel[],
 ): Promise<void> {
   const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
-  for (const spec of planLifecycleNotifications(event, outcome, config, mainJobId, userLogin, detail)) {
+  for (const spec of planLifecycleNotifications(event, outcome, config, mainJobId, userLogin, detail, { suppressChannels })) {
     await submitAsyncJob(ctx, spec);
   }
 }
@@ -368,12 +375,20 @@ export async function recordScreenerRunMainJob(
   // chainReport=false covers sources whose report delivery lives on
   // another sanctioned path (scheduled options, #223): the run is
   // recorded + notified, never double-delivered.
+  let reportChained = false;
   if (options?.chainReport !== false) {
-    for (const spec of planInitialFollowups(outcome, config, jobId, userLogin)) {
+    const initialSpecs = planInitialFollowups(outcome, config, jobId, userLogin);
+    reportChained = initialSpecs.length > 0;
+    for (const spec of initialSpecs) {
       await submitAsyncJob(ctx, spec);
     }
   }
-  await submitLifecycleNotifications(ctx, outcome.success ? "completed" : "failed", outcome, jobId, userLogin);
+  // Issue #1228 (#1209 F2): when the report chain will run, the
+  // delivery carries the completion message — suppress the text-only
+  // 'completed' notify on the delivery channels. Unchained runs
+  // (scheduled options) keep theirs: it is their only notice.
+  const suppressChannels = reportChained ? plannedDeliveryChannels(outcome, config) : undefined;
+  await submitLifecycleNotifications(ctx, outcome.success ? "completed" : "failed", outcome, jobId, userLogin, undefined, suppressChannels);
   return jobId;
 }
 
@@ -536,7 +551,28 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       // incidental config.
       const pipelinePolicy = resolvePipelinePolicy(ctx.env as unknown as Record<string, unknown>);
       if (typeof payload.skipReason === "string" && payload.skipReason) {
-        result = { status: "skipped", reason: payload.skipReason, channel };
+        // Issue #1228 (#1209 F2): the 'completed' notify job was
+        // suppressed on this channel because the delivery was to be
+        // the completion message — so a delivery that has nothing to
+        // attach must still SPEAK (completion text + the reason) or
+        // the channel hears nothing about a completed run. Policy
+        // gates it exactly like a completed notification; best-effort.
+        let noticeSent = false;
+        if (channel !== "webhook" && shouldNotify(pipelinePolicy, "completed", channel)) {
+          try {
+            const notice = await ctx.followupDeliveryPort().notify({
+              channel,
+              userLogin,
+              text: formatUndeliverableNotification(outcome, payload.skipReason),
+              ...(channel === "email" && outcome.emailTo ? { emailTo: outcome.emailTo } : {}),
+              ...(channel === "slack" && outcome.slackChannel ? { slackChannel: outcome.slackChannel } : {}),
+            });
+            noticeSent = notice.ok;
+          } catch (noticeError) {
+            console.warn("[asyncJobs] undeliverable-notice failed:", noticeError instanceof Error ? noticeError.message : String(noticeError));
+          }
+        }
+        result = { status: "skipped", reason: payload.skipReason, channel, noticeSent };
       } else if (!shouldNotify(pipelinePolicy, "completed", channel)) {
         result = { status: "skipped", reason: `Pipeline policy disables completed-run deliveries on ${channel}.`, channel };
       } else if (typeof payload.approvedConfirmationId !== "string" && ctx.reportDispatchHitlEnabled()) {
@@ -573,7 +609,9 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
             await ctx.followupDeliveryPort().notify({
               channel,
               userLogin,
-              text: formatHeldNotification(outcome),
+              text: formatHeldNotification(outcome, {
+                expiresAtIso: new Date(Date.now() + (ctx.reportConfirmationTtlMs?.() ?? 24 * 60 * 60 * 1000)).toISOString(),
+              }),
               ...(channel === "email" && outcome.emailTo ? { emailTo: outcome.emailTo } : {}),
               ...(channel === "slack" && outcome.slackChannel ? { slackChannel: outcome.slackChannel } : {}),
             });
@@ -683,17 +721,23 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
           const headers = (payload.headers || {}) as Record<string, string>;
           const userLogin = typeof headers["x-user-login"] === "string" ? headers["x-user-login"] : ctx.sessionKey();
-          for (const spec of planInitialFollowups(outcome, config, jobId, userLogin)) {
+          const initialSpecs = planInitialFollowups(outcome, config, jobId, userLogin);
+          for (const spec of initialSpecs) {
             await submitAsyncJob(ctx, spec);
           }
           // S4: completion (or run-level failure) notifications ride
           // the same completion point — Slack + email, tracked.
+          // Issue #1228: with the report chain planned, the delivery
+          // is the completion message on its channels (see bridge).
+          const suppressChannels = initialSpecs.length > 0 ? plannedDeliveryChannels(outcome, config) : undefined;
           await submitLifecycleNotifications(
             ctx,
             outcome.success ? "completed" : "failed",
             outcome,
             jobId,
             userLogin,
+            undefined,
+            suppressChannels,
           );
         }
       } catch (followupError) {

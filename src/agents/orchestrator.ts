@@ -257,6 +257,7 @@ export class OrchestratorAgent extends Think<Env> {
       reportDispatchHitlEnabled: () => getReportDispatchHitl(this.reportDispatchContext()),
       createScreenerConfirmation: (payloadJson: string) =>
         createReportConfirmation(this.reportDispatchContext(), "screener", payloadJson, null),
+      reportConfirmationTtlMs: () => OrchestratorAgent.REPORT_CONFIRMATION_TTL_MS,
     };
   }
 

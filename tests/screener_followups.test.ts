@@ -12,7 +12,11 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  formatHeldNotification,
+  formatUndeliverableNotification,
   planInitialFollowups,
+  planLifecycleNotifications,
+  plannedDeliveryChannels,
   resolveScreenerFollowupConfig,
   screenerOutcomeFromHttpJob,
   type ScreenerRunOutcome,
@@ -125,6 +129,63 @@ describe("planInitialFollowups", () => {
     const slack = resolveScreenerFollowupConfig({ SLACK_WEBHOOK_URL: "https://hooks.slack.com/x" });
     expect(slack.channels.slack.configured).toBe(true);
     expect(slack.channels.email.to).toBeUndefined();
+  });
+});
+
+describe("#1228 composition truth (planner suppression + formatters)", () => {
+  const outcome: ScreenerRunOutcome = {
+    kind: "stock",
+    trigger: "manual",
+    success: true,
+    pdfKeys: ["screener-pdf-1"],
+    pdfStatus: "generated",
+    reportUrl: "/api/screener/report.pdf?key=screener-pdf-1",
+    matchedCount: 7,
+    totalScanned: 100,
+    universe: "NASDAQ100",
+  };
+  const config = resolveScreenerFollowupConfig({
+    SCREENER_EMAIL_TO: "ops@example.com",
+    SLACK_WEBHOOK_URL: "https://hooks.slack.com/x",
+  });
+
+  it("plannedDeliveryChannels: env-configured channels, in channel order", () => {
+    expect(plannedDeliveryChannels(outcome, config)).toEqual(["slack", "email"]);
+  });
+
+  it("plannedDeliveryChannels: a per-task override counts without env config", () => {
+    const bare = resolveScreenerFollowupConfig({});
+    expect(plannedDeliveryChannels(outcome, bare)).toEqual([]);
+    expect(plannedDeliveryChannels({ ...outcome, slackChannel: "#desk" }, bare)).toEqual(["slack"]);
+  });
+
+  it("completed notify is suppressed exactly on the suppressed channels", () => {
+    const specs = planLifecycleNotifications("completed", outcome, config, "m", "alice", undefined, { suppressChannels: ["slack", "email"] });
+    expect(specs).toEqual([]);
+    const partial = planLifecycleNotifications("completed", outcome, config, "m", "alice", undefined, { suppressChannels: ["slack"] });
+    expect(partial.map((s) => s.channel)).toEqual(["email"]);
+  });
+
+  it("suppression never applies to other events", () => {
+    const failed = planLifecycleNotifications("failed", { ...outcome, success: false }, config, "m", "alice", undefined, { suppressChannels: ["slack", "email"] });
+    expect(failed.map((s) => s.channel)).toEqual(["slack", "email"]);
+    const started = planLifecycleNotifications("started", outcome, config, "m", "alice", undefined, { suppressChannels: ["slack", "email"] });
+    expect(started.map((s) => s.channel)).toEqual(["slack", "email"]);
+  });
+
+  it("held announcement carries the report link and the exact expiry when provided", () => {
+    const text = formatHeldNotification(outcome, { expiresAtIso: "2026-10-24T14:36:00.000Z" });
+    expect(text).toContain("📄 Report: /api/screener/report.pdf?key=screener-pdf-1");
+    expect(text).toContain("expires 2026-10-24T14:36:00.000Z");
+    const bare = formatHeldNotification({ ...outcome, reportUrl: undefined });
+    expect(bare).not.toContain("📄 Report:");
+    expect(bare).not.toContain("expires");
+  });
+
+  it("undeliverable notice is the completion text plus the reason", () => {
+    const text = formatUndeliverableNotification(outcome, "PDF generation failed: boom");
+    expect(text).toContain("Screen completed");
+    expect(text).toContain("⚠️ No report is attached: PDF generation failed: boom");
   });
 });
 

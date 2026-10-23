@@ -184,6 +184,7 @@ function makeCtx(
   sql: StatefulAsyncSql,
   env: Record<string, unknown>,
   delivered: Array<{ channel: string; artifacts: unknown }>,
+  notified: Array<{ channel: string; text: string }> = [],
 ): AsyncJobsContext {
   const storage = sql as unknown as AsyncJobsContext["agentCtx"]["storage"]["sql"];
   return {
@@ -211,6 +212,10 @@ function makeCtx(
       deliver: async (input: { channel: string; artifacts: unknown }) => {
         delivered.push({ channel: input.channel, artifacts: input.artifacts });
         return { ok: true, detail: "sent-1" };
+      },
+      notify: async (input: { channel: string; text: string }) => {
+        notified.push({ channel: input.channel, text: input.text });
+        return { ok: true };
       },
     }),
     reportDispatchHitlEnabled: () => false,
@@ -268,10 +273,11 @@ describe("delivery chaining (executor)", () => {
     expect(delivered.filter((d) => d.channel === "email")).toHaveLength(0);
   });
 
-  it("a skipped report yields deliveries that complete as skipped without sending", async () => {
+  it("a skipped report yields deliveries that complete as skipped — and SPEAK the outcome (#1228)", async () => {
     const sql = new StatefulAsyncSql();
     const delivered: Array<{ channel: string; artifacts: unknown }> = [];
-    const ctx = makeCtx(sql, { SLACK_WEBHOOK_URL: "https://hooks.slack.com/x" }, delivered);
+    const notified: Array<{ channel: string; text: string }> = [];
+    const ctx = makeCtx(sql, { SLACK_WEBHOOK_URL: "https://hooks.slack.com/x" }, delivered, notified);
     (ctx as { routeRequest: unknown }).routeRequest = async () =>
       new Response(JSON.stringify({ universe: "SP500", totalScanned: 5, matchedCount: 0, pdfStatus: "failed", pdfError: "render blew up" }), { status: 200 });
     await runChain(ctx, sql);
@@ -280,8 +286,13 @@ describe("delivery chaining (executor)", () => {
     await executeAsyncJob(ctx, { jobId: String(deliveryRow?.job_id) });
     const rec = getAsyncJob(ctx, String(deliveryRow?.job_id));
     expect(rec?.status).toBe("completed");
-    expect(rec?.result).toMatchObject({ status: "skipped", reason: "render blew up" });
+    expect(rec?.result).toMatchObject({ status: "skipped", reason: "render blew up", noticeSent: true });
     expect(delivered).toHaveLength(0);
+    // #1228: the delivery was the completion message on this channel,
+    // so the skipped delivery announces the outcome + reason itself.
+    expect(notified).toHaveLength(1);
+    expect(notified[0].channel).toBe("slack");
+    expect(notified[0].text).toContain("No report is attached: render blew up");
   });
 });
 
