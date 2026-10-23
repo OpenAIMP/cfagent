@@ -121,7 +121,7 @@ describe("TradingAgent surfaces stay in sync (#291 anti-drift)", () => {
     );
     const narrowed = buildTradingTools(env, {
       ...TRADING_AGENT_CONFIG_BASELINE,
-      enabledServices: ["options_screening"],
+      enabledServices: ["stock_trading"],
     });
     expect(Object.keys(narrowed)).toEqual([]);
   });
@@ -219,8 +219,11 @@ describe("TradingAgent A2A door (#291)", () => {
     expect(empty.ok).toBe(false);
   });
 
-  it("the registry's first slice registers exactly the stock screening service", () => {
-    expect(TRADING_SERVICE_REGISTRY.map((s) => s.id)).toEqual(["stock_screening"]);
+  it("the registry registers the screening services (T1 stock + T2 options)", () => {
+    expect(TRADING_SERVICE_REGISTRY.map((s) => s.id)).toEqual([
+      "stock_screening",
+      "options_screening",
+    ]);
   });
 
   it("every registered service declares a cfpay access class", () => {
@@ -466,5 +469,64 @@ describe("A2A edge auth (#291 A5)", () => {
     expect(cardRes.status).toBe(200);
     const card: any = await cardRes.json();
     expect(card.name).toBe("trading");
+  });
+});
+
+describe("TradingAgent options screening service (#291 T2)", () => {
+  it("is registered read-only and generated onto the tool surface", () => {
+    const svc = TRADING_SERVICE_REGISTRY.find((s) => s.id === "options_screening");
+    expect(svc).toBeDefined();
+    expect(svc!.toolName).toBe("screen_options");
+    expect(svc!.a2aOperation).toBe("trading.screen_options");
+    expect(svc!.access).toBe("read");
+    const tools = buildTradingTools(env, TRADING_AGENT_CONFIG_BASELINE);
+    expect(Object.keys(tools)).toContain("screen_options");
+  });
+
+  it("gates non-E*TRADE providers with provider_unsupported (pipeline is E*TRADE-backed today)", async () => {
+    const result = await dispatchTradingA2A(env, fakeConfig as any, {
+      operation: "trading.screen_options",
+      provider: "fake291",
+      symbols: ["AAPL"],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("provider_unsupported");
+  });
+
+  it("honors the enable/disable config like every service", async () => {
+    const result = await dispatchTradingA2A(
+      env,
+      { ...fakeConfig, enabledServices: ["stock_screening"] } as any,
+      { operation: "trading.screen_options", provider: "fake291" },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("service_disabled");
+  });
+
+  it("reaches the unified pipeline for the etrade provider (no gate error)", async () => {
+    TradingPlatformRegistry.register(
+      "etrade",
+      () => ({ platformId: "etrade" }) as any,
+    );
+    try {
+      const result = await dispatchTradingA2A(
+        env,
+        { enabledProviders: ["etrade"], defaultProvider: "etrade", enabledServices: ["options_screening"] } as any,
+        { operation: "trading.screen_options", symbols: ["AAPL"], limit: 5 },
+      );
+      // The gate passed: the failure mode must NOT be the provider gate.
+      // (With an empty test env the pipeline itself answers or fails
+      // downstream — either way the service was actually invoked.)
+      expect(result.code).not.toBe("provider_unsupported");
+      expect(result.code).not.toBe("provider_not_enabled");
+      expect(result.code).not.toBe("provider_not_registered");
+      expect(result.service).toBe("options_screening");
+    } finally {
+      const { ETradeTradingPlatform } = await import("../src/trading/etrade/platform");
+      TradingPlatformRegistry.register(
+        "etrade",
+        (e: any, orm: any, userLogin: any) => new ETradeTradingPlatform(e, orm, userLogin),
+      );
+    }
   });
 });
