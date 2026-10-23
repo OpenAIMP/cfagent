@@ -7,7 +7,15 @@
  *
  * The IAAA rule enforced here:
  * - An identity is (validated provider issuer, provider subject) bound
- *   to a stable internal user ID.
+ *   to a stable internal user ID. "Stable" is literal (#1182): the
+ *   internal id is DERIVED from the normalized (issuer, subject)
+ *   pair (version-prefixed SHA-256), never minted per store. A
+ *   minted id depended on one stored record surviving in one
+ *   store; the same provider account could — and did — surface
+ *   under two different ids. A derived id survives any store loss:
+ *   the next login re-derives the same id from the same provider
+ *   identity, and the login-time migration in iaaaLogin.ts moves
+ *   any surviving minted binding (and its memberships) onto it.
  * - Email and display login are NOT inputs to any function in this
  *   module. There is therefore no code path by which an email change
  *   can create a new identity or transfer another user's account.
@@ -44,6 +52,16 @@ export interface IdentityBindingStore {
     providerIssuer: string
   ): Promise<IdentityBinding | null>;
   put(binding: IdentityBinding): Promise<void>;
+  /**
+   * Remove the reverse (user, issuer) index entry. Used by the
+   * #1182 migration when a binding's internal id is rewritten:
+   * the old reverse entry would otherwise keep resolving the
+   * retired id to a binding that no longer carries it.
+   */
+  removeByUserAndIssuer(
+    internalUserId: string,
+    providerIssuer: string
+  ): Promise<void>;
 }
 
 export type IdentityBindingErrorCode =
@@ -99,7 +117,56 @@ export function createMemoryIdentityBindingStore(): IdentityBindingStore {
         binding
       );
     },
+    async removeByUserAndIssuer(internalUserId, providerIssuer) {
+      byUserIssuer.delete(`${internalUserId}\0${normalize(providerIssuer)}`);
+    },
   };
+}
+
+/**
+ * #1182 — the stable internal id for a provider identity.
+ *
+ * Deterministic function of the NORMALIZED (issuer, subject) pair
+ * only: `v1:` + lowercase hex of SHA-256 over
+ * `issuer + "\0" + subject` (UTF-8). No email, no login, no
+ * per-provider branch, no stored mapping: the same provider
+ * identity always derives the same id, in any store, on any
+ * deployment, for any IdP — present or future. The issuer is
+ * part of the input because a subject alone can collide across
+ * IdPs. The `v1:` prefix versions the derivation: a future
+ * version change re-derives (and the login-time migration moves
+ * bindings again), it never silently reuses another version's ids.
+ *
+ * Normalization is the binding layer's normalize(): trim
+ * surrounding whitespace, nothing else — so derivation and
+ * lookup can never disagree about what an identity is.
+ *
+ * WebCrypto (crypto.subtle) is available in Workers and in the
+ * vitest Node environment; this function throws when it is not.
+ */
+export async function deriveInternalUserId(
+  providerIssuer: string,
+  providerSubject: string
+): Promise<string> {
+  if (!isValidField(providerIssuer) || !isValidField(providerSubject)) {
+    throw new Error(
+      "deriveInternalUserId requires a non-empty issuer and subject of at most 512 characters"
+    );
+  }
+  const issuer = normalize(providerIssuer);
+  const subject = normalize(providerSubject);
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error("deriveInternalUserId requires WebCrypto (crypto.subtle)");
+  }
+  const digest = await subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${issuer}\0${subject}`)
+  );
+  const hex = [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `v1:${hex}`;
 }
 
 export async function getInternalUserId(
@@ -130,6 +197,10 @@ export interface ResolveBindingInput {
  * Resolve an existing binding, or create a new internal user and bind
  * this provider identity to it. Returns the existing binding unchanged
  * when one already exists — it never reassigns a provider identity.
+ * A NEW binding carries the #1182 derived id, never a minted UUID:
+ * derivation is what makes the id stable across store loss. A
+ * pre-existing minted binding is returned unchanged here; the
+ * login-time migration in iaaaLogin.ts rewrites it on login.
  */
 export async function resolveOrCreateBinding(
   store: IdentityBindingStore,
@@ -152,7 +223,7 @@ export async function resolveOrCreateBinding(
   }
 
   const binding: IdentityBinding = {
-    internalUserId: crypto.randomUUID(),
+    internalUserId: await deriveInternalUserId(issuer, subject),
     providerIssuer: issuer,
     providerSubject: subject,
     linkedAt: input.nowMs ?? Date.now(),

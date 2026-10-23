@@ -272,6 +272,104 @@ export type DoNameInput =
   | { kind: "unresolved" };
 
 /**
+ * #1182 — internal-id migration records. Distinct from login
+ * aliases: a login alias maps a (possibly recycled) login to a
+ * user, and its conflict rule must never be weakened. An id
+ * migration record maps a RETIRED minted internal id to the
+ * derived id that replaced it, so anything still holding the old
+ * id (an audit event, a bootstrap list, an old session) can
+ * resolve forward. It is written only by the login-time
+ * migration, which knows from the binding itself that both ids
+ * name the same provider identity — never from a login string.
+ * Records are never deleted or overwritten: a second migration
+ * for the same old id to a different new id is a corrupt-state
+ * conflict, refused with the original preserved.
+ */
+export interface IdMigrationRecord {
+  oldInternalUserId: string;
+  newInternalUserId: string;
+  migratedAtMs: number;
+  source: "stable-id-migration";
+}
+
+function migratedKey(oldInternalUserId: string): string {
+  return `${IAAA_ALIAS_KEY_PREFIX}migrated:${oldInternalUserId}`;
+}
+
+export type RecordIdMigrationResult =
+  | { ok: true; record: IdMigrationRecord }
+  | {
+      ok: false;
+      code: "INVALID_USER_ID" | "ID_MIGRATION_CONFLICT";
+      error: string;
+    };
+
+/** Record old → new. Idempotent for the identical pair. */
+export async function recordIdMigration(
+  kv: KvLike,
+  input: {
+    oldInternalUserId: string;
+    newInternalUserId: string;
+    nowMs: number;
+  },
+): Promise<RecordIdMigrationResult> {
+  if (!isValidField(input.oldInternalUserId) || !isValidField(input.newInternalUserId)) {
+    return {
+      ok: false,
+      code: "INVALID_USER_ID",
+      error: "old and new internal user ids must be non-empty strings",
+    };
+  }
+  const existingRaw = await kv.get(migratedKey(input.oldInternalUserId));
+  if (existingRaw !== null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(existingRaw);
+    } catch {
+      return {
+        ok: false,
+        code: "ID_MIGRATION_CONFLICT",
+        error: "existing id-migration record is corrupt; refusing to overwrite it",
+      };
+    }
+    const existing = parsed as IdMigrationRecord;
+    if (existing.newInternalUserId === input.newInternalUserId) {
+      return { ok: true, record: existing };
+    }
+    return {
+      ok: false,
+      code: "ID_MIGRATION_CONFLICT",
+      error:
+        `internal user ${input.oldInternalUserId} was already migrated to a different id; ` +
+        "refusing to reassign it (corrupt state — needs operator resolution)",
+    };
+  }
+  const record: IdMigrationRecord = {
+    oldInternalUserId: input.oldInternalUserId,
+    newInternalUserId: input.newInternalUserId,
+    migratedAtMs: input.nowMs,
+    source: "stable-id-migration",
+  };
+  await kv.put(migratedKey(input.oldInternalUserId), JSON.stringify(record));
+  return { ok: true, record };
+}
+
+/** Old id → current derived id, or null when no migration is recorded. */
+export async function lookupMigratedUserId(
+  kv: KvLike,
+  oldInternalUserId: string,
+): Promise<string | null> {
+  if (!isValidField(oldInternalUserId)) return null;
+  const raw = await kv.get(migratedKey(oldInternalUserId));
+  if (raw === null) return null;
+  try {
+    return (JSON.parse(raw) as IdMigrationRecord).newInternalUserId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The SearchAgent DO-naming input for an internal user, via the
  * alias (cutover option (a): keep login-derived DO names). An
  * unresolved user yields "unresolved" — the caller must then decide
