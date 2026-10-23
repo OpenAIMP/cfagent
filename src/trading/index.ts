@@ -44,6 +44,7 @@ export * from "./screeningSchemas";
 export * from "./screenerReportPdf";
 export * from "./screenerReportXlsx";
 export * from "./optionsReportPdf";
+export * from "./optionsReportXlsx";
 export * from "./setupCatalog";
 export * from "./researchReportPdf";
 export * from "./options";

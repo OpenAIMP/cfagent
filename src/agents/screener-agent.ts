@@ -188,6 +188,9 @@ const XLSX_LATEST_KEY = "screener:latest.xlsx";
 // ReportAssetAgent and addressed by its key; this constant remains only
 // as the read key for getLatestOptionsPdf's legacy local lookup.
 const OPTIONS_PDF_LATEST_KEY = "options:latest.pdf";
+/** Issue #1195 (#1173 R3b): options XLSX storage keys. */
+const OPTIONS_XLSX_KEY_PREFIX = "options:xlsx:";
+const OPTIONS_XLSX_LATEST_KEY = "options:latest.xlsx";
 
 export class ScreenerAgent extends Agent<Env> {
   private orm: DatabaseORM | null = null;
@@ -804,6 +807,38 @@ export class ScreenerAgent extends Agent<Env> {
     if (local) return local;
     const { getPdfAsset } = await import("./report-asset-agent");
     return await getPdfAsset(this.env, this.userLogin(), pdfKey);
+  }
+
+  /**
+   * Issue #1195 (#1173 R3b): generate an options run's XLSX report
+   * and store it under a per-run key (+ the latest pointer), the
+   * options twin of the stock XLSX block in persistRun. Throws on
+   * failure — callers record xlsxStatus "failed" with the error,
+   * mirroring the stock convention.
+   */
+  async generateAndStoreOptionsXlsx(
+    result: import("../types").OptionScreenResult,
+  ): Promise<{ key: string; fileName: string }> {
+    const { generateOptionsXlsx, optionsXlsxFileName } = await import("../trading");
+    const { putReportPdf } = await import("../services/reportBlobStore");
+    const bytes = generateOptionsXlsx(result);
+    const fileName = optionsXlsxFileName(result);
+    const key = `${OPTIONS_XLSX_KEY_PREFIX}${crypto.randomUUID().slice(0, 8)}`;
+    await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes);
+    await putReportPdf(this.env, this.ctx.storage as any, OPTIONS_XLSX_LATEST_KEY, fileName, bytes);
+    return { key, fileName };
+  }
+
+  /** Get a specific options run's XLSX report by its storage key (#1195). */
+  async getOptionsXlsxByKey(xlsxKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, xlsxKey);
+  }
+
+  /** Get the latest options XLSX report (#1195). */
+  async getLatestOptionsXlsx(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, OPTIONS_XLSX_LATEST_KEY);
   }
 
   private async persistRun(result: ScreenerRunResult): Promise<void> {
