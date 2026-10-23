@@ -34,11 +34,12 @@ import {
 import { FossResearchService } from "../../services/fossResearch";
 import { UnifiedOptionsService } from "../../trading";
 import { parseOptionsScreenRequest } from "../../trading";
+import type { CaptureBlobStorage } from "../../trading";
 import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
 import type { NasdaqStockListing } from "../../services/nasdaqListings";
 import { sha256Hex } from "../../services/scheduledReports";
 import type { Env } from "../../types";
-import type { DatabaseORM } from "../../orm";
+import type { DatabaseORM, SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
 
 /** The subset of OrchestratorAgent surface the premium handlers need. */
@@ -65,6 +66,56 @@ export interface PremiumRouteContext {
     trigger?: unknown;
     userLogin?: string;
   }): Promise<void>;
+  /** Durable Object SQL storage (owner: OrchestratorAgent — was
+   *  `this.ctx.storage.sql`). Issue #1206 (E5b): together with
+   *  blobStorage, supplies the data-provider platform deps for the
+   *  options scan. Optional: a host that owns no storage (unit
+   *  contexts) omits both handles and the scan constructs its
+   *  service exactly as before — no deps, nothing captured. */
+  sql?: SqlStorage;
+  /** Durable Object storage (owner: OrchestratorAgent — was
+   *  `this.ctx.storage`): the capture blob seam's storage half. */
+  blobStorage?: CaptureBlobStorage;
+}
+
+/**
+ * Issue #1206 (E5b): the OrchestratorAgent surface the factory below
+ * binds. env / getOrm / getScreenerAgent /
+ * persistScreenerReportCanonical are picked from PremiumRouteContext
+ * itself (the shapes are identical by construction); the only extra
+ * member is the agent context whose storage supplies the platform
+ * handles.
+ */
+type PremiumRouteHost = Pick<
+  PremiumRouteContext,
+  "env" | "getOrm" | "getScreenerAgent" | "persistScreenerReportCanonical"
+> & {
+  ctx: { storage: DurableObjectStorage };
+};
+
+/**
+ * Issue #1206 (E5b): build the premium route context from the
+ * orchestrator host. The context used to be an inline literal in
+ * routeRequest; it lives here now (the #992 extraction pattern, cf.
+ * makeRunScheduleCallback in routes/schedules.ts) so the storage
+ * handles the platform wiring needs could be added without growing
+ * orchestrator.ts past its size budget. The host arrives as unknown
+ * for the same reason makeRunScheduleCallback's does: the agent's
+ * ctx/env are protected DurableObject members, so no public
+ * structural type can name them; the cast below is the binding
+ * contract. Method calls go through the host object, so `this`
+ * stays bound to the agent.
+ */
+export function makePremiumRouteContext(host: unknown): PremiumRouteContext {
+  const h = host as PremiumRouteHost;
+  return {
+    env: h.env,
+    sql: h.ctx.storage.sql,
+    blobStorage: h.ctx.storage,
+    getOrm: () => h.getOrm(),
+    getScreenerAgent: (userLogin?: string) => h.getScreenerAgent(userLogin),
+    persistScreenerReportCanonical: (result) => h.persistScreenerReportCanonical(result),
+  };
 }
 
 /**
@@ -158,7 +209,22 @@ export async function handlePremiumRoutes(
         // symbols/limit lifted onto the request so the effective
         // filter is unchanged. Payment gating above and the canonical
         // persistence below are untouched.
-        const service = new UnifiedOptionsService(ctx.env, userLogin, reqEnvLocal, ctx.getOrm());
+        // Issue #1206 (E5b): with the host's storage handles on the
+        // context, the paid scan executes ON the data-provider
+        // platform — platform deps in the same shape the REST host
+        // passes (etradeOptionsScreen.ts) — and presents callerTier
+        // "premium": this endpoint's x402 verification (above) IS
+        // the entitlement evidence, so an operator-tiered premium
+        // optionsChains route serves this path while refusing
+        // freemium surfaces, and premium scans are captured and
+        // run-linked like every other routed scan. The service
+        // bootstraps the platform itself when deps are supplied, as
+        // on the REST path. Without handles the service is
+        // constructed exactly as before (no deps, nothing captured).
+        const platformDeps = ctx.sql && ctx.blobStorage
+          ? { sql: ctx.sql, blobStorage: ctx.blobStorage, env: ctx.env }
+          : undefined;
+        const service = new UnifiedOptionsService(ctx.env, userLogin, reqEnvLocal, ctx.getOrm(), undefined, undefined, undefined, platformDeps, "premium");
         const serviceResponse = await service.execute({
           action: "screen",
           channel: "webhook",

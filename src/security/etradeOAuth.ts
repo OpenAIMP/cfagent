@@ -12,6 +12,7 @@ import type { Env } from "../types";
 import {
   invalidateTokenCacheFor,
   readTokenCache,
+  tokenCacheEpoch,
   tokenCacheKey,
   writeTokenCache,
 } from "./etradeTokenCache";
@@ -576,6 +577,11 @@ export async function getValidTokens(
   const cacheKey = tokenCacheKey(envConfig.name, userLogin);
   const cached = readTokenCache(cacheKey);
   if (cached !== undefined) return cached ?? legacyStaticToken;
+  // Issue #1218: the store read below is async — a concurrent write
+  // path (connect/renew/revoke) may invalidate while it is in flight.
+  // Capture the epoch now; the cache writes below no-op if it moved,
+  // so a stale result never resurrects after the invalidation.
+  const readEpoch = tokenCacheEpoch(cacheKey);
 
   let raw = await kv.get(scopedKey);
   let tokens: ETradeTokenSet | null = null;
@@ -601,18 +607,18 @@ export async function getValidTokens(
 
   if (!tokens) {
     if (legacyStaticToken) return legacyStaticToken;
-    writeTokenCache(cacheKey, null);
+    writeTokenCache(cacheKey, null, readEpoch);
     return null;
   }
 
   if (isTokenExpiredEt(tokens.storedAt)) {
     console.warn(`E*TRADE tokens for ${userLogin} expired at midnight ET.`);
     await revokeStoredTokens(env, userLogin, overrideEnv);
-    writeTokenCache(cacheKey, null);
+    writeTokenCache(cacheKey, null, readEpoch);
     return legacyStaticToken;
   }
 
-  writeTokenCache(cacheKey, tokens);
+  writeTokenCache(cacheKey, tokens, readEpoch);
   return tokens;
 }
 
