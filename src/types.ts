@@ -427,6 +427,14 @@ export interface ETradeQuote {
   quoteStatus?: string;
   dateTime?: string;
   timestamp: string;
+  /** Issue #1133: the parsed wire payload this quote was normalized
+   * from — present ONLY when a caller explicitly requests the REST
+   * client's includeRawResponse hook (fetchQuoteDetailed) and the
+   * service forwards the request (getQuoteAsync / fetchQuoteRemote).
+   * Never set on the default path; the one consumer that requests it
+   * (the data-provider platform's capture, epic #1116) strips it
+   * before the quote travels further. Mirrors ETradeOptionChain.raw. */
+  raw?: Record<string, unknown>;
 }
 
 export interface StockScreenerFilter {
