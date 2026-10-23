@@ -25,13 +25,32 @@ import {
   type DiscoveryRunOutcome,
   type DiscoveryRunRequest,
 } from "../services/discoveryService";
+import type { DiscoveryModeRequest } from "../services/researchDiscovery";
+import type { FitDiscoveryRunner } from "../services/fitDiscoveryRunner";
+import type { Outlook } from "../services/researchGates";
+import type { GoalKind } from "../services/goalScenarioStore";
 import { validateStrategyRequest, type StrategyScreenFilter } from "../trading";
 import { parseScanRequestTemplate } from "../trading";
 
 export { buildTypeRollup } from "../trading";
 export type { StrategyTypeRollup } from "../trading";
 
-export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities" | "options_discovery";
+export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities" | "options_discovery" | "options_fit_discovery";
+
+/**
+ * Issue #1162 (epic #1096 Phase 6; deferred from Phase 2): a parsed
+ * bidirectional fit question for the Phase 2 Name↔Strategy discovery
+ * service. `structure` is a catalog/pipeline structure id as detected
+ * (researchDiscovery resolves catalog ids to pipeline structures).
+ */
+export interface FitDiscoverySpec {
+  direction: "name_to_strategies" | "strategy_to_names";
+  symbol?: string;
+  structure?: string;
+  goalKind?: GoalKind;
+  outlook: Outlook;
+  symbols?: string[];
+}
 
 export type OpportunityScope =
   | { kind: "watchlist"; name?: string }
@@ -58,6 +77,8 @@ export interface OptionsStrategyIntent {
      *  profile-less. */
     profileName?: string;
     showEvaluations?: boolean;
+    /** Issue #1162: set only on the options_fit_discovery action. */
+    fitDiscovery?: FitDiscoverySpec;
   };
 }
 
@@ -216,6 +237,72 @@ function detectTargetDate(question: string, maxDte?: number): string {
   return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
+const FIT_SYMBOL_STOP = new Set([
+  "MY", "THE", "A", "AN", "THIS", "THAT", "YOUR", "OUR", "ANY", "ALL", "ME", "IT",
+]);
+
+function thesisToOutlook(thesis: OptionThesis): Outlook {
+  return thesis === "large_move" ? "volatile" : thesis;
+}
+
+function detectFitGoalKind(question: string): GoalKind | undefined {
+  if (/\bincome\b/i.test(question)) return "income";
+  if (/\b(?:hedge|protect(?:ion)?)\b/i.test(question)) return "hedge_protect";
+  if (/\b(?:earnings|volatility|event)\b/i.test(question)) return "volatility_event";
+  return undefined;
+}
+
+/**
+ * Issue #1162 (epic #1096 Phase 6; the NLQ phrases Phase 2 deferred):
+ * bidirectional fit phrasing for the Phase 2 Name↔Strategy discovery
+ * service — "what strategies fit NVDA?" / "what fits AAPL into
+ * earnings?" (Name→Strategies) and "find me income names for an iron
+ * condor" / "which names fit a long straddle?" (Strategy→Names).
+ *
+ * The patterns are deliberately tight so existing routes keep their
+ * questions: the #14 discovery branch ("discover setups") and the #23
+ * strategy-fit scan keep working because a fit question must either
+ * name a strategy AND ask for names, or use explicit "fit" phrasing
+ * with a plausible ticker (stoplisted words and known non-tickers
+ * never capture as a symbol).
+ */
+function detectFitDiscovery(question: string): FitDiscoverySpec | null {
+  const wantsNames =
+    /\bnames?\b/i.test(question) && /\b(?:fit|for|suited\s+to|suit)\b/i.test(question);
+  if (wantsNames) {
+    const strategies = detectStrategies(question).filter((s) => s !== "all");
+    if (strategies.length > 0) {
+      const { thesis } = detectThesis(question, strategies);
+      const scope = detectScope(question);
+      return {
+        direction: "strategy_to_names",
+        structure: strategies[0],
+        outlook: thesisToOutlook(thesis),
+        goalKind: detectFitGoalKind(question),
+        ...(scope?.kind === "symbols" ? { symbols: scope.symbols } : {}),
+      };
+    }
+  }
+
+  const nameMatch =
+    question.match(/\b(?:what|which)\s+(?:strategies|trades)\s+(?:fit|suits?)\s+(?:for\s+)?\$?([A-Za-z]{1,5})\b/i) ??
+    question.match(/\bstrategies\s+that\s+fit\s+(?:for\s+)?\$?([A-Za-z]{1,5})\b/i) ??
+    question.match(/\bwhat\s+fits\s+(?:for\s+)?\$?([A-Za-z]{1,5})\b/i);
+  if (nameMatch) {
+    const symbol = nameMatch[1].toUpperCase();
+    if (!NOT_TICKERS.has(symbol) && !FIT_SYMBOL_STOP.has(symbol)) {
+      const { thesis } = detectThesis(question, []);
+      return {
+        direction: "name_to_strategies",
+        symbol,
+        outlook: thesisToOutlook(thesis),
+        goalKind: detectFitGoalKind(question),
+      };
+    }
+  }
+  return null;
+}
+
 /** Returns null when the question is not about multi-leg strategies or a best-trade pick. */
 export function parseOptionsStrategyIntent(question: string): OptionsStrategyIntent | null {
   if (/\b(?:call|put)\s+options?\b/i.test(question) && !/\b(?:strateg\w*|credit\s+spread|debit\s+spread|vertical\s+spread|bull\s+spread|bear\s+spread|condor|straddle|strangle|butterfly|max\s*profit|max\s*loss)\b/i.test(question)) {
@@ -227,6 +314,32 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
     || (PICK_TRADE.test(question) && OPTIONS_CONTEXT.test(question));
   const isStrategies = STRATEGY_SCREEN.test(question);
   let scope = detectScope(question);
+
+  // Issue #1162: bidirectional fit phrasing ("what strategies fit
+  // NVDA?", "which names fit an iron condor?") routes to the Phase 2
+  // Name↔Strategy discovery service — but ONLY when the question
+  // carries no scan scope. A scoped fit question ("which names in my
+  // Semis watchlist fit an iron condor?") is the #23 scanner's
+  // strategy_fit mode over the caller's own names and keeps that
+  // reading; discovery is the unscoped question over the provider
+  // universe. Checked before the #14 discovery branch and the
+  // strategy-screen gates: a fit question is view-light by definition
+  // and names either a ticker or a strategy, which the tight detector
+  // requires explicitly.
+  const fitDiscovery = !scope ? detectFitDiscovery(question) : null;
+  if (fitDiscovery) {
+    return {
+      action: "options_fit_discovery",
+      filters: {
+        request: { maxPlannedLoss: 500, minRewardRisk: 1.5 },
+        riskProfile: "balanced",
+        strategyFilter: {},
+        targetPriceInferred: false,
+        thesisInferred: false,
+        fitDiscovery,
+      },
+    };
+  }
 
   // Issue #14: discovery phrasing ("discover setups", "find setups",
   // "what's setting up") is view-less by definition — it routes to
@@ -424,6 +537,8 @@ export const OPTIONS_STRATEGY_EXAMPLES = [
   "What is the best trade for NVDA bullish target $260 by 2026-11-20 max loss $500 conservative",
   "Find the best bullish option trades across my Semis watchlist max loss $500",
   "Find best bullish option opportunities across large cap stocks top 10 max loss $500 conservative",
+  "What strategies fit NVDA?",
+  "Find me income names for an iron condor",
 ];
 
 const money = (n: number | null | undefined) => (n === null || n === undefined ? "Unlimited" : `$${n.toFixed(2)}`);
@@ -496,6 +611,12 @@ export interface OptionsStrategyDeps {
    *  with an availability error — the same discipline as the profile
    *  store — rather than silently answering a different question. */
   discoveryRunner?: { run(request: DiscoveryRunRequest): Promise<DiscoveryRunOutcome> };
+  /** Issue #1162: the Phase 2 Name↔Strategy fit-discovery runner
+   *  (createFitDiscoveryRunner's return shape). When absent, an
+   *  options_fit_discovery action fails with an availability error —
+   *  the same discipline — rather than silently answering a
+   *  different question. */
+  fitDiscoveryRunner?: FitDiscoveryRunner;
 }
 
 /**
@@ -532,6 +653,9 @@ export async function runOptionsStrategyAction(
   deps?: OptionsStrategyDeps,
 ): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean; typeRollup?: StrategyTypeRollup[] | ScanTypeRollup[]; profileRef?: ProfileRef | null; discoveryRunId?: string }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
+  if (action === "options_fit_discovery") {
+    return runFitDiscoveryAction(filters, deps);
+  }
   if (action === "options_discovery") {
     return runDiscoveryAction(etrade, filters, deps);
   }
@@ -683,6 +807,101 @@ export async function runOptionsStrategyAction(
  * formatted setup cards are the answer. The scope key makes
  * successive runs over the same scope comparable for deltas.
  */
+/**
+ * Issue #1162 (epic #1096 Phase 6): run a parsed fit question through
+ * the Phase 2 Name↔Strategy discovery service (via the injected
+ * runner). Rows mirror the discovery result exactly — statuses,
+ * provenance, and limitations ride along; nothing is re-ranked or
+ * re-worded here beyond the runner's own weights-v2 notes.
+ */
+async function runFitDiscoveryAction(
+  filters: OptionsStrategyIntent["filters"] | undefined,
+  deps?: OptionsStrategyDeps,
+): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string }> {
+  const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
+  if (!deps?.fitDiscoveryRunner) {
+    return fail("Fit discovery isn't available in this context — the Name↔Strategy discovery runner (Phase 2 of epic #1096) is not wired here.");
+  }
+  const spec = filters?.fitDiscovery;
+  if (!spec) {
+    return fail("Fit discovery needs a parsed fit question — a ticker (\"what strategies fit NVDA?\") or a strategy (\"find me income names for an iron condor\").");
+  }
+  if (spec.direction === "name_to_strategies" && !spec.symbol) {
+    return fail("Fit discovery needs a ticker: e.g. \"what strategies fit NVDA?\"");
+  }
+  if (spec.direction === "strategy_to_names" && !spec.structure) {
+    return fail("Fit discovery needs a strategy: e.g. \"find me income names for an iron condor\"");
+  }
+  const request: DiscoveryModeRequest =
+    spec.direction === "name_to_strategies"
+      ? { direction: "name_to_strategies", symbol: spec.symbol!, outlook: spec.outlook, goalKind: spec.goalKind }
+      : { direction: "strategy_to_names", structure: spec.structure!, outlook: spec.outlook, goalKind: spec.goalKind, symbols: spec.symbols };
+  const outcome = await deps.fitDiscoveryRunner.run(request);
+  if (!outcome.ok || !outcome.result) {
+    return fail(outcome.error ?? "Fit discovery failed.");
+  }
+  const notes = outcome.notes.length > 0 ? ` ${outcome.notes.join(" ")}` : "";
+
+  if (outcome.result.direction === "name_to_strategies") {
+    const r = outcome.result.result;
+    const rows = r.candidates.map((c, i) => ({
+      rank: i + 1,
+      strategy: c.label,
+      structure: c.structure,
+      source: c.source,
+      status: c.status,
+      provenance: c.provenance,
+      maxLoss: money(c.economics.maxLoss),
+      netDebitCredit:
+        c.economics.netCredit > 0
+          ? `${money(c.economics.netCredit)} credit`
+          : `${money(c.economics.netDebit)} debit`,
+      worstScenarioPnl: money(c.scenario.worstPnlTotal),
+      meanScenarioPnl: money(c.scenario.meanPnlTotal),
+    }));
+    const limitations =
+      r.limitations.length > 0 ? ` Limitations: ${r.limitations.join(" ")}` : "";
+    const rejected =
+      r.rejected.length > 0
+        ? ` ${r.rejected.length} structure(s) rejected by the gates (${r.rejected.map((x) => x.structure).join(", ")}).`
+        : "";
+    return {
+      count: rows.length,
+      status: rows.length > 0 ? "ranked_candidates" : "no_candidates",
+      summary:
+        `Fit discovery for ${r.symbol} (${r.outlook}, chain provenance ${r.provenance}): ` +
+        `${rows.length} candidate(s) ranked by scenario outcome, ${r.candidates.filter((c) => c.source === "composed").length} composed.` +
+        `${rejected}${limitations}${notes}`,
+      rows,
+    };
+  }
+
+  const r = outcome.result.result;
+  const rows = r.ranked.map((f, i) => ({
+    rank: i + 1,
+    symbol: f.symbol,
+    fitScore: Number(f.fitScore.toFixed(1)),
+    status: f.status,
+    provenance: f.provenance,
+    missingComponents: f.missingComponents.join(", ") || "none",
+    maxLoss: money(f.economics.maxLoss),
+  }));
+  const limitations =
+    r.limitations.length > 0 ? ` Limitations: ${r.limitations.join(" ")}` : "";
+  const rejected =
+    r.rejected.length > 0
+      ? ` ${r.rejected.length} name(s) not scored (${r.rejected.map((x) => x.symbol).join(", ")}).`
+      : "";
+  return {
+    count: rows.length,
+    status: rows.length > 0 ? "ranked_candidates" : "no_candidates",
+    summary:
+      `Fit discovery — names for ${r.structure}: ${rows.length} name(s) ranked by strategy-fit score.` +
+      `${rejected}${limitations}${notes}`,
+    rows,
+  };
+}
+
 async function runDiscoveryAction(
   etrade: Parameters<typeof runOptionsStrategyAction>[0],
   filters: OptionsStrategyIntent["filters"] | undefined,

@@ -1831,11 +1831,12 @@ async function executeNLQQueryAsyncCore(
       };
     }
 
-    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities" || action === "options_discovery") {
+    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities" || action === "options_discovery" || action === "options_fit_discovery") {
       const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined, {
         scanRunStore: deps?.scanRunStore,
         profileStore: deps?.profileStore,
         discoveryRunner: deps?.discoveryRunner,
+        fitDiscoveryRunner: deps?.fitDiscoveryRunner,
         // Issue #28: profile resolution is scoped to the session's
         // login — the same fallback chain the ETradeService above uses.
         userLogin: deps?.userLogin ?? login,
@@ -1843,7 +1844,7 @@ async function executeNLQQueryAsyncCore(
       return {
         plan,
         domain: "trading",
-        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : action === "options_discovery" ? "etrade_options_discovery" : "etrade_options_strategies",
+        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : action === "options_discovery" ? "etrade_options_discovery" : action === "options_fit_discovery" ? "etrade_options_fit_discovery" : "etrade_options_strategies",
         count: res.count,
         status: res.status,
         summary: res.summary,
@@ -2303,7 +2304,7 @@ export async function executeNaturalLanguageQuery(
   env: Env,
   userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean },
   userDid?: string,
-  options?: { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort; stockScreenPort?: NLQStockScreenPort; socialBriefPort?: NLQSocialBriefPort; discoveryRunner?: NLQExecutionDeps["discoveryRunner"] }
+  options?: { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort; stockScreenPort?: NLQStockScreenPort; socialBriefPort?: NLQSocialBriefPort; discoveryRunner?: NLQExecutionDeps["discoveryRunner"]; fitDiscoveryRunner?: NLQExecutionDeps["fitDiscoveryRunner"] }
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
   let userLogin: string | undefined;
   let resolvedOptions = options;
@@ -2323,8 +2324,8 @@ export async function executeNaturalLanguageQuery(
     env,
     userLogin,
     userDid,
-    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort || resolvedOptions?.stockScreenPort || resolvedOptions?.socialBriefPort || resolvedOptions?.discoveryRunner
-      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort, stockScreenPort: resolvedOptions?.stockScreenPort, socialBriefPort: resolvedOptions?.socialBriefPort, discoveryRunner: resolvedOptions?.discoveryRunner }
+    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort || resolvedOptions?.stockScreenPort || resolvedOptions?.socialBriefPort || resolvedOptions?.discoveryRunner || resolvedOptions?.fitDiscoveryRunner
+      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort, stockScreenPort: resolvedOptions?.stockScreenPort, socialBriefPort: resolvedOptions?.socialBriefPort, discoveryRunner: resolvedOptions?.discoveryRunner, fitDiscoveryRunner: resolvedOptions?.fitDiscoveryRunner }
       : undefined,
   );
   if (!result.planSource && plan.planSource) {
