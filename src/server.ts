@@ -1,5 +1,6 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
 import { getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
+import { getServiceUserLogin, isLoginShaped, SHARED_ORCHESTRATOR_INSTANCE } from "./security/serviceIdentity";
 import { getSessionCached, invalidateSessionCache } from "./security/sessionCache";
 import { getSession, sessionStore, updateSession } from "./security/session";
 import type { DoNamespaceLike } from "./security/durableKv";
@@ -1278,7 +1279,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if ((path.startsWith("/api/trading/options/") || path.startsWith("/trading/options/")) && (request.method === "POST" || request.method === "GET")) {
       // Issue #154: session required, identity is the SESSION login only.
       // Previously a null session fell back to the caller-supplied
-      // x-user-login header (or a shared "default_trader"), letting an
+      // x-user-login header (or a shared synthetic identity), letting an
       // unauthenticated caller select ANY user's agent instance. This
       // matches the session-required catch-all /api/ forwarder below;
       // in-app callers send their session cookie and are unaffected.
@@ -1298,7 +1299,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       // Issue #154: session required, identity is the SESSION login only
       // (schedules are per-user state: create/cancel/trigger). Previously
       // a null session fell back to the caller-supplied x-user-login
-      // header or a shared "default_trader" identity.
+      // header or a shared synthetic identity.
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
       const userLogin = session.githubLogin;
@@ -1858,8 +1859,16 @@ export default {
     await handleCloudflareEmailMessage(message, env, ctx);
   },
   async scheduled(event: any, env: Env, ctx?: any): Promise<void> {
-    const userLogin = "default_trader";
-    const id = env.SEARCH_AGENT.idFromName(userLogin);
+    // #1185 / #1066 — unattended work runs under the explicit service
+    // identity (SERVICE_USER_LOGIN), never a hardcoded synthetic login.
+    // The shared Orchestrator instance is addressed by its established
+    // address (an address, not an identity). When no service identity is
+    // configured, the identity-bearing dispatches below are skipped and
+    // logged — failing closed instead of fabricating an identity. The
+    // 03:00 UTC token-renewal pass asserts no identity (it enumerates
+    // every stored token) and runs either way.
+    const userLogin = getServiceUserLogin(env);
+    const id = env.SEARCH_AGENT.idFromName(SHARED_ORCHESTRATOR_INSTANCE);
     const agent = env.SEARCH_AGENT.get(id);
 
     // PR #4 — ScheduledAgent tick: evaluate due goals, budget-check,
@@ -1872,6 +1881,12 @@ export default {
       const tickPromise = schedAgent.onCron(env);
       if (ctx?.waitUntil) ctx.waitUntil(tickPromise);
       else await tickPromise;
+      if (!userLogin) {
+        console.error(
+          "[scheduled] SERVICE_USER_LOGIN is not configured — skipping the research/reflection/adaptation dispatches rather than fabricating an identity (#1185)."
+        );
+        return;
+      }
       // Issue #354 — the daily options-research run (after market close)
       // rides this tick: the dedicated 0 21 * * 1-5 trigger cannot exist
       // (Workers Free ceiling of 5 cron triggers/account, error 10072; it
@@ -1929,6 +1944,12 @@ export default {
       // wrangler.jsonc). Enforces the retention window and records one
       // mas_events row per run.
     } else if (event?.cron === "0 4 * * *") {
+      if (!userLogin) {
+        console.error(
+          "[scheduled] SERVICE_USER_LOGIN is not configured — skipping the retention dispatch rather than fabricating an identity (#1185)."
+        );
+        return;
+      }
       const retentionPromise = agent.fetch(
         new Request("https://agent.internal/schedules/trigger-retention", {
           method: "POST",
@@ -1940,8 +1961,12 @@ export default {
     }
   },
   async queue(batch: any, env: Env, ctx?: any): Promise<void> {
-    const userLogin = "default_trader";
-    const id = env.SEARCH_AGENT.idFromName(userLogin);
+    // #1185 / #1066 — queue work runs under the message payload's stored
+    // owner when it carries one, else the explicit service identity. With
+    // neither, the message is retried (the existing catch path) rather
+    // than dispatched under a fabricated identity.
+    const serviceUserLogin = getServiceUserLogin(env);
+    const id = env.SEARCH_AGENT.idFromName(SHARED_ORCHESTRATOR_INSTANCE);
     const agent = env.SEARCH_AGENT.get(id);
 
     if (batch?.messages && Array.isArray(batch.messages)) {
@@ -1949,6 +1974,15 @@ export default {
         try {
           const body = msg.body;
           if (body?.taskType === "options_analysis") {
+            const payloadOwner = isLoginShaped(body?.payload?.userLogin)
+              ? body.payload.userLogin
+              : null;
+            const userLogin = payloadOwner ?? serviceUserLogin;
+            if (!userLogin) {
+              throw new Error(
+                "options_analysis queue message has no payload owner and SERVICE_USER_LOGIN is not configured — refusing to dispatch under a fabricated identity (#1185)."
+              );
+            }
             const queuePromise = agent.fetch(
               new Request("https://agent.internal/schedules/trigger-options-analysis", {
                 method: "POST",
