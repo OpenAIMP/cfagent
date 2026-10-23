@@ -25,8 +25,9 @@
  * shapes. Adapters return the wrapped implementations' results
  * UNCHANGED (parity pinned, the #1103 adapter method) — consolidation
  * here names the shapes under one contract; it does not convert between
- * them. `news` has a contract shape but no declaring adapter yet in
- * this slice (it arrives with the public integration, a later slice).
+ * them. `news` has a contract shape but no declaring adapter yet:
+ * the public integration (#1247) declares quotes + optionsChains
+ * only, so news remains contract-only.
  *
  * Composition + provenance (owner correction, comment 6358714200 on
  * #1116): screening does not pick one winning provider — it COMPOSES
