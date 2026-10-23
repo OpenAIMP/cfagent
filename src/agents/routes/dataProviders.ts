@@ -33,13 +33,16 @@
  *
  * VERIFY BINDING: ctx.buildVerifier supplies the real check per
  * provider. The orchestrator binds etrade (the vertical's
- * reference provider) to buildDataProviderVerifier below — the adapter's
- * own status (isConfigured defers to ETradeService.getStatus) plus
- * the P1 conformance kit over the live adapter. A provider with no
- * bound verifier gets an honest failure ("no adapter…"), never a
- * rubber stamp: provisioning is configuration, and a config for an
- * adapter-less id may exist but can never become verified/enabled
- * into servability.
+ * reference provider) and public (#1247) through
+ * buildDataProviderVerifier below — etrade's is the adapter's own
+ * status (isConfigured defers to ETradeService.getStatus) plus the
+ * P1 conformance kit over the live adapter; public's resolves the
+ * record's configured credential reference to the user's stored
+ * token, then runs the same kit. A provider with no bound verifier
+ * gets an honest failure ("no adapter…"), never a rubber stamp:
+ * provisioning is configuration, and a config for an adapter-less
+ * id may exist but can never become verified/enabled into
+ * servability.
  */
 
 import type { SqlStorage } from "../../orm";
@@ -51,6 +54,8 @@ import {
 import {
   createETradeDataProviderFromEnv,
   verifyETradeDataProvider,
+  createPublicDataProviderFromEnv,
+  verifyPublicDataProvider,
   createNasdaqDataProvider,
   createYahooDataProvider,
   createAlpacaDataProvider,
@@ -108,6 +113,10 @@ const LIFECYCLE_ACTIONS: readonly ProviderLifecycleAction[] = [
 function buildPlatformRegistry(ctx: DataProviderRoutesContext): DataProviderRegistry {
   const registry = new DataProviderRegistry();
   registry.register(createETradeDataProviderFromEnv(ctx.env, ctx.userLogin));
+  // #1247: the Public adapter is registered AVAILABLE — servability
+  // still gates on the config store's lifecycle state, so it serves
+  // nothing until an operator configures → verifies → enables it.
+  registry.register(createPublicDataProviderFromEnv(ctx.env, ctx.userLogin));
   registry.register(createYahooDataProvider(new YahooFinanceProvider(ctx.env), ctx.env));
   registry.register(createAlpacaDataProvider(new AlpacaMarketDataProvider(ctx.env), ctx.env));
   registry.register(createNasdaqDataProvider());
@@ -115,21 +124,30 @@ function buildPlatformRegistry(ctx: DataProviderRoutesContext): DataProviderRegi
 }
 
 /**
- * The orchestrator's verifier binding: etrade only in this slice
- * (the #1116 vertical's reference provider). The check is the
- * adapter's own status first — a service that reports itself
+ * The orchestrator's verifier binding: etrade (the #1116 vertical's
+ * reference provider) and, since #1247, public. The etrade check is
+ * the adapter's own status first — a service that reports itself
  * unconfigured fails with that reason — then the P1 conformance
- * kit against the live adapter. Any other provider id returns
- * undefined (= no adapter wired for verification), and the route
- * substitutes the honest no-adapter failure.
+ * kit against the live adapter. The public check resolves the
+ * provider record's configured credential REFERENCE (the caller
+ * passes it through) to the user's stored token, then runs the
+ * same kit. Any other provider id returns undefined (= no adapter
+ * wired for verification), and the route substitutes the honest
+ * no-adapter failure.
  */
 export function buildDataProviderVerifier(
   env: Env,
   userLogin: string,
-  providerId: string
+  providerId: string,
+  credentialRef?: string | null
 ): ProviderVerifier | undefined {
-  if (providerId !== "etrade") return undefined;
-  return async () => verifyETradeDataProvider(env, userLogin);
+  if (providerId === "etrade") {
+    return async () => verifyETradeDataProvider(env, userLogin);
+  }
+  if (providerId === "public") {
+    return async () => verifyPublicDataProvider(env, userLogin, credentialRef ?? null);
+  }
+  return undefined;
 }
 
 /** The verifier used when ctx binds none for a provider: an honest failure. */
@@ -301,7 +319,15 @@ export async function handleDataProviderRoutes(
           action === "verify"
             ? (ctx.buildVerifier
                 ? ctx.buildVerifier(id)
-                : buildDataProviderVerifier(ctx.env, ctx.userLogin, id)) ??
+                : buildDataProviderVerifier(
+                    ctx.env,
+                    ctx.userLogin,
+                    id,
+                    // #1247: verifiers that resolve a configured
+                    // credential reference (public) get the record's
+                    // own reference; etrade's ignores it.
+                    getProviderConfig(ctx.sql, id as DataProviderId)?.credentialRef ?? null
+                  )) ??
               noAdapterVerifier(id)
             : undefined,
         configure:
