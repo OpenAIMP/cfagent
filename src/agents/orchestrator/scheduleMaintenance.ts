@@ -77,7 +77,7 @@ export async function removeUnownedBaselineSchedules(ctx: ScheduleMaintenanceCon
     const payload = item.payload || {};
     const callback = item.callback;
     const orphanedBaseline =
-      (["autonomousMarketScreen", "autonomousOptionsAnalysis", "autonomousStrategyDiscovery", "autoRenewETradeTokens", "collectIvHistory"].includes(callback) && !payload.userLogin);
+      (["autonomousMarketScreen", "autonomousOptionsAnalysis", "autonomousStrategyDiscovery", "autonomousGoalScreen", "autoRenewETradeTokens", "collectIvHistory"].includes(callback) && !payload.userLogin);
     if (orphanedBaseline) {
       console.warn(`[OrchestratorAgent] Removing unowned baseline schedule ${item.id} (${callback})`);
       await ctx.cancelSchedule(item.id).catch(() => undefined);

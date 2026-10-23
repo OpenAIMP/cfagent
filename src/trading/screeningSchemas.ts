@@ -579,13 +579,18 @@ export function parseScanRequestTemplate(input: unknown): ScreeningValidationRes
 }
 
 /* ------------------------------------------------------------------ */
-/* Schedule payloads — the three screening callbacks                   */
+/* Schedule payloads — the screening callbacks                         */
 /* ------------------------------------------------------------------ */
 
 export const SCREENING_SCHEDULE_CALLBACKS = [
   "autonomousMarketScreen",
   "autonomousOptionsAnalysis",
   "autonomousStrategyDiscovery",
+  // Consolidation C1 (issue #1201, epic #1151 R1): the goal-driven
+  // screen joins the schedule store as a first-class callback, so a
+  // Phase 1 goal/scenario screen can be run from a schedule through
+  // the one scheduling capability.
+  "autonomousGoalScreen",
 ] as const;
 export type ScreeningScheduleCallback = (typeof SCREENING_SCHEDULE_CALLBACKS)[number];
 
@@ -649,6 +654,41 @@ export const strategyDiscoveryScheduleCriteriaSchema = z.strictObject({
   profileId: z.unknown().optional(),
   constraintSets: z.unknown().optional(),
   scheduleId: z.unknown().optional(),
+  ...triggerField,
+});
+
+/**
+ * The goal kinds a goal-screen schedule may name (consolidation C1,
+ * issue #1201). The canonical list lives with the goal/scenario
+ * engine (src/services/goalScenarioEngine.ts GOAL_KINDS); src/trading
+ * cannot import src/services (the #290 boundary), so the list is
+ * mirrored here and a drift pin
+ * (tests/consolidation_c1_execution_path.test.ts) fails the suite if
+ * the two ever disagree — the Phase 1 taxonomy-mirror idiom.
+ */
+export const SCREENING_GOAL_KINDS = [
+  "income",
+  "directional",
+  "volatility_event",
+  "hedge_protect",
+  "repair",
+  "deconcentrate",
+  "iv_harvest",
+  "capital_efficient_leverage",
+  "cash_secured_entry",
+] as const;
+
+/** Goal-screen criteria: a goal kind (validated as explicit code
+ *  below, like the discovery input models, so the error names the
+ *  field) or a stored scenario id, plus optional direction / symbols
+ *  / asset classes and the shared delivery fields. */
+export const goalScreenScheduleCriteriaSchema = z.strictObject({
+  goalKind: z.string().optional(),
+  direction: z.enum(["bullish", "bearish", "volatile", "range_bound", "unknown"]).optional(),
+  scenarioId: z.string().optional(),
+  symbols: z.array(z.string()).optional(),
+  assetClasses: z.array(z.enum(["stocks", "options"])).optional(),
+  ...deliveryFields,
   ...triggerField,
 });
 
@@ -816,7 +856,9 @@ export function buildSchedulePayload(
       ? marketScreenScheduleCriteriaSchema
       : callback === "autonomousOptionsAnalysis"
         ? optionsAnalysisScheduleCriteriaSchema
-        : strategyDiscoveryScheduleCriteriaSchema;
+        : callback === "autonomousGoalScreen"
+          ? goalScreenScheduleCriteriaSchema
+          : strategyDiscoveryScheduleCriteriaSchema;
   const shapeResult = shape.safeParse(criteriaSansMaxItems);
   if (!shapeResult.success) {
     return { ok: false, error: formatIssues("schedule payload", shapeResult.error) };
@@ -827,6 +869,26 @@ export function buildSchedulePayload(
   if (callback === "autonomousStrategyDiscovery") {
     const discoveryError = validateDiscoveryCriteria(validated);
     if (discoveryError !== null) return { ok: false, error: discoveryError };
+  }
+
+  // Goal-screen rules (C1): a schedule names a goal kind or a stored
+  // scenario — never neither — and the kind must be a real goal kind
+  // (the drift-pinned SCREENING_GOAL_KINDS list).
+  if (callback === "autonomousGoalScreen") {
+    const goalKind = validated.goalKind as string | undefined;
+    const scenarioId = validated.scenarioId as string | undefined;
+    if (goalKind !== undefined && !(SCREENING_GOAL_KINDS as readonly string[]).includes(goalKind)) {
+      return {
+        ok: false,
+        error: `goalKind must be one of: ${SCREENING_GOAL_KINDS.join(", ")}.`,
+      };
+    }
+    if (goalKind === undefined && scenarioId === undefined) {
+      return {
+        ok: false,
+        error: "goalKind is required when scenarioId is not supplied.",
+      };
+    }
   }
 
   // maxItems range (the create route's rule: whole number 0..10000;
@@ -855,7 +917,11 @@ export function buildSchedulePayload(
       ? UNIVERSES[effectiveUniverse as keyof typeof UNIVERSES].defaultMaxSymbols
       : callback === "autonomousMarketScreen"
         ? undefined
-        : symbols?.length || 0;
+        : callback === "autonomousGoalScreen"
+          ? // C1: maxItems has no meaning for a goal screen (the
+            // scenario's constraints size the run) — stamp none.
+            undefined
+          : symbols?.length || 0;
   const maxItems = (rawMaxItems as number | undefined) ?? defaultMaxItems;
 
   const payload: Record<string, unknown> = {

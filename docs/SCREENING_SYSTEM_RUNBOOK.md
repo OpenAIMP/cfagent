@@ -91,6 +91,24 @@ Fastest first:
   (`persist: true` → `mas_outcomes`) and delivery
   (`deliver: {channels, emailTo}`) are opt-in per request; the default
   response is the bare bundle, unchanged.
+- **Goal-driven screens (C1, #1201)**: `POST /api/screening/goal-screen`
+  runs a Phase 1 goal/scenario screen through the Phase 0 provider
+  registry over the production engines — the ScreenersHub **Goal
+  Screen** tab is the UI. Each run lands in the screener task ledger,
+  the activity log, and a canonical `mas_reports` record (visible in
+  Reports). A run that fails on every requested asset class answers
+  502 with the labeled result in the body. The same screen is
+  schedulable through the one schedule store: callback
+  `autonomousGoalScreen`, criteria `{goalKind | scenarioId,
+  direction?, symbols?, assetClasses?}` via
+  `POST /api/schedules/create`; duplicate fires in a minute slot are
+  suppressed by the ledger. `POST /api/screening/backtest` is
+  backtest-on-screen over live Yahoo daily history (symbols without
+  history are excluded with the reason, never fabricated).
+- **Provider identity**: one source — `SCREENING_PROVIDER_DESCRIPTORS`
+  in `src/trading/screeningProvider.ts`. The server registry is built
+  under those ids and the client adapter derives its list from the
+  table; there is no second list to edit.
 
 ## 5. Guardrails that stay on
 

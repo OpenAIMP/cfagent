@@ -31,6 +31,117 @@ import type { DynamicOptionsScreener } from "./optionsScreener";
 
 export type ScreeningProviderAssetClass = "stocks" | "options";
 
+/* ------------------------------------------------------------------ */
+/* Provider descriptors — the ONE registry source (consolidation C1,   */
+/* issue #1201, epic #1151 R2).                                        */
+/*                                                                     */
+/* Before C1 the providers were described twice: here (the runtime     */
+/* registry) and by hand in src/client/screeningAdapters.ts            */
+/* (SCREENING_PROVIDERS), and the two had already drifted in shape:     */
+/* the client listed two stock "providers" (etrade, yahoo-finance)     */
+/* that are in fact route variants of the ONE stock provider below     */
+/* (the Yahoo entry is the #1007 data-source adapter inside the one     */
+/* ScreenerAgent pipeline, reached via /api/foss/screen).              */
+/*                                                                     */
+/* This table is now the single source: the runtime registry is built  */
+/* under these ids, and the client adapter DERIVES its provider list   */
+/* from the clientEndpoints variants declared here (imported through   */
+/* the trading barrel, the #290 boundary surface). A parity test pins   */
+/* descriptor table ↔ registry.list(), and a drift pin fails if the     */
+/* client declares provider endpoints by hand again.                   */
+/* ------------------------------------------------------------------ */
+
+/** Filter capability vocabulary the hub form can ask a provider about. */
+export type ScreeningFilter =
+  | "search"
+  | "limit"
+  | "exchange"
+  | "price-range"
+  | "trend"
+  | "contract-type"
+  | "dte-range"
+  | "min-volume"
+  | "min-open-interest"
+  | "max-spread";
+
+export type ScreeningProviderKind = "broker-api" | "market-data-api" | "mcp";
+
+/** A client-selectable endpoint variant of a registry provider. */
+export interface ScreeningProviderEndpointVariant {
+  id: string;
+  label: string;
+  kind: ScreeningProviderKind;
+  endpoint: string;
+  filters: readonly ScreeningFilter[];
+}
+
+export interface ScreeningProviderDescriptor {
+  /** Registry provider id (the provenance id stamped on results). */
+  id: string;
+  label: string;
+  kind: ScreeningProviderKind;
+  assetClasses: readonly ScreeningProviderAssetClass[];
+  /** The production route that executes this provider, per asset class. */
+  routes: Partial<Record<ScreeningProviderAssetClass, string>>;
+  /**
+   * Endpoint variants the client may offer for this provider, per
+   * asset class. The options provider declares none: the hub's options
+   * tab is the options research surface, not the adapter-driven form
+   * (the #958 S8 design), so getScreeningProviders("options") stays
+   * empty — by derivation now, not by a second hand-kept list.
+   */
+  clientEndpoints: Partial<
+    Record<ScreeningProviderAssetClass, readonly ScreeningProviderEndpointVariant[]>
+  >;
+}
+
+export const STOCK_SCREENING_PROVIDER_ID = "etrade-yahoo-stocks";
+export const OPTIONS_SCREENING_PROVIDER_ID = "dynamic-options";
+
+const STOCK_PROVIDER_FILTERS: readonly ScreeningFilter[] = [
+  "search",
+  "limit",
+  "exchange",
+  "price-range",
+  "trend",
+];
+
+export const SCREENING_PROVIDER_DESCRIPTORS: readonly ScreeningProviderDescriptor[] = [
+  {
+    id: STOCK_SCREENING_PROVIDER_ID,
+    label: "E*TRADE / Yahoo stock screening pipeline",
+    kind: "broker-api",
+    assetClasses: ["stocks"],
+    routes: { stocks: "/api/etrade/screen" },
+    clientEndpoints: {
+      stocks: [
+        {
+          id: "etrade",
+          label: "Nasdaq All-Exchange Listing Feed (Live API · E*TRADE Execution)",
+          kind: "broker-api",
+          endpoint: "/api/etrade/screen",
+          filters: STOCK_PROVIDER_FILTERS,
+        },
+        {
+          id: "yahoo-finance",
+          label: "Yahoo Finance FOSS Engine (Market Data API)",
+          kind: "market-data-api",
+          endpoint: "/api/foss/screen",
+          filters: STOCK_PROVIDER_FILTERS,
+        },
+      ],
+    },
+  },
+  {
+    id: OPTIONS_SCREENING_PROVIDER_ID,
+    label: "Dynamic Options Screener",
+    kind: "broker-api",
+    assetClasses: ["options"],
+    routes: { options: "/trading/options/screen" },
+    clientEndpoints: {},
+  },
+];
+
 export type ScreeningRequest =
   | { assetClass: "stocks"; filter?: StockScreenerFilter }
   | { assetClass: "options"; filter?: OptionScreenerFilter };
@@ -125,16 +236,16 @@ export class ScreeningProviderRegistry {
 }
 
 /**
- * Default wiring under stable provenance ids: the E*TRADE/Yahoo stock
- * pipeline ("etrade-yahoo-stocks") and the dynamic options screener
- * ("dynamic-options").
+ * Default wiring under the descriptor table's provenance ids
+ * (SCREENING_PROVIDER_DESCRIPTORS): the E*TRADE/Yahoo stock pipeline
+ * and the dynamic options screener.
  */
 export function createDefaultScreeningRegistry(deps: {
   stockScreener: IMarketScreener;
   optionsScreener: Pick<DynamicOptionsScreener, "screenOptions">;
 }): ScreeningProviderRegistry {
   const registry = new ScreeningProviderRegistry();
-  registry.register(createStockScreeningProvider("etrade-yahoo-stocks", deps.stockScreener));
-  registry.register(createOptionsScreeningProvider("dynamic-options", deps.optionsScreener));
+  registry.register(createStockScreeningProvider(STOCK_SCREENING_PROVIDER_ID, deps.stockScreener));
+  registry.register(createOptionsScreeningProvider(OPTIONS_SCREENING_PROVIDER_ID, deps.optionsScreener));
   return registry;
 }

@@ -117,7 +117,7 @@ const CONSTRUCTION_LEDGER: Record<string, number> = {
   "agents/routes/etradeBroker.ts": 20,
   "agents/routes/etradeOptions.ts": 5,
   "agents/routes/watchlists.ts": 5,
-  "agents/screener-agent.ts": 1,
+  "agents/screener-agent.ts": 2,
   "mcp/cloudflareAgentCommands.ts": 1,
   "mcp/etradeCommands.ts": 6,
   "mcp/index.ts": 1,
@@ -150,6 +150,8 @@ describe("trading extraction ledger (issue #291 T0)", () => {
     const total = Object.values(actual).reduce((a, b) => a + b, 0);
     // 46 → 47 in #1135: the recommendation-bundle route constructs its
     // own ETradeService like every sibling portfolio-risk route.
-    expect(total).toBe(47);
+    // 47 → 48 in #1201: ScreenerAgent.runGoalScreen constructs its
+    // ETradeService for the options leg, like its sibling screen path.
+    expect(total).toBe(48);
   });
 });

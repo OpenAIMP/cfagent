@@ -53,6 +53,8 @@ import type { AgentContext } from "agents";
 import { ETradeService } from "../../services/etrade";
 import {
   DynamicOptionsScreener,
+  createOptionsScreeningProvider,
+  OPTIONS_SCREENING_PROVIDER_ID,
   recommendOptionStrategies,
   validateStrategyRequest,
   validateStrategyProfile,
@@ -168,17 +170,29 @@ export async function handleOptionsStrategyRecommend(
     const userLogin = request.headers.get("x-user-login") || deps.sessionKey || "default_trader";
     const etrade = new ETradeService(deps.orm, deps.env, userLogin, deps.requestedEnv);
     const screener = new DynamicOptionsScreener(etrade.client);
-    const screened = await screener.screenOptions({
-      underlyingSymbols: [strategyRequest.symbol.toUpperCase().trim()],
-      contractType: "BOTH",
-      minDte: strategyRequest.minDte,
-      maxDte: strategyRequest.maxDte,
-      minVolume: strategyRequest.minVolume,
-      minOpenInterest: strategyRequest.minOpenInterest,
-      maxSpreadPct: strategyRequest.maxSpreadPct,
-      maxQuoteAgeSeconds: strategyRequest.maxQuoteAgeSeconds,
-      limit: strategyRequest.contractLimit,
+    // Consolidation C1 (issue #1201, epic #1151 R1): the contract
+    // screen behind strategy recommendation executes through the
+    // Phase 0 ScreeningProvider (same engine, same result) — see
+    // executeOptionsScreen in etradeOptionsScreen.ts.
+    const provider = createOptionsScreeningProvider(OPTIONS_SCREENING_PROVIDER_ID, screener);
+    const provided = await provider.screen({
+      assetClass: "options",
+      filter: {
+        underlyingSymbols: [strategyRequest.symbol.toUpperCase().trim()],
+        contractType: "BOTH",
+        minDte: strategyRequest.minDte,
+        maxDte: strategyRequest.maxDte,
+        minVolume: strategyRequest.minVolume,
+        minOpenInterest: strategyRequest.minOpenInterest,
+        maxSpreadPct: strategyRequest.maxSpreadPct,
+        maxQuoteAgeSeconds: strategyRequest.maxQuoteAgeSeconds,
+        limit: strategyRequest.contractLimit,
+      },
     });
+    if (provided.assetClass !== "options") {
+      throw new Error("Options screening provider returned a non-options result.");
+    }
+    const screened = provided.result;
     const recommendations = recommendOptionStrategies(screened.contracts, strategyRequest, strategyRequest.candidateLimit);
     return Response.json({
       ...recommendations,
