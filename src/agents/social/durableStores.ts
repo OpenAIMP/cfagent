@@ -59,7 +59,7 @@ function isPendingApproval(value: unknown): value is PendingApproval {
   );
 }
 
-async function storeOp(
+export async function socialStoreOp(
   stub: SessionStoreStub,
   op: "get" | "put" | "delete",
   key: string,
@@ -105,11 +105,11 @@ function parsePending(raw: string | null | undefined): PendingApproval | undefin
 export function createSessionStoreSocialLedger(stub: SessionStoreStub): SocialLedger {
   const ledger: SocialLedger = {
     async getDraft(date: string, channel: string) {
-      const reply = await storeOp(stub, "get", draftKey(date, channel));
+      const reply = await socialStoreOp(stub, "get", draftKey(date, channel));
       return parseDraft(reply.value);
     },
     async putDraft(draft: SocialDraft) {
-      await storeOp(stub, "put", draftKey(draft.date, draft.channel), JSON.stringify(draft));
+      await socialStoreOp(stub, "put", draftKey(draft.date, draft.channel), JSON.stringify(draft));
     },
     async listDrafts(date: string) {
       const out: SocialDraft[] = [];
@@ -126,7 +126,7 @@ export function createSessionStoreSocialLedger(stub: SessionStoreStub): SocialLe
 export function createSessionStorePendingApprovalStore(stub: SessionStoreStub): PendingApprovalStore {
   const store: PendingApprovalStore = {
     async recordPending(approval: PendingApproval) {
-      await storeOp(
+      await socialStoreOp(
         stub,
         "put",
         pendingKey(approval.date, approval.channel),
@@ -136,14 +136,14 @@ export function createSessionStorePendingApprovalStore(stub: SessionStoreStub): 
     async listPending(date: string) {
       const out: PendingApproval[] = [];
       for (const channel of KNOWN_SOCIAL_CHANNELS) {
-        const reply = await storeOp(stub, "get", pendingKey(date, channel));
+        const reply = await socialStoreOp(stub, "get", pendingKey(date, channel));
         const pending = parsePending(reply.value);
         if (pending) out.push(pending);
       }
       return out;
     },
     async clearPending(date: string, channel: string) {
-      await storeOp(stub, "delete", pendingKey(date, channel));
+      await socialStoreOp(stub, "delete", pendingKey(date, channel));
     },
   };
   return store;

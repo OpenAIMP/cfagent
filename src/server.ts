@@ -2,6 +2,13 @@ import type { Env, SessionData, TransactionSnapData } from "./types";
 import { getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
 import { getSessionCached, invalidateSessionCache } from "./security/sessionCache";
 import { getSession, sessionStore, updateSession } from "./security/session";
+import type { DoNamespaceLike } from "./security/durableKv";
+import { zonedDateParts } from "./schedule";
+import {
+  SOCIAL_BRIEF_MAX_CHARS,
+  createSocialBriefStoreFromNamespace,
+  isBriefDate,
+} from "./agents/social/briefStore";
 import { validateAndTouchWiredSession } from "./security/iaaaEnforcement";
 import { requiresStepUpForMint } from "./security/iaaaGates";
 import { createWiredAuditStore } from "./security/iaaaAuditStore";
@@ -671,6 +678,69 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         return Response.json({ ok: true });
       }
       return Response.json({ error: "Unknown schedule endpoint." }, { status: 404 });
+    }
+
+    // #1077 Phase 5b slice 2 — social brief provisioning (human path).
+    // Placed before the generic /api/ forwarder. Session-gated,
+    // unlike /api/schedule/* above, whose handler performs no session
+    // check (see its catalog authNote): unauthenticated → 401.
+    // Any signed-in user may provision; gating provisioning to
+    // admins is a later item (the IAAA admin panel could own it).
+    // Overwrite semantics: the most recent provision wins for the
+    // date. A stored brief is content for the social goal only — it
+    // is never auto-posted by this route.
+    if (path === "/api/social/brief") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      const briefStore = createSocialBriefStoreFromNamespace(
+        (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+      );
+      if (!briefStore) {
+        return Response.json({ error: "Social brief store unavailable." }, { status: 500 });
+      }
+      if (request.method === "GET") {
+        const rawDate = new URL(request.url).searchParams.get("date");
+        const date = rawDate ?? zonedDateParts(Date.now(), "America/New_York").date;
+        if (!isBriefDate(date)) {
+          return Response.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
+        }
+        try {
+          const brief = await briefStore.getBrief(date);
+          return Response.json({ ok: true, date, brief });
+        } catch {
+          return Response.json({ error: "Social brief store unavailable." }, { status: 500 });
+        }
+      }
+      if (request.method === "POST") {
+        const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!body) return Response.json({ error: "JSON body required." }, { status: 400 });
+        const text = body.text;
+        if (typeof text !== "string" || !text.trim()) {
+          return Response.json({ error: "text must be a non-empty string." }, { status: 400 });
+        }
+        if (text.length > SOCIAL_BRIEF_MAX_CHARS) {
+          return Response.json(
+            { error: `text must be ${SOCIAL_BRIEF_MAX_CHARS} characters or fewer.` },
+            { status: 413 },
+          );
+        }
+        const rawDate =
+          body.date === undefined ? undefined : typeof body.date === "string" ? body.date : null;
+        if (rawDate === null) {
+          return Response.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
+        }
+        const date = rawDate ?? zonedDateParts(Date.now(), "America/New_York").date;
+        if (!isBriefDate(date)) {
+          return Response.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
+        }
+        try {
+          await briefStore.putBrief(date, text);
+        } catch {
+          return Response.json({ error: "Social brief store unavailable." }, { status: 500 });
+        }
+        return Response.json({ ok: true, date });
+      }
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
     // --- User Profile API ---
