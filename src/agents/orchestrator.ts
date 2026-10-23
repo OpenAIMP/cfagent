@@ -1989,14 +1989,12 @@ export class OrchestratorAgent extends Think<Env> {
     // Cloudflare Agents Task Scheduling Management APIs
     // ==========================================
 
-    // Issue #359-15: screener + autonomous research routes (stock screener
-    // /screener/*, options PDF, and /research/*) are handled by
-    // src/agents/routes/screenerResearch.ts (handleScreenerResearchRoutes).
-    // Invoked at this exact position in the sequential path.endsWith
-    // matching sequence (after the FOSS compare/screen delegation, before
-    // the task schedules block); a non-null return matched. Orchestrator-
-    // owned helpers (getScreenerAgent, getResearchAgent, runResearchAndPublish,
-    // mas_settings) arrive via the context object.
+    // Issue #359-15: screener + autonomous research routes (/screener/*,
+    // options PDF, /research/*) live in src/agents/routes/screenerResearch.ts
+    // (handleScreenerResearchRoutes), invoked at this exact position in the
+    // sequential path.endsWith sequence (after the FOSS compare/screen
+    // delegation, before the task schedules block); a non-null return
+    // matched. Orchestrator-owned helpers arrive via the context object.
     const screenerResearchResponse = await handleScreenerResearchRoutes(request, url, path, sessionId, {
       getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
       getScreenerExecutionContext: () => this.getScreenerExecutionContext(),
@@ -2005,6 +2003,7 @@ export class OrchestratorAgent extends Think<Env> {
       getOrm: () => this.getOrm(),
       readSettingRaw: (key) => this.readSettingRaw(key),
       writeSetting: (key, value) => this.writeSetting(key, value),
+      env: this.env,
     });
     if (screenerResearchResponse) return screenerResearchResponse;
     // Issue #359-16: schedules task-scheduling routes (list/create/cancel/
