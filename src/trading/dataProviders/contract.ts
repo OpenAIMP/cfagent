@@ -61,6 +61,7 @@ import type {
   Env,
   ETradeQuote,
   ETradeOptionChain,
+  ETradeOptionExpireDate,
   FossQuote,
   FossHistoricalBar,
   FossCompanyFundamentals,
@@ -182,10 +183,39 @@ export interface DataProvider {
     symbol: string,
     runContext?: DataRunContext
   ): Promise<DataResult<QuoteResult>>;
+  /**
+   * quotes, batch form (E2, issue #1157): many symbols in the
+   * provider's own batching (E*TRADE: one request per ≤10 symbols —
+   * the #495 subrequest/rate-limit discipline the stock screener
+   * depends on). Optional like every capability method: a provider
+   * implements it only if it declares batch-capable quotes. The
+   * result is the provider's normalized quotes, in request order
+   * per sub-batch, with no raw payload attached — raw wire responses
+   * live in the capture store, one record per sub-batch.
+   */
+  getQuotesBatch?(
+    symbols: string[],
+    runContext?: DataRunContext
+  ): Promise<DataResult<ETradeQuote[]>>;
   getOptionsChain?(
     request: OptionsChainRequest,
     runContext?: DataRunContext
   ): Promise<DataResult<OptionsChainResult>>;
+  /**
+   * optionsChains, expiry-dates form (E2, issue #1157): the
+   * expiration calendar for one symbol — the other half of what the
+   * options engines consume alongside chains (DynamicOptionsScreener
+   * calls the client's getOptionExpireDates before getOptionChains).
+   * Declared under the optionsChains capability, not a capability of
+   * its own: it is chain-shaped metadata from the same source.
+   * Optional on the interface so providers that serve chains without
+   * a separate expiry endpoint (and the FOSS adapters, which declare
+   * no optionsChains at all) are undisturbed.
+   */
+  getOptionExpiryDates?(
+    symbol: string,
+    runContext?: DataRunContext
+  ): Promise<DataResult<ETradeOptionExpireDate[]>>;
   getScreenUniverse?(
     runContext?: DataRunContext
   ): Promise<DataResult<ScreenUniverseResult>>;
