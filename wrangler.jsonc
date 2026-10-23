@@ -59,10 +59,6 @@
     // Issue #291 — TradingAgent
     { "tag": "v8", "new_sqlite_classes": ["TradingAgent"] }
   ],
-  "kv_namespaces": [
-    { "binding": "SESSIONS", "id": "f169a71089264590baeef28f851ebfc5" },
-    { "binding": "ETRADE_KV", "id": "f169a71089264590baeef28f851ebfc5" }
-  ],
   // Issue #257 (Assessment P1): explicit Workers Logs pipeline. `enabled` is the
   // shorthand for logs.enabled; `invocation_logs` captures one log per
   // invocation (request/response metadata + console output) visible under
