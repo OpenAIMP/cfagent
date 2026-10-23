@@ -33,12 +33,26 @@
  * returns and never fails it (recordCapture does not throw). The
  * yahoo/alpaca/nasdaq adapters are untouched by E1: their capture
  * lands with their add-provider slices.
+ *
+ * E2 (issue #1157): the E*TRADE adapter grows the two methods the
+ * screening cutover needs — getQuotesBatch (the stock screener's
+ * batch path, capturing one provider-response record per sub-batch
+ * via the client's new onWireResponse hook) and getOptionExpiryDates
+ * (the options engines' expiry lookup, served under optionsChains) —
+ * plus bindETradeScreenerDeps, the LiveScreenerDeps binding the
+ * stock screener consumes.
  */
 
 import type { ETradeService } from "../../services/etrade";
 import type { IFossMarketDataProvider } from "../../patterns/interfaces";
-import type { Env, ETradeOptionChain, ETradeQuote } from "../../types";
+import type {
+  Env,
+  ETradeOptionChain,
+  ETradeQuote,
+} from "../../types";
 import type { SqlStorage } from "../../orm";
+import type { QuoteTrace } from "../etrade/quoteTrace";
+import type { LiveScreenerDeps } from "../liveScreener";
 import { fetchAllUsStockListings } from "../../services/nasdaqListings";
 import type {
   DataProvider,
@@ -70,7 +84,11 @@ function tag<T>(
  */
 export type ETradeDataSurface = Pick<
   ETradeService,
-  "getQuoteAsync" | "getOptionChains" | "getStatus"
+  | "getQuoteAsync"
+  | "getOptionChains"
+  | "getStatus"
+  | "fetchQuotesRemote"
+  | "getOptionExpireDates"
 >;
 
 /**
@@ -89,6 +107,15 @@ export interface ETradeCaptureDeps {
 
 export interface ETradeDataProviderOptions {
   capture?: ETradeCaptureDeps;
+  /**
+   * E2 (issue #1157): the caller's per-run QuoteTrace (issue #816),
+   * forwarded verbatim to fetchQuotesRemote so the screener's trace
+   * plumbing survives the platform route unchanged. Fetch-shaping
+   * only — it is not part of capture or of the contract's run
+   * context; absent, the batch call passes no trace, exactly as a
+   * direct fetchQuotesRemote(symbols) call does.
+   */
+  trace?: QuoteTrace;
 }
 
 /**
@@ -245,6 +272,143 @@ export function createETradeDataProvider(
       });
       return tag("etrade", "optionsChains", normalized);
     },
+    getQuotesBatch: async (symbols: string[], runContext?: DataRunContext) => {
+      if (!capture) {
+        return tag(
+          "etrade",
+          "quotes",
+          await service.fetchQuotesRemote(symbols, options?.trace)
+        );
+      }
+      // E2 (issue #1157): the client's onWireResponse hook delivers
+      // each sub-batch's parsed wire payload as the batch completes;
+      // the adapter records ONE capture per sub-batch (rawKind
+      // "provider-response", request params = that sub-batch's
+      // symbols) and returns the service's normalized quotes exactly
+      // as fetchQuotesRemote produced them — no raw ever rides the
+      // result (the hook's payloads exist only in this closure and in
+      // the captures written from it).
+      const wireBatches: Array<{ symbols: string[]; payload: unknown }> = [];
+      const quotes = await service.fetchQuotesRemote(
+        symbols,
+        options?.trace,
+        (batchSymbols, payload) => {
+          wireBatches.push({ symbols: batchSymbols, payload });
+        }
+      );
+      const ctx = resolveRunContext(runContext);
+      const blobDeps = { storage: capture.blobStorage, env: capture.env };
+      if (wireBatches.length === 0) {
+        // No wire response reached the hook (e.g. the service's
+        // sandbox path, which returns [] without a batch request):
+        // the result object is the deepest payload at the seam, so
+        // it is what is captured, labeled "provider-result" — the
+        // run still leaves its audit row, never a fabricated wire
+        // payload.
+        await recordCapture(capture.sql, blobDeps, {
+          providerId: "etrade",
+          capability: "quotes",
+          requestParams: { symbols },
+          runId: ctx.runId,
+          tenantId: ctx.tenantId,
+          userLogin: ctx.userLogin,
+          rawPayload: quotes,
+          rawKind: "provider-result",
+          normalizedResult: quotes,
+          retentionClass: capture.retentionClass,
+        });
+        return tag("etrade", "quotes", quotes);
+      }
+      for (const batch of wireBatches) {
+        const batchSymbols = new Set(batch.symbols);
+        await recordCapture(capture.sql, blobDeps, {
+          providerId: "etrade",
+          capability: "quotes",
+          requestParams: { symbols: batch.symbols },
+          runId: ctx.runId,
+          tenantId: ctx.tenantId,
+          userLogin: ctx.userLogin,
+          rawPayload: batch.payload,
+          rawKind: "provider-response",
+          normalizedResult: quotes.filter((q) => batchSymbols.has(q.symbol)),
+          retentionClass: capture.retentionClass,
+        });
+      }
+      return tag("etrade", "quotes", quotes);
+    },
+    getOptionExpiryDates: async (
+      symbol: string,
+      runContext?: DataRunContext
+    ) => {
+      if (!capture) {
+        return tag(
+          "etrade",
+          "optionsChains",
+          await service.getOptionExpireDates(symbol)
+        );
+      }
+      const dates = await service.getOptionExpireDates(symbol);
+      const ctx = resolveRunContext(runContext);
+      // The expiry-dates call has no wire hook on the client, so the
+      // service's result is the deepest payload at the seam
+      // ("provider-result"); an empty result is a completed fetch
+      // with no payload — recorded as a no_payload audit row (the
+      // chain-null treatment), never dressed up as a stored payload.
+      await recordCapture(
+        capture.sql,
+        { storage: capture.blobStorage, env: capture.env },
+        {
+          providerId: "etrade",
+          capability: "optionsChains",
+          requestParams: { symbol, kind: "expiryDates" },
+          runId: ctx.runId,
+          tenantId: ctx.tenantId,
+          userLogin: ctx.userLogin,
+          ...(dates.length > 0
+            ? {
+                rawPayload: dates,
+                rawKind: "provider-result" as const,
+              }
+            : {}),
+          normalizedResult: dates,
+          retentionClass: capture.retentionClass,
+        }
+      );
+      return tag("etrade", "optionsChains", dates);
+    },
+  };
+}
+
+/**
+ * E2 (issue #1157): bind the stock screener's LiveScreenerDeps to
+ * the platform — the seam ScreenerAgent.runScreenInner consumes via
+ * acquireUniverse's etrade-only mode. The batch dep routes to the
+ * adapter's getQuotesBatch (preserving the #495 batching and the
+ * caller's QuoteTrace, forwarded through the adapter options); the
+ * per-symbol dep routes to the adapter's getQuote. Both carry the
+ * run's DataRunContext, so every quote the run acquires is captured
+ * under the run's id. The returned deps have exactly the signatures
+ * acquireUniverse has always consumed — the cutover is invisible to
+ * the pipeline.
+ *
+ * The helper lives here, not in screener-agent.ts, because that
+ * module extends the real `agents` Durable Object base and cannot
+ * be imported under the repo's vitest setup (native cloudflare:
+ * scheme) — no existing test imports it; the binding must stay
+ * unit-pinnable.
+ */
+export function bindETradeScreenerDeps(
+  service: ETradeDataSurface,
+  capture: ETradeCaptureDeps,
+  runContext: DataRunContext,
+  trace?: QuoteTrace
+): LiveScreenerDeps {
+  const provider = createETradeDataProvider(service, { capture, trace });
+  return {
+    fetchETradeQuote: async (symbol: string) =>
+      (await provider.getQuote!(symbol, runContext)).result as ETradeQuote,
+    fetchETradeQuotes: async (symbols: string[]) =>
+      (await provider.getQuotesBatch!(symbols, runContext)).result,
   };
 }
 
