@@ -629,35 +629,12 @@ export function SettingsMenu({
               )}
             </div>
             {effectiveMsg && (
-              <div
-                className="etrade-menu-msg-banner"
-                style={{
-                  marginTop: "8px",
-                  padding: "6px 10px",
-                  fontSize: "0.78rem",
-                  borderRadius: "4px",
-                  background: "var(--surface-layer-2, rgba(255,255,255,0.06))",
-                  border: "1px solid var(--border-subtle, rgba(255,255,255,0.12))",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: "6px",
-                  wordBreak: "break-word",
-                }}
-              >
+              <div className="etrade-menu-msg-banner">
                 <span>{effectiveMsg}</span>
                 <button
                   type="button"
+                  className="etrade-menu-msg-dismiss"
                   onClick={clearMsg}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "inherit",
-                    cursor: "pointer",
-                    padding: "0 2px",
-                    opacity: 0.7,
-                    flexShrink: 0,
-                  }}
                   title="Dismiss message"
                 >
                   ✕
