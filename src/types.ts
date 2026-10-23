@@ -110,8 +110,9 @@ export interface Env {
   ET_BASE_URL?: string;
   ETRADE_CONSUMER_KEY?: string;
   ETRADE_CONSUMER_SECRET?: string;
-  ETRADE_OAUTH_TOKEN?: string;
-  ETRADE_OAUTH_TOKEN_SECRET?: string;
+  // #1185 Phase B (#1066): ETRADE_OAUTH_TOKEN(_SECRET) removed — the
+  // process-wide static pair is deleted and the vars are unread. Access
+  // tokens are per-user, stored in the SessionStore.
   ETRADE_ACCOUNT_ID_KEY?: string;
   ETRADE_ENVIRONMENT?: "sandbox" | "live";
   ETRADE_MCP_SERVER_URL?: string;

@@ -20,6 +20,7 @@ import {
 } from "../src/patterns/paymentStrategies";
 import { PaymentGatewayService } from "../src/services/payments";
 import { ETradeService } from "../src/services/etrade";
+import { storeAccessTokens } from "../src/security/etradeOAuth";
 import { YahooFinanceProvider, AlpacaMarketDataProvider, FossResearchService } from "../src/services/fossResearch";
 import { generateOAuth1Header, computeHmacSha256Hex, computeHmacSha1Base64 } from "../src/services/cryptoUtils";
 import { createDidAttestationSync, AGENT_DIDS } from "../src/agents/did";
@@ -342,13 +343,35 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
     });
 
     it("calls real E*TRADE market quote REST endpoint with OAuth 1.0a header", async () => {
+      // #1185 Phase B: tokens are per-user and stored — the env static
+      // pair no longer exists. This test stores its token for an explicit
+      // login in a fake SessionStore, the way a linked user would.
+      const store = new Map<string, string>();
+      const sessionStore = {
+        idFromName: (name: string) => name,
+        get: (_id: unknown) => ({
+          fetch: async (req: Request) => {
+            const body = (await req.json()) as { op: string; key: string; value?: string };
+            if (body.op === "get") return Response.json({ value: store.get(body.key) ?? null });
+            if (body.op === "put") {
+              store.set(body.key, body.value ?? "");
+              return Response.json({ ok: true });
+            }
+            if (body.op === "delete") {
+              store.delete(body.key);
+              return Response.json({ ok: true });
+            }
+            return Response.json({ error: "unknown op" }, { status: 400 });
+          },
+        }),
+      };
       const env: Env = {
         ETRADE_CONSUMER_KEY: "mock_ckey",
         ETRADE_CONSUMER_SECRET: "mock_csecret",
-        ETRADE_OAUTH_TOKEN: "mock_token",
-        ETRADE_OAUTH_TOKEN_SECRET: "mock_tsecret",
         ETRADE_ENVIRONMENT: "sandbox",
+        SESSION_STORE: sessionStore as any,
       } as Env;
+      await storeAccessTokens(env, "real-api-user", "mock_token", "mock_tsecret");
 
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
         new Response(
@@ -381,7 +404,7 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
         )
       );
 
-      const etrade = new ETradeService(env);
+      const etrade = new ETradeService(env, undefined, "real-api-user");
       const quote = await etrade.fetchQuoteRemote("NVDA");
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
