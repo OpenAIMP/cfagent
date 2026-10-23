@@ -281,6 +281,18 @@ export function selectSpyPut(chain: ETradeOptionChain, expirationDate: string): 
  */
 export async function generateHedgeProposals(etrade: ETradeService): Promise<HedgeAnalysis> {
   const report = await computePortfolioRisk(etrade);
+  const spyPut = await resolveSpyPutContract(etrade);
+  return buildHedgeProposals(report, spyPut);
+}
+
+/**
+ * Resolve the live SPY put contract for the options form of a hedge
+ * (extracted from generateHedgeProposals so the Phase 4 recommendation
+ * bundle route reuses the same expiry/chain resolution — one owner).
+ * Null when no live chain contract is available; callers must omit the
+ * options form rather than fabricate one.
+ */
+export async function resolveSpyPutContract(etrade: ETradeService): Promise<SpyPutContract | null> {
   let spyPut: SpyPutContract | null = null;
 
   // Real market expiration date resolution:
@@ -340,5 +352,5 @@ export async function generateHedgeProposals(etrade: ETradeService): Promise<Hed
   }).catch(() => null);
 
   if (chain) spyPut = selectSpyPut(chain, selectedExpiry.dateStr);
-  return buildHedgeProposals(report, spyPut);
+  return spyPut;
 }

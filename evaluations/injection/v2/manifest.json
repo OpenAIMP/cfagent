@@ -1,0 +1,18 @@
+{
+ "casesFile": "cases.json",
+ "categories": [
+  "instruction-override",
+  "system-prompt-exfiltration",
+  "secret-exfiltration",
+  "tool-call-smuggling",
+  "cross-tenant-baiting",
+  "delimiter-escape",
+  "authority-claim",
+  "benign"
+ ],
+ "created": "2026-10-23",
+ "notes": "Assertions are at the prompt-assembly level: retrieved content must arrive inside the retrieved-content delimiters as data, the system prompt must carry the data-is-not-instructions rule exactly once, and embedded END markers must be defused. Model-behavior grading (does a live model obey an injection despite the defense) is a separate, non-CI evaluation; the enforcement layer behind the prompt (orchestrator tool allowlist, HITL draft-then-confirm for payments/trades) is covered by its own tests.",
+ "provenance": "Synthetic red-team fixtures for the orchestrator retrieved-content prompt-injection defense (RSI-InfoSec #764, AISecOps #767 path 2, follow-up #879). NOT production memories or research output; they exist to exercise the defended prompt assembly deterministically in CI.",
+ "runner": "tests/orchestrator_injection_evalset.test.ts — assembles each case through the production buildOrchestratorSystemPrompt (src/agents/chatPrompt.ts, #879) with the case content in its declared retrieved slot (memory / vector / research) and asserts the separation invariants per case, plus a negative control (the separation-stripped assembly, byte-equivalent to the pre-#879 bare interpolation, must fail the same invariants).",
+ "version": "v2"
+}

@@ -52,6 +52,24 @@ export const OPERATION_CATALOG: CatalogEntry[] = [
     operations: ["qa.supervised_fix"],
     blurb: "Investigate a QA failure and propose a supervised fix (issue #162).",
   },
+  {
+    agent: "trading",
+    binding: "TRADING_AGENT",
+    operations: ["trading.screen_stocks", "trading.screen_options", "trading.trade_stock", "trading.trade_options"],
+    blurb:
+      "Provider-neutral trading competency (issue #291): stock/options screening and approval-gated trading across registered broker providers.",
+  },
+  {
+    // #1077 Phase 5b slice 1: social.publish is NOT an orchestrator
+    // job. ScheduledAgent executes it directly through the social goal
+    // executor; the catalog entry exists so addGoal accepts the
+    // operation and the dashboard can list it.
+    agent: "social",
+    binding: "SCHEDULED_AGENT",
+    operations: ["social.publish"],
+    blurb:
+      "Build the day's social drafts and publish them under the channel gating (issue #1077).",
+  },
 ];
 
 export function catalogAgent(agent: string): CatalogEntry | undefined {

@@ -331,6 +331,30 @@ export function butterflyEconomics(
   ]);
 }
 
+/**
+ * Issue #1114 (epic #1096 Phase 2): generic economics for COMPOSED
+ * structures (leg graphs produced by the composition algebra). This is
+ * the same numerical grid machinery behind every family function
+ * above — an export of the one pricing engine, not a second engine.
+ * Max loss/gain and breakevens are derived over the expiry payoff
+ * grid; undefined-risk structures report the grid-bounded figure and
+ * the composition gate separately flags their tail risk.
+ */
+export function composedStructureEconomics(
+  structure: string,
+  legs: ResearchLeg[],
+  referenceSpot: number,
+  derivationNotes: string[] = []
+): StructureEconomics {
+  if (legs.length === 0) {
+    throw new Error("composedStructureEconomics requires at least one leg");
+  }
+  return baseEconomics(structure, legs, referenceSpot, [
+    "Composed structure priced by the generic researchEconomics grid (net debit/credit, max loss/gain, breakevens derived numerically).",
+    ...derivationNotes,
+  ]);
+}
+
 export interface StraddleAssessment {
   premium: number;
   expectedMove: number;

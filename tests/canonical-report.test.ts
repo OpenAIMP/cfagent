@@ -246,6 +246,7 @@ describe("Issue #308 — one canonical report copy", () => {
   it("HITL OFF: generation still stores first, then delivers the stored copy", async () => {
     const emailSend = vi.fn(async () => true);
     const { agent, sql } = seedAgent(makeEnv({ EMAIL: { send: emailSend } }));
+    await setHitl(agent, false);
     const sendSpy = vi.spyOn(agent as any, "sendReportEmail");
     const res = await post(agent, "/trading/reports/email", EMAIL_BODY);
     expect((await res.json()) as any).toEqual({ success: true });

@@ -18,13 +18,15 @@ import { ETradeTradingPlatform } from "./etrade/platform";
 import { AlpacaTradingPlatform } from "./alpaca/platform";
 
 // Register default pluggable platforms (unchanged)
-TradingPlatformRegistry.register("etrade", (env, orm, userLogin) => new ETradeTradingPlatform(env, orm, userLogin));
+TradingPlatformRegistry.register("etrade", (env, orm, userLogin, overrideEnv) => new ETradeTradingPlatform(env, orm, userLogin, overrideEnv));
 TradingPlatformRegistry.register("alpaca", (env, orm, userLogin) => new AlpacaTradingPlatform(env, orm, userLogin));
-TradingPlatformRegistry.register("sandbox", (env, orm, userLogin) => new ETradeTradingPlatform(env, orm, userLogin));
+TradingPlatformRegistry.register("sandbox", (env, orm, userLogin, overrideEnv) => new ETradeTradingPlatform(env, orm, userLogin, overrideEnv));
 
 // --- boundary surface (pre-existing) ---
 export * from "./interfaces";
 export * from "./registry";
+export * from "./screeningProvider";
+export * from "./dataProviders";
 export * from "./screener";
 export * from "./agent";
 export * from "./etrade/client";
@@ -81,4 +83,5 @@ export * from "./voice/agent";
 // named export — which always wins over `export *` — pins that binding.
 export { MAX_SCAN_SYMBOLS } from "./options/opportunityScanner";
 export * from "./etrade/quoteTrace";
+export * from "./quotePolicies";
 

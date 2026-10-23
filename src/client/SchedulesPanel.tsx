@@ -1,4 +1,15 @@
 /**
+ * S7 (consolidation, umbrella #958): THE one schedule UI. This panel
+ * hosts the screening-schedule section (ScheduledOptionsManager —
+ * kind-specific cards, structured create/edit forms, latest runs,
+ * audit trail, live preview) for the three screening callbacks and
+ * renders every other schedule in the store (system, queued, NLQ
+ * reminders, …) as generic cards below it. Before S7 the two UIs
+ * sat in different tabs over the same store with different payload
+ * builders and feature sets; payload construction for the screening
+ * kinds now lives in exactly one place
+ * (scheduledOptionsManager/payloadBuilders).
+ *
  * Issue #309: Schedules Panel with tabbed grouping.
  * Issue #273: full schedules management UI — pause/resume, inline
  * frequency editing, per-job trigger, delete, and a create form fed by
@@ -39,19 +50,12 @@ export interface ScheduleItem {
 
 type ScheduleGroup = "all" | "stocks" | "options" | "system" | "queued";
 
-/** Frequency presets shared by the inline editor and the create form. */
-export const FREQUENCY_PRESETS: {
-  id: string;
-  label: string;
-  body: { scheduleType: "interval" | "cron"; intervalSeconds?: number; cron?: string };
-}[] = [
-  { id: "5m", label: "5m", body: { scheduleType: "interval", intervalSeconds: 300 } },
-  { id: "15m", label: "15m", body: { scheduleType: "interval", intervalSeconds: 900 } },
-  { id: "30m", label: "30m", body: { scheduleType: "interval", intervalSeconds: 1800 } },
-  { id: "hourly", label: "Hourly", body: { scheduleType: "cron", cron: "0 * * * *" } },
-  { id: "2h", label: "2h", body: { scheduleType: "interval", intervalSeconds: 7200 } },
-  { id: "daily", label: "Daily", body: { scheduleType: "cron", cron: "0 13 * * *" } },
-];
+/** Frequency presets for the inline editor — defined once in the
+ *  screening section's format module since S7 (both card kinds use
+ *  the same editor); re-exported here for existing importers. */
+export { FREQUENCY_PRESETS } from "./scheduledOptionsManager/format";
+import { FREQUENCY_PRESETS } from "./scheduledOptionsManager/format";
+import { ScheduledOptionsManager } from "./ScheduledOptionsManager";
 
 /**
  * Translate a cron expression to human-readable English.
@@ -105,8 +109,13 @@ export function categorizeSchedule(s: ScheduleItem): Exclude<ScheduleGroup, "all
     return "system"; // Will be overridden to "queued" by caller for delayed type
   }
 
-  // Options scanners
-  if (cb.includes("autonomousoptionsanalysis") || cb.includes("options")) {
+  // Options scanners + strategy discovery (S7: discovery was
+  // previously miscounted as "system" — it is an options kind).
+  if (
+    cb.includes("autonomousoptionsanalysis") ||
+    cb.includes("autonomousstrategydiscovery") ||
+    cb.includes("options")
+  ) {
     return "options";
   }
 
@@ -143,23 +152,30 @@ export function payloadSummary(payload: any): string {
 interface SchedulesPanelProps {
   activeEnv?: string;
   userLogin?: string;
+  /** S7: forwarded to the screening section's live-result preview. */
+  onPreviewTrade?: (candidate: any) => void;
 }
 
-export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
+export const SCREENING_CALLBACKS = new Set([
+  "autonomousMarketScreen",
+  "autonomousOptionsAnalysis",
+  "autonomousStrategyDiscovery",
+]);
+
+export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: SchedulesPanelProps) {
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
-  const [creatableCallbacks, setCreatableCallbacks] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ScheduleGroup>("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [customCron, setCustomCron] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [createCallback, setCreateCallback] = useState("");
-  const [createPreset, setCreatePreset] = useState("hourly");
-  const [createCron, setCreateCron] = useState("");
-  const [createPayload, setCreatePayload] = useState("{}");
-  const [createError, setCreateError] = useState<string | null>(null);
+  // S7: the generic raw-JSON create form is gone — the server's
+  // creatable allow-list is exactly the three screening callbacks,
+  // whose one structured create form lives in the screening section.
+  // These counters are the host signals that open it / refresh it.
+  const [openCreateSignal, setOpenCreateSignal] = useState(0);
+  const [refreshSignal, setRefreshSignal] = useState(0);
 
   const envHeaders = activeEnv ? { "x-environment": activeEnv } : undefined;
 
@@ -173,9 +189,6 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as any;
       setSchedules(data.schedules || data || []);
-      if (Array.isArray(data.creatableCallbacks)) {
-        setCreatableCallbacks(data.creatableCallbacks);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load schedules");
     } finally {
@@ -242,45 +255,12 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
     }
   };
 
-  const handleCreate = async () => {
-    setCreateError(null);
-    let payload: unknown;
-    try {
-      payload = createPayload.trim() ? JSON.parse(createPayload) : {};
-    } catch {
-      setCreateError("Payload must be valid JSON.");
-      return;
-    }
-    const callback = createCallback || creatableCallbacks[0] || "";
-    if (!callback) {
-      setCreateError("No creatable callbacks are available.");
-      return;
-    }
-    const preset = FREQUENCY_PRESETS.find((p) => p.id === createPreset);
-    const timing = createCron.trim()
-      ? { scheduleType: "cron", cron: createCron.trim() }
-      : preset?.body || { scheduleType: "cron", cron: "0 * * * *" };
-    try {
-      const res = await fetch("/api/schedules/create", {
-        method: "POST",
-        headers: { ...envHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ ...timing, callback, payload }),
-      });
-      const data = (await res.json().catch(() => ({}))) as any;
-      if (!res.ok || data.success === false) {
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-      setShowCreate(false);
-      setCreateCron("");
-      setCreatePayload("{}");
-      await fetchSchedules();
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : String(err));
-    }
-  };
+  // The screening kinds render in the screening section (kind
+  // cards); the generic grid below carries every other callback.
+  const genericSchedules = schedules.filter((s) => !SCREENING_CALLBACKS.has(s.callback));
 
   // Filter by active tab
-  const filtered = schedules.filter((s) => {
+  const filtered = genericSchedules.filter((s) => {
     if (activeTab === "all") return true;
     if (activeTab === "queued") return s.type === "delayed";
     return categorizeSchedule(s) === activeTab;
@@ -323,85 +303,50 @@ export function SchedulesPanel({ activeEnv, userLogin }: SchedulesPanelProps) {
             {t.label}
           </button>
         ))}
-        <button className="tab refresh" onClick={fetchSchedules} title="Refresh">
+        <button
+          className="tab refresh"
+          onClick={() => {
+            fetchSchedules();
+            setRefreshSignal((n) => n + 1);
+          }}
+          title="Refresh"
+        >
           ↻ Refresh
         </button>
-        <button className="tab refresh" onClick={() => setShowCreate((v) => !v)} title="Create a new schedule">
+        <button
+          className="tab refresh"
+          onClick={() => setOpenCreateSignal((n) => n + 1)}
+          title="Create a new schedule"
+        >
           ＋ New schedule
         </button>
       </div>
 
       {actionError && <div className="schedule-action-error">{actionError}</div>}
 
-      {showCreate && (
-        <div className="schedule-create-form">
-          <div className="schedule-create-row">
-            <label htmlFor="schedule-create-callback">Callback</label>
-            <select
-              id="schedule-create-callback"
-              value={createCallback || creatableCallbacks[0] || ""}
-              onChange={(e) => setCreateCallback(e.target.value)}
-            >
-              {creatableCallbacks.map((cb) => (
-                <option key={cb} value={cb}>
-                  {cb}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="schedule-create-row">
-            <span className="schedule-create-label">Frequency</span>
-            <div className="schedule-presets">
-              {FREQUENCY_PRESETS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`preset ${createPreset === p.id && !createCron.trim() ? "active" : ""}`}
-                  onClick={() => {
-                    setCreatePreset(p.id);
-                    setCreateCron("");
-                  }}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="schedule-create-row">
-            <label htmlFor="schedule-create-cron">Custom cron</label>
-            <input
-              id="schedule-create-cron"
-              type="text"
-              placeholder="Cron expression, e.g. 0 9 * * 1-5 (optional)"
-              value={createCron}
-              onChange={(e) => setCreateCron(e.target.value)}
-            />
-          </div>
-          <div className="schedule-create-row">
-            <label htmlFor="schedule-create-payload">Payload (JSON)</label>
-            <textarea
-              id="schedule-create-payload"
-              rows={3}
-              value={createPayload}
-              onChange={(e) => setCreatePayload(e.target.value)}
-            />
-          </div>
-          {createError && <div className="schedule-action-error">{createError}</div>}
-          <div className="schedule-create-actions">
-            <button type="button" onClick={handleCreate}>
-              Create schedule
-            </button>
-            <button type="button" onClick={() => setShowCreate(false)}>
-              Close
-            </button>
-          </div>
-        </div>
+      {(activeTab === "all" || activeTab === "stocks" || activeTab === "options") && (
+        <ScheduledOptionsManager
+          activeEnv={activeEnv}
+          userLogin={userLogin}
+          onPreviewTrade={onPreviewTrade}
+          groupFilter={activeTab === "all" ? "all" : activeTab}
+          refreshSignal={refreshSignal}
+          openCreateSignal={openCreateSignal}
+        />
       )}
 
       <div className="schedules-grid">
-        {filtered.length === 0 && (
-          <div className="empty">No schedules in this group.</div>
-        )}
+        {filtered.length === 0 &&
+          schedules.filter(
+            (s) =>
+              SCREENING_CALLBACKS.has(s.callback) &&
+              (activeTab === "all" ||
+                (activeTab === "stocks" && s.callback === "autonomousMarketScreen") ||
+                (activeTab === "options" &&
+                  s.callback !== "autonomousMarketScreen"))
+          ).length === 0 && (
+            <div className="empty">No schedules in this group.</div>
+          )}
         {filtered.map((s) => {
           const scheduleDesc = s.cron
             ? cronToEnglish(s.cron)

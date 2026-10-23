@@ -42,10 +42,23 @@ export interface ReportsRouteContext {
     decidedBy: string | null
   ): void;
   createReportConfirmation(
-    kind: "email" | "webhook",
+    kind: "email" | "webhook" | "screener",
     payloadJson: string,
     reportId?: string | null
   ): string;
+  /** Issue #1123 S5c: resubmit a held screener follow-up delivery on
+   *  approval (the resubmitted job carries the approval marker). */
+  submitFollowupDelivery?: (
+    delivery: {
+      outcome: import("../../services/screenerFollowups").ScreenerRunOutcome;
+      userLogin: string;
+      channel: import("../../types").AsyncJobChannel;
+      artifacts: Array<{ key: string; fileName: string }>;
+      parentJobId?: string;
+      displayName?: string;
+    },
+    confirmationId: string
+  ) => Promise<boolean>;
   confirmationDeliveryMeta(row: any): { recipient?: string };
   deliverStoredReportEmail(
     reportId: string,
@@ -134,8 +147,9 @@ export async function handleReportsRoutes(
     }
   }
 
-  // Issue #277: server-side setting for optional HITL confirmation on
-  // report dispatch. Default OFF (autonomous, today's behavior).
+  // Issue #277: server-side setting for HITL confirmation on report
+  // dispatch. Default ON (#1144) — held for confirmation unless the
+  // setting explicitly opts out.
   if (path.endsWith("/trading/settings/report-dispatch-hitl") && request.method === "GET") {
     return Response.json({ enabled: ctx.getReportDispatchHitl() });
   }
@@ -183,6 +197,30 @@ export async function handleReportsRoutes(
     }
     const userLogin = request.headers.get("x-user-login") || sessionId;
     if (decision === "approved") {
+      // Issue #1123 S5c: a held screener follow-up delivery. Approval
+      // resubmits the delivery job with the approval marker so the
+      // executor sends it; the spec rides the confirmation payload.
+      if (row.kind === "screener") {
+        if (!ctx.submitFollowupDelivery) {
+          return Response.json({ error: "Screener delivery release is unavailable in this host." }, { status: 500 });
+        }
+        let delivery: Parameters<NonNullable<typeof ctx.submitFollowupDelivery>>[0] | undefined;
+        try {
+          delivery = (JSON.parse(String(row.payload_json)) as { delivery?: typeof delivery })?.delivery;
+        } catch {
+          delivery = undefined;
+        }
+        if (!delivery || typeof delivery !== "object") {
+          return Response.json({ error: "The confirmation has no delivery payload." }, { status: 500 });
+        }
+        const submitted = await ctx.submitFollowupDelivery(delivery, confirmationId);
+        if (!submitted) {
+          return Response.json({ error: "Could not resubmit the held delivery." }, { status: 500 });
+        }
+        ctx.decideReportConfirmation(confirmationId, "approved", userLogin);
+        ctx.audit("screener.followup_delivery_released", "orchestrator", { confirmationId, channel: delivery.channel });
+        return Response.json({ success: true, status: "dispatched", confirmationId });
+      }
       // Issue #308: deliver the STORED canonical copy. New rows
       // reference mas_reports via report_id; legacy rows (pre-#308)
       // carry the full payload in payload_json (fallback below).

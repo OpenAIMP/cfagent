@@ -62,9 +62,11 @@ export function writeSetting(ctx: ReportDispatchContext, key: string, value: str
   sql.exec("INSERT INTO mas_settings (key, value, updated_at) VALUES (?, ?, ?)", key, value, now);
 }
 
-/** Issue #277: true when report dispatch requires human confirmation. Default OFF. */
+/** Issue #277: true when report dispatch requires human confirmation.
+ *  Default ON (owner decision 2026-10-23, #1144): an unset setting
+ *  means enabled; only an explicit "0" (the settings toggle) opts out. */
 export function getReportDispatchHitl(ctx: ReportDispatchContext): boolean {
-  return readSettingRaw(ctx, ctx.reportDispatchHitlKey) === "1";
+  return readSettingRaw(ctx, ctx.reportDispatchHitlKey) !== "0";
 }
 
 export function setReportDispatchHitl(ctx: ReportDispatchContext, enabled: boolean): void {
@@ -77,8 +79,8 @@ export function setReportDispatchHitl(ctx: ReportDispatchContext, enabled: boole
  * fileName / title — never report bytes); the canonical report copy
  * lives once in mas_reports and is referenced by reportId.
  */
-export function createReportConfirmation(ctx: ReportDispatchContext, 
-  kind: "email" | "webhook",
+export function createReportConfirmation(ctx: ReportDispatchContext,
+  kind: "email" | "webhook" | "screener",
   payloadJson: string,
   reportId?: string | null
 ): string {

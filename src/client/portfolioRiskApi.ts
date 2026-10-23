@@ -199,6 +199,41 @@ export function fetchEvaluate(env: string, candidate: CandidateGreekContribution
   return postJson<EvaluateResult>("/api/etrade/portfolio-risk/evaluate", env, { candidate });
 }
 
+// ---------------------------------------------------------------------------
+// Recommendation Bundle — Best Trade v2 (issue #1135, Phase 4 of #1096)
+// ---------------------------------------------------------------------------
+
+import type { RecommendationBundle } from "../services/recommendationBundle";
+import type { StrategyCandidate } from "../trading";
+
+export type { RecommendationBundle };
+
+/**
+ * Build a recommendation bundle for a strategy candidate against the
+ * live book. Shape guard (issue #71 pattern): the renderer reads arrays
+ * on the bundle, so an incomplete payload surfaces as an error state.
+ */
+export async function fetchBundle(
+  env: string,
+  body: { candidate: StrategyCandidate; beta?: number | null; requestedContracts?: number },
+): Promise<RecommendationBundle> {
+  const bundle = await postJson<RecommendationBundle>("/api/etrade/portfolio-risk/bundle", env, body);
+  if (!bundle || !Array.isArray(bundle.alternatives) || !bundle.optimizer || !Array.isArray(bundle.optimizer.evidence)) {
+    throw new Error("Unexpected bundle response shape — the payload was incomplete.");
+  }
+  return bundle;
+}
+
+/** Parse the panel's candidate-JSON textarea: a full StrategyCandidate
+ *  object (as produced by the strategy engine / opportunity scanner). */
+export function parseBundleCandidate(text: string): StrategyCandidate {
+  const parsed = JSON.parse(text) as StrategyCandidate;
+  if (!parsed || typeof parsed.symbol !== "string" || !Array.isArray(parsed.legs) || parsed.legs.length === 0) {
+    throw new Error("Candidate JSON must be a strategy candidate object with a symbol and at least one leg.");
+  }
+  return parsed;
+}
+
 /** Parses the Evaluate form into a candidate contribution; null when a required field is not numeric. */
 export function buildEvaluateCandidate(form: Record<string, string>): CandidateGreekContribution | null {
   const num = (key: string): number | null => {

@@ -1,5 +1,9 @@
 name: Deploy AI Search Agent
 
+# Runner pin: ubuntu-24.04 everywhere below. ubuntu-latest began migrating
+# toward Ubuntu 26 and segfaulted deploys (exit 139, #596). Pin until a
+# runner migration is a deliberate, tested change.
+
 on:
   push:
     branches:
@@ -20,12 +24,15 @@ jobs:
   # ── Step 1: read environment.config.json or input to determine target environment ──
   load-environment:
     name: Load Active Environment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       target_env: ${{ steps.read-env.outputs.target_env }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            environment.config.json
 
       - name: Read Active Environment from Config or Input
         id: read-env
@@ -41,7 +48,7 @@ jobs:
 
   # ── Step 2: build & deploy using secrets from the GitHub Environment ──
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Backstop for the secret-push steps: a hung Cloudflare API call is bounded
     # per attempt (see put_secret) and the whole job must never sit for hours.
     timeout-minutes: 30
@@ -138,7 +145,7 @@ jobs:
   # deployed when this runs, so a Cloudflare secrets blip must not read as
   # "the code deploy failed", and tag release / QA must not wait on it.
   sync-secrets:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Sync Worker secrets [${{ needs.load-environment.outputs.target_env }}]
     needs: [load-environment, deploy]
     environment: ${{ needs.load-environment.outputs.target_env }}
@@ -149,15 +156,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
+          sparse-checkout: |
+            scripts/ci/put-secret.sh
 
       - name: Start secret sync summary
         run: |
@@ -323,7 +324,7 @@ jobs:
   # Tags every successful deploy for rollback and release tracking.
   # Format: v0.1.<patch> auto-incrementing. Milestones bump minor/major manually.
   tag-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Tag Release
     needs: deploy
     permissions:
@@ -412,7 +413,7 @@ jobs:
 
   # ── Step 4: post-deploy QA smoke test (ported from cfpay) ──
   qa-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Post-deploy QA
     needs: deploy
     permissions:
