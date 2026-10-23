@@ -836,20 +836,23 @@ export async function handleScreenerResearchRoutes(
         );
       }
       const changes: string[] = [];
-      const applyBool = (value: boolean | undefined, key: string, label: string) => {
+      // The change label derives from the flag key itself
+      // ("screening.scheduledPaused" → "scheduledPaused") so the log
+      // line can never drift from the key it describes.
+      const applyBool = (value: boolean | undefined, key: string) => {
         if (typeof value === "boolean") {
           ctx.writeSetting(key, value ? "on" : "off");
-          changes.push(`${label}=${value ? "on" : "off"}`);
+          changes.push(`${key.replace(/^screening\./, "")}=${value ? "on" : "off"}`);
         }
       };
       if (body.rolloutStage !== undefined) {
         ctx.writeSetting(SCREENING_FLAG_KEYS.rolloutStage, body.rolloutStage);
         changes.push(`rolloutStage=${body.rolloutStage}`);
       }
-      applyBool(body.channelsEnabled, SCREENING_FLAG_KEYS.channelsEnabled, "channelsEnabled");
-      applyBool(body.nlqFitDiscovery, SCREENING_FLAG_KEYS.nlqFitDiscovery, "nlqFitDiscovery");
-      applyBool(body.weightsV2Ranking, SCREENING_FLAG_KEYS.weightsV2Ranking, "weightsV2Ranking");
-      applyBool(body.scheduledPaused, SCREENING_FLAG_KEYS.scheduledPaused, "scheduledPaused");
+      applyBool(body.channelsEnabled, SCREENING_FLAG_KEYS.channelsEnabled);
+      applyBool(body.nlqFitDiscovery, SCREENING_FLAG_KEYS.nlqFitDiscovery);
+      applyBool(body.weightsV2Ranking, SCREENING_FLAG_KEYS.weightsV2Ranking);
+      applyBool(body.scheduledPaused, SCREENING_FLAG_KEYS.scheduledPaused);
       if (changes.length === 0) {
         return Response.json({ error: "No recognized control was supplied." }, { status: 400 });
       }
