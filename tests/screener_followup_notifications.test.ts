@@ -181,6 +181,8 @@ function makeCtx(
         return { ok: true };
       },
     }),
+    reportDispatchHitlEnabled: () => false,
+    createScreenerConfirmation: () => "rc_unused",
   } as unknown as AsyncJobsContext;
 }
 

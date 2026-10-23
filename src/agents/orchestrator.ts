@@ -249,6 +249,9 @@ export class OrchestratorAgent extends Think<Env> {
         getOrm: () => this.getOrm(),
         getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
       }),
+      reportDispatchHitlEnabled: () => getReportDispatchHitl(this.reportDispatchContext()),
+      createScreenerConfirmation: (payloadJson: string) =>
+        createReportConfirmation(this.reportDispatchContext(), "screener", payloadJson, null),
     };
   }
 
@@ -1103,7 +1106,7 @@ export class OrchestratorAgent extends Think<Env> {
 
   // Issue #992: extracted to ./orchestrator/reportDispatch.ts (createReportConfirmation);
   private createReportConfirmation(
-    kind: "email" | "webhook",
+    kind: "email" | "webhook" | "screener",
     payloadJson: string,
     reportId?: string | null
   ): string {
@@ -1680,6 +1683,23 @@ export class OrchestratorAgent extends Think<Env> {
         this.decideReportConfirmation(id, status, decidedBy),
       createReportConfirmation: (kind, payloadJson, reportId) =>
         this.createReportConfirmation(kind, payloadJson, reportId),
+      submitFollowupDelivery: async (delivery, confirmationId) => {
+        await this.submitAsyncJob({
+          capability: "followup.deliver",
+          payload: {
+            outcome: delivery.outcome,
+            userLogin: delivery.userLogin,
+            channel: delivery.channel,
+            artifacts: delivery.artifacts,
+            approvedConfirmationId: confirmationId,
+          },
+          parentJobId: delivery.parentJobId,
+          jobKind: "delivery",
+          channel: delivery.channel,
+          displayName: delivery.displayName,
+        });
+        return true;
+      },
       confirmationDeliveryMeta: (row) => this.confirmationDeliveryMeta(row),
       deliverStoredReportEmail: (reportId, recipient, userLogin) =>
         this.deliverStoredReportEmail(reportId, recipient, userLogin),

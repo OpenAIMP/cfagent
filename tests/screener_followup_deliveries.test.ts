@@ -213,6 +213,8 @@ function makeCtx(
         return { ok: true, detail: "sent-1" };
       },
     }),
+    reportDispatchHitlEnabled: () => false,
+    createScreenerConfirmation: () => "rc_unused",
   } as unknown as AsyncJobsContext;
 }
 

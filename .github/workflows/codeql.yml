@@ -21,6 +21,10 @@ on:
     # Weekly, Mondays 06:17 UTC — off the hour to avoid the fleet-wide rush.
     - cron: "17 6 * * 1"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
   security-events: write
