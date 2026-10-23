@@ -25,6 +25,35 @@ export interface DataProviderVerification {
   verifiedBy: string;
 }
 
+/**
+ * Health status derived server-side from capture records (E6,
+ * issue #1235): "no-data" means the provider has no captures at
+ * all — an honest unknown, never rendered as healthy.
+ */
+export type DataProviderHealthStatus = "healthy" | "degraded" | "down" | "no-data";
+
+/** Usage + outcome aggregates over a provider's (or capability's) captures (E6). */
+export interface DataProviderCaptureAggregates {
+  totalCaptures: number;
+  capturedCount: number;
+  failedCount: number;
+  /** failedCount / totalCaptures; 0 when there are no captures. */
+  failureRate: number;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  consecutiveFailures: number;
+  /** Bytes actually stored for `captured` records. */
+  totalRawBytes: number;
+  capturesLast24h: number;
+  failuresLast24h: number;
+}
+
+/** The E6 health block on each provider view (server-derived; the panel only formats). */
+export interface DataProviderHealth extends DataProviderCaptureAggregates {
+  status: DataProviderHealthStatus;
+  byCapability: Record<string, DataProviderCaptureAggregates>;
+}
+
 /** One provider as the E3 GET surface serves it (providerView). */
 export interface DataProviderView {
   id: string;
@@ -41,6 +70,8 @@ export interface DataProviderView {
   verification: DataProviderVerification | null;
   /** Whether any capability route currently resolves to this provider. */
   serving: boolean;
+  /** Capture-derived health + usage metering (E6, issue #1235). */
+  health: DataProviderHealth;
 }
 
 /** One capability route as the E3 GET surface serves it (routeServability). */
@@ -163,4 +194,18 @@ export function fmtDataProviderTime(iso: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Plain byte-count rendering for the E6 captured-data total (formatting only). */
+export function fmtCaptureBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"] as const;
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${Number.isInteger(value) ? value : value.toFixed(1)} ${units[unit]}`;
 }
