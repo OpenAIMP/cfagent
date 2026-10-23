@@ -103,6 +103,7 @@ const BROKER_CONDITIONS_BASELINE = [
   'endsWith("/etrade/portfolio-risk/evaluate")',
   'endsWith("/etrade/portfolio-risk/correlation")',
   'endsWith("/etrade/portfolio-risk/size")',
+  'endsWith("/etrade/portfolio-risk/bundle")',
   'endsWith("/etrade/think/evaluate")',
   'endsWith("/etrade/hedge/analyze")',
   'endsWith("/etrade/portfolio-repair/analyze")',
@@ -157,8 +158,10 @@ describe("route module re-split (#995)", () => {
     // shrinking this count in the migrating PR per the ledger's rule.
     expect(count(OPTIONS_FILE)).toBe(5);
     // Was 20 at the re-split; #291 Q3 migrated the quote route to the
-    // registry + LIVE_STRICT policy (ledger 48 -> 47).
-    expect(count(BROKER_FILE)).toBe(19);
+    // registry + LIVE_STRICT policy (ledger 48 -> 47); #1135 added the
+    // recommendation-bundle route, which constructs its own service
+    // like every sibling portfolio-risk route (19 -> 20).
+    expect(count(BROKER_FILE)).toBe(20);
     for (const file of NEW_MODULES) {
       expect(count(file), `${file} must not construct ETradeService`).toBe(0);
     }

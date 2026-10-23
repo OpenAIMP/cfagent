@@ -9,7 +9,7 @@
  *    the block), broker status, diagnostics, accounts, equity screener,
  *    quote, order preview/execute (with the autopilot policy envelope,
  *    expiration scheduling, and pre-trade Slack approval ticket), positions,
- *    portfolio-risk (aggregate / evaluate / correlation / size), think
+ *    portfolio-risk (aggregate / evaluate / correlation / size / bundle), think
  *    evaluation, hedge analysis, and orders listing / remote fetch / cancel.
  * 2. The broker account-activity block: transactions list + details, alerts
  *    inbox + details + delete, and product lookup. It was non-contiguous
@@ -46,7 +46,12 @@ import {
   sizeCandidateAgainstPortfolio,
   type SizingCandidate,
 } from "../../services/positionSizing";
-import { generateHedgeProposals } from "../../services/hedgeProposals";
+import { generateHedgeProposals, resolveSpyPutContract } from "../../services/hedgeProposals";
+import { buildRecommendationBundle } from "../../services/recommendationBundle";
+import { buildScenario, type ScenarioConstraints, type ScenarioShockGrid } from "../../services/goalScenarioEngine";
+import type { GoalKind } from "../../services/goalScenarioStore";
+import type { FalsificationInput } from "../../services/researchFalsification";
+import type { StrategyCandidate } from "../../trading";
 import { sharedCorrelationService } from "../../services/correlationService";
 import { ETradeService } from "../../services/etrade";
 import { publishScreenerCompleted, publishScreenerFailed } from "../../events/screenerPublishers";
@@ -614,6 +619,71 @@ export async function handleEtradeBrokerRoutes(
       return Response.json(sizeCandidateAgainstPortfolio(report, body.candidate));
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to size candidate" }, { status: 500 });
+    }
+  }
+
+  // Recommendation Bundle — Best Trade v2 (issue #1135, Phase 4 of epic
+  // #1096): a strategy candidate becomes a bundle (trade + falsification +
+  // post-trade risk + optimizer verdict + hedge/repair + alternatives
+  // incl. no-trade), built by recommendationBundle over the live book.
+  // Drafts only — this endpoint never places or previews an order.
+  if (path.endsWith("/etrade/portfolio-risk/bundle") && request.method === "POST") {
+    try {
+      const body = (await request.json().catch(() => ({}))) as {
+        candidate?: StrategyCandidate;
+        beta?: number | null;
+        falsification?: FalsificationInput;
+        goalKind?: GoalKind;
+        shocks?: ScenarioShockGrid;
+        constraints?: ScenarioConstraints;
+        requestedContracts?: number;
+        riskScore?: number;
+        pickStatus?: "recommended" | "research_only" | "no_trade";
+        pickConfidence?: "HIGH" | "MEDIUM" | "LOW";
+      };
+      if (!body.candidate?.symbol || !Array.isArray(body.candidate.legs) || body.candidate.legs.length === 0) {
+        return Response.json({ error: "candidate with symbol and legs is required" }, { status: 400 });
+      }
+      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      const report = await computePortfolioRisk(etrade);
+      const concentration = await assessPortfolioConcentration(
+        report,
+        (a, b) => sharedCorrelationService.estimate(a, b),
+        body.candidate.symbol,
+      ).catch(() => null);
+      const measured = (concentration?.candidateAssessment?.correlations ?? [])
+        .filter((c) => c.source === "measured" && c.value !== null)
+        .map((c) => c.value as number);
+      const { generateRepairProposals } = await import("../../services/repairProposals");
+      const repairAnalysis = await generateRepairProposals(etrade).catch(() => null);
+      const spyPut = await resolveSpyPutContract(etrade).catch(() => null);
+      const scenario = buildScenario({
+        goalKind: body.goalKind ?? "directional",
+        portfolioRef: { kind: "real" },
+        shocks: body.shocks,
+        constraints: body.constraints,
+      });
+      const bundle = buildRecommendationBundle({
+        candidates: [{
+          candidate: body.candidate,
+          beta: body.beta ?? null,
+          riskScore: body.riskScore,
+          requestedContracts: body.requestedContracts,
+          maxMeasuredCorrelation: measured.length ? Math.max(...measured) : null,
+        }],
+        report,
+        scenario,
+        falsification: body.falsification,
+        pickStatus: body.pickStatus,
+        pickConfidence: body.pickConfidence,
+        concentration,
+        spyPut,
+        repairAnalysis,
+      });
+      return Response.json(bundle);
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : "Failed to build recommendation bundle" }, { status: 500 });
     }
   }
 
