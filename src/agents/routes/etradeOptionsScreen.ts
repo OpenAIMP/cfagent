@@ -22,6 +22,7 @@ import {
 } from "../../trading";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
+import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
 import { getEventCalendarCoverage, toEventCalendarInfo } from "../../services/eventCalendar";
 import type { EtradeOptionsRouteContext } from "./etradeOptions";
 
@@ -110,8 +111,24 @@ export async function executeOptionsScreen(args: {
 
   // Deliver over A2A to Slack channel unless caller explicitly opted out
   // (or the tracked follow-up pipeline owns delivery — issue #1123).
+  // S5a: when the host provides the follow-up bridge, the run is
+  // recorded + chained through the pipeline instead of delivering
+  // inline; the A2A block remains the fallback for hosts without it.
   const shouldNotifySlack = screenPushToSlack !== false && !deferDelivery;
-  if (shouldNotifySlack) {
+  if (shouldNotifySlack && ctx.scheduleScreenerFollowups) {
+    await ctx.scheduleScreenerFollowups(
+      screenerOutcomeFromRunResult("options", {
+        success: true,
+        thesis: screenUniverseLabel,
+        totalScanned: result.totalUnderlyingsScanned,
+        matchedCount: result.matchedCount,
+        pdfKey: optionsPdfKey,
+        pdfStatus: optionsPdfKey ? "generated" : undefined,
+        summary: `${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.`,
+      }),
+      userLogin,
+    );
+  } else if (shouldNotifySlack) {
     const slackChannel = screenSlackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
     const summary = `📊 Options Contract Screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;
     try {

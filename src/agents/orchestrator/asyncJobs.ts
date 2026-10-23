@@ -308,6 +308,69 @@ async function submitLifecycleNotifications(
   }
 }
 
+/**
+ * Issue #1123 S5a: the bridge for screener runs that did NOT execute
+ * as async jobs (synchronous route executions, scheduled runs).
+ * Records the run as a completed main-job row (capability
+ * 'screener.run', visible in the jobs panel like any other job) and
+ * submits the standard chain — report sub-job + completion/failure
+ * notifications — so every completion source produces the same tree.
+ * 'started' notifications are not emitted retroactively.
+ */
+export async function recordScreenerRunMainJob(
+  ctx: AsyncJobsContext,
+  outcome: ScreenerRunOutcome,
+  userLogin: string,
+): Promise<string> {
+  const sql = ctx.ensureTables();
+  const jobId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
+  const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
+  const displayName = `${kindLabel} screen${scope ? ` — ${scope}` : ""}`;
+  // Single-line INSERT per the MockSqlStorage lesson (multi-line
+  // column lists silently no-op in the shared mock).
+  sql.exec(
+    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, result_json, error, created_at, updated_at, completed_at, job_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    jobId,
+    ctx.sessionKey(),
+    "screener.run",
+    displayName,
+    outcome.success ? "completed" : "failed",
+    JSON.stringify({ outcome, userLogin }),
+    JSON.stringify({
+      status: outcome.success ? "completed" : "failed",
+      kind: outcome.kind,
+      trigger: outcome.trigger,
+      matchedCount: outcome.matchedCount,
+      totalScanned: outcome.totalScanned,
+      reportUrl: outcome.reportUrl,
+      bridged: true,
+    }),
+    outcome.success ? null : outcome.error ?? null,
+    now,
+    now,
+    now,
+    "main",
+  );
+  ctx.audit("screener.run_bridged", "orchestrator", { jobId, kind: outcome.kind, success: outcome.success });
+  const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
+  for (const spec of planInitialFollowups(outcome, config, jobId, userLogin)) {
+    await submitAsyncJob(ctx, spec);
+  }
+  await submitLifecycleNotifications(ctx, outcome.success ? "completed" : "failed", outcome, jobId, userLogin);
+  return jobId;
+}
+
+/** Route/scheduler-facing alias: bridge one finished run end-to-end. */
+export async function scheduleScreenerFollowups(
+  ctx: AsyncJobsContext,
+  outcome: ScreenerRunOutcome,
+  userLogin: string,
+): Promise<void> {
+  await recordScreenerRunMainJob(ctx, outcome, userLogin);
+}
+
 export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJobPayload): Promise<void> {
   const sql = ctx.ensureTables();
   const now = new Date().toISOString();

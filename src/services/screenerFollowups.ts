@@ -275,6 +275,46 @@ export function formatFollowupDeliveryText(outcome: ScreenerRunOutcome): string 
 }
 
 /**
+ * Issue #1123 S5a: adapt a run-result object (ScreenerRunResult from
+ * the agent/routes, or the options screen's result fields) into the
+ * canonical outcome — the bridge entry for sources that did not run
+ * as async jobs.
+ */
+export function screenerOutcomeFromRunResult(
+  kind: ScreenerKind,
+  result: Record<string, unknown>,
+): ScreenerRunOutcome {
+  const pdfKey = typeof result.pdfKey === "string" ? result.pdfKey : undefined;
+  const reportUrl = typeof result.reportUrl === "string"
+    ? result.reportUrl
+    : pdfKey
+      ? kind === "stock"
+        ? `/api/screener/report.pdf?key=${encodeURIComponent(pdfKey)}`
+        : `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`
+      : undefined;
+  return {
+    kind,
+    trigger: result.trigger === "scheduled" ? "scheduled" : "manual",
+    success: result.success !== false,
+    pdfKeys: pdfKey ? [pdfKey] : [],
+    pdfStatus: result.pdfStatus === "generated" || result.pdfStatus === "failed" || result.pdfStatus === "skipped"
+      ? result.pdfStatus
+      : pdfKey
+        ? "generated"
+        : undefined,
+    pdfError: typeof result.pdfError === "string" ? result.pdfError : undefined,
+    reportUrl,
+    matchedCount: asNumber(result.matchedCount),
+    totalScanned: asNumber(result.totalScanned) ?? asNumber(result.totalUnderlyingsScanned),
+    universe: typeof result.universe === "string" ? result.universe : undefined,
+    thesis: typeof result.thesis === "string" ? result.thesis : undefined,
+    summary: typeof result.summary === "string" ? result.summary : undefined,
+    opportunities: asOpportunities(result.opportunities),
+    error: typeof result.error === "string" ? result.error : undefined,
+  };
+}
+
+/**
  * The initial plan for a completed run: exactly one report sub-job.
  * Deliveries are planned when the report completes (S3) and lifecycle
  * notifications at their transitions (S4) — the chain keeps each step

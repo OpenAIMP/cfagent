@@ -82,6 +82,14 @@ export interface EtradeBrokerRouteContext {
    *  follow-ups then belong to the tracked pipeline, and inline
    *  publishers must defer (no double delivery). */
   asyncJobId?: string;
+  /** Issue #1123 S5a: bridge a synchronously-completed screen into
+   *  the tracked follow-up pipeline (main-job record + report +
+   *  deliveries + notifications). Preferred over the inline
+   *  publishers whenever the host provides it. */
+  scheduleScreenerFollowups?: (
+    outcome: import("../../services/screenerFollowups").ScreenerRunOutcome,
+    userLogin: string,
+  ) => Promise<void>;
   /** ORM accessor (owner: OrchestratorAgent - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
   /** Audit writer (owner: OrchestratorAgent - was `this.audit`). */
