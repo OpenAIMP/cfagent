@@ -44,10 +44,15 @@ export interface DataProviderView {
 }
 
 /** One capability route as the E3 GET surface serves it (routeServability). */
+/** Offering tier a route requires of its callers (E5, issue #1202). */
+export type DataProviderTier = "freemium" | "premium";
+
 export interface CapabilityRouteView {
   capability: string;
   primaryProviderId: string;
   gapFillProviderId: string | null;
+  /** Minimum caller tier served through this route (E5). */
+  minTier: DataProviderTier;
   resolves: boolean;
   resolvedPrimaryId: string | null;
   resolvedGapFillId: string | null;
