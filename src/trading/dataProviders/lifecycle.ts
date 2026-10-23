@@ -71,13 +71,28 @@
  * the credential reference is cleared, verification evidence is
  * dropped, and the record is tombstoned to "deprovisioned".
  * Captures (mas_data_captures) are history and are NEVER touched.
+ *
+ * ROUTE TIERS (E5, issue #1202): configure also accepts routeTiers
+ * — the minTier for routes this provider serves (either slot; the
+ * tier gates the whole route). The assignments are validated as a
+ * whole before anything is stored and ride inside the configure's
+ * audit event; enforcement lives in the registry (resolveRoute's
+ * callerTier), not here.
  */
 
 import type { SqlStorage } from "../../orm";
-import type { DataProviderId } from "./contract";
 import {
+  DATA_PROVIDER_CAPABILITIES,
+  isTier,
+  type DataProviderCapability,
+  type DataProviderId,
+  type Tier,
+} from "./contract";
+import {
+  getCapabilityRoute,
   getProviderConfig,
   listProviderConfigs,
+  upsertCapabilityRoute,
   upsertProviderConfig,
   clearProviderCredentialRef,
   deleteCapabilityRoutesForProvider,
@@ -98,6 +113,7 @@ export type ProviderLifecycleErrorCode =
   | "unknown_provider"
   | "already_registered"
   | "invalid_credential_ref"
+  | "invalid_route_tier"
   | "verification_failed"
   | "verifier_unavailable";
 
@@ -145,6 +161,13 @@ export interface ProviderLifecycleAuditEvent {
   to: ProviderLifecycleState | null;
   outcome: "accepted" | "rejected";
   reason?: string;
+  /**
+   * Configure only (E5, issue #1202): the route-tier assignments the
+   * configure carried, as submitted — present on accepted AND
+   * rejected configure events so the audit shows the attempted tier
+   * change either way.
+   */
+  routeTiers?: Partial<Record<DataProviderCapability, Tier>>;
 }
 export type ProviderLifecycleAuditSink = (
   event: ProviderLifecycleAuditEvent
@@ -156,6 +179,16 @@ export interface ProviderConfigureInput {
   displayName?: string;
   /** Free-form provider config merged into the record's config JSON. */
   metadata?: Record<string, unknown>;
+  /**
+   * Route-tier assignments (E5, issue #1202): for each capability,
+   * the minTier of the route this provider serves — in EITHER the
+   * primary or the gap-fill slot (the tier gates the whole route).
+   * Validated as a whole before anything is stored: an unknown
+   * capability, a value that is not a tier, or a capability this
+   * provider does not serve rejects the configure
+   * (invalid_route_tier) with nothing stored.
+   */
+  routeTiers?: Partial<Record<DataProviderCapability, Tier>>;
 }
 
 export interface ProviderRegisterInput {
@@ -294,6 +327,13 @@ export async function transitionProvider(
   const from = existing?.lifecycleState ?? null;
   const to = targetStateFor(action);
 
+  // Configure-with-routeTiers detail for the audit event (E5): set
+  // by the configure branch before any outcome is emitted, so both
+  // the accepted and the rejected event carry what was attempted.
+  let routeTierDetail:
+    | Partial<Record<DataProviderCapability, Tier>>
+    | undefined;
+
   const reject = (
     code: ProviderLifecycleErrorCode,
     message: string,
@@ -308,6 +348,7 @@ export async function transitionProvider(
       to: errTo,
       outcome: "rejected",
       reason: message,
+      ...(routeTierDetail ? { routeTiers: routeTierDetail } : {}),
     });
     throw new ProviderLifecycleError({
       providerId,
@@ -327,6 +368,7 @@ export async function transitionProvider(
       from,
       to: record.lifecycleState,
       outcome: "accepted",
+      ...(routeTierDetail ? { routeTiers: routeTierDetail } : {}),
     });
     return record;
   };
@@ -404,6 +446,46 @@ export async function transitionProvider(
           `credentialRef for provider "${providerId}" is not a reference name (expected a form like "env:NAME", "sessionstore:ns:key", or "NAME"); secret values are never accepted.`
         );
       }
+      // Route tiers (E5): validated as a whole BEFORE anything is
+      // stored — an invalid assignment rejects the configure with
+      // the record and every route untouched.
+      if (input.routeTiers) routeTierDetail = input.routeTiers;
+      const routeTierWrites: Array<{
+        capability: DataProviderCapability;
+        tier: Tier;
+      }> = [];
+      for (const [capabilityRaw, tierRaw] of Object.entries(
+        input.routeTiers ?? {}
+      )) {
+        if (
+          !(DATA_PROVIDER_CAPABILITIES as readonly string[]).includes(
+            capabilityRaw
+          )
+        ) {
+          reject(
+            "invalid_route_tier",
+            `routeTiers for provider "${providerId}" names unknown capability "${capabilityRaw}"; known capabilities are ${DATA_PROVIDER_CAPABILITIES.join(", ")}.`
+          );
+        }
+        if (!isTier(tierRaw)) {
+          reject(
+            "invalid_route_tier",
+            `routeTiers.${capabilityRaw} for provider "${providerId}" is not a tier (expected "freemium" or "premium").`
+          );
+        }
+        const capability = capabilityRaw as DataProviderCapability;
+        const route = getCapabilityRoute(sql, capability);
+        if (
+          !route ||
+          (route.primaryProviderId !== id && route.gapFillProviderId !== id)
+        ) {
+          reject(
+            "invalid_route_tier",
+            `Provider "${providerId}" does not serve capability "${capability}" as primary or gap-fill; there is no route of this provider to tier.`
+          );
+        }
+        routeTierWrites.push({ capability, tier: tierRaw });
+      }
       const config: Record<string, unknown> = { ...record.config };
       // A new configuration invalidates any earlier verification.
       delete config.verification;
@@ -428,6 +510,20 @@ export async function transitionProvider(
         input.credentialRef === null
           ? clearProviderCredentialRef(sql, id) ?? updated
           : updated;
+      // Apply the validated route tiers (slots re-read at apply
+      // time; occupancy was proven above and nothing else writes
+      // routes during a transition).
+      for (const write of routeTierWrites) {
+        const route = getCapabilityRoute(sql, write.capability);
+        if (route) {
+          upsertCapabilityRoute(sql, {
+            capability: write.capability,
+            primaryProviderId: route.primaryProviderId,
+            gapFillProviderId: route.gapFillProviderId,
+            minTier: write.tier,
+          });
+        }
+      }
       return accept(final);
     }
 
