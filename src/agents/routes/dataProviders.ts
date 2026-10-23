@@ -6,7 +6,7 @@
  * handler). Returns a Response on match, null when no data-provider
  * path matches.
  *
- *   GET  /data-providers                              configs + routes + servability
+ *   GET  /data-providers                              configs + routes + servability (+ per-provider capture health, E6 #1235)
  *   GET  /data-providers/:id                          one config + its routes
  *   POST /data-providers/:id/register|configure|verify|enable|disable|deprovision
  *
@@ -56,6 +56,7 @@ import {
   createAlpacaDataProvider,
   DataProviderRegistry,
   DataProviderNotFoundError,
+  aggregateProviderHealth,
   listProviderConfigs,
   listCapabilityRoutes,
   getProviderConfig,
@@ -174,7 +175,8 @@ function routeServability(
 function providerView(
   registry: DataProviderRegistry,
   record: ProviderConfigRecord,
-  routeViews: ReturnType<typeof routeServability>
+  routeViews: ReturnType<typeof routeServability>,
+  sql: SqlStorage
 ) {
   const adapter = registry.get(record.id);
   const serving = routeViews.some(
@@ -195,8 +197,24 @@ function providerView(
     declaredCapabilities: adapter ? [...adapter.capabilities] : [],
     verification: getVerificationEvidence(record),
     serving,
+    // E6 (#1235): health + usage metering derived from this
+    // provider's stored capture records (providerHealth.ts). The
+    // capture reads are tenant-scoped; captures are attributed to
+    // the platform's default tenant scope ("default" —
+    // captureStore's resolveRunContext), which is the scope this
+    // DO's platform paths write under. A provider with no captures
+    // reports status "no-data" with zeroed aggregates — never an
+    // invented green.
+    health: aggregateProviderHealth(sql, CAPTURE_TENANT_ID, record.id),
   };
 }
+
+/**
+ * The tenant scope capture reads use on this surface: the
+ * platform's established default (captureStore.resolveRunContext
+ * attributes every run without an explicit tenant to "default").
+ */
+const CAPTURE_TENANT_ID = "default";
 
 export async function handleDataProviderRoutes(
   request: Request,
@@ -220,7 +238,7 @@ export async function handleDataProviderRoutes(
       const registry = buildPlatformRegistry(ctx);
       const routeViews = routeServability(registry, configs, routes);
       return Response.json({
-        providers: configs.map((c) => providerView(registry, c, routeViews)),
+        providers: configs.map((c) => providerView(registry, c, routeViews, ctx.sql)),
         routes: routeViews,
       });
     }
@@ -235,7 +253,7 @@ export async function handleDataProviderRoutes(
       const registry = buildPlatformRegistry(ctx);
       const routeViews = routeServability(registry, configs, routes);
       return Response.json({
-        provider: providerView(registry, record, routeViews),
+        provider: providerView(registry, record, routeViews, ctx.sql),
         routes: routeViews.filter(
           (r) => r.primaryProviderId === id || r.gapFillProviderId === id
         ),
