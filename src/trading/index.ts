@@ -25,6 +25,7 @@ TradingPlatformRegistry.register("sandbox", (env, orm, userLogin) => new ETradeT
 // --- boundary surface (pre-existing) ---
 export * from "./interfaces";
 export * from "./registry";
+export * from "./screeningProvider";
 export * from "./screener";
 export * from "./agent";
 export * from "./etrade/client";
