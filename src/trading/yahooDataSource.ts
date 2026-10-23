@@ -35,6 +35,8 @@
  * screenWithQuotes surfaces the MACD signal on the screened row.
  */
 
+import { DEFAULT_PIPELINE_POLICY, type RetryPolicy } from "../services/pipelinePolicy";
+import { withRetry } from "../services/resilience";
 import type { ETradeQuote, FossQuote } from "../types";
 import {
   YFINANCE_MARKET_UNIVERSE,
@@ -57,6 +59,12 @@ export const YAHOO_QUOTE_SOURCE = "Yahoo Finance";
 export interface YahooScreenerDeps {
   /** Fetch a live Yahoo quote for a symbol. Throws on failure. */
   fetchYahooQuote: (symbol: string) => Promise<FossQuote>;
+  /** Issue #1181 (#1173 R1): retry policy for per-symbol fetches.
+   *  Defaults to the pipeline policy's acquisition policy — the
+   *  Yahoo path's first retry coverage (it previously had none). */
+  retryPolicy?: RetryPolicy;
+  /** Test seam: sleep implementation for the retry executor. */
+  retrySleep?: (ms: number) => Promise<void>;
 }
 
 /** Bind a YahooFinanceProvider-shaped object as pipeline deps. */
@@ -133,17 +141,28 @@ export async function fetchYahooQuotes(
     const batch = symbols.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map(async (symbol) => {
-        const live = await deps.fetchYahooQuote(symbol);
-        const adapted = yahooQuoteToPipelineQuote(
-          live,
-          getCuratedStockBySymbol(symbol)
+        // Issue #1181 (#1173 R1): every symbol fetch retries under
+        // the shared acquisition policy (exponential backoff) — the
+        // parity the E*TRADE path always had. A symbol is dropped
+        // only after its attempts are exhausted; the partial-quote
+        // qualification in acquireUniverse reports it as before.
+        return withRetry(
+          async () => {
+            const live = await deps.fetchYahooQuote(symbol);
+            const adapted = yahooQuoteToPipelineQuote(
+              live,
+              getCuratedStockBySymbol(symbol)
+            );
+            if (!adapted) {
+              throw new Error(
+                `Yahoo Finance returned no live quote for ${symbol}`
+              );
+            }
+            return adapted;
+          },
+          deps.retryPolicy ?? DEFAULT_PIPELINE_POLICY.retry.acquisition,
+          { label: `yahoo:${symbol}`, sleep: deps.retrySleep }
         );
-        if (!adapted) {
-          throw new Error(
-            `Yahoo Finance returned no live quote for ${symbol}`
-          );
-        }
-        return adapted;
       })
     );
     for (const r of results) {
