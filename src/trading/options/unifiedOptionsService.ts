@@ -21,6 +21,17 @@ import type {
 import { DatabaseORM } from "../../orm";
 import { ETradeService } from "../../services/etrade";
 import type { ETradeRestClient } from "../etrade/client";
+import {
+  DataProviderRegistry,
+  bootstrapDataProviders,
+  createETradeDataProvider,
+  listCapabilityRoutes,
+  listProviderConfigs,
+  type DataProvider,
+  type DataRunContext,
+  type ETradeCaptureDeps,
+  type OptionsChainRequest,
+} from "../dataProviders";
 import { DynamicOptionsScreener } from "../optionsScreener";
 import {
   OptionsAgentPipeline,
@@ -223,6 +234,39 @@ function bodyPresentFields(req: UnifiedOptionsRequest, includePosture: boolean):
   return present;
 }
 
+/**
+ * Issue #1157 (E2): the client FACADE the engines receive when the
+ * service runs platform-wired. The engines (DynamicOptionsScreener
+ * and everything built on it) consume an ETradeRestClient; the
+ * facade keeps that exact shape while routing the two data calls
+ * the engines make — getOptionChains and getOptionExpireDates —
+ * through the data-provider adapter (which captures them under the
+ * run context), and delegating EVERY other member (lastError, env,
+ * and any other method) straight to the real client, bound to it.
+ * Return shapes are the adapter results unwrapped from their
+ * provenance envelopes — byte-for-byte what the raw client returns.
+ */
+function createPlatformOptionsClient(
+  client: ETradeRestClient,
+  provider: DataProvider,
+  runContext: DataRunContext
+): ETradeRestClient {
+  return new Proxy(client, {
+    get(target, prop) {
+      if (prop === "getOptionChains") {
+        return async (params: OptionsChainRequest) =>
+          (await provider.getOptionsChain!(params, runContext)).result;
+      }
+      if (prop === "getOptionExpireDates") {
+        return async (symbol: string) =>
+          (await provider.getOptionExpiryDates!(symbol, runContext)).result;
+      }
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 export class UnifiedOptionsService {
   private config: EtapiConfig;
   private orm?: DatabaseORM;
@@ -239,6 +283,15 @@ export class UnifiedOptionsService {
    *  persists its runs; when absent, the action fails with an
    *  availability error (same discipline as the profile store). */
   private discoverySql?: { exec(query: string, ...params: unknown[]): Iterable<unknown> };
+  /** Issue #1157 (E2): optional data-provider platform deps. When
+   *  supplied, execute() bootstraps the platform in this storage,
+   *  resolves the optionsChains route, and runs the engines through
+   *  the E*TRADE adapter (capturing every chain/expiry fetch under a
+   *  run id minted before the fetch — the same id the scan run is
+   *  persisted under). When absent, every code path is exactly as
+   *  before: the engines receive the raw client and nothing is
+   *  captured. */
+  private platformDeps?: ETradeCaptureDeps;
 
   constructor(
     private env: Env,
@@ -247,13 +300,15 @@ export class UnifiedOptionsService {
     orm?: DatabaseORM,
     scanRunStore?: ScanRunStore,
     profileStore?: StrategyProfileStore,
-    discoverySql?: { exec(query: string, ...params: unknown[]): Iterable<unknown> }
+    discoverySql?: { exec(query: string, ...params: unknown[]): Iterable<unknown> },
+    platformDeps?: ETradeCaptureDeps
   ) {
     this.config = getEtapiConfig(env, overrideEnv);
     this.orm = orm;
     this.scanRunStore = scanRunStore;
     this.profileStore = profileStore;
     this.discoverySql = discoverySql;
+    this.platformDeps = platformDeps;
   }
 
   /**
@@ -435,6 +490,36 @@ export class UnifiedOptionsService {
       const etrade = this.orm
         ? new ETradeService(this.orm, this.env, this.userLogin, this.overrideEnv)
         : new ETradeService(this.env, undefined, this.userLogin, this.overrideEnv);
+      // Issue #1157 (E2): when platform deps are wired, the engines
+      // run through the data-provider platform: bootstrap this
+      // storage (seed + enable etrade), resolve the optionsChains
+      // route — a resolution failure throws and surfaces as an
+      // error; there is NO silent fallback to the direct client —
+      // mint the run id BEFORE any fetch, and hand the engines a
+      // facade over the adapter built on THIS execute() call's
+      // ETradeService instance. Without deps, engineClient is the
+      // raw client and platformRunId stays undefined: every path
+      // below is exactly as before.
+      let engineClient: ETradeRestClient = etrade.client;
+      let platformRunId: string | undefined;
+      if (this.platformDeps) {
+        bootstrapDataProviders(this.platformDeps.sql);
+        platformRunId = crypto.randomUUID();
+        const provider = createETradeDataProvider(etrade, {
+          capture: this.platformDeps,
+        });
+        const registry = new DataProviderRegistry();
+        registry.register(provider);
+        const assignment = registry.resolveRoute(
+          "optionsChains",
+          listProviderConfigs(this.platformDeps.sql),
+          listCapabilityRoutes(this.platformDeps.sql)
+        );
+        engineClient = createPlatformOptionsClient(etrade.client, assignment.primary, {
+          runId: platformRunId,
+          userLogin: this.userLogin,
+        });
+      }
       switch (req.action) {
         case "screen": {
           const filter: OptionScreenerFilter = {
@@ -442,7 +527,7 @@ export class UnifiedOptionsService {
             underlyingSymbols: req.symbols || (req.symbol ? [req.symbol.toUpperCase()] : undefined),
             limit: req.limit || this.config.screener.maxReturnedContracts,
           };
-          const screenResult = await UnifiedOptionsService.screenContracts(etrade.client, filter);
+          const screenResult = await UnifiedOptionsService.screenContracts(engineClient, filter);
           executionData = screenResult;
           summary = `Screened ${screenResult.matchedCount} options contracts across ${screenResult.totalUnderlyingsScanned} symbols.`;
           break;
@@ -537,7 +622,7 @@ export class UnifiedOptionsService {
             ? applyProfileFields(strategyRequest, strategyProfile, new Set(bodyPresentFields(req, false))).merged
             : strategyRequest;
 
-          const pipelineResult = await UnifiedOptionsService.runStrategyPipeline(etrade.client, effectiveRequest, {
+          const pipelineResult = await UnifiedOptionsService.runStrategyPipeline(engineClient, effectiveRequest, {
             riskProfile: req.riskProfile || "balanced",
           });
 
@@ -571,7 +656,7 @@ export class UnifiedOptionsService {
             throw new Error("Provide explicit symbols or a live universe for options screening; no static symbols are substituted.");
           }
           const targetDate = req.targetDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
-          const scanResult = await UnifiedOptionsService.scanOpportunities(etrade.client, symbols, {
+          const scanResult = await UnifiedOptionsService.scanOpportunities(engineClient, symbols, {
             thesis: req.thesis || "bullish",
             targetDate,
             expectedIvDirection: req.expectedIvDirection || "unchanged",
@@ -657,7 +742,14 @@ export class UnifiedOptionsService {
           // history routes can scope the run to its owner.
           if (this.scanRunStore) {
             try {
-              const saved = await this.scanRunStore.save(scanResult, { userLogin: this.userLogin });
+              // Issue #1157 (E2): platform-wired runs persist under
+              // the id minted before the fetch — the id every
+              // capture from this scan already carries — so the run
+              // and its captures share one identity.
+              const saved = await this.scanRunStore.save(scanResult, {
+                userLogin: this.userLogin,
+                ...(platformRunId ? { id: platformRunId } : {}),
+              });
               executionData = { ...scanResult, scanRunId: saved.id, persisted: true };
             } catch (err) {
               console.error("Failed to persist opportunity scan run", err);
@@ -729,7 +821,7 @@ export class UnifiedOptionsService {
           const effectiveRequest = strategyProfile
             ? applyProfileFields(strategyRequest, strategyProfile, new Set(bodyPresentFields(req, false))).merged
             : strategyRequest;
-          const pipelineResult = await UnifiedOptionsService.runStrategyPipeline(etrade.client, effectiveRequest, {
+          const pipelineResult = await UnifiedOptionsService.runStrategyPipeline(engineClient, effectiveRequest, {
             riskProfile: req.riskProfile || "balanced",
           });
           const candidates = pipelineResult.ranked.slice(0, 10).map((r) => r.candidate);
@@ -793,7 +885,7 @@ export class UnifiedOptionsService {
           const effectiveRequest = strategyProfile
             ? applyProfileFields(strategyRequest, strategyProfile, new Set(bodyPresentFields(req, false))).merged
             : strategyRequest;
-          const pipelineResult = await UnifiedOptionsService.runStrategyPipeline(etrade.client, effectiveRequest, {
+          const pipelineResult = await UnifiedOptionsService.runStrategyPipeline(engineClient, effectiveRequest, {
             riskProfile: req.riskProfile || "balanced",
           });
           const candidates = pipelineResult.ranked.slice(0, 10).map((r) => r.candidate);
