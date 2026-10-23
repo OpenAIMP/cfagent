@@ -309,7 +309,9 @@ export function formatLifecycleNotification(
     case "completed":
       return `✅ Screen completed\n${formatFollowupDeliveryText(outcome)}`;
     case "failed":
-      return `❌ ${kindLabel}${scopeText} failed${outcome.error ? `\nError: ${outcome.error}` : ""}`;
+      // Issue #1252 (#1173 R4): run failures carry the catalog code
+      // (SCREEN_001) in the notification, as in the job record.
+      return `❌ [SCREEN_001] ${kindLabel}${scopeText} failed${outcome.error ? `\nError: ${outcome.error}` : ""}`;
     case "delivered":
       return `📬 Report delivered${detail ? ` ${detail}` : ""} — ${kindLabel}${scopeText}${outcome.reportUrl ? `\n📄 Report: ${outcome.reportUrl}` : ""}`;
   }

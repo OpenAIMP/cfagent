@@ -28,6 +28,20 @@ export function getError(code: string): ErrorCatalogEntry {
   return errorCatalog[code] || errorCatalog["SYS_001"];
 }
 
+/**
+ * Issue #1252 (#1173 R4): the one rendering of a cataloged failure —
+ * "[CODE] business message" plus an optional specific detail. Every
+ * converted surface (user notification, console log, job record) uses
+ * this so a failure carries the SAME code everywhere it appears.
+ * Unknown codes render as SYS_001 via getError's fallback (the
+ * catalog integrity test pins every referenced code to a real entry).
+ */
+export function codedMessage(code: string, detail?: string): string {
+  const entry = getError(code);
+  const base = `[${entry.code}] ${entry.businessMessage}`;
+  return detail ? `${base} — ${detail}` : base;
+}
+
 /** Business error — carries a catalog code, not a technical message. */
 export class BusinessError extends Error {
   readonly code: string;

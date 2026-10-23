@@ -20,6 +20,7 @@ import type {
   Env,
 } from "../../types";
 import type { NLQSchedulingPort, NLQStockScreenPort } from "../nlq";
+import { codedMessage } from "../../errors/errorAspects";
 import { executeMCPTool } from "../../mcp";
 import { executeNaturalLanguageQuery } from "../nlq";
 import { getUserDid } from "../did";
@@ -504,9 +505,9 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
       if (!outcome || typeof outcome !== "object") throw new Error("followup.report job requires an outcome payload.");
       if (outcome.pdfStatus === "failed") {
-        result = { status: "skipped", reason: outcome.pdfError || "Report generation failed during the run." };
+        result = { status: "skipped", reason: codedMessage("REPORT_001", outcome.pdfError || undefined) };
       } else if (!outcome.pdfKeys || outcome.pdfKeys.length === 0) {
-        result = { status: "skipped", reason: "The run produced no report artifact key." };
+        result = { status: "skipped", reason: codedMessage("REPORT_003", "The run produced no report artifact key.") };
       } else {
         const port = ctx.followupReportPort();
         const artifacts: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" }> = [];
@@ -519,7 +520,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           else missing.push(key);
         }
         if (artifacts.length === 0) {
-          throw new Error(`Report artifact(s) referenced by the run are missing from storage: ${missing.join(", ")}`);
+          throw new Error(codedMessage("REPORT_003", `Report artifact(s) referenced by the run are missing from storage: ${missing.join(", ")}`));
         }
         // Issue #1191 (#1173 R3): adopt the run's XLSX alongside the
         // PDF so deliveries carry text + PDF + XLSX. persistRun only
@@ -532,7 +533,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         if (outcome.xlsxKey && outcome.xlsxStatus !== "failed") {
           artifacts.push({ key: outcome.xlsxKey, fileName: "screener-report.xlsx", kind: "xlsx" });
         } else if (outcome.xlsxStatus === "failed") {
-          xlsxNote = outcome.xlsxError || "XLSX generation failed during the run.";
+          xlsxNote = codedMessage("REPORT_002", outcome.xlsxError || undefined);
         }
         result = { status: "ready", artifacts, missingKeys: missing, ...(xlsxNote ? { xlsxNote } : {}) };
       }
@@ -627,11 +628,11 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           const to = outcome.emailTo ?? config.channels.email.to;
           if (!to) throw new Error("Email delivery is not configured (SCREENER_EMAIL_TO is unset).");
           if (!isEmailAllowed(config, to, outcome)) {
-            throw new Error(`Email recipient ${to} is not in the screener email allowlist; delivery refused.`);
+            throw new Error(codedMessage("DELIVER_001", `recipient ${to}`));
           }
         }
         const delivery = await ctx.followupDeliveryPort().deliver({ channel, userLogin, outcome, artifacts });
-        if (!delivery.ok) throw new Error(delivery.error || `Delivery via ${channel} failed.`);
+        if (!delivery.ok) throw new Error(codedMessage("DELIVER_002", delivery.error || `Delivery via ${channel} failed.`));
         result = { status: "sent", channel, detail: delivery.detail };
       }
     } else if (job.capability === "followup.notify") {
@@ -656,7 +657,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         const to = outcome.emailTo ?? config.channels.email.to;
         if (!to) throw new Error("Email notification is not configured (SCREENER_EMAIL_TO is unset).");
         if (!isEmailAllowed(config, to, outcome)) {
-          throw new Error(`Email recipient ${to} is not in the screener email allowlist; notification refused.`);
+          throw new Error(codedMessage("DELIVER_001", `notification recipient ${to}`));
         }
       }
       const text = formatLifecycleNotification(
