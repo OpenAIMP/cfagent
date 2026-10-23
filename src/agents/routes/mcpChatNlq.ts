@@ -36,6 +36,7 @@
  *   already mislabeled in orchestrator.ts before this move.
  */
 
+import { unauthenticatedResponse } from "./routeIdentity";
 import type { AgentName, AsyncJobRecord, AsyncJobSubmission, Env } from "../../types";
 import type { DatabaseORM } from "../../orm";
 import {
@@ -175,7 +176,8 @@ export async function handleMcpChatNlqRoutes(
         { status: 400 }
       );
     }
-    const chatUserLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const chatUserLogin = request.headers.get("x-user-login");
+    if (!chatUserLogin) return unauthenticatedResponse();
     try {
       // Run the pipeline against the per-user conversation state.
       // Issue #686: conversation state is the Think session. The turn
@@ -243,7 +245,8 @@ export async function handleMcpChatNlqRoutes(
         return Response.json({ error: "Query parameter is required" }, { status: 400 });
       }
 
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const contextHeader = request.headers.get("x-nlq-context") || body.context;
       const userDid = getUserDid(sessionId);
       const orm = ctx.getOrm();

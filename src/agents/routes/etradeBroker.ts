@@ -31,6 +31,7 @@
  * back-references into the class.
  */
 
+import { unauthenticatedResponse } from "./routeIdentity";
 import {
   computePortfolioRisk,
   aggregatePortfolioRisk,
@@ -237,7 +238,8 @@ export async function handleEtradeBrokerRoutes(
   // Broker status & account metadata
   if (path.endsWith("/etrade/status") && request.method === "GET") {
     try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const status = await etrade.getStatusAsync();
       return Response.json(status);
@@ -254,7 +256,8 @@ export async function handleEtradeBrokerRoutes(
   // Broker Accounts List (Real E*TRADE REST / OAuth 1.0a)
   if (path.endsWith("/etrade/accounts") && request.method === "GET") {
     try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const accounts = await etrade.fetchAccountsRemote();
       if (accounts.length === 0) {
@@ -280,7 +283,8 @@ export async function handleEtradeBrokerRoutes(
   // (The Nasdaq-listings screenLive path is kept in the repo, unwired.)
   if (path.endsWith("/etrade/screen") && (request.method === "POST" || request.method === "GET")) {
     try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const filters = request.method === "POST" ? ((await request.json().catch(() => ({}))) as any) : {};
       if (request.method === "GET") {
         if (url.searchParams.get("sector")) filters.sector = url.searchParams.get("sector");
@@ -314,7 +318,8 @@ export async function handleEtradeBrokerRoutes(
     try {
       const rawSym = url.searchParams.get("symbol") || "NVDA";
       const symbol = rawSym.toUpperCase().trim() || "NVDA";
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       // #291 Q3: registry-resolved platform + the LIVE_STRICT policy —
       // the exact semantics fetchQuoteRemote enforced here (live failure
       // throws into the 500 below; sandbox uses the platform chain).
@@ -364,7 +369,8 @@ export async function handleEtradeBrokerRoutes(
         return Response.json({ error: "Order symbol is required" }, { status: 400 });
       }
 
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const preview = await etrade.previewOrderRemote({
         assetClass,
@@ -400,7 +406,8 @@ export async function handleEtradeBrokerRoutes(
         return Response.json({ error: "decision must be either 'approved' or 'rejected'" }, { status: 400 });
       }
 
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const userDid = getUserDid(sessionId);
 
       // Strict HITL Gate: block autonomous agents
@@ -532,7 +539,8 @@ export async function handleEtradeBrokerRoutes(
   // Positions & Account Holdings (Real E*TRADE OAuth 1.0a)
   if (path.endsWith("/etrade/positions") && request.method === "GET") {
     try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const holdings = await etrade.fetchPortfolioRemote(undefined, true);
       const lastError = etrade.getLastError();
@@ -549,7 +557,8 @@ export async function handleEtradeBrokerRoutes(
   // SPY beta-weighted Delta, and total defined max loss from open positions.
   if (path.endsWith("/etrade/portfolio-risk") && request.method === "GET") {
     try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const report = await computePortfolioRisk(etrade);
       return Response.json(report);
@@ -566,7 +575,8 @@ export async function handleEtradeBrokerRoutes(
       if (!body.candidate) {
         return Response.json({ error: "candidate Greek contribution is required" }, { status: 400 });
       }
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const { account, positions } = await etrade.fetchPortfolioRemote(undefined, true);
       const resolved = await resolvePositionsSnapshot(etrade, positions);
@@ -590,7 +600,8 @@ export async function handleEtradeBrokerRoutes(
   if (path.endsWith("/etrade/portfolio-risk/correlation") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as { candidateSymbol?: string };
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const report = await computePortfolioRisk(etrade);
       const concentration = await assessPortfolioConcentration(
@@ -613,7 +624,8 @@ export async function handleEtradeBrokerRoutes(
       if (!body.candidate?.symbol || !body.candidate?.perContract) {
         return Response.json({ error: "candidate with symbol and perContract contributions is required" }, { status: 400 });
       }
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const report = await computePortfolioRisk(etrade);
       return Response.json(sizeCandidateAgainstPortfolio(report, body.candidate));
@@ -644,7 +656,8 @@ export async function handleEtradeBrokerRoutes(
       if (!body.candidate?.symbol || !Array.isArray(body.candidate.legs) || body.candidate.legs.length === 0) {
         return Response.json({ error: "candidate with symbol and legs is required" }, { status: 400 });
       }
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const report = await computePortfolioRisk(etrade);
       const concentration = await assessPortfolioConcentration(
@@ -700,7 +713,8 @@ export async function handleEtradeBrokerRoutes(
       if (!body.symbol || (body.action !== "BUY" && body.action !== "SELL") || !body.quantity || body.quantity <= 0) {
         return Response.json({ error: "symbol, action (BUY|SELL) and a positive quantity are required" }, { status: 400 });
       }
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const harness = new ETradeThinkHarness(ctx.getOrm(), ctx.env);
       const result = await harness.evaluateTradeWithThinking({
         symbol: body.symbol.toUpperCase(),
@@ -719,7 +733,8 @@ export async function handleEtradeBrokerRoutes(
 
   if (path.endsWith("/etrade/hedge/analyze") && request.method === "POST") {
     try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const analysis = await generateHedgeProposals(etrade);
       return Response.json(analysis);
@@ -733,7 +748,8 @@ export async function handleEtradeBrokerRoutes(
   // path is reachable from this endpoint.
   if (path.endsWith("/etrade/portfolio-repair/analyze") && request.method === "POST") {
     try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const { generateRepairProposals } = await import("../../services/repairProposals");
       const analysis = await generateRepairProposals(etrade);
@@ -757,7 +773,8 @@ export async function handleEtradeBrokerRoutes(
   // Real E*TRADE REST API: Remote Orders on Exchange
   if (path.endsWith("/etrade/orders/remote") && request.method === "GET") {
     try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const status = url.searchParams.get("status") || undefined;
       const marker = url.searchParams.get("marker") || undefined;
@@ -787,7 +804,8 @@ export async function handleEtradeBrokerRoutes(
       if (!orderId) {
         return Response.json({ error: "orderId is required" }, { status: 400 });
       }
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const result = await etrade.cancelOrderRemote(orderId);
       ctx.audit("etrade.order_cancelled", "trading", { orderId, success: result.success });
@@ -819,7 +837,8 @@ export async function handleEtradeBrokerActivityRoutes(
   // Real E*TRADE REST API: Account Transactions
   if (path.endsWith("/etrade/transactions") && request.method === "GET") {
     try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const startDate = url.searchParams.get("startDate") || undefined;
       const endDate = url.searchParams.get("endDate") || undefined;
@@ -847,7 +866,8 @@ export async function handleEtradeBrokerActivityRoutes(
     try {
       const transactionId = path.split("/etrade/transactions/")[1].split("/")[0].split("?")[0];
       const storeId = url.searchParams.get("storeId") || undefined;
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const details = await etrade.fetchTransactionDetails(transactionId, undefined, storeId);
       if (!details) {
@@ -870,7 +890,8 @@ export async function handleEtradeBrokerActivityRoutes(
   // Real E*TRADE REST API: User Alerts Inbox
   if (path.endsWith("/etrade/alerts") && request.method === "GET") {
     try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const category = url.searchParams.get("category") || undefined;
       const status = (url.searchParams.get("status") as "READ" | "UNREAD" | "DELETED") || undefined;
@@ -895,7 +916,8 @@ export async function handleEtradeBrokerActivityRoutes(
   if (path.includes("/etrade/alerts/") && request.method === "GET") {
     try {
       const alertId = path.split("/etrade/alerts/")[1].split("/")[0].split("?")[0];
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const details = await etrade.fetchAlertDetails(alertId);
       if (!details) {
@@ -918,7 +940,8 @@ export async function handleEtradeBrokerActivityRoutes(
   if (path.includes("/etrade/alerts/") && request.method === "DELETE") {
     try {
       const alertId = path.split("/etrade/alerts/")[1].split("/")[0].split("?")[0];
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const result = await etrade.deleteAlert(alertId);
       return Response.json(result, { status: result.success ? 200 : 400 });
@@ -931,7 +954,8 @@ export async function handleEtradeBrokerActivityRoutes(
   if (path.endsWith("/etrade/lookup") && request.method === "GET") {
     try {
       const search = url.searchParams.get("search") || url.searchParams.get("q") || "";
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const items = await etrade.lookupProduct(search);
       if (items.length === 0) {
