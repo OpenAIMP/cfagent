@@ -72,7 +72,7 @@ import { handlePaymentsRoutes } from "./routes/payments";
 import { handleAgenticPaymentsRoutes } from "./routes/agenticPayments";
 // Issue #359-08: premium routes live in src/agents/routes/premium.ts;
 // routeRequest delegates to handlePremiumRoutes at the original position.
-import { handlePremiumRoutes } from "./routes/premium";
+import { handlePremiumRoutes, makePremiumRouteContext } from "./routes/premium";
 import { handleTradingIntegrationsRoutes } from "./routes/tradingIntegrations";
 import {
   handleEtradeBrokerRoutes,
@@ -1844,12 +1844,7 @@ export class OrchestratorAgent extends Think<Env> {
     // position in the sequential matching sequence (between the Cloudflare
     // Agentic Payments block and the Environment & E*TRADE Trading APIs
     // block); a non-null return matched.
-    const premiumResponse = await handlePremiumRoutes(request, url, path, sessionId, {
-      env: this.env,
-      getOrm: () => this.getOrm(),
-      getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
-      persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
-    });
+    const premiumResponse = await handlePremiumRoutes(request, url, path, sessionId, makePremiumRouteContext(this));
     if (premiumResponse) return premiumResponse;
 
     // Issue #359-09: E*TRADE broker routes (Environment & E*TRADE Trading
