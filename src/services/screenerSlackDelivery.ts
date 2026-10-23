@@ -62,6 +62,14 @@ export async function deliverScreenerToSlackDirect(
     ...(delivery.files ?? []),
   ];
 
+  // Issue #1216 (#1209 F1): when files were requested, ONLY a complete
+  // file upload may report ok — a text post is not a substitute for a
+  // report the caller handed us. (The pre-F1 code degraded to a text
+  // post and returned ok with zero files delivered.)
+  if (filesToUpload.length > 0 && !(token && channel)) {
+    return { ok: false, error: "Direct file delivery is not configured (SLACK_BOT_TOKEN / channel) — files were requested but cannot be posted" };
+  }
+
   if (filesToUpload.length > 0 && token && channel) {
     const slackFiles: SlackFile[] = filesToUpload.map((f) => {
       let binary = "";
@@ -87,10 +95,14 @@ export async function deliverScreenerToSlackDirect(
       slackFiles
     );
 
-    if (uploadRes.posted > 0) {
+    if (uploadRes.posted >= filesToUpload.length) {
       return { ok: true };
     }
-    console.warn("[deliverScreenerToSlackDirect] Direct file upload failed, falling back to message text post:", uploadRes.error);
+    console.warn("[deliverScreenerToSlackDirect] Direct file upload incomplete:", uploadRes.error);
+    return {
+      ok: false,
+      error: `Direct file upload incomplete: posted ${uploadRes.posted} of ${filesToUpload.length} file(s)${uploadRes.error ? ` — ${uploadRes.error}` : ""}`,
+    };
   }
 
   // 2. Fall back to posting plain text via Web API or webhook
@@ -129,7 +141,25 @@ export async function deliverScreenerToSlackDirect(
   return { ok: false, error: "Direct Slack message post failed" };
 }
 
-/** Deliver a screener result through the Slack A2A agent, attaching its PDF when available. */
+function bytesToB64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Deliver a screener result through the Slack A2A agent.
+ *
+ * Issue #1216 (#1209 F1): when the delivery carries files, EVERY file
+ * is posted (the PDF plus delivery.files — the pre-F1 leg posted only
+ * the PDF and silently dropped the rest, e.g. every XLSX), and ok
+ * means every requested file actually posted. A file failure returns
+ * NOT ok — never a text post dressed as success — so the master entry
+ * falls through to the direct leg, which posts text + all files.
+ */
 export async function deliverScreenerToSlackA2A(
   env: unknown,
   delivery: ScreenerSlackDelivery,
@@ -142,24 +172,34 @@ export async function deliverScreenerToSlackA2A(
     (e.SCREENER_SLACK_CHANNEL as string | undefined) ||
     (e.SLACK_CHANNEL as string | undefined);
 
-  if (delivery.pdf && channel) {
-    const bytes = delivery.pdf.bytes;
-    let binary = "";
-    const chunkSize = 8192;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  const files: ScreenerSlackFile[] = [
+    ...(delivery.pdf
+      ? [{ bytes: delivery.pdf.bytes, fileName: delivery.pdf.fileName, title: delivery.pdf.title, comment: delivery.pdf.comment }]
+      : []),
+    ...(delivery.files ?? []),
+  ];
+
+  if (files.length > 0) {
+    if (!channel) {
+      return { ok: false, error: "No Slack channel resolved for A2A file delivery" };
     }
-    const result = await cfpayPostFileToSlack(config, {
-      channel,
-      filename: delivery.pdf.fileName,
-      contentB64: btoa(binary),
-      title: delivery.pdf.title,
-      initial_comment: delivery.pdf.comment,
-    });
-    if (result.ok) {
-      return { ok: true };
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const result = await cfpayPostFileToSlack(config, {
+        channel,
+        filename: f.fileName,
+        contentB64: bytesToB64(f.bytes),
+        title: f.title,
+        // The run text rides as the first file's comment; a file's own
+        // comment (the PDF's) wins when it carries one.
+        ...(i === 0 ? { initial_comment: f.comment ?? delivery.text } : {}),
+      });
+      if (!result.ok) {
+        console.warn(`[deliverScreenerToSlackA2A] A2A file delivery failed for ${f.fileName}:`, result.error);
+        return { ok: false, error: `A2A file delivery failed for ${f.fileName}: ${result.error ?? "unknown error"}` };
+      }
     }
-    console.warn("[deliverScreenerToSlackA2A] PDF upload via cfpay A2A failed, falling back to text post:", result.error);
+    return { ok: true };
   }
 
   const result = await cfpayPostToSlack(config, delivery.text, channel);
@@ -172,6 +212,14 @@ export async function deliverScreenerToSlackA2A(
  * Tries A2A if configured; automatically falls back to direct Slack (bot token
  * or webhook) if A2A is unavailable or encounters an error. If A2A is not configured,
  * directly uses direct Slack.
+ *
+ * Issue #1216 contract: when the delivery carries files, `ok` means
+ * one transport delivered the text AND every file. A transport that
+ * could not post the files reports failure so the other is tried; if
+ * neither completes the files, the result is failure — never a
+ * text-only success. (A partial A2A success followed by a complete
+ * direct re-send can duplicate a file in the channel in that edge;
+ * at-least-once with an honest status beats silent loss.)
  */
 export async function deliverScreenerToSlack(
   env: unknown,
