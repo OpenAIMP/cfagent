@@ -91,10 +91,19 @@ import type { KvLike } from "./kvResilience";
 import { DEFAULT_IDLE_TIMEOUT_MS } from "./sessionPolicy";
 import {
   createMemoryIdentityBindingStore,
+  deriveInternalUserId,
   resolveOrCreateBinding,
   type IdentityBinding,
   type IdentityBindingStore,
 } from "./identityBinding";
+import {
+  createMembership,
+  type Membership,
+  type MembershipStore,
+} from "./authorization";
+import {
+  recordIdMigration,
+} from "./iaaaMigration";
 import {
   createSession,
   SESSION_TTL,
@@ -133,17 +142,157 @@ export type GithubBindingResult =
   | { ok: false; code: GithubBindingErrorCode; error: string };
 
 /**
+ * Stores the login-time migration needs. Production callers
+ * (completeWiredLogin) always supply these — defaulted from Env
+ * when the caller omits them — so migration runs on every wired
+ * login. Direct callers that omit them get resolution without
+ * migration: a pre-existing minted binding is returned unchanged.
+ */
+export interface MigrationDeps {
+  membershipStore: MembershipStore;
+  aliasKv: KvLike;
+}
+
+export interface MigrationResult {
+  migrated: boolean;
+  binding: IdentityBinding;
+  oldInternalUserId?: string;
+}
+
+/** True when two role-binding lists grant identically, in order. */
+function sameRoleBindings(
+  a: readonly { role: string; scope: string; workspaceId?: string; resourceId?: string; expiresAtMs?: number; grantedBy: string }[],
+  b: readonly { role: string; scope: string; workspaceId?: string; resourceId?: string; expiresAtMs?: number; grantedBy: string }[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (binding, i) =>
+      binding.role === b[i].role &&
+      binding.scope === b[i].scope &&
+      binding.workspaceId === b[i].workspaceId &&
+      binding.resourceId === b[i].resourceId &&
+      binding.expiresAtMs === b[i].expiresAtMs &&
+      binding.grantedBy === b[i].grantedBy,
+  );
+}
+
+function sameMembershipSignature(a: Membership, b: Membership): boolean {
+  return (
+    a.tenantId === b.tenantId &&
+    a.workspaceId === b.workspaceId &&
+    sameRoleBindings(a.roleBindings, b.roleBindings)
+  );
+}
+
+/**
+ * #1182 — login-time migration of one binding to its derived id.
+ *
+ * Runs inside resolveProviderBinding, BEFORE post-login bootstrap
+ * provisioning (completeWiredLogin resolves first, then runs
+ * post-login work with the migrated id — so bootstrap entries
+ * match the derived id, never the retired minted one).
+ *
+ * Semantics, in order — chosen so a failed login retries to the
+ * same end state instead of locking the user out:
+ *  1. Move memberships: for each membership under the old id,
+ *     create an equivalent under the derived id (via the
+ *     provisioning path, createMembership) unless an equivalent
+ *     already exists there — that check is what makes a retry
+ *     after a partial move converge instead of duplicating.
+ *     A genuinely-revoked membership mirrors as revoked, with
+ *     its original revocation timestamp: migration never
+ *     resurrects access. Then revoke the old memberships that
+ *     are still active (already-revoked ones keep their
+ *     timestamp as evidence).
+ *  2. Record the old→new alias in the alias layer.
+ *  3. Rewrite the binding to the derived id (linkedAt and proof
+ *     preserved) and drop the stale reverse index entry for the
+ *     old id (best-effort: a failure there leaves a stale
+ *     pointer, never a wrong grant — the migration record is
+ *     the forward pointer).
+ * A failure in steps 1–2 fails the login (BINDING_FAILED) with
+ * the minted binding untouched or retryably half-moved; the
+ * binding rewrite is the commit point, after which a re-login
+ * is a no-op. Sessions, PDP, and authorization are untouched:
+ * they consume internalUserId opaquely.
+ */
+export async function migrateBindingToDerivedId(
+  bindingStore: IdentityBindingStore,
+  deps: MigrationDeps,
+  binding: IdentityBinding,
+  nowMs: number,
+): Promise<MigrationResult> {
+  const derived = await deriveInternalUserId(
+    binding.providerIssuer,
+    binding.providerSubject,
+  );
+  if (derived === binding.internalUserId) {
+    return { migrated: false, binding };
+  }
+  const oldId = binding.internalUserId;
+  const olds = await deps.membershipStore.getMembershipsByUser(oldId);
+  const news = await deps.membershipStore.getMembershipsByUser(derived);
+  for (const old of olds) {
+    if (!news.some((n) => sameMembershipSignature(old, n))) {
+      const created = await createMembership(deps.membershipStore, {
+        internalUserId: derived,
+        tenantId: old.tenantId,
+        workspaceId: old.workspaceId,
+        roleBindings: old.roleBindings.map((b) => ({ ...b })),
+        createdBy: old.createdBy,
+        nowMs,
+      });
+      if (!created.ok) {
+        throw new Error(`membership migration failed for ${oldId}: ${created.error}`);
+      }
+      if (old.revokedAtMs !== undefined) {
+        await deps.membershipStore.put({
+          ...created.membership,
+          revokedAtMs: old.revokedAtMs,
+        });
+      }
+      news.push(created.membership);
+    }
+    if (old.revokedAtMs === undefined) {
+      await deps.membershipStore.revokeMembership(old.membershipId, nowMs);
+    }
+  }
+  const alias = await recordIdMigration(deps.aliasKv, {
+    oldInternalUserId: oldId,
+    newInternalUserId: derived,
+    nowMs,
+  });
+  if (!alias.ok) {
+    throw new Error(`id-migration alias failed for ${oldId}: ${alias.error}`);
+  }
+  const migrated: IdentityBinding = { ...binding, internalUserId: derived };
+  await bindingStore.put(migrated);
+  try {
+    await bindingStore.removeByUserAndIssuer(oldId, binding.providerIssuer);
+  } catch {
+    // Stale reverse index only; the binding and the migration
+    // record are authoritative. Never fail a login over cleanup.
+  }
+  return { migrated: true, binding: migrated, oldInternalUserId: oldId };
+}
+
+/**
  * Resolve or create the Slice 1 binding for one provider subject.
  * Provider-agnostic: the caller supplies the validated issuer and
  * the provider-stable subject (never a login or email). The profile
  * fetch that produced the subject IS the proof of control
  * (proofVerified: true). A store failure maps to BINDING_FAILED.
+ * When migration deps are supplied, a pre-existing minted binding
+ * is migrated to its derived id first (see
+ * migrateBindingToDerivedId); a migration failure also maps to
+ * BINDING_FAILED.
  */
 export async function resolveProviderBinding(
   store: IdentityBindingStore,
   issuer: string,
   subject: string,
-  nowMs: number
+  nowMs: number,
+  migration?: MigrationDeps
 ): Promise<GithubBindingResult> {
   const result = await resolveOrCreateBinding(store, {
     providerIssuer: issuer,
@@ -153,6 +302,23 @@ export async function resolveProviderBinding(
   });
   if (!result.ok) {
     return { ok: false, code: "BINDING_FAILED", error: result.error };
+  }
+  if (migration) {
+    try {
+      const migrated = await migrateBindingToDerivedId(
+        store,
+        migration,
+        result.binding,
+        nowMs,
+      );
+      return { ok: true, binding: migrated.binding };
+    } catch (err) {
+      return {
+        ok: false,
+        code: "BINDING_FAILED",
+        error: err instanceof Error ? err.message : "binding migration failed",
+      };
+    }
   }
   return { ok: true, binding: result.binding };
 }
@@ -165,7 +331,8 @@ export async function resolveProviderBinding(
 export async function resolveGithubBinding(
   store: IdentityBindingStore,
   profile: GithubProfile,
-  nowMs: number
+  nowMs: number,
+  migration?: MigrationDeps
 ): Promise<GithubBindingResult> {
   if (
     !profile ||
@@ -178,7 +345,7 @@ export async function resolveGithubBinding(
       error: "GitHub profile did not include a stable user id; login cannot be bound",
     };
   }
-  return resolveProviderBinding(store, GITHUB_ISSUER, String(profile.id), nowMs);
+  return resolveProviderBinding(store, GITHUB_ISSUER, String(profile.id), nowMs, migration);
 }
 
 /**
@@ -213,6 +380,9 @@ export function createKvBindingStore(kv: KvLike): IdentityBindingStore {
       const value = JSON.stringify(binding);
       await kv.put(byProviderKey(binding.providerIssuer, binding.providerSubject), value);
       await kv.put(byUserKey(binding.internalUserId, binding.providerIssuer), value);
+    },
+    async removeByUserAndIssuer(internalUserId, providerIssuer) {
+      await kv.delete(byUserKey(internalUserId, providerIssuer));
     },
   };
 }
@@ -344,6 +514,12 @@ export interface WiredLoginOptions {
   auditTenantId?: string;
   /** End-to-end: alias recording + bootstrap-on-login. Default off. */
   postLoginEnabled?: boolean;
+  /**
+   * #1182 login-time migration stores. When omitted, they default
+   * to the env-derived SessionStore DO stores — so production
+   * logins always migrate. Tests pass explicit memory stores.
+   */
+  migration?: MigrationDeps;
 }
 
 /**
@@ -395,7 +571,22 @@ export async function completeWiredLogin(
     return errorPage("Provider profile did not include a usable login key; login cannot be bound", 400);
   }
 
-  const bindingResult = await resolveProviderBinding(store, issuer, profile.subject, nowMs);
+  // #1182: migration always runs on wired login (default stores
+  // are the SessionStore DO ones, the same store the binding and
+  // post-login work use in production). The session below carries
+  // the migrated (derived) id, and post-login bootstrap matching
+  // sees it too — migration precedes provisioning by construction.
+  const migrationDeps: MigrationDeps = options?.migration ?? {
+    membershipStore: createKvMembershipStore(sessionStore(env)),
+    aliasKv: sessionStore(env),
+  };
+  const bindingResult = await resolveProviderBinding(
+    store,
+    issuer,
+    profile.subject,
+    nowMs,
+    migrationDeps,
+  );
   if (!bindingResult.ok) {
     if (options?.auditStore && options.auditTenantId) {
       await recordWiredAuthAudit(
