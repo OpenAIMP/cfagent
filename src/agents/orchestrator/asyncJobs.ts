@@ -25,6 +25,11 @@ import { executeNaturalLanguageQuery } from "../nlq";
 import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
 import { createDiscoveryService } from "../../services/discoveryService";
+import {
+  planInitialFollowups,
+  resolveScreenerFollowupConfig,
+  screenerOutcomeFromHttpJob,
+} from "../../services/screenerFollowups";
 
 /**
  * Ports the async-job functions receive from the class. Table/state
@@ -43,6 +48,12 @@ export interface AsyncJobsContext {
   routeRequest: (request: Request) => Promise<Response>;
   nlqSchedulingPort: () => NLQSchedulingPort;
   nlqStockScreenPort: () => NLQStockScreenPort;
+  /** Issue #1123: artifact lookups for followup.report jobs — the
+   *  ScreenerAgent's stored PDFs, by kind and run key. */
+  followupReportPort: () => {
+    getStockPdf: (userLogin: string, key: string) => Promise<{ fileName: string } | null>;
+    getOptionsPdf: (userLogin: string, key: string) => Promise<{ fileName: string } | null>;
+  };
 }
 
 const ASYNC_JOB_KINDS: readonly AsyncJobKind[] = ["main", "report", "delivery", "notification"];
@@ -114,7 +125,9 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
       ? `MCP: ${job.payload.toolName}`
       : job.capability === "nlq.execute"
         ? `NLQ: ${job.payload.query.slice(0, 100)}`
-        : `Task: ${job.payload.title}`);
+        : job.capability === "followup.report"
+          ? "Generate report"
+          : `Task: ${job.payload.title}`);
   // Single-line column list: the shared MockSqlStorage INSERT parser does
   // not span newlines inside the column list (tests would silently drop
   // the row) — keep this statement on one line.
@@ -278,6 +291,11 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       const pathAndQuery = String(payload.pathAndQuery || "");
       const method = String(payload.method || "GET");
       const headers = new Headers(payload.headers as HeadersInit);
+      // Issue #1123: the harmonization seam — a route executed as a job
+      // can see its main-job id and defer follow-ups (report, delivery,
+      // notifications) to the tracked pipeline instead of firing its
+      // own untracked publishers.
+      headers.set("x-async-job-id", jobId);
       const body = typeof payload.body === "string" ? payload.body : undefined;
       const response = await ctx.routeRequest(new Request(new URL(pathAndQuery, "https://agent.internal"), {
         method,
@@ -310,6 +328,36 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         ...payload,
         message: "Task draft created. Awaiting human confirmation.",
       };
+    } else if (job.capability === "followup.report") {
+      // Issue #1123 S2: secure the run's report artifact for the
+      // pipeline. The run generates the PDF once (inside the screening
+      // pipeline); this sub-job verifies and adopts the stored artifact
+      // so S3's deliveries all share the same bytes. A failed run
+      // generation completes as 'skipped' with the reason — never a
+      // stale-PDF fallback (the #822 honesty rule).
+      const outcome = payload.outcome as import("../../services/screenerFollowups").ScreenerRunOutcome;
+      const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
+      if (!outcome || typeof outcome !== "object") throw new Error("followup.report job requires an outcome payload.");
+      if (outcome.pdfStatus === "failed") {
+        result = { status: "skipped", reason: outcome.pdfError || "Report generation failed during the run." };
+      } else if (!outcome.pdfKeys || outcome.pdfKeys.length === 0) {
+        result = { status: "skipped", reason: "The run produced no report artifact key." };
+      } else {
+        const port = ctx.followupReportPort();
+        const artifacts: Array<{ key: string; fileName: string }> = [];
+        const missing: string[] = [];
+        for (const key of outcome.pdfKeys) {
+          const pdf = outcome.kind === "stock"
+            ? await port.getStockPdf(userLogin, key)
+            : await port.getOptionsPdf(userLogin, key);
+          if (pdf) artifacts.push({ key, fileName: pdf.fileName });
+          else missing.push(key);
+        }
+        if (artifacts.length === 0) {
+          throw new Error(`Report artifact(s) referenced by the run are missing from storage: ${missing.join(", ")}`);
+        }
+        result = { status: "ready", artifacts, missingKeys: missing };
+      }
     } else if (job.capability === "nlq.execute") {
       const query = String(payload.query || "").trim();
       if (!query) throw new Error("NLQ job requires a non-empty query.");
@@ -341,6 +389,34 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       jobId,
     );
     ctx.audit("async_job.completed", "orchestrator", { jobId, capability: job.capability });
+
+    // Issue #1123 S2: a completed screener main-job schedules its
+    // follow-ups (report first; deliveries/notifications chain from
+    // there in S3/S4). Scheduling must never fail the main job.
+    if (job.capability === "http.request") {
+      try {
+        const httpResult = result as { body?: string } | undefined;
+        const outcome = screenerOutcomeFromHttpJob(
+          String(payload.pathAndQuery || ""),
+          responseStatus,
+          typeof httpResult?.body === "string" ? httpResult.body : "",
+        );
+        if (outcome) {
+          const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
+          const headers = (payload.headers || {}) as Record<string, string>;
+          const userLogin = typeof headers["x-user-login"] === "string" ? headers["x-user-login"] : ctx.sessionKey();
+          for (const spec of planInitialFollowups(outcome, config, jobId, userLogin)) {
+            await submitAsyncJob(ctx, spec);
+          }
+        }
+      } catch (followupError) {
+        ctx.audit("followup.schedule_failed", "orchestrator", {
+          jobId,
+          error: followupError instanceof Error ? followupError.message : String(followupError),
+        });
+        console.error(`[OrchestratorAgent] Follow-up scheduling failed for job ${jobId}:`, followupError);
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const completedAt = new Date().toISOString();
