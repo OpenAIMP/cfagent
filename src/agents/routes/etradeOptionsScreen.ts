@@ -173,7 +173,7 @@ export async function executeUnifiedOptions(args: {
 }): Promise<Response> {
   const { request, sessionId, ctx, reqData } = args;
   const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-  const service = new UnifiedOptionsService(ctx.env, userLogin, ctx.requestedEnv, ctx.getOrm(), new SqlScanRunStore(ctx.agentCtx.storage.sql), new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), ctx.agentCtx.storage.sql);
+  const service = new UnifiedOptionsService(ctx.env, userLogin, ctx.requestedEnv, ctx.getOrm(), new SqlScanRunStore(ctx.agentCtx.storage.sql), new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), ctx.agentCtx.storage.sql, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env });
   // Issue #16: event calendars are server-side facts — strip any
   // client-supplied calendar, then fetch coverage for the
   // actions that run the strategy engine. The calendar service
