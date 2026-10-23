@@ -43,7 +43,7 @@
  * stock screener consumes.
  */
 
-import type { ETradeService } from "../../services/etrade";
+import { ETradeService } from "../../services/etrade";
 import type { IFossMarketDataProvider } from "../../patterns/interfaces";
 import type {
   Env,
@@ -61,6 +61,7 @@ import type {
   OptionsChainRequest,
 } from "./contract";
 import { recordCapture, resolveRunContext } from "./captureStore";
+import { runDataProviderConformance } from "./conformance";
 import type {
   CaptureBlobEnv,
   CaptureBlobStorage,
@@ -376,6 +377,60 @@ export function createETradeDataProvider(
       );
       return tag("etrade", "optionsChains", dates);
     },
+  };
+}
+
+/**
+ * E3 (issue #1170): construct the E*TRADE adapter straight from an
+ * environment + login — the no-ORM ETradeService form the platform
+ * surfaces (lifecycle API reads, servability probes) share. The
+ * construction lives here, inside the trading boundary, so the
+ * platform owns its provider wiring in one place.
+ */
+export function createETradeDataProviderFromEnv(
+  env: Env,
+  userLogin: string,
+  options?: ETradeDataProviderOptions
+): DataProvider {
+  return createETradeDataProvider(
+    new ETradeService(env, undefined, userLogin || "default_trader"),
+    options
+  );
+}
+
+/**
+ * E3 (issue #1170): the E*TRADE verification check the provisioning
+ * lifecycle's verify action binds to — the adapter's own status
+ * first (a service that reports itself unconfigured fails with
+ * that reason, no probe attempted), then the P1 conformance kit
+ * against the live adapter. Returns the lifecycle's verify-result
+ * shape ({ ok, summary }); never throws — a probe error is a
+ * failed verification with the reason, not a crash.
+ */
+export async function verifyETradeDataProvider(
+  env: Env,
+  userLogin: string
+): Promise<{ ok: boolean; summary: string }> {
+  const adapter = createETradeDataProviderFromEnv(env, userLogin);
+  if (!adapter.isConfigured(env)) {
+    return {
+      ok: false,
+      summary:
+        "E*TRADE service reports not configured (no E*TRADE API credentials or MCP endpoint in the environment).",
+    };
+  }
+  const report = await runDataProviderConformance(adapter);
+  if (!report.ok) {
+    const failures = report.checks
+      .flatMap((c) => c.failures.map((f) => `${c.capability}: ${f}`))
+      .join("; ");
+    return { ok: false, summary: `E*TRADE adapter conformance failed — ${failures}` };
+  }
+  return {
+    ok: true,
+    summary: `E*TRADE adapter status configured; conformance passed for ${report.checks
+      .map((c) => c.capability)
+      .join(", ")}.`,
   };
 }
 
