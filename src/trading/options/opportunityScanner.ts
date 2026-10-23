@@ -454,6 +454,12 @@ export interface OpportunityScanResult {
    *  comparable across sessions. Null when no profile was applied; the
    *  full profile object rides in requestSnapshot.profile. */
   profileRef: ProfileRef | null;
+  /** The generated PDF report's storage key when the producing flow
+   *  rendered one before the run was saved (issue #1239): the scan
+   *  history projection carries it so the run can offer its download.
+   *  Optional — most producers render the report after saving the
+   *  scan, and their summaries simply lack it (absent = no key). */
+  pdfKey?: string;
   /** When this result was generated, ISO 8601 (issue #27). */
   generatedAt: string;
   /** The scan-model version that produced this result (issue #27);

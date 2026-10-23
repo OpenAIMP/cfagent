@@ -30,6 +30,11 @@ export interface ReportItem {
   createdAt: string;
   /** Download URL of the generated PDF, when this report has one (#638). */
   reportUrl?: string;
+  /** Recorded PDF generation state + failure reason (#1239): when a
+   *  run has no reportUrl but records these, the card says the PDF is
+   *  unavailable (and why) instead of silently omitting the link. */
+  pdfStatus?: string | null;
+  pdfError?: string | null;
   /** The Runs-API kind (#1057): screener | options_scanner | discovery | report. */
   kind?: string;
   /** The store's recorded status, when it records one (#1057). */
@@ -50,6 +55,8 @@ function runToReportItem(r: any): ReportItem {
     summary: String(r.summary ?? ""),
     createdAt: String(r.createdAt ?? ""),
     reportUrl: r.reportUrl ?? undefined,
+    pdfStatus: r.pdfStatus ?? null,
+    pdfError: r.pdfError ?? null,
     kind: r.kind,
     status: r.status ?? null,
     reportId: r.reportId ?? null,
@@ -263,6 +270,11 @@ export function ReportsPanel() {
                 <a className="report-pdf-link" href={r.reportUrl} download>
                   📄 Download PDF
                 </a>
+              )}
+              {!r.reportUrl && (r.pdfStatus || r.pdfError) && (
+                <span className="report-pdf-unavailable">
+                  📄 PDF unavailable{r.pdfError ? ` — ${r.pdfError}` : ""}
+                </span>
               )}
             </div>
           </div>

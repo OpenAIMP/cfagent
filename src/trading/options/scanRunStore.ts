@@ -61,6 +61,11 @@ export interface ScanRunSummary {
    *  applied. Summaries persisted before issue #103 lack the field at
    *  runtime (undefined); readers must treat absent as null. */
   profileRef: ProfileRef | null;
+  /** The run's generated PDF storage key when the producing flow
+   *  stamped one at save time (issue #1239). Optional deliberately:
+   *  summaries persisted before #1239 lack the field at runtime;
+   *  readers must treat absent as null. */
+  pdfKey?: string | null;
   /** The login that saved the run (issue #103 per-user scoping).
    *  Optional deliberately: runs persisted before scoping existed —
    *  and runs saved by contexts with no identity — carry none, and
@@ -167,6 +172,7 @@ function summarize(id: string, result: OpportunityScanResult, userLogin?: string
     gate: result.gate,
     coverage: result.coverage,
     profileRef: result.profileRef ?? null,
+    pdfKey: result.pdfKey ?? null,
     ...(userLogin !== undefined ? { userLogin } : {}),
   };
 }
