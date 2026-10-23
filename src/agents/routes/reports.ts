@@ -504,10 +504,20 @@ export async function handleReportsRoutes(
       };
       if (kind === "all" || kind === "screener" || kind === "options_scanner") {
         await readStore("reports", async () => {
-          const { listScheduledReports, ensureScheduledReportsTable } = await import("../../services/scheduledReports");
+          const { listScheduledReports, ensureScheduledReportsTable, resolveCanonicalReportBody } = await import("../../services/scheduledReports");
           const { runSummaryFromReport } = await import("../../services/runSummaries");
           ensureScheduledReportsTable(sql);
-          return listScheduledReports(sql, { userLogin: reportLogin, limit }).map(runSummaryFromReport);
+          const hits = listScheduledReports(sql, { userLogin: reportLogin, limit });
+          // Issue #338 S2: run summaries read body fields (pdfKey,
+          // reportUrl) — resolve pointer rows from R2 first; inline
+          // rows pass through untouched.
+          const reportEnv = (ctx as any).env || {};
+          const resolved = await Promise.all(
+            hits.map(async (h) =>
+              h.bodyR2Key ? { ...h, body: (await resolveCanonicalReportBody(reportEnv, h)) ?? "" } : h
+            )
+          );
+          return resolved.map(runSummaryFromReport);
         });
       }
       if (kind === "all" || kind === "options_scanner") {
@@ -557,17 +567,23 @@ export async function handleReportsRoutes(
   const reportDetailMatch = path.match(/\/api\/reports\/([^/]+)$/);
   if (reportDetailMatch && request.method === "GET") {
     try {
-      const { getScheduledReportById, scheduledReportPdfUrl } = await import("../../services/scheduledReports");
+      const { getScheduledReportById, scheduledReportPdfUrl, resolveCanonicalReportBody } = await import("../../services/scheduledReports");
       const headerLogin = request.headers.get("x-user-login");
       const userLogin = headerLogin && headerLogin.trim() ? headerLogin : undefined;
       const hit = getScheduledReportById(ctx.ensureTables(), decodeURIComponent(reportDetailMatch[1]), { userLogin });
       if (!hit) {
         return Response.json({ error: "Report not found" }, { status: 404 });
       }
+      // Issue #338 S2: the canonical body may live in R2 behind the
+      // body_r2_key pointer — resolve it before parsing (inline rows
+      // resolve to themselves; a lost object resolves to null and the
+      // detail view renders body: null, as for an unparseable body).
+      const reportEnv = (ctx as any).env || {};
+      const bodyText = (await resolveCanonicalReportBody(reportEnv, hit)) ?? "";
       let body: unknown = null;
       let hasAttachment = false;
       try {
-        const parsed = JSON.parse(hit.body);
+        const parsed = JSON.parse(bodyText);
         if (parsed && typeof parsed === "object" && typeof (parsed as any).attachmentBase64 === "string" && (parsed as any).attachmentBase64) {
           hasAttachment = true;
           body = { ...(parsed as Record<string, unknown>), attachmentBase64: "" };
@@ -584,7 +600,7 @@ export async function handleReportsRoutes(
         source: hit.source,
         summary: hit.summary,
         createdAt: hit.createdAt,
-        reportUrl: scheduledReportPdfUrl(hit.source, hit.body),
+        reportUrl: scheduledReportPdfUrl(hit.source, bodyText),
         hasAttachment,
         body,
       });

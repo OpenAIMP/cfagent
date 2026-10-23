@@ -209,6 +209,60 @@ export interface CanonicalStoreResult {
  * Never throws: returns null on bad input or SQL errors so generation
  * and delivery are never broken by the store.
  */
+/** The mas_reports row id already stored for a generation id, or "". */
+function existingReportIdForGeneration(
+  sql: SqlStorage,
+  generationId: string
+): string {
+  const existing = Array.from(
+    sql.exec(
+      `SELECT id FROM ${SCHEDULED_REPORTS_TABLE} WHERE generation_id = ? LIMIT 1`,
+      generationId
+    )
+  ) as Array<{ id?: unknown }>;
+  return existing[0] ? String(existing[0].id ?? "") : "";
+}
+
+function generationIdOf(input: ScheduledReportInput): string | null {
+  return typeof input.generationId === "string" && input.generationId
+    ? input.generationId
+    : null;
+}
+
+function reportOwnerOf(input: ScheduledReportInput): string {
+  return typeof input.userLogin === "string" && input.userLogin
+    ? input.userLogin
+    : "default";
+}
+
+/**
+ * The one INSERT both store seams share (single line — MockSqlStorage's
+ * INSERT regex has no dotAll flag). Issue #338: when bodyR2Key is set the
+ * body column stores "" and the pointer names the R2 object holding the
+ * body; otherwise the body is inline and the pointer is NULL.
+ */
+function insertScheduledReportRow(
+  sql: SqlStorage,
+  rec: ScheduledReportRecord,
+  generationId: string | null,
+  owner: string,
+  bodyR2Key: string | null
+): void {
+  sql.exec(
+    `INSERT INTO ${SCHEDULED_REPORTS_TABLE} (id, run_id, title, source, summary, body, created_at, generation_id, user_login, body_r2_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    rec.id,
+    rec.runId,
+    rec.title,
+    rec.source,
+    rec.summary,
+    bodyR2Key ? "" : rec.body,
+    rec.createdAt,
+    generationId,
+    owner,
+    bodyR2Key
+  );
+}
+
 export function storeReportAtGeneration(
   sql: SqlStorage,
   input: ScheduledReportInput
@@ -216,43 +270,99 @@ export function storeReportAtGeneration(
   try {
     if (!input || typeof input.runId !== "string" || !input.runId) return null;
     ensureScheduledReportsTable(sql);
-    const generationId =
-      typeof input.generationId === "string" && input.generationId
-        ? input.generationId
-        : null;
+    const generationId = generationIdOf(input);
     if (generationId) {
-      const existing = Array.from(
-        sql.exec(
-          `SELECT id FROM ${SCHEDULED_REPORTS_TABLE} WHERE generation_id = ? LIMIT 1`,
-          generationId
-        )
-      ) as Array<{ id?: unknown }>;
-      const id = existing[0] ? String(existing[0].id ?? "") : "";
+      const id = existingReportIdForGeneration(sql, generationId);
       if (id) return { reportId: id, created: false };
     }
     const rec = toScheduledReportRecord(input);
-    const owner =
-      typeof input.userLogin === "string" && input.userLogin
-        ? input.userLogin
-        : "default";
-    sql.exec(
-      `INSERT INTO ${SCHEDULED_REPORTS_TABLE} (id, run_id, title, source, summary, body, created_at, generation_id, user_login) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      rec.id,
-      rec.runId,
-      rec.title,
-      rec.source,
-      rec.summary,
-      rec.body,
-      rec.createdAt,
-      generationId,
-      owner
-    );
+    insertScheduledReportRow(sql, rec, generationId, reportOwnerOf(input), null);
     return { reportId: rec.id, created: true };
   } catch (err) {
     // Issue #876: never silent. The caller (#835's null check) can only
     // say THAT the store failed; the worker log must say WHY.
     console.error(
       `[scheduledReports] storeReportAtGeneration failed for run ${typeof input?.runId === "string" ? input.runId : "?"}: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
+    return null;
+  }
+}
+
+/**
+ * Issue #338 S2: the R2 write path. Same contract as
+ * storeReportAtGeneration (idempotent on generation id, never throws),
+ * plus: when `env.REPORTS_BUCKET` is bound, the canonical body is put to
+ * R2 at reports/<reportId>.json BEFORE the row insert, and the row keeps
+ * only the body_r2_key pointer (body column ""). The dedupe check runs
+ * first, so a re-delivery never rewrites the R2 object. When the bucket
+ * is unbound — or the put fails — the write falls back to the exact
+ * legacy inline shape: a report is never lost to the storage flip.
+ */
+export async function storeReportAtGenerationWithR2(
+  sql: SqlStorage,
+  env: { REPORTS_BUCKET?: R2Bucket },
+  input: ScheduledReportInput
+): Promise<CanonicalStoreResult | null> {
+  try {
+    if (!input || typeof input.runId !== "string" || !input.runId) return null;
+    ensureScheduledReportsTable(sql);
+    const generationId = generationIdOf(input);
+    if (generationId) {
+      const id = existingReportIdForGeneration(sql, generationId);
+      if (id) return { reportId: id, created: false };
+    }
+    const rec = toScheduledReportRecord(input);
+    let bodyR2Key: string | null = null;
+    const bucket = env?.REPORTS_BUCKET;
+    if (bucket) {
+      const key = reportBodyR2Key(rec.id);
+      try {
+        await bucket.put(key, rec.body, {
+          httpMetadata: { contentType: "application/json" },
+        });
+        bodyR2Key = key;
+      } catch (err) {
+        console.error(
+          `[scheduledReports] storeReportAtGenerationWithR2: R2 body put failed for report ${rec.id}; storing inline instead: ${err instanceof Error ? err.message : String(err)}`,
+          err
+        );
+      }
+    }
+    insertScheduledReportRow(sql, rec, generationId, reportOwnerOf(input), bodyR2Key);
+    return { reportId: rec.id, created: true };
+  } catch (err) {
+    console.error(
+      `[scheduledReports] storeReportAtGenerationWithR2 failed for run ${typeof input?.runId === "string" ? input.runId : "?"}: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
+    return null;
+  }
+}
+
+/**
+ * Issue #338 S2: resolve a stored report's canonical body. A null pointer
+ * means the body is inline — return it as-is. A set pointer reads the R2
+ * object; a missing bucket, missing object, or read error resolves to
+ * null so callers fail closed (delivery reports "missing") instead of
+ * delivering an empty body.
+ */
+export async function resolveCanonicalReportBody(
+  env: { REPORTS_BUCKET?: R2Bucket },
+  hit: ScheduledReportHit
+): Promise<string | null> {
+  if (!hit.bodyR2Key) return hit.body;
+  const bucket = env?.REPORTS_BUCKET;
+  if (!bucket) return null;
+  try {
+    const obj = await bucket.get(hit.bodyR2Key);
+    if (!obj) return null;
+    return await obj.text();
+  } catch (err) {
+    // Issue #876 doctrine: never silent — a failed body read is a
+    // storage symptom the worker log must show.
+    console.error(
+      `[scheduledReports] resolveCanonicalReportBody failed for report ${hit.id} (key ${hit.bodyR2Key}): ${err instanceof Error ? err.message : String(err)}`,
       err
     );
     return null;
