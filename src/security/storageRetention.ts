@@ -50,6 +50,13 @@
  * - mas_reports — KEEP. One row per report generation; the rows ARE the
  *   user-visible retained run history surfaced by the reports UI
  *   (#125/#126 programme), so pruning is a product decision, not hygiene.
+ *   Issue #338 note: report bodies may live in R2 behind the row's
+ *   body_r2_key pointer, so IF a product decision ever enables pruning,
+ *   rows must be deleted through deleteCanonicalReport
+ *   (src/services/scheduledReports.ts), which deletes the R2 object in
+ *   the same scope; a raw DELETE FROM mas_reports would strand objects.
+ *   An orphan sweep for stranded reports/*.json objects is #338's named
+ *   follow-up.
  * - mas_policy_verdicts — KEEP. Signed compliance ledger (signature +
  *   signing key id per row), one row per policy evaluation; pruning would
  *   break the verdict chain's evidentiary value. Revisit if evaluation
