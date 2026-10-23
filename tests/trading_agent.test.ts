@@ -267,6 +267,7 @@ describe("TradingAgent A2A outcome + instance unification (#291 A1/A2)", () => {
   it("the edge dispatcher parses the body, calls handleA2A(body, origin), and shapes text+data parts", async () => {    const { handleA2A } = await import("../src/a2a/index");
     const seen: unknown[] = [];
     const fakeEnv = {
+      A2A_API_TOKEN: "test-token",
       TRADING_AGENT: {
         idFromName: (name: string) => ({ name }),
         get: (id: { name: string }) => ({
@@ -282,7 +283,7 @@ describe("TradingAgent A2A outcome + instance unification (#291 A1/A2)", () => {
     };
     const request = new Request("https://agent.example/a2a/trading", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-token" },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: "req-1",
@@ -410,5 +411,60 @@ describe("TradingAgent stable error tokens + dispatch logging (#291 A3/A6)", () 
     expect(entry.ok).toBe(true);
     expect(entry.service).toBe("stock_screening");
     expect(entry.access).toBe("read");
+  });
+});
+
+describe("A2A edge auth (#291 A5)", () => {
+  function makeRequest(token?: string): Request {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token !== undefined) headers.Authorization = `Bearer ${token}`;
+    return new Request("https://agent.example/a2a/trading", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ operation: "trading.screen_stocks" }),
+    });
+  }
+  const stubEnv = (extra: Record<string, unknown>) => ({
+    ...extra,
+    TRADING_AGENT: {
+      idFromName: (name: string) => ({ name }),
+      get: () => ({
+        handleA2A: async () => ({ text: "ok", data: { ok: true } }),
+      }),
+    },
+  });
+
+  it("fails closed with 503 when no A2A token is configured", async () => {
+    const { handleA2A } = await import("../src/a2a/index");
+    const res = await handleA2A(makeRequest("anything"), stubEnv({}));
+    expect(res.status).toBe(503);
+  });
+
+  it("rejects missing and wrong tokens with 401 before agent resolution", async () => {
+    const { handleA2A } = await import("../src/a2a/index");
+    const env = stubEnv({ A2A_API_TOKEN: "s3cret" });
+    expect((await handleA2A(makeRequest(undefined), env)).status).toBe(401);
+    expect((await handleA2A(makeRequest("wr0ng"), env)).status).toBe(401);
+    // Even for an unknown agent — auth precedes routing disclosure.
+    const unknownAgent = new Request("https://agent.example/a2a/nope", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect((await handleA2A(unknownAgent, env)).status).toBe(401);
+  });
+
+  it("dispatches with the correct token; discovery stays public", async () => {
+    const { handleA2A } = await import("../src/a2a/index");
+    const env = stubEnv({ A2A_API_TOKEN: "s3cret" });
+    const res = await handleA2A(makeRequest("s3cret"), env);
+    expect(res.status).toBe(200);
+    const cardRes = await handleA2A(
+      new Request("https://agent.example/a2a/trading/agent-card.json"),
+      stubEnv({}),
+    );
+    expect(cardRes.status).toBe(200);
+    const card: any = await cardRes.json();
+    expect(card.name).toBe("trading");
   });
 });

@@ -174,6 +174,8 @@ export interface Env {
   RESEARCH_AGENT?: DurableObjectNamespace;
   REPORT_ASSET_AGENT?: DurableObjectNamespace;
   TRADING_AGENT?: DurableObjectNamespace;
+  /** Bearer token required on A2A dispatch POSTs (#291 A5). Unset = dispatch disabled (fail closed). */
+  A2A_API_TOKEN?: string;
 }
 
 export interface TransactionRecord {
