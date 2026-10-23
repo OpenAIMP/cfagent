@@ -335,7 +335,7 @@ export class ETradeRestClient {
   /**
    * Fetches batch of quotes for multiple tickers in a single authenticated E*TRADE API request
    */
-  async fetchQuotes(symbols: string[], options?: { overrideSymbolCount?: boolean; trace?: import("./quoteTrace").QuoteTrace }): Promise<ETradeQuote[]> {
+  async fetchQuotes(symbols: string[], options?: { overrideSymbolCount?: boolean; trace?: import("./quoteTrace").QuoteTrace; onWireResponse?: (symbols: string[], payload: unknown) => void }): Promise<ETradeQuote[]> {
     this.lastError = undefined;
     if (!symbols.length) return [];
     const envConfig = this.getEnvConfig();
@@ -421,6 +421,20 @@ export class ETradeRestClient {
         }
 
         const data = (await res.json().catch(() => ({}))) as any;
+        // Issue #1157 (E2): opt-in wire hook — the parsed sub-batch
+        // payload, handed to the caller BEFORE normalization below
+        // discards everything but the mapped quote fields. The data-
+        // provider platform's batch capture (adapters.ts) records one
+        // capture per sub-batch from this. Not supplied (every existing
+        // caller), nothing changes; a throwing hook never breaks the
+        // fetch (capture must never fail the retrieval it observes).
+        if (options?.onWireResponse) {
+          try {
+            options.onWireResponse(batchSyms, data);
+          } catch (hookErr) {
+            console.warn("[ETradeClient] fetchQuotes onWireResponse hook failed:", hookErr);
+          }
+        }
         const rawQuoteData = data?.QuoteResponse?.QuoteData;
         if (rawQuoteData == null) {
           batchFailed = true;
