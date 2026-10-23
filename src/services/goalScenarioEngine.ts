@@ -868,7 +868,13 @@ export function goalKindForIntent(text: string): GoalKind | null {
  */
 export async function runGoalScenarioDiscovery(input: {
   provider: ResearchDataProvider;
-  portfolio: PortfolioDiscoveryState;
+  /**
+   * Phase 3 (#1122): the portfolio state may be ABSENT — e.g. the
+   * scheduled discovery run type in the research agent, which has no
+   * portfolio seam. Portfolio triggers are then SKIPPED with the
+   * limitation recorded; the portfolio is never assumed healthy.
+   */
+  portfolio: PortfolioDiscoveryState | null;
   symbols: string[];
   ivRank?: number | null;
   eventsBySymbol?: Record<string, { earningsInDays?: number | null; exDivInDays?: number | null }>;
@@ -882,7 +888,14 @@ export async function runGoalScenarioDiscovery(input: {
   const thresholds = input.thresholds ?? discoveryThresholdsFromConfig(input.config ?? RESEARCH_CONFIG_DEFAULTS);
   const limitations: string[] = [];
 
-  const proposals = discoverGoalsFromPortfolio(input.portfolio, thresholds, input.config);
+  const proposals = input.portfolio
+    ? discoverGoalsFromPortfolio(input.portfolio, thresholds, input.config)
+    : [];
+  if (!input.portfolio) {
+    limitations.push(
+      "Portfolio state not supplied; portfolio discovery triggers (concentration, unhedged delta, expiring legs, repair) were skipped, not assumed healthy."
+    );
+  }
 
   const regime = await input.provider.getRegime();
   const fromRegime = discoverGoalsFromRegime(regime, input.ivRank ?? null, thresholds, input.config);
