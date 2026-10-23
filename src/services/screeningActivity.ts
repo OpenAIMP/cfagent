@@ -32,6 +32,7 @@ export const SCREENING_ACTIVITY_TABLE = "mas_screening_activity";
 export type ScreeningActivityKind =
   | "discovery_run"
   | "screen_run"
+  | "goal_decision"
   | "reselection"
   | "weights_adjustment"
   | "promotion"

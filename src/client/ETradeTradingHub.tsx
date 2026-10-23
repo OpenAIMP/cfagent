@@ -17,34 +17,20 @@ import { PortfolioRiskPanel } from "./PortfolioRiskPanel";
 import { AccountPanels } from "./AccountPanels";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { ScreenersHub, type ScreenersHubTab } from "./ScreenersHub";
-import { ReportsPanel } from "./ReportsPanel";
-import { SchedulesPanel } from "./SchedulesPanel";
 import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { EtapiConfigModal } from "./options/EtapiConfigModal";
 import { RiskAnalysisModal } from "./options/RiskAnalysisModal";
 import type { RiskSubject } from "./options/riskManagementEngine";
 
 /**
- * S8 (consolidation, umbrella #958): the Trading Hub's former
- * screening subtabs (options research, strategy scanner, IV
- * history) are redirect notices into the one screening hub — the
- * ScreenersHub — following the S7 schedule-redirect precedent. The
- * button deep-links: it selects the folded surface's tab in the hub
- * and navigates there, one click.
+ * C2 (consolidation #1151, issue #1246): the S8 "Screening Moved"
+ * redirect notices are retired. The Trading Hub's screening subtabs
+ * (options research, strategy scanner, IV history, reports,
+ * schedules) render the ONE screening hub — ScreenersHub — directly
+ * on the equivalent tab, so every legacy deep link lands on the live
+ * surface with no interstitial. Reports and Schedules are hosted by
+ * the hub as tabs now; they are no longer mounted here.
  */
-function ScreeningMovedNotice({ surface, onOpen }: { surface: string; onOpen: () => void }) {
-  return (
-    <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
-      <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>🔎 Screening Moved to the Screeners Hub</h4>
-      <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
-        {surface} now lives in the <strong>Screeners</strong> hub — the one screening home — alongside the stock screener, the Strategy/Symbol Scanner, options research, and IV history.
-      </p>
-      <button type="button" onClick={onOpen} style={{ padding: "0.45rem 0.9rem", fontWeight: 600 }}>
-        Open in the Screeners hub
-      </button>
-    </div>
-  );
-}
 import { ResearchReportActions } from "./ResearchReportActions";
 import { AutopilotControlCenter } from "./components/AutopilotControlCenter";
 
@@ -102,12 +88,20 @@ export function ETradeTradingHub({
     setSubTab(newSubTab);
     onSelectSubTab?.(newSubTab);
   };
-  // S8: the ScreenersHub tab the screening redirects deep-link to.
-  const [screenersInitialTab, setScreenersInitialTab] = useState<ScreenersHubTab>("stocks");
-  const openScreenersHub = (tab: ScreenersHubTab) => {
-    setScreenersInitialTab(tab);
-    handleNavigateSubTab("screeners");
-  };
+  // C2: every screening subtab renders the one hub on the
+  // equivalent tab — the same props the hub has always received
+  // here, with initialTab selecting the folded surface.
+  const renderScreenersHub = (tab: ScreenersHubTab) => (
+    <ScreenersHub
+      activeEnv={activeEnv}
+      userLogin={user?.login}
+      onStocksLoaded={setScreenerStocks}
+      initialTab={tab}
+      onPreviewTrade={handleTradeOrder}
+      onSendPrompt={onSendPrompt}
+      onJobStateChange={setOptionsJob}
+    />
+  );
 
   useEffect(() => {
     if (activeSubTab && activeSubTab !== subTab) {
@@ -1592,42 +1586,20 @@ export function ETradeTradingHub({
         />
       )}
 
-      {effectiveSubTab === "iv-history" && (
-        <ScreeningMovedNotice surface="IV history" onOpen={() => openScreenersHub("iv-history")} />
-      )}
+      {/* C2: the screening subtabs render the one hub directly on
+          the equivalent tab — no redirect notices. */}
+      {effectiveSubTab === "iv-history" && renderScreenersHub("iv-history")}
 
-      {effectiveSubTab === "screeners" && (
-        <ScreenersHub
-          activeEnv={activeEnv}
-          userLogin={user?.login}
-          onStocksLoaded={setScreenerStocks}
-          initialTab={screenersInitialTab}
-          onPreviewTrade={handleTradeOrder}
-          onSendPrompt={onSendPrompt}
-          onJobStateChange={setOptionsJob}
-        />
-      )}
+      {effectiveSubTab === "screeners" && renderScreenersHub("stocks")}
 
-      {effectiveSubTab === "reports" && (
-        <ReportsPanel />
-      )}
+      {effectiveSubTab === "reports" && renderScreenersHub("reports")}
 
-      {effectiveSubTab === "schedules" && (
-        <SchedulesPanel activeEnv={activeEnv} userLogin={user?.login} onPreviewTrade={handleTradeOrder} />
-      )}
+      {effectiveSubTab === "schedules" && renderScreenersHub("schedules")}
 
-      {/* SUBTAB 1: MARKET SCREENER & SCANNER — S8: folded into the
-          Screeners hub; this subtab is the deep-link redirect. */}
-      {effectiveSubTab === "scanner" && (
-        <ScreeningMovedNotice surface="The Strategy/Symbol Scanner" onOpen={() => openScreenersHub("scanner")} />
-      )}
+      {/* SUBTAB 1: MARKET SCREENER & SCANNER — folded into the hub. */}
+      {effectiveSubTab === "scanner" && renderScreenersHub("scanner")}
 
-      {effectiveSubTab === "options" && (
-        <ScreeningMovedNotice
-          surface="Options research (strategy discovery, the raw contracts screener, custom thesis scans, NLQ, and the LLM idea experiment)"
-          onOpen={() => openScreenersHub("options")}
-        />
-      )}
+      {effectiveSubTab === "options" && renderScreenersHub("options")}
 
       {/* SUBTAB 2: ORDER TICKET & HITL PREVIEW */}
       {effectiveSubTab === "order" && (

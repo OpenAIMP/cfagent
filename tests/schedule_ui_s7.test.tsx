@@ -317,10 +317,14 @@ describe("S7 one surface / one builder (source pins)", () => {
     expect(panelSrc).toContain("<ScheduledOptionsManager");
   });
 
-  it("the options hub schedules mode is a redirect, not a second surface", () => {
+  it("the options hub schedules mode is a pointer, not a second surface", () => {
     const orp = read("src/client/options/OptionsResearchPanel.tsx");
     expect(orp).not.toContain("ScheduledOptionsManager");
-    expect(orp).toContain("Schedule Management Moved to the Schedules Tab");
+    // C2 (#1246) supersedes the S7 "moved" wording: Schedules is now
+    // a tab of the same hub, so the note offers an in-hub switch to
+    // it — still a pointer, never a second schedule surface.
+    expect(orp).toContain("Schedule Management Lives in the Schedules Tab");
+    expect(orp).toContain("Open the Schedules tab");
     expect(orp).toContain("<AutonomousOptionsRuns />");
   });
 
