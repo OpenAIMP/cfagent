@@ -106,11 +106,12 @@ const PINNED_NAMED_REEXPORTS = ["MAX_SCAN_SYMBOLS from ./options/opportunityScan
  * Shrinks: T5c (2026-10-23) — etradeOptions chains + expire-dates routes
  * resolved through the platform registry: 51 -> 49. Q2 (2026-10-23) —
  * researchProviders resolved through the registry with the LIVE_STRICT
- * quote policy named at the call site: 49 -> 48.
+ * quote policy named at the call site: 49 -> 48. Q3 (2026-10-23) —
+ * the broker quote route onto the registry + LIVE_STRICT: 48 -> 47.
  */
 const CONSTRUCTION_LEDGER: Record<string, number> = {
   "agents/nlq/execution.ts": 2,
-  "agents/routes/etradeBroker.ts": 20,
+  "agents/routes/etradeBroker.ts": 19,
   "agents/routes/etradeOptions.ts": 5,
   "agents/routes/watchlists.ts": 5,
   "agents/screener-agent.ts": 1,
@@ -144,6 +145,6 @@ describe("trading extraction ledger (issue #291 T0)", () => {
     }
     expect(actual).toEqual(CONSTRUCTION_LEDGER);
     const total = Object.values(actual).reduce((a, b) => a + b, 0);
-    expect(total).toBe(48);
+    expect(total).toBe(47);
   });
 });
