@@ -92,6 +92,7 @@ const PINNED_STAR_REEXPORTS = [
   "./slack/agent",
   "./voice/agent",
   "./etrade/quoteTrace",
+  "./quotePolicies",
 ];
 
 /** Pinned named re-exports (the #290 MAX_SCAN_SYMBOLS disambiguation). */
@@ -103,7 +104,9 @@ const PINNED_NAMED_REEXPORTS = ["MAX_SCAN_SYMBOLS from ./options/opportunityScan
  * 3b8ac74: 51 sites in 13 files. Shrink a count only in the PR that
  * migrates those sites behind the TradingAgent facade (#291 slices T1+).
  * Shrinks: T5c (2026-10-23) — etradeOptions chains + expire-dates routes
- * resolved through the platform registry: 51 -> 49.
+ * resolved through the platform registry: 51 -> 49. Q2 (2026-10-23) —
+ * researchProviders resolved through the registry with the LIVE_STRICT
+ * quote policy named at the call site: 49 -> 48.
  */
 const CONSTRUCTION_LEDGER: Record<string, number> = {
   "agents/nlq/execution.ts": 2,
@@ -115,7 +118,6 @@ const CONSTRUCTION_LEDGER: Record<string, number> = {
   "mcp/etradeCommands.ts": 7,
   "mcp/index.ts": 1,
   "services/discoveryService.ts": 2,
-  "services/researchProviders.ts": 1,
   "services/scheduledTasks.ts": 2,
   "services/thinkHarness.ts": 1,
   "services/tradingWebhooks.ts": 1,
@@ -142,6 +144,6 @@ describe("trading extraction ledger (issue #291 T0)", () => {
     }
     expect(actual).toEqual(CONSTRUCTION_LEDGER);
     const total = Object.values(actual).reduce((a, b) => a + b, 0);
-    expect(total).toBe(49);
+    expect(total).toBe(48);
   });
 });
