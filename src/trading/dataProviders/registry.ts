@@ -52,6 +52,7 @@ import type {
   DataProvider,
   DataProviderCapability,
   DataProviderId,
+  Tier,
 } from "./contract";
 import type {
   CapabilityRouteRecord,
@@ -79,6 +80,40 @@ export class DataProviderNotFoundError extends Error {
     );
     this.name = "DataProviderNotFoundError";
     this.capability = capability;
+  }
+}
+
+/**
+ * An entitlement refusal (E5, issue #1202): the route EXISTS and its
+ * primary is servable, but the route's minTier is above the tier the
+ * caller presented. Deliberately NOT a DataProviderNotFoundError —
+ * "your tier does not include this route" and "no provider serves
+ * this capability" are different operational facts, and callers must
+ * be able to tell a refusal from an outage. The tier gates the whole
+ * route: a freemium caller is never quietly served by the route's
+ * gap-fill instead (no silent substitution).
+ */
+export class DataProviderTierError extends Error {
+  readonly providerId: DataProviderId;
+  readonly capability: DataProviderCapability;
+  readonly requiredTier: Tier;
+  readonly callerTier: Tier;
+  constructor(
+    providerId: DataProviderId,
+    capability: DataProviderCapability,
+    requiredTier: Tier,
+    callerTier: Tier
+  ) {
+    super(
+      `Data provider "${providerId}" serves capability "${capability}" ` +
+        `only on the ${requiredTier} tier; the caller presented the ${callerTier} tier. ` +
+        `The route is not served at a lower tier and no substitute provider is used.`
+    );
+    this.name = "DataProviderTierError";
+    this.providerId = providerId;
+    this.capability = capability;
+    this.requiredTier = requiredTier;
+    this.callerTier = callerTier;
   }
 }
 
@@ -138,11 +173,20 @@ export class DataProviderRegistry {
    * precedence default. See the module header for the strict
    * primary/gap-fill semantics. Throws DataProviderNotFoundError when
    * the primary cannot be served.
+   *
+   * `callerTier` (E5, issue #1202) is the entitlement check, applied
+   * only when a caller presents a tier: a route whose minTier is
+   * "premium" refuses a "freemium" caller with DataProviderTierError
+   * — after servability, so an unservable primary still reports as
+   * not-found. When the tier is omitted the behaviour is exactly the
+   * pre-E5 one: internal composition points present no tier and rely
+   * on entry points presenting theirs.
    */
   resolveRoute(
     capability: DataProviderCapability,
     configs: readonly ProviderConfigRecord[],
-    routes: readonly CapabilityRouteRecord[]
+    routes: readonly CapabilityRouteRecord[],
+    callerTier?: Tier
   ): CapabilityAssignment {
     const configsById = new Map(configs.map((c) => [c.id, c] as const));
     const route = routes.find((r) => r.capability === capability);
@@ -151,6 +195,18 @@ export class DataProviderRegistry {
     }
     const primary = this.servable(route.primaryProviderId, capability, configsById);
     if (!primary) throw new DataProviderNotFoundError(capability);
+    if (
+      callerTier !== undefined &&
+      route.minTier === "premium" &&
+      callerTier === "freemium"
+    ) {
+      throw new DataProviderTierError(
+        route.primaryProviderId,
+        capability,
+        route.minTier,
+        callerTier
+      );
+    }
     const gapFill = route.gapFillProviderId
       ? this.servable(route.gapFillProviderId, capability, configsById)
       : undefined;
