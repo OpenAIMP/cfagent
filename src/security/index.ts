@@ -26,6 +26,7 @@ export * from "./iaaaMembershipStore";
 export * from "./iaaaBootstrap";
 export * from "./iaaaMigration";
 export * from "./iaaaPdpSeam";
+export * from "./executionContext";
 export * from "./iaaaGithubEndToEnd";
 export * from "./etradeOAuth";
 export * from "./session";
