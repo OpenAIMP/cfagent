@@ -65,7 +65,7 @@ describe("Omnichannel Slack Delivery over cfpay A2A", () => {
       );
     });
 
-    it("falls back to cfpayPostToSlack text over A2A when PDF is present but channel is omitted", async () => {
+    it("#1216: PDF present but no channel resolvable → NOT ok, no text substitution", async () => {
       const spyFile = vi.spyOn(cfpayA2A, "cfpayPostFileToSlack");
       const spyText = vi.spyOn(cfpayA2A, "cfpayPostToSlack").mockResolvedValue({ ok: true });
 
@@ -81,16 +81,13 @@ describe("Omnichannel Slack Delivery over cfpay A2A", () => {
         },
       });
 
-      expect(res.ok).toBe(true);
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("No Slack channel");
       expect(spyFile).not.toHaveBeenCalled();
-      expect(spyText).toHaveBeenCalledWith(
-        expect.objectContaining({ token: "test-a2a-token" }),
-        "Market screen completed (no channel)",
-        undefined
-      );
+      expect(spyText).not.toHaveBeenCalled();
     });
 
-    it("falls back to cfpayPostToSlack text over A2A if PDF file upload fails", async () => {
+    it("#1216: PDF upload failure → NOT ok, and text is never posted as a substitute", async () => {
       vi.spyOn(cfpayA2A, "cfpayPostFileToSlack").mockResolvedValue({ ok: false, error: "not_in_channel" });
       const spyText = vi.spyOn(cfpayA2A, "cfpayPostToSlack").mockResolvedValue({ ok: true });
 
@@ -107,12 +104,50 @@ describe("Omnichannel Slack Delivery over cfpay A2A", () => {
         },
       });
 
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("report.pdf");
+      expect(spyText).not.toHaveBeenCalled();
+    });
+
+    it("#1216: PDF + additional files → EVERY file posts over A2A, in order", async () => {
+      const spyFile = vi.spyOn(cfpayA2A, "cfpayPostFileToSlack").mockResolvedValue({ ok: true });
+
+      const env = { CFPAY_A2A_TOKEN: "test-a2a-token", SCREENER_SLACK_CHANNEL: "#desk" };
+      const res = await deliverScreenerToSlackA2A(env, {
+        text: "Screen completed",
+        channel: "#desk",
+        pdf: {
+          bytes: new Uint8Array([1]),
+          fileName: "report.pdf",
+          title: "Report",
+          comment: "Here is the PDF report",
+        },
+        files: [{ bytes: new Uint8Array([2]), fileName: "report.xlsx", title: "report.xlsx" }],
+      });
+
       expect(res.ok).toBe(true);
-      expect(spyText).toHaveBeenCalledWith(
-        expect.objectContaining({ token: "test-a2a-token" }),
-        "Screen completed",
-        "#private-desk"
-      );
+      expect(spyFile).toHaveBeenCalledTimes(2);
+      expect(spyFile.mock.calls[0][1]).toMatchObject({ filename: "report.pdf", initial_comment: "Here is the PDF report" });
+      expect(spyFile.mock.calls[1][1]).toMatchObject({ filename: "report.xlsx" });
+      expect(spyFile.mock.calls[1][1].initial_comment).toBeUndefined();
+    });
+
+    it("#1216: a failure on the SECOND file still reports NOT ok (no partial success)", async () => {
+      const spyFile = vi.spyOn(cfpayA2A, "cfpayPostFileToSlack")
+        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValueOnce({ ok: false, error: "file_too_large" });
+
+      const env = { CFPAY_A2A_TOKEN: "test-a2a-token", SCREENER_SLACK_CHANNEL: "#desk" };
+      const res = await deliverScreenerToSlackA2A(env, {
+        text: "Screen completed",
+        channel: "#desk",
+        pdf: { bytes: new Uint8Array([1]), fileName: "report.pdf", title: "Report", comment: "c" },
+        files: [{ bytes: new Uint8Array([2]), fileName: "report.xlsx", title: "report.xlsx" }],
+      });
+
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("report.xlsx");
+      expect(spyFile).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -164,6 +199,73 @@ describe("Omnichannel Slack Delivery over cfpay A2A", () => {
       expect(res.ok).toBe(true);
       expect(res.method).toBe("direct");
       expect(spyFiles).toHaveBeenCalled();
+    });
+
+    it("#1216: A2A file failure → master falls to direct, which posts ALL files", async () => {
+      vi.spyOn(cfpayA2A, "cfpayPostFileToSlack").mockResolvedValue({ ok: false, error: "not_in_channel" });
+      const spyFiles = vi.spyOn(slackFiles, "postFilesToSlack").mockResolvedValue({
+        configured: true,
+        posted: 2,
+      });
+
+      const env = {
+        CFPAY_A2A_TOKEN: "test-a2a-token",
+        SLACK_BOT_TOKEN: "xoxb-test-bot-token",
+        SLACK_CHANNEL: "#trading-desk",
+      };
+      const res = await deliverScreenerToSlack(env, {
+        text: "Screen completed",
+        channel: "#trading-desk",
+        pdf: { bytes: new Uint8Array([1]), fileName: "report.pdf", title: "Report", comment: "c" },
+        files: [{ bytes: new Uint8Array([2]), fileName: "report.xlsx", title: "report.xlsx" }],
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.method).toBe("direct");
+      const postedFiles = (spyFiles.mock.calls[0] as any[])[2] as unknown[];
+      expect(postedFiles.length).toBe(2);
+    });
+
+    it("#1216: files requested but NO transport posts them → master reports failure", async () => {
+      vi.spyOn(cfpayA2A, "cfpayPostFileToSlack").mockResolvedValue({ ok: false, error: "not_in_channel" });
+      vi.spyOn(slackFiles, "postFilesToSlack").mockResolvedValue({
+        configured: true,
+        posted: 0,
+        error: "upload failed",
+      });
+
+      const env = {
+        CFPAY_A2A_TOKEN: "test-a2a-token",
+        SLACK_BOT_TOKEN: "xoxb-test-bot-token",
+        SLACK_CHANNEL: "#trading-desk",
+      };
+      const res = await deliverScreenerToSlack(env, {
+        text: "Screen completed",
+        channel: "#trading-desk",
+        pdf: { bytes: new Uint8Array([1]), fileName: "report.pdf", title: "Report", comment: "c" },
+      });
+
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("posted 0 of 1");
+    });
+
+    it("#1216: direct leg alone — incomplete upload is NOT ok (no text degradation)", async () => {
+      vi.spyOn(slackFiles, "postFilesToSlack").mockResolvedValue({
+        configured: true,
+        posted: 1,
+        error: "second file rejected",
+      });
+
+      const env = { SLACK_BOT_TOKEN: "xoxb-test-bot-token", SLACK_CHANNEL: "#trading-desk" };
+      const res = await deliverScreenerToSlackDirect(env, {
+        text: "Screen completed",
+        channel: "#trading-desk",
+        pdf: { bytes: new Uint8Array([1]), fileName: "report.pdf", title: "Report", comment: "c" },
+        files: [{ bytes: new Uint8Array([2]), fileName: "report.xlsx", title: "report.xlsx" }],
+      });
+
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain("posted 1 of 2");
     });
   });
 
