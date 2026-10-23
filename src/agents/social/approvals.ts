@@ -30,6 +30,14 @@ export interface PendingApproval {
   channel: string;
   draftId: string;
   requestedAtMs: number;
+  /**
+   * #1077 Phase 5b slice 3: the draftId a Slack approval card was
+   * last delivered for. Delivery is idempotent per (date, channel,
+   * draftId): a pass skips a record whose deliveredDraftId already
+   * equals its draftId, and a rebuilt draft (new draftId) re-delivers.
+   * Absent on records written before slice 3 — treated as undelivered.
+   */
+  deliveredDraftId?: string;
 }
 
 export interface PendingApprovalStore {
