@@ -79,14 +79,17 @@ reach a platform yet.
   phase RECORDS approval requests; it does not deliver them — Slack
   approval-card delivery is a Phase 5b wiring step.
 - `../socialAgent.ts` — `publishDueDrafts`: approval-list drafts
-  publish only when `approved`; autonomous drafts publish when
-  `draft` or `approved`; posted/failed drafts are never republished;
-  per-channel failures are error entries, never throws, never
-  blocking other channels. A failed publish attempt leaves the draft
-  publishable for retry (only an explicit reject marks it failed).
-  The platform/dry-run post id travels in each publish result and in
-  the dry-run sink record; `SocialDraft` itself is intentionally
-  unextended (the ledger records the status transition to `posted`).
+  publish when `approved`, or when `dry-run-posted` with their
+  approval record (#1171: approval standing survives a dry-run
+  publish); autonomous drafts publish when `draft`, `approved`, or
+  `dry-run-posted`; posted/failed drafts are never republished; a
+  dry-run sweep skips already dry-run-posted drafts. Per-channel
+  failures are error entries, never throws, never blocking other
+  channels. A failed publish attempt leaves the draft publishable
+  for retry (only an explicit reject marks it failed). A live
+  publish records the platform post id on the draft; a dry-run
+  publish records no id — its synthetic id travels in the publish
+  result and the dry-run sink record only.
   The Phase 4 `publishDraft` stub is kept for API compatibility and
   is never called by this path.
 - `tick.ts` — `runSocialDailyTick`: fire check → brief → build →
@@ -210,10 +213,11 @@ approval arriving after the day's firing was never published by a
 later firing. Slice 3 fixes this two ways (see the slice 3 section
 below): publish-on-approve (the approval action itself publishes)
 and a 7-day catch-up sweep in the executor. The dry-run "posted"
-carry-forward from Phase 5a still stands: a dry-run publish marks
-its draft "posted", so flipping live mid-day skips that day's
-drafts — dry-run needs its own status before durable storage
-matters for the live flip (see "What still gates").
+carry-forward from Phase 5a is FIXED by #1171: a dry-run publish
+now marks its draft "dry-run-posted", never "posted", and only a
+live publish earns "posted" with the platform post id recorded —
+so flipping live mid-day live-publishes that day's drafts exactly
+once instead of skipping them.
 
 ## What still gates the first live post (after slice 1)
 
@@ -354,8 +358,9 @@ end).
   carries `deliveredDraftId` (backward-compatible: records written
   before slice 3 lack it and are treated as undelivered, delivered
   once). A pass skips records whose `deliveredDraftId` already
-  equals their `draftId`, skips missing/posted/failed/approved
-  drafts and draft-id mismatches (stale pending), and never marks
+  equals their `draftId`, skips missing/non-draft drafts (posted,
+  failed, approved, dry-run-posted) and draft-id mismatches
+  (stale pending), and never marks
   a failed delivery — the next pass retries it. `publishDueDrafts`
   preserves `deliveredDraftId` when it re-records an unchanged
   pending request, so a catch-up sweep cannot wipe the mark and
@@ -426,7 +431,9 @@ other approved/failed drafts for that date resolve too); reject →
 - A publish failure leaves the draft APPROVED with the error in
   the result: retryable via catch-up, never silently dropped,
   never marked posted on failure. The approval action returns the
-  draft's final stored state (posted, or still approved).
+  draft's final stored state (posted on live success,
+  dry-run-posted on dry-run success, or still approved on
+  failure).
 - The handler awaits publish before answering Slack (repo
   convention, like trading execution). Known wart: a slow
   platform call may exceed Slack's 3s interaction window — the
@@ -586,7 +593,8 @@ either healthy or broken.
   an operator query, not a publish gate, in this slice.
 - No new secrets, no token storage change, no wrangler.jsonc /
   deploy.yml change, no publish-path change.
-- NOT the dry-run "posted" status fix: a dry-run publish still
-  marks its draft "posted". That fix belongs with the live flip,
-  so flipping live mid-day still skips that day's drafts until
-  it lands.
+- The dry-run "posted" status fix is NOT part of the token-health
+  slice itself — it landed separately as #1171, after which a
+  dry-run publish marks its draft "dry-run-posted" and flipping
+  live mid-day live-publishes that day's drafts instead of
+  skipping them.

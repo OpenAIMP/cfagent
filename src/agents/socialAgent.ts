@@ -9,9 +9,12 @@
  *
  * Phase 5a (token-independent publish gating):
  * - publishDueDrafts publishes the drafts that are DUE for a date:
- *   approval-list drafts only when status is "approved", autonomous
- *   drafts when status is "draft" or "approved" (approval never blocks
- *   an autonomous channel). Posted/failed drafts are never republished.
+ *   approval-list drafts only when status is "approved" — or when
+ *   status is "dry-run-posted" WITH its approval record (an approved
+ *   draft keeps its approval standing through a dry-run publish,
+ *   #1171); autonomous drafts when status is "draft", "approved",
+ *   or "dry-run-posted" (approval never blocks an autonomous
+ *   channel). Posted/failed drafts are never republished.
  * - Publication resolves per channel through publisher.ts: dry-run by
  *   default; live only when posting is on, SOCIAL_LIVE_PUBLISHING is
  *   "1"/"true", and the channel token (and account id, where
@@ -21,10 +24,14 @@
  *   blocking other channels. A failed publish attempt leaves the draft
  *   in its pre-publish status for a later retry — it is NOT marked
  *   failed (only an explicit rejectDraft does that).
- * - The platform/dry-run post id is carried in each result (and in
- *   the dry-run sink record). SocialDraft itself is intentionally
- *   left unextended: the ledger records the status transition to
- *   "posted", and the id travels with the publish result.
+ * - "posted" means REALLY posted (#1171): a dry-run publish sets
+ *   status "dry-run-posted" and records nothing on the draft, so
+ *   flipping live mid-day still live-publishes that day's drafts;
+ *   a live publish sets status "posted" and records the platform
+ *   post id on the draft. A dry-run sweep skips already
+ *   dry-run-posted drafts (no double sink record). The result
+ *   outcome vocabulary ("posted" for a publish this sweep made) is
+ *   unchanged, so goal fired/catch-up accounting is unaffected.
  *
  * Hard rules (unchanged from Phase 4):
  * - Posting disabled (SOCIAL_POSTING_ENABLED off) → early return
@@ -180,7 +187,16 @@ export async function publishDueDrafts(input: {
         });
         continue;
       }
-      if (disposition === "approval" && draft.status !== "approved") {
+      // #1171: an approved draft keeps its approval standing
+      // through a dry-run publish — a dry-run-posted draft WITH its
+      // approval record is still publishable. A dry-run-posted
+      // draft WITHOUT a record cannot occur through the normal
+      // flow (dry-run requires approval first); it fails closed
+      // here as awaiting approval rather than publishing.
+      if (
+        disposition === "approval" &&
+        !(draft.status === "approved" || (draft.status === "dry-run-posted" && draft.approval))
+      ) {
         // Record the request; delivery (Slack approval card) is Phase 5b.
         // Slice 3: re-recording must not wipe the delivery mark — the
         // pending request is the same one while the draftId is
@@ -222,6 +238,22 @@ export async function publishDueDrafts(input: {
         });
         continue;
       }
+      // #1171: a dry-run sweep skips drafts it already dry-run-posted
+      // (no double sink record). A live sweep does NOT skip them —
+      // that is the mid-day flip: they are published for real now.
+      // This check sits after the approval gate on purpose, so an
+      // unapproved draft still reports "awaiting approval" rather
+      // than a dry-run skip, exactly as before.
+      if (target.kind === "dry-run" && draft.status === "dry-run-posted") {
+        results.push({
+          channel,
+          disposition,
+          draftId: draft.id,
+          outcome: "skipped",
+          reason: "draft already dry-run posted",
+        });
+        continue;
+      }
       const published =
         target.kind === "dry-run"
           ? target.publisher.publish(draft, input.nowMs)
@@ -245,7 +277,21 @@ export async function publishDueDrafts(input: {
         });
         continue;
       }
-      await input.store.putDraft({ ...draft, status: "posted" });
+      // #1171: only a live publish earns "posted" — and only a live
+      // publish records the platform post id on the draft. A dry-run
+      // publish records "dry-run-posted" and no id, so a later live
+      // sweep still publishes it. The result outcome ("posted") is
+      // unchanged for both, so goal fired/catch-up accounting — which
+      // counts outcomes, not draft statuses — behaves as before.
+      if (target.kind === "dry-run") {
+        await input.store.putDraft({ ...draft, status: "dry-run-posted" });
+      } else {
+        await input.store.putDraft({
+          ...draft,
+          status: "posted",
+          platformPostId: published.platformPostId,
+        });
+      }
       await input.approvals.clearPending(input.date, channel);
       results.push({
         channel,

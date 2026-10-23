@@ -139,7 +139,7 @@ describe("onCron social.publish goals", () => {
     expect(goals[0].lastRun).toBe(new Date(MON_0900).toISOString());
     // Drafts landed in the durable store (never a list op).
     expect(session.ops).not.toContain("list");
-    expect(JSON.parse(session.rawGet("social-draft:2026-10-26:x")!).status).toBe("posted");
+    expect(JSON.parse(session.rawGet("social-draft:2026-10-26:x")!).status).toBe("dry-run-posted");
     expect(JSON.parse(session.rawGet("social-draft:2026-10-26:facebook")!).status).toBe("draft");
     expect(session.rawGet("social-pending:2026-10-26:facebook")).toBeDefined();
     expect(sink.records.map((r) => r.channel).sort()).toEqual(["threads", "x"]);
@@ -190,7 +190,7 @@ describe("onCron social.publish goals", () => {
     goals[0].lastRun = undefined;
     const second = await agent.onCron(makeEnv(session.namespace), opts);
     expect(second.jobsCreated).toBe(1);
-    expect(JSON.parse(session.rawGet("social-draft:2026-10-26:facebook")!).status).toBe("posted");
+    expect(JSON.parse(session.rawGet("social-draft:2026-10-26:facebook")!).status).toBe("dry-run-posted");
     expect(sink.records.map((r) => r.channel)).toContain("facebook");
     expect(session.rawGet("social-pending:2026-10-26:facebook")).toBeUndefined();
   });
