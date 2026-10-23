@@ -49,8 +49,8 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
       const text = formatFollowupDeliveryText(outcome);
       const agent = deps.getScreenerAgent(userLogin);
       // Issue #1191 (#1173 R3): fetch bytes per artifact kind — PDF
-      // via the PDF getters, XLSX via the XLSX getter (stock runs;
-      // options XLSX is R3b). A missing artifact is recorded in the
+      // via the PDF getters, XLSX via the XLSX getters (stock since
+      // R3, options since R3b/#1195). A missing artifact is recorded in the
       // missing list and reported in the delivery detail — the rest
       // still sends; nothing is fabricated.
       const files: Array<{ bytes: Uint8Array; fileName: string; contentType: string }> = [];
@@ -58,7 +58,7 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
       for (const artifact of artifacts) {
         const kind = artifact.kind ?? (artifact.fileName.endsWith(".xlsx") ? "xlsx" : "pdf");
         const fetched = kind === "xlsx"
-          ? (outcome.kind === "stock" ? await agent.getXlsxByKey(artifact.key) : null)
+          ? (outcome.kind === "stock" ? await agent.getXlsxByKey(artifact.key) : await agent.getOptionsXlsxByKey(artifact.key))
           : outcome.kind === "stock"
             ? await agent.getPdfByKey(artifact.key)
             : await agent.getOptionsPdfByKey(artifact.key);

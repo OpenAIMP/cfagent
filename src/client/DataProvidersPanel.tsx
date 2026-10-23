@@ -221,6 +221,7 @@ export function DataProvidersPanel() {
                       {myRoutes.map((route) => (
                         <li key={route.capability} className="dpp-route">
                           <span className="dpp-route-capability">{route.capability}</span>
+                          <span className="dpp-route-tier">{`Tier: ${route.minTier === "premium" ? "Premium" : "Freemium"}`}</span>
                           <span>{`Primary: ${route.primaryProviderId}`}</span>
                           <span>{`Gap-fill: ${route.gapFillProviderId ?? "—"}`}</span>
                           <span>{`Resolves: ${route.resolves ? "Yes" : "No"}`}</span>

@@ -40,7 +40,7 @@
  */
 
 import type { SqlStorage } from "../../orm";
-import type { DataProviderCapability, DataProviderId } from "./contract";
+import type { DataProviderCapability, DataProviderId, Tier } from "./contract";
 
 export const PROVIDER_CONFIG_TABLE = "mas_data_providers";
 
@@ -346,6 +346,15 @@ export interface CapabilityRouteRecord {
   capability: DataProviderCapability;
   primaryProviderId: DataProviderId;
   gapFillProviderId: DataProviderId | null;
+  /**
+   * Minimum caller tier served through this route (E5, issue
+   * #1202). The tier gates the ROUTE — primary and gap-fill alike:
+   * a freemium caller is refused a premium route outright rather
+   * than silently served by its gap-fill. Rows written before the
+   * min_tier column existed read as "freemium" (see routeFromRow),
+   * which is the pre-E5 behaviour: every route served every caller.
+   */
+  minTier: Tier;
   createdAt: string;
   updatedAt: string;
 }
@@ -354,6 +363,8 @@ export interface CapabilityRouteInput {
   capability: DataProviderCapability;
   primaryProviderId: DataProviderId;
   gapFillProviderId?: DataProviderId | null;
+  /** Omitted on upsert: the stored tier is preserved (a fresh row starts freemium). */
+  minTier?: Tier;
 }
 
 export function ensureProviderRoutingTable(sql: SqlStorage): void {
@@ -361,9 +372,21 @@ export function ensureProviderRoutingTable(sql: SqlStorage): void {
     capability TEXT PRIMARY KEY,
     primary_provider_id TEXT NOT NULL,
     gap_fill_provider_id TEXT,
+    min_tier TEXT NOT NULL DEFAULT 'freemium',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`);
+  // Pre-E5 tables lack min_tier: add it in place (the scan-run
+  // store's ensure-column idiom). The column DEFAULT backfills
+  // existing rows to freemium — the tier they always effectively had.
+  const columns = Array.from(
+    sql.exec(`PRAGMA table_info(${PROVIDER_ROUTING_TABLE})`)
+  ) as any[];
+  if (!columns.some((c) => c.name === "min_tier")) {
+    sql.exec(
+      `ALTER TABLE ${PROVIDER_ROUTING_TABLE} ADD COLUMN min_tier TEXT NOT NULL DEFAULT 'freemium'`
+    );
+  }
 }
 
 function routeFromRow(r: any): CapabilityRouteRecord {
@@ -371,6 +394,7 @@ function routeFromRow(r: any): CapabilityRouteRecord {
     capability: r.capability,
     primaryProviderId: r.primary_provider_id,
     gapFillProviderId: r.gap_fill_provider_id ?? null,
+    minTier: r.min_tier === "premium" ? "premium" : "freemium",
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -388,27 +412,33 @@ export function upsertCapabilityRoute(
     capability: input.capability,
     primaryProviderId: input.primaryProviderId,
     gapFillProviderId: input.gapFillProviderId ?? null,
+    // An omitted tier PRESERVES the stored one: slot-maintenance
+    // upserts (the deprovision gap-fill clearing) must not silently
+    // reset an operator-set tier. Only an explicit tier changes it.
+    minTier: input.minTier ?? existing?.minTier ?? "freemium",
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
   if (existing) {
     sql.exec(
       `UPDATE ${PROVIDER_ROUTING_TABLE}
-       SET primary_provider_id = ?, gap_fill_provider_id = ?, updated_at = ?
+       SET primary_provider_id = ?, gap_fill_provider_id = ?, min_tier = ?, updated_at = ?
        WHERE capability = ?`,
       record.primaryProviderId,
       record.gapFillProviderId,
+      record.minTier,
       record.updatedAt,
       record.capability
     );
   } else {
     sql.exec(
       `INSERT INTO ${PROVIDER_ROUTING_TABLE}
-       (capability, primary_provider_id, gap_fill_provider_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
+       (capability, primary_provider_id, gap_fill_provider_id, min_tier, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       record.capability,
       record.primaryProviderId,
       record.gapFillProviderId,
+      record.minTier,
       record.createdAt,
       record.updatedAt
     );
@@ -491,11 +521,11 @@ export function deleteCapabilityRoutesForProvider(
  * explicitly rather than inventing an assignment.
  */
 export const DEFAULT_CAPABILITY_ROUTES: readonly CapabilityRouteInput[] = [
-  { capability: "screenUniverse", primaryProviderId: "nasdaq", gapFillProviderId: null },
-  { capability: "historicalBars", primaryProviderId: "yahoo", gapFillProviderId: null },
-  { capability: "quotes", primaryProviderId: "etrade", gapFillProviderId: "yahoo" },
-  { capability: "optionsChains", primaryProviderId: "etrade", gapFillProviderId: null },
-  { capability: "fundamentals", primaryProviderId: "yahoo", gapFillProviderId: null },
+  { capability: "screenUniverse", primaryProviderId: "nasdaq", gapFillProviderId: null, minTier: "freemium" },
+  { capability: "historicalBars", primaryProviderId: "yahoo", gapFillProviderId: null, minTier: "freemium" },
+  { capability: "quotes", primaryProviderId: "etrade", gapFillProviderId: "yahoo", minTier: "freemium" },
+  { capability: "optionsChains", primaryProviderId: "etrade", gapFillProviderId: null, minTier: "freemium" },
+  { capability: "fundamentals", primaryProviderId: "yahoo", gapFillProviderId: null, minTier: "freemium" },
 ];
 
 /** Idempotently insert any missing default routes; existing routes are left untouched. */

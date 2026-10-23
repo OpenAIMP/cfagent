@@ -111,6 +111,11 @@
   color: var(--color-text-primary);
 }
 
+.dpp-route-tier {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
 .dpp-route-error {
   color: var(--color-danger-text, var(--color-text-muted));
 }
