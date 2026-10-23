@@ -48,6 +48,12 @@ export interface ScreenerRunOutcome {
   summary?: string;
   /** Top opportunities for delivery content (stock screens). */
   opportunities?: ScreenerOutcomeOpportunity[];
+  /** Per-task channel overrides (scheduled tasks may name their own
+   *  recipients — the bus events carry them; S5b). Honored by the
+   *  delivery planner/port; the email allowlist still applies. */
+  emailTo?: string;
+  slackChannel?: string;
+  webhookUrl?: string;
   /** Stable per-run delivery id (dedupe for notifications/deliveries). */
   deliveryId?: string;
   error?: string;
@@ -66,6 +72,9 @@ export interface ScreenerFollowupConfig {
   channels: Record<AsyncJobChannel, ScreenerChannelConfig>;
   /** Assessment rule: email may only go to allowlisted addresses. */
   emailAllowlist: string[];
+  /** True when the allowlist was set explicitly (SCREENER_EMAIL_ALLOWLIST);
+   *  an explicit list gates even per-task override recipients. */
+  emailAllowlistExplicit: boolean;
 }
 
 function envFlag(env: Record<string, unknown>, name: string): boolean {
@@ -106,12 +115,25 @@ export function resolveScreenerFollowupConfig(
       },
     },
     emailAllowlist,
+    emailAllowlistExplicit: Boolean(allowlistRaw),
   };
 }
 
-/** Assessment gate: an email recipient is deliverable only if allowlisted. */
-export function isEmailAllowed(config: ScreenerFollowupConfig, address: string): boolean {
-  return config.emailAllowlist.includes(address.trim().toLowerCase());
+/** True when an email recipient is permitted for screener delivery:
+ *  the configured allowlist — plus, when the list is only the default
+ *  (derived from SCREENER_EMAIL_TO, not set explicitly), the run's
+ *  own per-task recipient: schedule definitions are owner-configured,
+ *  the same trust level as the env recipient (S5b). An explicitly
+ *  configured allowlist gates every recipient. */
+export function isEmailAllowed(
+  config: ScreenerFollowupConfig,
+  address: string,
+  outcome?: ScreenerRunOutcome,
+): boolean {
+  const normalized = address.trim().toLowerCase();
+  if (config.emailAllowlist.includes(normalized)) return true;
+  if (config.emailAllowlistExplicit) return false;
+  return Boolean(outcome?.emailTo && outcome.emailTo.trim().toLowerCase() === normalized);
 }
 
 export type FollowupReportSubmission = Extract<
@@ -168,7 +190,15 @@ export function planDeliveryFollowups(
       : undefined;
   const specs: FollowupDeliverySubmission[] = [];
   for (const channel of CHANNEL_ORDER) {
-    if (!config.channels[channel].configured) continue;
+    // A channel is deliverable when configured via env OR named by a
+    // per-task override on the outcome (scheduled tasks, S5b) — the
+    // same precedence the legacy publishers applied.
+    const override = channel === "email"
+      ? outcome.emailTo
+      : channel === "slack"
+        ? outcome.slackChannel
+        : outcome.webhookUrl;
+    if (!config.channels[channel].configured && !override) continue;
     specs.push({
       capability: "followup.deliver",
       payload: { outcome, userLogin, channel, artifacts, skipReason },
@@ -272,6 +302,69 @@ export function formatFollowupDeliveryText(outcome: ScreenerRunOutcome): string 
     lines.push("", `📄 Report: ${outcome.reportUrl}`);
   }
   return lines.join("\n");
+}
+
+/**
+ * Issue #1123 S5b: adapt a screener bus event (the scheduled tasks'
+ * publish shape) into the canonical outcome.
+ */
+export function screenerOutcomeFromEvent(
+  event: import("../events/screenerEvents").ScreenerEvent,
+): ScreenerRunOutcome {
+  const trigger = event.trigger === "manual" ? "manual" : "scheduled";
+  switch (event.type) {
+    case "screener.completed":
+      return {
+        kind: "stock",
+        trigger,
+        success: true,
+        pdfKeys: event.pdfKey ? [event.pdfKey] : [],
+        pdfStatus: event.pdfStatus,
+        pdfError: event.pdfError,
+        reportUrl: event.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(event.pdfKey)}` : undefined,
+        matchedCount: event.matchedCount,
+        totalScanned: event.totalScanned,
+        universe: event.universe,
+        opportunities: asOpportunities(event.opportunities as unknown),
+        emailTo: event.emailTo,
+        slackChannel: event.slackChannel,
+        webhookUrl: event.webhookUrl,
+        deliveryId: event.deliveryId,
+      };
+    case "screener.failed":
+      return {
+        kind: "stock",
+        trigger,
+        success: false,
+        pdfKeys: [],
+        universe: event.universe,
+        emailTo: event.emailTo,
+        slackChannel: event.slackChannel,
+        webhookUrl: event.webhookUrl,
+        deliveryId: event.deliveryId,
+        error: event.error,
+      };
+    case "options.completed":
+      return {
+        kind: "options",
+        trigger,
+        success: true,
+        pdfKeys: [],
+        reportUrl: event.reportUrl,
+        totalScanned: event.totalScanned,
+        thesis: event.thesis,
+        summary: event.summary,
+      };
+    case "options.failed":
+      return {
+        kind: "options",
+        trigger,
+        success: false,
+        pdfKeys: [],
+        thesis: event.thesis,
+        error: event.error,
+      };
+  }
 }
 
 /**

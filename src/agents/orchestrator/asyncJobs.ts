@@ -321,6 +321,7 @@ export async function recordScreenerRunMainJob(
   ctx: AsyncJobsContext,
   outcome: ScreenerRunOutcome,
   userLogin: string,
+  options?: { chainReport?: boolean },
 ): Promise<string> {
   const sql = ctx.ensureTables();
   const jobId = crypto.randomUUID();
@@ -355,20 +356,28 @@ export async function recordScreenerRunMainJob(
   );
   ctx.audit("screener.run_bridged", "orchestrator", { jobId, kind: outcome.kind, success: outcome.success });
   const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
-  for (const spec of planInitialFollowups(outcome, config, jobId, userLogin)) {
-    await submitAsyncJob(ctx, spec);
+  // chainReport=false covers sources whose report delivery lives on
+  // another sanctioned path (scheduled options, #223): the run is
+  // recorded + notified, never double-delivered.
+  if (options?.chainReport !== false) {
+    for (const spec of planInitialFollowups(outcome, config, jobId, userLogin)) {
+      await submitAsyncJob(ctx, spec);
+    }
   }
   await submitLifecycleNotifications(ctx, outcome.success ? "completed" : "failed", outcome, jobId, userLogin);
   return jobId;
 }
 
-/** Route/scheduler-facing alias: bridge one finished run end-to-end. */
+/** Route/scheduler-facing alias: bridge one finished run end-to-end.
+ *  chainReport=false records + notifies without the report chain
+ *  (sources whose delivery lives on another sanctioned path). */
 export async function scheduleScreenerFollowups(
   ctx: AsyncJobsContext,
   outcome: ScreenerRunOutcome,
   userLogin: string,
+  chainReport?: boolean,
 ): Promise<void> {
-  await recordScreenerRunMainJob(ctx, outcome, userLogin);
+  await recordScreenerRunMainJob(ctx, outcome, userLogin, { chainReport: chainReport !== false });
 }
 
 export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJobPayload): Promise<void> {
@@ -503,9 +512,11 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       } else {
         if (channel === "email") {
           const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
-          const to = config.channels.email.to;
+          // Per-task override wins over the env recipient (S5b); the
+          // allowlist applies to the effective recipient either way.
+          const to = outcome.emailTo ?? config.channels.email.to;
           if (!to) throw new Error("Email delivery is not configured (SCREENER_EMAIL_TO is unset).");
-          if (!isEmailAllowed(config, to)) {
+          if (!isEmailAllowed(config, to, outcome)) {
             throw new Error(`Email recipient ${to} is not in the screener email allowlist; delivery refused.`);
           }
         }
