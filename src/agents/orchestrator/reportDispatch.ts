@@ -77,8 +77,8 @@ export function setReportDispatchHitl(ctx: ReportDispatchContext, enabled: boole
  * fileName / title — never report bytes); the canonical report copy
  * lives once in mas_reports and is referenced by reportId.
  */
-export function createReportConfirmation(ctx: ReportDispatchContext, 
-  kind: "email" | "webhook",
+export function createReportConfirmation(ctx: ReportDispatchContext,
+  kind: "email" | "webhook" | "screener",
   payloadJson: string,
   reportId?: string | null
 ): string {

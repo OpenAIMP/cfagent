@@ -149,6 +149,8 @@ function makeCtx(sql: StatefulAsyncSql): AsyncJobsContext {
       deliver: async () => ({ ok: true, detail: "sent-1" }),
       notify: async () => ({ ok: true }),
     }),
+    reportDispatchHitlEnabled: () => false,
+    createScreenerConfirmation: () => "rc_unused",
   } as unknown as AsyncJobsContext;
 }
 
