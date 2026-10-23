@@ -11,6 +11,8 @@ import type { AgentContext, ScheduleOptions } from "agents";
 import type { DatabaseORM } from "../../orm";
 import type {
   AgentName,
+  AsyncJobChannel,
+  AsyncJobKind,
   AsyncJobPayload,
   AsyncJobRecord,
   AsyncJobStatus,
@@ -43,7 +45,47 @@ export interface AsyncJobsContext {
   nlqStockScreenPort: () => NLQStockScreenPort;
 }
 
-export async function submitAsyncJob(ctx: AsyncJobsContext, 
+const ASYNC_JOB_KINDS: readonly AsyncJobKind[] = ["main", "report", "delivery", "notification"];
+const ASYNC_JOB_CHANNELS: readonly AsyncJobChannel[] = ["email", "slack", "webhook"];
+
+/**
+ * Issue #1123: additive job-graph migration for mas_async_jobs —
+ * parent_job_id / job_kind / channel, probed and added when missing so
+ * existing DO tables upgrade in place. Called from
+ * OrchestratorAgent.ensureTables after the CREATE TABLE.
+ */
+export function ensureAsyncJobGraphColumns(sql: AgentContext["storage"]["sql"]): void {
+  const cols = Array.from(sql.exec("PRAGMA table_info(mas_async_jobs)")) as Array<{ name?: unknown }>;
+  const names = new Set(cols.map((c) => String(c?.name ?? "")));
+  if (!names.has("parent_job_id")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN parent_job_id TEXT");
+  }
+  if (!names.has("job_kind")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN job_kind TEXT NOT NULL DEFAULT 'main'");
+  }
+  if (!names.has("channel")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN channel TEXT");
+  }
+  sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_parent ON mas_async_jobs(parent_job_id)");
+}
+
+/** Issue #1123: map a row's graph columns onto record fields, tolerating
+ *  legacy rows (job_kind NULL/'main', no parent/channel). */
+function jobGraphFields(row: Record<string, unknown>): {
+  parentJobId?: string;
+  jobKind: AsyncJobKind;
+  channel?: AsyncJobChannel;
+} {
+  const kind = ASYNC_JOB_KINDS.find((k) => k === row.job_kind);
+  const channel = ASYNC_JOB_CHANNELS.find((c) => c === row.channel);
+  return {
+    parentJobId: typeof row.parent_job_id === "string" && row.parent_job_id ? row.parent_job_id : undefined,
+    jobKind: kind ?? "main",
+    channel,
+  };
+}
+
+export async function submitAsyncJob(ctx: AsyncJobsContext,
   job: AsyncJobSubmission,
 ): Promise<{ jobId: string; status: "queued"; statusUrl: string }> {
   const sql = ctx.ensureTables();
@@ -66,17 +108,18 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
   );
   const jobId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const displayName = job.capability === "http.request"
+  const displayName = job.displayName ?? (job.capability === "http.request"
     ? `${job.payload.method} ${job.payload.pathAndQuery.split("?")[0]}`
     : job.capability === "mcp.tool"
       ? `MCP: ${job.payload.toolName}`
       : job.capability === "nlq.execute"
         ? `NLQ: ${job.payload.query.slice(0, 100)}`
-        : `Task: ${job.payload.title}`;
+        : `Task: ${job.payload.title}`);
+  // Single-line column list: the shared MockSqlStorage INSERT parser does
+  // not span newlines inside the column list (tests would silently drop
+  // the row) — keep this statement on one line.
   sql.exec(
-    `INSERT INTO mas_async_jobs
-      (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)`,
+    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at, parent_job_id, job_kind, channel) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)",
     jobId,
     ctx.sessionKey(),
     job.capability,
@@ -84,6 +127,9 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
     payloadJson,
     now,
     now,
+    job.parentJobId ?? null,
+    job.jobKind ?? "main",
+    job.channel ?? null,
   );
 
   try {
@@ -128,7 +174,7 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
   const sql = ctx.ensureTables();
   const rows = Array.from(sql.exec(
     `SELECT job_id, session_id, capability, display_name, status, result_json, response_status,
-            error, created_at, updated_at, started_at, completed_at
+            error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel
      FROM mas_async_jobs WHERE job_id = ? AND session_id = ?`,
     jobId,
     ctx.sessionKey(),
@@ -162,6 +208,7 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
     capability: String(row.capability),
     label: String(row.display_name),
     status: row.status as AsyncJobStatus,
+    ...jobGraphFields(row),
     result,
     responseStatus: typeof row.response_status === "number" ? row.response_status : undefined,
     error: typeof row.error === "string" ? row.error : undefined,
@@ -174,7 +221,7 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
 
 export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord[] {
   const rows = Array.from(ctx.ensureTables().exec(
-    `SELECT job_id, session_id, capability, display_name, status, error, created_at, updated_at, started_at, completed_at
+    `SELECT job_id, session_id, capability, display_name, status, error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel
      FROM mas_async_jobs WHERE session_id = ?
      ORDER BY created_at DESC LIMIT ?`,
     ctx.sessionKey(),
@@ -191,6 +238,7 @@ export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord
       capability: String(row.capability),
       label: String(row.display_name),
       status: row.status as AsyncJobStatus,
+      ...jobGraphFields(row),
       error: typeof row.error === "string" ? row.error : undefined,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
