@@ -40,6 +40,12 @@ export interface ScreenerRunOutcome {
   pdfKeys: string[];
   pdfStatus?: "generated" | "failed" | "skipped";
   pdfError?: string;
+  /** Issue #1191 (#1173 R3): the run's XLSX artifact, carried so
+   *  deliveries attach text + PDF + XLSX (the pre-R3 outcome dropped
+   *  it, which is why XLSX never reached email/Slack). */
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed" | "skipped";
+  xlsxError?: string;
   reportUrl?: string;
   matchedCount?: number;
   totalScanned?: number;
@@ -149,7 +155,7 @@ export type FollowupDeliverySubmission = Extract<
 /** The report sub-job's result, as consumed by the delivery planner. */
 export interface FollowupReportResult {
   status: "ready" | "skipped" | string;
-  artifacts?: Array<{ key: string; fileName: string }>;
+  artifacts?: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" }>;
   reason?: string;
 }
 
@@ -245,7 +251,12 @@ export function planLifecycleNotifications(
   if (!config.enabled) return [];
   const specs: FollowupNotifySubmission[] = [];
   for (const channel of NOTIFICATION_CHANNELS) {
-    if (!config.channels[channel].configured) continue;
+    // Issue #1191 (#1173 R3): a per-task override destination counts
+    // for notifications too (mirroring the delivery planner) — a
+    // scheduled task that names its own Slack channel / email
+    // recipient hears about failures there, not only via env config.
+    const override = channel === "email" ? outcome.emailTo : outcome.slackChannel;
+    if (!config.channels[channel].configured && !override) continue;
     specs.push({
       capability: "followup.notify",
       payload: { event, outcome, userLogin, channel, detail },
@@ -277,6 +288,24 @@ export function formatLifecycleNotification(
     case "delivered":
       return `📬 Report delivered${detail ? ` ${detail}` : ""} — ${kindLabel}${scopeText}${outcome.reportUrl ? `\n📄 Report: ${outcome.reportUrl}` : ""}`;
   }
+}
+
+/**
+ * Issue #1191 (#1173 R3): the announcement sent when the #277 gate
+ * holds a delivery — before R3 a held delivery was silent, which is
+ * how completed runs on 2026-10-23 produced no message of any kind.
+ */
+export function formatHeldNotification(outcome: ScreenerRunOutcome): string {
+  const kindLabel = outcome.kind === "stock" ? "Stock screen" : "Options screen";
+  const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
+  const lines = [
+    `⏸️ ${kindLabel}${scope ? ` — ${scope}` : ""} completed — delivery held for approval`,
+    "",
+    formatFollowupDeliveryText(outcome),
+    "",
+    "The report (text + PDF + XLSX) is ready but the report-dispatch confirmation gate (#277) is on. Approve it in the Reports panel's pending-review list to send.",
+  ];
+  return lines.join("\n");
 }
 
 /** Delivery/notification text for a run outcome (S3; reused by S4). */
@@ -321,6 +350,9 @@ export function screenerOutcomeFromEvent(
         pdfKeys: event.pdfKey ? [event.pdfKey] : [],
         pdfStatus: event.pdfStatus,
         pdfError: event.pdfError,
+        xlsxKey: event.xlsxKey,
+        xlsxStatus: event.xlsxStatus,
+        xlsxError: event.xlsxError,
         reportUrl: event.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(event.pdfKey)}` : undefined,
         matchedCount: event.matchedCount,
         totalScanned: event.totalScanned,
@@ -396,6 +428,11 @@ export function screenerOutcomeFromRunResult(
         ? "generated"
         : undefined,
     pdfError: typeof result.pdfError === "string" ? result.pdfError : undefined,
+    xlsxKey: typeof result.xlsxKey === "string" ? result.xlsxKey : undefined,
+    xlsxStatus: result.xlsxStatus === "generated" || result.xlsxStatus === "failed" || result.xlsxStatus === "skipped"
+      ? result.xlsxStatus
+      : undefined,
+    xlsxError: typeof result.xlsxError === "string" ? result.xlsxError : undefined,
     reportUrl,
     matchedCount: asNumber(result.matchedCount),
     totalScanned: asNumber(result.totalScanned) ?? asNumber(result.totalUnderlyingsScanned),
@@ -528,6 +565,11 @@ export function screenerOutcomeFromHttpJob(
           ? "generated"
           : undefined,
       pdfError: typeof body.pdfError === "string" ? body.pdfError : undefined,
+      xlsxKey: typeof body.xlsxKey === "string" ? body.xlsxKey : undefined,
+      xlsxStatus: body.xlsxStatus === "generated" || body.xlsxStatus === "failed" || body.xlsxStatus === "skipped"
+        ? body.xlsxStatus
+        : undefined,
+      xlsxError: typeof body.xlsxError === "string" ? body.xlsxError : undefined,
       matchedCount: asNumber(body.matchedCount),
       totalScanned: asNumber(body.totalScanned),
       universe: typeof body.universe === "string" ? body.universe : undefined,

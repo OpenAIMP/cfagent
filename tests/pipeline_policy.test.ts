@@ -82,6 +82,13 @@ describe("resolvePipelinePolicy", () => {
     expect(noDelivered.notifications.events.delivered).toBe(false);
     expect(noDelivered.notifications.events.failed).toBe(true);
 
+    // Lifecycle 'started' is a first-class event (#1191).
+    expect(resolvePipelinePolicy().notifications.events.started).toBe(true);
+    const noStarted = resolvePipelinePolicy({ PIPELINE_NOTIFY_EVENTS: "-started" });
+    expect(noStarted.notifications.events.started).toBe(false);
+    expect(shouldNotify(noStarted, "started", "slack")).toBe(false);
+    expect(shouldNotify(noStarted, "failed", "slack")).toBe(true);
+
     const noSlack = resolvePipelinePolicy({ PIPELINE_NOTIFY_SLACK: "0" });
     expect(noSlack.notifications.slack).toBe(false);
     expect(noSlack.notifications.email).toBe(true);
