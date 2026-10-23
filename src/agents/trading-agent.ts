@@ -49,6 +49,61 @@ import {
 } from "../config/tradingAgentConfig";
 
 // ---------------------------------------------------------------------------
+// Stable error tokens (cfpay convention, #291 A3): failures on the A2A and
+// tool surfaces carry a machine-stable `code`; raw exception text from
+// unclassified failures never reaches the wire (it is logged server-side
+// and replaced by a generic message + the internal_error token).
+// ---------------------------------------------------------------------------
+
+export type TradingErrorToken =
+  | "unknown_service"
+  | "unknown_operation"
+  | "missing_operation"
+  | "service_disabled"
+  | "provider_not_enabled"
+  | "provider_not_registered"
+  | "provider_unsupported"
+  | "invalid_input"
+  | "internal_error";
+
+export class TradingServiceError extends Error {
+  readonly code: TradingErrorToken;
+  constructor(code: TradingErrorToken, message: string) {
+    super(message);
+    this.name = "TradingServiceError";
+    this.code = code;
+  }
+}
+
+/** Classify any thrown value into a wire-safe { code, message } pair. */
+export function classifyTradingError(err: unknown): { code: TradingErrorToken; message: string } {
+  if (err instanceof TradingServiceError) {
+    return { code: err.code, message: err.message };
+  }
+  if (err instanceof z.ZodError) {
+    return {
+      code: "invalid_input",
+      message: `Invalid input: ${err.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ")}`,
+    };
+  }
+  return { code: "internal_error", message: "Internal error in the trading service." };
+}
+
+/** Aspects-lite dispatch log (#291 A6): one structured line per execution. */
+export function logTradingDispatch(entry: {
+  correlationId: string;
+  door: string;
+  service: string;
+  provider?: string;
+  access?: string;
+  ok: boolean;
+  code?: string;
+  durationMs: number;
+}): void {
+  console.info("[TradingAgent]", JSON.stringify(entry));
+}
+
+// ---------------------------------------------------------------------------
 // Service registry
 // ---------------------------------------------------------------------------
 
@@ -119,7 +174,8 @@ const stockScreeningService: TradingServiceDef = {
   execute: async (ctx, input) => {
     const platform = ctx.resolvePlatform(input.provider);
     if (typeof platform.screenMarkets !== "function") {
-      throw new Error(
+      throw new TradingServiceError(
+        "provider_unsupported",
         `Provider "${platform.platformId}" does not support stock screening.`,
       );
     }
@@ -157,14 +213,16 @@ export function resolveTradingPlatform(
 ): ITradingPlatform {
   const provider = (providerId ?? config.defaultProvider).toLowerCase();
   if (!config.enabledProviders.includes(provider)) {
-    throw new Error(
+    throw new TradingServiceError(
+      "provider_not_enabled",
       `Provider "${provider}" is not enabled for the TradingAgent ` +
         `(enabled: ${config.enabledProviders.join(", ") || "none"}).`,
     );
   }
   const registered = TradingPlatformRegistry.getRegisteredPlatforms() as string[];
   if (!registered.includes(provider)) {
-    throw new Error(
+    throw new TradingServiceError(
+      "provider_not_registered",
       `Provider "${provider}" is enabled but no platform is registered for it ` +
         `(registered: ${registered.join(", ") || "none"}).`,
     );
@@ -180,37 +238,78 @@ export function resolveTradingPlatform(
 export interface TradingServiceCall {
   serviceId: string;
   input?: Record<string, unknown>;
+  /** Which door the call came through ("tool" | "a2a" | "rpc") — logging only. */
+  door?: string;
+  /** Correlation id for the dispatch log; generated when absent. */
+  traceId?: string;
 }
 
 /**
  * The single execution path behind every door (tool / A2A / RPC).
  * Validates the service exists and is enabled, parses the input against
- * the service schema, then executes. Errors are thrown with stable,
- * caller-safe messages; door adapters shape them for their surface.
+ * the service schema, then executes. Failures throw TradingServiceError
+ * with a stable token; adapters shape them per surface. Every execution —
+ * success or failure — emits one structured dispatch log line (A6).
  */
 export async function executeTradingService(
   env: Env,
   config: TradingAgentConfig,
   call: TradingServiceCall,
 ): Promise<unknown> {
+  const correlationId = call.traceId ?? crypto.randomUUID();
+  const started = Date.now();
   const service = getTradingService(call.serviceId);
-  if (!service) throw new Error(`Unknown trading service: "${call.serviceId}".`);
-  if (!isTradingServiceEnabled(config, service.id)) {
-    throw new Error(`Trading service "${service.id}" is disabled by configuration.`);
+  const log = (ok: boolean, code?: string) =>
+    logTradingDispatch({
+      correlationId,
+      door: call.door ?? "rpc",
+      service: call.serviceId,
+      provider:
+        typeof call.input?.provider === "string"
+          ? (call.input.provider as string)
+          : config.defaultProvider,
+      access: service?.access,
+      ok,
+      code,
+      durationMs: Date.now() - started,
+    });
+  try {
+    if (!service) {
+      throw new TradingServiceError(
+        "unknown_service",
+        `Unknown trading service: "${call.serviceId}".`,
+      );
+    }
+    if (!isTradingServiceEnabled(config, service.id)) {
+      throw new TradingServiceError(
+        "service_disabled",
+        `Trading service "${service.id}" is disabled by configuration.`,
+      );
+    }
+    const input = service.inputSchema.parse(call.input ?? {});
+    const userLogin =
+      typeof input.userLogin === "string" && input.userLogin.length > 0
+        ? input.userLogin
+        : "default_trader";
+    const ctx: TradingServiceContext = {
+      env,
+      config,
+      userLogin,
+      resolvePlatform: (providerId) =>
+        resolveTradingPlatform(env, config, providerId, userLogin),
+    };
+    const result = await service.execute(ctx, input);
+    log(true);
+    return result;
+  } catch (err) {
+    const { code, message } = classifyTradingError(err);
+    if (code === "internal_error" && !(err instanceof TradingServiceError)) {
+      // The real failure stays server-side; the wire gets the token only.
+      console.error("[TradingAgent] unclassified service failure:", err);
+    }
+    log(false, code);
+    throw new TradingServiceError(code, message);
   }
-  const input = service.inputSchema.parse(call.input ?? {});
-  const userLogin =
-    typeof input.userLogin === "string" && input.userLogin.length > 0
-      ? input.userLogin
-      : "default_trader";
-  const ctx: TradingServiceContext = {
-    env,
-    config,
-    userLogin,
-    resolvePlatform: (providerId) =>
-      resolveTradingPlatform(env, config, providerId, userLogin),
-  };
-  return service.execute(ctx, input);
 }
 
 // ---------------------------------------------------------------------------
@@ -228,14 +327,12 @@ export function buildTradingTools(env: Env, config: TradingAgentConfig): ToolSet
           const result = await executeTradingService(env, config, {
             serviceId: service.id,
             input,
+            door: "tool",
           });
           return JSON.stringify({ ok: true, service: service.id, result });
         } catch (err) {
-          return JSON.stringify({
-            ok: false,
-            service: service.id,
-            error: err instanceof Error ? err.message : String(err),
-          });
+          const { code, message } = classifyTradingError(err);
+          return JSON.stringify({ ok: false, service: service.id, code, error: message });
         }
       },
     });
@@ -276,6 +373,9 @@ export interface A2ADataResult {
   ok: boolean;
   operation?: string;
   service?: string;
+  /** Stable error token (#291 A3) when ok is false. */
+  code?: TradingErrorToken;
+  correlationId?: string;
   result?: unknown;
   error?: string;
 }
@@ -286,15 +386,23 @@ export async function dispatchTradingA2A(
   config: TradingAgentConfig,
   body: unknown,
 ): Promise<A2ADataResult> {
+  const correlationId = crypto.randomUUID();
   const extracted = extractA2AOperation(body);
   if (!extracted) {
-    return { ok: false, error: "No A2A operation found in the request body." };
+    return {
+      ok: false,
+      code: "missing_operation",
+      correlationId,
+      error: "No A2A operation found in the request body.",
+    };
   }
   const service = getTradingServiceByOperation(extracted.operation);
   if (!service) {
     return {
       ok: false,
       operation: extracted.operation,
+      code: "unknown_operation",
+      correlationId,
       error: `Unknown operation: "${extracted.operation}".`,
     };
   }
@@ -302,14 +410,19 @@ export async function dispatchTradingA2A(
     const result = await executeTradingService(env, config, {
       serviceId: service.id,
       input: extracted.args,
+      door: "a2a",
+      traceId: correlationId,
     });
-    return { ok: true, operation: extracted.operation, service: service.id, result };
+    return { ok: true, operation: extracted.operation, service: service.id, correlationId, result };
   } catch (err) {
+    const { code, message } = classifyTradingError(err);
     return {
       ok: false,
       operation: extracted.operation,
       service: service.id,
-      error: err instanceof Error ? err.message : String(err),
+      code,
+      correlationId,
+      error: message,
     };
   }
 }
@@ -389,7 +502,7 @@ export class TradingAgent extends Think<Env> {
 
   /** Door 3: typed RPC for in-process callers. */
   async executeService(call: TradingServiceCall): Promise<unknown> {
-    return executeTradingService(this.env, this.config(), call);
+    return executeTradingService(this.env, this.config(), { ...call, door: "rpc" });
   }
 
   /**
