@@ -1,0 +1,137 @@
+/**
+ * #1077 Phase 4 — draft ledger: idempotent draft storage.
+ *
+ * A draft is keyed by its posting day + channel: at most one draft per
+ * (date, channel). Creating a draft for a date+channel that already has
+ * one returns the EXISTING draft — never a duplicate. This is what makes
+ * a retried or re-fired daily tick safe: the second build replays the
+ * first draft set instead of doubling it.
+ *
+ * Two shapes are provided, both with no DO binding and no network use:
+ * - SocialLedger: the synchronous interface the Phase 4 agent uses, with
+ *   MemorySocialLedger as the in-memory implementation (tests, and the
+ *   reference for the wiring step).
+ * - createDoSocialLedger: an async adapter over a {get, put, list}-like
+ *   storage object shaped like Durable Object storage (list takes a
+ *   { prefix } and returns a Map). The wiring step adapts real DO
+ *   storage to DoStorageLike; Phase 4 itself binds nothing.
+ */
+
+import type { SocialDraft } from "./draft";
+
+export type { SocialDraft };
+
+export interface SocialLedger {
+  getDraft(date: string, channel: string): SocialDraft | undefined;
+  putDraft(draft: SocialDraft): void;
+  listDrafts(date: string): SocialDraft[];
+}
+
+/**
+ * Idempotent create: returns the stored draft for (date, channel) when
+ * one exists, otherwise creates, stores, and returns a new one. The
+ * create callback runs ONLY when no draft exists, so a second call can
+ * never overwrite or duplicate the first draft.
+ */
+export function getOrCreateDraft(
+  ledger: SocialLedger,
+  date: string,
+  channel: string,
+  create: () => SocialDraft,
+): SocialDraft {
+  const existing = ledger.getDraft(date, channel);
+  if (existing) return existing;
+  const draft = create();
+  ledger.putDraft(draft);
+  return draft;
+}
+
+function ledgerKey(date: string, channel: string): string {
+  return `social-draft:${date}:${channel}`;
+}
+
+export class MemorySocialLedger implements SocialLedger {
+  private readonly byKey = new Map<string, SocialDraft>();
+
+  getDraft(date: string, channel: string): SocialDraft | undefined {
+    return this.byKey.get(ledgerKey(date, channel));
+  }
+
+  putDraft(draft: SocialDraft): void {
+    this.byKey.set(ledgerKey(draft.date, draft.channel), draft);
+  }
+
+  listDrafts(date: string): SocialDraft[] {
+    const prefix = `social-draft:${date}:`;
+    const out: SocialDraft[] = [];
+    for (const [key, draft] of this.byKey) {
+      if (key.startsWith(prefix)) out.push(draft);
+    }
+    return out;
+  }
+
+  getOrCreateDraft(date: string, channel: string, create: () => SocialDraft): SocialDraft {
+    return getOrCreateDraft(this, date, channel, create);
+  }
+}
+
+/**
+ * Minimal storage shape modelled on Durable Object storage: get/put by
+ * key, list by prefix returning a Map. Real DO storage's list() takes an
+ * options object and returns Map<string, unknown>; the wiring step passes
+ * it through unchanged.
+ */
+export interface DoStorageLike {
+  get(key: string): Promise<unknown>;
+  put(key: string, value: unknown): Promise<void>;
+  list(options: { prefix: string }): Promise<Map<string, unknown>>;
+}
+
+export interface AsyncSocialLedger {
+  getDraft(date: string, channel: string): Promise<SocialDraft | undefined>;
+  putDraft(draft: SocialDraft): Promise<void>;
+  listDrafts(date: string): Promise<SocialDraft[]>;
+  getOrCreateDraft(
+    date: string,
+    channel: string,
+    create: () => SocialDraft,
+  ): Promise<SocialDraft>;
+}
+
+function isSocialDraft(value: unknown): value is SocialDraft {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as SocialDraft).id === "string" &&
+    typeof (value as SocialDraft).date === "string" &&
+    typeof (value as SocialDraft).channel === "string" &&
+    typeof (value as SocialDraft).text === "string"
+  );
+}
+
+export function createDoSocialLedger(storage: DoStorageLike): AsyncSocialLedger {
+  return {
+    async getDraft(date: string, channel: string) {
+      const value = await storage.get(ledgerKey(date, channel));
+      return isSocialDraft(value) ? value : undefined;
+    },
+    async putDraft(draft: SocialDraft) {
+      await storage.put(ledgerKey(draft.date, draft.channel), draft);
+    },
+    async listDrafts(date: string) {
+      const entries = await storage.list({ prefix: `social-draft:${date}:` });
+      const out: SocialDraft[] = [];
+      for (const value of entries.values()) {
+        if (isSocialDraft(value)) out.push(value);
+      }
+      return out;
+    },
+    async getOrCreateDraft(date: string, channel: string, create: () => SocialDraft) {
+      const existing = await this.getDraft(date, channel);
+      if (existing) return existing;
+      const draft = create();
+      await this.putDraft(draft);
+      return draft;
+    },
+  };
+}
