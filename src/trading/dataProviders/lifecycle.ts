@@ -1,0 +1,522 @@
+/**
+ * Issue #1170 (E3 of epic #1116): the data-provider provisioning
+ * lifecycle service — the legal-transition layer over the P1
+ * provider-config store (providerConfigStore.ts).
+ *
+ * P1 shipped the store with raw upserts and state setters and the
+ * lifecycle STATES as vocabulary; nothing enforced which moves are
+ * legal, nothing verified a provider actually works before it could
+ * be enabled, and nothing recorded who changed what. This module is
+ * that enforcement, in one function:
+ *
+ *   transitionProvider(sql, providerId, action, actor, deps)
+ *
+ * THE LEGAL MAP (over ProviderLifecycleState):
+ *
+ *   register:    (no record)            → registered
+ *   configure:   registered | configured → configured
+ *   verify:      configured             → verified   (real check, below)
+ *   enable:      verified               → enabled
+ *                disabled               → enabled   (only with prior
+ *                                                     verification evidence)
+ *   disable:     enabled                → disabled
+ *   deprovision: any state except deprovisioned → deprovisioned (terminal)
+ *
+ * Every other move throws ProviderLifecycleError (carrying provider,
+ * action, from, to) and changes NOTHING. Deprovisioned is terminal
+ * in this slice: a deprovisioned provider is re-provisioned by
+ * deleting its record out of band, never by a transition.
+ *
+ * VERIFY IS A REAL CHECK. The caller injects a verifier (the route
+ * layer binds etrade's to the adapter's status + conformance and
+ * adapter-less providers to an honest failure). A passing verify
+ * records evidence — { verifiedAt, summary, verifiedBy } — on the
+ * config record (see EVIDENCE below); a failing or throwing
+ * verifier leaves the record in "configured" and the rejection
+ * carries the verifier's own summary as the reason. Verify with no
+ * verifier injected is rejected (verifier_unavailable): the service
+ * never marks a provider verified on its own say-so.
+ *
+ * EVIDENCE LIVES IN THE CONFIG JSON. ProviderConfigRecord has no
+ * verifiedAt column, and the smallest honest mechanism is the
+ * record's own free-form config object: `config.verification =
+ * { verifiedAt, summary, verifiedBy }`. It is written only by a
+ * passing verify, read by the disabled → enabled rule (a disabled
+ * record written by raw store setters — the pre-E3 world — carries
+ * no evidence and cannot be enabled through the lifecycle), and
+ * cleared by configure (new configuration invalidates the old
+ * verification) and by deprovision.
+ *
+ * CREDENTIALS ARE REFERENCES ONLY. configure/register accept a
+ * credentialRef that must LOOK like a reference name in the forms
+ * the codebase already uses — "env:ALPACA_API_KEY" (the deploy-time
+ * env var name), "sessionstore:etrade:token" (the SessionStore
+ * key), or a bare env-style name ("ALPACA_API_KEY", "ET_API_KEY").
+ * Whitespace, dotted/JWT-shaped strings, hex tokens, and lowercase
+ * secret-shaped strings are rejected (invalid_credential_ref) and
+ * nothing is stored. The value is never logged: audit payloads name
+ * the action and states, never the reference.
+ *
+ * AUDIT. When the caller injects an audit sink, EVERY transition
+ * attempt emits exactly one event — accepted or rejected — with
+ * actor, provider, action, from → to, outcome, and (on rejection)
+ * the reason. The sink is a plain function parameter so this
+ * module stays inside the trading boundary: the route layer binds
+ * it to the orchestrator's recordAudit owner (#270); the service
+ * itself imports no agent code.
+ *
+ * DEPROVISION side effects: the enabled flag goes off, the
+ * provider's capability routes are withdrawn (deleteCapability-
+ * RoutesForProvider: primaries deleted, gap-fill slots cleared),
+ * the credential reference is cleared, verification evidence is
+ * dropped, and the record is tombstoned to "deprovisioned".
+ * Captures (mas_data_captures) are history and are NEVER touched.
+ */
+
+import type { SqlStorage } from "../../orm";
+import type { DataProviderId } from "./contract";
+import {
+  getProviderConfig,
+  listProviderConfigs,
+  upsertProviderConfig,
+  clearProviderCredentialRef,
+  deleteCapabilityRoutesForProvider,
+  type ProviderConfigRecord,
+  type ProviderLifecycleState,
+} from "./providerConfigStore";
+
+export type ProviderLifecycleAction =
+  | "register"
+  | "configure"
+  | "verify"
+  | "enable"
+  | "disable"
+  | "deprovision";
+
+export type ProviderLifecycleErrorCode =
+  | "illegal_transition"
+  | "unknown_provider"
+  | "already_registered"
+  | "invalid_credential_ref"
+  | "verification_failed"
+  | "verifier_unavailable";
+
+/** A rejected lifecycle move. `from` is null when no record exists. */
+export class ProviderLifecycleError extends Error {
+  readonly providerId: string;
+  readonly action: ProviderLifecycleAction;
+  readonly from: ProviderLifecycleState | null;
+  readonly to: ProviderLifecycleState | null;
+  readonly code: ProviderLifecycleErrorCode;
+  constructor(args: {
+    providerId: string;
+    action: ProviderLifecycleAction;
+    from: ProviderLifecycleState | null;
+    to: ProviderLifecycleState | null;
+    code: ProviderLifecycleErrorCode;
+    message: string;
+  }) {
+    super(args.message);
+    this.name = "ProviderLifecycleError";
+    this.providerId = args.providerId;
+    this.action = args.action;
+    this.from = args.from;
+    this.to = args.to;
+    this.code = args.code;
+  }
+}
+
+/** The injected real check behind the verify action. */
+export interface ProviderVerifyResult {
+  ok: boolean;
+  /** Human-readable evidence summary; recorded on success, the rejection reason on failure. No payloads, no secrets. */
+  summary: string;
+}
+export type ProviderVerifier = (
+  providerId: string
+) => Promise<ProviderVerifyResult>;
+
+/** One audit event per transition attempt (accepted or rejected). */
+export interface ProviderLifecycleAuditEvent {
+  actor: string;
+  providerId: string;
+  action: ProviderLifecycleAction;
+  from: ProviderLifecycleState | null;
+  to: ProviderLifecycleState | null;
+  outcome: "accepted" | "rejected";
+  reason?: string;
+}
+export type ProviderLifecycleAuditSink = (
+  event: ProviderLifecycleAuditEvent
+) => void;
+
+export interface ProviderConfigureInput {
+  /** Credential REFERENCE name (validated); null clears the stored reference; undefined keeps it. */
+  credentialRef?: string | null;
+  displayName?: string;
+  /** Free-form provider config merged into the record's config JSON. */
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProviderRegisterInput {
+  adapterKind?: string;
+  precedence?: number;
+  credentialRef?: string | null;
+  displayName?: string;
+}
+
+export interface ProviderTransitionDeps {
+  audit?: ProviderLifecycleAuditSink;
+  verifier?: ProviderVerifier;
+  configure?: ProviderConfigureInput;
+  register?: ProviderRegisterInput;
+}
+
+// ---------------------------------------------------------------------------
+// Credential reference validation
+// ---------------------------------------------------------------------------
+
+const ENV_STYLE_REF = /^[A-Z][A-Z0-9_]{2,}$/;
+const ENV_PREFIXED_REF = /^env:[A-Z][A-Z0-9_]{1,}$/;
+const SESSIONSTORE_REF =
+  /^sessionstore:[A-Za-z0-9][A-Za-z0-9_-]*(:[A-Za-z0-9][A-Za-z0-9_-]*)*$/;
+
+/**
+ * Is `value` a plausible credential REFERENCE name — a pointer to
+ * where a secret lives — rather than a secret value? Accepts the
+ * forms the codebase already stores ("env:ALPACA_API_KEY",
+ * "sessionstore:etrade:token", bare "ALPACA_API_KEY"); rejects
+ * anything with whitespace or characters outside [A-Za-z0-9_:-]
+ * (dots, slashes, +, = — the shapes of JWTs, URLs, and encoded
+ * tokens), hex tokens, and bare lowercase strings (secret-shaped,
+ * never reference-shaped). Length-capped so a pasted payload
+ * cannot pass as a name.
+ */
+export function isCredentialReference(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  if (value.length === 0 || value.length > 128) return false;
+  if (/\s/.test(value)) return false;
+  if (/^[0-9a-fA-F]{32,}$/.test(value)) return false; // hex token, not a name
+  if (ENV_PREFIXED_REF.test(value)) return true;
+  if (SESSIONSTORE_REF.test(value)) return true;
+  return ENV_STYLE_REF.test(value);
+}
+
+// ---------------------------------------------------------------------------
+// Verification evidence (config.verification — see the module header)
+// ---------------------------------------------------------------------------
+
+export interface ProviderVerificationEvidence {
+  verifiedAt: string;
+  summary: string;
+  verifiedBy: string;
+}
+
+export function getVerificationEvidence(
+  record: ProviderConfigRecord
+): ProviderVerificationEvidence | null {
+  const v = (record.config as Record<string, unknown>)?.verification;
+  if (
+    v &&
+    typeof v === "object" &&
+    typeof (v as any).verifiedAt === "string" &&
+    (v as any).verifiedAt !== ""
+  ) {
+    return v as ProviderVerificationEvidence;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// The transition function
+// ---------------------------------------------------------------------------
+
+/** The state a successful action lands in (audit/error reporting). */
+function targetStateFor(
+  action: ProviderLifecycleAction
+): ProviderLifecycleState {
+  switch (action) {
+    case "register":
+      return "registered";
+    case "configure":
+      return "configured";
+    case "verify":
+      return "verified";
+    case "enable":
+      return "enabled";
+    case "disable":
+      return "disabled";
+    case "deprovision":
+      return "deprovisioned";
+  }
+}
+
+function isLegal(
+  action: ProviderLifecycleAction,
+  record: ProviderConfigRecord | null
+): boolean {
+  if (action === "register") return record === null;
+  if (!record) return false;
+  const from = record.lifecycleState;
+  switch (action) {
+    case "configure":
+      return from === "registered" || from === "configured";
+    case "verify":
+      return from === "configured";
+    case "enable":
+      return (
+        from === "verified" ||
+        (from === "disabled" && getVerificationEvidence(record) !== null)
+      );
+    case "disable":
+      return from === "enabled";
+    case "deprovision":
+      return from !== "deprovisioned";
+  }
+}
+
+/**
+ * Perform one lifecycle transition. Returns the record as stored on
+ * success; throws ProviderLifecycleError on any rejection (illegal
+ * move, unknown provider, invalid credential reference, failed or
+ * unavailable verification) with the store left unchanged. Emits
+ * exactly one audit event per attempt when deps.audit is supplied.
+ */
+export async function transitionProvider(
+  sql: SqlStorage,
+  providerId: string,
+  action: ProviderLifecycleAction,
+  actor: string,
+  deps: ProviderTransitionDeps = {}
+): Promise<ProviderConfigRecord> {
+  const id = providerId as DataProviderId;
+  const existing = getProviderConfig(sql, id);
+  const from = existing?.lifecycleState ?? null;
+  const to = targetStateFor(action);
+
+  const reject = (
+    code: ProviderLifecycleErrorCode,
+    message: string,
+    errFrom: ProviderLifecycleState | null = from,
+    errTo: ProviderLifecycleState | null = to
+  ): never => {
+    deps.audit?.({
+      actor,
+      providerId,
+      action,
+      from: errFrom,
+      to: errTo,
+      outcome: "rejected",
+      reason: message,
+    });
+    throw new ProviderLifecycleError({
+      providerId,
+      action,
+      from: errFrom,
+      to: errTo,
+      code,
+      message,
+    });
+  };
+
+  const accept = (record: ProviderConfigRecord): ProviderConfigRecord => {
+    deps.audit?.({
+      actor,
+      providerId,
+      action,
+      from,
+      to: record.lifecycleState,
+      outcome: "accepted",
+    });
+    return record;
+  };
+
+  // --- register: the only action that creates the record. ---
+  if (action === "register") {
+    if (existing) {
+      reject(
+        "already_registered",
+        `Provider "${providerId}" is already registered (state "${from}"); register creates a new config record.`
+      );
+    }
+    const input = deps.register ?? {};
+    if (
+      input.credentialRef !== undefined &&
+      input.credentialRef !== null &&
+      !isCredentialReference(input.credentialRef)
+    ) {
+      reject(
+        "invalid_credential_ref",
+        `credentialRef for provider "${providerId}" is not a reference name (expected a form like "env:NAME", "sessionstore:ns:key", or "NAME"); secret values are never accepted.`
+      );
+    }
+    const precedence =
+      input.precedence ??
+      listProviderConfigs(sql).reduce((max, c) => Math.max(max, c.precedence), 0) + 1;
+    const config: Record<string, unknown> = {};
+    if (input.displayName !== undefined) config.displayName = input.displayName;
+    return accept(
+      upsertProviderConfig(sql, {
+        id,
+        adapterKind: input.adapterKind ?? providerId,
+        lifecycleState: "registered",
+        enabled: false,
+        precedence,
+        credentialRef: input.credentialRef ?? null,
+        config,
+      })
+    );
+  }
+
+  if (!existing) {
+    reject(
+      "unknown_provider",
+      `No provider config exists for "${providerId}"; register it before applying "${action}".`,
+      null,
+      null
+    );
+  }
+  const record = existing as ProviderConfigRecord;
+
+  if (!isLegal(action, record)) {
+    if (action === "enable" && from === "disabled") {
+      reject(
+        "illegal_transition",
+        `Cannot enable provider "${providerId}" from state "disabled": the record carries no verification evidence (it was never verified through the lifecycle). Verify it first.`
+      );
+    }
+    reject(
+      "illegal_transition",
+      `Illegal lifecycle transition for provider "${providerId}": "${action}" is not allowed from state "${from}".`
+    );
+  }
+
+  switch (action) {
+    case "configure": {
+      const input = deps.configure ?? {};
+      if (
+        input.credentialRef !== undefined &&
+        input.credentialRef !== null &&
+        !isCredentialReference(input.credentialRef)
+      ) {
+        reject(
+          "invalid_credential_ref",
+          `credentialRef for provider "${providerId}" is not a reference name (expected a form like "env:NAME", "sessionstore:ns:key", or "NAME"); secret values are never accepted.`
+        );
+      }
+      const config: Record<string, unknown> = { ...record.config };
+      // A new configuration invalidates any earlier verification.
+      delete config.verification;
+      if (input.metadata) {
+        for (const [k, v] of Object.entries(input.metadata)) config[k] = v;
+      }
+      if (input.displayName !== undefined) config.displayName = input.displayName;
+      const updated = upsertProviderConfig(sql, {
+        id,
+        adapterKind: record.adapterKind,
+        precedence: record.precedence,
+        lifecycleState: "configured",
+        enabled: record.enabled,
+        ...(input.credentialRef !== undefined
+          ? { credentialRef: input.credentialRef }
+          : {}),
+        config,
+      });
+      // upsert's merge rule keeps the old reference on null input;
+      // an explicit null means CLEAR.
+      const final =
+        input.credentialRef === null
+          ? clearProviderCredentialRef(sql, id) ?? updated
+          : updated;
+      return accept(final);
+    }
+
+    case "verify": {
+      if (!deps.verifier) {
+        reject(
+          "verifier_unavailable",
+          `No verifier is available for provider "${providerId}"; a provider is never marked verified without a real check.`
+        );
+      }
+      let result: ProviderVerifyResult;
+      try {
+        result = await (deps.verifier as ProviderVerifier)(providerId);
+      } catch (err) {
+        result = {
+          ok: false,
+          summary: `verifier threw: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+      if (!result.ok) {
+        reject(
+          "verification_failed",
+          `Verification failed for provider "${providerId}": ${result.summary}`
+        );
+      }
+      const config: Record<string, unknown> = {
+        ...record.config,
+        verification: {
+          verifiedAt: new Date().toISOString(),
+          summary: result.summary,
+          verifiedBy: actor,
+        } satisfies ProviderVerificationEvidence,
+      };
+      return accept(
+        upsertProviderConfig(sql, {
+          id,
+          adapterKind: record.adapterKind,
+          precedence: record.precedence,
+          lifecycleState: "verified",
+          enabled: record.enabled,
+          credentialRef: record.credentialRef,
+          config,
+        })
+      );
+    }
+
+    case "enable": {
+      return accept(
+        upsertProviderConfig(sql, {
+          id,
+          adapterKind: record.adapterKind,
+          precedence: record.precedence,
+          lifecycleState: "enabled",
+          enabled: true,
+          credentialRef: record.credentialRef,
+          config: record.config,
+        })
+      );
+    }
+
+    case "disable": {
+      return accept(
+        upsertProviderConfig(sql, {
+          id,
+          adapterKind: record.adapterKind,
+          precedence: record.precedence,
+          lifecycleState: "disabled",
+          enabled: false,
+          credentialRef: record.credentialRef,
+          config: record.config,
+        })
+      );
+    }
+
+    case "deprovision": {
+      deleteCapabilityRoutesForProvider(sql, id);
+      const config: Record<string, unknown> = { ...record.config };
+      delete config.verification;
+      const tombstoned = upsertProviderConfig(sql, {
+        id,
+        adapterKind: record.adapterKind,
+        precedence: record.precedence,
+        lifecycleState: "deprovisioned",
+        enabled: false,
+        credentialRef: record.credentialRef,
+        config,
+      });
+      const cleared = clearProviderCredentialRef(sql, id) ?? tombstoned;
+      return accept(cleared);
+    }
+  }
+}
