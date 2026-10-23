@@ -58,6 +58,10 @@
  * one more — GET /runs (in handleReportsRoutes, after
  * /reports/research/browse and before the reports list) — bringing
  * the inventory to 172.
+ * Issue #1162 (epic #1096 Phase 6) added three more — GET
+ * /screening/activity and GET|POST /screening/controls (in
+ * handleScreenerResearchRoutes, after /research/evaluate, last in
+ * that handler) — bringing the pinned array to 192 entries.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -288,6 +292,9 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/research/settings\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/settings\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/evaluate\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/activity\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/controls\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/controls\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules\")",
   "handleSchedulesRoutes :: endsWith(\"/api/schedules\")",
   "handleSchedulesRoutes :: === \"/schedules\"",

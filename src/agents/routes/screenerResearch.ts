@@ -16,6 +16,8 @@
  *   GET         /research/settings
  *   POST        /research/settings
  *   POST        /research/evaluate
+ *   GET         /screening/activity                 (issue #1162, epic #1096 Phase 6)
+ *   GET|POST    /screening/controls                 (issue #1162)
  *
  * Every handler ends with an explicit `return null` - never undefined.
  *
@@ -66,6 +68,8 @@ export interface ScreenerResearchRouteContext {
   }>;
   /** ORM accessor (owner: OrchestratorAgent.getOrm - was `this.getOrm()`); the #754 adaptation services take it as their SqlStorage (post-#887 the ORM satisfies that interface). */
   getOrm(): DatabaseORM;
+  /** Worker environment (owner: OrchestratorAgent - `this.env`); the Phase 6 tick delivery builds its channel senders from it. */
+  env: Record<string, any>;
   /** mas_settings raw read (owner: OrchestratorAgent.readSettingRaw - was `this.readSettingRaw`). */
   readSettingRaw(key: string): string | null;
   /** mas_settings write (owner: OrchestratorAgent.writeSetting - was `this.writeSetting`). */
@@ -261,6 +265,16 @@ export async function handleScreenerResearchRoutes(
             dateKey: decision.dateKey,
           });
         }
+        // Issue #1162 (epic #1096 Phase 6): the screening pause flag is
+        // read once per tick and gates every #1096 autonomous step
+        // below (discovery, re-selection, weights-v2, tick delivery).
+        // The #319 research run and its evaluations are NOT gated —
+        // they predate the screening system and have their own
+        // controls. A settings read failure reads as paused
+        // (fail-closed, the #756 kill-switch idiom).
+        const screeningFlags = await import("../../services/screeningFlags");
+        const readScreeningSetting = (key: string) => ctx.readSettingRaw(key);
+        const screeningPaused = screeningFlags.isScreeningScheduledPaused(readScreeningSetting);
         const out = await triggerScheduledResearch(
           ctx.runResearchAndPublish,
           userLogin
@@ -286,9 +300,12 @@ export async function handleScreenerResearchRoutes(
         // discovery is advisory and never fails the tick. Portfolio
         // state is not supplied on this path, so portfolio discovery
         // triggers skip with the limitation recorded by the engine.
+        // Issue #1162: the screening pause flag skips discovery too.
         try {
           const agent = ctx.getResearchAgent(userLogin);
-          if (agent) {
+          if (agent && screeningPaused) {
+            (out as Record<string, unknown>).discoverySkipped = "screening_paused";
+          } else if (agent) {
             const disc = await agent.runDiscoveryIfDue(new Date(), { userLogin });
             (out as Record<string, unknown>).discoveryFired = disc.fired;
             if (disc.fired) {
@@ -298,6 +315,160 @@ export async function handleScreenerResearchRoutes(
           }
         } catch {
           // Discovery is advisory; the research run already succeeded.
+        }
+        // Issue #1162 (epic #1096 Phase 6): the remaining #1096
+        // autonomous steps get their production caller on this same
+        // tick (no new cron trigger — the Workers ceiling): strategy-
+        // bank re-selection (Phase 3, proposals only — promotion stays
+        // behind Phase 5's gate) and the strategy-weights v2 job
+        // (Phase 5; kill switch and budget are enforced inside the
+        // job), plus channel delivery of a fired discovery when the
+        // channels flag is on. All best-effort, recorded in the
+        // screening activity log; none of it can fail the tick.
+        try {
+          const orm = ctx.getOrm();
+          const { recordScreeningActivity } = await import("../../services/screeningActivity");
+          if (screeningPaused) {
+            (out as Record<string, unknown>).screeningPaused = true;
+            recordScreeningActivity(orm, {
+              userLogin,
+              kind: "schedule_control",
+              summary:
+                "Scheduled screening steps skipped — screening is paused (screening.scheduledPaused=on). Discovery, re-selection, weights-v2, and tick delivery did not run.",
+              actor: "scheduled-tick",
+            });
+          } else {
+            const steps: Record<string, unknown> = {};
+            const agent = ctx.getResearchAgent(userLogin);
+            const track = agent ? await agent.getTrackRecord().catch(() => null) : null;
+            const researchConfig = agent ? await agent.getResearchConfig().catch(() => null) : null;
+            if (agent && track) {
+              try {
+                const {
+                  shouldFireStrategyBankTick,
+                  STRATEGY_BANK_LAST_RUN_KEY,
+                  buildStrategyRegimeEvidence,
+                  reselectStrategyBank,
+                  recordReselectionProposal,
+                } = await import("../../services/strategyBankReselection");
+                const { getStrategyWeights } = await import("../../services/strategyWeights");
+                const sbDecision = shouldFireStrategyBankTick(
+                  new Date(),
+                  ctx.readSettingRaw(STRATEGY_BANK_LAST_RUN_KEY)
+                );
+                if (sbDecision.fire) {
+                  const evidence = buildStrategyRegimeEvidence(track.ideas);
+                  const regimes = [...new Set(evidence.map((e) => e.regime))];
+                  let proposals = 0;
+                  for (const regime of regimes) {
+                    const proposal = reselectStrategyBank({
+                      evidence,
+                      weights: getStrategyWeights(orm),
+                      regime,
+                      overallWinRate: track.winRate,
+                      now: new Date(),
+                    });
+                    recordReselectionProposal(orm, userLogin, proposal);
+                    proposals++;
+                  }
+                  if (proposals > 0) {
+                    ctx.writeSetting(STRATEGY_BANK_LAST_RUN_KEY, sbDecision.dateKey);
+                  }
+                  steps.reselection = { fired: true, proposals, regimes };
+                } else {
+                  steps.reselection = { fired: false, reason: sbDecision.reason };
+                }
+              } catch (err) {
+                steps.reselection = {
+                  fired: false,
+                  error: err instanceof Error ? err.message : String(err),
+                };
+              }
+              try {
+                const { buildWeightsV2Slices, runWeightsV2Adjustment } = await import("../../services/strategyWeightsV2");
+                const { RESEARCH_CONFIG_DEFAULTS } = await import("../../services/researchConfig");
+                const costs = {
+                  feePerContract: researchConfig?.feePerContract ?? RESEARCH_CONFIG_DEFAULTS.feePerContract,
+                  slippagePerContract: researchConfig?.slippagePerContract ?? RESEARCH_CONFIG_DEFAULTS.slippagePerContract,
+                };
+                const slices = buildWeightsV2Slices(
+                  track.ideas.map((idea) => ({
+                    structure: idea.structure,
+                    regime: idea.regime,
+                    contractsPerUnit: idea.contractsPerUnit,
+                    evaluation: idea.evaluation
+                      ? {
+                          pnlEstimatePerUnit: idea.evaluation.pnlEstimatePerUnit,
+                          rMultiple: idea.evaluation.rMultiple,
+                          evaluatedAt: idea.evaluation.evaluatedAt,
+                        }
+                      : null,
+                  })),
+                  costs
+                );
+                const wres = runWeightsV2Adjustment(orm, slices, { now: new Date() });
+                steps.weightsV2 = {
+                  considered: wres.considered,
+                  adjusted: wres.adjusted.length,
+                  blocked: wres.blocked.length,
+                  halted: wres.halted ?? false,
+                };
+                recordScreeningActivity(orm, {
+                  userLogin,
+                  kind: "weights_adjustment",
+                  summary:
+                    `Weights-v2 job on the scheduled tick: ${wres.considered} slice(s) considered, ` +
+                    `${wres.adjusted.length} adjusted, ${wres.blocked.length} blocked` +
+                    `${wres.halted ? " — halted by the adaptation kill switch" : ""}.`,
+                  detail: steps.weightsV2,
+                  actor: "scheduled-tick",
+                });
+              } catch (err) {
+                steps.weightsV2 = {
+                  error: err instanceof Error ? err.message : String(err),
+                };
+              }
+              if ((out as Record<string, unknown>).discoveryFired) {
+                recordScreeningActivity(orm, {
+                  userLogin,
+                  kind: "discovery_run",
+                  summary: `Scheduled discovery run: ${(out as Record<string, unknown>).discoveryPersisted ?? 0} proposed goal(s) persisted (proposed-only; nothing activates without confirmation).`,
+                  actor: "scheduled-tick",
+                });
+                if (screeningFlags.isScreeningChannelsEnabled(readScreeningSetting)) {
+                  try {
+                    const { deliverScreeningContent, createScreeningDeliverySenders } = await import("../../services/screeningDelivery");
+                    const channels: Array<"slack" | "email" | "webhook"> = ["slack", "webhook"];
+                    const emailTo = researchConfig?.autoEmail && researchConfig?.emailTo ? researchConfig.emailTo : undefined;
+                    if (emailTo) channels.push("email");
+                    const text =
+                      `Goal/scenario discovery (scheduled): ${(out as Record<string, unknown>).discoveryPersisted ?? 0} new proposed goal(s) are waiting in the dashboard for review. ` +
+                      `Proposals never activate or trade on their own.`;
+                    await deliverScreeningContent({
+                      channels,
+                      subject: "Screening discovery: new proposed goals",
+                      text,
+                      event: "screening.discovery",
+                      data: { persisted: (out as Record<string, unknown>).discoveryPersisted ?? 0, dateKey: decision.dateKey },
+                      emailTo,
+                      senders: createScreeningDeliverySenders(ctx.env, orm, userLogin),
+                      sql: orm,
+                      userLogin,
+                      actor: "scheduled-tick",
+                    });
+                    steps.delivery = true;
+                  } catch (err) {
+                    steps.delivery = {
+                      error: err instanceof Error ? err.message : String(err),
+                    };
+                  }
+                }
+              }
+            }
+            (out as Record<string, unknown>).screeningSteps = steps;
+          }
+        } catch {
+          // Phase 6 steps are best-effort; the research run already succeeded.
         }
         ctx.writeSetting(RESEARCH_SCHEDULED_LAST_RUN_KEY, decision.dateKey);
         return Response.json(out);
@@ -621,6 +792,83 @@ export async function handleScreenerResearchRoutes(
       }
       const evaluation = await agent.evaluateRun(body.runId, userLogin);
       return Response.json({ evaluation });
+    }
+
+    // Issue #1162 (epic #1096 Phase 6): the screening activity log —
+    // one tenant-scoped feed over the autonomous screening system's
+    // own records (activity entries, Phase 3 re-selection proposals,
+    // Phase 5 challenger promotions).
+    if (path.endsWith("/screening/activity") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const limitParam = Number(url.searchParams.get("limit") || 50);
+      const { buildScreeningActivityFeed } = await import("../../services/screeningActivity");
+      const feed = buildScreeningActivityFeed(ctx.getOrm(), userLogin, limitParam);
+      return Response.json({ count: feed.length, feed });
+    }
+
+    // Issue #1162: screening controls — the mas_settings flags behind
+    // the rollout (stage, channels, NLQ fit discovery, v2-ranking,
+    // scheduled pause). Reads report the effective values with their
+    // fail-safes applied; writes are validated, and every change is
+    // recorded in the activity log with the session as actor.
+    if (path.endsWith("/screening/controls") && request.method === "GET") {
+      const { readScreeningControls } = await import("../../services/screeningFlags");
+      return Response.json(readScreeningControls((key) => ctx.readSettingRaw(key)));
+    }
+    if (path.endsWith("/screening/controls") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const body = (await request.json().catch(() => null)) as {
+        rolloutStage?: string;
+        channelsEnabled?: boolean;
+        nlqFitDiscovery?: boolean;
+        weightsV2Ranking?: boolean;
+        scheduledPaused?: boolean;
+      } | null;
+      if (!body || typeof body !== "object") {
+        return Response.json({ error: "A JSON body with at least one control is required." }, { status: 400 });
+      }
+      const flags = await import("../../services/screeningFlags");
+      const { SCREENING_FLAG_KEYS, isScreeningRolloutStage, readScreeningControls } = flags;
+      if (body.rolloutStage !== undefined && !isScreeningRolloutStage(body.rolloutStage)) {
+        return Response.json(
+          { error: `rolloutStage must be one of: internal, paper, broader.` },
+          { status: 400 }
+        );
+      }
+      const changes: string[] = [];
+      // The change label derives from the flag key itself
+      // ("screening.scheduledPaused" → "scheduledPaused") so the log
+      // line can never drift from the key it describes.
+      const applyBool = (value: boolean | undefined, key: string) => {
+        if (typeof value === "boolean") {
+          ctx.writeSetting(key, value ? "on" : "off");
+          changes.push(`${key.replace(/^screening\./, "")}=${value ? "on" : "off"}`);
+        }
+      };
+      if (body.rolloutStage !== undefined) {
+        ctx.writeSetting(SCREENING_FLAG_KEYS.rolloutStage, body.rolloutStage);
+        changes.push(`rolloutStage=${body.rolloutStage}`);
+      }
+      applyBool(body.channelsEnabled, SCREENING_FLAG_KEYS.channelsEnabled);
+      applyBool(body.nlqFitDiscovery, SCREENING_FLAG_KEYS.nlqFitDiscovery);
+      applyBool(body.weightsV2Ranking, SCREENING_FLAG_KEYS.weightsV2Ranking);
+      applyBool(body.scheduledPaused, SCREENING_FLAG_KEYS.scheduledPaused);
+      if (changes.length === 0) {
+        return Response.json({ error: "No recognized control was supplied." }, { status: 400 });
+      }
+      const { recordScreeningActivity } = await import("../../services/screeningActivity");
+      recordScreeningActivity(ctx.getOrm(), {
+        userLogin,
+        kind: "schedule_control",
+        summary: `Screening controls updated: ${changes.join(", ")}.`,
+        detail: { changes },
+        actor: sessionId,
+      });
+      return Response.json({
+        success: true,
+        changes,
+        ...readScreeningControls((key) => ctx.readSettingRaw(key)),
+      });
     }
   return null;
 }

@@ -17,6 +17,7 @@ import { ResearchReportActions } from "../ResearchReportActions";
 import { defaultRegistry } from "../../trading/options/strategies/catalog";
 import { StrategyDiscoveryPanel } from "./StrategyDiscoveryPanel";
 import { DiscoveryRunsPanel } from "./DiscoveryRunsPanel";
+import { ScreeningActivityPanel } from "./ScreeningActivityPanel";
 import { UniversalChart } from "../components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
@@ -1102,6 +1103,11 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               scans + manual runs) — the record of what the scheduler
               actually produced. */}
           <AutonomousOptionsRuns />
+          {/* Issue #1162 (epic #1096 Phase 6): the autonomous screening
+              system's activity log + pause control — discovery runs,
+              re-selections, promotions, and deliveries from the
+              screening activity feed, next to the other run records. */}
+          <ScreeningActivityPanel userLogin={userLogin} />
         </>
       )}
 
