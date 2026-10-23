@@ -6,9 +6,8 @@ export interface EnvironmentETradeConfig {
   type: "sandbox" | "live";
   apiKey?: string;
   apiSecret?: string;
-  // #1185 Phase B (#1066): no oauthToken/oauthTokenSecret fields — the
-  // process-wide static pair was deleted so no consumer can reintroduce
-  // it. Access tokens are per-user, stored in the SessionStore.
+  oauthToken?: string;
+  oauthTokenSecret?: string;
 }
 
 export interface EnvironmentPaymentsConfig {
@@ -197,6 +196,19 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
   const apiKey = sanitize(rawApiKey);
   const apiSecret = sanitize(rawApiSecret);
 
+  // OAuth 1.0a access token pair (obtained after user authorizes via E*TRADE OAuth flow)
+  const oauthToken =
+    env?.ETRADE_OAUTH_TOKEN ||
+    (env as any)?.ETRADE_ACCESS_TOKEN ||
+    processEnv.ETRADE_OAUTH_TOKEN ||
+    processEnv.ETRADE_ACCESS_TOKEN;
+
+  const oauthTokenSecret =
+    env?.ETRADE_OAUTH_TOKEN_SECRET ||
+    (env as any)?.ETRADE_ACCESS_TOKEN_SECRET ||
+    processEnv.ETRADE_OAUTH_TOKEN_SECRET ||
+    processEnv.ETRADE_ACCESS_TOKEN_SECRET;
+
   const paypalEnv = env?.PAYPAL_ENVIRONMENT || (isLive ? "live" : "sandbox");
 
   // #1185 / #1066 — explicit service identity for unattended work. A
@@ -215,6 +227,8 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
       type: isLive ? "live" : "sandbox",
       apiKey,
       apiSecret,
+      oauthToken,
+      oauthTokenSecret,
     },
     payments: {
       mode: isLive ? "live" : "test",
