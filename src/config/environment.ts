@@ -23,6 +23,8 @@ export interface ResolvedEnvironment {
   isLive: boolean;
   etrade: EnvironmentETradeConfig;
   payments: EnvironmentPaymentsConfig;
+  /** #1185 / #1066 — the configured service identity for unattended work, when set. */
+  serviceUserLogin?: string;
 }
 
 /**
@@ -209,10 +211,17 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
 
   const paypalEnv = env?.PAYPAL_ENVIRONMENT || (isLive ? "live" : "sandbox");
 
+  // #1185 / #1066 — explicit service identity for unattended work. A
+  // non-secret login id, owner-set via SERVICE_USER_LOGIN; undefined when
+  // unset so unattended dispatch fails closed (see
+  // src/security/serviceIdentity.ts).
+  const serviceUserLogin = sanitize(env?.SERVICE_USER_LOGIN);
+
   return {
     name: activeName,
     label: baseDef.label || (isLive ? "Live" : "Sandbox"),
     isLive,
+    serviceUserLogin,
     etrade: {
       baseUrl,
       type: isLive ? "live" : "sandbox",
