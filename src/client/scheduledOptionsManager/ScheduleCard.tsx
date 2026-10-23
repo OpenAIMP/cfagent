@@ -1,8 +1,8 @@
 import React from "react";
-import type { StrategyProfile } from "../../../trading";
+import type { StrategyProfile } from "../../trading";
 import type { ScheduledTaskItem } from "./types";
 import { systemJobFor, triggerRouteFor } from "./systemJobs";
-import { cadenceText, formatNextRun, formatPayloadValue, payloadOf } from "./format";
+import { FREQUENCY_PRESETS, cadenceText, formatNextRun, formatPayloadValue, payloadOf } from "./format";
 import { formatNoViewConstraints } from "./noView";
 
 export interface ScheduleCardProps {
@@ -19,6 +19,17 @@ export interface ScheduleCardProps {
   handleTriggerCard: (item: ScheduledTaskItem) => Promise<void>;
   handleEditSchedule: (item: ScheduledTaskItem) => void;
   handleCancelSchedule: (scheduleId: string) => Promise<void>;
+  /** S7: enable/disable + frequency edit folded in from the nav
+   *  panel when the two schedule UIs merged into one surface. */
+  handlePauseResume: (item: ScheduledTaskItem) => Promise<void>;
+  freqEditingId: string | null;
+  freqCustomCron: string;
+  setFreqCustomCron: (value: string) => void;
+  handleToggleFrequency: (item: ScheduledTaskItem) => void;
+  handleApplyFrequency: (
+    item: ScheduledTaskItem,
+    body: { scheduleType: "interval" | "cron"; intervalSeconds?: number; cron?: string }
+  ) => Promise<void>;
 }
 
 export function ScheduleCard({
@@ -35,6 +46,12 @@ export function ScheduleCard({
   handleTriggerCard,
   handleEditSchedule,
   handleCancelSchedule,
+  handlePauseResume,
+  freqEditingId,
+  freqCustomCron,
+  setFreqCustomCron,
+  handleToggleFrequency,
+  handleApplyFrequency,
 }: ScheduleCardProps) {
               const systemJob = systemJobFor(item.callback);
               const isOptions = item.callback === "autonomousOptionsAnalysis";
@@ -121,6 +138,9 @@ export function ScheduleCard({
                       <span className={`schedule-type-badge ${item.type}`}>
                         {item.type}
                       </span>
+                      {item.paused ? (
+                        <span className="schedule-status paused">Paused</span>
+                      ) : null}
                       <span className="schedule-system-badge">{isOptions ? "Options" : isDiscovery ? "Discovery" : "Stock"}</span>
                     </div>
                     <span className="schedule-id-snippet" title={item.id}>
@@ -343,8 +363,8 @@ export function ScheduleCard({
                         type="button"
                         className="btn-sched-action-sm"
                         onClick={() => handleTriggerCard(item)}
-                        disabled={triggeringKey !== null}
-                        title={`Run ${cardTitle} immediately, on demand`}
+                        disabled={triggeringKey !== null || !!item.paused}
+                        title={item.paused ? "Resume before triggering" : `Run ${cardTitle} immediately, on demand`}
                       >
                         {triggeringKey === item.id ? "⚡ Running…" : "⚡ Trigger Now"}
                       </button>
@@ -360,6 +380,24 @@ export function ScheduleCard({
                     </button>
                     <button
                       type="button"
+                      className="btn-sched-action-sm"
+                      onClick={() => handlePauseResume(item)}
+                      title={item.paused ? "Resume schedule" : "Pause schedule"}
+                    >
+                      {item.paused ? "▶ Resume" : "⏸ Pause"}
+                    </button>
+                    {(item.type === "cron" || item.type === "interval") && (
+                      <button
+                        type="button"
+                        className="btn-sched-action-sm"
+                        onClick={() => handleToggleFrequency(item)}
+                        title="Edit frequency"
+                      >
+                        🕐 Edit frequency
+                      </button>
+                    )}
+                    <button
+                      type="button"
                       className="btn-sched-cancel-sm"
                       onClick={() => handleCancelSchedule(item.id)}
                       title="Permanently cancel this durable schedule"
@@ -367,6 +405,44 @@ export function ScheduleCard({
                       ✕ Cancel
                     </button>
                   </div>
+
+                  {freqEditingId === item.id && (
+                    <div className="schedule-editor">
+                      <div className="schedule-presets">
+                        {FREQUENCY_PRESETS.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className="preset"
+                            onClick={() => handleApplyFrequency(item, { ...p.body })}
+                            title={`Set frequency to ${p.label}`}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="schedule-editor-custom">
+                        <input
+                          type="text"
+                          placeholder="Custom cron, e.g. 0 9 * * 1-5"
+                          value={freqCustomCron}
+                          onChange={(e) => setFreqCustomCron(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          disabled={!freqCustomCron.trim()}
+                          onClick={() =>
+                            handleApplyFrequency(item, {
+                              scheduleType: "cron",
+                              cron: freqCustomCron.trim(),
+                            })
+                          }
+                        >
+                          Apply cron
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
 }

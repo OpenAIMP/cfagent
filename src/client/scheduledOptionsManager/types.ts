@@ -11,6 +11,11 @@ export interface ScheduledTaskItem {
   time?: number;
   createdAt?: string;
   nextRun?: string;
+  /** Issue #273: paused jobs are merged into the list by the backend;
+   *  the definition is kept in the paused store (S7: the screening
+   *  section renders the badge + Resume like the generic cards do). */
+  paused?: boolean;
+  pausedAt?: string;
 }
 
 export interface ScheduledOptionsManagerProps {
@@ -18,6 +23,55 @@ export interface ScheduledOptionsManagerProps {
   userLogin?: string;
   onPreviewTrade?: (candidate: any) => void;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
+  /** S7 (one schedule UI): the hosting SchedulesPanel's tab filter —
+   *  "stocks" shows only market screens, "options" shows options
+   *  analysis + discovery. Absent/"all" shows every screening kind. */
+  groupFilter?: "all" | "stocks" | "options";
+  /** S7: bumped by the host to ask the section to refetch its list. */
+  refreshSignal?: number;
+  /** S7: bumped by the host to open the create modal (the host's own
+   *  "New schedule" button targets the one structured create form). */
+  openCreateSignal?: number;
+}
+
+/**
+ * The create/edit form's complete state, as consumed by the single
+ * payload-construction path (scheduledOptionsManager/payloadBuilders).
+ * Field-for-field the state the section component holds in useState
+ * hooks — the builder takes it whole so a submitted body can be
+ * reproduced (and golden-pinned) without rendering the form.
+ */
+export interface ScheduleFormState {
+  jobType: CreatableJob;
+  targetSymbols: string;
+  maxItems: number;
+  targetUniverse: string;
+  sector: string;
+  minPrice: string;
+  maxPrice: string;
+  minMarketCap: string;
+  maxPe: string;
+  trendFilter: string;
+  scheduleType: ScheduleMode;
+  intervalSeconds: number;
+  cronExpression: string;
+  delaySeconds: number;
+  scheduledDate: string;
+  thesis: "bullish" | "bearish" | "neutral" | "directional";
+  riskProfile: "conservative" | "balanced" | "aggressive";
+  pushToSlack: boolean;
+  slackChannel: string;
+  emailTo: string;
+  webhookUrl: string;
+  discoveryRequests: DiscoveryRequestDraft[];
+  discoveryInputModel: DiscoveryInputModel;
+  derivedSource: "symbols" | "watchlist";
+  derivedSymbolsText: string;
+  derivedWatchlistName: string;
+  derivedProfileId: string;
+  noViewDraft: NoViewConstraintsDraft;
+  /** Broker environment stamped into options/discovery payloads. */
+  environment: string;
 }
 
 /** One autonomous options-analysis run as returned by GET /api/options/latest (#223). */

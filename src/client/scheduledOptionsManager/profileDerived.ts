@@ -1,4 +1,4 @@
-import type { StrategyProfile } from "../../../trading";
+import type { StrategyProfile } from "../../trading";
 import { DISCOVERY_REQUEST_LIMIT } from "./discoveryRequests";
 
 /** Parse the profile-derived symbols field: comma- or

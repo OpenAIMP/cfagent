@@ -1,6 +1,6 @@
 import React from "react";
-import { etToUtcCron } from "../cronTime";
-import { Select, TextInput } from "../../components/ui";
+import { etToUtcCron } from "../options/cronTime";
+import { Select, TextInput } from "../components/ui";
 import type { ScheduleMode } from "./types";
 import { CRON_PRESETS, INTERVAL_PRESETS } from "./format";
 

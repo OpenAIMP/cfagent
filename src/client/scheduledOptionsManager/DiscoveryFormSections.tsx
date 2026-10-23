@@ -1,6 +1,6 @@
 import React from "react";
-import { Select, TextInput } from "../../components/ui";
-import type { StrategyProfile } from "../../../trading";
+import { Select, TextInput } from "../components/ui";
+import type { StrategyProfile } from "../../trading";
 import type {
   CreatableJob,
   DiscoveryInputModel,

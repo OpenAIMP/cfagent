@@ -1,5 +1,22 @@
 import type { ScheduledTaskItem } from "./types";
 
+/** Frequency presets shared by the inline frequency editors (the
+ *  generic cards in SchedulesPanel and the screening cards here) —
+ *  one definition site since S7 merged the two schedule UIs;
+ *  SchedulesPanel re-exports this as FREQUENCY_PRESETS. */
+export const FREQUENCY_PRESETS: {
+  id: string;
+  label: string;
+  body: { scheduleType: "interval" | "cron"; intervalSeconds?: number; cron?: string };
+}[] = [
+  { id: "5m", label: "5m", body: { scheduleType: "interval", intervalSeconds: 300 } },
+  { id: "15m", label: "15m", body: { scheduleType: "interval", intervalSeconds: 900 } },
+  { id: "30m", label: "30m", body: { scheduleType: "interval", intervalSeconds: 1800 } },
+  { id: "hourly", label: "Hourly", body: { scheduleType: "cron", cron: "0 * * * *" } },
+  { id: "2h", label: "2h", body: { scheduleType: "interval", intervalSeconds: 7200 } },
+  { id: "daily", label: "Daily", body: { scheduleType: "cron", cron: "0 13 * * *" } },
+];
+
 export const INTERVAL_PRESETS = [
   { label: "Every 15 min", seconds: 900 },
   { label: "Every 30 min", seconds: 1800 },

@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { apiFetch as fetch } from "../apiFetch";
-import { listProfiles } from "../scannerApi";
-import type { StrategyProfile } from "../../trading";
-import { etToUtcCron } from "./cronTime";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { apiFetch as fetch } from "./apiFetch";
+import { listProfiles } from "./scannerApi";
+import type { StrategyProfile } from "../trading";
+import { etToUtcCron } from "./options/cronTime";
 import "./scheduledOptions.css";
 import type {
   CreatableJob,
@@ -10,32 +10,31 @@ import type {
   DiscoveryRequestDraft,
   NoViewConstraintsDraft,
   OptionsRunSummary,
+  ScheduleFormState,
   ScheduleMode,
   ScheduledOptionsManagerProps,
   ScheduledTaskItem,
 } from "./scheduledOptionsManager/types";
 import {
-  JOB_CALLBACKS,
-  SYSTEM_JOBS,
   TRIGGER_ROUTES,
   systemJobFor,
   triggerRouteFor,
 } from "./scheduledOptionsManager/systemJobs";
 import {
   blankDiscoveryRequestDraft,
-  buildDiscoveryRequests,
   discoveryDraftFromRequest,
 } from "./scheduledOptionsManager/discoveryRequests";
-import {
-  buildProfileDerivedPayload,
-  profileDerivationBlockReason,
-} from "./scheduledOptionsManager/profileDerived";
+import { profileDerivationBlockReason } from "./scheduledOptionsManager/profileDerived";
 import {
   blankNoViewConstraintsDraft,
-  buildNoViewPayload,
   noViewDraftFromConstraintSets,
 } from "./scheduledOptionsManager/noView";
 import { payloadOf } from "./scheduledOptionsManager/format";
+import {
+  buildOptionsRunNowPayload,
+  buildScheduleSubmission,
+  parseSymbolsText,
+} from "./scheduledOptionsManager/payloadBuilders";
 import { LiveResultPreview } from "./scheduledOptionsManager/LiveResultPreview";
 import { LatestRunsSection } from "./scheduledOptionsManager/LatestRunsSection";
 import { SchedulesSection } from "./scheduledOptionsManager/SchedulesSection";
@@ -48,6 +47,7 @@ export type {
   DiscoveryRequestDraft,
   NoViewConstraintsDraft,
   OptionsRunSummary,
+  ScheduleFormState,
   ScheduleMode,
   ScheduledOptionsManagerProps,
   ScheduledTaskItem,
@@ -79,12 +79,21 @@ export {
   noViewDraftFromConstraintSets,
 } from "./scheduledOptionsManager/noView";
 export { formatNextRun, formatPayloadValue } from "./scheduledOptionsManager/format";
+export {
+  buildOptionsRunNowPayload,
+  buildScheduleSubmission,
+  parseSymbolsText,
+  validateScheduleCriteriaClient,
+} from "./scheduledOptionsManager/payloadBuilders";
 
 export function ScheduledOptionsManager({
   activeEnv = "sandbox",
   userLogin = "default_trader",
   onPreviewTrade,
   onSendPrompt,
+  groupFilter = "all",
+  refreshSignal,
+  openCreateSignal,
 }: ScheduledOptionsManagerProps) {
   // Schedules List State
   const [schedules, setSchedules] = useState<ScheduledTaskItem[]>([]);
@@ -157,6 +166,11 @@ export function ScheduledOptionsManager({
   // the banner Run Now button, otherwise the schedule's id.
   const [triggeringKey, setTriggeringKey] = useState<string | null>(null);
   const [liveResult, setLiveResult] = useState<any | null>(null);
+
+  // S7: frequency editing folded in from the nav panel — presets +
+  // custom cron applied with PUT /api/schedules/:id.
+  const [freqEditingId, setFreqEditingId] = useState<string | null>(null);
+  const [freqCustomCron, setFreqCustomCron] = useState("");
 
   // Detail expansion state (GET /api/schedules/:id, fetched on demand)
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -398,140 +412,46 @@ export function ScheduledOptionsManager({
     setError(null);
     setSuccessMsg(null);
 
-    let callback: string;
-    let payload: Record<string, any>;
-    if (jobType === "strategyDiscovery" && discoveryInputModel === "no-view") {
-      // No-view discovery (issue #534): the payload carries
-      // constraint sets only — no thesis, no target, nothing that
-      // could be read as a view. The create route validates each
-      // set at arm time; its 400 surfaces below exactly as the
-      // other models' do.
-      const built = buildNoViewPayload(noViewDraft);
-      if ("error" in built) {
-        setError(built.error);
-        setSubmitting(false);
-        return;
-      }
-      callback = JOB_CALLBACKS.strategyDiscovery;
-      payload = {
-        ...built.payload,
-        environment: activeEnv,
-        trigger: "scheduled",
-      };
-    } else if (jobType === "strategyDiscovery" && discoveryInputModel === "profile-derived") {
-      // Profile-derived discovery (issue #533): the payload names a
-      // symbol set + a Strategy Profile and stores NO target — each
-      // target is derived at run time. The create route's arm-time
-      // validation is the backstop; its 400 surfaces below exactly
-      // as the saved-view path's does.
-      const built = buildProfileDerivedPayload({
-        source: derivedSource,
-        symbolsText: derivedSymbolsText,
-        watchlistName: derivedWatchlistName,
-        profileId: derivedProfileId,
-      });
-      if ("error" in built) {
-        setError(built.error);
-        setSubmitting(false);
-        return;
-      }
-      callback = JOB_CALLBACKS.strategyDiscovery;
-      payload = {
-        ...built.payload,
-        environment: activeEnv,
-        trigger: "scheduled",
-      };
-    } else if (jobType === "strategyDiscovery") {
-      // Discovery schedules carry complete saved StrategyRequests; the
-      // create route validates each one and its 400 is the backstop for
-      // anything this form cannot check (e.g. unknown strategy ids).
-      const built = buildDiscoveryRequests(discoveryRequests);
-      if ("error" in built) {
-        setError(built.error);
-        setSubmitting(false);
-        return;
-      }
-      callback = JOB_CALLBACKS.strategyDiscovery;
-      payload = {
-        requests: built.requests,
-        environment: activeEnv,
-        trigger: "scheduled",
-      };
-    } else {
-      const symbols = targetSymbols.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-      if (!Number.isInteger(maxItems) || maxItems < 0) {
-        setError("Max items must be a whole number greater than or equal to zero.");
-        setSubmitting(false);
-        return;
-      }
-      if (!targetUniverse && symbols.length === 0) {
-        setError("Choose a universe or enter at least one symbol.");
-        setSubmitting(false);
-        return;
-      }
-      if (jobType === "marketScreen" && !targetUniverse) {
-        setError("Stock screens require one live universe.");
-        setSubmitting(false);
-        return;
-      }
-
-      if (jobType === "marketScreen") {
-        callback = JOB_CALLBACKS.marketScreen;
-        const customFilters: Record<string, any> = {};
-        if (minPrice.trim()) customFilters.minPrice = Number(minPrice);
-        if (maxPrice.trim()) customFilters.maxPrice = Number(maxPrice);
-        if (minMarketCap.trim()) customFilters.minMarketCap = Number(minMarketCap);
-        if (maxPe.trim()) customFilters.maxPeRatio = Number(maxPe);
-        if (trendFilter.trim()) customFilters.momentum = trendFilter;
-
-        payload = {
-          ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
-          maxItems,
-          sector: sector || "ALL",
-          trigger: "scheduled",
-          pushToSlack,
-          slackChannel: pushToSlack ? slackChannel : undefined,
-          emailTo: emailTo.trim() || undefined,
-          webhookUrl: webhookUrl.trim() || undefined,
-          ...(Object.keys(customFilters).length > 0 ? { filters: customFilters } : {}),
-        };
-      } else {
-        callback = JOB_CALLBACKS.optionsAnalysis;
-        payload = {
-          ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
-          maxItems,
-          thesis,
-          riskProfile,
-          pushToSlack,
-          slackChannel: pushToSlack ? slackChannel : undefined,
-          emailTo: emailTo.trim() || undefined,
-          webhookUrl: webhookUrl.trim() || undefined,
-          environment: activeEnv,
-          trigger: "scheduled",
-        };
-      }
-    }
-
-    const requestBody: any = {
-      callback,
+    // S7: the one payload-construction path — the kind builders in
+    // scheduledOptionsManager/payloadBuilders (golden-pinned against
+    // the bodies this inline code used to submit).
+    const built = buildScheduleSubmission({
+      jobType,
+      targetSymbols,
+      maxItems,
+      targetUniverse,
+      sector,
+      minPrice,
+      maxPrice,
+      minMarketCap,
+      maxPe,
+      trendFilter,
       scheduleType,
-      payload,
-    };
-
-    if (scheduleType === "interval") {
-      requestBody.intervalSeconds = Number(intervalSeconds);
-    } else if (scheduleType === "cron") {
-      requestBody.cron = cronExpression.trim();
-    } else if (scheduleType === "delayed") {
-      requestBody.delayInSeconds = Number(delaySeconds);
-    } else if (scheduleType === "scheduled") {
-      if (!scheduledDate) {
-        setError("Pick a date and time for the one-shot run.");
-        setSubmitting(false);
-        return;
-      }
-      requestBody.date = new Date(scheduledDate).toISOString();
+      intervalSeconds,
+      cronExpression,
+      delaySeconds,
+      scheduledDate,
+      thesis,
+      riskProfile,
+      pushToSlack,
+      slackChannel,
+      emailTo,
+      webhookUrl,
+      discoveryRequests,
+      discoveryInputModel,
+      derivedSource,
+      derivedSymbolsText,
+      derivedWatchlistName,
+      derivedProfileId,
+      noViewDraft,
+      environment: activeEnv,
+    });
+    if ("error" in built) {
+      setError(built.error);
+      setSubmitting(false);
+      return;
     }
+    const requestBody: any = built.requestBody;
 
     try {
       // If editing an existing schedule, cancel the prior schedule first
@@ -600,6 +520,62 @@ export function ScheduledOptionsManager({
     await doCancelSchedule(scheduleId);
   };
 
+  // S7: pause/resume folded in from the nav panel (issue #273
+  // routes). Pausing keeps the definition in the paused store; the
+  // list keeps the row with its Paused badge.
+  const handlePauseResume = async (item: ScheduledTaskItem) => {
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch(`/api/schedules/${item.id}/${item.paused ? "resume" : "pause"}`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data.success !== false) {
+        setSuccessMsg(`✓ Schedule ${item.id} ${item.paused ? "resumed" : "paused"}`);
+        fetchSchedules();
+        fetchAudit();
+      } else {
+        setError(data.error || `Failed to ${item.paused ? "resume" : "pause"} schedule`);
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to update schedule");
+    }
+  };
+
+  // S7: frequency-only edit (the nav panel's PUT path) — cadence
+  // changes without re-opening the full form.
+  const applyFrequency = async (
+    item: ScheduledTaskItem,
+    body: { scheduleType: "interval" | "cron"; intervalSeconds?: number; cron?: string }
+  ) => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/schedules/${item.id}`, {
+        method: "PUT",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data.success !== false) {
+        setFreqEditingId(null);
+        setFreqCustomCron("");
+        setSuccessMsg(`✓ Schedule ${item.id} frequency updated`);
+        fetchSchedules();
+      } else {
+        setError(data.error || "Failed to update frequency");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to update frequency");
+    }
+  };
+
+  const handleToggleFrequency = (item: ScheduledTaskItem) => {
+    setFreqEditingId(freqEditingId === item.id ? null : item.id);
+    setFreqCustomCron("");
+  };
+
   // Run one schedule's own job on demand, via that job's trigger route.
   const handleTriggerCard = async (item: ScheduledTaskItem) => {
     const route = triggerRouteFor(item.callback);
@@ -666,27 +642,46 @@ export function ScheduledOptionsManager({
     setSuccessMsg(null);
     setLiveResult(null);
 
-    const symbols = targetSymbols
-      .split(",")
-      .map((s) => s.trim().toUpperCase())
-      .filter(Boolean);
+    const symbols = parseSymbolsText(targetSymbols);
     if (!targetUniverse && symbols.length === 0) {
       setError("Choose a universe or enter at least one symbol.");
       setTriggeringKey(null);
       return;
     }
 
-    const payload = {
-      ...(targetUniverse ? { universe: targetUniverse } : { symbols }),
+    // S7: the hero payload comes from the same builders module as
+    // the schedule payloads (its own shape — no trigger stamp).
+    const payload = buildOptionsRunNowPayload({
+      jobType,
+      targetSymbols,
       maxItems,
+      targetUniverse,
+      sector,
+      minPrice,
+      maxPrice,
+      minMarketCap,
+      maxPe,
+      trendFilter,
+      scheduleType,
+      intervalSeconds,
+      cronExpression,
+      delaySeconds,
+      scheduledDate,
       thesis,
       riskProfile,
       pushToSlack,
-      slackChannel: pushToSlack ? slackChannel : undefined,
-      emailTo: emailTo.trim() || undefined,
-      webhookUrl: webhookUrl.trim() || undefined,
+      slackChannel,
+      emailTo,
+      webhookUrl,
+      discoveryRequests,
+      discoveryInputModel,
+      derivedSource,
+      derivedSymbolsText,
+      derivedWatchlistName,
+      derivedProfileId,
+      noViewDraft,
       environment: activeEnv,
-    };
+    });
 
     try {
       const res = await fetch(TRIGGER_ROUTES.autonomousOptionsAnalysis, {
@@ -738,6 +733,35 @@ export function ScheduledOptionsManager({
       setDetailLoading(false);
     }
   };
+
+  // S7 host signals: the hosting SchedulesPanel asks this section
+  // to refetch (its Refresh button) or to open the create modal (its
+  // "New schedule" button — the one structured create form).
+  const prevRefreshSignal = useRef(refreshSignal);
+  useEffect(() => {
+    if (prevRefreshSignal.current !== refreshSignal) {
+      prevRefreshSignal.current = refreshSignal;
+      fetchSchedules();
+    }
+  }, [refreshSignal, fetchSchedules]);
+
+  const prevOpenCreateSignal = useRef(openCreateSignal);
+  useEffect(() => {
+    if (prevOpenCreateSignal.current !== openCreateSignal) {
+      prevOpenCreateSignal.current = openCreateSignal;
+      openCreateModal();
+    }
+  }, [openCreateSignal]);
+
+  // S7: the host's tab filter narrows which screening kinds show.
+  const visibleSchedules = schedules.filter((s) =>
+    groupFilter === "stocks"
+      ? s.callback === "autonomousMarketScreen"
+      : groupFilter === "options"
+        ? s.callback === "autonomousOptionsAnalysis" ||
+          s.callback === "autonomousStrategyDiscovery"
+        : true
+  );
 
   const selectedDerivedProfile = profiles.find((p) => p.id === derivedProfileId);
   const selectedDerivedProfileReason = selectedDerivedProfile
@@ -814,7 +838,7 @@ export function ScheduledOptionsManager({
 
       {/* Active Schedules Section */}
       <SchedulesSection
-        schedules={schedules}
+        schedules={visibleSchedules}
         loading={loading}
         fetchSchedules={fetchSchedules}
         openCreateModal={openCreateModal}
@@ -830,6 +854,12 @@ export function ScheduledOptionsManager({
         handleTriggerCard={handleTriggerCard}
         handleEditSchedule={handleEditSchedule}
         handleCancelSchedule={handleCancelSchedule}
+        handlePauseResume={handlePauseResume}
+        freqEditingId={freqEditingId}
+        freqCustomCron={freqCustomCron}
+        setFreqCustomCron={setFreqCustomCron}
+        handleToggleFrequency={handleToggleFrequency}
+        handleApplyFrequency={applyFrequency}
       />
 
       {/* Execution Audit Trail Section */}

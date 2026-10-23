@@ -1,5 +1,5 @@
 import React from "react";
-import { Select, TextInput } from "../../components/ui";
+import { Select, TextInput } from "../components/ui";
 import type { CreatableJob } from "./types";
 import {
   DiscoveryFormSections,

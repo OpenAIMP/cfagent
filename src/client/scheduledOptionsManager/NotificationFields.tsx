@@ -1,5 +1,5 @@
 import React from "react";
-import { TextInput } from "../../components/ui";
+import { TextInput } from "../components/ui";
 import type { CreatableJob } from "./types";
 
 export interface NotificationFieldsProps {

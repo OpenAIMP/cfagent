@@ -1,5 +1,5 @@
 import React from "react";
-import { EmptyState } from "../../components/ui";
+import { EmptyState } from "../components/ui";
 import type { ScheduledTaskItem } from "./types";
 import { ScheduleCard, type ScheduleCardProps } from "./ScheduleCard";
 

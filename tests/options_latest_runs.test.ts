@@ -145,8 +145,8 @@ describe("options run history (#223)", () => {
 
   it("surfaces the runs in the options schedule panel", () => {
     const ui = [
-      "../src/client/options/ScheduledOptionsManager.tsx",
-      "../src/client/options/scheduledOptionsManager/LatestRunsSection.tsx",
+      "../src/client/ScheduledOptionsManager.tsx",
+      "../src/client/scheduledOptionsManager/LatestRunsSection.tsx",
     ]
       .map((p) => readFileSync(new URL(p, import.meta.url), "utf-8"))
       .join("\n");
