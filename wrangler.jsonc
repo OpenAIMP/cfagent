@@ -122,13 +122,17 @@
     // and redeploying — no code change.
     "IAAA_WIRING_ENABLED": "1",
     "IAAA_ENABLED_PROVIDERS": "github,google",
-    // Issue #945, GitHub activation (owner-authorized): bootstrap the
-    // owner as platform-admin (genesis grant on the next wired login)
-    // and switch PDP enforcement ON. Tenant stays at the documented
+    // Issue #945, GitHub activation (owner-authorized, updated 2026-10-23
+    // after #1182 stable identity): bootstrap the owner by issuer:subject
+    // entries — platform: entry for the genesis platform-admin grant on the
+    // next wired login, plain entry for tenant-admin in primary (unblocks
+    // E*TRADE PDP). Replaces the retired minted-UUID entry: post-#1182
+    // logins carry derived ids, so the minted entry could never match again.
+    // Tenant stays at the documented
     // default "primary". Rollback is removing these two vars (or
     // setting IAAA_PDP_ENABLED to "0") and redeploying — no code
     // change; granted memberships are NOT deleted by rollback.
-    "IAAA_BOOTSTRAP_ADMINS": "platform:00fbb0ba-9e4b-43ec-a7d6-df2a1dfc5d6c",
+    "IAAA_BOOTSTRAP_ADMINS": "platform:https://github.com:82253453,https://github.com:82253453",
     "IAAA_PDP_ENABLED": "1"
   }
 }
