@@ -702,3 +702,82 @@ describe("TradingAgent options trading service (#291 T4)", () => {
     });
   });
 });
+
+describe("TradingAgent read surface (#291 T5a)", () => {
+  const factoryLogins: string[] = [];
+  TradingPlatformRegistry.register("fakeread291" as any, (_env: any, _orm: any, userLogin?: string) => {
+    factoryLogins.push(userLogin ?? "");
+    return {
+      platformId: "fakeread291",
+      name: "Fake Read 291",
+      getStatus: async () => ({ connected: true, marker: "status" }),
+      getQuote: async (symbol: string) => ({ symbol, lastPrice: 42 }),
+      getAccounts: async () => [{ accountIdKey: "acc-1" }],
+      getPositions: async (accountKey?: string) => ({ account: { accountIdKey: accountKey ?? "acc-1" }, positions: [{ symbol: "AAPL" }] }),
+      getOptionChains: async (params: any) => ({ symbol: params.symbol, underlyingPrice: 150, marker: "chain" }),
+      getOptionExpireDates: async (symbol: string) => [{ year: 2027, month: 1, day: 15, symbol }],
+      previewOrder: async () => ({}),
+      executeOrder: async () => ({}),
+    };
+  }) as any;
+  const readConfig = {
+    enabledProviders: ["fakeread291"],
+    defaultProvider: "fakeread291",
+    enabledServices: ["stock_screening"],
+  };
+
+  async function agentNamed(name: string): Promise<any> {
+    const { TradingAgent } = await import("../src/agents/trading-agent");
+    const agent: any = Object.create(TradingAgent.prototype);
+    agent.env = env;
+    agent.name = name;
+    agent.config = () => readConfig;
+    return agent;
+  }
+
+  it("serves the four platform reads through the registry", async () => {
+    const agent = await agentNamed("trading");
+    expect(await agent.getStatus()).toEqual({ connected: true, marker: "status" });
+    expect(await agent.getQuote("aapl")).toEqual({ symbol: "aapl", lastPrice: 42 });
+    expect(await agent.getAccounts()).toEqual([{ accountIdKey: "acc-1" }]);
+    const positions: any = await agent.getPositions("acc-9");
+    expect(positions.account.accountIdKey).toBe("acc-9");
+    expect(positions.positions).toEqual([{ symbol: "AAPL" }]);
+  });
+
+  it("derives the platform user from the instance name", async () => {
+    factoryLogins.length = 0;
+    const alice = await agentNamed("trading:alice");
+    await alice.getStatus();
+    const root = await agentNamed("trading");
+    await root.getStatus();
+    expect(factoryLogins).toEqual(["alice", "default_trader"]);
+  });
+
+  it("tradingAgentUserLogin inverts tradingAgentName", async () => {
+    const { tradingAgentUserLogin, tradingAgentName } = await import("../src/agents/trading-agent");
+    expect(tradingAgentUserLogin(tradingAgentName("default_trader"))).toBe("default_trader");
+    expect(tradingAgentUserLogin(tradingAgentName("bob"))).toBe("bob");
+    expect(tradingAgentUserLogin("trading")).toBe("default_trader");
+  });
+
+  it("options data reads pass through, and platforms without them get provider_unsupported (#291 T5b)", async () => {
+    const agent = await agentNamed("trading");
+    expect(await agent.getOptionChains({ symbol: "AAPL", chainType: "CALLPUT" })).toEqual({
+      symbol: "AAPL",
+      underlyingPrice: 150,
+      marker: "chain",
+    });
+    expect(await agent.getOptionExpireDates("AAPL")).toEqual([
+      { year: 2027, month: 1, day: 15, symbol: "AAPL" },
+    ]);
+    // fake291 (the screening fake) has no options data plane.
+    const { TradingAgent } = await import("../src/agents/trading-agent");
+    const plain: any = Object.create(TradingAgent.prototype);
+    plain.env = env;
+    plain.name = "trading";
+    plain.config = () => fakeConfig;
+    const err: any = await plain.getOptionChains({ symbol: "AAPL" }).catch((e: any) => e);
+    expect(err.code).toBe("provider_unsupported");
+  });
+});

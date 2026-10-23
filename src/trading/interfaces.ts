@@ -18,6 +18,8 @@ import type {
   ETradePositionLot,
   ETradeAccount,
   ETradeBrokerStatus,
+  ETradeOptionChain,
+  ETradeOptionExpireDate,
 } from "../types";
 
 export type TradingPlatformId = "etrade" | "alpaca" | "foss" | "sandbox";
@@ -77,6 +79,24 @@ export interface ITradingPlatform {
   previewOrder(params: OrderPreviewParams): Promise<ETradeOrderDraft>;
   executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected"): ETradeOrderExecutionResult | Promise<ETradeOrderExecutionResult>;
   placeOrderRemote?(params: PlaceOrderParams): Promise<ETradeOrderExecutionResult>;
+  /**
+   * Options data reads (issue #291 T5b). Optional: platforms without an
+   * options data plane omit them and callers get provider_unsupported.
+   * Semantics are the broker client's verbatim passthroughs — no
+   * caching, fallback, or provenance rewriting at this layer.
+   */
+  getOptionChains?(params: {
+    symbol: string;
+    expiryYear?: number;
+    expiryMonth?: number;
+    expiryDay?: number;
+    strikePrice?: number;
+    noOfStrikes?: number;
+    includeWeekly?: boolean;
+    chainType?: "CALL" | "PUT" | "CALLPUT";
+    includeRawResponse?: boolean;
+  }): Promise<ETradeOptionChain | null>;
+  getOptionExpireDates?(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]>;
 }
 
 export interface IMarketScreener {

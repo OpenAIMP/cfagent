@@ -7,7 +7,7 @@
  * - Human-in-the-Loop (HITL) Execution Safety with W3C Agent DID Attestations.
  */
 
-import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradePositionLot, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus, StockScreenerFilter, StockScreenResult } from "../../types";
+import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradePositionLot, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus, StockScreenerFilter, StockScreenResult, ETradeOptionChain, ETradeOptionExpireDate } from "../../types";
 import type { DatabaseORM } from "../../orm";
 import type { ITradingPlatform, OrderPreviewParams } from "../interfaces";
 import { etradeOrderKind, validateTradingOrderLegs } from "./optionOrders";
@@ -219,6 +219,26 @@ export class ETradeTradingPlatform implements ITradingPlatform {
 
   async getPositionLots(accountKey: string, positionId: string): Promise<ETradePositionLot[]> {
     return this.client.fetchPositionLots(accountKey, positionId);
+  }
+
+  // Options data reads (#291 T5b): verbatim client passthroughs, matching
+  // ETradeService's getOptionChains/getOptionExpireDates semantics exactly.
+  async getOptionChains(params: {
+    symbol: string;
+    expiryYear?: number;
+    expiryMonth?: number;
+    expiryDay?: number;
+    strikePrice?: number;
+    noOfStrikes?: number;
+    includeWeekly?: boolean;
+    chainType?: "CALL" | "PUT" | "CALLPUT";
+    includeRawResponse?: boolean;
+  }): Promise<ETradeOptionChain | null> {
+    return this.client.getOptionChains(params);
+  }
+
+  async getOptionExpireDates(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]> {
+    return this.client.getOptionExpireDates(symbol, expiryType);
   }
 
   async getPositions(accountKey?: string, includeBalance: boolean = false): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {
