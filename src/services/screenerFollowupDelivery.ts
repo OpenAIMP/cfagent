@@ -57,13 +57,13 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
         const [first, ...rest] = files;
         return deliverScreenerToSlack(deps.env, {
           text,
-          channel: config.channels.slack.channel,
+          channel: outcome.slackChannel ?? config.channels.slack.channel,
           ...(first ? { pdf: { bytes: first.bytes, fileName: first.fileName, title: `Screener report — ${outcome.kind} screen`, comment: text } } : {}),
           ...(rest.length > 0 ? { files: rest.map((f) => ({ bytes: f.bytes, fileName: f.fileName, title: f.fileName })) } : {}),
         });
       }
       if (channel === "email") {
-        const to = config.channels.email.to;
+        const to = outcome.emailTo ?? config.channels.email.to;
         if (!to) return { ok: false, error: "Email delivery is not configured (SCREENER_EMAIL_TO is unset)." };
         const first = files[0];
         let attachment: { fileName: string; contentType: string; contentBase64: string } | undefined;
@@ -83,7 +83,7 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
         );
         return { ok: true };
       }
-      const webhookUrl = config.channels.webhook.url;
+      const webhookUrl = outcome.webhookUrl ?? config.channels.webhook.url;
       if (!webhookUrl) return { ok: false, error: "Webhook delivery is not configured (SCREENER_WEBHOOK_URL is unset)." };
       const webhook = new ETradeWebhookService(deps.getOrm(), deps.env, userLogin);
       await webhook.dispatchOutboundWebhook(

@@ -80,6 +80,12 @@ export interface AsyncJobsContext {
       text: string;
     }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
   };
+  /** Issue #1123 S5c: the #277 report-dispatch confirmation gate.
+   *  When enabled, followup.deliver jobs hold for approval instead of
+   *  sending; the hold is recorded as a 'screener' confirmation in
+   *  the same pending-review store (same 24h TTL). */
+  reportDispatchHitlEnabled: () => boolean;
+  createScreenerConfirmation: (payloadJson: string) => string;
 }
 
 const ASYNC_JOB_KINDS: readonly AsyncJobKind[] = ["main", "report", "delivery", "notification"];
@@ -321,6 +327,7 @@ export async function recordScreenerRunMainJob(
   ctx: AsyncJobsContext,
   outcome: ScreenerRunOutcome,
   userLogin: string,
+  options?: { chainReport?: boolean },
 ): Promise<string> {
   const sql = ctx.ensureTables();
   const jobId = crypto.randomUUID();
@@ -355,20 +362,28 @@ export async function recordScreenerRunMainJob(
   );
   ctx.audit("screener.run_bridged", "orchestrator", { jobId, kind: outcome.kind, success: outcome.success });
   const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
-  for (const spec of planInitialFollowups(outcome, config, jobId, userLogin)) {
-    await submitAsyncJob(ctx, spec);
+  // chainReport=false covers sources whose report delivery lives on
+  // another sanctioned path (scheduled options, #223): the run is
+  // recorded + notified, never double-delivered.
+  if (options?.chainReport !== false) {
+    for (const spec of planInitialFollowups(outcome, config, jobId, userLogin)) {
+      await submitAsyncJob(ctx, spec);
+    }
   }
   await submitLifecycleNotifications(ctx, outcome.success ? "completed" : "failed", outcome, jobId, userLogin);
   return jobId;
 }
 
-/** Route/scheduler-facing alias: bridge one finished run end-to-end. */
+/** Route/scheduler-facing alias: bridge one finished run end-to-end.
+ *  chainReport=false records + notifies without the report chain
+ *  (sources whose delivery lives on another sanctioned path). */
 export async function scheduleScreenerFollowups(
   ctx: AsyncJobsContext,
   outcome: ScreenerRunOutcome,
   userLogin: string,
+  chainReport?: boolean,
 ): Promise<void> {
-  await recordScreenerRunMainJob(ctx, outcome, userLogin);
+  await recordScreenerRunMainJob(ctx, outcome, userLogin, { chainReport: chainReport !== false });
 }
 
 export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJobPayload): Promise<void> {
@@ -500,12 +515,37 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
       if (typeof payload.skipReason === "string" && payload.skipReason) {
         result = { status: "skipped", reason: payload.skipReason, channel };
+      } else if (typeof payload.approvedConfirmationId !== "string" && ctx.reportDispatchHitlEnabled()) {
+        // Issue #1123 S5c / #277: with the confirmation gate on, the
+        // delivery HOLDS — it is recorded as a pending 'screener'
+        // confirmation carrying the full delivery spec, and approval
+        // in the pending-review surface resubmits it with the
+        // approval marker. Nothing unapproved is ever sent.
+        const self = getAsyncJob(ctx, jobId);
+        const confirmationId = ctx.createScreenerConfirmation(JSON.stringify({
+          delivery: {
+            outcome,
+            userLogin,
+            channel,
+            artifacts,
+            parentJobId: self?.parentJobId,
+            displayName: self?.label,
+          },
+        }));
+        result = {
+          status: "held",
+          channel,
+          confirmationId,
+          reason: "Report-dispatch confirmation (#277) is enabled; delivery held for approval.",
+        };
       } else {
         if (channel === "email") {
           const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
-          const to = config.channels.email.to;
+          // Per-task override wins over the env recipient (S5b); the
+          // allowlist applies to the effective recipient either way.
+          const to = outcome.emailTo ?? config.channels.email.to;
           if (!to) throw new Error("Email delivery is not configured (SCREENER_EMAIL_TO is unset).");
-          if (!isEmailAllowed(config, to)) {
+          if (!isEmailAllowed(config, to, outcome)) {
             throw new Error(`Email recipient ${to} is not in the screener email allowlist; delivery refused.`);
           }
         }

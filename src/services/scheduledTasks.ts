@@ -55,6 +55,7 @@ import {
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "./tradingWebhooks";
 import { ScreenerEventBus } from "../events/screenerEvents";
+import { screenerOutcomeFromEvent } from "./screenerFollowups";
 import { registerScreenerPublishers } from "../events/screenerPublishers";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
 import { getEventCalendarCoverage, getSymbolEventCalendar } from "./eventCalendar";
@@ -137,7 +138,17 @@ export class ScheduledTasksService {
     private scanRunStore?: ScanRunStore,
     private ivHistoryStore?: IvHistoryStore,
     private discoveryRunStore?: DiscoveryRunStore,
-    private strategyProfileStore?: StrategyProfileStore
+    private strategyProfileStore?: StrategyProfileStore,
+    /** Issue #1123 S5b: the follow-up bridge. When the host wires it,
+     *  screener events join the tracked job pipeline instead of the
+     *  private event bus (stock chains fully; options record-only —
+     *  chainReport=false — because their delivery stays on the #223
+     *  direct path). */
+    private followupScheduler?: (
+      outcome: import("./screenerFollowups").ScreenerRunOutcome,
+      userLogin: string,
+      chainReport: boolean,
+    ) => Promise<void>
   ) {}
 
   /**
@@ -197,6 +208,18 @@ export class ScheduledTasksService {
     event: import("../events/screenerEvents").ScreenerEvent
   ): Promise<void> {
     try {
+      // Issue #1123 S5b: the tracked pipeline is the preferred sink —
+      // the run is recorded as a main job and chained (report →
+      // deliveries → notifications) exactly like an interactive
+      // screen. The bus remains for hosts that don't wire the bridge.
+      if (this.followupScheduler) {
+        await this.followupScheduler(
+          screenerOutcomeFromEvent(event),
+          this.userLogin,
+          event.type.startsWith("screener."),
+        );
+        return;
+      }
       if (!this.screenerBus) {
         this.screenerBus = new ScreenerEventBus();
         registerScreenerPublishers(this.screenerBus, {

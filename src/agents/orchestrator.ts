@@ -199,6 +199,8 @@ export class OrchestratorAgent extends Think<Env> {
       waitUntilStable: (options) => this.waitUntilStable(options),
       scheduledScreenerSlots: (this.scheduledScreenerSlots ??= new Set<string>()),
       scheduledDiscoverySlots: (this.scheduledDiscoverySlots ??= new Set<string>()),
+      scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string, chainReport?: boolean) =>
+        scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin, chainReport),
     };
   }
 
@@ -241,6 +243,9 @@ export class OrchestratorAgent extends Think<Env> {
         getOrm: () => this.getOrm(),
         getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
       }),
+      reportDispatchHitlEnabled: () => getReportDispatchHitl(this.reportDispatchContext()),
+      createScreenerConfirmation: (payloadJson: string) =>
+        createReportConfirmation(this.reportDispatchContext(), "screener", payloadJson, null),
     };
   }
 
@@ -614,7 +619,7 @@ export class OrchestratorAgent extends Think<Env> {
         }
         await this.ctx.storage.put(key, { slot });
       }
-      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql));
+      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql), undefined, undefined, undefined, (outcome, schedulerUserLogin, chainReport) => scheduleScreenerFollowups(this.asyncJobsContext(), outcome, schedulerUserLogin, chainReport));
       const res = await service.autonomousOptionsAnalysis({ ...payload, userLogin, environment });
       if ((res as any).skipped) return;
       // Issue #223: persist the run so GET /api/options/latest can report what
@@ -1088,7 +1093,7 @@ export class OrchestratorAgent extends Think<Env> {
 
   // Issue #992: extracted to ./orchestrator/reportDispatch.ts (createReportConfirmation);
   private createReportConfirmation(
-    kind: "email" | "webhook",
+    kind: "email" | "webhook" | "screener",
     payloadJson: string,
     reportId?: string | null
   ): string {
@@ -1665,6 +1670,23 @@ export class OrchestratorAgent extends Think<Env> {
         this.decideReportConfirmation(id, status, decidedBy),
       createReportConfirmation: (kind, payloadJson, reportId) =>
         this.createReportConfirmation(kind, payloadJson, reportId),
+      submitFollowupDelivery: async (delivery, confirmationId) => {
+        await this.submitAsyncJob({
+          capability: "followup.deliver",
+          payload: {
+            outcome: delivery.outcome,
+            userLogin: delivery.userLogin,
+            channel: delivery.channel,
+            artifacts: delivery.artifacts,
+            approvedConfirmationId: confirmationId,
+          },
+          parentJobId: delivery.parentJobId,
+          jobKind: "delivery",
+          channel: delivery.channel,
+          displayName: delivery.displayName,
+        });
+        return true;
+      },
       confirmationDeliveryMeta: (row) => this.confirmationDeliveryMeta(row),
       deliverStoredReportEmail: (reportId, recipient, userLogin) =>
         this.deliverStoredReportEmail(reportId, recipient, userLogin),
@@ -1993,6 +2015,8 @@ export class OrchestratorAgent extends Think<Env> {
       scheduleEvery: (intervalSeconds, callback, payload) => this.scheduleEvery(intervalSeconds, callback as keyof this, payload),
       getScreenerExecutionContext: () => this.getScreenerExecutionContext(),
       getOrm: () => this.getOrm(),
+      scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string, chainReport?: boolean) =>
+        scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin, chainReport),
       autonomousMarketScreen: (payload) => this.autonomousMarketScreen(payload),
       autoRenewETradeTokens: (payload) => this.autoRenewETradeTokens(payload),
       creatableScheduleCallbacks: CREATABLE_SCHEDULE_CALLBACKS,

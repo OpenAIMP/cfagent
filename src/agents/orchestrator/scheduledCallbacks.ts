@@ -42,6 +42,13 @@ export interface ScheduledCallbacksContext {
   waitUntilStable: (options: { timeout: number }) => Promise<boolean>;
   scheduledScreenerSlots: Set<string>;
   scheduledDiscoverySlots: Set<string>;
+  /** Issue #1123 S5b: follow-up bridge for scheduled screener runs
+   *  (recorded main job + report/delivery/notification chain). */
+  scheduleScreenerFollowups?: (
+    outcome: import("../../services/screenerFollowups").ScreenerRunOutcome,
+    userLogin: string,
+    chainReport?: boolean,
+  ) => Promise<void>;
 }
 
 /**
@@ -61,7 +68,7 @@ export async function autoRenewETradeTokens(ctx: ScheduledCallbacksContext, payl
     return;
   }
   const environment = context?.environment || payload?.env;
-  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), user, new SqlScanRunStore(ctx.agentCtx.storage.sql));
+  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), user, new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
   const res = await service.autoRenewETradeTokens(user, environment);
   if (!res.success) {
     console.warn("[OrchestratorAgent] autoRenewETradeTokens error:", res.error);
@@ -127,7 +134,7 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
     const orm = ctx.getOrm();
     // Scheduled callbacks have no authenticated HTTP headers. Use the
     // identity and environment saved from the user's schedules requests.
-    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql));
+    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
     const res = await service.autonomousMarketScreen({ ...payload, userLogin, environment, trigger });
     if ((res as any).skipped) return;
     // Issue #212: persist the run for the "last results" UX endpoint.
@@ -302,7 +309,8 @@ export async function autonomousStrategyDiscovery(ctx: ScheduledCallbacksContext
       new SqlScanRunStore(ctx.agentCtx.storage.sql),
       undefined,
       new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
-      new SqlStrategyProfileStore(ctx.agentCtx.storage.sql)
+      new SqlStrategyProfileStore(ctx.agentCtx.storage.sql),
+      ctx.scheduleScreenerFollowups
     );
     const res = await service.autonomousStrategyDiscovery({ ...payload, userLogin, environment });
     if ((res as any).skipped) return;
@@ -376,7 +384,10 @@ export async function collectIvHistory(ctx: ScheduledCallbacksContext, payload?:
       ctx.getOrm(),
       userLogin,
       new SqlScanRunStore(ctx.agentCtx.storage.sql),
-      new SqlIvHistoryStore(ctx.agentCtx.storage.sql)
+      new SqlIvHistoryStore(ctx.agentCtx.storage.sql),
+      undefined,
+      undefined,
+      ctx.scheduleScreenerFollowups
     );
     const res = await service.collectDailyIvHistory({ symbols: payload?.symbols, environment });
     if (!res.success) {
@@ -413,7 +424,7 @@ export async function collectIvHistory(ctx: ScheduledCallbacksContext, payload?:
  */
 export async function expireStaleOrderDraft(ctx: ScheduledCallbacksContext, payload: { orderId: string; userLogin?: string }): Promise<void> {
   if (!payload?.orderId) return;
-  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), payload.userLogin || ctx.sessionKey(), new SqlScanRunStore(ctx.agentCtx.storage.sql));
+  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), payload.userLogin || ctx.sessionKey(), new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
   await service.expireStaleOrderDraft(payload.orderId);
 }
 
@@ -422,7 +433,7 @@ export async function expireStaleOrderDraft(ctx: ScheduledCallbacksContext, payl
  */
 export async function sendScheduledReminder(ctx: ScheduledCallbacksContext, payload: { reminderId: string; message: string; userLogin?: string }): Promise<void> {
   if (!payload?.reminderId) return;
-  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), payload.userLogin || ctx.sessionKey(), new SqlScanRunStore(ctx.agentCtx.storage.sql));
+  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), payload.userLogin || ctx.sessionKey(), new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
   const res = await service.dispatchReminder(payload.reminderId, payload.message);
   if (typeof (ctx.self as any).broadcast === "function") {
     try {
