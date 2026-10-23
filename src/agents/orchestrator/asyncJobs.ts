@@ -80,6 +80,12 @@ export interface AsyncJobsContext {
       text: string;
     }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
   };
+  /** Issue #1123 S5c: the #277 report-dispatch confirmation gate.
+   *  When enabled, followup.deliver jobs hold for approval instead of
+   *  sending; the hold is recorded as a 'screener' confirmation in
+   *  the same pending-review store (same 24h TTL). */
+  reportDispatchHitlEnabled: () => boolean;
+  createScreenerConfirmation: (payloadJson: string) => string;
 }
 
 const ASYNC_JOB_KINDS: readonly AsyncJobKind[] = ["main", "report", "delivery", "notification"];
@@ -509,6 +515,29 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
       if (typeof payload.skipReason === "string" && payload.skipReason) {
         result = { status: "skipped", reason: payload.skipReason, channel };
+      } else if (typeof payload.approvedConfirmationId !== "string" && ctx.reportDispatchHitlEnabled()) {
+        // Issue #1123 S5c / #277: with the confirmation gate on, the
+        // delivery HOLDS — it is recorded as a pending 'screener'
+        // confirmation carrying the full delivery spec, and approval
+        // in the pending-review surface resubmits it with the
+        // approval marker. Nothing unapproved is ever sent.
+        const self = getAsyncJob(ctx, jobId);
+        const confirmationId = ctx.createScreenerConfirmation(JSON.stringify({
+          delivery: {
+            outcome,
+            userLogin,
+            channel,
+            artifacts,
+            parentJobId: self?.parentJobId,
+            displayName: self?.label,
+          },
+        }));
+        result = {
+          status: "held",
+          channel,
+          confirmationId,
+          reason: "Report-dispatch confirmation (#277) is enabled; delivery held for approval.",
+        };
       } else {
         if (channel === "email") {
           const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);

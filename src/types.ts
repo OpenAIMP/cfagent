@@ -1768,7 +1768,9 @@ export type AsyncJobSubmission =
     } & AsyncJobGraphFields)
   | ({
       /** Issue #1123 S3: one delivery of the shared report artifact on
-       *  one channel. skipReason pre-completes it as 'skipped'. */
+       *  one channel. skipReason pre-completes it as 'skipped'.
+       *  S5c: approvedConfirmationId marks a delivery released from a
+       *  #277 hold — the executor sends it without re-holding. */
       capability: "followup.deliver";
       payload: {
         outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
@@ -1776,6 +1778,7 @@ export type AsyncJobSubmission =
         channel: AsyncJobChannel;
         artifacts: Array<{ key: string; fileName: string }>;
         skipReason?: string;
+        approvedConfirmationId?: string;
       };
     } & AsyncJobGraphFields)
   | ({
