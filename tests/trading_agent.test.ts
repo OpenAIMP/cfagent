@@ -121,7 +121,7 @@ describe("TradingAgent surfaces stay in sync (#291 anti-drift)", () => {
     );
     const narrowed = buildTradingTools(env, {
       ...TRADING_AGENT_CONFIG_BASELINE,
-      enabledServices: ["stock_trading"],
+      enabledServices: ["options_trading"],
     });
     expect(Object.keys(narrowed)).toEqual([]);
   });
@@ -219,10 +219,11 @@ describe("TradingAgent A2A door (#291)", () => {
     expect(empty.ok).toBe(false);
   });
 
-  it("the registry registers the screening services (T1 stock + T2 options)", () => {
+  it("the registry registers the screening services + stock trading (T1/T2/T3)", () => {
     expect(TRADING_SERVICE_REGISTRY.map((s) => s.id)).toEqual([
       "stock_screening",
       "options_screening",
+      "stock_trading",
     ]);
   });
 
@@ -528,5 +529,94 @@ describe("TradingAgent options screening service (#291 T2)", () => {
         (e: any, orm: any, userLogin: any) => new ETradeTradingPlatform(e, orm, userLogin),
       );
     }
+  });
+});
+
+describe("TradingAgent stock trading + approval door (#291 T3)", () => {
+  const orderCalls: { previews: any[]; executions: any[] } = { previews: [], executions: [] };
+  TradingPlatformRegistry.register("faketrade291" as any, () => ({
+    platformId: "faketrade291",
+    name: "Fake Trade 291",
+    getStatus: async () => ({}),
+    getQuote: async () => ({}),
+    getAccounts: async () => [],
+    getPositions: async () => ({ account: {}, positions: [] }),
+    previewOrder: async (params: any) => {
+      orderCalls.previews.push(params);
+      return { id: "draft-291", ...params, estimatedCost: 100 };
+    },
+    executeOrder: async (orderId: string, authorizerDid: string, decision: string) => {
+      orderCalls.executions.push({ orderId, authorizerDid, decision });
+      return { orderId, status: decision === "approved" ? "placed" : "cancelled", authorizerDid };
+    },
+  }) as any);
+  const tradeConfig = {
+    enabledProviders: ["faketrade291"],
+    defaultProvider: "faketrade291",
+    enabledServices: ["stock_trading"],
+  };
+
+  it("the service is action-class and previews only — it never places", async () => {
+    orderCalls.previews.length = 0;
+    orderCalls.executions.length = 0;
+    const svc = TRADING_SERVICE_REGISTRY.find((s) => s.id === "stock_trading");
+    expect(svc!.access).toBe("action");
+    const result: any = await dispatchTradingA2A(env, tradeConfig as any, {
+      operation: "trading.trade_stock",
+      provider: "faketrade291",
+      symbol: "aapl",
+      action: "BUY",
+      quantity: 3,
+      orderType: "LIMIT",
+      limitPrice: 150,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.result.status).toBe("pending_approval");
+    expect(result.result.proposal.id).toBe("draft-291");
+    expect(orderCalls.previews).toHaveLength(1);
+    expect(orderCalls.previews[0].assetClass).toBe("equity");
+    // The critical safety property: no execution happened on any surface.
+    expect(orderCalls.executions).toHaveLength(0);
+  });
+
+  it("the approval door executes with an explicit authorizer, and refuses without one", async () => {
+    const { TradingAgent } = await import("../src/agents/trading-agent");
+    const agent: any = Object.create(TradingAgent.prototype);
+    agent.env = env;
+    agent.config = () => tradeConfig;
+    orderCalls.executions.length = 0;
+
+    const placed: any = await agent.executeApprovedOrder({
+      provider: "faketrade291",
+      orderId: "draft-291",
+      authorizerDid: "did:web:venus",
+      decision: "approved",
+    });
+    expect(placed.status).toBe("placed");
+    expect(orderCalls.executions).toEqual([
+      { orderId: "draft-291", authorizerDid: "did:web:venus", decision: "approved" },
+    ]);
+
+    const anon: any = await agent
+      .executeApprovedOrder({ provider: "faketrade291", orderId: "draft-291", decision: "approved" })
+      .catch((e: any) => e);
+    expect(anon.code).toBe("invalid_input");
+    expect(orderCalls.executions).toHaveLength(1);
+
+    const rejected: any = await agent.executeApprovedOrder({
+      provider: "faketrade291",
+      orderId: "draft-291",
+      authorizerDid: "did:web:venus",
+      decision: "rejected",
+    });
+    expect(rejected.status).toBe("cancelled");
+  });
+
+  it("the approval door is not a registry service (no tool/A2A surface reaches it)", () => {
+    const surfaces = TRADING_SERVICE_REGISTRY.map((s) => s.id);
+    expect(surfaces).not.toContain("execute_approved_order");
+    expect(
+      TRADING_SERVICE_REGISTRY.every((s) => s.a2aOperation !== "trading.execute_approved_order"),
+    ).toBe(true);
   });
 });

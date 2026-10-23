@@ -222,10 +222,59 @@ const optionsScreeningService: TradingServiceDef = {
   },
 };
 
+const stockTradingService: TradingServiceDef = {
+  id: "stock_trading",
+  toolName: "trade_stock",
+  a2aOperation: "trading.trade_stock",
+  access: "action",
+  description:
+    "Propose a stock order (preview only): validates the intent against the provider " +
+    "and returns the broker preview as a pending-approval proposal. This surface NEVER " +
+    "places an order — placement happens only through the agent's approval door " +
+    "(executeApprovedOrder) with an explicit authorizer identity and decision, " +
+    "the cfpay proposal -> approval -> verify -> execute shape.",
+  inputSchema: z.object({
+    provider: providerField,
+    userLogin: userLoginField,
+    symbol: z.string().min(1),
+    action: z.enum(["BUY", "SELL", "BUY_TO_COVER", "SELL_SHORT"]),
+    quantity: z.number().positive(),
+    orderType: z.enum(["MARKET", "LIMIT", "STOP", "STOP_LIMIT"]).optional(),
+    limitPrice: z.number().positive().optional(),
+    stopPrice: z.number().positive().optional(),
+  }),
+  execute: async (ctx, input) => {
+    const platform = ctx.resolvePlatform(input.provider);
+    if (typeof platform.previewOrder !== "function") {
+      throw new TradingServiceError(
+        "provider_unsupported",
+        `Provider "${platform.platformId}" does not support order preview.`,
+      );
+    }
+    const draft = await platform.previewOrder({
+      assetClass: "equity",
+      symbol: input.symbol,
+      action: input.action,
+      quantity: input.quantity,
+      orderType: input.orderType,
+      limitPrice: input.limitPrice,
+      stopPrice: input.stopPrice,
+    });
+    return {
+      status: "pending_approval",
+      proposal: draft,
+      note:
+        "Preview only — no order was placed. Placement requires an approved " +
+        "decision via the TradingAgent approval door (executeApprovedOrder).",
+    };
+  },
+};
+
 /** The service registry. Add a service = one module + one line here. */
 export const TRADING_SERVICE_REGISTRY: TradingServiceDef[] = [
   stockScreeningService,
   optionsScreeningService,
+  stockTradingService,
 ];
 
 export function getTradingService(serviceId: string): TradingServiceDef | undefined {
@@ -545,6 +594,79 @@ export class TradingAgent extends Think<Env> {
   /** Door 3: typed RPC for in-process callers. */
   async executeService(call: TradingServiceCall): Promise<unknown> {
     return executeTradingService(this.env, this.config(), { ...call, door: "rpc" });
+  }
+
+  /**
+   * The approval door — the ONLY path that can place an order (#291 T3,
+   * cfpay proposal -> approval -> verify -> execute). Deliberately NOT a
+   * registry service: no Think tool and no A2A operation reaches it. The
+   * caller must present the previewed order id, an explicit authorizer
+   * identity, and the decision; the platform's executeOrder re-validates
+   * the draft and records the authorizer. Rejection flows through the
+   * same door with decision "rejected".
+   */
+  async executeApprovedOrder(input: {
+    provider?: string;
+    userLogin?: string;
+    orderId: string;
+    authorizerDid: string;
+    decision: "approved" | "rejected";
+  }): Promise<unknown> {
+    const started = Date.now();
+    const correlationId = crypto.randomUUID();
+    try {
+      if (!input?.orderId || typeof input.orderId !== "string") {
+        throw new TradingServiceError("invalid_input", "executeApprovedOrder requires an orderId.");
+      }
+      if (!input.authorizerDid || typeof input.authorizerDid !== "string") {
+        throw new TradingServiceError(
+          "invalid_input",
+          "executeApprovedOrder requires an authorizerDid — anonymous approvals are refused.",
+        );
+      }
+      if (input.decision !== "approved" && input.decision !== "rejected") {
+        throw new TradingServiceError(
+          "invalid_input",
+          `executeApprovedOrder decision must be "approved" or "rejected".`,
+        );
+      }
+      const config = this.config();
+      const platform = resolveTradingPlatform(
+        this.env,
+        config,
+        input.provider,
+        input.userLogin ?? "default_trader",
+      );
+      if (typeof platform.executeOrder !== "function") {
+        throw new TradingServiceError(
+          "provider_unsupported",
+          `Provider "${platform.platformId}" does not support order execution.`,
+        );
+      }
+      const result = await platform.executeOrder(input.orderId, input.authorizerDid, input.decision);
+      logTradingDispatch({
+        correlationId,
+        door: "rpc-approval",
+        service: "stock_trading",
+        provider: platform.platformId,
+        access: "action",
+        ok: true,
+        durationMs: Date.now() - started,
+      });
+      return result;
+    } catch (err) {
+      const { code, message } = classifyTradingError(err);
+      logTradingDispatch({
+        correlationId,
+        door: "rpc-approval",
+        service: "stock_trading",
+        access: "action",
+        ok: false,
+        code,
+        durationMs: Date.now() - started,
+      });
+      throw new TradingServiceError(code, message);
+    }
   }
 
   /**
