@@ -31,6 +31,12 @@
  * generation ids, a legacy column shape) can never permanently block
  * report writes for a Durable Object.
  *
+ * Issue #338 (design accepted 2026-10-23): the canonical body moves to
+ * R2 (reports/<reportId>.json via the REPORTS_BUCKET binding); the
+ * mas_reports row keeps the metadata + search fields and gains a
+ * body_r2_key pointer (NULL = body still inline). S1 lands the column
+ * and the read plumbing only — writes stay inline until S2.
+ *
  * This module is SDK-free and never throws into scheduled runs: every
  * public function fails closed to null/[] on bad input or SQL errors.
  */
@@ -117,6 +123,12 @@ export function ensureScheduledReportsTable(sql: SqlStorage): void {
   // all produced by the single-user deployment, so they backfill to "default"
   // — the same default the routes use when no login is present.
   ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "user_login", "TEXT");
+  // Issue #338 (design accepted 2026-10-23): R2-vs-DO storage split for
+  // report bodies. body_r2_key is the pointer to the canonical body in R2
+  // (reports/<reportId>.json in the REPORTS_BUCKET bucket); NULL means the
+  // body still lives inline in the body column (pre-migration rows and,
+  // until the S2 write-path slice lands, every new row too).
+  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "body_r2_key", "TEXT");
   try {
     sql.exec(
       `UPDATE ${SCHEDULED_REPORTS_TABLE} SET user_login = ? WHERE user_login IS NULL`,
@@ -257,21 +269,13 @@ export function getCanonicalReport(
     ensureScheduledReportsTable(sql);
     const rows = Array.from(
       sql.exec(
-        `SELECT id, run_id, title, source, summary, body, created_at FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
+        `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
         reportId
       )
     ) as Array<Record<string, unknown>>;
     const r = rows[0];
     if (!r) return null;
-    return {
-      id: String(r.id ?? ""),
-      runId: String(r.run_id ?? ""),
-      title: String(r.title ?? ""),
-      source: String(r.source ?? ""),
-      summary: String(r.summary ?? ""),
-      body: String(r.body ?? ""),
-      createdAt: String(r.created_at ?? ""),
-    };
+    return scheduledReportHitFromRow(r);
   } catch {
     return null;
   }
@@ -392,6 +396,39 @@ export interface ScheduledReportHit {
   summary: string;
   body: string;
   createdAt: string;
+  /**
+   * Issue #338: R2 pointer for the canonical body, or null when the body
+   * is stored inline in `body` (NULL = inline, per the accepted design).
+   * S1 plumbing only — readers surface the pointer; S2 resolves it.
+   */
+  bodyR2Key: string | null;
+}
+
+/**
+ * Issue #338: the R2 object key for a report's canonical body, per the
+ * accepted design — `reports/<reportId>.json` in the REPORTS_BUCKET
+ * bucket (the `screener` bucket provisioned for #605). Content-addressed
+ * by report id; bodies are immutable (regeneration = a new report id).
+ */
+export function reportBodyR2Key(reportId: string): string {
+  return `reports/${reportId}.json`;
+}
+
+/** Map one mas_reports row to a hit, tolerating pre-#338 rows (no key). */
+function scheduledReportHitFromRow(
+  r: Record<string, unknown>
+): ScheduledReportHit {
+  const key = r.body_r2_key;
+  return {
+    id: String(r.id ?? ""),
+    runId: String(r.run_id ?? ""),
+    title: String(r.title ?? ""),
+    source: String(r.source ?? ""),
+    summary: String(r.summary ?? ""),
+    body: String(r.body ?? ""),
+    createdAt: String(r.created_at ?? ""),
+    bodyR2Key: typeof key === "string" && key ? key : null,
+  };
 }
 
 /**
@@ -437,21 +474,13 @@ export function searchScheduledReports(
     const ownerParams: unknown[] = owner ? [owner] : [];
     const rows = Array.from(
       sql.exec(
-        `SELECT id, run_id, title, source, summary, body, created_at FROM ${SCHEDULED_REPORTS_TABLE} WHERE ${ownerClause}(${clause}) ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key FROM ${SCHEDULED_REPORTS_TABLE} WHERE ${ownerClause}(${clause}) ORDER BY created_at DESC LIMIT ?`,
         ...ownerParams,
         ...params,
         capped
       )
     ) as Array<Record<string, unknown>>;
-    return rows.map((r) => ({
-      id: String(r.id ?? ""),
-      runId: String(r.run_id ?? ""),
-      title: String(r.title ?? ""),
-      source: String(r.source ?? ""),
-      summary: String(r.summary ?? ""),
-      body: String(r.body ?? ""),
-      createdAt: String(r.created_at ?? ""),
-    }));
+    return rows.map(scheduledReportHitFromRow);
   } catch {
     return [];
   }
@@ -477,7 +506,7 @@ export function listScheduledReports(
       1,
       Math.min(Math.floor(opts?.limit ?? 50) || 50, 100)
     );
-    let q = `SELECT id, run_id, title, source, summary, body, created_at FROM ${SCHEDULED_REPORTS_TABLE}`;
+    let q = `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key FROM ${SCHEDULED_REPORTS_TABLE}`;
     const params: unknown[] = [];
     const wheres: string[] = [];
     if (owner) {
@@ -494,15 +523,7 @@ export function listScheduledReports(
     const rows = Array.from(sql.exec(q, ...params)) as Array<
       Record<string, unknown>
     >;
-    return rows.map((r) => ({
-      id: String(r.id ?? ""),
-      runId: String(r.run_id ?? ""),
-      title: String(r.title ?? ""),
-      source: String(r.source ?? ""),
-      summary: String(r.summary ?? ""),
-      body: String(r.body ?? ""),
-      createdAt: String(r.created_at ?? ""),
-    }));
+    return rows.map(scheduledReportHitFromRow);
   } catch {
     return [];
   }
@@ -526,7 +547,7 @@ export function getScheduledReportById(
       opts?.userLogin && typeof opts.userLogin === "string"
         ? opts.userLogin
         : undefined;
-    let q = `SELECT id, run_id, title, source, summary, body, created_at FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ?`;
+    let q = `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ?`;
     const params: unknown[] = [reportId];
     if (owner) {
       q += ` AND user_login = ?`;
@@ -537,16 +558,7 @@ export function getScheduledReportById(
       Record<string, unknown>
     >;
     if (rows.length === 0) return null;
-    const r = rows[0];
-    return {
-      id: String(r.id ?? ""),
-      runId: String(r.run_id ?? ""),
-      title: String(r.title ?? ""),
-      source: String(r.source ?? ""),
-      summary: String(r.summary ?? ""),
-      body: String(r.body ?? ""),
-      createdAt: String(r.created_at ?? ""),
-    };
+    return scheduledReportHitFromRow(rows[0]);
   } catch {
     return null;
   }
