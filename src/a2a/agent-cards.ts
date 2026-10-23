@@ -73,7 +73,7 @@ export const AGENT_CARDS: AgentCard[] = [
     endpoint: "/a2a/trading",
     cardPath: "/a2a/trading/agent-card.json",
     capabilities: ["stock-screening", "options-screening", "stock-trading", "options-trading"],
-    operations: ["trading.screen_stocks", "trading.screen_options", "trading.trade_stock"],
+    operations: ["trading.screen_stocks", "trading.screen_options", "trading.trade_stock", "trading.trade_options"],
   },
 ];
 
