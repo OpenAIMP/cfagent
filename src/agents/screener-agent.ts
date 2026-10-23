@@ -44,6 +44,10 @@ import {
   type UniverseId,
 } from "../trading";
 import { YahooFinanceProvider } from "../services/fossResearch";
+import {
+  bindETradeScreenerDeps,
+  bootstrapDataProviders,
+} from "../trading";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
 import {
   DEFAULT_STALE_AFTER_MS,
@@ -150,6 +154,12 @@ export interface ScreenerRunResult {
   skippedDuplicate?: boolean;
   /** Issue #607: durable task record id for this run (screener task ledger). */
   taskId?: string;
+  /** Issue #1157 (E2): the data-provider platform run id for
+   *  E*TRADE-provider runs — minted at run start, carried in every
+   *  capture the run's quote fetches write, and stamped here so the
+   *  result and its captures share one identity. Absent for
+   *  non-E*TRADE providers (their platform cutover is a later slice). */
+  runId?: string;
   /** Issue #706: learnings applied at run start. */
   appliedLearnings?: string[];
 }
@@ -400,6 +410,10 @@ export class ScreenerAgent extends Agent<Env> {
     // runs key on their own timestamp. Ledger failures never break a
     // screen: warn and continue untracked.
     let taskId: string | null = null;
+    // Issue #1157 (E2): the platform run id for E*TRADE-provider
+    // runs — minted when the run's quote deps are bound (below),
+    // stamped on the result (success and failure alike).
+    let platformRunId: string | undefined;
     try {
       const created = await this.createScreenerTask({
         trigger: req.trigger,
@@ -503,6 +517,31 @@ export class ScreenerAgent extends Agent<Env> {
       const { QuoteTrace } = await import("../trading");
       const quoteTrace = new QuoteTrace();
       quoteTrace.setNasdaqSymbols(selectedSymbols.map(s => typeof s === 'string' ? s : s.symbol));
+      // Issue #1157 (E2): E*TRADE-provider runs acquire through the
+      // data-provider platform: bootstrap this DO's platform store
+      // (seed + enable etrade), mint the run id, and bind the live
+      // deps to the adapter (batch via getQuotesBatch, per-symbol
+      // via getQuote — the QuoteTrace rides along unchanged). The
+      // pipeline consumes the same LiveScreenerDeps signatures as
+      // the direct bindings they replace; non-E*TRADE modes are
+      // untouched. (The deps type is taken from the binding helper's
+      // return — the #290 boundary keeps trading-internal type paths
+      // out of this module; only the barrel is imported.)
+      let platformLiveDeps: ReturnType<typeof bindETradeScreenerDeps> | undefined;
+      if (etrade) {
+        bootstrapDataProviders(this.ctx.storage.sql);
+        platformRunId = crypto.randomUUID();
+        platformLiveDeps = bindETradeScreenerDeps(
+          etrade,
+          {
+            sql: this.ctx.storage.sql,
+            blobStorage: this.ctx.storage,
+            env: this.env,
+          },
+          { runId: platformRunId, userLogin },
+          quoteTrace
+        );
+      }
       // Provider-scoped acquisition (#261, #1007). Symbols come from
       // the listings directory (membership, not market data) for both
       // providers; quotes come from the named provider or nothing.
@@ -519,13 +558,7 @@ export class ScreenerAgent extends Agent<Env> {
             mode: "etrade-only",
             symbols: selectedSymbols,
             maxSymbols: selectedSymbols.length,
-            liveDeps: {
-              fetchETradeQuote: (sym) => etrade!.fetchQuoteRemote(sym),
-              // Issue #495: quote the universe in batch requests (2 calls for
-              // NASDAQ100) instead of one request per symbol.
-              // Issue #816: pass the trace so the UI can show the pipeline.
-              fetchETradeQuotes: (syms) => etrade!.fetchQuotesRemote(syms, quoteTrace),
-            },
+            liveDeps: platformLiveDeps!,
           });
       await beat();
       const screenResult = screenUniverse(screener, acquired, {
@@ -582,6 +615,8 @@ export class ScreenerAgent extends Agent<Env> {
           : {}),
       };
       if (taskId) result.taskId = taskId;
+      // Issue #1157 (E2): stamp the platform run id (E*TRADE runs).
+      if (platformRunId) result.runId = platformRunId;
       // Issue #706: record which learnings were applied.
       if (appliedLearnings.length > 0) result.appliedLearnings = appliedLearnings;
       // Issue #816: attach the quote pipeline trace summary for the UI.
@@ -648,6 +683,7 @@ export class ScreenerAgent extends Agent<Env> {
         discoveryMessage: "",
         error: message,
         ...(taskId ? { taskId } : {}),
+        ...(platformRunId ? { runId: platformRunId } : {}),
       };
       await this.persistRun(result);
       // Issue #607: a failed screen escalates its task for a human
