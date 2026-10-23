@@ -16,7 +16,7 @@ import {
   tokenCacheKey,
   writeTokenCache,
 } from "./etradeTokenCache";
-import { createStoreKv, listStoreEntries, type DoNamespaceLike } from "./durableKv";
+import { consumeStoreKey, createStoreKv, listStoreEntries, type DoNamespaceLike } from "./durableKv";
 import { type KvLike } from "./kvResilience";
 import { generateOAuth1Header, rfc3986 } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
@@ -474,42 +474,77 @@ export async function renewETradeAccessToken(
 
   if (!consumerKey || !consumerSecret) return null;
 
+  // Issue #1245 (#1209 F4b): renewal single-flight per user+env. The
+  // 23:00 cron, the manual renew trigger, the preflight, and on-auth
+  // renewal all enter here; two overlapping renewals would present
+  // the same stored pair upstream and race their writes. The claim
+  // rides the SessionStore DO's atomic consume op (120s TTL).
+  const lockKey = `etrade:renew-lock:${envConfig.name}:${userLogin.toLowerCase()}`;
+  const claim = await consumeStoreKey({
+    namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+    namespaceName: "etrade",
+    key: lockKey,
+    value: "1",
+    ttlSeconds: 120,
+  });
+  if (claim === "duplicate") {
+    // Another renewal is in flight. The tokens already read stay
+    // valid until midnight ET — serve this caller with them instead
+    // of a second upstream renewal.
+    return tokens;
+  }
+  if (claim === "unavailable") {
+    // Lock service unreachable: fail OPEN to the pre-#1245 behavior
+    // (renewal availability beats strict single-flight).
+    console.warn(`[renewETradeAccessToken] renewal lock unavailable for ${userLogin}; proceeding without single-flight`);
+  }
+
   const baseUrl = envConfig.etrade.baseUrl.replace(/\/v1\/?$/, "");
   const renewUrl = `${baseUrl}/oauth/renew_access_token`;
 
-  return withAspects(
-    { operationName: "renew_access_token", isLive: envConfig.isLive, targetUrl: renewUrl },
-    async () => {
-      const authHeader = await generateOAuth1Header({
-        method: "GET",
-        url: renewUrl,
-        consumerKey,
-        consumerSecret,
-        token: tokens.accessToken,
-        tokenSecret: tokens.accessTokenSecret,
-      });
+  try {
+    return await withAspects(
+      { operationName: "renew_access_token", isLive: envConfig.isLive, targetUrl: renewUrl },
+      async () => {
+        const authHeader = await generateOAuth1Header({
+          method: "GET",
+          url: renewUrl,
+          consumerKey,
+          consumerSecret,
+          token: tokens.accessToken,
+          tokenSecret: tokens.accessTokenSecret,
+        });
 
-      const res = await fetch(renewUrl, {
-        method: "GET",
-        headers: {
-          Authorization: authHeader,
-        },
-      });
+        const res = await fetch(renewUrl, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+          },
+        });
 
-      if (!res.ok) {
-        console.warn(`E*TRADE renew_access_token failed [HTTP ${res.status}] for ${userLogin}`);
-        return null;
+        if (!res.ok) {
+          console.warn(`E*TRADE renew_access_token failed [HTTP ${res.status}] for ${userLogin}`);
+          return null;
+        }
+
+        const renewedTokens: ETradeTokenSet = {
+          ...tokens,
+          storedAt: new Date().toISOString(),
+          environment: envConfig.name,
+        };
+        await storeAccessTokens(env, userLogin, renewedTokens.accessToken, renewedTokens.accessTokenSecret, overrideEnv);
+        return renewedTokens;
       }
-
-      const renewedTokens: ETradeTokenSet = {
-        ...tokens,
-        storedAt: new Date().toISOString(),
-        environment: envConfig.name,
-      };
-      await storeAccessTokens(env, userLogin, renewedTokens.accessToken, renewedTokens.accessTokenSecret, overrideEnv);
-      return renewedTokens;
+    );
+  } finally {
+    if (claim === "consumed") {
+      try {
+        await getKv(env).delete(lockKey);
+      } catch {
+        // Best-effort release; the claim expires on its TTL regardless.
+      }
     }
-  );
+  }
 }
 
 /** Renew every active account token from the Durable Object store. */
