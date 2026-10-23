@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   buildEvaluateCandidate,
+  bundleCandidateTextState,
+  exampleBundleCandidateJson,
   fetchBundle,
   fetchConcentration,
   fetchEvaluate,
@@ -151,6 +153,18 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
   const [bundle, setBundle] = useState<RecommendationBundle | null>(null);
   const [bundleLoading, setBundleLoading] = useState(false);
   const [bundleError, setBundleError] = useState("");
+
+  // Issue #1205: the box's state is always explained next to it — an
+  // empty or invalid candidate says why Build is unavailable instead of
+  // leaving a silently dead button under a placeholder that looks like
+  // pre-filled input.
+  const bundleTextState = bundleCandidateTextState(bundleJson);
+
+  const insertExampleBundleCandidate = () => {
+    setBundleJson(exampleBundleCandidateJson());
+    setBundleError("");
+    setBundle(null);
+  };
 
   const runBundle = async () => {
     setBundleLoading(true);
@@ -434,7 +448,12 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
         rows={5}
         style={{ width: "100%" }}
       />
-      <button type="button" className="prp-size-btn" onClick={() => void runBundle()} disabled={bundleLoading || !bundleJson.trim()}>
+      {bundleTextState.status === "empty" && <div className="prp-note">{bundleTextState.message}</div>}
+      {bundleTextState.status === "invalid" && <div className="prp-error">{bundleTextState.message}</div>}
+      <button type="button" className="prp-size-btn" onClick={insertExampleBundleCandidate}>
+        Insert example candidate
+      </button>
+      <button type="button" className="prp-size-btn" onClick={() => void runBundle()} disabled={bundleLoading || bundleTextState.status !== "valid"}>
         {bundleLoading ? "Building…" : "Build bundle"}
       </button>
       {bundleError && <div className="prp-error">{bundleError}</div>}
