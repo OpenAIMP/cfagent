@@ -595,11 +595,21 @@ export class ETradeEmailTradingService {
     subject: string,
     html: string,
     text: string,
-    attachment?: { fileName: string; contentType: string; contentBase64: string }
+    attachment?:
+      | { fileName: string; contentType: string; contentBase64: string }
+      | Array<{ fileName: string; contentType: string; contentBase64: string }>
   ): Promise<boolean> {
     if (!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(to) || /[\r\n]/.test(subject)) {
       throw new Error("Invalid outbound email recipient or subject.");
     }
+    // Issue #1191 (#1173 R3): one attachment or many — deliveries
+    // attach text + PDF + XLSX. Single-attachment callers (the
+    // historical shape) are unaffected.
+    const attachments = attachment === undefined
+      ? []
+      : Array.isArray(attachment)
+        ? attachment
+        : [attachment];
     if (this.env.EMAIL && typeof this.env.EMAIL.send === "function") {
       try {
         const fromAddress = this.env.EMAIL_AGENT_ADDRESS || "trade@agent.openaimp.com";
@@ -610,11 +620,11 @@ export class ETradeEmailTradingService {
           `To: <${to}>`,
           `Subject: ${subject}`,
           `MIME-Version: 1.0`,
-          `Content-Type: ${attachment ? `multipart/mixed; boundary="${mixedBoundary}"` : `multipart/alternative; boundary="${alternativeBoundary}"`}`,
+          `Content-Type: ${attachments.length > 0 ? `multipart/mixed; boundary="${mixedBoundary}"` : `multipart/alternative; boundary="${alternativeBoundary}"`}`,
           `X-Agent-DID: ${AGENT_DIDS.TRADING}`,
           ``,
         ];
-        if (attachment) {
+        if (attachments.length > 0) {
           rawParts.push(
             `--${mixedBoundary}`,
             `Content-Type: multipart/alternative; boundary="${alternativeBoundary}"`,
@@ -636,19 +646,20 @@ export class ETradeEmailTradingService {
           ``,
           `--${alternativeBoundary}--`,
         );
-        if (attachment) {
-          const safeFileName = attachment.fileName.replace(/[^a-zA-Z0-9._-]/g, "_") || "research.xlsx";
-          rawParts.push(
-            ``,
-            `--${mixedBoundary}`,
-            `Content-Type: ${attachment.contentType}; name="${safeFileName}"`,
-            `Content-Disposition: attachment; filename="${safeFileName}"`,
-            `Content-Transfer-Encoding: base64`,
-            ``,
-            attachment.contentBase64.match(/.{1,76}/g)?.join("\r\n") || "",
-            ``,
-            `--${mixedBoundary}--`,
-          );
+        if (attachments.length > 0) {
+          for (const att of attachments) {
+            const safeFileName = att.fileName.replace(/[^a-zA-Z0-9._-]/g, "_") || "research.xlsx";
+            rawParts.push(
+              ``,
+              `--${mixedBoundary}`,
+              `Content-Type: ${att.contentType}; name="${safeFileName}"`,
+              `Content-Disposition: attachment; filename="${safeFileName}"`,
+              `Content-Transfer-Encoding: base64`,
+              ``,
+              att.contentBase64.match(/.{1,76}/g)?.join("\r\n") || "",
+            );
+          }
+          rawParts.push(``, `--${mixedBoundary}--`);
         }
         const rawMime = rawParts.join("\r\n");
 
