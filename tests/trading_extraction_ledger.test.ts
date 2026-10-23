@@ -60,6 +60,7 @@ const PINNED_STAR_REEXPORTS = [
   "./screenerReportPdf",
   "./screenerReportXlsx",
   "./optionsReportPdf",
+  "./optionsReportXlsx",
   "./setupCatalog",
   "./researchReportPdf",
   "./options",

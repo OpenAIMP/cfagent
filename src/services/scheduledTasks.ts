@@ -890,6 +890,10 @@ export class ScheduledTasksService {
       let optionsPdfKey: string | undefined;
       let optionsPdf: Uint8Array | undefined;
       let optionsPdfFile: string | undefined;
+      // Issue #1195 (#1173 R3b): options XLSX, twin of the PDF vars.
+      let optionsXlsxKey: string | undefined;
+      let optionsXlsx: Uint8Array | undefined;
+      let optionsXlsxFile: string | undefined;
       // Issue #914: Use the unified report pipeline (delegates to
       // ReportAssetAgent per #680, single owner for PDF generation).
       try {
@@ -926,6 +930,18 @@ export class ScheduledTasksService {
       } catch (pdfErr) {
         console.warn("[ScheduledTasksService] Options PDF generation/storage failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
       }
+      // Issue #1195 (#1173 R3b): generate + store the options XLSX
+      // (own failure domain; recorded, never fatal).
+      try {
+        const screenerAgent = this.getScreenerAgent(userLogin);
+        const stored = await (screenerAgent as any).generateAndStoreOptionsXlsx(response.data);
+        optionsXlsxKey = stored.key;
+        optionsXlsxFile = stored.fileName;
+        const data = await (screenerAgent as any).getOptionsXlsxByKey(stored.key);
+        if (data) optionsXlsx = data.bytes;
+      } catch (xlsxErr) {
+        console.warn("[ScheduledTasksService] Options XLSX generation/storage failed:", xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr));
+      }
       const reportUrl = optionsPdfKey
         ? `${this.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`
         : undefined;
@@ -948,6 +964,7 @@ export class ScheduledTasksService {
           withTrades: response.data?.withTrades ?? 0,
           opportunities: response.data?.opportunities ?? [],
           pdfKey: optionsPdfKey,
+          xlsxKey: optionsXlsxKey,
           reportUrl,
           report: typeof response.toWebhook === "function" ? response.toWebhook() : response.data,
         },
@@ -971,6 +988,11 @@ export class ScheduledTasksService {
               title: `Options Scanner Report — ${targetThesis} ${timestamp.slice(0, 10)}`,
               comment: `📄 Options scan PDF — ${matchCount} matches${reportUrl ? `\n${reportUrl}` : ""}\n\n${text}`,
             } } : {}),
+            ...(optionsXlsx && optionsXlsxFile ? { files: [{
+              bytes: optionsXlsx,
+              fileName: optionsXlsxFile,
+              title: optionsXlsxFile,
+            }] } : {}),
           });
           notifications.slack = delivery.ok;
           if (!delivery.ok) console.warn("[ScheduledTasksService] Slack A2A PDF delivery failed:", delivery.error);
@@ -992,15 +1014,23 @@ export class ScheduledTasksService {
           try {
             const subject = `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`;
             const body = `${response.toEmailText()}${reportUrl ? `\n\nPDF report: ${reportUrl}` : ""}`;
-            let r;
-            if (optionsPdf && optionsPdfFile) {
+            // Issue #1195: attach PDF + XLSX when the run produced them.
+            const toB64 = (bytes: Uint8Array) => {
               let binary = "";
-              for (let i = 0; i < optionsPdf.length; i += 8192) binary += String.fromCharCode(...optionsPdf.subarray(i, i + 8192));
+              for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+              return btoa(binary);
+            };
+            const cfpayAttachments = [
+              ...(optionsPdf && optionsPdfFile ? [{ filename: optionsPdfFile, contentB64: toB64(optionsPdf), contentType: "application/pdf" }] : []),
+              ...(optionsXlsx && optionsXlsxFile ? [{ filename: optionsXlsxFile, contentB64: toB64(optionsXlsx), contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }] : []),
+            ];
+            let r;
+            if (cfpayAttachments.length > 0) {
               r = await cfpaySendEmailWithAttachments(cfpay, {
                 to: targetEmail,
                 subject,
                 body,
-                attachments: [{ filename: optionsPdfFile, contentB64: btoa(binary), contentType: "application/pdf" }],
+                attachments: cfpayAttachments,
               });
             } else {
               r = await cfpaySendEmail(cfpay, targetEmail, subject, body);
@@ -1021,11 +1051,19 @@ export class ScheduledTasksService {
               `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`,
               response.toEmailHtml(),
               `${response.toEmailText()}${reportUrl ? `\n\nPDF report: ${reportUrl}` : ""}`,
-              optionsPdf && optionsPdfFile ? {
-                fileName: optionsPdfFile,
-                contentType: "application/pdf",
-                contentBase64: (() => { let b = ""; for (let i = 0; i < optionsPdf!.length; i += 8192) b += String.fromCharCode(...optionsPdf!.subarray(i, i + 8192)); return btoa(b); })(),
-              } : undefined
+              // Issue #1195: PDF + XLSX attachments (array form, #1191).
+              (() => {
+                const toB64 = (bytes: Uint8Array) => {
+                  let b = "";
+                  for (let i = 0; i < bytes.length; i += 8192) b += String.fromCharCode(...bytes.subarray(i, i + 8192));
+                  return btoa(b);
+                };
+                const list = [
+                  ...(optionsPdf && optionsPdfFile ? [{ fileName: optionsPdfFile, contentType: "application/pdf", contentBase64: toB64(optionsPdf) }] : []),
+                  ...(optionsXlsx && optionsXlsxFile ? [{ fileName: optionsXlsxFile, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: toB64(optionsXlsx) }] : []),
+                ];
+                return list.length > 0 ? list : undefined;
+              })()
             );
           } catch (emailErr) {
             console.warn("[ScheduledTasksService] Email notification error:", emailErr);
