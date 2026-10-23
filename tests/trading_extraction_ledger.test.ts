@@ -113,7 +113,7 @@ const PINNED_NAMED_REEXPORTS = ["MAX_SCAN_SYMBOLS from ./options/opportunityScan
  */
 const CONSTRUCTION_LEDGER: Record<string, number> = {
   "agents/nlq/execution.ts": 2,
-  "agents/routes/etradeBroker.ts": 19,
+  "agents/routes/etradeBroker.ts": 20,
   "agents/routes/etradeOptions.ts": 5,
   "agents/routes/watchlists.ts": 5,
   "agents/screener-agent.ts": 1,
@@ -147,6 +147,8 @@ describe("trading extraction ledger (issue #291 T0)", () => {
     }
     expect(actual).toEqual(CONSTRUCTION_LEDGER);
     const total = Object.values(actual).reduce((a, b) => a + b, 0);
-    expect(total).toBe(46);
+    // 46 → 47 in #1135: the recommendation-bundle route constructs its
+    // own ETradeService like every sibling portfolio-risk route.
+    expect(total).toBe(47);
   });
 });

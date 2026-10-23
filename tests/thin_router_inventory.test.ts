@@ -188,6 +188,7 @@ const EXPECTED_INVENTORY = [
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/portfolio-risk/evaluate\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/portfolio-risk/correlation\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/portfolio-risk/size\")",
+  "handleEtradeBrokerRoutes :: endsWith(\"/etrade/portfolio-risk/bundle\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/think/evaluate\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/hedge/analyze\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/portfolio-repair/analyze\")",

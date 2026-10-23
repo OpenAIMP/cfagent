@@ -2,7 +2,7 @@
  * Portfolio Risk panel (issue #63) — surfaces the portfolio-risk backends
  * in the E*TRADE positions view:
  *   aggregates (#34), hedge drafts (#54), correlation flags (#35),
- *   portfolio-aware sizing (#36).
+ *   portfolio-aware sizing (#36), recommendation bundles (#1135).
  *
  * The panel is a pure display/input layer: it renders what the server
  * computes — including provenance and unavailable states — and hands
@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   buildEvaluateCandidate,
+  fetchBundle,
   fetchConcentration,
   fetchEvaluate,
   fetchHedgeAnalysis,
@@ -24,12 +25,14 @@ import {
   fmtSignedUsd,
   fmtUsd,
   hedgeProposalToTradeContext,
+  parseBundleCandidate,
   repairProposalToTradeContext,
   positionRowToEvalForm,
   sizingToEvalForm,
   type ConcentrationReport,
   type EvaluateResult,
   type HedgeAnalysis,
+  type RecommendationBundle,
   type RepairAnalysis,
   type ThinkTradeValidationResult,
   type PortfolioRiskReport,
@@ -138,6 +141,30 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       setSizeError(err?.message || "Sizing failed");
     } finally {
       setSizeLoading(false);
+    }
+  };
+
+  // Recommendation Bundle — Best Trade v2 (#1135): candidate JSON in,
+  // bundle out. The panel renders the server-computed bundle verbatim.
+  const [bundleJson, setBundleJson] = useState("");
+  const [bundleBeta, setBundleBeta] = useState("");
+  const [bundle, setBundle] = useState<RecommendationBundle | null>(null);
+  const [bundleLoading, setBundleLoading] = useState(false);
+  const [bundleError, setBundleError] = useState("");
+
+  const runBundle = async () => {
+    setBundleLoading(true);
+    setBundleError("");
+    try {
+      const candidate = parseBundleCandidate(bundleJson);
+      setBundle(await fetchBundle(activeEnv, {
+        candidate,
+        beta: bundleBeta.trim() === "" ? null : Number(bundleBeta),
+      }));
+    } catch (err: any) {
+      setBundleError(err?.message || "Bundle build failed");
+    } finally {
+      setBundleLoading(false);
     }
   };
 
@@ -390,6 +417,44 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
               Send sized candidate to Evaluator ↓
             </button>
           )}
+        </div>
+      )}
+
+      {/* Recommendation Bundle — Best Trade v2 (#1135, Phase 4 of #1096) */}
+      <div className="prp-subhead">Recommendation Bundle (Best Trade v2)</div>
+      <div className="prp-note">Paste a strategy candidate (strategy-engine JSON) to build its full bundle against the live book: trade + falsification + post-trade risk + optimizer verdict + hedge/repair plans + alternatives including no-trade. Draft only — human approval is required for any order.</div>
+      <div className="prp-form-grid">
+        <label>Symbol beta (blank = unknown)<input value={bundleBeta} onChange={(e) => setBundleBeta(e.target.value)} placeholder="e.g. 1.1" inputMode="decimal" /></label>
+      </div>
+      <textarea
+        className="prp-bundle-json"
+        value={bundleJson}
+        onChange={(e) => setBundleJson(e.target.value)}
+        placeholder='{"id": "…", "symbol": "XYZ", "underlyingPrice": 200, "legs": [ … ], "netGreeks": {"delta": 0.5, "gamma": 0.02, "theta": -0.02, "vega": 0.05}, …}'
+        rows={5}
+        style={{ width: "100%" }}
+      />
+      <button type="button" className="prp-size-btn" onClick={() => void runBundle()} disabled={bundleLoading || !bundleJson.trim()}>
+        {bundleLoading ? "Building…" : "Build bundle"}
+      </button>
+      {bundleError && <div className="prp-error">{bundleError}</div>}
+      {bundle && (
+        <div className="prp-sizing-result">
+          <div className="prp-note">
+            <strong>{bundle.decision === "trade" ? bundle.trade?.label : "No trade"}</strong>
+            {" "}· status {bundle.status} · qualification <strong>{bundle.qualification}</strong> · confidence {bundle.confidence}
+            {" "}· optimizer verdict <strong>{bundle.optimizer.verdict}</strong> (score {fmtNumber(bundle.optimizer.score, 1)}, expected P/L {fmtSignedUsd(bundle.optimizer.expectedPnl)}, CVaR {fmtSignedUsd(bundle.optimizer.cvarPnl)})
+          </div>
+          <p className="prp-rationale">{bundle.rationale.join(" ")}</p>
+          {bundle.optimizer.evidence.map((e, i) => <div key={i} className="prp-note">{e}</div>)}
+          {bundle.optimizer.breaches.map((b, i) => <div key={i} className="prp-error">Breach: {b}</div>)}
+          <div className="prp-note">
+            Hedging: {bundle.hedging.status}{bundle.hedging.options.length ? ` — top: ${bundle.hedging.options[0].label} (cost ${fmtUsd(bundle.hedging.options[0].estimatedCost)}, removes ${fmtUsd(bundle.hedging.options[0].riskRemovedDollars)} β-weighted Δ)` : ""}
+            {" "}· Repairs: {bundle.repairs.status}{bundle.repairs.options.length ? ` — top: ${bundle.repairs.options[0].label}` : ""}
+          </div>
+          <div className="prp-note">Alternatives: {bundle.alternatives.map((a) => `${a.label} (score ${fmtNumber(a.score, 1)})`).join("; ")}</div>
+          {bundle.limitations.map((l, i) => <div key={i} className="prp-note">Limitation: {l}</div>)}
+          <div className="prp-note">Human approval required. {bundle.disclaimer}</div>
         </div>
       )}
 
