@@ -514,9 +514,9 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         // the delivery detail, never fabricated). A failed XLSX
         // generation is recorded on the result, not silent.
         let xlsxNote: string | undefined;
-        if (outcome.kind === "stock" && outcome.xlsxKey && outcome.xlsxStatus !== "failed") {
+        if (outcome.xlsxKey && outcome.xlsxStatus !== "failed") {
           artifacts.push({ key: outcome.xlsxKey, fileName: "screener-report.xlsx", kind: "xlsx" });
-        } else if (outcome.kind === "stock" && outcome.xlsxStatus === "failed") {
+        } else if (outcome.xlsxStatus === "failed") {
           xlsxNote = outcome.xlsxError || "XLSX generation failed during the run.";
         }
         result = { status: "ready", artifacts, missingKeys: missing, ...(xlsxNote ? { xlsxNote } : {}) };

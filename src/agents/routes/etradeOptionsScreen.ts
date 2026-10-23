@@ -109,6 +109,31 @@ export async function executeOptionsScreen(args: {
     console.warn("[Orchestrator] Manual options contract PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
   }
 
+  // Issue #1195 (#1173 R3b): options XLSX — its own failure domain,
+  // mirroring the stock persistRun convention (failures recorded,
+  // never fatal, never silent).
+  let optionsXlsxKey: string | undefined;
+  let optionsXlsxStatus: "generated" | "failed" | undefined;
+  let optionsXlsxError: string | undefined;
+  let optionsXlsxBytes: Uint8Array | undefined;
+  let optionsXlsxFileName: string | undefined;
+  try {
+    const agent = ctx.getScreenerAgent(userLogin);
+    const stored = await agent.generateAndStoreOptionsXlsx(result);
+    optionsXlsxKey = stored.key;
+    optionsXlsxFileName = stored.fileName;
+    optionsXlsxStatus = "generated";
+    const data = await agent.getOptionsXlsxByKey(stored.key);
+    if (data) optionsXlsxBytes = data.bytes;
+  } catch (xlsxErr) {
+    optionsXlsxStatus = "failed";
+    optionsXlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
+    console.warn("[Orchestrator] Manual options XLSX generation failed:", optionsXlsxError);
+  }
+  const optionsXlsxUrl = optionsXlsxKey
+    ? `/api/options/report.xlsx?key=${encodeURIComponent(optionsXlsxKey)}`
+    : undefined;
+
   // Deliver over A2A to Slack channel unless caller explicitly opted out
   // (or the tracked follow-up pipeline owns delivery — issue #1123).
   // S5a: when the host provides the follow-up bridge, the run is
@@ -124,6 +149,9 @@ export async function executeOptionsScreen(args: {
         matchedCount: result.matchedCount,
         pdfKey: optionsPdfKey,
         pdfStatus: optionsPdfKey ? "generated" : undefined,
+        xlsxKey: optionsXlsxKey,
+        xlsxStatus: optionsXlsxStatus,
+        xlsxError: optionsXlsxError,
         summary: `${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.`,
       }),
       userLogin,
@@ -143,6 +171,9 @@ export async function executeOptionsScreen(args: {
             comment: `📄 Options contract screener PDF\n\n${summary}`,
           },
         } : {}),
+        ...(optionsXlsxBytes && optionsXlsxFileName ? {
+          files: [{ bytes: optionsXlsxBytes, fileName: optionsXlsxFileName, title: optionsXlsxFileName }],
+        } : {}),
       });
       if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract PDF delivery failed:", sent.error);
     } catch (slackErr) {
@@ -158,11 +189,11 @@ export async function executeOptionsScreen(args: {
     title: `Options contract screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}`,
     source: "options_scanner",
     summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
-    body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl },
+    body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl },
     createdAt: generatedAt,
   });
 
-  return Response.json({ ...result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl });
+  return Response.json({ ...result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl });
 }
 
 export async function executeUnifiedOptions(args: {
@@ -197,6 +228,11 @@ export async function executeUnifiedOptions(args: {
   let pdfKey: string | undefined;
   let scannerPdfBytes: Uint8Array | undefined;
   let scannerPdfFileName: string | undefined;
+  // Issue #1195 (#1173 R3b): options XLSX for this flow.
+  let scannerXlsxKey: string | undefined;
+  let scannerXlsxBytes: Uint8Array | undefined;
+  let scannerXlsxFileName: string | undefined;
+  let scannerXlsxUrl: string | undefined;
 
   if (reqData.action === "opportunities" && result.success) {
     const timestamp = new Date().toISOString();
@@ -235,6 +271,19 @@ export async function executeUnifiedOptions(args: {
       console.warn("[Orchestrator] Manual options PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
     }
 
+    // Issue #1195 (#1173 R3b): XLSX from the same result payload.
+    try {
+      const agent = ctx.getScreenerAgent(userLogin);
+      const stored = await agent.generateAndStoreOptionsXlsx(result.data);
+      scannerXlsxKey = stored.key;
+      scannerXlsxFileName = stored.fileName;
+      scannerXlsxUrl = `/api/options/report.xlsx?key=${encodeURIComponent(stored.key)}`;
+      const data = await agent.getOptionsXlsxByKey(stored.key);
+      if (data) scannerXlsxBytes = data.bytes;
+    } catch (xlsxErr) {
+      console.warn("[Orchestrator] Manual options XLSX generation failed:", xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr));
+    }
+
     const shouldNotifySlack = reqData.pushToSlack !== false && reqData.pushToSlack !== "false";
     if (shouldNotifySlack) {
       const slackChannel = reqData.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
@@ -253,6 +302,9 @@ export async function executeUnifiedOptions(args: {
               comment: `📄 Manual options scan PDF — ${matchCount} matches\n\n${text}`,
             },
           } : {}),
+          ...(scannerXlsxBytes && scannerXlsxFileName ? {
+            files: [{ bytes: scannerXlsxBytes, fileName: scannerXlsxFileName, title: scannerXlsxFileName }],
+          } : {}),
         });
         if (!sent.ok) console.warn("[Orchestrator] Slack A2A PDF delivery (manual options) failed:", sent.error);
       } catch (slackErr) {
@@ -268,7 +320,7 @@ export async function executeUnifiedOptions(args: {
       title: `Options scanner — ${reqData.thesis || "mixed"} (${generatedAt.slice(0, 10)})`,
       source: "options_scanner",
       summary: result.summary,
-      body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, reportUrl },
+      body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, reportUrl, xlsxKey: scannerXlsxKey, xlsxUrl: scannerXlsxUrl },
       createdAt: generatedAt,
     });
   } else if (!result.success && reqData.pushToSlack !== false && reqData.pushToSlack !== "false") {
@@ -290,10 +342,10 @@ export async function executeUnifiedOptions(args: {
     return Response.json(result.toVoice());
   }
   if (channel === "webhook") {
-    return Response.json({ ...result.toWebhook(), reportUrl });
+    return Response.json({ ...result.toWebhook(), reportUrl, xlsxUrl: scannerXlsxUrl });
   }
   if (channel === "mcp") {
     return Response.json(result.toMcp());
   }
-  return Response.json({ ...result.toUi(), reportUrl });
+  return Response.json({ ...result.toUi(), reportUrl, xlsxUrl: scannerXlsxUrl });
 }

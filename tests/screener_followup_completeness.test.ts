@@ -307,6 +307,53 @@ describe("delivery port: email carries text + PDF + XLSX", () => {
     expect(mime).toContain("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   });
 
+  it("options deliveries attach PDF + XLSX too (#1195 R3b)", async () => {
+    let mime = "";
+    const env = {
+      SCREENER_EMAIL_TO: "ops@example.com",
+      EMAIL: {
+        send: async (body: ReadableStream) => {
+          mime = await new Response(body).text();
+        },
+      },
+    };
+    const agent = {
+      getPdfByKey: async () => null,
+      getXlsxByKey: async () => null,
+      getOptionsPdfByKey: async () => ({ bytes: new TextEncoder().encode("OPDF"), fileName: "options.pdf" }),
+      getOptionsXlsxByKey: async () => ({ bytes: new TextEncoder().encode("OXLSX"), fileName: "options.xlsx" }),
+    };
+    const port = createFollowupDeliveryPort({
+      env: env as never,
+      getOrm: () => ({}) as never,
+      getScreenerAgent: () => agent as never,
+    });
+    const optionsOutcome: ScreenerRunOutcome = {
+      kind: "options",
+      trigger: "manual",
+      success: true,
+      pdfKeys: ["ok1"],
+      pdfStatus: "generated",
+      xlsxKey: "ox1",
+      xlsxStatus: "generated",
+      matchedCount: 4,
+      totalScanned: 12,
+      thesis: "bullish",
+    };
+    const res = await port.deliver({
+      channel: "email",
+      userLogin: "alice",
+      outcome: optionsOutcome,
+      artifacts: [
+        { key: "ok1", fileName: "options.pdf", kind: "pdf" },
+        { key: "ox1", fileName: "options.xlsx", kind: "xlsx" },
+      ],
+    });
+    expect(res.ok).toBe(true);
+    expect(mime).toContain("options.pdf");
+    expect(mime).toContain("options.xlsx");
+  });
+
   it("a missing XLSX is reported in the detail, the PDF still sends", async () => {
     let mime = "";
     const env = {
