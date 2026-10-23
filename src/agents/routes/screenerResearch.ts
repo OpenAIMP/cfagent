@@ -647,6 +647,28 @@ export async function handleScreenerResearchRoutes(
       return Response.json({ evaluations: listEvaluations(ctx.getOrm(), candidateId) });
     }
 
+    // Consolidation C2 (issue #1246, epic #1151): the hub Review
+    // inbox's decision-evidence reads — the candidate's promotion
+    // approvals and gate verdicts, over the promotion gate's existing
+    // stores. Read-only; requesting and deciding approvals stay on
+    // the #759 endpoints below.
+    if (path.endsWith("/adaptation/candidates/approvals") && request.method === "GET") {
+      const candidateId = url.searchParams.get("candidateId") || "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId query parameter is required." }, { status: 400 });
+      }
+      const { listPromotionApprovals } = await import("../../services/promotionGate");
+      return Response.json({ approvals: listPromotionApprovals(ctx.getOrm(), candidateId) });
+    }
+    if (path.endsWith("/adaptation/candidates/verdicts") && request.method === "GET") {
+      const candidateId = url.searchParams.get("candidateId") || "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId query parameter is required." }, { status: 400 });
+      }
+      const { listGateVerdicts } = await import("../../services/promotionGate");
+      return Response.json({ verdicts: listGateVerdicts(ctx.getOrm(), candidateId) });
+    }
+
     // Issue #759: promotion gate — held-out significance + human
     // approval (the #653 decision pattern, in a dedicated approvals
     // store). The gate endpoint returns the persisted verdict either
@@ -891,6 +913,101 @@ export async function handleScreenerResearchRoutes(
         changes,
         ...readScreeningControls((key) => ctx.readSettingRaw(key)),
       });
+    }
+
+    // Consolidation C2 (issue #1246, epic #1151): the hub Review
+    // inbox's goal-proposal reads + decision, over the Phase 0
+    // goal/scenario store. Tenant-scoped exactly like the sibling
+    // routes; a decision is the store's status transition only
+    // (proposed → active on activate, proposed → archived on
+    // dismiss) — nothing else about the goal moves, and only a
+    // proposed goal can be decided (409 otherwise). The decision is
+    // recorded in the screening activity log with the session as
+    // actor.
+    if (path.endsWith("/screening/goals") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const statusParam = url.searchParams.get("status") || undefined;
+      const GOAL_STATUSES = ["proposed", "active", "paused", "completed", "archived"];
+      if (statusParam !== undefined && !GOAL_STATUSES.includes(statusParam)) {
+        return Response.json(
+          { error: `status must be one of: ${GOAL_STATUSES.join(", ")}.` },
+          { status: 400 }
+        );
+      }
+      const store = await import("../../services/goalScenarioStore");
+      const orm = ctx.getOrm() as any;
+      store.ensureGoalScenarioTables(orm);
+      const goals = store
+        .listGoals(orm, userLogin, statusParam as any)
+        .map((goal) => ({ ...goal, scenarios: store.listScenarios(orm, userLogin, goal.id) }));
+      return Response.json({ goals });
+    }
+    if (path.endsWith("/screening/goals/decide") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const body = (await request.json().catch(() => null)) as {
+        id?: string;
+        decision?: string;
+      } | null;
+      if (!body?.id || (body.decision !== "activate" && body.decision !== "dismiss")) {
+        return Response.json(
+          { error: "id and decision (activate|dismiss) are required." },
+          { status: 400 }
+        );
+      }
+      const store = await import("../../services/goalScenarioStore");
+      const orm = ctx.getOrm() as any;
+      store.ensureGoalScenarioTables(orm);
+      const goal = store.getGoal(orm, userLogin, body.id);
+      if (!goal) {
+        return Response.json({ error: `goal ${body.id} not found.` }, { status: 404 });
+      }
+      if (goal.status !== "proposed") {
+        return Response.json(
+          { error: `goal ${body.id} is ${goal.status}; only proposed goals can be decided.` },
+          { status: 409 }
+        );
+      }
+      const nextStatus = body.decision === "activate" ? "active" : "archived";
+      if (!store.updateGoalStatus(orm, userLogin, body.id, nextStatus as any)) {
+        return Response.json({ error: `goal ${body.id} could not be updated.` }, { status: 500 });
+      }
+      const { recordScreeningActivity } = await import("../../services/screeningActivity");
+      recordScreeningActivity(orm, {
+        userLogin,
+        kind: "goal_decision",
+        summary:
+          `Goal proposal '${goal.title}' ${body.decision === "activate" ? "activated" : "dismissed (archived)"} ` +
+          `from the hub Review inbox.`,
+        detail: { goalId: goal.id, decision: body.decision, from: "proposed", to: nextStatus },
+        refId: goal.id,
+        actor: sessionId,
+      });
+      return Response.json({ success: true, goal: { ...goal, status: nextStatus } });
+    }
+
+    // Consolidation C2 (issue #1246): the Review inbox's read of the
+    // Phase 3 re-selection transparency log. Read-only by design —
+    // proposals carry governance proposal_only_not_promoted; the
+    // promotion path is the champion/challenger gate, not this route.
+    if (path.endsWith("/screening/reselection-proposals") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const limitParam = Number(url.searchParams.get("limit") || 20);
+      const limit = Math.max(1, Math.min(Math.floor(limitParam) || 20, 100));
+      const { listReselectionProposals } = await import("../../services/strategyBankReselection");
+      const proposals = listReselectionProposals(ctx.getOrm(), userLogin, limit);
+      return Response.json({ proposals });
+    }
+
+    // Consolidation C2 (issue #1246): the hub Track record tab's read
+    // of the Phase 5 outcome ledger (listOutcomeTracking) — the
+    // per-recommendation outcomes with their honest quality states
+    // (pending / verified / unverified). Distinct from the #340
+    // research track record above; the two stores are not merged.
+    if (path.endsWith("/screening/outcomes") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const { listOutcomeTracking } = await import("../../services/outcomeTracking");
+      const outcomes = listOutcomeTracking(ctx.getOrm(), userLogin);
+      return Response.json({ outcomes });
     }
 
     // Consolidation C1 (issue #1201, epic #1151 R1): the goal-driven

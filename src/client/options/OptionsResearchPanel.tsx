@@ -29,7 +29,7 @@ import type { RiskSubject } from "./riskManagementEngine";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import { TabHoverItem } from "../TabHoverItem";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "../components/CapabilityNavBar";
-import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
+import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
 import "./strategyDiscovery.css";
 import "./optionsResearch.css";
 
@@ -39,6 +39,10 @@ interface OptionsResearchPanelProps {
   onPreviewTrade?: (ctx: TradeOrderContext) => void;
   onJobStateChange?: (state: "idle" | "running" | "ready") => void;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
+  /** C2 (consolidation #1151, issue #1246): switch to the hub's
+   *  Schedules tab — the in-hub successor to this panel's schedules
+   *  mode "moved" note. Absent when the panel is hosted elsewhere. */
+  onOpenSchedules?: () => void;
 }
 
 export type { TradeOrderContext } from "../trading/tradeOrderContext";
@@ -730,7 +734,7 @@ type NlqResultView = {
 
 export type ResearchMode = "discovery" | "contracts" | "custom" | "nlq" | "llm-ideas" | "schedules";
 
-export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
+export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt, onOpenSchedules }: OptionsResearchPanelProps) {
   const [researchMode, setResearchMode] = useState<ResearchMode>("discovery");
   const [evaluatingStrategy, setEvaluatingStrategy] = useState<StrategyToEvaluate | null>(null);
   const handleEvaluateLlm = (strategy: StrategyToEvaluate) => setEvaluatingStrategy(strategy);
@@ -1085,19 +1089,24 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
 
       {researchMode === "schedules" && (
         <>
-          {/* S7 (consolidation #958): schedule management moved to the
-              one schedule UI — the hub's Schedules tab hosts the
-              screening section (this manager's successor) over the
-              one schedule store. This mode keeps only the redirect
-              and the autonomous-runs record below it. */}
+          {/* S7 (consolidation #958) made schedule management live in
+              the one schedule UI; C2 (consolidation #1151, #1246)
+              hosts it as this hub's own Schedules tab, so the note is
+              now an in-hub switch, not a pointer elsewhere. This mode
+              keeps the autonomous-runs record below it. */}
           <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
-            <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>⏰ Schedule Management Moved to the Schedules Tab</h4>
+            <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>⏰ Schedule Management Lives in the Schedules Tab</h4>
             <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
-              Every screening schedule — stock screens, options analysis, and strategy discovery in all three input models (saved views, profile-derived, no-view) — is now created and managed in one place: the <strong>Schedules</strong> tab, alongside the system and queued jobs that share the same schedule store.
+              Every screening schedule — stock screens, options analysis, and strategy discovery in all three input models (saved views, profile-derived, no-view) — is created and managed in one place: this hub's <strong>Schedules</strong> tab, alongside the system and queued jobs that share the same schedule store.
             </p>
-            <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
-              Nothing was retired: the create/edit forms, run-now triggers, latest runs, and audit trail all live on that surface now.
+            <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
+              Nothing was retired: the create/edit forms, run-now triggers, latest runs, and audit trail all live on that tab.
             </p>
+            {onOpenSchedules && (
+              <button type="button" onClick={onOpenSchedules} style={{ padding: "0.45rem 0.9rem", fontWeight: 600 }}>
+                Open the Schedules tab
+              </button>
+            )}
           </div>
           {/* Issue #223: the persisted autonomous runs (hourly scheduled
               scans + manual runs) — the record of what the scheduler

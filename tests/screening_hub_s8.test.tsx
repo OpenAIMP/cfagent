@@ -215,15 +215,21 @@ describe("S8 hub inventory coverage (source pins)", () => {
     expect(tradingHub).toContain("onPreviewTrade={handleTradeOrder}");
   });
 
-  it("the Trading Hub's screening subtabs are redirects into the hub, not second surfaces", () => {
+  // C2 (#1246) supersedes the S8 redirect pins below: the acceptance
+  // criteria retire the "Screening Moved" notices — the Trading Hub's
+  // screening subtabs now render the hub itself on the equivalent
+  // tab, and Reports/Schedules are hosted BY the hub, not mounted here.
+  it("the Trading Hub's screening subtabs render the hub directly, not second surfaces", () => {
     expect(tradingHub).not.toContain("<OptionsResearchPanel");
     expect(tradingHub).not.toContain("<ScannerPanel");
     expect(tradingHub).not.toContain("<IvHistoryPanel");
-    expect(tradingHub).toContain("Screening Moved to the Screeners Hub");
-    expect(tradingHub).toContain('openScreenersHub("options")');
-    expect(tradingHub).toContain('openScreenersHub("scanner")');
-    expect(tradingHub).toContain('openScreenersHub("iv-history")');
-    expect(tradingHub).toContain('handleNavigateSubTab("screeners")');
+    expect(tradingHub).not.toContain("ScreeningMovedNotice");
+    expect(tradingHub).not.toContain("Screening Moved to the Screeners Hub");
+    expect(tradingHub).toContain('renderScreenersHub("options")');
+    expect(tradingHub).toContain('renderScreenersHub("scanner")');
+    expect(tradingHub).toContain('renderScreenersHub("iv-history")');
+    expect(tradingHub).toContain('renderScreenersHub("reports")');
+    expect(tradingHub).toContain('renderScreenersHub("schedules")');
   });
 
   it("the Trading Hub's non-screening subtabs are intact", () => {
@@ -231,8 +237,10 @@ describe("S8 hub inventory coverage (source pins)", () => {
       expect(tradingHub).toContain(`effectiveSubTab === "${subtab}"`);
     }
     expect(tradingHub).toContain("<AutopilotControlCenter");
-    expect(tradingHub).toContain("<ReportsPanel />");
-    expect(tradingHub).toContain("<SchedulesPanel");
+    // C2: Reports/Schedules render through the hub now (see the pin
+    // above) — the Trading Hub no longer mounts those panels itself.
+    expect(tradingHub).not.toContain("<ReportsPanel");
+    expect(tradingHub).not.toContain("<SchedulesPanel");
   });
 });
 
@@ -280,18 +288,22 @@ describe("S8 render pins", () => {
     expect(container.textContent).toContain("IV History");
   });
 
-  it("the Trading Hub renders the redirect for the folded options subtab", async () => {
+  // C2 (#1246): the folded subtabs render the hub itself — the S8
+  // redirect render pins are superseded by these.
+  it("the Trading Hub renders the hub itself for the folded options subtab", async () => {
     await act(async () => {
       root.render(<ETradeTradingHub activeSubTab="options" user={{ login: "tester" }} />);
     });
-    expect(container.textContent).toContain("Screening Moved to the Screeners Hub");
+    expect(container.textContent).not.toContain("Screening Moved to the Screeners Hub");
+    expect(container.textContent).toContain("Strategy Discovery & Payoff Analyzer");
   });
 
-  it("the Trading Hub renders the redirect for the folded scanner subtab", async () => {
+  it("the Trading Hub renders the hub itself for the folded scanner subtab", async () => {
     await act(async () => {
       root.render(<ETradeTradingHub activeSubTab="scanner" user={{ login: "tester" }} />);
     });
-    expect(container.textContent).toContain("Screening Moved to the Screeners Hub");
+    expect(container.textContent).not.toContain("Screening Moved to the Screeners Hub");
+    expect(container.textContent).toContain("Strategy/Symbol Scanner");
   });
 });
 
@@ -300,10 +312,15 @@ describe("S8 render pins", () => {
 /* ------------------------------------------------------------------ */
 
 describe("S8 nav integrity", () => {
-  it("the top-nav screening entries still exist and map to hub subtabs", () => {
+  it("the top nav has ONE screening entry; legacy ids still map to hub subtabs", () => {
+    // C2 (#1246) supersedes the S8 pin that required separate nav
+    // entries for scanner/screeners/options: the nav carries exactly
+    // one screening entry now, and the legacy tab ids survive only as
+    // deep links in the tab→subtab mapping.
     const nav = read("src/client/components/NavigationMenu.tsx");
-    for (const id of ["scanner", "screeners", "options"]) {
-      expect(nav).toContain(`id: "${id}"`);
+    expect(nav).toContain('id: "screeners"');
+    for (const id of ["scanner", "options", "reports", "schedules"]) {
+      expect(nav).not.toContain(`id: "${id}"`);
     }
     const types = read("src/client/chat/types.ts");
     expect(types).toContain('case "scanner":');

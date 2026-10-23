@@ -254,7 +254,10 @@ describe("one exporter (#1065 source pins)", () => {
     expect(readSrc("src/client/options/DiscoveryRunsPanel.tsx")).toContain('from "../runExport"');
     expect(readSrc("src/client/options/LlmOptionsIdeasPanel.tsx")).toContain('from "../runExport"');
     expect(readSrc("src/client/options/LlmStrategyEvalModal.tsx")).toContain('from "../runExport"');
-    expect(readSrc("src/client/options/optionsDataExporter.tsx")).toContain('from "../runExport"');
+    // C2 (#1246): optionsDataExporter.tsx is deleted — its functions
+    // live in runExport.ts itself, and its dropdown component imports
+    // them from the shared module.
+    expect(readSrc("src/client/options/OptionsDataDownloadDropdown.tsx")).toContain('from "../runExport"');
   });
 
   it("the shared module is the only exporter creating blob URLs", () => {

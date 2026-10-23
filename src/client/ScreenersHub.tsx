@@ -15,6 +15,10 @@ import { ScannerPanel } from "./ScannerPanel";
 import { GoalScreenPanel } from "./GoalScreenPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { IvHistoryPanel } from "./IvHistoryPanel";
+import { ReportsPanel } from "./ReportsPanel";
+import { SchedulesPanel } from "./SchedulesPanel";
+import { ScreeningReviewPanel } from "./ScreeningReviewPanel";
+import { ScreeningOutcomesPanel } from "./ScreeningOutcomesPanel";
 import { OptionsResearchHost } from "./options/OptionsResearchHost";
 import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import "./optionsResearch.css";
@@ -23,8 +27,20 @@ import "./optionsResearch.css";
  *  asset classes plus the folded Strategy/Symbol Scanner and IV
  *  History surfaces (formerly Trading Hub subtabs).
  *  C1 (consolidation #1151, issue #1201): the Goal Screen tab — the
- *  #1096 unified stack's surface (goal-driven screens + backtest). */
-export type ScreenersHubTab = ScreeningAssetClass | "scanner" | "iv-history" | "goal-screen";
+ *  #1096 unified stack's surface (goal-driven screens + backtest).
+ *  C2 (consolidation #1151, issue #1246): Reports and Schedules move
+ *  INTO the hub as tabs (they were standalone nav entries), and the
+ *  hub gains the proposal Review inbox and the recommendation Track
+ *  Record — the #1096 surfaces users could not reach before. */
+export type ScreenersHubTab =
+  | ScreeningAssetClass
+  | "scanner"
+  | "iv-history"
+  | "goal-screen"
+  | "reports"
+  | "schedules"
+  | "review"
+  | "track-record";
 
 interface ScreenersHubProps {
   activeEnv: "TEST" | "PROD";
@@ -135,7 +151,15 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded, onPreviewTr
   // the folded scanner / iv-history tabs have no adapter, so they
   // borrow "stocks" for the (unused) provider lookups.
   const assetClass: ScreeningAssetClass =
-    hubTab === "scanner" || hubTab === "iv-history" || hubTab === "goal-screen" ? "stocks" : hubTab;
+    hubTab === "scanner" ||
+    hubTab === "iv-history" ||
+    hubTab === "goal-screen" ||
+    hubTab === "reports" ||
+    hubTab === "schedules" ||
+    hubTab === "review" ||
+    hubTab === "track-record"
+      ? "stocks"
+      : hubTab;
   // S8: the options research surface keeps the mount semantics it
   // had as a Trading Hub subtab — mounted on first visit, kept
   // mounted (hidden) afterwards so in-flight work survives tab
@@ -478,6 +502,53 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded, onPreviewTr
         },
       },
     );
+    // C2 (consolidation #1151, issue #1246): the hub's own surfaces —
+    // Reports and Schedules (formerly standalone nav entries) and the
+    // #1096 Review inbox + recommendation Track Record.
+    assetTabs.push(
+      {
+        id: "reports",
+        label: "Reports",
+        icon: "📄",
+        tooltip: {
+          eyebrow: "SCREENING REPORTS",
+          title: "Reports",
+          description: "Generated screening reports — view, download, and regenerate them here.",
+        },
+      },
+      {
+        id: "schedules",
+        label: "Schedules",
+        icon: "🗓️",
+        tooltip: {
+          eyebrow: "SCREENING SCHEDULES",
+          title: "Schedules",
+          description: "The one scheduling surface for screening runs — create, pause, and inspect scheduled jobs.",
+        },
+      },
+      {
+        id: "review",
+        label: "Review",
+        icon: "🧾",
+        badge: "AI",
+        badgeType: "purple",
+        tooltip: {
+          eyebrow: "PROPOSAL REVIEW",
+          title: "Proposal Review",
+          description: "Decide what the system proposed: goal proposals, adaptation candidates, and strategy re-selections — nothing activates without a person.",
+        },
+      },
+      {
+        id: "track-record",
+        label: "Track Record",
+        icon: "📈",
+        tooltip: {
+          eyebrow: "RECOMMENDATION OUTCOMES",
+          title: "Track Record",
+          description: "What happened to issued recommendations, from the outcome ledger — Unverified stays Unverified.",
+        },
+      },
+    );
     return assetTabs;
   }, []);
 
@@ -525,6 +596,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded, onPreviewTr
             onPreviewTrade={onPreviewTrade}
             onJobStateChange={onJobStateChange}
             onSendPrompt={onSendPrompt}
+            onOpenSchedules={() => setHubTab("schedules")}
           />
         </div>
       )}
@@ -981,6 +1053,31 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded, onPreviewTr
            screen over the unified #1096 stack, with backtest-on-screen. */
         <ErrorBoundary label="Goal Screen panel">
           <GoalScreenPanel activeEnv={activeEnv} userLogin={userLogin} />
+        </ErrorBoundary>
+      ) : hubTab === "reports" ? (
+        /* C2 (consolidation #1151, issue #1246): Reports hosted by the
+           hub — formerly a standalone nav entry / Trading Hub subtab. */
+        <ErrorBoundary label="Reports panel">
+          <ReportsPanel />
+        </ErrorBoundary>
+      ) : hubTab === "schedules" ? (
+        /* C2: Schedules hosted by the hub — the one scheduling entry
+           for screening; formerly a standalone nav entry. */
+        <ErrorBoundary label="Schedules panel">
+          <SchedulesPanel activeEnv={activeEnv} userLogin={userLogin} onPreviewTrade={onPreviewTrade} />
+        </ErrorBoundary>
+      ) : hubTab === "review" ? (
+        /* C2: the proposal review inbox — goal proposals, adaptation
+           candidates, and re-selection proposals, decided through the
+           existing governed endpoints. */
+        <ErrorBoundary label="Proposal Review panel">
+          <ScreeningReviewPanel userLogin={userLogin} />
+        </ErrorBoundary>
+      ) : hubTab === "track-record" ? (
+        /* C2: the recommendation track record over the outcome
+           ledger (distinct from the #340 research track record). */
+        <ErrorBoundary label="Track Record panel">
+          <ScreeningOutcomesPanel userLogin={userLogin} />
         </ErrorBoundary>
       ) : (
         <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>

@@ -37,6 +37,15 @@ export function isTabActive(itemTabId: NavTabId, currentTab: NavTabId): boolean 
   if (itemTabId === currentTab) return true;
   if ((itemTabId === "autopilot" || itemTabId === "trading") && (currentTab === "autopilot" || currentTab === "trading")) return true;
   if ((itemTabId === "order" || itemTabId === "orders") && (currentTab === "order" || currentTab === "orders")) return true;
+  // C2 (consolidation #1151, issue #1246): ONE screening nav entry —
+  // the legacy screening tab ids (deep links) all read as the
+  // Screening hub being active.
+  if (
+    itemTabId === "screeners" &&
+    (currentTab === "scanner" || currentTab === "options" || currentTab === "reports" || currentTab === "schedules")
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -422,53 +431,21 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
     icon: NavIcons.Options,
     description: "Options flows, dark pool prints, institutional sweeps, blocks, and insider disclosures",
   },
-  {
-    id: "options",
-    label: "Auto Options Research",
-    shortLabel: "Options",
-    category: "Execution",
-    badge: "AI",
-    badgeType: "ai",
-    icon: NavIcons.Bot,
-    description: "Auto options-screening engine, ranking, thesis configuration & comparison workflows",
-  },
-  {
-    id: "scanner",
-    label: "Strategy/Symbol Scanner",
-    shortLabel: "Scanner",
-    category: "Execution",
-    badge: "AI",
-    badgeType: "ai",
-    icon: NavIcons.Scanner,
-    description: "Best strategy for a name, or names that fit your strategy — across the full strategy catalog",
-  },
-
   // Intelligence (Market Scans, AI Copilot, Voice & Alerts)
   {
+    // C2 (consolidation #1151, issue #1246): ONE screening nav entry.
+    // The former Auto Options Research, Strategy/Symbol Scanner,
+    // Reports, and Schedules entries are gone — those surfaces are
+    // tabs of this hub, and their legacy tab ids still deep-link
+    // into it (they read as active on this entry via isTabActive).
     id: "screeners",
-    label: "Multi-Asset Screeners",
-    shortLabel: "Screeners",
+    label: "Screening",
+    shortLabel: "Screening",
     category: "Intelligence",
     badge: "Multi",
     badgeType: "pro",
     icon: NavIcons.Screeners,
-    description: "Screen equities, options, crypto, futures, and indices across connected market data providers",
-  },
-  {
-    id: "reports",
-    label: "Reports",
-    shortLabel: "Reports",
-    category: "Intelligence",
-    icon: NavIcons.Screeners,
-    description: "View and search persisted screener reports from scheduled and manual runs",
-  },
-  {
-    id: "schedules",
-    label: "Schedules",
-    shortLabel: "Schedules",
-    category: "Intelligence",
-    icon: NavIcons.Screeners,
-    description: "Manage automated screener schedules: view, pause, cancel, and create new",
+    description: "The one screening hub: stock + options screening, the strategy scanner, IV history, goal screens, reports, schedules, proposal review, and the recommendation track record",
   },
   {
     id: "research",

@@ -37,6 +37,7 @@ export interface ScreeningControlsView {
 export const SCREENING_ACTIVITY_KIND_LABELS: Record<string, string> = {
   discovery_run: "Discovery run",
   goal_screen: "Goal screen",
+  goal_decision: "Goal decision",
   bundle: "Recommendation bundle",
   reselection: "Strategy re-selection",
   weights_adjustment: "Weights adjustment",

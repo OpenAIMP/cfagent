@@ -19,6 +19,9 @@ export interface OptionsResearchHostProps {
   onPreviewTrade?: (ctx: TradeOrderContext) => void;
   onJobStateChange?: (state: "idle" | "running" | "ready") => void;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
+  /** C2 (consolidation #1151, issue #1246): switch to the hosting
+   *  hub's Schedules tab (threaded into OptionsResearchPanel). */
+  onOpenSchedules?: () => void;
 }
 
 export function OptionsResearchHost({
@@ -27,6 +30,7 @@ export function OptionsResearchHost({
   onPreviewTrade,
   onJobStateChange,
   onSendPrompt,
+  onOpenSchedules,
 }: OptionsResearchHostProps) {
   const [researchRunsView, setResearchRunsView] = useState<"symbol" | "runs">("symbol");
   return (
@@ -55,6 +59,7 @@ export function OptionsResearchHost({
           onPreviewTrade={onPreviewTrade}
           onJobStateChange={onJobStateChange}
           onSendPrompt={onSendPrompt}
+          onOpenSchedules={onOpenSchedules}
         />
       )}
     </>

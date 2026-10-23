@@ -66,6 +66,14 @@
  * /screening/goal-screen and POST /screening/backtest (in
  * handleScreenerResearchRoutes, after /screening/controls, last in
  * that handler) — bringing the pinned array to 197 entries.
+ * Issue #1246 (consolidation C2) added six more — GET
+ * /adaptation/candidates/approvals and GET
+ * /adaptation/candidates/verdicts (in handleScreenerResearchRoutes,
+ * after /adaptation/candidates/evaluations), and GET
+ * /screening/goals, POST /screening/goals/decide, GET
+ * /screening/reselection-proposals and GET /screening/outcomes (in
+ * handleScreenerResearchRoutes, after /screening/controls, before
+ * /screening/goal-screen) — bringing the pinned array to 203 entries.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -288,6 +296,8 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/generate\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/evaluate\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/evaluations\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/approvals\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/verdicts\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/approve\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/approve/decide\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/gate\")",
@@ -300,6 +310,10 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/screening/activity\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/controls\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/controls\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/goals\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/goals/decide\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/reselection-proposals\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/outcomes\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/backtest\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules\")",
