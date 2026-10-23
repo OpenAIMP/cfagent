@@ -14,7 +14,7 @@
  * back-references into the class.
  */
 
-import type { AgentName } from "../../types";
+import type { AgentName, AsyncJobSubmission } from "../../types";
 import type { SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
 import type { RunSummary } from "../../services/runSummaries";
@@ -96,6 +96,38 @@ export interface ReportsRouteContext {
   ): void;
   /** OrchestratorAgent.REPORT_CONFIRMATION_TTL_MS */
   reportConfirmationTtlMs(): number;
+}
+
+/**
+ * Issue #1170 (E3): the followup-delivery resubmission closure that
+ * used to be built inline in OrchestratorAgent.routeRequest's
+ * reports context now lives here with the routes it serves (the
+ * #992 extraction pattern — this is what keeps orchestrator.ts
+ * inside its size budget as new dispatch blocks land). Behaviour is
+ * identical to the inline closure: on a #277 approval it submits
+ * the held delivery as a followup.deliver job carrying the
+ * approved-confirmation marker, and reports success.
+ */
+export function makeSubmitFollowupDelivery(
+  submitAsyncJob: (job: AsyncJobSubmission) => Promise<unknown>
+): NonNullable<ReportsRouteContext["submitFollowupDelivery"]> {
+  return async (delivery, confirmationId) => {
+    await submitAsyncJob({
+      capability: "followup.deliver",
+      payload: {
+        outcome: delivery.outcome,
+        userLogin: delivery.userLogin,
+        channel: delivery.channel,
+        artifacts: delivery.artifacts,
+        approvedConfirmationId: confirmationId,
+      },
+      parentJobId: delivery.parentJobId,
+      jobKind: "delivery",
+      channel: delivery.channel,
+      displayName: delivery.displayName,
+    });
+    return true;
+  };
 }
 
 /**

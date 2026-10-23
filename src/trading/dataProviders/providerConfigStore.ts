@@ -229,6 +229,28 @@ export function setProviderEnabled(
 }
 
 /**
+ * Clear a provider's credential reference (E3, issue #1170). A
+ * dedicated UPDATE because upsertProviderConfig treats a null
+ * credentialRef as "keep existing" (its merge rule) — deprovision
+ * and an explicit configure-to-null need the reference actually
+ * gone: a tombstoned or re-provisioning record must not retain a
+ * pointer to a secret it no longer owns.
+ */
+export function clearProviderCredentialRef(
+  sql: SqlStorage,
+  id: DataProviderId
+): ProviderConfigRecord | null {
+  const existing = getProviderConfig(sql, id);
+  if (!existing) return null;
+  sql.exec(
+    `UPDATE ${PROVIDER_CONFIG_TABLE} SET credential_ref = NULL, updated_at = ? WHERE id = ?`,
+    new Date().toISOString(),
+    id
+  );
+  return getProviderConfig(sql, id);
+}
+
+/**
  * The five owner-set providers (epic #1116, decision comment
  * 6358627401) in owner precedence order. Lifecycle states reflect
  * reality at seed time: the four existing providers are "configured"
@@ -415,6 +437,43 @@ export function listCapabilityRoutes(sql: SqlStorage): CapabilityRouteRecord[] {
     sql.exec(`SELECT * FROM ${PROVIDER_ROUTING_TABLE} ORDER BY capability ASC`)
   ) as any[];
   return rows.map(routeFromRow);
+}
+
+/**
+ * Withdraw every routing assignment that names a provider (E3,
+ * issue #1170 — the deprovision side effect). Rows where the
+ * provider is the PRIMARY are deleted outright (the capability
+ * loses its routed assignment and resolution fails explicitly
+ * until an operator re-routes it); rows where the provider is
+ * only the declared GAP-FILL keep their primary and have the
+ * gap-fill slot cleared — withdrawing a supplementary provider
+ * must not take down the primary's route. Returns what was done
+ * so the lifecycle audit can report it.
+ */
+export function deleteCapabilityRoutesForProvider(
+  sql: SqlStorage,
+  providerId: DataProviderId
+): { deleted: number; gapFillCleared: number } {
+  ensureProviderRoutingTable(sql);
+  let deleted = 0;
+  let gapFillCleared = 0;
+  for (const route of listCapabilityRoutes(sql)) {
+    if (route.primaryProviderId === providerId) {
+      sql.exec(
+        `DELETE FROM ${PROVIDER_ROUTING_TABLE} WHERE capability = ?`,
+        route.capability
+      );
+      deleted++;
+    } else if (route.gapFillProviderId === providerId) {
+      upsertCapabilityRoute(sql, {
+        capability: route.capability,
+        primaryProviderId: route.primaryProviderId,
+        gapFillProviderId: null,
+      });
+      gapFillCleared++;
+    }
+  }
+  return { deleted, gapFillCleared };
 }
 
 /**

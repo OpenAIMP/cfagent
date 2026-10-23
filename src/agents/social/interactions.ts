@@ -211,9 +211,17 @@ export async function handleSocialSlackInteraction(
     };
   }
   const result = approved.channelResult;
+  // #1171: "posted" means really-posted, including in user-facing
+  // copy. A dry-run publish reports its synthetic dry-run: id, so
+  // the message says dry-run-posted rather than claiming a post
+  // went live. The prefix check is display-only, never a gate:
+  // only DryRunPublisher mints dry-run: ids.
+  const isDryRun = result?.platformPostId?.startsWith("dry-run:");
   const publishOutcome =
     result?.outcome === "posted"
-      ? `Published (draft now posted, ${result.platformPostId ?? "no post id"}).`
+      ? isDryRun
+        ? `Dry-run recorded (draft now dry-run-posted, ${result.platformPostId}).`
+        : `Published (draft now posted, ${result.platformPostId ?? "no post id"}).`
       : result?.outcome === "error"
         ? `Approved, but publish failed: ${result.reason ?? "unknown error"}. Catch-up will retry it.`
         : "Approved; publish outcome unknown — check the ledger.";
