@@ -231,10 +231,11 @@ describe("reportDispatch screener confirmations", () => {
     } as unknown as ReportDispatchContext;
   }
 
-  it("getReportDispatchHitl reads the setting (default off)", () => {
+  it("getReportDispatchHitl reads the setting (default ON since #1144; explicit '0' opts out)", () => {
     const inserted: unknown[][] = [];
-    expect(getReportDispatchHitl(dispatchCtx([], inserted))).toBe(false);
+    expect(getReportDispatchHitl(dispatchCtx([], inserted))).toBe(true);
     expect(getReportDispatchHitl(dispatchCtx([{ key: "report_dispatch_hitl", value: "1" }], inserted))).toBe(true);
+    expect(getReportDispatchHitl(dispatchCtx([{ key: "report_dispatch_hitl", value: "0" }], inserted))).toBe(false);
   });
 
   it("createReportConfirmation accepts the screener kind and stores the payload as pending", () => {

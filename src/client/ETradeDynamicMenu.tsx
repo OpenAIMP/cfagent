@@ -72,8 +72,9 @@ export interface SettingsMenuProps {
   autoRefreshEnabled?: boolean;
   autoRefreshInterval?: number;
   onToggleAutoRefresh?: (enabled: boolean, interval?: number) => void;
-  // Issue #277: optional HITL confirmation for research-report dispatch
-  // (POST /trading/reports/email|webhook). Default OFF = autonomous.
+  // Issue #277: HITL confirmation for research-report dispatch
+  // (POST /trading/reports/email|webhook). Default ON (#1144) = held
+  // for confirmation; the toggle opts out to autonomous dispatch.
   reportDispatchHitl?: boolean;
   onToggleReportDispatchHitl?: (enabled: boolean) => void;
   // Issue #277: pending report-dispatch confirmations for review.
