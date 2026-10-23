@@ -50,28 +50,13 @@
  */
 
 import type { AgentContext } from "agents";
-import { readOptionsRuns } from "../optionsRuns";
 import { ETradeService } from "../../services/etrade";
-import { recordStrategyCandidates } from "../../services/strategyReviews";
 import {
   DynamicOptionsScreener,
   recommendOptionStrategies,
   validateStrategyRequest,
-  SqlScanRunStore,
-  SqlDiscoveryRunStore,
-  diffScanRuns,
-  SqlIvHistoryStore,
-  UnifiedOptionsService,
-  SqlStrategyProfileStore,
-  flattenWatchlistSymbols,
-  getIvHistoryEntry,
-  resolveTrackedSymbols,
   validateStrategyProfile,
-  type StrategyProfileSpec,
-  generateSyntheticOptionChains,
   describeLlmInput,
-  rankCandidatesWithLlm,
-  buildCalibratedOptionChains,
   OptionsAgentPipeline,
   type RiskProfile,
   type StrategyScreenFilter,
@@ -86,13 +71,38 @@ import {
 } from "../../trading";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../../config/etapiConfig";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
-import { getCuratedStockUniverse } from "../../config/curatedStockUniverse";
 import { DEFAULT_AI_MODEL } from "../model";
 import type { Env, ETradeOptionChain, ETradeOptionExpireDate } from "../../types";
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
-import { getEventCalendarCoverage, getSymbolEventCalendar, toEventCalendarInfo } from "../../services/eventCalendar";
+import { getSymbolEventCalendar, toEventCalendarInfo } from "../../services/eventCalendar";
+import {
+  handleOptionsLatestRuns,
+  handleOptionsScansList,
+  handleOptionsScansDiff,
+  handleOptionsScanRunById,
+  handleOptionsDiscoveryRunsList,
+  handleOptionsDiscoveryRunById,
+  handleOptionsIvHistory,
+} from "./etradeOptionsRuns";
+import {
+  handleOptionsProfilesList,
+  handleOptionsProfilesCreate,
+  handleOptionsProfileGet,
+  handleOptionsProfileUpdate,
+  handleOptionsProfileDelete,
+  handleOptionsStrategyReviewsList,
+  handleOptionsStrategyReviewsDecide,
+} from "./etradeOptionsProfiles";
+import {
+  executeLlmIdeasEvaluation,
+  rankOptionsCompareCandidates,
+} from "./etradeOptionsEvaluate";
+import {
+  executeOptionsScreen,
+  executeUnifiedOptions,
+} from "./etradeOptionsScreen";
 
 /** The subset of OrchestratorAgent surface the E*TRADE options handlers need. */
 export interface EtradeOptionsRouteContext {
@@ -200,19 +210,7 @@ export async function handleEtradeOptionsRoutes(
     // runs in DO storage so the panel can render what actually ran.
     // server.ts strips the /api prefix, so the DO sees /options/latest.
     if (path.endsWith("/options/latest") && request.method === "GET") {
-      try {
-        const runs = await readOptionsRuns((ctx.agentCtx as { storage?: unknown } | undefined)?.storage);
-        return Response.json({
-          count: runs.length,
-          runs,
-          timestamp: new Date().toISOString(),
-        });
-      } catch (err: any) {
-        return Response.json(
-          { error: err?.message || "Failed to load options runs", runs: [] },
-          { status: 500 }
-        );
-      }
+      return handleOptionsLatestRuns(ctx);
     }
 
     // Real E*TRADE REST API: Option Chains
@@ -294,63 +292,16 @@ export async function handleEtradeOptionsRoutes(
     // diffed run-over-run. Declared in list → diff → by-id order: the
     // diff route must win over the by-id pattern below.
     if (path.endsWith("/etrade/options/scans") && request.method === "GET") {
-      try {
-        const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 25;
-        const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
-        // Issue #103: history is scoped per user, like profiles —
-        // runs the caller saved are theirs; legacy runs saved before
-        // scoping (no user_login) remain visible to everyone.
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlScanRunStore(sql);
-        const scans = await store.list({ limit, offset, userLogin });
-        return Response.json({ count: scans.length, scans });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to list scan runs" }, { status: 500 });
-      }
+      return handleOptionsScansList(request, url, sessionId, sql);
     }
 
     if (path.endsWith("/etrade/options/scans/diff") && request.method === "GET") {
-      try {
-        const fromId = url.searchParams.get("from") || "";
-        const toId = url.searchParams.get("to") || "";
-        if (!fromId || !toId) {
-          return Response.json({ error: "from and to scan run ids are required" }, { status: 400 });
-        }
-        // Issue #103: both runs must be visible to the caller — an
-        // invisible run produces the same 404 as a missing one, so a
-        // diff can never leak another user's run (or its existence).
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlScanRunStore(sql);
-        const from = await store.get(fromId, { userLogin });
-        const to = await store.get(toId, { userLogin });
-        if (!from || !to) {
-          return Response.json({ error: "scan run not found" }, { status: 404 });
-        }
-        return Response.json({
-          from: { id: from.id, generatedAt: from.generatedAt },
-          to: { id: to.id, generatedAt: to.generatedAt },
-          diff: diffScanRuns(from.result, to.result),
-        });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to diff scan runs" }, { status: 500 });
-      }
+      return handleOptionsScansDiff(request, url, sessionId, sql);
     }
 
     const scanRunIdMatch = path.match(/\/etrade\/options\/scans\/([^/]+)$/);
     if (scanRunIdMatch && request.method === "GET") {
-      try {
-        // Issue #103: scoped like the list — another user's run is
-        // indistinguishable from a pruned one (same 404).
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlScanRunStore(sql);
-        const run = await store.get(decodeURIComponent(scanRunIdMatch[1]), { userLogin });
-        if (!run) {
-          return Response.json({ error: "scan run not found" }, { status: 404 });
-        }
-        return Response.json(run);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch scan run" }, { status: 500 });
-      }
+      return handleOptionsScanRunById(request, sessionId, sql, scanRunIdMatch);
     }
 
     // Persisted scheduled-discovery runs (issue #126, PR-E): executions
@@ -359,33 +310,12 @@ export async function handleEtradeOptionsRoutes(
     // requests, and per-symbol outcomes. Scoped per user exactly like
     // the scan runs above (issue #103 rule, enforced by the store).
     if (path.endsWith("/etrade/options/discovery-runs") && request.method === "GET") {
-      try {
-        const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 25;
-        const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlDiscoveryRunStore(sql);
-        const runs = await store.list({ limit, offset, userLogin });
-        return Response.json({ count: runs.length, runs });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to list discovery runs" }, { status: 500 });
-      }
+      return handleOptionsDiscoveryRunsList(request, url, sessionId, sql);
     }
 
     const discoveryRunIdMatch = path.match(/\/etrade\/options\/discovery-runs\/([^/]+)$/);
     if (discoveryRunIdMatch && request.method === "GET") {
-      try {
-        // Issue #103: scoped like the list — another user's run is
-        // indistinguishable from a pruned one (same 404).
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlDiscoveryRunStore(sql);
-        const run = await store.get(decodeURIComponent(discoveryRunIdMatch[1]), { userLogin });
-        if (!run) {
-          return Response.json({ error: "discovery run not found" }, { status: 404 });
-        }
-        return Response.json(run);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch discovery run" }, { status: 500 });
-      }
+      return handleOptionsDiscoveryRunById(request, sessionId, sql, discoveryRunIdMatch);
     }
 
     // IV history (issue #15): the daily collector's stored series,
@@ -396,45 +326,7 @@ export async function handleEtradeOptionsRoutes(
     // returns the per-name coverage summary for every tracked name
     // (curated ∪ watchlists) plus any name that has records.
     if (path.endsWith("/etrade/options/iv-history") && request.method === "GET") {
-      try {
-        const store = new SqlIvHistoryStore(sql);
-        const symbolParam = url.searchParams.get("symbol");
-        if (symbolParam) {
-          const entry = await getIvHistoryEntry(store, symbolParam);
-          // ?series=true includes the full time series for charting.
-          if (url.searchParams.get("series") === "true") {
-            const series = await store.listSeries(symbolParam.toUpperCase(), { limit: 365 });
-            return Response.json({
-              ...entry,
-              series: series.reverse().map((r) => ({
-                date: r.date,
-                atmIv: r.atmIv,
-                spot: r.spot,
-              })),
-            });
-          }
-          return Response.json(entry);
-        }
-        let watchlistSymbols: string[] = [];
-        try {
-          watchlistSymbols = flattenWatchlistSymbols(ctx.getOrm().watchlists.findMany({}));
-        } catch {
-          // Watchlist read failure → curated universe only.
-        }
-        const tracked = resolveTrackedSymbols(
-          getCuratedStockUniverse().map((s) => s.symbol),
-          watchlistSymbols
-        );
-        const recorded = await store.listSymbols();
-        const names = [...new Set([...tracked, ...recorded])].sort();
-        const entries = [];
-        for (const symbol of names) {
-          entries.push(await getIvHistoryEntry(store, symbol));
-        }
-        return Response.json({ count: entries.length, names: entries });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch IV history" }, { status: 500 });
-      }
+      return handleOptionsIvHistory(url, ctx, sql);
     }
 
     // Saved strategy profiles (issue #28): named, versioned "my
@@ -445,93 +337,22 @@ export async function handleEtradeOptionsRoutes(
     // per-user name uniqueness. The profiles UI panel is issue #84's
     // surface — these routes are the API it will consume.
     if (path.endsWith("/etrade/options/profiles") && request.method === "GET") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlStrategyProfileStore(sql);
-        const profiles = await store.list(userLogin);
-        return Response.json({ count: profiles.length, profiles });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to list strategy profiles" }, { status: 500 });
-      }
+      return handleOptionsProfilesList(request, sessionId, sql);
     }
 
     if (path.endsWith("/etrade/options/profiles") && request.method === "POST") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-        const { name, ...spec } = body;
-        const profileName = typeof name === "string" ? name : "";
-        const validationError = validateStrategyProfile(profileName, spec as StrategyProfileSpec);
-        if (validationError) {
-          return Response.json({ error: validationError }, { status: 400 });
-        }
-        const store = new SqlStrategyProfileStore(sql);
-        try {
-          const profile = await store.create(userLogin, profileName, spec as StrategyProfileSpec);
-          return Response.json(profile, { status: 201 });
-        } catch (err) {
-          return Response.json({ error: err instanceof Error ? err.message : "Failed to create strategy profile" }, { status: 400 });
-        }
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to create strategy profile" }, { status: 500 });
-      }
+      return handleOptionsProfilesCreate(request, sessionId, sql);
     }
 
     const profileIdMatch = path.match(/\/etrade\/options\/profiles\/([^/]+)$/);
     if (profileIdMatch && request.method === "GET") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlStrategyProfileStore(sql);
-        const profile = await store.get(userLogin, decodeURIComponent(profileIdMatch[1]));
-        if (!profile) {
-          return Response.json({ error: "profile not found" }, { status: 404 });
-        }
-        return Response.json(profile);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch strategy profile" }, { status: 500 });
-      }
+      return handleOptionsProfileGet(request, sessionId, sql, profileIdMatch);
     }
-
     if (profileIdMatch && request.method === "PUT") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlStrategyProfileStore(sql);
-        const existing = await store.get(userLogin, decodeURIComponent(profileIdMatch[1]));
-        if (!existing) {
-          return Response.json({ error: "profile not found" }, { status: 404 });
-        }
-        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-        const { name, ...spec } = body;
-        // The body name wins when present; otherwise the profile keeps
-        // its current name (validation runs against the effective one).
-        const profileName = typeof name === "string" ? name : existing.name;
-        const validationError = validateStrategyProfile(profileName, spec as StrategyProfileSpec);
-        if (validationError) {
-          return Response.json({ error: validationError }, { status: 400 });
-        }
-        try {
-          const updated = await store.update(userLogin, existing.id, spec as StrategyProfileSpec, typeof name === "string" ? name : undefined);
-          return Response.json(updated);
-        } catch (err) {
-          return Response.json({ error: err instanceof Error ? err.message : "Failed to update strategy profile" }, { status: 400 });
-        }
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to update strategy profile" }, { status: 500 });
-      }
+      return handleOptionsProfileUpdate(request, sessionId, sql, profileIdMatch);
     }
-
     if (profileIdMatch && request.method === "DELETE") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlStrategyProfileStore(sql);
-        const deleted = await store.delete(userLogin, decodeURIComponent(profileIdMatch[1]));
-        if (!deleted) {
-          return Response.json({ error: "profile not found" }, { status: 404 });
-        }
-        return Response.json({ deleted: true });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to delete strategy profile" }, { status: 500 });
-      }
+      return handleOptionsProfileDelete(request, sessionId, sql, profileIdMatch);
     }
 
     // ==========================================
@@ -549,276 +370,19 @@ export async function handleEtradeOptionsRoutes(
         return Response.json({ error: "Provide a natural-language question up to 4,000 characters." }, { status: 400 });
       }
 
-      let retrievedExpirations: ETradeOptionExpireDate[] = [];
       const retrievedChains: ETradeOptionChain[] = [];
-      let usedSyntheticChains = false;
+      const state: { retrievedExpirations: ETradeOptionExpireDate[]; usedSyntheticChains: boolean } = {
+        retrievedExpirations: [],
+        usedSyntheticChains: false,
+      };
       const orm = ctx.getOrm();
       const cached = !forceRefresh ? orm.getOptionsChain(symbol) : null;
 
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(orm, ctx.env, userLogin, ctx.requestedEnv);
-
-        if (cached && cached.expirations.length > 0 && cached.chains.length > 0) {
-          retrievedExpirations = cached.expirations;
-          for (const c of cached.chains) {
-            retrievedChains.push(c);
-          }
-        } else {
-          let expirations = await etrade.client.getOptionExpireDates(symbol);
-          if (expirations.length === 0) {
-            // Fall back to unscoped option chain request if expiration calendar endpoint was empty
-            const fallbackChain = await etrade.client.getOptionChains({
-              symbol,
-              includeWeekly: true,
-              chainType: "CALLPUT",
-              includeRawResponse: true,
-            }).catch(() => null);
-            if (fallbackChain && fallbackChain.selectedExpiry && fallbackChain.pairs.length > 0) {
-              expirations = [fallbackChain.selectedExpiry];
-              retrievedChains.push(fallbackChain);
-            }
-          }
-
-          if (expirations.length > 0 && retrievedChains.length === 0) {
-            retrievedExpirations = expirations;
-
-            // Target up to 18 most active expirations across near, mid, and long term to prevent unconstrained latency
-            const targetExpirations = expirations.length > 18
-              ? [...expirations.slice(0, 10), ...expirations.slice(10, 16), ...expirations.slice(-2)]
-              : expirations;
-
-            // Fetch option chains with concurrency chunking (4 parallel requests at a time)
-            const chunkSize = 4;
-            for (let i = 0; i < targetExpirations.length; i += chunkSize) {
-              const chunk = targetExpirations.slice(i, i + chunkSize);
-              const chunkChains = await Promise.all(
-                chunk.map((expiry) =>
-                  etrade.client.getOptionChains({
-                    symbol,
-                    expiryYear: expiry.year,
-                    expiryMonth: expiry.month,
-                    expiryDay: expiry.day,
-                    includeWeekly: true,
-                    chainType: "CALLPUT",
-                    includeRawResponse: true,
-                  })
-                )
-              );
-              for (const chain of chunkChains) {
-                if (chain) retrievedChains.push(chain);
-              }
-            }
-          } else if (expirations.length > 0) {
-            retrievedExpirations = expirations;
-          }
-
-          if (retrievedChains.length > 0) {
-            // Persist into durable SQLite table (10-minute TTL)
-            orm.setOptionsChain(symbol, retrievedExpirations, retrievedChains, 600);
-          }
-        }
-
-        let contractCount = retrievedChains.reduce(
-          (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
-          0,
-        );
-
-        if (contractCount === 0) {
-          const isTestEnv = ctx.requestedEnv === "TEST" || !etrade.client.getEnvConfig().isLive;
-          if (isTestEnv) {
-            usedSyntheticChains = true;
-            const synthetic = generateSyntheticOptionChains(symbol);
-            retrievedExpirations = synthetic.expirations;
-            retrievedChains.length = 0;
-            for (const sc of synthetic.chains) {
-              retrievedChains.push(sc);
-            }
-            contractCount = retrievedChains.reduce(
-              (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
-              0,
-            );
-          } else {
-            throw new Error(etrade.client.lastError || `E*TRADE returned no option contracts for ${symbol} in PROD environment; no LLM request was sent.`);
-          }
-        }
-
-        if (contractCount === 0) {
-          throw new Error(`E*TRADE returned no option contracts for ${symbol}; no LLM request was sent.`);
-        }
-
-        const rawData = {
-          symbol,
-          question,
-          // Provenance (issue #29): synthetic chains are TEST-only and must never be
-          // indistinguishable from live E*TRADE chains downstream.
-          dataSource: usedSyntheticChains ? "synthetic option chains (TEST environment)" : "E*TRADE option chains",
-          expirations: retrievedExpirations,
-          optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
-        };
-        // Issue #47 (follow-up to #29): this endpoint no longer runs the
-        // llm_ideas map-reduce (horizon groups over raw chains, existence-only
-        // verification, no risk constraints). Following the compare pattern —
-        // and the unified service's llm_ideas disposition in slice 4 — the
-        // quant pipeline runs first and the LLM evaluates its verified
-        // candidates, never overwriting the quant ranking. The response keeps
-        // the panel's shape: a single "pipeline" group carries the evaluation
-        // so rendering, exports, and provenance badges keep working.
-        const spot = retrievedChains.find((chain) => Number.isFinite(chain.underlyingPrice) && chain.underlyingPrice > 0)?.underlyingPrice ?? 100;
-        const questionLower = question.toLowerCase();
-        const thesis: StrategyRequest["thesis"] = /bear|downside|\bshort\b/.test(questionLower)
-          ? "bearish"
-          : /range|sideways|neutral|income|theta/.test(questionLower)
-            ? "range_bound"
-            : /volatil|big move|large move|breakout/.test(questionLower)
-              ? "large_move"
-              : "bullish";
-        const strategyRequest: StrategyRequest = {
-          symbol,
-          thesis,
-          targetPrice: Math.round(spot * (thesis === "bullish" ? 1.05 : thesis === "bearish" ? 0.95 : 1) * 100) / 100,
-          targetDate: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
-          expectedIvDirection: "unchanged",
-          maxPlannedLoss: 100000,
-          minRewardRisk: 0,
-          allowedStrategies: ["all"],
-        };
-        const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
-        const pipelineResult = await pipeline.run(strategyRequest, { riskProfile: "balanced" });
-        const topRanked = pipelineResult.ranked.slice(0, 10);
-        const candidates = topRanked.map((r) => r.candidate);
-        let llmJudgment: Awaited<ReturnType<typeof rankCandidatesWithLlm>> | null = null;
-        let llmError: string | null = null;
-        if (candidates.length > 0) {
-          try {
-            // Issue #707: inject recent human review decisions as ranking context.
-            let humanFeedback: string | undefined;
-            try {
-              const { listStrategyReviews } = await import("../../services/strategyReviews");
-              const { buildHumanFeedbackContext, buildReflectionFeedbackContext } = await import("../../trading");
-              const { getActiveLearnings } = await import("../../services/learnings");
-              const recent = listStrategyReviews(ctx.getOrm()).slice(0, 20);
-              humanFeedback = buildHumanFeedbackContext(recent) || undefined;
-              // Issue #775: append reflection adjustments so the Act step acts.
-              try {
-                const learnings = getActiveLearnings(ctx.getOrm() as any, "screener");
-                const reflectionCtx = buildReflectionFeedbackContext(
-                  learnings.map((l) => ({ observation: l.observation, confidence: l.confidence }))
-                );
-                if (reflectionCtx) {
-                  humanFeedback = humanFeedback
-                    ? `${humanFeedback}\n\n${reflectionCtx}`
-                    : reflectionCtx;
-                  console.log(`[Options] Ranking with reflection adjustments (${learnings.length} learnings)`);
-                }
-              } catch {}
-              if (humanFeedback) {
-                console.log(`[Options] Ranking with human feedback context (${recent.length} recent decisions)`);
-              }
-            } catch {}
-            llmJudgment = await rankCandidatesWithLlm(ctx.env, strategyRequest, "balanced", pipelineResult.snapshot.contracts, candidates, humanFeedback);
-          } catch (err) {
-            llmError = err instanceof Error ? err.message : "LLM evaluation failed.";
-          }
-        }
-        const llmStatus = llmJudgment ? "complete" as const : "error" as const;
-        const llmModel = llmJudgment?.model || ctx.env.AI_MODEL || DEFAULT_AI_MODEL;
-        const llmErrorText = llmError ?? "The quant pipeline produced no candidates for this symbol.";
-        const rationaleByCandidate = new Map((llmJudgment?.ranked ?? []).map((judgment) => [judgment.candidateId, judgment.rationale]));
-        const answer = llmJudgment
-          ? llmJudgment.ranked.slice(0, 3).map((judgment, idx) => {
-              const candidate = candidates.find((c) => c.id === judgment.candidateId);
-              return `${idx + 1}. ${candidate ? candidate.label : judgment.candidateId} — ${judgment.rationale}`;
-            }).join("\n")
-          : llmErrorText;
-        const candidateContractSymbols = [...new Set(candidates.flatMap((c) => c.legs.map((leg) => leg.symbol)))];
-        const groupResults = [{
-          id: "pipeline",
-          label: "Quant pipeline candidates",
-          status: llmStatus,
-          model: llmModel,
-          answer,
-          error: llmStatus === "error" ? llmErrorText : undefined,
-          contractSymbols: candidateContractSymbols,
-          contractWarnings: [] as string[],
-          contractDetails: [] as unknown[],
-          expirationCount: retrievedExpirations.length,
-          contractCount,
-          sentContractCount: candidates.length,
-          estimatedInputTokens: 0,
-          inputTruncated: false,
-        }];
-        const finalAnalysis = {
-          status: llmStatus,
-          model: llmModel,
-          answer: llmStatus === "complete" ? answer : undefined,
-          error: llmStatus === "error" ? llmErrorText : undefined,
-          rankings: topRanked.map((r, idx) => ({
-            rank: idx + 1,
-            groupId: "pipeline",
-            strategy: r.candidate.label,
-            rationale: rationaleByCandidate.get(r.candidate.id) ?? "",
-          })),
-          systemPrompt: "",
-          userPrompt: question,
-          isFallback: false,
-        };
-        const llmInputExport = {
-          id: "pipeline",
-          label: "Quant pipeline candidates",
-          symbol,
-          question,
-          expirations: retrievedExpirations,
-          optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
-          systemPrompt: "Quant pipeline candidate evaluation (issue #47): the LLM evaluates verified candidates; it does not generate strategies.",
-          userPrompt: question,
-          selection: { contractCount, candidateCount: candidates.length },
-          groupInputs: [] as unknown[],
-          finalRanking: { systemPrompt: "", userPrompt: question },
-        };
-        // Issue #653: record candidates for the review UI (best-effort).
-        try {
-          recordStrategyCandidates(ctx.getOrm(), symbol, topRanked.map((r, idx) => ({
-            id: r.candidate.id,
-            label: r.candidate.label,
-            rank: idx + 1,
-            rationale: rationaleByCandidate.get(r.candidate.id) ?? "",
-            quantStatus: "verified",
-          })));
-        } catch {}
-        const dataCoverage = {
-          expirationCount: retrievedExpirations.length,
-          chainCount: retrievedChains.length,
-          contractCount,
-          sentContractCount: contractCount,
-          estimatedInputTokens: 0,
-          inputTruncated: false,
-          cached: Boolean(cached),
-          fetchedAt: cached?.fetchedAt || Date.now(),
-        };
-        return Response.json({
-          mode: "llm_evaluation_of_quant_candidates",
-          isSynthetic: usedSyntheticChains,
-          notice: usedSyntheticChains
-            ? "Synthetic option chains preview (TEST environment). Not verified live market data."
-            : "Quant-verified candidates evaluated by the LLM (compare pattern, issue #47); the quant pipeline's ranking stands.",
-          llm: {
-            status: llmStatus,
-            model: llmModel,
-            answer: llmStatus === "complete" ? answer : undefined,
-            error: llmStatus === "error" ? llmErrorText : undefined,
-            contractSymbols: candidateContractSymbols,
-          },
-          quant: {
-            ranked: topRanked,
-            scoreWeights: pipelineResult.strategies.scoreWeights,
-            candidateCount: candidates.length,
-          },
-          groups: groupResults,
-          finalAnalysis,
-          llmInput: llmInputExport,
-          retrievedData: rawData,
-          dataCoverage,
+        return await executeLlmIdeasEvaluation({
+          ctx, orm, etrade, userLogin, symbol, question, cached, retrievedChains, state,
         });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Failed to retrieve complete E*TRADE option data.";
@@ -831,7 +395,7 @@ export async function handleEtradeOptionsRoutes(
           label: "All Expirations",
           symbol,
           question,
-          expirations: retrievedExpirations,
+          expirations: state.retrievedExpirations,
           optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
           systemPrompt: "Normalized options contract dataset",
           userPrompt: question,
@@ -849,12 +413,12 @@ export async function handleEtradeOptionsRoutes(
           retrievedData: {
             symbol,
             question,
-            dataSource: usedSyntheticChains ? "synthetic option chains (TEST environment)" : "E*TRADE option chains",
-            expirations: retrievedExpirations,
+            dataSource: state.usedSyntheticChains ? "synthetic option chains (TEST environment)" : "E*TRADE option chains",
+            expirations: state.retrievedExpirations,
             optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
           },
           dataCoverage: {
-            expirationCount: retrievedExpirations.length,
+            expirationCount: state.retrievedExpirations.length,
             chainCount: retrievedChains.length,
             contractCount: failedContractCount,
             sentContractCount: 0,
@@ -903,41 +467,7 @@ export async function handleEtradeOptionsRoutes(
         };
 
         if (path.endsWith("/trading/options/compare")) {
-          const candidates = result.ranked.slice(0, 20);
-          try {
-            const llm = await rankCandidatesWithLlm(
-              ctx.env,
-              strategyRequest,
-              body.riskProfile || "balanced",
-              result.snapshot.contracts,
-              candidates.map((ranked) => ranked.candidate),
-            );
-            return Response.json({
-              mode: "same_candidate_ranking",
-              quant: {
-                ranked: candidates,
-                scoreWeights: result.strategies.scoreWeights,
-                candidateCount: candidates.length,
-              },
-              llm: { status: "complete", ...llm },
-              ...common,
-            });
-          } catch (err) {
-            return Response.json({
-              mode: "same_candidate_ranking",
-              quant: {
-                ranked: candidates,
-                scoreWeights: result.strategies.scoreWeights,
-                candidateCount: candidates.length,
-              },
-              llm: {
-                status: "error",
-                model: ctx.env.AI_MODEL || DEFAULT_AI_MODEL,
-                error: err instanceof Error ? err.message : "LLM ranking failed.",
-              },
-              ...common,
-            });
-          }
+          return rankOptionsCompareCandidates(ctx, strategyRequest, body, result, common);
         }
 
       } catch (err) {
@@ -1089,111 +619,7 @@ export async function handleEtradeOptionsRoutes(
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const screener = new DynamicOptionsScreener(etrade.client);
-        let result = await screener.screenOptions(screenFilter);
-
-        // Demo-mode fallback (issue #65): generated chains may substitute for an
-        // empty live screen ONLY in dev/demo deployments with the gate enabled,
-        // and the result is stamped dataSource "calibrated-demo". Production is
-        // live-only: an empty live screen returns empty, with its fetch errors.
-        if (result.contracts.length === 0 && isDemoCalibratedChainsEnabled() && screenFilter.underlyingSymbols && screenFilter.underlyingSymbols.length > 0 && screenFilter.underlyingSymbols[0] !== "BROKEN") {
-          const fallbackChains = buildCalibratedOptionChains(screenFilter.underlyingSymbols, screenFilter.minDte ?? 0, screenFilter.maxDte ?? 90);
-          if (fallbackChains.length > 0) {
-            const chainItems = fallbackChains.map((c) => ({ symbol: c.symbol, chain: c }));
-            const fallbackResult = screener.evaluateChains(chainItems, screenFilter, screenFilter.underlyingSymbols.length, {
-              warnings: ["Calibrated demo chains — generated data for development/demo, not live market data."],
-            });
-            if (fallbackResult.contracts.length > 0) {
-              fallbackResult.dataSource = "calibrated-demo";
-              result = fallbackResult;
-            }
-          }
-        }
-        if (result.dataSource === undefined) result.dataSource = "live";
-
-        // Issue #294/#421/#423/#424 (PR #432): manual screens honor pushToSlack
-        // — PDF generated, stored per-run, delivered via the Slack A2A path
-        // with a reportUrl; failures notify too.
-        // Issue #1023 (S4): generation goes through the ONE unified report
-        // pipeline (delegates to ReportAssetAgent per #680/#914) — the same
-        // idiom as the scheduled path in ScheduledTasksService. There is no
-        // direct-generator fallback: on pipeline failure the run continues
-        // with no pdfKey/reportUrl, exactly as a scheduled failure surfaces.
-        let optionsReportUrl: string | undefined;
-        let optionsPdfKey: string | undefined;
-        let pdfBytes: Uint8Array | undefined;
-        let fileName: string | undefined;
-
-        try {
-          const { runReportPipeline } = await import("../../services/unifiedReportPipeline");
-          const pipelineResult = await runReportPipeline(
-            ctx.env as any,
-            null as any, // Storage handled by ReportAssetAgent internally
-            {
-              type: "options",
-              trigger: "manual",
-              result,
-              userLogin,
-              title: `Options contract screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}`,
-              summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
-              timestamp: new Date().toISOString(),
-            }
-          );
-          if (pipelineResult.pdfStatus === "generated") {
-            optionsPdfKey = pipelineResult.pdfKey;
-            // Fetch the bytes for Slack delivery (same seam the scheduled
-            // path uses: ScreenerAgent storage first, ReportAssetAgent
-            // fallback inside getPdfByKey).
-            const screenerAgent = ctx.getScreenerAgent(userLogin);
-            const pdfData = await screenerAgent.getPdfByKey(optionsPdfKey);
-            if (pdfData) {
-              pdfBytes = pdfData.bytes;
-              fileName = pdfData.fileName;
-            }
-            optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`;
-          } else {
-            console.warn("[Orchestrator] Manual options contract PDF generation failed:", pipelineResult.pdfError);
-          }
-        } catch (pdfErr) {
-          console.warn("[Orchestrator] Manual options contract PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
-        }
-
-        // Deliver over A2A to Slack channel unless caller explicitly opted out
-        const shouldNotifySlack = screenPushToSlack !== false;
-        if (shouldNotifySlack) {
-          const slackChannel = screenSlackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
-          const summary = `📊 Options Contract Screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;
-          try {
-            const sent = await deliverScreenerToSlackA2A(ctx.env, {
-              text: summary,
-              channel: slackChannel,
-              ...(pdfBytes && fileName ? {
-                pdf: {
-                  bytes: pdfBytes,
-                  fileName,
-                  title: `Options Contract Screen — ${new Date().toISOString().slice(0, 10)}`,
-                  comment: `📄 Options contract screener PDF\n\n${summary}`,
-                },
-              } : {}),
-            });
-            if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract PDF delivery failed:", sent.error);
-          } catch (slackErr) {
-            console.warn("[Orchestrator] Slack A2A options delivery error:", slackErr instanceof Error ? slackErr.message : String(slackErr));
-          }
-        }
-
-        const generatedAt = new Date().toISOString();
-        const generationId = `options_scanner:manual:${generatedAt}`;
-        ctx.getOrm().storeCanonicalReport({
-          runId: generationId,
-          generationId,
-          title: `Options contract screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}`,
-          source: "options_scanner",
-          summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
-          body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl },
-          createdAt: generatedAt,
-        });
-
-        return Response.json({ ...result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl });
+        return await executeOptionsScreen({ ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Options screening failed";
         if (filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1") {
@@ -1242,130 +668,7 @@ export async function handleEtradeOptionsRoutes(
           ...(parsedUnified.value.slackChannel !== undefined ? { slackChannel: parsedUnified.value.slackChannel } : {}),
         };
 
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const service = new UnifiedOptionsService(ctx.env, userLogin, ctx.requestedEnv, ctx.getOrm(), new SqlScanRunStore(ctx.agentCtx.storage.sql), new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), ctx.agentCtx.storage.sql);
-        // Issue #16: event calendars are server-side facts — strip any
-        // client-supplied calendar, then fetch coverage for the
-        // actions that run the strategy engine. The calendar service
-        // never throws; uncovered names stay unverified.
-        delete reqData.eventCalendarBySymbol;
-        delete reqData.eventCalendar;
-        if (reqData.action === "opportunities" || reqData.action === "strategies" || reqData.action === "best_trade" || reqData.action === "compare" || reqData.action === "llm_ideas" || reqData.action === "llm_evaluate") {
-          const calSymbols = reqData.action === "opportunities"
-            ? (Array.isArray(reqData.symbols) && reqData.symbols.length > 0 ? reqData.symbols : (reqData.symbol ? [reqData.symbol] : []))
-            : [reqData.symbol || (reqData.action === "llm_ideas" || reqData.action === "llm_evaluate" ? "NVDA" : "SPY")];
-          if (calSymbols.length > 0) {
-            const calendarCoverage = await getEventCalendarCoverage(calSymbols);
-            reqData.eventCalendarBySymbol = Object.fromEntries(
-              Array.from(calendarCoverage.bySymbol, ([sym, cal]) => [sym, toEventCalendarInfo(cal)])
-            );
-          }
-        }
-        const result = await service.execute(reqData);
-
-        let reportUrl: string | undefined;
-        let pdfKey: string | undefined;
-        let scannerPdfBytes: Uint8Array | undefined;
-        let scannerPdfFileName: string | undefined;
-
-        if (reqData.action === "opportunities" && result.success) {
-          const timestamp = new Date().toISOString();
-          // Issue #1023 (S4): the ONE unified report pipeline (delegates
-          // to ReportAssetAgent per #680/#914), same idiom as the
-          // scheduled path in ScheduledTasksService — no direct-generator
-          // fallback; on failure pdfKey/reportUrl stay undefined.
-          try {
-            const { runReportPipeline } = await import("../../services/unifiedReportPipeline");
-            const pipelineResult = await runReportPipeline(
-              ctx.env as any,
-              null as any, // Storage handled by ReportAssetAgent internally
-              {
-                type: "options",
-                trigger: "manual",
-                result: result.data,
-                userLogin,
-                title: `Options scanner — ${reqData.thesis || "mixed"} (${timestamp.slice(0, 10)})`,
-                summary: result.summary,
-                timestamp,
-              }
-            );
-            if (pipelineResult.pdfStatus === "generated") {
-              pdfKey = pipelineResult.pdfKey;
-              const screenerAgent = ctx.getScreenerAgent(userLogin);
-              const pdfData = await screenerAgent.getPdfByKey(pdfKey);
-              if (pdfData) {
-                scannerPdfBytes = pdfData.bytes;
-                scannerPdfFileName = pdfData.fileName;
-              }
-              reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
-            } else {
-              console.warn("[Orchestrator] Manual options PDF generation failed:", pipelineResult.pdfError);
-            }
-          } catch (pdfErr) {
-            console.warn("[Orchestrator] Manual options PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
-          }
-
-          const shouldNotifySlack = reqData.pushToSlack !== false && reqData.pushToSlack !== "false";
-          if (shouldNotifySlack) {
-            const slackChannel = reqData.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
-            try {
-              const slackPayload = result.toSlack();
-              const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
-              const matchCount = result.data?.opportunities?.length ?? result.data?.matchedCount ?? 0;
-              const sent = await deliverScreenerToSlackA2A(ctx.env, {
-                text,
-                channel: slackChannel,
-                ...(scannerPdfBytes && scannerPdfFileName ? {
-                  pdf: {
-                    bytes: scannerPdfBytes,
-                    fileName: scannerPdfFileName,
-                    title: `Options Scanner Report — manual ${timestamp.slice(0, 10)}`,
-                    comment: `📄 Manual options scan PDF — ${matchCount} matches\n\n${text}`,
-                  },
-                } : {}),
-              });
-              if (!sent.ok) console.warn("[Orchestrator] Slack A2A PDF delivery (manual options) failed:", sent.error);
-            } catch (slackErr) {
-              console.warn("[Orchestrator] Slack notification (manual options) error:", slackErr instanceof Error ? slackErr.message : String(slackErr));
-            }
-          }
-
-          const generatedAt = timestamp;
-          const generationId = `options_scanner:${generatedAt}:${reqData.thesis || "mixed"}`;
-          ctx.getOrm().storeCanonicalReport({
-            runId: generationId,
-            generationId,
-            title: `Options scanner — ${reqData.thesis || "mixed"} (${generatedAt.slice(0, 10)})`,
-            source: "options_scanner",
-            summary: result.summary,
-            body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, reportUrl },
-            createdAt: generatedAt,
-          });
-        } else if (!result.success && reqData.pushToSlack !== false && reqData.pushToSlack !== "false") {
-          const slackChannel = reqData.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
-          const slackPayload = result.toSlack();
-          const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
-          const sent = await deliverScreenerToSlackA2A(ctx.env, { text, channel: slackChannel });
-          if (!sent.ok) console.warn("[Orchestrator] Slack A2A notification (manual options failed) error:", sent.error);
-        }
-
-        const channel = reqData.channel || "ui";
-        if (channel === "slack") {
-          return Response.json(result.toSlack());
-        }
-        if (channel === "email") {
-          return Response.json({ html: result.toEmailHtml(), text: result.toEmailText(), summary: result.summary });
-        }
-        if (channel === "voice") {
-          return Response.json(result.toVoice());
-        }
-        if (channel === "webhook") {
-          return Response.json({ ...result.toWebhook(), reportUrl });
-        }
-        if (channel === "mcp") {
-          return Response.json(result.toMcp());
-        }
-        return Response.json({ ...result.toUi(), reportUrl });
+        return await executeUnifiedOptions({ request, sessionId, ctx, reqData });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Unified options query failed" }, { status: 500 });
       }
@@ -1400,27 +703,10 @@ export async function handleEtradeOptionsRoutes(
 
     // Issue #653: strategy candidate review endpoints.
     if (path.endsWith("/options/strategy-reviews") && request.method === "GET") {
-      try {
-        const { listStrategyReviews } = await import("../../services/strategyReviews");
-        const decision = url.searchParams.get("decision") || undefined;
-        return Response.json({ reviews: listStrategyReviews(ctx.getOrm(), decision) });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to list reviews" }, { status: 500 });
-      }
+      return handleOptionsStrategyReviewsList(url, ctx);
     }
     if (path.endsWith("/options/strategy-reviews/decide") && request.method === "POST") {
-      try {
-        const { decideStrategyReview } = await import("../../services/strategyReviews");
-        const body = (await request.json().catch(() => ({}))) as any;
-        const { id, decision } = body;
-        if (!id || (decision !== "approved" && decision !== "rejected")) {
-          return Response.json({ error: "id and decision (approved|rejected) required" }, { status: 400 });
-        }
-        const ok = decideStrategyReview(ctx.getOrm(), id, decision);
-        return Response.json({ success: ok });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to record decision" }, { status: 500 });
-      }
+      return handleOptionsStrategyReviewsDecide(request, ctx);
     }
 
   return null;
