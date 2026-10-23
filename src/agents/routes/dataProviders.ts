@@ -64,6 +64,7 @@ import {
   ProviderLifecycleError,
   type DataProviderId,
   type ProviderConfigRecord,
+  type ProviderConfigureInput,
   type ProviderLifecycleAction,
   type ProviderVerifier,
 } from "../../trading";
@@ -150,6 +151,7 @@ function routeServability(
         capability: route.capability,
         primaryProviderId: route.primaryProviderId,
         gapFillProviderId: route.gapFillProviderId,
+        minTier: route.minTier,
         resolves: true,
         resolvedPrimaryId: assignment.primary.id,
         resolvedGapFillId: assignment.gapFill?.id ?? null,
@@ -159,6 +161,7 @@ function routeServability(
         capability: route.capability,
         primaryProviderId: route.primaryProviderId,
         gapFillProviderId: route.gapFillProviderId,
+        minTier: route.minTier,
         resolves: false,
         resolvedPrimaryId: null,
         resolvedGapFillId: null,
@@ -273,6 +276,7 @@ export async function handleDataProviderRoutes(
             to: event.to,
             outcome: event.outcome,
             ...(event.reason ? { reason: event.reason } : {}),
+            ...(event.routeTiers ? { routeTiers: event.routeTiers } : {}),
           });
         },
         verifier:
@@ -288,6 +292,9 @@ export async function handleDataProviderRoutes(
                 credentialRef: input.credentialRef as string | null | undefined,
                 displayName: input.displayName as string | undefined,
                 metadata: input.metadata as Record<string, unknown> | undefined,
+                routeTiers: input.routeTiers as
+                  | ProviderConfigureInput["routeTiers"]
+                  | undefined,
               }
             : undefined,
         register:
