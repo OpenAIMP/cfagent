@@ -47,7 +47,8 @@ import {
   type SizingCandidate,
 } from "../../services/positionSizing";
 import { generateHedgeProposals, resolveSpyPutContract } from "../../services/hedgeProposals";
-import { buildRecommendationBundle } from "../../services/recommendationBundle";
+import { buildRecommendationBundle, normalizeBundleCandidates, type BundleRouteCandidateBody } from "../../services/recommendationBundle";
+import type { ScreeningChannel, ScreeningChannelResult } from "../../services/screeningDelivery";
 import { buildScenario, type ScenarioConstraints, type ScenarioShockGrid } from "../../services/goalScenarioEngine";
 import type { GoalKind } from "../../services/goalScenarioStore";
 import type { FalsificationInput } from "../../services/researchFalsification";
@@ -627,10 +628,21 @@ export async function handleEtradeBrokerRoutes(
   // post-trade risk + optimizer verdict + hedge/repair + alternatives
   // incl. no-trade), built by recommendationBundle over the live book.
   // Drafts only — this endpoint never places or previews an order.
+  //
+  // Issue #1162 (Phase 6): the body also accepts `candidates[]` (the
+  // builder was always multi-candidate; the first entry is the primary
+  // the concentration assessment describes), opt-in `persist: true`
+  // (record the bundle as a paper outcome in mas_outcomes via the
+  // Phase 4 persistence seam — the ORM satisfies its SqlStorage
+  // contract), and opt-in `deliver: { channels, emailTo }` (send the
+  // bundle text over the existing Slack/email/signed-webhook
+  // transports via screeningDelivery). Both are off unless requested:
+  // the Phase 4 response shape is unchanged for existing callers.
   if (path.endsWith("/etrade/portfolio-risk/bundle") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as {
         candidate?: StrategyCandidate;
+        candidates?: BundleRouteCandidateBody[];
         beta?: number | null;
         falsification?: FalsificationInput;
         goalKind?: GoalKind;
@@ -640,17 +652,21 @@ export async function handleEtradeBrokerRoutes(
         riskScore?: number;
         pickStatus?: "recommended" | "research_only" | "no_trade";
         pickConfidence?: "HIGH" | "MEDIUM" | "LOW";
+        persist?: boolean;
+        deliver?: { channels?: ScreeningChannel[]; emailTo?: string };
       };
-      if (!body.candidate?.symbol || !Array.isArray(body.candidate.legs) || body.candidate.legs.length === 0) {
-        return Response.json({ error: "candidate with symbol and legs is required" }, { status: 400 });
+      const normalized = normalizeBundleCandidates(body);
+      if (!normalized.ok) {
+        return Response.json({ error: normalized.error }, { status: 400 });
       }
+      const primary = normalized.candidates[0];
       const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const report = await computePortfolioRisk(etrade);
       const concentration = await assessPortfolioConcentration(
         report,
         (a, b) => sharedCorrelationService.estimate(a, b),
-        body.candidate.symbol,
+        primary.candidate.symbol,
       ).catch(() => null);
       const measured = (concentration?.candidateAssessment?.correlations ?? [])
         .filter((c) => c.source === "measured" && c.value !== null)
@@ -665,13 +681,13 @@ export async function handleEtradeBrokerRoutes(
         constraints: body.constraints,
       });
       const bundle = buildRecommendationBundle({
-        candidates: [{
-          candidate: body.candidate,
-          beta: body.beta ?? null,
-          riskScore: body.riskScore,
-          requestedContracts: body.requestedContracts,
-          maxMeasuredCorrelation: measured.length ? Math.max(...measured) : null,
-        }],
+        candidates: normalized.candidates.map((c, i) => ({
+          ...c,
+          // The measured-correlation evidence belongs to the primary
+          // candidate's concentration assessment; other candidates
+          // carry no measured correlation rather than borrowing it.
+          maxMeasuredCorrelation: i === 0 && measured.length ? Math.max(...measured) : null,
+        })),
         report,
         scenario,
         falsification: body.falsification,
@@ -681,6 +697,37 @@ export async function handleEtradeBrokerRoutes(
         spyPut,
         repairAnalysis,
       });
+
+      let outcomeId: string | null = null;
+      if (body.persist === true) {
+        const { persistRecommendationBundle } = await import("../../services/recommendationBundle");
+        const record = persistRecommendationBundle(ctx.getOrm(), bundle, { userLogin });
+        outcomeId = record?.id ?? null;
+      }
+      let delivery: ScreeningChannelResult[] | null = null;
+      if (Array.isArray(body.deliver?.channels) && body.deliver.channels.length > 0) {
+        const { deliverScreeningContent, formatBundleDelivery, createScreeningDeliverySenders } = await import("../../services/screeningDelivery");
+        const formatted = formatBundleDelivery(bundle);
+        delivery = await deliverScreeningContent({
+          channels: body.deliver.channels,
+          subject: formatted.subject,
+          text: formatted.text,
+          event: "screening.bundle",
+          data: { bundleId: bundle.id, decision: bundle.decision, qualification: bundle.qualification, confidence: bundle.confidence, text: formatted.text },
+          emailTo: body.deliver.emailTo,
+          senders: createScreeningDeliverySenders(ctx.env, ctx.getOrm(), userLogin),
+          sql: ctx.getOrm(),
+          userLogin,
+          actor: "bundle-route",
+        });
+      }
+      if (outcomeId !== null || delivery !== null) {
+        return Response.json({
+          ...bundle,
+          ...(outcomeId !== null ? { persistence: { outcomeId } } : {}),
+          ...(delivery !== null ? { delivery } : {}),
+        });
+      }
       return Response.json(bundle);
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to build recommendation bundle" }, { status: 500 });

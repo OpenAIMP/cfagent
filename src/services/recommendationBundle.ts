@@ -630,6 +630,75 @@ export function buildRecommendationBundle(input: RecommendationBundleInput): Rec
 }
 
 /* ------------------------------------------------------------------ */
+/* Route body normalization (Phase 6)                                  */
+/* ------------------------------------------------------------------ */
+
+/** One candidate entry as accepted by POST /api/etrade/portfolio-risk/bundle. */
+export interface BundleRouteCandidateBody {
+  candidate: StrategyCandidate;
+  beta?: number | null;
+  riskScore?: number;
+  requestedContracts?: number;
+}
+
+/**
+ * Normalize a bundle-route body to the candidate list the builder
+ * consumes (issue #1162: the route originally accepted a single
+ * `candidate`; `candidates[]` is the multi-candidate form, with the
+ * first entry as the primary the concentration assessment describes).
+ * Validation is total and happens before any broker call: a body with
+ * no candidate carrying a symbol and at least one leg is an explicit
+ * error, never a silently empty bundle.
+ */
+export function normalizeBundleCandidates(body: {
+  candidate?: StrategyCandidate;
+  candidates?: BundleRouteCandidateBody[];
+  beta?: number | null;
+  riskScore?: number;
+  requestedContracts?: number;
+}): { ok: true; candidates: BundleCandidateInput[] } | { ok: false; error: string } {
+  const raw: BundleRouteCandidateBody[] = Array.isArray(body.candidates)
+    ? body.candidates
+    : body.candidate
+      ? [
+          {
+            candidate: body.candidate,
+            beta: body.beta,
+            riskScore: body.riskScore,
+            requestedContracts: body.requestedContracts,
+          },
+        ]
+      : [];
+  if (raw.length === 0) {
+    return {
+      ok: false,
+      error: "candidate with symbol and legs is required (or a non-empty candidates array)",
+    };
+  }
+  const candidates: BundleCandidateInput[] = [];
+  for (const [i, entry] of raw.entries()) {
+    const candidate = entry?.candidate;
+    if (
+      !candidate?.symbol ||
+      !Array.isArray(candidate.legs) ||
+      candidate.legs.length === 0
+    ) {
+      return {
+        ok: false,
+        error: `candidates[${i}] must carry a candidate with symbol and legs`,
+      };
+    }
+    candidates.push({
+      candidate,
+      beta: entry.beta ?? null,
+      riskScore: entry.riskScore,
+      requestedContracts: entry.requestedContracts,
+    });
+  }
+  return { ok: true, candidates };
+}
+
+/* ------------------------------------------------------------------ */
 /* Persistence + report seam                                           */
 /* ------------------------------------------------------------------ */
 
