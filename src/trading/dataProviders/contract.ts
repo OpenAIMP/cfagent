@@ -146,11 +146,31 @@ export interface DataResult<T> {
 }
 
 /**
+ * Run context for a platform-routed fetch (E1, issue #1133): the run
+ * the fetch belongs to, and the tenant/user scope it executes under.
+ * Every field is optional for the caller — capture (captureStore.ts)
+ * resolves a missing runId to a generated collection-run id and a
+ * missing tenant to "default", so a fetch through the platform is
+ * always attributable to exactly one run and one tenant scope, and no
+ * platform-routed fetch goes uncaptured for want of a caller-supplied
+ * context.
+ */
+export interface DataRunContext {
+  runId?: string;
+  tenantId?: string;
+  userLogin?: string;
+}
+
+/**
  * The plugin contract. A provider implements the methods for exactly
  * the capabilities it declares in `capabilities`; the conformance kit
  * (conformance.ts) fails a provider that declares a capability whose
  * method is missing, whose envelope mislabels the serving provider,
  * or whose payload returns a non-conformant shape.
+ *
+ * Each method takes an optional trailing DataRunContext (E1): the
+ * attribution capture writes against. Adapters that do not capture
+ * (yet) accept and ignore it.
  */
 export interface DataProvider {
   readonly id: DataProviderId;
@@ -158,16 +178,29 @@ export interface DataProvider {
   readonly capabilities: readonly DataProviderCapability[];
   /** Mirrors IFossMarketDataProvider: is this provider usable as configured? */
   isConfigured(env?: Env): boolean;
-  getQuote?(symbol: string): Promise<DataResult<QuoteResult>>;
+  getQuote?(
+    symbol: string,
+    runContext?: DataRunContext
+  ): Promise<DataResult<QuoteResult>>;
   getOptionsChain?(
-    request: OptionsChainRequest
+    request: OptionsChainRequest,
+    runContext?: DataRunContext
   ): Promise<DataResult<OptionsChainResult>>;
-  getScreenUniverse?(): Promise<DataResult<ScreenUniverseResult>>;
+  getScreenUniverse?(
+    runContext?: DataRunContext
+  ): Promise<DataResult<ScreenUniverseResult>>;
   getHistoricalBars?(
     symbol: string,
     timeframe?: string,
-    limit?: number
+    limit?: number,
+    runContext?: DataRunContext
   ): Promise<DataResult<HistoricalBarsResult>>;
-  getFundamentals?(symbol: string): Promise<DataResult<FundamentalsResult>>;
-  getNews?(symbol: string): Promise<DataResult<NewsResult>>;
+  getFundamentals?(
+    symbol: string,
+    runContext?: DataRunContext
+  ): Promise<DataResult<FundamentalsResult>>;
+  getNews?(
+    symbol: string,
+    runContext?: DataRunContext
+  ): Promise<DataResult<NewsResult>>;
 }
