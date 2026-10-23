@@ -73,6 +73,11 @@
  */
 
 import type { KvLike } from "./kvResilience";
+import {
+  createMembership,
+  type Membership,
+  type MembershipStore,
+} from "./authorization";
 
 /** Prefix for every IAAA migration-alias key in the SessionStore DO. */
 export const IAAA_ALIAS_KEY_PREFIX = "iaaa-alias:";
@@ -382,4 +387,178 @@ export function resolveDoNameInput(
 ): DoNameInput {
   if (login === null || login.trim() === "") return { kind: "unresolved" };
   return { kind: "legacy-login", login };
+}
+
+/**
+ * #1210 — one-time repair constant: the retired Oct 22 activation
+ * identity. Its platform-admin grant is stranded: the genesis
+ * marker was already set for this minted id, which no current
+ * login carries (post-#1182 logins carry derived ids), so the
+ * `platform:` bootstrap entry degrades to tenant-admin and normal
+ * binding migration — which moves only the logging-in user's own
+ * memberships — never touches it. This id is the pre-#1196
+ * bootstrap entry value from git history: retired, never a
+ * secret, and the only id this repair ever moves FROM.
+ */
+export const STRANDED_PLATFORM_ADMIN_ID =
+  "00fbb0ba-9e4b-43ec-a7d6-df2a1dfc5d6c";
+
+export type RepairStrandedPlatformAdminResult =
+  | { status: "moved"; movedCount: number; revokedCount: number }
+  | { status: "revoked-only"; revokedCount: number }
+  | { status: "noop" }
+  | { status: "error"; error: string };
+
+export interface RepairStrandedPlatformAdminInput {
+  membershipStore: MembershipStore;
+  /**
+   * Whether the logging-in user matches a `platform:` bootstrap
+   * entry. Computed by the caller with the existing bootstrap
+   * parser (see isPlatformBootstrapListed in iaaaLogin.ts); this
+   * module never parses bootstrap entries itself.
+   */
+  isPlatformListed: boolean;
+  /** The logging-in user's id (post-migration derived id). */
+  targetInternalUserId: string;
+  nowMs: number;
+}
+
+/** True when two role-binding lists grant identically, in order. */
+function sameRepairRoleBindings(
+  a: readonly {
+    role: string;
+    scope: string;
+    workspaceId?: string;
+    resourceId?: string;
+    expiresAtMs?: number;
+    grantedBy: string;
+  }[],
+  b: readonly {
+    role: string;
+    scope: string;
+    workspaceId?: string;
+    resourceId?: string;
+    expiresAtMs?: number;
+    grantedBy: string;
+  }[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (binding, i) =>
+      binding.role === b[i].role &&
+      binding.scope === b[i].scope &&
+      binding.workspaceId === b[i].workspaceId &&
+      binding.resourceId === b[i].resourceId &&
+      binding.expiresAtMs === b[i].expiresAtMs &&
+      binding.grantedBy === b[i].grantedBy,
+  );
+}
+
+function sameRepairMembershipSignature(a: Membership, b: Membership): boolean {
+  return (
+    a.tenantId === b.tenantId &&
+    a.workspaceId === b.workspaceId &&
+    sameRepairRoleBindings(a.roleBindings, b.roleBindings)
+  );
+}
+
+function hasActivePlatformAdmin(memberships: readonly Membership[]): boolean {
+  return memberships.some(
+    (m) =>
+      m.revokedAtMs === undefined &&
+      m.roleBindings.some(
+        (b) => b.role === "platform-admin" && b.scope === "platform",
+      ),
+  );
+}
+
+/**
+ * #1210 — move the stranded platform-admin grant to the logging-in
+ * user. Runs in the login path at the same point as normal binding
+ * migration (see completeWiredLogin), BEFORE post-login bootstrap,
+ * so bootstrap observes the repaired state as already-admin.
+ *
+ * Rules, in order:
+ *  1. Not platform-listed, invalid target, or target IS the retired
+ *     id → no-op. (The target-equals-retired guard exists so the
+ *     repair can never revoke the caller's own grant.)
+ *  2. Only ACTIVE platform-admin memberships of the retired id
+ *     move. A revoked or absent retired membership is a no-op:
+ *     migration never resurrects access, and a revoked record's
+ *     original revokedAtMs is never overwritten.
+ *  3. If the target already holds platform-admin → revoke the
+ *     retired records only (cleanup, no duplicate grant).
+ *  4. Otherwise → create equivalents under the target (via the
+ *     provisioning path, unless an equivalent already exists —
+ *     that check is what makes a retry after a partial move
+ *     converge instead of duplicating), then revoke the retired
+ *     records. Old records are revoked, never deleted.
+ * After the retired records are revoked, later runs find nothing
+ * to move: the repair is self-retiring. Any store failure returns
+ * `error` — this function never throws, and the caller must never
+ * let a repair failure change the login outcome.
+ */
+export async function repairStrandedPlatformAdmin(
+  input: RepairStrandedPlatformAdminInput,
+): Promise<RepairStrandedPlatformAdminResult> {
+  try {
+    if (!input.isPlatformListed) return { status: "noop" };
+    if (
+      !isValidField(input.targetInternalUserId) ||
+      input.targetInternalUserId === STRANDED_PLATFORM_ADMIN_ID
+    ) {
+      return { status: "noop" };
+    }
+    const retired = await input.membershipStore.getMembershipsByUser(
+      STRANDED_PLATFORM_ADMIN_ID,
+    );
+    const activePlatform = retired.filter(
+      (m) =>
+        m.revokedAtMs === undefined &&
+        m.roleBindings.some(
+          (b) => b.role === "platform-admin" && b.scope === "platform",
+        ),
+    );
+    if (activePlatform.length === 0) return { status: "noop" };
+    const targetMemberships = await input.membershipStore.getMembershipsByUser(
+      input.targetInternalUserId,
+    );
+    if (hasActivePlatformAdmin(targetMemberships)) {
+      for (const old of activePlatform) {
+        await input.membershipStore.revokeMembership(old.membershipId, input.nowMs);
+      }
+      return { status: "revoked-only", revokedCount: activePlatform.length };
+    }
+    let moved = 0;
+    for (const old of activePlatform) {
+      if (
+        !targetMemberships.some((n) => sameRepairMembershipSignature(old, n))
+      ) {
+        const created = await createMembership(input.membershipStore, {
+          internalUserId: input.targetInternalUserId,
+          tenantId: old.tenantId,
+          workspaceId: old.workspaceId,
+          roleBindings: old.roleBindings.map((b) => ({ ...b })),
+          createdBy: old.createdBy,
+          nowMs: input.nowMs,
+        });
+        if (!created.ok) {
+          throw new Error(
+            `stranded platform-admin repair failed for ${STRANDED_PLATFORM_ADMIN_ID}: ${created.error}`,
+          );
+        }
+        targetMemberships.push(created.membership);
+        moved++;
+      }
+    }
+    for (const old of activePlatform) {
+      await input.membershipStore.revokeMembership(old.membershipId, input.nowMs);
+    }
+    return { status: "moved", movedCount: moved, revokedCount: activePlatform.length };
+  } catch (err) {
+    return {
+      status: "error",
+      error: err instanceof Error ? err.message : "stranded platform-admin repair failed",
+    };
+  }
 }
