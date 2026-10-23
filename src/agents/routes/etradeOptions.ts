@@ -77,6 +77,7 @@ import type { Env, ETradeOptionChain, ETradeOptionExpireDate } from "../../types
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
+import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
 import { getSymbolEventCalendar, toEventCalendarInfo } from "../../services/eventCalendar";
 import {
   handleOptionsLatestRuns,
@@ -112,6 +113,13 @@ export interface EtradeOptionsRouteContext {
   /** Issue #1123: set when this request is executed as an async job —
    *  inline deliveries defer to the tracked follow-up pipeline. */
   asyncJobId?: string;
+  /** Issue #1123 S5a: bridge a synchronously-completed screen into
+   *  the tracked follow-up pipeline. Preferred over inline delivery
+   *  whenever the host provides it. */
+  scheduleScreenerFollowups?: (
+    outcome: import("../../services/screenerFollowups").ScreenerRunOutcome,
+    userLogin: string,
+  ) => Promise<void>;
   /** ORM accessor (owner: OrchestratorAgent - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
   /** Durable Object agent context (owner: OrchestratorAgent - was `this.ctx`),
@@ -632,11 +640,20 @@ export async function handleEtradeOptionsRoutes(
       } catch (err) {
         const error = err instanceof Error ? err.message : "Options screening failed";
         if (!ctx.asyncJobId && (filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1")) {
-          const sent = await deliverScreenerToSlackA2A(ctx.env, {
-            channel: filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL,
-            text: `⚠️ Options Contract Screen FAILED — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\nError: ${error}`,
-          });
-          if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract failure notification failed:", sent.error);
+          if (ctx.scheduleScreenerFollowups) {
+            // Issue #1123 S5a: the failure joins the tracked pipeline
+            // (failed main-job record + failed notifications).
+            await ctx.scheduleScreenerFollowups(
+              screenerOutcomeFromRunResult("options", { success: false, error, thesis: filter.universe }),
+              request.headers.get("x-user-login") || sessionId || "default_trader",
+            );
+          } else {
+            const sent = await deliverScreenerToSlackA2A(ctx.env, {
+              channel: filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL,
+              text: `⚠️ Options Contract Screen FAILED — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\nError: ${error}`,
+            });
+            if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract failure notification failed:", sent.error);
+          }
         }
         return Response.json({ error }, { status: 500 });
       }

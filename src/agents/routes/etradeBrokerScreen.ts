@@ -13,9 +13,33 @@
  */
 
 import { parseStockScreenRequest } from "../../trading";
+import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
 import { publishManualScreenerRun } from "./etradeBroker";
 import type { EtradeBrokerRouteContext } from "./etradeBroker";
 import type { ScreenerAgent } from "../screener-agent";
+
+/**
+ * Issue #1123: one publication decision for a finished manual screen —
+ * job-run screens defer entirely (the tracked pipeline owns the run);
+ * synchronous screens bridge into the pipeline when the host provides
+ * the bridge; the legacy inline publishers remain only as the
+ * fallback for hosts that provide neither.
+ */
+async function publishOrBridge(
+  ctx: EtradeBrokerRouteContext,
+  userLogin: string,
+  result: unknown,
+): Promise<void> {
+  if (ctx.asyncJobId) return;
+  if (ctx.scheduleScreenerFollowups) {
+    await ctx.scheduleScreenerFollowups(
+      screenerOutcomeFromRunResult("stock", result as Record<string, unknown>),
+      userLogin,
+    );
+    return;
+  }
+  await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, result as any);
+}
 
 type StockScreenValue = Extract<ReturnType<typeof parseStockScreenRequest>, { ok: true }>["value"];
 
@@ -31,14 +55,8 @@ export async function executeEtradeScreen(args: {
   const { ctx, sessionId, requestedEnv, userLogin, agent, universe, validatedFilters } = args;
   if (universe === "ALL") {
     const shards = await agent.runSharded({ trigger: "manual", filters: validatedFilters, userLogin, environment: requestedEnv });
-    const orm = ctx.getOrm();
-    // Issue #1123: job-run screens defer to the tracked follow-up
-    // pipeline (report/delivery/notification sub-jobs); the inline
-    // publishers would double-deliver.
-    if (!ctx.asyncJobId) {
-      for (const shard of shards) {
-        await publishManualScreenerRun(ctx.env, orm, userLogin, shard);
-      }
+    for (const shard of shards) {
+      await publishOrBridge(ctx, userLogin, shard);
     }
     const failed = shards.filter((r) => !r.success);
     if (failed.length === shards.length) {
@@ -93,14 +111,12 @@ export async function executeEtradeScreen(args: {
         { status: 429 }
       );
     }
-    if (!ctx.asyncJobId) {
-      await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, {
-        success: false,
-        error,
-        timestamp: new Date().toISOString(),
-        universe: universe as any,
-      } as any);
-    }
+    await publishOrBridge(ctx, userLogin, {
+      success: false,
+      error,
+      timestamp: new Date().toISOString(),
+      universe: universe as any,
+    });
     throw screenErr;
   }
   ctx.audit("etrade.screened", "trading", {
@@ -113,9 +129,7 @@ export async function executeEtradeScreen(args: {
   // Issue #911: pass userLogin so the report is stored under the
   // correct user scope (not "default").
   ctx.persistScreenerReportCanonical({ ...result, userLogin });
-  if (!ctx.asyncJobId) {
-    await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, result);
-  }
+  await publishOrBridge(ctx, userLogin, result);
   if (!result.success) {
     return Response.json({ error: result.error || "E*TRADE unavailable" }, { status: 502 });
   }
