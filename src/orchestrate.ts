@@ -55,7 +55,7 @@ export const OPERATION_CATALOG: CatalogEntry[] = [
   {
     agent: "trading",
     binding: "TRADING_AGENT",
-    operations: ["trading.screen_stocks", "trading.screen_options"],
+    operations: ["trading.screen_stocks", "trading.screen_options", "trading.trade_stock"],
     blurb:
       "Provider-neutral trading competency (issue #291): stock/options screening and approval-gated trading across registered broker providers.",
   },
