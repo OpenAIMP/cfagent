@@ -178,6 +178,11 @@ assert a grant landed without that confirmation.
 - #1182 (derived identity): closed, live.
 - #1196 (bootstrap config): merged, deployed.
 - #1197 (bare `v1:` entries): closed, live.
-- #1208 (marker reset): in progress at time of writing.
-- #1210 (repair migration): in progress at time of writing.
-- Update this section when #1208 and #1210 close.
+- #1208 (marker reset): closed, live (PR #1219, main `32a5074`,
+  Deploy #987). Owner-confirmed 2026-10-23: after the deploy, the
+  owner's next GitHub login ran the reset + grant and the IAAA
+  panel opened, API/MCP tabs included.
+- #1210 (repair migration): closed, live (PR #1220, main `ab014f4`,
+  Deploy #988). Cleanup/redundancy as designed: with #1208 live,
+  the retired record is revoked and the end state is fully clean
+  (marker truthful, retired record revoked).
