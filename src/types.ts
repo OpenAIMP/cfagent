@@ -1777,6 +1777,18 @@ export type AsyncJobSubmission =
         artifacts: Array<{ key: string; fileName: string }>;
         skipReason?: string;
       };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1123 S4: one lifecycle notification (started /
+       *  completed / failed / delivered) on one channel. */
+      capability: "followup.notify";
+      payload: {
+        event: import("./services/screenerFollowups").FollowupLifecycleEvent;
+        outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
+        userLogin: string;
+        channel: AsyncJobChannel;
+        detail?: string;
+      };
     } & AsyncJobGraphFields);
 
 export interface TWAPOrderConfig {

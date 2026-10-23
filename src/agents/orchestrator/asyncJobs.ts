@@ -26,12 +26,18 @@ import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
 import { createDiscoveryService } from "../../services/discoveryService";
 import {
+  followupChannelLabel,
+  formatLifecycleNotification,
   isEmailAllowed,
   planDeliveryFollowups,
   planInitialFollowups,
+  planLifecycleNotifications,
   resolveScreenerFollowupConfig,
+  screenerKindForPath,
   screenerOutcomeFromHttpJob,
+  type FollowupLifecycleEvent,
   type FollowupReportResult,
+  type ScreenerRunOutcome,
 } from "../../services/screenerFollowups";
 
 /**
@@ -66,6 +72,12 @@ export interface AsyncJobsContext {
       userLogin: string;
       outcome: import("../../services/screenerFollowups").ScreenerRunOutcome;
       artifacts: Array<{ key: string; fileName: string }>;
+    }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
+    /** Issue #1123 S4: text-only lifecycle notifications. */
+    notify: (input: {
+      channel: AsyncJobChannel;
+      userLogin: string;
+      text: string;
     }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
   };
 }
@@ -143,7 +155,9 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
           ? "Generate report"
           : job.capability === "followup.deliver"
             ? "Deliver report"
-            : `Task: ${job.payload.title}`);
+            : job.capability === "followup.notify"
+              ? "Notify"
+              : `Task: ${job.payload.title}`);
   // Single-line column list: the shared MockSqlStorage INSERT parser does
   // not span newlines inside the column list (tests would silently drop
   // the row) — keep this statement on one line.
@@ -277,6 +291,23 @@ export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord
   });
 }
 
+/** Issue #1123 S4: plan + submit the lifecycle notifications for one
+ *  transition. Callers wrap this so notification scheduling can never
+ *  fail the job that triggered it. */
+async function submitLifecycleNotifications(
+  ctx: AsyncJobsContext,
+  event: FollowupLifecycleEvent,
+  outcome: ScreenerRunOutcome,
+  mainJobId: string,
+  userLogin: string,
+  detail?: string,
+): Promise<void> {
+  const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
+  for (const spec of planLifecycleNotifications(event, outcome, config, mainJobId, userLogin, detail)) {
+    await submitAsyncJob(ctx, spec);
+  }
+}
+
 export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJobPayload): Promise<void> {
   const sql = ctx.ensureTables();
   const now = new Date().toISOString();
@@ -302,6 +333,28 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
     const payload = JSON.parse(job.payload_json) as Record<string, unknown>;
     let result: unknown;
     let responseStatus: number | undefined;
+
+    // Issue #1123 S4: a screener main job announces its start on Slack
+    // + email as tracked notification sub-jobs. Planned exactly once —
+    // only the executor that won the claim reaches this point.
+    if (job.capability === "http.request") {
+      const kind = screenerKindForPath(typeof payload.pathAndQuery === "string" ? payload.pathAndQuery : "");
+      if (kind) {
+        try {
+          const startHeaders = (payload.headers ?? {}) as Record<string, unknown>;
+          const startUserLogin = typeof startHeaders["x-user-login"] === "string" ? startHeaders["x-user-login"] : ctx.sessionKey();
+          await submitLifecycleNotifications(
+            ctx,
+            "started",
+            { kind, trigger: "manual", success: true, pdfKeys: [] },
+            jobId,
+            startUserLogin,
+          );
+        } catch (notifyError) {
+          console.error(`[OrchestratorAgent] Start notification scheduling failed for job ${jobId}:`, notifyError);
+        }
+      }
+    }
 
     if (job.capability === "http.request") {
       const pathAndQuery = String(payload.pathAndQuery || "");
@@ -397,6 +450,30 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         if (!delivery.ok) throw new Error(delivery.error || `Delivery via ${channel} failed.`);
         result = { status: "sent", channel, detail: delivery.detail };
       }
+    } else if (job.capability === "followup.notify") {
+      // Issue #1123 S4: one lifecycle notification on one channel.
+      // Text-only; the email allowlist applies exactly as for
+      // deliveries (Assessment cross-channel rule).
+      const channel = payload.channel as AsyncJobChannel;
+      const event = payload.event as FollowupLifecycleEvent;
+      const outcome = payload.outcome as ScreenerRunOutcome;
+      const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
+      if (channel === "email") {
+        const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
+        const to = config.channels.email.to;
+        if (!to) throw new Error("Email notification is not configured (SCREENER_EMAIL_TO is unset).");
+        if (!isEmailAllowed(config, to)) {
+          throw new Error(`Email recipient ${to} is not in the screener email allowlist; notification refused.`);
+        }
+      }
+      const text = formatLifecycleNotification(
+        event,
+        outcome,
+        typeof payload.detail === "string" ? payload.detail : undefined,
+      );
+      const sent = await ctx.followupDeliveryPort().notify({ channel, userLogin, text });
+      if (!sent.ok) throw new Error(sent.error || `Notification via ${channel} failed.`);
+      result = { status: "notified", channel, event };
     } else if (job.capability === "nlq.execute") {
       const query = String(payload.query || "").trim();
       if (!query) throw new Error("NLQ job requires a non-empty query.");
@@ -447,6 +524,15 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           for (const spec of planInitialFollowups(outcome, config, jobId, userLogin)) {
             await submitAsyncJob(ctx, spec);
           }
+          // S4: completion (or run-level failure) notifications ride
+          // the same completion point — Slack + email, tracked.
+          await submitLifecycleNotifications(
+            ctx,
+            outcome.success ? "completed" : "failed",
+            outcome,
+            jobId,
+            userLogin,
+          );
         }
       } catch (followupError) {
         ctx.audit("followup.schedule_failed", "orchestrator", {
@@ -487,6 +573,33 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         console.error(`[OrchestratorAgent] Delivery scheduling failed for job ${jobId}:`, followupError);
       }
     }
+
+    // Issue #1123 S4: a delivery that actually sent announces itself —
+    // 'delivered' notifications parented to the MAIN job.
+    if (job.capability === "followup.deliver" && (result as { status?: string } | undefined)?.status === "sent") {
+      try {
+        const outcome = (payload as { outcome?: ScreenerRunOutcome }).outcome;
+        const channel = payload.channel as AsyncJobChannel;
+        const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
+        if (outcome) {
+          const mainJobId = getAsyncJob(ctx, jobId)?.parentJobId ?? jobId;
+          await submitLifecycleNotifications(
+            ctx,
+            "delivered",
+            outcome,
+            mainJobId,
+            userLogin,
+            `via ${followupChannelLabel(channel)}`,
+          );
+        }
+      } catch (followupError) {
+        ctx.audit("followup.schedule_failed", "orchestrator", {
+          jobId,
+          error: followupError instanceof Error ? followupError.message : String(followupError),
+        });
+        console.error(`[OrchestratorAgent] Delivered-notification scheduling failed for job ${jobId}:`, followupError);
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const completedAt = new Date().toISOString();
@@ -500,5 +613,33 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
     );
     ctx.audit("async_job.failed", "orchestrator", { jobId, capability: job.capability, error: message });
     console.error(`[OrchestratorAgent] Async job ${jobId} failed:`, error);
+    // Issue #1123 S4: a screener main job that fails hard (the route
+    // threw before any response) still emits its failed notifications
+    // — the run-level failures that DO produce a response are covered
+    // by the completion hook above.
+    if (job.capability === "http.request") {
+      let failurePayload: Record<string, unknown> = {};
+      try {
+        failurePayload = JSON.parse(job.payload_json) as Record<string, unknown>;
+      } catch {
+        failurePayload = {};
+      }
+      const kind = screenerKindForPath(typeof failurePayload.pathAndQuery === "string" ? failurePayload.pathAndQuery : "");
+      if (kind) {
+        try {
+          const headers = (failurePayload.headers ?? {}) as Record<string, unknown>;
+          const userLogin = typeof headers["x-user-login"] === "string" ? headers["x-user-login"] : ctx.sessionKey();
+          await submitLifecycleNotifications(
+            ctx,
+            "failed",
+            { kind, trigger: "manual", success: false, pdfKeys: [], error: message },
+            jobId,
+            userLogin,
+          );
+        } catch (notifyError) {
+          console.error(`[OrchestratorAgent] Failure notification scheduling failed for job ${jobId}:`, notifyError);
+        }
+      }
+    }
   }
 }
