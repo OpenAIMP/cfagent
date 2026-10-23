@@ -35,6 +35,8 @@
  * screenWithQuotes surfaces the MACD signal on the screened row.
  */
 
+import { DEFAULT_PIPELINE_POLICY, type RetryPolicy } from "../services/pipelinePolicy";
+import { withRetry } from "../services/resilience";
 import type { ETradeQuote, FossQuote } from "../types";
 import {
   YFINANCE_MARKET_UNIVERSE,
@@ -57,13 +59,29 @@ export const YAHOO_QUOTE_SOURCE = "Yahoo Finance";
 export interface YahooScreenerDeps {
   /** Fetch a live Yahoo quote for a symbol. Throws on failure. */
   fetchYahooQuote: (symbol: string) => Promise<FossQuote>;
+  /** Issue #1184 (#1173 R2): batch quote fetcher (one request per
+   *  symbol chunk). Optional — providers without it keep the
+   *  per-symbol path for everything. */
+  fetchYahooBatchQuotes?: (symbols: string[]) => Promise<FossQuote[]>;
+  /** Issue #1181 (#1173 R1): retry policy for per-symbol fetches.
+   *  Defaults to the pipeline policy's acquisition policy — the
+   *  Yahoo path's first retry coverage (it previously had none). */
+  retryPolicy?: RetryPolicy;
+  /** Test seam: sleep implementation for the retry executor. */
+  retrySleep?: (ms: number) => Promise<void>;
 }
 
 /** Bind a YahooFinanceProvider-shaped object as pipeline deps. */
 export function yahooDepsFromProvider(provider: {
   getQuote: (symbol: string) => Promise<FossQuote>;
+  getQuotes?: (symbols: string[]) => Promise<FossQuote[]>;
 }): YahooScreenerDeps {
-  return { fetchYahooQuote: (symbol) => provider.getQuote(symbol) };
+  return {
+    fetchYahooQuote: (symbol) => provider.getQuote(symbol),
+    ...(typeof provider.getQuotes === "function"
+      ? { fetchYahooBatchQuotes: (symbols: string[]) => provider.getQuotes!(symbols) }
+      : {}),
+  };
 }
 
 /**
@@ -123,34 +141,86 @@ export function yahooQuoteToPipelineQuote(
  * yahoo mode fails the run when nothing quoted, and qualifies a
  * partial set exactly like the E*TRADE path).
  */
+/** Symbols per batch-endpoint request (issue #1184). */
+const YAHOO_BATCH_CHUNK = 50;
+
 export async function fetchYahooQuotes(
   symbols: string[],
   deps: YahooScreenerDeps
 ): Promise<ETradeQuote[]> {
+  const policy = deps.retryPolicy ?? DEFAULT_PIPELINE_POLICY.retry.acquisition;
+  const bySymbol = new Map<string, ETradeQuote>();
+
+  // Issue #1184 (#1173 R2): batch first — one request per chunk of
+  // 50 replaces 2–3 requests per symbol (the burst Yahoo throttled
+  // to 25% success on 2026-10-23). A failed chunk (after the shared
+  // acquisition policy's retries) falls back to per-symbol fetches
+  // for its symbols; symbols a batch response omits do the same.
+  if (deps.fetchYahooBatchQuotes) {
+    for (let i = 0; i < symbols.length; i += YAHOO_BATCH_CHUNK) {
+      const chunk = symbols.slice(i, i + YAHOO_BATCH_CHUNK);
+      try {
+        const batch = await withRetry(
+          () => deps.fetchYahooBatchQuotes!(chunk),
+          policy,
+          { label: `yahoo-batch:${chunk.length}`, sleep: deps.retrySleep }
+        );
+        for (const live of batch) {
+          const adapted = yahooQuoteToPipelineQuote(
+            live,
+            getCuratedStockBySymbol(live.symbol)
+          );
+          if (adapted) bySymbol.set(adapted.symbol.toUpperCase(), adapted);
+        }
+      } catch (err) {
+        console.warn(
+          `[yahooDataSource] batch quote chunk failed (${chunk.length} symbols); falling back per-symbol:`,
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+  }
+
+  const missing = symbols.filter((s) => !bySymbol.has(s.toUpperCase()));
   const quotes: ETradeQuote[] = [];
   const CONCURRENCY = 10;
-  for (let i = 0; i < symbols.length; i += CONCURRENCY) {
-    const batch = symbols.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < missing.length; i += CONCURRENCY) {
+    const batch = missing.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map(async (symbol) => {
-        const live = await deps.fetchYahooQuote(symbol);
-        const adapted = yahooQuoteToPipelineQuote(
-          live,
-          getCuratedStockBySymbol(symbol)
+        // Issue #1181 (#1173 R1): every symbol fetch retries under
+        // the shared acquisition policy (exponential backoff) — the
+        // parity the E*TRADE path always had. A symbol is dropped
+        // only after its attempts are exhausted; the partial-quote
+        // qualification in acquireUniverse reports it as before.
+        return withRetry(
+          async () => {
+            const live = await deps.fetchYahooQuote(symbol);
+            const adapted = yahooQuoteToPipelineQuote(
+              live,
+              getCuratedStockBySymbol(symbol)
+            );
+            if (!adapted) {
+              throw new Error(
+                `Yahoo Finance returned no live quote for ${symbol}`
+              );
+            }
+            return adapted;
+          },
+          policy,
+          { label: `yahoo:${symbol}`, sleep: deps.retrySleep }
         );
-        if (!adapted) {
-          throw new Error(
-            `Yahoo Finance returned no live quote for ${symbol}`
-          );
-        }
-        return adapted;
       })
     );
     for (const r of results) {
       if (r.status === "fulfilled") quotes.push(r.value);
     }
   }
-  return quotes;
+  for (const q of quotes) bySymbol.set(q.symbol.toUpperCase(), q);
+  // Input order, batch and per-symbol results merged.
+  return symbols
+    .map((s) => bySymbol.get(s.toUpperCase()))
+    .filter((q): q is ETradeQuote => !!q);
 }
 
 /**
