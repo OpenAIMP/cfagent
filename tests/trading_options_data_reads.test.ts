@@ -48,6 +48,18 @@ describe("ETradeTradingPlatform options data reads (#291 T5b)", () => {
     const alpaca: any = new AlpacaTradingPlatform(env, undefined, "default_trader");
     expect(alpaca.getOptionChains).toBeUndefined();
     expect(alpaca.getOptionExpireDates).toBeUndefined();
+    expect(alpaca.getQuoteDetailed).toBeUndefined();
+  });
+
+  it("getQuoteDetailed delegates verbatim, carrying the error (#291 Q1)", async () => {
+    const ok = { quote: { symbol: "AAPL", lastPrice: 150 }, error: null };
+    const bad = { quote: null, error: "OAuth token expired" };
+    const fakeClient = {
+      fetchQuoteDetailed: async (symbol: string) => (symbol === "AAPL" ? ok : bad),
+    } as any;
+    const platform = new ETradeTradingPlatform(env, undefined, "default_trader", undefined, fakeClient);
+    await expect(platform.getQuoteDetailed!("AAPL")).resolves.toBe(ok);
+    await expect(platform.getQuoteDetailed!("MSFT")).resolves.toBe(bad);
   });
 });
 

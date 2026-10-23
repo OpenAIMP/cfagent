@@ -830,6 +830,17 @@ export class TradingAgent extends Think<Env> {
     return platform.getOptionExpireDates(symbol);
   }
 
+  async getQuoteDetailed(symbol: string, provider?: string): Promise<unknown> {
+    const platform = this.readPlatform(provider);
+    if (typeof platform.getQuoteDetailed !== "function") {
+      throw new TradingServiceError(
+        "provider_unsupported",
+        `Provider "${platform.platformId}" does not expose detailed quote reads.`,
+      );
+    }
+    return platform.getQuoteDetailed(symbol);
+  }
+
   /**
    * The approval door — the ONLY path that can place an order (#291 T3,
    * cfpay proposal -> approval -> verify -> execute). Deliberately NOT a

@@ -103,6 +103,14 @@ export interface ITradingPlatform {
    * without a stateful client omit it.
    */
   getLastError?(): string | undefined;
+  /**
+   * Quote read with the error carried alongside the result (issue #462:
+   * concurrent callers must never read shared instance error state).
+   * LIVE fetch only — no cache/curated fallback, no policy: the caller
+   * names its failure policy (issue #291 quote unification, Q1).
+   * Optional — platforms without a detailed read omit it.
+   */
+  getQuoteDetailed?(symbol: string): Promise<{ quote: ETradeQuote | null; error: string | null }>;
 }
 
 export interface IMarketScreener {

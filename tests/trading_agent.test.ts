@@ -716,6 +716,7 @@ describe("TradingAgent read surface (#291 T5a)", () => {
       getPositions: async (accountKey?: string) => ({ account: { accountIdKey: accountKey ?? "acc-1" }, positions: [{ symbol: "AAPL" }] }),
       getOptionChains: async (params: any) => ({ symbol: params.symbol, underlyingPrice: 150, marker: "chain" }),
       getOptionExpireDates: async (symbol: string) => [{ year: 2027, month: 1, day: 15, symbol }],
+      getQuoteDetailed: async (symbol: string) => ({ quote: { symbol, lastPrice: 150 }, error: null }),
       previewOrder: async () => ({}),
       executeOrder: async () => ({}),
     };
@@ -778,6 +779,21 @@ describe("TradingAgent read surface (#291 T5a)", () => {
     plain.name = "trading";
     plain.config = () => fakeConfig;
     const err: any = await plain.getOptionChains({ symbol: "AAPL" }).catch((e: any) => e);
+    expect(err.code).toBe("provider_unsupported");
+  });
+
+  it("detailed quote reads carry the error with the result (#291 Q1)", async () => {
+    const agent = await agentNamed("trading");
+    expect(await agent.getQuoteDetailed("AAPL")).toEqual({
+      quote: { symbol: "AAPL", lastPrice: 150 },
+      error: null,
+    });
+    const { TradingAgent } = await import("../src/agents/trading-agent");
+    const plain: any = Object.create(TradingAgent.prototype);
+    plain.env = env;
+    plain.name = "trading";
+    plain.config = () => fakeConfig;
+    const err: any = await plain.getQuoteDetailed("AAPL").catch((e: any) => e);
     expect(err.code).toBe("provider_unsupported");
   });
 });

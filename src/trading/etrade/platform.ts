@@ -241,6 +241,11 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     return this.client.getOptionExpireDates(symbol, expiryType);
   }
 
+  /** Verbatim client passthrough — see ITradingPlatform.getQuoteDetailed. */
+  async getQuoteDetailed(symbol: string): Promise<{ quote: ETradeQuote | null; error: string | null }> {
+    return this.client.fetchQuoteDetailed(symbol);
+  }
+
   async getPositions(accountKey?: string, includeBalance: boolean = false): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {
     const realPortfolio = await this.client.fetchPortfolio(accountKey, includeBalance);
     if (realPortfolio) return realPortfolio;
