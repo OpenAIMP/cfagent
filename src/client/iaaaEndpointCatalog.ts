@@ -352,6 +352,17 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: path === /api/social/approvals",
   },
   {
+    id: "social-token-health-get",
+    method: "GET",
+    path: "/api/social/token-health",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote:
+      "401 unauthenticated; 405 other methods. Reports per-channel token presence (configured/unconfigured) and validity (valid/invalid/unknown); no live transport is wired in this slice, so validity is unknown by design. Response never contains a token value. Any signed-in user may query.",
+    source: "src/server.ts branch: path === /api/social/token-health",
+  },
+  {
     id: "me",
     method: "ANY",
     path: "/api/me",
