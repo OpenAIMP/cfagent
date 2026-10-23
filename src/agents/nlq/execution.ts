@@ -1499,7 +1499,21 @@ async function executeNLQQueryAsyncCore(
   const effectiveUserDid = userDid || (loginStr?.startsWith("did:") ? loginStr : undefined);
 
   if (plan.domain === "trading") {
-    const login = userLogin || sessionId || "default_trader";
+    // Issue #1185: the threaded authenticated login is required — the
+    // session id is an instance key, not a login, and there is no
+    // synthetic fallback identity.
+    const login = userLogin;
+    if (!login) {
+      return {
+        plan,
+        domain: "trading",
+        count: 0,
+        status: "error",
+        summary: "Trading: an authenticated user identity is required for this action. Nothing was executed.",
+        rows: [],
+        executedAt,
+      };
+    }
     const etrade = new ETradeService(orm, env, login);
     const action = plan.tradingData?.action || "screen";
 
@@ -2056,7 +2070,21 @@ async function executeNLQQueryAsyncCore(
 
     if (action === "paid_scan") {
       const sym = plan.agenticPaymentsData?.symbol;
-      const login = userLogin || sessionId || "default_trader";
+      // Issue #1185: a paid action requires the verified payer/session
+      // login — never the session id or a synthetic identity.
+      const login = userLogin;
+      if (!login) {
+        return {
+          plan,
+          domain: "agentic_payments",
+          targetTable: "agentic_payments",
+          count: 0,
+          status: "error",
+          summary: "Paid options scan: a verified payer identity is required for this action. Nothing was executed or recorded.",
+          rows: [],
+          executedAt,
+        };
+      }
       // Issue #959: the paid scan's literal filter validates through
       // the ONE shared options-filter schema like every other screen.
       const parsedPaidFilter = parseOptionScreenerFilter({
@@ -2128,6 +2156,21 @@ async function executeNLQQueryAsyncCore(
     }
 
     if (action === "paid_research") {
+      // Issue #1185 / #183: the receipt's payer is the verified session
+      // login only. Without one the paid action is refused — a payment
+      // is never attributed to the session id or a synthetic identity.
+      if (!userLogin) {
+        return {
+          plan,
+          domain: "agentic_payments",
+          targetTable: "agentic_payments",
+          count: 0,
+          status: "error",
+          summary: "Paid Market Research: a verified payer identity is required for this action. Nothing was executed or recorded.",
+          rows: [],
+          executedAt,
+        };
+      }
       const sym = plan.agenticPaymentsData?.symbol || plan.terms || "NVDA";
       const foss = new FossResearchService(env);
       const report = await foss.generateResearchReport(sym);
@@ -2142,7 +2185,7 @@ async function executeNLQQueryAsyncCore(
         amount: tier.priceUSD,
         currency: "USDC",
         network: env?.X402_NETWORK || "base-sepolia",
-        payer: userLogin || sessionId || "default_trader",
+        payer: userLogin,
         recipient: env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550",
         status: "simulated",
         simulated: true,
@@ -2186,12 +2229,26 @@ async function executeNLQQueryAsyncCore(
     // Issue #109: real Agent schedules via the injected port (see
     // executeSchedulingAction). Handled here, never by the sync
     // executor, which can only refuse honestly.
+    // Issue #1185: schedules are owned by the threaded authenticated
+    // login — without it the action fails closed.
+    if (!loginStr) {
+      return {
+        plan,
+        domain: "scheduling",
+        targetTable: "cf_agent_schedules",
+        count: 0,
+        status: "error",
+        summary: "Scheduling: an authenticated user identity is required for this action. Nothing was created, cancelled, or listed.",
+        rows: [],
+        executedAt,
+      };
+    }
     return executeSchedulingAction(
       orm,
       sessionId,
       plan,
       deps?.schedulingPort,
-      loginStr || sessionId || "default_trader",
+      loginStr,
       executedAt
     );
   }
