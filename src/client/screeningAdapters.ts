@@ -46,7 +46,11 @@ export const SCREENING_ASSET_CLASSES: Array<{
   available: boolean;
 }> = [
   { id: "stocks", label: "Stocks", available: true },
-  { id: "options", label: "Options", available: false },
+  // S8 (consolidation #958): options screening is hosted in the hub
+  // (the OptionsResearchHost surface) — available, not PLANNED. It
+  // has no provider adapter (it is not a provider screen), so
+  // getScreeningProviders("options") stays empty by design.
+  { id: "options", label: "Options", available: true },
   { id: "forex", label: "Forex", available: false },
   { id: "futures", label: "Futures", available: false },
   { id: "commodities", label: "Commodities", available: false },
