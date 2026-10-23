@@ -270,11 +270,76 @@ const stockTradingService: TradingServiceDef = {
   },
 };
 
+const optionsTradingService: TradingServiceDef = {
+  id: "options_trading",
+  toolName: "trade_options",
+  a2aOperation: "trading.trade_options",
+  access: "action",
+  description:
+    "Propose an options order (preview only): single-leg or multi-leg (spreads) via " +
+    "optionLegs, priced from the strategy net debit when given. Returns the broker " +
+    "preview as a pending-approval proposal. This surface NEVER places an order — " +
+    "placement happens only through the agent's approval door (executeApprovedOrder), " +
+    "shared with stock trading.",
+  inputSchema: z.object({
+    provider: providerField,
+    userLogin: userLoginField,
+    symbol: z.string().min(1),
+    action: z.enum(["BUY", "SELL", "BUY_TO_COVER", "SELL_SHORT"]),
+    quantity: z.number().positive(),
+    orderType: z.enum(["MARKET", "LIMIT", "STOP", "STOP_LIMIT"]).optional(),
+    limitPrice: z.number().positive().optional(),
+    stopPrice: z.number().positive().optional(),
+    strategyNetDebit: z.number().optional(),
+    optionLegs: z
+      .array(
+        z.object({
+          underlyingSymbol: z.string().min(1),
+          securityType: z.literal("OPTN"),
+          side: z.enum(["BUY", "SELL"]),
+          quantity: z.number().positive(),
+          optionType: z.enum(["CALL", "PUT"]).optional(),
+          strike: z.number().positive().optional(),
+          expirationDate: z.string().optional(),
+        }),
+      )
+      .min(1),
+  }),
+  execute: async (ctx, input) => {
+    const platform = ctx.resolvePlatform(input.provider);
+    if (typeof platform.previewOrder !== "function") {
+      throw new TradingServiceError(
+        "provider_unsupported",
+        `Provider "${platform.platformId}" does not support order preview.`,
+      );
+    }
+    const draft = await platform.previewOrder({
+      assetClass: "options",
+      symbol: input.symbol,
+      action: input.action,
+      quantity: input.quantity,
+      orderType: input.orderType,
+      limitPrice: input.limitPrice,
+      stopPrice: input.stopPrice,
+      optionLegs: input.optionLegs,
+      strategyNetDebit: input.strategyNetDebit,
+    });
+    return {
+      status: "pending_approval",
+      proposal: draft,
+      note:
+        "Preview only — no order was placed. Placement requires an approved " +
+        "decision via the TradingAgent approval door (executeApprovedOrder).",
+    };
+  },
+};
+
 /** The service registry. Add a service = one module + one line here. */
 export const TRADING_SERVICE_REGISTRY: TradingServiceDef[] = [
   stockScreeningService,
   optionsScreeningService,
   stockTradingService,
+  optionsTradingService,
 ];
 
 export function getTradingService(serviceId: string): TradingServiceDef | undefined {
