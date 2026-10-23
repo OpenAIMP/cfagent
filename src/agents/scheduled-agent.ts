@@ -10,6 +10,11 @@ import {
 } from "../schedule";
 import { createSocialStoresFromNamespace } from "./social/durableStores";
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
+import {
+  createSocialPipelineStoresFromNamespace,
+  runSocialDailyPipeline,
+  SOCIAL_DAILY_PIPELINE_ID,
+} from "./social/pipeline";
 import { executeSocialGoal, priorDates } from "./social/goalExecutor";
 import {
   deliverPendingApprovals,
@@ -135,10 +140,76 @@ export class ScheduledAgent extends Agent<Env> {
           continue;
         }
 
+        const rawEnv = env as unknown as Record<string, string | undefined>;
+        if (goal.operation.startsWith("pipeline:")) {
+          // #1224: a goal whose operation names a pipeline runs
+          // ordered stages back-to-back in ONE firing through the
+          // pipeline executor, not the single-operation path. The
+          // budget check above already ran exactly once for this
+          // goal; the pipeline adds no second check, and the one
+          // tick entry for this onCron call records the outcome
+          // below. Manual triggerGoal runs the same branch (it
+          // calls onCron), so cron and manual firings behave
+          // identically. Unknown pipeline ids fail closed: the
+          // goal stays due, no orchestrator job is created.
+          const stores = createSocialPipelineStoresFromNamespace(
+            (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+          );
+          if (!stores) {
+            tick.errors.push(`${goal.id}: SESSION_STORE binding unavailable, goal left due`);
+            tick.jobsSkipped++;
+            continue;
+          }
+          if (goal.operation !== SOCIAL_DAILY_PIPELINE_ID) {
+            tick.errors.push(`${goal.id}: unknown pipeline: ${goal.operation}`);
+            tick.jobsSkipped++;
+            continue;
+          }
+          const pipelineResult = await runSocialDailyPipeline({
+            env: {
+              SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
+              SOCIAL_AUTONOMOUS_CHANNELS: rawEnv.SOCIAL_AUTONOMOUS_CHANNELS,
+              SOCIAL_APPROVAL_CHANNELS: rawEnv.SOCIAL_APPROVAL_CHANNELS,
+              SOCIAL_LIVE_PUBLISHING: rawEnv.SOCIAL_LIVE_PUBLISHING,
+            },
+            tokens: {
+              X_ACCESS_TOKEN: rawEnv.X_ACCESS_TOKEN,
+              THREADS_ACCESS_TOKEN: rawEnv.THREADS_ACCESS_TOKEN,
+              FACEBOOK_PAGE_ACCESS_TOKEN: rawEnv.FACEBOOK_PAGE_ACCESS_TOKEN,
+              INSTAGRAM_ACCESS_TOKEN: rawEnv.INSTAGRAM_ACCESS_TOKEN,
+              LINKEDIN_ACCESS_TOKEN: rawEnv.LINKEDIN_ACCESS_TOKEN,
+              LINKEDIN_AUTHOR_URN: rawEnv.LINKEDIN_AUTHOR_URN,
+            },
+            store: stores.store,
+            approvals: stores.approvals,
+            briefStore: stores.briefStore,
+            ledger: stores.ledger,
+            nowMs: now.getTime(),
+            timeZone: goal.timeZone,
+            transport: opts?.socialTransport,
+            dryRunSink: opts?.socialDryRunSink ?? createMemoryDryRunSink(),
+            slackPost: opts?.socialSlackPost,
+            slackEnv: rawEnv,
+          });
+          for (const e of pipelineResult.errors) {
+            tick.errors.push(`${goal.id}: ${e}`);
+          }
+          if (pipelineResult.status === "completed") {
+            goal.lastRun = now.toISOString();
+            tick.jobsCreated++;
+          } else {
+            // Skipped (e.g. noBrief) or failed: lastRun untouched,
+            // the goal stays due and retries on the next tick. A
+            // failed run resumes at the first incomplete stage via
+            // the pipeline ledger; a skipped run starts fresh.
+            tick.jobsSkipped++;
+          }
+          continue;
+        }
+
         if (goal.operation === "social.publish") {
           // #1077 Phase 5b slice 1: executed directly, never through
           // createJob (there is no orchestrator job for posting).
-          const rawEnv = env as unknown as Record<string, string | undefined>;
           const stores = createSocialStoresFromNamespace(
             (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
           );

@@ -64,11 +64,17 @@ export const OPERATION_CATALOG: CatalogEntry[] = [
     // job. ScheduledAgent executes it directly through the social goal
     // executor; the catalog entry exists so addGoal accepts the
     // operation and the dashboard can list it.
+    // #1224: pipeline:social-daily is likewise NOT an orchestrator
+    // job. ScheduledAgent executes it through the pipeline executor
+    // (feed → generate → deliver in one firing); the entry exists so
+    // addGoal accepts the pipeline operation. The stage operations
+    // (social.feed, social.generate, social.deliver) are deliberately
+    // NOT catalog entries: stages are not schedulable goals.
     agent: "social",
     binding: "SCHEDULED_AGENT",
-    operations: ["social.publish"],
+    operations: ["social.publish", "pipeline:social-daily"],
     blurb:
-      "Build the day's social drafts and publish them under the channel gating (issue #1077).",
+      "Build the day's social drafts and publish them under the channel gating (issue #1077); pipeline:social-daily runs feed → generate → deliver as one scheduled firing (issue #1224).",
   },
 ];
 
