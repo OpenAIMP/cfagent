@@ -36,18 +36,16 @@
  *   flow keep working: the wired session fields are optional and the
  *   legacy fields are unchanged (see iaaaLogin.ts).
  *
- * Registered providers: "github" (OAuth2 + profile fetch, wired
- * callback in iaaaLogin.ts, legacy login start in githubOAuth.ts —
- * the redirect is identical wired or not) and "google" (the worked
- * plugin example: one createOidcProvider call in this module, no
- * other file changed to register it). No PDP, delegation, or audit
- * wiring lives here. To onboard another provider, see
- * docs/iaaa-provider-onboarding.md.
+ * Registered providers: "github" and "google", both declarative
+ * createOidcProvider calls in this module (#1254 PR-A rationalized
+ * GitHub onto the factory; its deltas are options, not code). The
+ * wiring-off legacy GitHub entry points stay in githubOAuth.ts,
+ * frozen by their server.ts importer, until PR-B. No PDP,
+ * delegation, or audit wiring lives here. To onboard another
+ * provider, see docs/iaaa-provider-onboarding.md.
  */
 import type { Env } from "../types";
 import type { AuditStore } from "./iaaaAudit";
-import { handleLogin } from "./githubOAuth";
-import { handleGithubCallbackWired } from "./iaaaLogin";
 import { createOidcProvider } from "./oidcProvider";
 
 /**
@@ -111,14 +109,35 @@ export function createProviderRegistry(): ProviderRegistry {
 /** The production registry, shipped with GitHub and Google registered. */
 export const defaultRegistry: ProviderRegistry = (() => {
   const registry = new ProviderRegistry();
-  registry.registerProvider({
-    providerId: "github",
-    protocol: "oauth2",
-    issuer: "https://github.com",
-    displayName: "GitHub",
-    startLogin: handleLogin,
-    handleCallback: handleGithubCallbackWired,
-  });
+  // GitHub, rationalized onto the factory in #1254 PR-A: the same
+  // declarative shape as Google, with GitHub's genuine deltas as
+  // options — OAuth2 + profile fetch (no ID token), numeric `id`
+  // subject, `login` login key, `avatar_url` avatar, no
+  // response_type on the authorize request, no credentials gate
+  // (its credentials are required core Env config), and — PR-A
+  // only — the redirect path override to the legacy /auth/callback
+  // until the owner repoints the GitHub app registration (PR-B
+  // removes the override and the legacy routes).
+  registry.registerProvider(
+    createOidcProvider({
+      providerId: "github",
+      issuer: "https://github.com",
+      displayName: "GitHub",
+      protocol: "oauth2",
+      authorizationEndpoint: "https://github.com/login/oauth/authorize",
+      tokenEndpoint: "https://github.com/login/oauth/access_token",
+      userinfoEndpoint: "https://api.github.com/user",
+      clientIdEnv: "GITHUB_CLIENT_ID",
+      clientSecretEnv: "GITHUB_CLIENT_SECRET",
+      scope: "read:user",
+      subjectField: "id",
+      loginKeyField: "login",
+      avatarField: "avatar_url",
+      includeResponseType: false,
+      requireConfiguredCredentials: false,
+      redirectPathOverride: "/auth/callback",
+    })
+  );
   // Google, the worked plugin example: one factory call, no other
   // file changed to register it. True identity is Slice 1
   // (https://accounts.google.com, sub); the verified email is only
