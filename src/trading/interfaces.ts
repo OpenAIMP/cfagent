@@ -97,6 +97,12 @@ export interface ITradingPlatform {
     includeRawResponse?: boolean;
   }): Promise<ETradeOptionChain | null>;
   getOptionExpireDates?(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]>;
+  /**
+   * The broker client's last recorded error, if any (issue #155 pattern:
+   * read on the SAME instance that made the call). Optional — platforms
+   * without a stateful client omit it.
+   */
+  getLastError?(): string | undefined;
 }
 
 export interface IMarketScreener {

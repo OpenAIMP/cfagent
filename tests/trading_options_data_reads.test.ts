@@ -50,3 +50,20 @@ describe("ETradeTradingPlatform options data reads (#291 T5b)", () => {
     expect(alpaca.getOptionExpireDates).toBeUndefined();
   });
 });
+
+describe("TradingPlatformRegistry overrideEnv plumbing (#291 T5c)", () => {
+  it("passes the caller's requested environment through to the factory", async () => {
+    const { TradingPlatformRegistry } = await import("../src/trading");
+    const seen: unknown[] = [];
+    TradingPlatformRegistry.register("fakeenv291" as any, ((_env: any, _orm: any, userLogin?: string, overrideEnv?: string) => {
+      seen.push([userLogin, overrideEnv]);
+      return { platformId: "fakeenv291" };
+    }) as any);
+    TradingPlatformRegistry.getPlatform("fakeenv291" as any, env, undefined, "alice", "sandbox");
+    TradingPlatformRegistry.getPlatform("fakeenv291" as any, env, undefined, "alice");
+    expect(seen).toEqual([
+      ["alice", "sandbox"],
+      ["alice", undefined],
+    ]);
+  });
+});

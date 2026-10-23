@@ -18,9 +18,9 @@ import { ETradeTradingPlatform } from "./etrade/platform";
 import { AlpacaTradingPlatform } from "./alpaca/platform";
 
 // Register default pluggable platforms (unchanged)
-TradingPlatformRegistry.register("etrade", (env, orm, userLogin) => new ETradeTradingPlatform(env, orm, userLogin));
+TradingPlatformRegistry.register("etrade", (env, orm, userLogin, overrideEnv) => new ETradeTradingPlatform(env, orm, userLogin, overrideEnv));
 TradingPlatformRegistry.register("alpaca", (env, orm, userLogin) => new AlpacaTradingPlatform(env, orm, userLogin));
-TradingPlatformRegistry.register("sandbox", (env, orm, userLogin) => new ETradeTradingPlatform(env, orm, userLogin));
+TradingPlatformRegistry.register("sandbox", (env, orm, userLogin, overrideEnv) => new ETradeTradingPlatform(env, orm, userLogin, overrideEnv));
 
 // --- boundary surface (pre-existing) ---
 export * from "./interfaces";

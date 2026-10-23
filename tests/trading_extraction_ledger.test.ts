@@ -102,11 +102,13 @@ const PINNED_NAMED_REEXPORTS = ["MAX_SCAN_SYMBOLS from ./options/opportunityScan
  * src/trading/ (paths relative to src/). Baseline 2026-10-22 on main
  * 3b8ac74: 51 sites in 13 files. Shrink a count only in the PR that
  * migrates those sites behind the TradingAgent facade (#291 slices T1+).
+ * Shrinks: T5c (2026-10-23) — etradeOptions chains + expire-dates routes
+ * resolved through the platform registry: 51 -> 49.
  */
 const CONSTRUCTION_LEDGER: Record<string, number> = {
   "agents/nlq/execution.ts": 2,
   "agents/routes/etradeBroker.ts": 20,
-  "agents/routes/etradeOptions.ts": 7,
+  "agents/routes/etradeOptions.ts": 5,
   "agents/routes/watchlists.ts": 5,
   "agents/screener-agent.ts": 1,
   "mcp/cloudflareAgentCommands.ts": 1,
@@ -140,6 +142,6 @@ describe("trading extraction ledger (issue #291 T0)", () => {
     }
     expect(actual).toEqual(CONSTRUCTION_LEDGER);
     const total = Object.values(actual).reduce((a, b) => a + b, 0);
-    expect(total).toBe(51);
+    expect(total).toBe(49);
   });
 });

@@ -58,6 +58,7 @@ import {
   validateStrategyProfile,
   describeLlmInput,
   OptionsAgentPipeline,
+  TradingPlatformRegistry,
   type RiskProfile,
   type StrategyScreenFilter,
   defaultRegistry,
@@ -224,8 +225,11 @@ export async function handleEtradeOptionsRoutes(
         const noOfStrikes = url.searchParams.get("noOfStrikes") ? Number(url.searchParams.get("noOfStrikes")) : undefined;
         const chainType = (url.searchParams.get("chainType") as "CALL" | "PUT" | "CALLPUT") || undefined;
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const chain = await etrade.getOptionChains({
+        // #291 T5c: resolved through the platform registry (the chains
+        // read is a verbatim client passthrough on the platform contract);
+        // one instance serves the call and its #155 error read.
+        const etrade = TradingPlatformRegistry.getPlatform("etrade", ctx.env, ctx.getOrm(), userLogin, ctx.requestedEnv);
+        const chain = await etrade.getOptionChains?.({
           symbol,
           expiryYear,
           expiryMonth,
@@ -239,7 +243,7 @@ export async function handleEtradeOptionsRoutes(
           // upstream failure (expired OAuth, missing credentials,
           // network), not an empty chain — surface it as a 502 naming
           // the cause instead of a fabricated 200 empty payload.
-          const upstreamError = etrade.getLastError();
+          const upstreamError = etrade.getLastError?.();
           if (upstreamError) {
             return Response.json({ error: upstreamError, symbol }, { status: 502 });
           }
@@ -269,13 +273,15 @@ export async function handleEtradeOptionsRoutes(
         const symbol = (url.searchParams.get("symbol") || "NVDA").toUpperCase().trim();
         const expiryType = url.searchParams.get("expiryType") || undefined;
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const dates = await etrade.getOptionExpireDates(symbol, expiryType);
+        // #291 T5c: registry-resolved platform (verbatim passthrough
+        // reads); the #155 error read stays on this same instance.
+        const etrade = TradingPlatformRegistry.getPlatform("etrade", ctx.env, ctx.getOrm(), userLogin, ctx.requestedEnv);
+        const dates = (await etrade.getOptionExpireDates?.(symbol, expiryType)) ?? [];
         if (dates.length === 0) {
           // Issue #155: distinguish an upstream failure (client error
           // recorded) from a symbol that genuinely has no expirations —
           // only the genuine empty keeps the 200 empty payload.
-          const upstreamError = etrade.getLastError();
+          const upstreamError = etrade.getLastError?.();
           if (upstreamError) {
             return Response.json({ error: upstreamError, symbol }, { status: 502 });
           }
