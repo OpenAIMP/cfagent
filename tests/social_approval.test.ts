@@ -191,7 +191,11 @@ describe("publishDueDrafts gating", () => {
     const sink = createMemoryDryRunSink();
     const transport = {
       async post(url: string) {
-        if (url.includes("twitter.com")) throw new Error("x is down");
+        // Exact match, not a substring check: CodeQL flags substring
+        // URL guards as incomplete sanitization, and exact matching is
+        // also the more precise test (the URL comes from the
+        // publisher's own endpoint constant, never from user input).
+        if (url === "https://api.twitter.com/2/tweets") throw new Error("x is down");
         return { status: 200, body: { id: "threads-live-1" } };
       },
     };
