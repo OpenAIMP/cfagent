@@ -503,8 +503,8 @@ export interface OptionsStrategyDeps {
  * selection FAILS the action — running without the profile the user
  * asked for would silently answer a different question. The userLogin
  * comes from deps (threaded by the orchestrator through nlq.ts from
- * the session); standalone contexts fall back to the app's default
- * trader, matching the unified route's convention.
+ * the session); issue #1185: without it resolution fails closed —
+ * profiles are per-user records and there is no synthetic owner.
  */
 async function resolveStrategyProfile(
   deps: OptionsStrategyDeps | undefined,
@@ -513,7 +513,10 @@ async function resolveStrategyProfile(
   if (!deps?.profileStore) {
     return { error: "Saved profiles aren't available in this context." };
   }
-  const profile = await deps.profileStore.getByName(deps.userLogin ?? "default_trader", profileName);
+  if (!deps.userLogin) {
+    return { error: "Saved profiles require an authenticated user in this context." };
+  }
+  const profile = await deps.profileStore.getByName(deps.userLogin, profileName);
   if (!profile) {
     return { error: `No saved profile named "${profileName}".` };
   }
@@ -695,7 +698,10 @@ async function runDiscoveryAction(
   if ("error" in resolvedScope) return fail(resolvedScope.error);
   const symbols = [...new Set(resolvedScope.symbols.map((s) => s.toUpperCase().trim()).filter(Boolean))];
   if (symbols.length === 0) return fail("The selected scope contained no symbols.");
-  const userLogin = deps.userLogin ?? "default_trader";
+  // Issue #1185: the discovery scope key is owner-scoped — without the
+  // threaded authenticated login there is no owner to scope to.
+  const userLogin = deps.userLogin;
+  if (!userLogin) return fail("Discovery requires an authenticated user in this context.");
   const scopeKey = `nlq:${userLogin}:${scope.kind}:${
     scope.kind === "watchlist" ? (scope.name ?? "all") : symbols.join(",")
   }`;
