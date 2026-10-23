@@ -7,6 +7,7 @@ import {
 } from "./components/NavigationMenu";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
 import { ApiKeysPanel } from "./ApiKeysPanel";
+import { DataProvidersPanel } from "./DataProvidersPanel";
 import { IaaaAdminPanel } from "./IaaaAdminPanel";
 import { PillGroup, Button } from "./components/ui";
 import {
@@ -1048,6 +1049,16 @@ export function SettingsMenu({
               <small>MCP transport access for external clients</small>
             </div>
             <ApiKeysPanel />
+          </div>
+
+          {/* Data Providers (issue #1180, epic #1116 E4): provisioning
+              lifecycle admin over the E3 lifecycle API (#1170) */}
+          <div className="etrade-panel-section settings-data-providers-section">
+            <div className="section-label-row">
+              <span>Data Providers</span>
+              <small>Provisioning lifecycle for market-data providers</small>
+            </div>
+            <DataProvidersPanel />
           </div>
 
           {/* IAAA Admin (issue #945, IAAA-UI v1: READ-ONLY): the
