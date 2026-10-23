@@ -146,8 +146,14 @@ export class ETradeRestClient {
    * symbols failed (everything landed in "other"). The error is now a
    * local of this call; nothing crosses calls, so user, session and run
    * scoping stay intact under concurrency.
+   *
+   * Issue #1133: `options.includeRawResponse` mirrors getOptionChains'
+   * hook of the same name — when set, the returned quote carries the
+   * parsed wire payload (the res.json() object normalization consumed)
+   * as `raw` (ETradeQuote.raw). When unset — every existing caller —
+   * the result is exactly as before: no `raw` field is attached.
    */
-  async fetchQuoteDetailed(symbol: string): Promise<ETradeQuoteResult> {
+  async fetchQuoteDetailed(symbol: string, options?: { includeRawResponse?: boolean }): Promise<ETradeQuoteResult> {
     const sym = symbol.toUpperCase().trim();
     const fail = (error: string): ETradeQuoteResult => ({ quote: null, error });
     const envConfig = this.getEnvConfig();
@@ -312,6 +318,9 @@ export class ETradeRestClient {
         dateTime,
         source: `E*TRADE REST API [${envConfig.name} / ${envConfig.label}]`,
         timestamp: dateTime,
+        // Issue #1133: the opt-in raw hook — `data` here is the parsed
+        // wire payload normalization consumed (post any .json retry).
+        ...(options?.includeRawResponse ? { raw: data } : {}),
       };
       return { quote, error: null };
     } catch (err) {
