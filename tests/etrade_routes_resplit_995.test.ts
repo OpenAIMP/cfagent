@@ -7,7 +7,8 @@
  * The split is constrained by the unmodified #359 pins, which anchor the
  * route conditions, the ETradeService construction sites
  * (trading_extraction_ledger: 20 in etradeBroker.ts, 7 in
- * etradeOptions.ts), and several body literals to the two original
+ * etradeOptions.ts at split time — 5 since #291 T5c migrated two
+ * handlers to the platform registry), and several body literals to the two original
  * files. The originals therefore remain the dispatchers — every route
  * condition, prologue (validation / schema parse / service
  * construction), and pinned literal stays in place — and the unpinned
@@ -151,7 +152,10 @@ describe("route module re-split (#995)", () => {
 
   it("the ETradeService construction ledger is preserved (originals keep counts, new modules add none)", () => {
     const count = (file: string) => readFileSync(file, "utf8").split("new ETradeService(").length - 1;
-    expect(count(OPTIONS_FILE)).toBe(7);
+    // Was 7 at the #995 re-split; #291 T5c migrated the chain +
+    // expire-dates handlers to the platform registry (ledger 51 -> 49),
+    // shrinking this count in the migrating PR per the ledger's rule.
+    expect(count(OPTIONS_FILE)).toBe(5);
     expect(count(BROKER_FILE)).toBe(20);
     for (const file of NEW_MODULES) {
       expect(count(file), `${file} must not construct ETradeService`).toBe(0);
