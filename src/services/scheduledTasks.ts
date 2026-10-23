@@ -11,6 +11,7 @@
 import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from "../types";
 import { DatabaseORM } from "../orm";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
+import { getServiceUserLogin } from "../security/serviceIdentity";
 import {
   guardScheduledETradeAuth,
   type AuthEpisodeStore,
@@ -138,8 +139,9 @@ export interface AutonomousStrategyDiscoveryOptions {
 export class ScheduledTasksService {
   constructor(
     private env: Env,
-    private orm?: DatabaseORM,
-    private userLogin: string = "default_trader",
+    private orm: DatabaseORM | undefined,
+    // Issue #1185: the service runs under its owner's explicit login.
+    private userLogin: string,
     private scanRunStore?: ScanRunStore,
     private ivHistoryStore?: IvHistoryStore,
     private discoveryRunStore?: DiscoveryRunStore,
@@ -186,8 +188,11 @@ export class ScheduledTasksService {
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
    */
   private getScreenerAgent(userLogin = this.userLogin): import("../agents/screener-agent").ScreenerAgent {
+    // Issue #1185: the bare "default" instance name belongs to the
+    // configured service identity — the only login that maps to it.
+    const serviceUserLogin = getServiceUserLogin(this.env);
     const id = (this.env as any).SCREENER_AGENT.idFromName(
-      userLogin === "default_trader" ? "default" : `screener:${userLogin}`
+      serviceUserLogin && userLogin === serviceUserLogin ? "default" : `screener:${userLogin}`
     );
     return (this.env as any).SCREENER_AGENT.get(id);
   }
