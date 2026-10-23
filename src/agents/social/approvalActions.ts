@@ -73,8 +73,10 @@ export async function approveAndPublish(
     nowMs: deps.nowMs,
   });
   // Return the final stored draft, not the approval snapshot: on
-  // success it reads "posted"; on publish failure it still reads
-  // "approved" (retryable), which is what callers must report.
+  // live success it reads "posted" (with the platform post id); on
+  // dry-run success it reads "dry-run-posted" (#1171); on publish
+  // failure it still reads "approved" (retryable), which is what
+  // callers must report.
   const finalDraft = await deps.store.getDraft(deps.date, deps.channel);
   return {
     ok: true,

@@ -135,7 +135,7 @@ describe("onCron social brief from the durable store", () => {
     expect(createJob).not.toHaveBeenCalled();
     expect((await agent.listGoals())[0].lastRun).toBe(new Date(MON_0900).toISOString());
     expect(session.ops).not.toContain("list");
-    expect(JSON.parse(session.rawGet("social-draft:2026-10-26:x")!).status).toBe("posted");
+    expect(JSON.parse(session.rawGet("social-draft:2026-10-26:x")!).status).toBe("dry-run-posted");
     expect(JSON.parse(session.rawGet("social-draft:2026-10-26:x")!).text).toBe("Stored morning brief.");
     expect(JSON.parse(session.rawGet("social-draft:2026-10-26:facebook")!).status).toBe("draft");
   });

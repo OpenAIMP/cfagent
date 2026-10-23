@@ -87,7 +87,7 @@ describe("approveAndPublish", () => {
     const res = await approveAndPublish({ ...deps, date: DATE, channel: "facebook", approver: "slack:U1" });
     expect(res.ok).toBe(true);
     if (!res.ok) throw new Error("expected ok");
-    expect(res.draft.status).toBe("posted");
+    expect(res.draft.status).toBe("dry-run-posted");
     expect(res.draft.approval).toEqual({ approver: "slack:U1", approvedAtMs: NOW });
     expect(res.channelResult?.outcome).toBe("posted");
     expect(res.channelResult?.platformPostId).toBe("dry-run:draft-1");
@@ -189,7 +189,7 @@ describe("handleSocialSlackInteraction", () => {
     expect(joined).toContain("<@U1>");
     expect(joined).toContain("Morning brief: markets up.");
     const stored = await deps.store.getDraft(DATE, "facebook");
-    expect(stored?.status).toBe("posted");
+    expect(stored?.status).toBe("dry-run-posted");
   });
 
   it("reject returns rejection blocks and publishes nothing", async () => {

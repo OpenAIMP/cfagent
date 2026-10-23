@@ -97,7 +97,7 @@ describe("catch-up sweep", () => {
     expect(res.catchUp.map((c) => c.date)).toContain("2026-10-23");
     const entry = res.catchUp.find((c) => c.date === "2026-10-23")!;
     expect(entry.results.some((r) => r.channel === "facebook" && r.outcome === "posted")).toBe(true);
-    expect((await store.getDraft("2026-10-23", "facebook"))?.status).toBe("posted");
+    expect((await store.getDraft("2026-10-23", "facebook"))?.status).toBe("dry-run-posted");
     expect(await approvals.listPending("2026-10-23")).toHaveLength(0);
   });
 
@@ -109,7 +109,7 @@ describe("catch-up sweep", () => {
     const res = await executeSocialGoal(base);
     expect(res.fired).toBe(true);
     if (!res.fired) throw new Error("expected fired");
-    expect((await store.getDraft("2026-10-23", "x"))?.status).toBe("posted");
+    expect((await store.getDraft("2026-10-23", "x"))?.status).toBe("dry-run-posted");
   });
 
   it("never publishes unapproved approval drafts, posted drafts, or failed drafts", async () => {
