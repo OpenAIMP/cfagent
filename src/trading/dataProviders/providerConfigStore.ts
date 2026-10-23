@@ -449,3 +449,40 @@ export function seedCapabilityRoutes(sql: SqlStorage): CapabilityRouteRecord[] {
   }
   return listCapabilityRoutes(sql);
 }
+
+// ---------------------------------------------------------------------------
+// Bootstrap — the minimal enablement the screening cutover owns (E2).
+// ---------------------------------------------------------------------------
+
+/**
+ * Bootstrap this store for platform-routed screening (E2, issue
+ * #1157): seed the provider configs + capability routes (idempotent,
+ * above) and enable E*TRADE — the one provider whose full lifecycle
+ * the #1116 vertical implements first.
+ *
+ * Enablement here is deliberately narrow: etrade's record is moved
+ * to lifecycleState "enabled" with the enabled flag on, via the
+ * store's own setters, and ONLY when it is not already in that state
+ * — so a second bootstrap writes nothing at all (pinned: the stored
+ * records are byte-identical across a repeat call). No other
+ * provider's seeded state is touched: yahoo/nasdaq/alpaca stay
+ * "configured"/disabled and public stays "registered" until their
+ * own lifecycle acts (E3 owns the general provisioning lifecycle;
+ * this is the cutover's minimal seed+enable step for the reference
+ * provider, per the E2 survey's enablement decision).
+ *
+ * Returns the full config list in precedence order, as stored.
+ */
+export function bootstrapDataProviders(sql: SqlStorage): ProviderConfigRecord[] {
+  seedProviderConfigs(sql);
+  const etrade = getProviderConfig(sql, "etrade");
+  if (etrade && (etrade.lifecycleState !== "enabled" || !etrade.enabled)) {
+    if (etrade.lifecycleState !== "enabled") {
+      setProviderLifecycleState(sql, "etrade", "enabled");
+    }
+    if (!etrade.enabled) {
+      setProviderEnabled(sql, "etrade", true);
+    }
+  }
+  return listProviderConfigs(sql);
+}
