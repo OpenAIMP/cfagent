@@ -285,3 +285,71 @@ describe("run-summary merge (S5)", () => {
     expect(rows.map((r) => r.id)).toEqual(["disc-1", "rep-options-1"]);
   });
 });
+
+describe("#1239 UI truth (pdfStatus/pdfError + twin inheritance)", () => {
+  it("canonical body carries pdfStatus/pdfError (top-level and result-nested)", () => {
+    const top = runSummaryFromReport(reportHit({
+      body: JSON.stringify({ success: true, pdfKey: "screener:pdf:abc", pdfStatus: "generated" }),
+    }));
+    expect(top.pdfStatus).toBe("generated");
+    expect(top.pdfError).toBeNull();
+    const nested = runSummaryFromReport(reportHit({
+      body: JSON.stringify({ success: true, report: { result: { pdfStatus: "failed", pdfError: "render blew up" } } }),
+    }));
+    expect(nested.pdfStatus).toBe("failed");
+    expect(nested.pdfError).toBe("render blew up");
+  });
+
+  it("screener-feed run carries its pdfStatus/pdfError", () => {
+    const row = runSummaryFromScreenerRun(screenerRun({ pdfKey: undefined, pdfStatus: "failed", pdfError: "boom" } as Partial<ScreenerRunResult>));
+    expect(row.pdfKey).toBeNull();
+    expect(row.reportUrl).toBeNull();
+    expect(row.pdfStatus).toBe("failed");
+    expect(row.pdfError).toBe("boom");
+  });
+
+  it("scan summary with a stamped pdfKey projects the options download URL", () => {
+    const row = runSummaryFromScanRun(scanSummary({ pdfKey: "options:pdf:xyz" }));
+    expect(row.pdfKey).toBe("options:pdf:xyz");
+    expect(row.reportUrl).toBe("/api/options/report.pdf?key=options%3Apdf%3Axyz");
+    expect(row.pdfStatus).toBe("generated");
+  });
+
+  it("merge: the canonical winner inherits PDF facts from its dropped screener twin", () => {
+    const canonical = runSummaryFromReport(reportHit({
+      body: JSON.stringify({ trigger: "scheduled", success: true, matchedCount: 5, timestamp: TS.screener }),
+    }));
+    expect(canonical.pdfKey).toBeNull();
+    const twin = runSummaryFromScreenerRun(screenerRun({ pdfStatus: "generated" } as Partial<ScreenerRunResult>));
+    const merged = mergeRunSummaries([[canonical], [], [], [twin]], 50);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].pdfKey).toBe("screener:pdf:abc");
+    expect(merged[0].reportUrl).toBe("/api/screener/report.pdf?key=screener%3Apdf%3Aabc");
+    expect(merged[0].pdfStatus).toBe("generated");
+  });
+
+  it("merge: the canonical winner inherits from its dropped scan twin (options join)", () => {
+    const canonical = runSummaryFromReport(reportHit({
+      id: "rep-options-1",
+      runId: `options_scanner:${TS.options}:balanced`,
+      source: "options_scanner",
+      title: "Options scanner — balanced",
+      body: JSON.stringify({ report: { result: { scanRunId: "scan-1", withTrades: 7 } } }),
+      createdAt: TS.options,
+    }));
+    const twin = runSummaryFromScanRun(scanSummary({ pdfKey: "options:pdf:xyz" }));
+    const merged = mergeRunSummaries([[canonical], [twin], [], []], 50);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].pdfKey).toBe("options:pdf:xyz");
+    expect(merged[0].reportUrl).toBe("/api/options/report.pdf?key=options%3Apdf%3Axyz");
+  });
+
+  it("merge: the winner's own PDF facts are never overwritten by the twin", () => {
+    const canonical = runSummaryFromReport(reportHit());
+    const twin = runSummaryFromScreenerRun(screenerRun({ pdfKey: "screener:pdf:OTHER", pdfStatus: "failed", pdfError: "twin error" } as Partial<ScreenerRunResult>));
+    const merged = mergeRunSummaries([[canonical], [], [], [twin]], 50);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].pdfKey).toBe("screener:pdf:abc");
+    expect(merged[0].pdfError).toBeNull();
+  });
+});
