@@ -34,6 +34,7 @@ import {
 import { getOpportunityScannerConfig } from "../config/etapiConfig";
 import { tagOpportunitiesWithDirection, ETradeSlackTradingService } from "../trading";
 import type { ScanRunStore } from "../trading";
+import type { ETradeCaptureDeps } from "../trading";
 import type {
   DiscoveryConstraintSet,
   DiscoveryRunStatus,
@@ -148,7 +149,14 @@ export class ScheduledTasksService {
       outcome: import("./screenerFollowups").ScreenerRunOutcome,
       userLogin: string,
       chainReport: boolean,
-    ) => Promise<void>
+    ) => Promise<void>,
+    /** Issue #1157 (E2): data-provider platform deps for the
+     *  scheduled options path, supplied by the orchestrator-side
+     *  constructors that own a Durable Object storage handle (the
+     *  same storage the injected scanRunStore is built over).
+     *  Forwarded to UnifiedOptionsService; absent, scheduled scans
+     *  run exactly as before (raw client, no capture). */
+    private platformDeps?: ETradeCaptureDeps
   ) {}
 
   /**
@@ -726,7 +734,10 @@ export class ScheduledTasksService {
         userLogin,
         options.environment,
         this.orm,
-        this.scanRunStore
+        this.scanRunStore,
+        undefined,
+        undefined,
+        this.platformDeps
       );
 
       // Issue #16: fetch the event calendar for the scan's names so
