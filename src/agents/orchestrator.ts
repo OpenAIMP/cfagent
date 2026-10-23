@@ -60,11 +60,12 @@ import {
 } from "../services/scheduledReports";
 // Issue #359-01: reports + HITL routes live in src/agents/routes/reports.ts;
 // routeRequest delegates to handleReportsRoutes at the original position.
-import { handleReportsRoutes } from "./routes/reports";
+import { handleReportsRoutes, makeSubmitFollowupDelivery } from "./routes/reports";
 import { handleMcpChatNlqRoutes } from "./routes/mcpChatNlq";
 import { handleSchemaRoutes } from "./routes/schema";
 import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./routes/adsRevenueReferrals";
 import { handleAuditRoutes } from "./routes/audit";
+import { handleDataProviderRoutes } from "./routes/dataProviders";
 import { handleAutopilotRoutes } from "./routes/autopilot";
 import { handleMemoryResetRoutes } from "./routes/memoryReset";
 import { handlePaymentsRoutes } from "./routes/payments";
@@ -82,7 +83,7 @@ import { handleWatchlistsRoutes } from "./routes/watchlists";
 import { handleAlpacaFossRoutes, handleAlpacaTradingRoutes } from "./routes/alpaca";
 import { handleFossQuoteResearchRoutes, handleFossCompareScreenRoutes } from "./routes/fossResearch";
 import { handleScreenerResearchRoutes } from "./routes/screenerResearch";
-import { handleSchedulesRoutes } from "./routes/schedules";
+import { handleSchedulesRoutes, makeRunScheduleCallback } from "./routes/schedules";
 import { TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -1683,23 +1684,7 @@ export class OrchestratorAgent extends Think<Env> {
         this.decideReportConfirmation(id, status, decidedBy),
       createReportConfirmation: (kind, payloadJson, reportId) =>
         this.createReportConfirmation(kind, payloadJson, reportId),
-      submitFollowupDelivery: async (delivery, confirmationId) => {
-        await this.submitAsyncJob({
-          capability: "followup.deliver",
-          payload: {
-            outcome: delivery.outcome,
-            userLogin: delivery.userLogin,
-            channel: delivery.channel,
-            artifacts: delivery.artifacts,
-            approvedConfirmationId: confirmationId,
-          },
-          parentJobId: delivery.parentJobId,
-          jobKind: "delivery",
-          channel: delivery.channel,
-          displayName: delivery.displayName,
-        });
-        return true;
-      },
+      submitFollowupDelivery: makeSubmitFollowupDelivery((job) => this.submitAsyncJob(job)),
       confirmationDeliveryMeta: (row) => this.confirmationDeliveryMeta(row),
       deliverStoredReportEmail: (reportId, recipient, userLogin) =>
         this.deliverStoredReportEmail(reportId, recipient, userLogin),
@@ -1770,6 +1755,19 @@ export class OrchestratorAgent extends Think<Env> {
       recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
     });
     if (auditResponse) return auditResponse;
+
+    // Issue #1170 (E3): data-provider lifecycle routes are handled
+    // by src/agents/routes/dataProviders.ts. Invoked here (after the
+    // audit handler); a non-null return matched. The verified login
+    // (set by src/server.ts from the session, #1156) gates mutations
+    // and is the audit actor.
+    const dataProvidersResponse = await handleDataProviderRoutes(request, url, path, sessionId, {
+      env: this.env,
+      sql: this.ctx.storage.sql,
+      userLogin: request.headers.get("x-user-login") || "",
+      recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
+    });
+    if (dataProvidersResponse) return dataProvidersResponse;
 
     // Issue #359-05: autopilot control center routes (GET /autopilot,
     // POST /autopilot/state, POST /autopilot/kill-switch,
@@ -2035,13 +2033,7 @@ export class OrchestratorAgent extends Think<Env> {
       autoRenewETradeTokens: (payload) => this.autoRenewETradeTokens(payload),
       creatableScheduleCallbacks: CREATABLE_SCHEDULE_CALLBACKS,
       accountScopedScheduleCallbacks: ACCOUNT_SCOPED_SCHEDULE_CALLBACKS,
-      runScheduleCallback: async (callback: string, payload: unknown) => {
-        const fn = (this as unknown as Record<string, unknown>)[callback];
-        if (typeof fn !== "function") {
-          throw new Error(`Schedule callback '${callback}' is not callable on the orchestrator.`);
-        }
-        await (fn as (p: unknown) => Promise<void>).call(this, payload);
-      },
+      runScheduleCallback: makeRunScheduleCallback(this),
     });
     if (schedulesResponse) return schedulesResponse;
 
