@@ -12,7 +12,6 @@ import type { Env } from "../types";
 import {
   invalidateTokenCacheFor,
   readTokenCache,
-  tokenCacheEpoch,
   tokenCacheKey,
   writeTokenCache,
 } from "./etradeTokenCache";
@@ -552,21 +551,9 @@ export async function getValidTokens(
   overrideEnv?: string
 ): Promise<ETradeTokenSet | null> {
   const envConfig = resolveEnvironmentConfig(env, overrideEnv);
-  // User-scoped persisted OAuth must win over process-wide token bindings.
-  // Otherwise a stale global token can shadow the account token renewed by
-  // the scheduler, while appearing freshly stored on every read. Keep the
-  // global binding only for the legacy default_trader identity.
-  const allowLegacyStaticToken = userLogin === "default_trader";
-  const legacyStaticToken = allowLegacyStaticToken &&
-    envConfig.etrade.oauthToken && envConfig.etrade.oauthTokenSecret
-    ? {
-        accessToken: envConfig.etrade.oauthToken,
-        accessTokenSecret: envConfig.etrade.oauthTokenSecret,
-        storedAt: new Date().toISOString(),
-        environment: envConfig.name,
-        userLogin,
-      }
-    : null;
+  // The stored per-user token is the ONLY source (#1185 Phase B, #1066):
+  // the legacy process-wide static pair was deleted, so a login with no
+  // valid stored token resolves to null and callers fail closed.
 
   const kv = getKv(env);
   const scopedKey = KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name);
@@ -576,12 +563,7 @@ export async function getValidTokens(
   // path. Serve repeats from the isolate cache; every write path invalidates.
   const cacheKey = tokenCacheKey(envConfig.name, userLogin);
   const cached = readTokenCache(cacheKey);
-  if (cached !== undefined) return cached ?? legacyStaticToken;
-  // Issue #1218: the store read below is async — a concurrent write
-  // path (connect/renew/revoke) may invalidate while it is in flight.
-  // Capture the epoch now; the cache writes below no-op if it moved,
-  // so a stale result never resurrects after the invalidation.
-  const readEpoch = tokenCacheEpoch(cacheKey);
+  if (cached !== undefined) return cached;
 
   let raw = await kv.get(scopedKey);
   let tokens: ETradeTokenSet | null = null;
@@ -606,19 +588,18 @@ export async function getValidTokens(
   }
 
   if (!tokens) {
-    if (legacyStaticToken) return legacyStaticToken;
-    writeTokenCache(cacheKey, null, readEpoch);
+    writeTokenCache(cacheKey, null);
     return null;
   }
 
   if (isTokenExpiredEt(tokens.storedAt)) {
     console.warn(`E*TRADE tokens for ${userLogin} expired at midnight ET.`);
     await revokeStoredTokens(env, userLogin, overrideEnv);
-    writeTokenCache(cacheKey, null, readEpoch);
-    return legacyStaticToken;
+    writeTokenCache(cacheKey, null);
+    return null;
   }
 
-  writeTokenCache(cacheKey, tokens, readEpoch);
+  writeTokenCache(cacheKey, tokens);
   return tokens;
 }
 
@@ -634,10 +615,8 @@ export async function getETradeAuthStatus(
   const valid = await getValidTokens(env, userLogin, overrideEnv);
 
   if (!valid) {
-    const hasStatic = userLogin === "default_trader" &&
-      Boolean(envConfig.etrade.oauthToken && envConfig.etrade.oauthTokenSecret);
     return {
-      authenticated: hasStatic,
+      authenticated: false,
       userLogin,
       environment: envConfig.name,
     };
