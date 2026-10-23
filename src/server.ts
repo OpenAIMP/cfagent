@@ -638,7 +638,14 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     }
 
     // Issue #159 — ScheduledAgent dashboard API.
+    // Issue #1156: session-gated, like the social brief/approval routes
+    // below — unauthenticated → 401. Any signed-in user may use the
+    // dashboard; no admin gate is invented here. The gate sits before
+    // the DO stub so an unauthenticated call never reaches the
+    // ScheduledAgent.
     if (path.startsWith("/api/schedule/")) {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
       const schedId = (env as any).SCHEDULED_AGENT.idFromName("default");
       const sched = (env as any).SCHEDULED_AGENT.get(schedId) as unknown as {
         listGoals(): Promise<unknown[]>;
@@ -693,8 +700,8 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
     // #1077 Phase 5b slice 2 — social brief provisioning (human path).
     // Placed before the generic /api/ forwarder. Session-gated,
-    // unlike /api/schedule/* above, whose handler performs no session
-    // check (see its catalog authNote): unauthenticated → 401.
+    // like /api/schedule/* above (gated since #1156):
+    // unauthenticated → 401.
     // Any signed-in user may provision; gating provisioning to
     // admins is a later item (the IAAA admin panel could own it).
     // Overwrite semantics: the most recent provision wins for the
