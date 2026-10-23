@@ -41,7 +41,7 @@ export interface SocialGoalDeps {
   tokens: Record<string, string | undefined>;
   store: SocialLedger;
   approvals: PendingApprovalStore;
-  /** Slice 1: production passes () => null. Slice 2 wires NLQ/human content. */
+  /** Slice 2: production reads the firing date's brief from the durable brief store (see scheduled-agent.ts onCron); tests pass an override. */
   briefProvider: () => string | null;
   nowMs: number;
   /** IANA zone for the draft date; defaults to America/New_York. */
