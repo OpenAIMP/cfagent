@@ -11,10 +11,11 @@
  *   provisioned — there is no hardcoded admin, no default user, and
  *   no fallback to a GitHub login anywhere in this module.
  * - Format: a comma-separated list. Each entry is either:
- *   (a) a bare internal user id, which MUST be a UUID — internal
- *       ids are crypto.randomUUID() (Slice 1), so a pasted GitHub
- *       login or display name is REJECTED, not silently stored
- *       as an admin id that matches nobody; or
+ *   (a) a bare internal user id, which MUST be a UUID (legacy
+ *       minted ids, Slice 1) or a derived id (post-#1182: `v1:` +
+ *       64 lowercase hex characters) — so a pasted GitHub login
+ *       or display name is REJECTED, not silently stored as an
+ *       admin id that matches nobody; or
  *   (b) a provider subject in issuer:subject form, split at the
  *       LAST colon — issuers contain "://" (https://github.com),
  *       so splitting at the first colon would mangle them.
@@ -64,6 +65,12 @@ const MAX_FIELD_LENGTH = 512;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// #1197: derived internal ids (post-#1182) are `v1:` + lowercase hex
+// of SHA-256 over the normalized (issuer, subject) pair. Lowercase
+// ONLY: derivation emits lowercase hex, and accepting uppercase
+// would widen the accepted shape beyond what the system ever mints.
+const DERIVED_ID_PATTERN = /^v1:[0-9a-f]{64}$/;
 
 export type BootstrapEntry =
   | { kind: "internalUserId"; internalUserId: string }
@@ -127,11 +134,11 @@ export function parseBootstrapAdmins(
       entries.push({ kind: "providerSubject", providerIssuer, providerSubject });
       continue;
     }
-    if (!UUID_PATTERN.test(entry)) {
+    if (!UUID_PATTERN.test(entry) && !DERIVED_ID_PATTERN.test(entry)) {
       rejected.push({
         entry,
         reason:
-          "bare entry must be an internal user id (UUID); a login or display name is not an identity and is rejected, not provisioned",
+          "bare entry must be an internal user id (UUID or derived v1: id); a login or display name is not an identity and is rejected, not provisioned",
       });
       continue;
     }
