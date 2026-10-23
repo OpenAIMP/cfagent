@@ -179,6 +179,32 @@ export function followupChannelLabel(channel: AsyncJobChannel): string {
  * reason so the tree shows them completing as 'skipped' instead of
  * silently vanishing — and nothing is sent.
  */
+/**
+ * Issue #1228 (#1209 F2): the channels a run's deliver jobs will be
+ * planned on — a channel counts when configured via env OR named by a
+ * per-task override on the outcome (scheduled tasks, S5b), the same
+ * precedence the legacy publishers applied. Shared by the delivery
+ * planner and the lifecycle planner (which suppresses the text-only
+ * 'completed' notify on exactly these channels: the delivery message
+ * IS the completion message there).
+ */
+export function plannedDeliveryChannels(
+  outcome: ScreenerRunOutcome,
+  config: ScreenerFollowupConfig,
+): AsyncJobChannel[] {
+  if (!config.enabled) return [];
+  const channels: AsyncJobChannel[] = [];
+  for (const channel of CHANNEL_ORDER) {
+    const override = channel === "email"
+      ? outcome.emailTo
+      : channel === "slack"
+        ? outcome.slackChannel
+        : outcome.webhookUrl;
+    if (config.channels[channel].configured || override) channels.push(channel);
+  }
+  return channels;
+}
+
 export function planDeliveryFollowups(
   outcome: ScreenerRunOutcome,
   config: ScreenerFollowupConfig,
@@ -195,16 +221,7 @@ export function planDeliveryFollowups(
       ? "Report produced no artifact to deliver."
       : undefined;
   const specs: FollowupDeliverySubmission[] = [];
-  for (const channel of CHANNEL_ORDER) {
-    // A channel is deliverable when configured via env OR named by a
-    // per-task override on the outcome (scheduled tasks, S5b) — the
-    // same precedence the legacy publishers applied.
-    const override = channel === "email"
-      ? outcome.emailTo
-      : channel === "slack"
-        ? outcome.slackChannel
-        : outcome.webhookUrl;
-    if (!config.channels[channel].configured && !override) continue;
+  for (const channel of plannedDeliveryChannels(outcome, config)) {
     specs.push({
       capability: "followup.deliver",
       payload: { outcome, userLogin, channel, artifacts, skipReason },
@@ -247,10 +264,18 @@ export function planLifecycleNotifications(
   mainJobId: string,
   userLogin: string,
   detail?: string,
+  options?: { suppressChannels?: readonly AsyncJobChannel[] },
 ): FollowupNotifySubmission[] {
   if (!config.enabled) return [];
   const specs: FollowupNotifySubmission[] = [];
   for (const channel of NOTIFICATION_CHANNELS) {
+    // Issue #1228 (#1209 F2): on 'completed', channels that will
+    // receive a deliver job get NO text-only notify — the delivery
+    // message (text + artifacts, or the held / undeliverable notice
+    // the deliver executor sends) is the completion message there.
+    // Callers pass plannedDeliveryChannels(...) only when the report
+    // chain will actually run for the run.
+    if (event === "completed" && options?.suppressChannels?.includes(channel)) continue;
     // Issue #1191 (#1173 R3): a per-task override destination counts
     // for notifications too (mirroring the delivery planner) — a
     // scheduled task that names its own Slack channel / email
@@ -295,17 +320,35 @@ export function formatLifecycleNotification(
  * holds a delivery — before R3 a held delivery was silent, which is
  * how completed runs on 2026-10-23 produced no message of any kind.
  */
-export function formatHeldNotification(outcome: ScreenerRunOutcome): string {
+export function formatHeldNotification(
+  outcome: ScreenerRunOutcome,
+  options?: { expiresAtIso?: string },
+): string {
   const kindLabel = outcome.kind === "stock" ? "Stock screen" : "Options screen";
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
   const lines = [
     `⏸️ ${kindLabel}${scope ? ` — ${scope}` : ""} completed — delivery held for approval`,
     "",
     formatFollowupDeliveryText(outcome),
+    ...(outcome.reportUrl ? ["", `📄 Report: ${outcome.reportUrl}`] : []),
     "",
-    "The report (text + PDF + XLSX) is ready but the report-dispatch confirmation gate (#277) is on. Approve it in the Reports panel's pending-review list to send.",
+    "The report (text + PDF + XLSX) is ready but the report-dispatch confirmation gate (#277) is on. Approve it in the Reports panel's pending-review list to send." +
+      (options?.expiresAtIso
+        ? ` The held delivery expires ${options.expiresAtIso} — approve before then or it is discarded unsent.`
+        : ""),
   ];
   return lines.join("\n");
+}
+
+/**
+ * Issue #1228 (#1209 F2): the message a deliver job sends when the
+ * report produced nothing deliverable — the completion text plus the
+ * reason, so a channel whose 'completed' notify was suppressed in
+ * favor of the delivery still hears the outcome (with why no report
+ * is attached) instead of going silent.
+ */
+export function formatUndeliverableNotification(outcome: ScreenerRunOutcome, reason: string): string {
+  return `✅ Screen completed\n${formatFollowupDeliveryText(outcome)}\n⚠️ No report is attached: ${reason}`;
 }
 
 /** Delivery/notification text for a run outcome (S3; reused by S4). */

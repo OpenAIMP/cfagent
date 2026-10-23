@@ -197,7 +197,7 @@ function notifyRows(sql: StatefulAsyncSql, event: string): Array<Record<string, 
 }
 
 describe("lifecycle notification chaining (executor)", () => {
-  it("started + completed notifications spawn around the main job; delivered after a delivery sends", async () => {
+  it("started + delivered notifications spawn around the main job; completed rides the delivery (#1228)", async () => {
     const sql = new StatefulAsyncSql();
     const notified: Array<{ channel: string; text: string }> = [];
     const ctx = makeCtx(sql, ENV, notified);
@@ -212,14 +212,18 @@ describe("lifecycle notification chaining (executor)", () => {
     expect(started[0].parent_job_id).toBe(main.jobId);
     expect(started[0].job_kind).toBe("notification");
 
+    // Issue #1228 (#1209 F2): the report chain is planned for this
+    // run and both channels carry deliver jobs — no text-only
+    // 'completed' notify jobs (the delivery is the completion
+    // message). 'started' above and 'delivered' below still notify.
     const completed = notifyRows(sql, "completed");
-    expect(completed.map((r) => r.channel)).toEqual(["slack", "email"]);
+    expect(completed).toEqual([]);
 
     // Executing a notification sends text through the port.
-    await executeAsyncJob(ctx, { jobId: String(completed[0].job_id) });
-    expect(getAsyncJob(ctx, String(completed[0].job_id))?.result).toMatchObject({ status: "notified", event: "completed" });
+    await executeAsyncJob(ctx, { jobId: String(started[0].job_id) });
+    expect(getAsyncJob(ctx, String(started[0].job_id))?.result).toMatchObject({ status: "notified", event: "started" });
     expect(notified[0].channel).toBe("slack");
-    expect(notified[0].text).toContain("completed");
+    expect(notified[0].text).toContain("started");
 
     // The report + a delivery run; the delivery's completion spawns
     // 'delivered' notifications parented to the MAIN job.
