@@ -465,7 +465,7 @@ export class ETradeService {
    * Returns the quotes E*TRADE actually returned; callers diff against the
    * request to find symbols the broker omitted (no substitute data).
    */
-  async fetchQuotesRemote(symbols: string[], trace?: any): Promise<ETradeQuote[]> {
+  async fetchQuotesRemote(symbols: string[], trace?: any, onWireResponse?: (symbols: string[], payload: unknown) => void): Promise<ETradeQuote[]> {
     const clean = Array.from(
       new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))
     );
@@ -474,9 +474,17 @@ export class ETradeService {
     // endpoint has no sandbox fixture, so do not pretend it quoted anything.
     if (!this.client.getEnvConfig().isLive) return [];
     // Issue #816: pass trace only when provided (keeps #495 test pin stable).
-    return trace
-      ? this.client.fetchQuotes(clean, { trace })
-      : this.client.fetchQuotes(clean);
+    // Issue #1157 (E2): the client's onWireResponse hook is forwarded
+    // the same way — options are passed only when at least one is
+    // actually supplied, so existing callers see the exact call
+    // shapes they always have.
+    if (trace || onWireResponse) {
+      return this.client.fetchQuotes(clean, {
+        ...(trace ? { trace } : {}),
+        ...(onWireResponse ? { onWireResponse } : {}),
+      });
+    }
+    return this.client.fetchQuotes(clean);
   }
 
   /**
