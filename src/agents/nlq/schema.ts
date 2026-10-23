@@ -53,7 +53,7 @@ export function isNlqTableAllowed(tableName: string | undefined | null): boolean
 }
 
 export const nlqPlanSchema = z.object({
-  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "scheduling", "agentic_payments", "custom_query"]).default("conversation"),
+  domain: z.enum(["tables", "table_data", "category_mutation", "conversation", "trading", "research", "scheduling", "agentic_payments", "custom_query", "social"]).default("conversation"),
   operation: z.enum(["list", "count", "search", "create", "update"]).default("list"),
   targetTable: z.string().optional(),
   categoryData: z
@@ -150,6 +150,13 @@ export const nlqPlanSchema = z.object({
       symbol: z.string().optional(),
       maxUnderlyings: z.number().int().positive().optional(),
       contractType: z.enum(["CALL", "PUT", "BOTH"]).optional(),
+    })
+    .optional(),
+  socialData: z
+    .object({
+      action: z.enum(["set_brief"]).optional(),
+      text: z.string().optional(),
+      dayOffset: z.number().int().min(0).max(1).optional(),
     })
     .optional(),
   planSource: z.enum(["llm", "fastpath", "fallback", "llm_validated"]).optional(),

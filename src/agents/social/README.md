@@ -126,8 +126,9 @@ alone would suffice:
   skips it before any social code runs.
 - `SOCIAL_POSTING_ENABLED` is unset → `postingDisabled` even if
   the goal were enabled.
-- The brief provider returns null → `noBrief`, nothing written,
-  even if posting were enabled (slice 2 wires NLQ/human content).
+- The brief provider reads the firing date's brief from the durable
+  brief store (slice 2) → `noBrief`, nothing written, when no brief
+  is stored for that date.
 - No tokens are wired → live publishing is unavailable for every
   channel; dry-run is the default, and dry-run records are
   discarded at tick end.
@@ -193,8 +194,8 @@ is exactly one scheduler for social posts: the goal system.
    PROD-secrets → deploy-sync route; never the repo).
 2. Enable the goal via the schedule dashboard API
    (`POST /api/schedule/goals` for a new goal, or the enabled
-   toggle for the seeded one). Until slice 2 wires a content
-   source, the production brief stays null and the enabled goal
+   toggle for the seeded one). Until a brief is provisioned for
+   the firing date (slice 2: human route or NLQ), the enabled goal
    reports `noBrief` every tick — enabled but harmless.
 3. Approval-channel posts still need an approval action:
    `approveDraft` over the durable stores, then a re-fire of the
@@ -215,8 +216,8 @@ widen the executor's date scope to paper over this.
 - Real tokens as Worker secrets + the per-channel account mapping
   (which Page, which LinkedIn author URN, which Threads/Instagram
   identities).
-- A content source for the brief provider + the voice/style rules
-  (slice 2).
+- A content source for the brief provider is slice 2 (below); the
+  voice/style rules for brief content are still open.
 - Posting-time/weekday confirmation (defaults 09:00 ET Mon–Fri stand
   until the owner changes them — now as the seeded goal, editable
   via the dashboard).
@@ -226,3 +227,92 @@ widen the executor's date scope to paper over this.
 - Re-confirmation of every payload shape against current platform
   docs, plus a token-expiry health check and rotation runbook
   (tokens expire; expiry must warn before it breaks posting).
+
+# Social posting — Phase 5b slice 2 (NLQ/human content intake)
+
+Issue #1077, Phase 5b slice 2: the brief stops being null. Content
+arrives two ways — a human-provision route and an NLQ request — and
+lands in one durable store the goal reads at firing time. Nothing
+else in this slice invents, generates, or defaults content.
+
+## The brief store
+
+- `briefStore.ts` — SessionStore-backed, following the
+  `durableStores.ts` pattern exactly: same SESSION_STORE binding
+  and "social" namespace, ONLY op get/put (never list), JSON string
+  values `{ text }`, corrupt values read as absent (self-healed by
+  the next provision), transport failures throw.
+- Key: `social-brief:<date>` (NY date). Overwrite semantics: the
+  most recent provision wins for that date. A brief stored for a
+  past date never affects past firings; `onCron` reads only the
+  firing date's brief, derived with the goal's timeZone (default
+  America/New_York) — the same derivation `buildDailyDrafts` uses
+  for the draft date, so brief and drafts cannot disagree.
+- Caps: 4000 characters (shared with the NLQ webhook cap), refused
+  with an error, never truncated. Empty/whitespace provisions are
+  refused. A missing, corrupt, or whitespace-only stored brief
+  reads as null → the existing `noBrief` behavior (goal stays due,
+  retries next tick).
+
+## Human provision routes (src/server.ts)
+
+- `POST /api/social/brief` — JSON `{ text }`, optional `{ date }`
+  (default: today NY). Returns `{ ok: true, date }`. 400 on empty
+  / whitespace / non-string text, bad JSON, or a malformed date;
+  413 on text over 4000 chars; 405 on other methods.
+- `GET /api/social/brief` — optional `?date`, returns
+  `{ ok: true, date, brief }` with `brief: null` when nothing is
+  stored. Operator visibility only; it never creates content.
+- Gating: session-required (unauthenticated → 401) — unlike
+  `/api/schedule/*`, whose handler performs no session check (see
+  its catalog authNote). Any signed-in user may provision;
+  admin-only provisioning is a LATER item (the IAAA admin panel
+  could own it) and is NOT silently assumed here. Both routes are
+  in the IAAA endpoint catalog (pin rule).
+
+## NLQ intake
+
+- New NLQ domain `social` with `socialData { action: "set_brief",
+  text, dayOffset }` (schema + rule planner + LLM planner prompt,
+  which says "ONLY when the user explicitly asks" and "never infer
+  a brief from a general question").
+- Rule fastpath (planning.ts 0g): ONLY imperative forms match —
+  "set [the] [today's|tomorrow's] social brief|post [for
+  today|tomorrow] to|as|: <content>" and the "use ... as|:"
+  variant. "Use the social brief to explain X" deliberately does
+  NOT match (instrumental use of the existing brief, not a set).
+  Questions, discussions, and report requests never match; empty
+  content falls through. Broader phrasings ("post this to social",
+  "tweet this") deliberately do NOT match.
+- Executor (async only; the sync executor refuses honestly): the
+  plan's text is written verbatim through the injected
+  `NLQSocialBriefPort` — the same narrow-port pattern as the
+  scheduling (#109) and stock-screen (#982) ports. No port means
+  an honest error, never a fallback write. The result summary
+  names the date only; the brief text is never echoed into result
+  envelopes (they are audited and, on the webhook path, emailed).
+- Port binding (trusted chat only): the agent `/nlq` route binds
+  the port from SESSION_STORE — EXCEPT webhook-originated requests
+  (`x-nlq-source: webhook`), which never get it. Webhook bodies
+  are untrusted external content, and a brief is a public-post
+  input: autonomous channels would publish it with no human
+  approval. The MCP facade, Slack, async jobs, and the fallback
+  path carry no port and fail honestly. Whether Slack NLQ should
+  count as trusted for social writes is a follow-up decision.
+- The funnel (`executeNaturalLanguageQuery`) passes
+  `socialBriefPort` through to the executor like the other ports;
+  without it, an explicit set still plans as `social` but fails at
+  execution with the port error — planning and execution stay
+  honest with each other.
+
+## What slice 2 does NOT do
+
+- No default text, no fallback digest, no generated brief, no
+  auto-conversion of general NLQ queries into briefs — anywhere.
+- No change to the goal's disabled state, the posting switch
+  defaults, any channel gating/disposition, or any token/secret
+  handling. The goal still needs owner activation (see slice 1).
+- No admin gate on provisioning (documented above, not assumed).
+- No publish-on-approve / catch-up sweep (the slice 1 limitation
+  stands: a same-day approval arriving after that day's firing is
+  still not published by a later firing).

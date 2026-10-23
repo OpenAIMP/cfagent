@@ -4,10 +4,12 @@ import {
   DEFAULT_SCHEDULES,
   isDue,
   isValidCron,
+  zonedDateParts,
   type ScheduledGoal,
   type ScheduleTick,
 } from "../schedule";
 import { createSocialStoresFromNamespace } from "./social/durableStores";
+import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
 import { executeSocialGoal } from "./social/goalExecutor";
 import {
   createMemoryDryRunSink,
@@ -47,8 +49,9 @@ import type { DoNamespaceLike } from "../security/durableKv";
 
 /**
  * Test/production overrides for onCron. Production passes none: the
- * social brief stays null until slice 2 wires NLQ/human content, and
- * the dry-run sink records are discarded at tick end.
+ * social brief is read from the durable brief store for the firing
+ * date (slice 2); an override here is test-only and wins over the
+ * store when one is passed.
  */
 export interface ScheduledAgentCronOpts {
   socialBriefProvider?: () => string | null;
@@ -137,6 +140,22 @@ export class ScheduledAgent extends Agent<Env> {
             tick.jobsSkipped++;
             continue;
           }
+          // #1077 Phase 5b slice 2: production reads the firing
+          // date's brief from the durable brief store (same
+          // SESSION_STORE namespace as the draft/approval stores).
+          // A test override still wins when one is passed. A read
+          // failure throws into the loop's catch below: the error is
+          // recorded and the goal stays due for retry — never a
+          // silent publish of nothing, and never stale content.
+          // The firing date uses the goal's timeZone (default
+          // America/New_York), exactly as buildDailyDrafts derives
+          // the draft date, so the brief and the drafts cannot
+          // disagree about which day they belong to.
+          const briefStore = createSocialBriefStoreFromNamespace(
+            (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+          );
+          const firingDate = zonedDateParts(now.getTime(), goal.timeZone ?? "America/New_York").date;
+          const storedBrief = briefStore ? await briefStore.getBrief(firingDate) : null;
           const result = await executeSocialGoal({
             env: {
               SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
@@ -154,7 +173,7 @@ export class ScheduledAgent extends Agent<Env> {
             },
             store: stores.ledger,
             approvals: stores.approvals,
-            briefProvider: opts?.socialBriefProvider ?? (() => null),
+            briefProvider: opts?.socialBriefProvider ?? (() => storedBrief),
             nowMs: now.getTime(),
             timeZone: goal.timeZone,
             transport: opts?.socialTransport,

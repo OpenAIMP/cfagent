@@ -125,12 +125,23 @@ export interface NLQStockScreenPort {
   }): Promise<NLQStockScreenRunResult>;
 }
 
+/** Issue #1077 Phase 5b slice 2: narrow port over the durable social
+ *  brief store — the NLQ executor's only write path for briefs. The
+ *  orchestrator binds it from SESSION_STORE for the trusted agent
+ *  /nlq route; contexts without a port (MCP facade, Slack, async
+ *  jobs, the webhook-forwarded route) get honest failures from the
+ *  executor instead of fabricated success. */
+export interface NLQSocialBriefPort {
+  setBrief(req: { date: string; text: string }): Promise<void>;
+}
+
 /** Execution deps for executeNLQQueryAsync: the options-strategy deps
  *  plus the optional scheduling port (issue #109) and the optional
  *  stock-screen port (issue #982). */
 export interface NLQExecutionDeps extends OptionsStrategyDeps {
   schedulingPort?: NLQSchedulingPort;
   stockScreenPort?: NLQStockScreenPort;
+  socialBriefPort?: NLQSocialBriefPort;
 }
 
 export interface NLQPlanOptions {

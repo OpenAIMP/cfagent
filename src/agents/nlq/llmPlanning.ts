@@ -77,7 +77,9 @@ Available Domains:
 7. 'category_mutation':
    - Adding or editing referral categories.
 8. 'conversation':
-   - Searching past chat messages or general questions.`, options?.untrustedContent),
+   - Searching past chat messages or general questions.
+9. 'social':
+   - Setting the day's social post/brief content (action 'set_brief'), ONLY when the user explicitly asks to set or provide it. Never infer a brief from a general question, a discussion, or a report request.`, options?.untrustedContent),
       prompt: plannerPrompt(question, options?.untrustedContent),
     });
 
@@ -97,7 +99,7 @@ Available Domains:
         system: withUntrustedRule(`You are an NLQ planner for an enterprise database and trading platform.
 Return JSON ONLY matching this structure:
 {
-  "domain": "trading"|"research"|"scheduling"|"agentic_payments"|"tables"|"table_data"|"category_mutation"|"conversation",
+  "domain": "trading"|"research"|"scheduling"|"agentic_payments"|"tables"|"table_data"|"category_mutation"|"conversation"|"social",
   "operation": "list"|"count"|"search"|"create"|"update",
   "targetTable": string,
   "tradingData": { "action": string, "symbol": string, "orderAction": "BUY"|"SELL", "quantity": number, "limitPrice": number, "filters": {} },

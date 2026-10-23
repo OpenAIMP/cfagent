@@ -169,6 +169,46 @@ export function planWithRules(question: string): NLQPlan {
     };
   }
 
+  // 0g. Fast-path for social brief provisioning (#1077 Phase 5b
+  // slice 2): ONLY an explicit imperative request to set the day's
+  // social post content. The patterns require a set/use verb, the
+  // words "social brief|post", and content after a separator — a
+  // question, a discussion, or a report request never matches, so
+  // general NLQ queries can never mint a brief. The separator is
+  // verb-sensitive on purpose: "use the social brief to explain X"
+  // is instrumental (use the EXISTING brief as material), not a
+  // set, so "use" accepts only "as"/":" while "set" accepts
+  // "to"/"as"/":". Broader phrasings ("post this to social", "tweet
+  // this") deliberately do NOT match; widening the phrasing is a
+  // product decision, not a pattern tweak. Empty content falls
+  // through (never an empty brief).
+  const socialBriefMatch =
+    question.match(
+      /^\s*set(?:\s+the)?\s+(?:(today'?s|tomorrow'?s)\s+)?social\s+(?:brief|post)(?:\s+for\s+(today|tomorrow))?\s*(?:to|as|:)\s*([\s\S]+?)\s*$/i,
+    ) ||
+    question.match(
+      /^\s*use(?:\s+the)?\s+(?:(today'?s|tomorrow'?s)\s+)?social\s+(?:brief|post)(?:\s+for\s+(today|tomorrow))?\s*(?:as|:)\s*([\s\S]+?)\s*$/i,
+    );
+  if (socialBriefMatch) {
+    const content = (socialBriefMatch[3] ?? "").trim();
+    const dayWord = socialBriefMatch[1] ?? socialBriefMatch[2];
+    if (content) {
+      return {
+        domain: "social",
+        operation: "create",
+        socialData: {
+          action: "set_brief",
+          text: content,
+          dayOffset: dayWord?.toLowerCase().startsWith("tomorrow") ? 1 : 0,
+        },
+        terms: "social brief",
+        role: "any",
+        since: null,
+        limit: 25,
+      };
+    }
+  }
+
   // 1. Fast-path for Category addition or update (check before generic tables)
   const addCatMatch = question.match(/\b(?:add|create|insert|new)\s+category\s+["']?([^"']+)["']?/i);
   if (addCatMatch) {
