@@ -2,9 +2,22 @@ import defaultConfig from "../../environment.config.json";
 import { RISK_MATH } from "../shared/riskMath";
 import type { Env } from "../types";
 
+/** Issue #1204: baseline chain-fetch subrequest budget per scan. */
+export const DEFAULT_SUBREQUEST_BUDGET = 500;
+
 export interface EtapiScreenerConfig {
   maxScanSymbols: number;
   maxExpirationsPerSymbol: number;
+  /**
+   * Issue #1204: per-scan budget for options chain acquisition fetches
+   * (expire-dates + chain calls) inside one Worker invocation.
+   * Cloudflare caps subrequests per invocation (1,000 on the paid
+   * plan); the scheduled invocation also spends fetches outside the
+   * screener (listings, event calendar, report pipeline), so the
+   * chain budget stays well under the cap. Symbols that do not fit
+   * are deferred with a named reason — never fetched past the budget.
+   */
+  subrequestBudget: number;
   defaultMaxDte: number;
   defaultMinDte: number;
   defaultQuoteAgeSeconds: number;
@@ -307,6 +320,7 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
   screener: {
     maxScanSymbols: 20,
     maxExpirationsPerSymbol: 100,
+    subrequestBudget: DEFAULT_SUBREQUEST_BUDGET,
     defaultMaxDte: 90,
     defaultMinDte: 0,
     defaultQuoteAgeSeconds: 60,
@@ -632,6 +646,7 @@ export function getEtapiConfig(env?: Partial<Env>, overrideEnv?: string): EtapiC
     if (proc.ETAPI_MAX_SCAN_SYMBOLS) config.screener.maxScanSymbols = Number(proc.ETAPI_MAX_SCAN_SYMBOLS);
     if (proc.ETAPI_MAX_RETURNED_CONTRACTS) config.screener.maxReturnedContracts = Number(proc.ETAPI_MAX_RETURNED_CONTRACTS);
     if (proc.ETAPI_DEFAULT_MAX_DTE) config.screener.defaultMaxDte = Number(proc.ETAPI_DEFAULT_MAX_DTE);
+    if (proc.ETAPI_SUBREQUEST_BUDGET) config.screener.subrequestBudget = Number(proc.ETAPI_SUBREQUEST_BUDGET);
     if (proc.ETAPI_RISK_FREE_RATE) config.strategyEngine.riskFreeRate = Number(proc.ETAPI_RISK_FREE_RATE);
     if (proc.ETAPI_FEE_PER_CONTRACT) config.strategyEngine.feePerContract = Number(proc.ETAPI_FEE_PER_CONTRACT);
     if (proc.ETAPI_LLM_TOKEN_BUDGET) config.llmIdeas.inputTokenBudget = Number(proc.ETAPI_LLM_TOKEN_BUDGET);

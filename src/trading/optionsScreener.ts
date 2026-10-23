@@ -65,6 +65,35 @@ function buildOsiSymbol(
   return `${root.toUpperCase()}${yy}${mm}${dd}${type === "CALL" ? "C" : "P"}${strikeCode}`;
 }
 
+/**
+ * Issue #1204: named reason recorded for a symbol whose chain fetches
+ * were never issued because the scan's subrequest budget ran out. A
+ * deferral is not an upstream failure: the symbol was not fetched, so
+ * it must never be reported as a broker/quote failure — and the
+ * scheduled coverage gate's top-skip-reason names the budget, which is
+ * the actionable cause.
+ */
+export const SUBREQUEST_BUDGET_DEFERRED_REASON =
+  "Subrequest budget exhausted: chain fetch deferred (Worker per-invocation subrequest limit).";
+
+/**
+ * Issue #1204: a per-scan ledger bounding how many upstream fetches
+ * chain acquisition may issue inside one Worker invocation. The
+ * ledger is shared across every per-symbol call of one scan (the
+ * opportunity scanner snapshots symbols one by one over one screener
+ * instance), so the bound applies to the scan, not to each symbol.
+ * Spend is recorded synchronously at issue time, before the fetch's
+ * first await, so pooled concurrency cannot overspend it.
+ */
+export interface SubrequestBudget {
+  readonly limit: number;
+  used: number;
+}
+
+export function createSubrequestBudget(limit: number): SubrequestBudget {
+  return { limit: Math.max(0, Math.floor(limit)), used: 0 };
+}
+
 /** Runs `fn` over `items` with at most `limit` in-flight executions, preserving order. */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -285,19 +314,36 @@ export class DynamicOptionsScreener {
    */
   private async fetchChainsForSymbol(
     symbol: string,
-    filter: OptionScreenerFilter
-  ): Promise<{ chains: ETradeOptionChain[]; fetchErrors: OptionScreenFetchError[]; expirationsTruncated: number }> {
+    filter: OptionScreenerFilter,
+    budget: SubrequestBudget
+  ): Promise<{ chains: ETradeOptionChain[]; fetchErrors: OptionScreenFetchError[]; expirationsTruncated: number; deferred: boolean }> {
     const fixture = DynamicOptionsScreener.testChainsFixture[symbol];
-    if (fixture) return { chains: [fixture], fetchErrors: [], expirationsTruncated: 0 };
+    if (fixture) return { chains: [fixture], fetchErrors: [], expirationsTruncated: 0, deferred: false };
     if (!this.client) {
       return {
         chains: [],
         fetchErrors: [{ symbol, reason: "No E*TRADE client configured for live chain fetch." }],
         expirationsTruncated: 0,
+        deferred: false,
       };
     }
     const client = this.client;
 
+    // Issue #1204: budget gate. A symbol that cannot afford even its
+    // expire-dates fetch is deferred — no fetch is issued for it, and
+    // the deferral is reported under its own name, never as an
+    // upstream failure. Spend is recorded synchronously at issue time
+    // (before the first await) so the symbol/expiry pools cannot
+    // overspend the shared ledger.
+    if (budget.used >= budget.limit) {
+      return {
+        chains: [],
+        fetchErrors: [{ symbol, reason: SUBREQUEST_BUDGET_DEFERRED_REASON }],
+        expirationsTruncated: 0,
+        deferred: true,
+      };
+    }
+    budget.used += 1;
     let expirations: Array<{ year: number; month: number; day: number }> = [];
     let expirationError: string | null = null;
     try {
@@ -323,14 +369,25 @@ export class DynamicOptionsScreener {
 
     if (eligibleExpirations.length === 0) {
       // Expirations exist but none fall inside the requested window: a legitimate empty slice.
-      if (expirations.length > 0) return { chains: [], fetchErrors: [], expirationsTruncated: 0 };
+      if (expirations.length > 0) return { chains: [], fetchErrors: [], expirationsTruncated: 0, deferred: false };
       // Expiration feed unavailable: fall back to a single unscoped chain request.
+      // Issue #1204: the fallback fetch is budgeted like every other fetch.
+      if (budget.used >= budget.limit) {
+        return {
+          chains: [],
+          fetchErrors: [{ symbol, reason: SUBREQUEST_BUDGET_DEFERRED_REASON }],
+          expirationsTruncated: 0,
+          deferred: true,
+        };
+      }
+      budget.used += 1;
       const chain = await client.getOptionChains({ symbol }).catch(() => null);
-      if (chain) return { chains: [chain], fetchErrors: [], expirationsTruncated: 0 };
+      if (chain) return { chains: [chain], fetchErrors: [], expirationsTruncated: 0, deferred: false };
       return {
         chains: [],
         fetchErrors: [{ symbol, reason: expirationError || client.lastError || "Option chain fetch returned no data." }],
         expirationsTruncated: 0,
+        deferred: false,
       };
     }
 
@@ -347,7 +404,23 @@ export class DynamicOptionsScreener {
     ])).values()).sort((a, b) => Date.UTC(a.year, a.month - 1, a.day) - Date.UTC(b.year, b.month - 1, b.day));
     const requested = uniqueSelected.slice(0, this.config.maxExpirationsPerSymbol);
     const expirationsTruncated = uniqueSelected.length - requested.length;
-    const chains = await mapLimit(requested, this.config.expiryFetchConcurrency, (expiry) =>
+    // Issue #1204: only the expirations the remaining budget can pay
+    // for are fetched; the rest are deferred and reported as such.
+    // The spend for the whole batch is recorded synchronously, before
+    // the pooled fetches start, so concurrent symbols cannot overspend.
+    const affordable = Math.max(0, Math.min(requested.length, budget.limit - budget.used));
+    const toFetch = requested.slice(0, affordable);
+    const deferredExpirations = requested.length - toFetch.length;
+    budget.used += toFetch.length;
+    if (toFetch.length === 0) {
+      return {
+        chains: [],
+        fetchErrors: [{ symbol, reason: SUBREQUEST_BUDGET_DEFERRED_REASON }],
+        expirationsTruncated,
+        deferred: true,
+      };
+    }
+    const chains = await mapLimit(toFetch, this.config.expiryFetchConcurrency, (expiry) =>
       client.getOptionChains({
         symbol,
         expiryYear: expiry.year,
@@ -362,22 +435,26 @@ export class DynamicOptionsScreener {
         chains: [],
         fetchErrors: [{
           symbol,
-          reason: client.lastError || expirationError || `All ${requested.length} expiration fetches returned no data.`,
+          reason: client.lastError || expirationError || `All ${toFetch.length} expiration fetches returned no data.`,
         }],
         expirationsTruncated,
+        deferred: deferredExpirations > 0,
       };
     }
-    if (fetched.length < requested.length) {
-      return {
-        chains: fetched,
-        fetchErrors: [{
-          symbol,
-          reason: `${requested.length - fetched.length} of ${requested.length} expiration fetches returned no data.`,
-        }],
-        expirationsTruncated,
-      };
+    const fetchErrors: OptionScreenFetchError[] = [];
+    if (fetched.length < toFetch.length) {
+      fetchErrors.push({
+        symbol,
+        reason: `${toFetch.length - fetched.length} of ${toFetch.length} expiration fetches returned no data.`,
+      });
     }
-    return { chains: fetched, fetchErrors: [], expirationsTruncated };
+    if (deferredExpirations > 0) {
+      fetchErrors.push({
+        symbol,
+        reason: `${deferredExpirations} of ${requested.length} expiration fetches deferred (subrequest budget exhausted).`,
+      });
+    }
+    return { chains: fetched, fetchErrors, expirationsTruncated, deferred: deferredExpirations > 0 };
   }
 
   fetchChainForSymbolSync(symbol: string): ETradeOptionChain | null {
@@ -428,7 +505,10 @@ export class DynamicOptionsScreener {
    * symbols are fetched through a bounded concurrency pool, and upstream failures are reported
    * via `fetchErrors` with `status: "error"` when nothing could be fetched.
    */
-  async screenOptions(rawFilter: OptionScreenerFilter = {}): Promise<OptionScreenResult> {
+  async screenOptions(
+    rawFilter: OptionScreenerFilter = {},
+    budget: SubrequestBudget = createSubrequestBudget(this.config.subrequestBudget)
+  ): Promise<OptionScreenResult> {
     const { filter, warnings } = sanitizeOptionScreenerFilter(rawFilter, this.config);
 
     if (filter.sector && !["all", "any"].includes(filter.sector.toLowerCase())) {
@@ -448,7 +528,7 @@ export class DynamicOptionsScreener {
 
     const symbols = await this.resolveUnderlyings(filter);
     const outcomes = await mapLimit(symbols, this.config.symbolFetchConcurrency, (symbol) =>
-      this.fetchChainsForSymbol(symbol, filter),
+      this.fetchChainsForSymbol(symbol, filter, budget),
     );
     // Issue #915: one sequential retry pass for symbols that failed
     // outright (fetch error, zero chains), mirroring the #727 quote
@@ -466,9 +546,14 @@ export class DynamicOptionsScreener {
       for (let i = 0; i < symbols.length; i++) {
         const outcome = outcomes[i];
         if (outcome.chains.length > 0 || outcome.fetchErrors.length === 0) continue;
+        // Issue #1204: a deferred symbol was never fetched — retrying
+        // it inside the same invocation cannot succeed (the budget is
+        // the binding constraint, not a transient failure) and the
+        // retry would spend against the same exhausted ledger.
+        if (outcome.deferred) continue;
         if (retried > 0) await new Promise((r) => setTimeout(r, 500));
         retried++;
-        outcomes[i] = await this.fetchChainsForSymbol(symbols[i], filter);
+        outcomes[i] = await this.fetchChainsForSymbol(symbols[i], filter, budget);
       }
     }
     const chains = outcomes.flatMap((outcome, index) =>
@@ -476,6 +561,16 @@ export class DynamicOptionsScreener {
     );
     const fetchErrors = outcomes.flatMap((outcome) => outcome.fetchErrors);
     const expirationsTruncated = outcomes.reduce((total, outcome) => total + outcome.expirationsTruncated, 0);
+    // Issue #1204: deferral disclosure — a budget-bounded scan is a
+    // partial scan, and the result must say so wherever it travels.
+    const deferredSymbols = symbols.filter((_, i) => outcomes[i].deferred);
+    if (deferredSymbols.length > 0) {
+      const named = deferredSymbols.slice(0, 10).join(", ");
+      warnings.push(
+        `${deferredSymbols.length} underlying(s) deferred (subrequest budget ${budget.limit} exhausted after ${budget.used} fetches): ${named}` +
+        `${deferredSymbols.length > 10 ? ", …" : ""}. Narrow the universe or DTE window, or raise screener.subrequestBudget.`
+      );
+    }
     if (expirationsTruncated > 0) {
       warnings.push(
         `Fetch window capped at ${this.config.maxExpirationsPerSymbol} expirations per symbol; ${expirationsTruncated} later expiration(s) were skipped. Tighten the DTE window to include them.`,
