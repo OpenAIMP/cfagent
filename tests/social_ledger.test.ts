@@ -28,14 +28,14 @@ describe("memory ledger", () => {
     expect(ledger.getDraft("2026-10-26", "threads")).toBeUndefined();
   });
 
-  it("returns the existing draft on a second create and never calls create again", () => {
+  it("returns the existing draft on a second create and never calls create again", async () => {
     const ledger = new MemorySocialLedger();
     let calls = 0;
-    const first = getOrCreateDraft(ledger, "2026-10-26", "x", () => {
+    const first = await getOrCreateDraft(ledger, "2026-10-26", "x", () => {
       calls += 1;
       return draft("2026-10-26", "x", "first");
     });
-    const second = getOrCreateDraft(ledger, "2026-10-26", "x", () => {
+    const second = await getOrCreateDraft(ledger, "2026-10-26", "x", () => {
       calls += 1;
       return draft("2026-10-26", "x", "second");
     });
@@ -53,15 +53,15 @@ describe("memory ledger", () => {
     expect(listed).toEqual(["threads", "x"]);
   });
 
-  it("exposes the same idempotency through its method", () => {
+  it("exposes the same idempotency through its method", async () => {
     const ledger = new MemorySocialLedger();
     let calls = 0;
     const mk = () => {
       calls += 1;
       return draft("2026-10-26", "threads");
     };
-    ledger.getOrCreateDraft("2026-10-26", "threads", mk);
-    ledger.getOrCreateDraft("2026-10-26", "threads", mk);
+    await ledger.getOrCreateDraft("2026-10-26", "threads", mk);
+    await ledger.getOrCreateDraft("2026-10-26", "threads", mk);
     expect(calls).toBe(1);
   });
 });

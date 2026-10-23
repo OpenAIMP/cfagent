@@ -45,7 +45,7 @@ function fakeEnv() {
   return { env, agentFetchCalls };
 }
 
-describe("worker scheduled() social tick no-op (Phase 5a)", () => {
+describe("worker scheduled() social dispatch (Phase 5b slice 1)", () => {
   it("runs the */30 tick with default env without throwing and without extra agent fetches", async () => {
     const { env, agentFetchCalls } = fakeEnv();
     const waited: Array<Promise<unknown>> = [];
@@ -53,11 +53,11 @@ describe("worker scheduled() social tick no-op (Phase 5a)", () => {
     await worker.scheduled({ cron: "*/30 * * * *" }, env as never, ctx as never);
     await Promise.all(waited);
     // The three established dispatches ride this tick: research,
-    // reflection, and strategy-weight adjustment. The social tick
-    // makes no agent.fetch call of its own: with default env
-    // (SOCIAL_POSTING_ENABLED unset) it stops at postingDisabled,
-    // and its briefProvider returns null, so it can never build
-    // drafts or posts in this phase.
+    // reflection, and strategy-weight adjustment — plus the
+    // ScheduledAgent onCron call (mocked here). Social posting adds
+    // no dispatch of its own since Phase 5b slice 1 retired the
+    // parallel social tick: posting is a ScheduledAgent goal
+    // evaluated inside onCron, not a server.ts block.
     expect(agentFetchCalls.sort()).toEqual([
       "/adaptation/weights/run",
       "/reflection/run",
@@ -69,8 +69,8 @@ describe("worker scheduled() social tick no-op (Phase 5a)", () => {
     const { env, agentFetchCalls } = fakeEnv();
     const waited: Array<Promise<unknown>> = [];
     const ctx = { waitUntil: (p: Promise<unknown>) => void waited.push(p) };
-    // An unrelated cron hits neither the */30 branch (where the
-    // social tick rides) nor any dispatch: no agent fetches at all.
+    // An unrelated cron hits neither the */30 branch (where onCron
+    // runs) nor any dispatch: no agent fetches at all.
     await worker.scheduled({ cron: "0 5 * * *" }, env as never, ctx as never);
     await Promise.all(waited);
     expect(agentFetchCalls).toEqual([]);

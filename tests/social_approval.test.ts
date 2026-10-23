@@ -32,11 +32,11 @@ function ledgerWith(...drafts: SocialDraft[]) {
 }
 
 describe("approveDraft / rejectDraft", () => {
-  it("approves a draft, records approver + time, and clears the pending entry", () => {
+  it("approves a draft, records approver + time, and clears the pending entry", async () => {
     const store = ledgerWith(mkDraft("facebook", "draft"));
     const approvals = new MemoryPendingApprovalStore();
     approvals.recordPending({ date: DATE, channel: "facebook", draftId: "draft-facebook", requestedAtMs: 1 });
-    const res = approveDraft(store, approvals, DATE, "facebook", "owner", 999);
+    const res = await approveDraft(store, approvals, DATE, "facebook", "owner", 999);
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.draft.status).toBe("approved");
@@ -46,27 +46,27 @@ describe("approveDraft / rejectDraft", () => {
     expect(approvals.listPending(DATE)).toEqual([]);
   });
 
-  it("refuses approval when no draft exists, when already posted, or when rejected", () => {
+  it("refuses approval when no draft exists, when already posted, or when rejected", async () => {
     const store = ledgerWith(mkDraft("facebook", "posted"), mkDraft("instagram", "failed"));
     const approvals = new MemoryPendingApprovalStore();
-    expect(approveDraft(store, approvals, DATE, "linkedin", "owner", 1).ok).toBe(false);
-    expect(approveDraft(store, approvals, DATE, "facebook", "owner", 1).ok).toBe(false);
-    expect(approveDraft(store, approvals, DATE, "instagram", "owner", 1).ok).toBe(false);
+    expect((await approveDraft(store, approvals, DATE, "linkedin", "owner", 1)).ok).toBe(false);
+    expect((await approveDraft(store, approvals, DATE, "facebook", "owner", 1)).ok).toBe(false);
+    expect((await approveDraft(store, approvals, DATE, "instagram", "owner", 1)).ok).toBe(false);
   });
 
-  it("refreshing approval on an already-approved draft updates the record", () => {
+  it("refreshing approval on an already-approved draft updates the record", async () => {
     const store = ledgerWith(mkDraft("facebook", "approved"));
     const approvals = new MemoryPendingApprovalStore();
-    const res = approveDraft(store, approvals, DATE, "facebook", "second-owner", 555);
+    const res = await approveDraft(store, approvals, DATE, "facebook", "second-owner", 555);
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.draft.approval).toEqual({ approver: "second-owner", approvedAtMs: 555 });
   });
 
-  it("rejects a draft: status failed, record retained, pending cleared", () => {
+  it("rejects a draft: status failed, record retained, pending cleared", async () => {
     const store = ledgerWith(mkDraft("facebook", "draft"));
     const approvals = new MemoryPendingApprovalStore();
     approvals.recordPending({ date: DATE, channel: "facebook", draftId: "draft-facebook", requestedAtMs: 1 });
-    const res = rejectDraft(store, approvals, DATE, "facebook");
+    const res = await rejectDraft(store, approvals, DATE, "facebook");
     expect(res.ok).toBe(true);
     const kept = store.getDraft(DATE, "facebook");
     expect(kept).toBeDefined();
@@ -74,12 +74,12 @@ describe("approveDraft / rejectDraft", () => {
     expect(approvals.listPending(DATE)).toEqual([]);
   });
 
-  it("refuses rejection when no draft exists or when already posted; re-reject is idempotent", () => {
+  it("refuses rejection when no draft exists or when already posted; re-reject is idempotent", async () => {
     const store = ledgerWith(mkDraft("facebook", "posted"), mkDraft("instagram", "failed"));
     const approvals = new MemoryPendingApprovalStore();
-    expect(rejectDraft(store, approvals, DATE, "linkedin").ok).toBe(false);
-    expect(rejectDraft(store, approvals, DATE, "facebook").ok).toBe(false);
-    expect(rejectDraft(store, approvals, DATE, "instagram").ok).toBe(true);
+    expect((await rejectDraft(store, approvals, DATE, "linkedin")).ok).toBe(false);
+    expect((await rejectDraft(store, approvals, DATE, "facebook")).ok).toBe(false);
+    expect((await rejectDraft(store, approvals, DATE, "instagram")).ok).toBe(true);
     expect(store.getDraft(DATE, "instagram")?.status).toBe("failed");
   });
 });
