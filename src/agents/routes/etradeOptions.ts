@@ -49,6 +49,7 @@
  * the watchlists module below (#359-12); passed through the context).
  */
 
+import { unauthenticatedResponse } from "./routeIdentity";
 import type { AgentContext } from "agents";
 import { ETradeService } from "../../services/etrade";
 import {
@@ -165,7 +166,8 @@ export async function handleOptionsStrategyRecommend(
     // overwrite whatever the body carried. The service never throws;
     // an uncovered result simply keeps event risk unverified.
     strategyRequest.eventCalendar = toEventCalendarInfo(await getSymbolEventCalendar(strategyRequest.symbol));
-    const userLogin = request.headers.get("x-user-login") || deps.sessionKey || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const etrade = new ETradeService(deps.orm, deps.env, userLogin, deps.requestedEnv);
     const screener = new DynamicOptionsScreener(etrade.client);
     const screened = await screener.screenOptions({
@@ -235,7 +237,8 @@ export async function handleEtradeOptionsRoutes(
         const strikePrice = url.searchParams.get("strikePrice") ? Number(url.searchParams.get("strikePrice")) : undefined;
         const noOfStrikes = url.searchParams.get("noOfStrikes") ? Number(url.searchParams.get("noOfStrikes")) : undefined;
         const chainType = (url.searchParams.get("chainType") as "CALL" | "PUT" | "CALLPUT") || undefined;
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = request.headers.get("x-user-login");
+        if (!userLogin) return unauthenticatedResponse();
         // #291 T5c: resolved through the platform registry (the chains
         // read is a verbatim client passthrough on the platform contract);
         // one instance serves the call and its #155 error read.
@@ -283,7 +286,8 @@ export async function handleEtradeOptionsRoutes(
       try {
         const symbol = (url.searchParams.get("symbol") || "NVDA").toUpperCase().trim();
         const expiryType = url.searchParams.get("expiryType") || undefined;
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = request.headers.get("x-user-login");
+        if (!userLogin) return unauthenticatedResponse();
         // #291 T5c: registry-resolved platform (verbatim passthrough
         // reads); the #155 error read stays on this same instance.
         const etrade = TradingPlatformRegistry.getPlatform("etrade", ctx.env, ctx.getOrm(), userLogin, ctx.requestedEnv);
@@ -396,7 +400,8 @@ export async function handleEtradeOptionsRoutes(
       const cached = !forceRefresh ? orm.getOptionsChain(symbol) : null;
 
       try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = request.headers.get("x-user-login");
+        if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(orm, ctx.env, userLogin, ctx.requestedEnv);
         return await executeLlmIdeasEvaluation({
           ctx, orm, etrade, userLogin, symbol, question, cached, retrievedChains, state,
@@ -461,7 +466,8 @@ export async function handleEtradeOptionsRoutes(
 
       try {
         const strategyRequest = body as StrategyRequest;
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = request.headers.get("x-user-login");
+        if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
         const result = await pipeline.run(strategyRequest, {
@@ -557,7 +563,8 @@ export async function handleEtradeOptionsRoutes(
         return Response.json({ error: parsedDiscovery.error }, { status: 400 });
       }
       try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = request.headers.get("x-user-login");
+        if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
         const result = await pipeline.run(parsedDiscovery.value.request, {
@@ -590,6 +597,10 @@ export async function handleEtradeOptionsRoutes(
 
     if (path.endsWith("/trading/options/screen") && (request.method === "POST" || request.method === "GET")) {
       let filter: any = {};
+      // Issue #1185: resolved before the try so the failure path below
+      // can attribute follow-ups to the same verified login — never a
+      // session id or a synthetic fallback.
+      const screenUserLogin = request.headers.get("x-user-login");
       try {
         if (request.method === "POST") {
           filter = (await request.json().catch(() => ({}))) as any;
@@ -633,19 +644,20 @@ export async function handleEtradeOptionsRoutes(
         const screenSlackChannel = parsedScreen.value.slackChannel;
         const screenUniverseLabel = parsedScreen.value.universe;
 
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = screenUserLogin;
+        if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const screener = new DynamicOptionsScreener(etrade.client);
         return await executeOptionsScreen({ ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, deferDelivery: Boolean(ctx.asyncJobId) });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Options screening failed";
         if (!ctx.asyncJobId && (filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1")) {
-          if (ctx.scheduleScreenerFollowups) {
+          if (ctx.scheduleScreenerFollowups && screenUserLogin) {
             // Issue #1123 S5a: the failure joins the tracked pipeline
             // (failed main-job record + failed notifications).
             await ctx.scheduleScreenerFollowups(
               screenerOutcomeFromRunResult("options", { success: false, error, thesis: filter.universe }),
-              request.headers.get("x-user-login") || sessionId || "default_trader",
+              screenUserLogin,
             );
           } else {
             const sent = await deliverScreenerToSlackA2A(ctx.env, {
