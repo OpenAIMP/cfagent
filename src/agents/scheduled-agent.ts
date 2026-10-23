@@ -10,7 +10,12 @@ import {
 } from "../schedule";
 import { createSocialStoresFromNamespace } from "./social/durableStores";
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
-import { executeSocialGoal } from "./social/goalExecutor";
+import { executeSocialGoal, priorDates } from "./social/goalExecutor";
+import {
+  deliverPendingApprovals,
+  fetchSlackPost,
+  type SlackPostFn,
+} from "./social/delivery";
 import {
   createMemoryDryRunSink,
   type DryRunSink,
@@ -57,6 +62,8 @@ export interface ScheduledAgentCronOpts {
   socialBriefProvider?: () => string | null;
   socialTransport?: SocialTransport;
   socialDryRunSink?: DryRunSink;
+  /** #1077 Phase 5b slice 3: injected Slack poster for approval-card delivery (tests). Production uses fetch. */
+  socialSlackPost?: SlackPostFn;
 }
 
 export class ScheduledAgent extends Agent<Env> {
@@ -182,16 +189,56 @@ export class ScheduledAgent extends Agent<Env> {
           if (!result.fired) {
             // lastRun untouched: the goal stays due and retries on the
             // next tick (noBrief, posting off, or no drafts produced).
+            // #1077 Phase 5b slice 3: delivery still runs below for a
+            // not-fired tick (except posting disabled) — delivery is
+            // independent of the day's brief, and a noBrief tick can
+            // still carry undelivered backlog.
             tick.jobsSkipped++;
-            continue;
+          } else {
+            for (const r of result.publish.results) {
+              if (r.outcome === "error") {
+                tick.errors.push(`${goal.id}: ${r.channel}: ${r.reason}`);
+              }
+            }
+            for (const entry of result.catchUp) {
+              for (const r of entry.results) {
+                if (r.outcome === "error") {
+                  tick.errors.push(`${goal.id}: catch-up ${entry.date} ${r.channel}: ${r.reason}`);
+                }
+              }
+            }
+            goal.lastRun = now.toISOString();
+            tick.jobsCreated++;
           }
-          for (const r of result.publish.results) {
-            if (r.outcome === "error") {
-              tick.errors.push(`${goal.id}: ${r.channel}: ${r.reason}`);
+          // #1077 Phase 5b slice 3: approval-card delivery pass.
+          // Runs after the goal execution on every social tick except
+          // posting-disabled (the kill switch gates delivery too),
+          // over the firing date plus the catch-up lookback, so a
+          // card recorded late in the day is still delivered that
+          // night. Idempotent per (date, channel, draftId): a second
+          // pass skips already-delivered records. Delivery failures
+          // are tick errors — non-fatal, never unfiring the goal —
+          // and the undelivered record retries on the next pass.
+          // When NO Slack destination is configured at all (neither
+          // webhook nor bot token), the pass is skipped silently:
+          // Slack delivery is opt-in by configuration, and the
+          // session-gated route remains the approval path. A
+          // configured destination that fails DOES record errors.
+          const slackConfigured = rawEnv.SLACK_WEBHOOK_URL || rawEnv.SLACK_BOT_TOKEN;
+          if (slackConfigured && (result.fired || result.reason !== "postingDisabled")) {
+            const deliveries = await deliverPendingApprovals({
+              store: stores.ledger,
+              approvals: stores.approvals,
+              dates: [firingDate, ...priorDates(firingDate)],
+              post: opts?.socialSlackPost ?? fetchSlackPost,
+              env: rawEnv,
+            });
+            for (const d of deliveries) {
+              if (d.error) {
+                tick.errors.push(`${goal.id}: slack delivery ${d.channel} ${d.date}: ${d.error}`);
+              }
             }
           }
-          goal.lastRun = now.toISOString();
-          tick.jobsCreated++;
           continue;
         }
 

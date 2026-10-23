@@ -182,11 +182,21 @@ export async function publishDueDrafts(input: {
       }
       if (disposition === "approval" && draft.status !== "approved") {
         // Record the request; delivery (Slack approval card) is Phase 5b.
+        // Slice 3: re-recording must not wipe the delivery mark — the
+        // pending request is the same one while the draftId is
+        // unchanged, so a delivered card stays delivered across
+        // sweeps (otherwise every catch-up sweep would re-deliver).
+        const existing = (await input.approvals.listPending(input.date)).find(
+          (p) => p.channel === channel,
+        );
         await input.approvals.recordPending({
           date: input.date,
           channel,
           draftId: draft.id,
           requestedAtMs: input.nowMs,
+          ...(existing && existing.draftId === draft.id && existing.deliveredDraftId
+            ? { deliveredDraftId: existing.deliveredDraftId }
+            : {}),
         });
         results.push({
           channel,
