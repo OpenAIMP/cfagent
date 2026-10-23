@@ -471,3 +471,122 @@ other approved/failed drafts for that date resolve too); reject →
 - No per-user approval allowlist; no admin gate on the route.
 - No retry of drafts older than 7 days; no re-delivery of an
   unchanged pending record; no duplicate cards on tick replay.
+
+## Token health + rotation runbook (#1160)
+
+`tokenHealth.ts` reports per-channel status only: `configured` /
+`unconfigured` from env presence, and `valid` / `invalid` /
+`unknown` from a live probe over an injected transport. The
+session-gated route `GET /api/social/token-health` (401
+unauthenticated, 405 other methods, catalog entry
+`social-token-health-get`) serves that report. Its response never
+contains a token value, a token prefix, or platform error text —
+the transport surface carries status numbers only, so a body can
+never leak through. `unknown` is a real answer, not a euphemism:
+it means "no probe ran" (no transport, or unconfirmed endpoint)
+or "the probe could not conclude" (unexpected status, transport
+error). Only `invalid` means the platform rejected the token.
+
+### Where tokens live
+
+Platform portal → GitHub repository → Settings → Environments →
+PROD secrets → the deploy workflow's `sync-secrets` job
+(non-blocking, runs after deploy; `scripts/ci/put-secret.sh` with
+`require_secret` / `optional_secret`) → Cloudflare Worker secrets.
+That is the same journey the Google OAuth secrets already use.
+Two consequences: (1) setting a GitHub PROD secret alone does NOT
+reach the Worker until a deploy runs the sync job — and a token
+name must first be added to the sync job itself, which is a
+workflow-file edit the owner makes in the web UI (the GitHub API
+cannot write `.github/workflows/*`); (2) a direct
+`wrangler secret put` persists but is NOT re-synced on later
+deploys, so it is a stopgap, not the durable route. Tokens are
+never committed to the repo, never pasted in chat, and never
+returned by any route.
+
+### How to rotate each token (no code change, ever)
+
+Rotating a token is a secrets operation, not a code change: the
+route and the publisher layer read env per call, so a new value
+takes effect on the next deploy that syncs it. Per channel:
+
+- **X** (`X_ACCESS_TOKEN`): regenerate in the X developer portal
+  for the app, update the PROD secret, redeploy. Re-check this
+  route afterwards: X reports presence only — its validity probe
+  is unconfirmed (below), so confirm the new token in the X
+  portal, not from this route.
+- **Threads** (`THREADS_ACCESS_TOKEN`): regenerate in the Meta app
+  (Threads use case, `threads_basic` + `threads_content_publish`),
+  update the PROD secret, redeploy. Long-lived token lifetimes
+  vary — confirm the expiry in the portal at rotation time and
+  re-check this route afterwards; it should flip to configured,
+  and to valid once a live transport is wired.
+- **Facebook Page** (`FACEBOOK_PAGE_ACCESS_TOKEN`): this must be a
+  Page token, not a user token (the publisher posts to `/me/feed`,
+  which resolves to the Page only with a Page token). Regenerate
+  via the Page / Meta app, update the PROD secret, redeploy.
+- **Instagram** (`INSTAGRAM_ACCESS_TOKEN`): business/creator
+  account linked to a Facebook Page, Instagram Graph API.
+  Regenerate via the Meta app, update the PROD secret, redeploy.
+- **LinkedIn** (`LINKEDIN_ACCESS_TOKEN` + `LINKEDIN_AUTHOR_URN`):
+  regenerate via 3-legged OAuth in the LinkedIn developer portal,
+  update the PROD secret, redeploy. The author URN does not rotate
+  with the token, but if it is missing the channel still fails
+  closed — this route reports its presence separately so a missing
+  URN is visible instead of mysterious.
+
+After any rotation: redeploy (so the sync job pushes the new
+value), then query this route. `configured` confirms the Worker
+sees the value; `valid` (once a live transport is wired)
+confirms the platform accepts it. If the route still says
+`unconfigured` after a deploy, the secret did not sync — check
+the sync-secrets job summary before assuming the token is wrong.
+
+### How expiry surfaces, and what happens then
+
+- **This route:** a configured token the platform rejects reads
+  `invalid`. An expired token is an `invalid` token — expiry is
+  not a separate state.
+- **Publish path:** expiry fails per channel, never silently.
+  A live publish attempt with an expired token gets a platform
+  401/403, which becomes an error entry; the draft is NOT marked
+  posted and stays retryable — approval channels keep the draft
+  APPROVED, and the goal's 7-day catch-up retries it on later
+  firings. A failed live gate is never silently downgraded to a
+  dry run: an operator who asked for live sees the failure.
+  Other channels are unaffected (per-channel try/catch).
+- **Rotation window:** rotate BEFORE expiry when the portal
+  shows one approaching. There is no automatic renewal in this
+  slice — no refresh flow, no expiry alerting. A token that
+  expires mid-day fails that day's publish for its channel only;
+  it does not block other channels, and it does not post
+  anything stale.
+
+### Validity endpoints: confirmed vs unconfirmed
+
+Confirmed (2026-10-23, against publisher definitions + platform
+docs): Threads `GET graph.threads.net/v1.0/me`; Facebook
+`GET graph.facebook.com/v21.0/me`; Instagram
+`GET graph.instagram.com/v21.0/me`; LinkedIn
+`GET api.linkedin.com/v2/me` (requires the
+`X-RestLi-Protocol-Version: 2.0.0` header, which the probe
+sends). UNCONFIRMED: X — the candidate `api.twitter.com/2/users/me`
+could not be confirmed against X's own docs in this slice's
+checks, so it is not asserted anywhere and no live call is made
+for X. X validity stays `unknown` until that endpoint is
+confirmed against current X docs; do not treat X `unknown` as
+either healthy or broken.
+
+### What this slice does NOT do
+
+- No live transport is wired: production validity is `unknown`
+  by design until activation wiring passes a real GET transport.
+  Wiring one does not change this module's contract.
+- The goal executor does NOT call the health check — health is
+  an operator query, not a publish gate, in this slice.
+- No new secrets, no token storage change, no wrangler.jsonc /
+  deploy.yml change, no publish-path change.
+- NOT the dry-run "posted" status fix: a dry-run publish still
+  marks its draft "posted". That fix belongs with the live flip,
+  so flipping live mid-day still skips that day's drafts until
+  it lands.
