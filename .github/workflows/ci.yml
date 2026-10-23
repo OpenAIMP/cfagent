@@ -18,7 +18,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # ── Step 1: read environment.config.json to determine target environment ──
@@ -30,6 +30,9 @@ jobs:
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            environment.config.json
 
       - name: 🌐 Read Active Environment from Config
         id: read-env
@@ -72,14 +75,21 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
-      - name: 🔍 TypeScript Strict Type Check
-        run: npm run typecheck
+      - name: 🧪 Parallel Verification (TypeCheck, Vitest, Frontend Build, Wrangler)
+        run: |
+          npx wrangler --version &
+          PID_WRANGLER=$!
 
-      - name: 🧪 Execute Vitest Test Suites (ORM, NLQ, MCP, Trading, Patterns, Payments)
-        run: npm run test:ci
+          npm run typecheck &
+          PID_TYPECHECK=$!
 
-      - name: 🏗️ Verify Frontend Production Bundle Build
-        run: npm run build
+          npm run build &
+          PID_BUILD=$!
 
-      - name: 🛡️ Verify Cloudflare Worker Configuration
-        run: npx wrangler --version
+          npm run test:ci &
+          PID_TEST=$!
+
+          wait $PID_WRANGLER || exit 1
+          wait $PID_TYPECHECK || exit 1
+          wait $PID_BUILD || exit 1
+          wait $PID_TEST || exit 1

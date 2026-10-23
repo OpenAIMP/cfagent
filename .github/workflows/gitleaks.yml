@@ -32,7 +32,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -42,10 +42,10 @@ jobs:
     name: Gitleaks secret scan
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 Checkout Repository (full history)
+      - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
 
       - name: 🔎 Scan for secrets with Gitleaks
         uses: gitleaks/gitleaks-action@v2
