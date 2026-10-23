@@ -10,6 +10,7 @@
 
 import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from "../types";
 import { DatabaseORM } from "../orm";
+import { codedMessage } from "../errors/errorAspects";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
 import {
   guardScheduledETradeAuth,
@@ -1016,13 +1017,16 @@ export class ScheduledTasksService {
           ? ` Top skip reason: "${topReason}" (${topCount} of ${skippedList.length} failed symbols).`
           : "";
         throw new Error(
-          `Incomplete options universe: ${scannedCount} of ${symbols.length} underlyings scanned, ` +
-          `${coverageErrors} quote/chain failures, ${truncatedCount} truncated.${reasonSuffix} No partial report published.`
+          codedMessage(
+            "SCREEN_003",
+            `Incomplete options universe: ${scannedCount} of ${symbols.length} underlyings scanned, ` +
+            `${coverageErrors} quote/chain failures, ${truncatedCount} truncated.${reasonSuffix} No partial report published.`,
+          )
         );
       }
       if (coverageErrors > 0 || truncatedCount > 0) {
         console.warn(
-          `[ScheduledTasks] Partial options coverage: ${scannedCount} of ${symbols.length} scanned, ` +
+          `[ScheduledTasks] [SCREEN_002] Partial options coverage: ${scannedCount} of ${symbols.length} scanned, ` +
           `${coverageErrors} quote/chain failures, ${truncatedCount} truncated. Publishing partial report.`
         );
       }

@@ -33,6 +33,7 @@ import {
   isTokenExpiredEt,
   renewETradeAccessToken,
 } from "../security/etradeOAuth";
+import { codedMessage } from "../errors/errorAspects";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
 import type { ScreenerRunOutcome } from "./screenerFollowups";
 
@@ -162,27 +163,32 @@ export async function fireAuthEpisodeAlertOnce(
   }
 }
 
-/** The user-facing blocked message recorded on the run (expired). */
+/** The user-facing blocked message recorded on the run (expired).
+ *  Issue #1252 (#1173 R4): rendered through the error catalog
+ *  (AUTH_002) so the run record, the alert, and the logs carry the
+ *  same code. */
 export function authBlockedMessage(alerted: boolean): string {
-  return (
-    "E*TRADE connection expired: the access token is past its midnight-ET " +
-    "expiry and automatic renewal failed. Reconnect your account in Settings " +
-    "to resume scheduled runs. " +
-    (alerted
-      ? "A reconnect alert has been sent for this episode."
-      : "A reconnect alert was already sent for this episode; further runs today stay quiet.")
+  return codedMessage(
+    "AUTH_002",
+    "the access token is past its midnight-ET expiry and automatic " +
+      "renewal failed. Reconnect your account in Settings to resume " +
+      "scheduled runs. " +
+      (alerted
+        ? "A reconnect alert has been sent for this episode."
+        : "A reconnect alert was already sent for this episode; further runs today stay quiet."),
   );
 }
 
-/** The user-facing blocked message recorded on the run (no session, #1200). */
+/** The user-facing blocked message recorded on the run (no session, #1200).
+ *  Issue #1252: catalog code AUTH_003. */
 export function authMissingMessage(alerted: boolean): string {
-  return (
-    "E*TRADE connection missing: no stored session exists for this account " +
-    "in PROD mode. Connect your E*TRADE account in Settings to resume " +
-    "scheduled runs. " +
-    (alerted
-      ? "A connect alert has been sent for this episode."
-      : "A connect alert was already sent for this episode; further runs today stay quiet.")
+  return codedMessage(
+    "AUTH_003",
+    "no stored session exists for this account in PROD mode. Connect " +
+      "your E*TRADE account in Settings to resume scheduled runs. " +
+      (alerted
+        ? "A connect alert has been sent for this episode."
+        : "A connect alert was already sent for this episode; further runs today stay quiet."),
   );
 }
 
@@ -233,11 +239,11 @@ export async function guardScheduledETradeAuth(
     const fire = async (): Promise<void> => {
       const text =
         pre.reason === "no-session"
-          ? `⚠️ E*TRADE connection missing — scheduled ${opts.label} is blocked. ` +
+          ? `⚠️ [AUTH_003] E*TRADE connection missing — scheduled ${opts.label} is blocked. ` +
             "No stored E*TRADE session exists for this account in PROD mode. " +
             "Connect your E*TRADE account in Settings to resume scheduled runs. " +
             "Runs stay blocked (quietly) until you connect."
-          : `⚠️ E*TRADE connection expired — scheduled ${opts.label} is blocked. ` +
+          : `⚠️ [AUTH_002] E*TRADE connection expired — scheduled ${opts.label} is blocked. ` +
             "Reconnect your account in Settings to resume scheduled runs. " +
             "Runs stay blocked (quietly) until you reconnect.";
       const sends: Array<Promise<unknown>> = [];
