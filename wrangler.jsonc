@@ -12,6 +12,9 @@
   // through to it. The `serveStaticAsset` bypass in src/server.ts remains as
   // the safety net for anything that does land here.
   "assets": { "directory": "./dist/", "binding": "ASSETS", "run_worker_first": ["/", "/index.html"] },
+  "workflows": [
+    { "name": "trading-trade-workflow", "binding": "TRADE_WORKFLOW", "class_name": "TradingTradeWorkflow" }
+  ],
   "ai": { "binding": "AI" },
   "durable_objects": {
     "bindings": [

@@ -627,6 +627,107 @@ export function a2aReplyFromOutcome(outcome: unknown): { text: string; data?: un
 // The agent
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Order settlement — the shared core behind the approval door (T3) and the
+// durable trade workflow (T3b)
+// ---------------------------------------------------------------------------
+
+/** Wrangler binding name of the trade approval workflow (#291 T3b). */
+export const TRADE_WORKFLOW_BINDING = "TRADE_WORKFLOW" as const;
+
+/** Params carried by the trade approval workflow — ids only, never credentials. */
+export interface TradeApprovalParams {
+  orderId: string;
+  provider?: string;
+  userLogin: string;
+}
+
+/** The decision event payload delivered to a waiting trade workflow. */
+export interface TradeApprovalDecision {
+  decision: "approved" | "rejected";
+  authorizerDid: string;
+  reason?: string;
+}
+
+export interface SettleTradingOrderInput {
+  provider?: string;
+  userLogin?: string;
+  orderId: string;
+  authorizerDid: string;
+  decision: "approved" | "rejected";
+}
+
+/**
+ * Settle one previewed order from an explicit, authorized decision:
+ * validates the decision triple, resolves the platform through the
+ * registry, and calls its executeOrder — which re-validates the draft
+ * state and records the authorizer (claim-then-execute at the platform).
+ * Shared by the synchronous approval door and the durable workflow, so
+ * both paths enforce identical rules. Emits the A6 dispatch log line
+ * under the caller's door name.
+ */
+export async function settleTradingOrder(
+  env: Env,
+  config: TradingAgentConfig,
+  input: SettleTradingOrderInput,
+  door: string,
+): Promise<unknown> {
+  const started = Date.now();
+  const correlationId = crypto.randomUUID();
+  try {
+    if (!input?.orderId || typeof input.orderId !== "string") {
+      throw new TradingServiceError("invalid_input", "settleTradingOrder requires an orderId.");
+    }
+    if (!input.authorizerDid || typeof input.authorizerDid !== "string") {
+      throw new TradingServiceError(
+        "invalid_input",
+        "settleTradingOrder requires an authorizerDid — anonymous approvals are refused.",
+      );
+    }
+    if (input.decision !== "approved" && input.decision !== "rejected") {
+      throw new TradingServiceError(
+        "invalid_input",
+        `settleTradingOrder decision must be "approved" or "rejected".`,
+      );
+    }
+    const platform = resolveTradingPlatform(
+      env,
+      config,
+      input.provider,
+      input.userLogin ?? "default_trader",
+    );
+    if (typeof platform.executeOrder !== "function") {
+      throw new TradingServiceError(
+        "provider_unsupported",
+        `Provider "${platform.platformId}" does not support order execution.`,
+      );
+    }
+    const result = await platform.executeOrder(input.orderId, input.authorizerDid, input.decision);
+    logTradingDispatch({
+      correlationId,
+      door,
+      service: "stock_trading",
+      provider: platform.platformId,
+      access: "action",
+      ok: true,
+      durationMs: Date.now() - started,
+    });
+    return result;
+  } catch (err) {
+    const { code, message } = classifyTradingError(err);
+    logTradingDispatch({
+      correlationId,
+      door,
+      service: "stock_trading",
+      access: "action",
+      ok: false,
+      code,
+      durationMs: Date.now() - started,
+    });
+    throw new TradingServiceError(code, message);
+  }
+}
+
 export class TradingAgent extends Think<Env> {
   private config(): TradingAgentConfig {
     return getTradingAgentConfig(this.env as unknown as Record<string, unknown>);
@@ -677,61 +778,74 @@ export class TradingAgent extends Think<Env> {
     authorizerDid: string;
     decision: "approved" | "rejected";
   }): Promise<unknown> {
-    const started = Date.now();
-    const correlationId = crypto.randomUUID();
-    try {
-      if (!input?.orderId || typeof input.orderId !== "string") {
-        throw new TradingServiceError("invalid_input", "executeApprovedOrder requires an orderId.");
-      }
-      if (!input.authorizerDid || typeof input.authorizerDid !== "string") {
-        throw new TradingServiceError(
-          "invalid_input",
-          "executeApprovedOrder requires an authorizerDid — anonymous approvals are refused.",
-        );
-      }
-      if (input.decision !== "approved" && input.decision !== "rejected") {
-        throw new TradingServiceError(
-          "invalid_input",
-          `executeApprovedOrder decision must be "approved" or "rejected".`,
-        );
-      }
-      const config = this.config();
-      const platform = resolveTradingPlatform(
-        this.env,
-        config,
-        input.provider,
-        input.userLogin ?? "default_trader",
-      );
-      if (typeof platform.executeOrder !== "function") {
-        throw new TradingServiceError(
-          "provider_unsupported",
-          `Provider "${platform.platformId}" does not support order execution.`,
-        );
-      }
-      const result = await platform.executeOrder(input.orderId, input.authorizerDid, input.decision);
-      logTradingDispatch({
-        correlationId,
-        door: "rpc-approval",
-        service: "stock_trading",
-        provider: platform.platformId,
-        access: "action",
-        ok: true,
-        durationMs: Date.now() - started,
-      });
-      return result;
-    } catch (err) {
-      const { code, message } = classifyTradingError(err);
-      logTradingDispatch({
-        correlationId,
-        door: "rpc-approval",
-        service: "stock_trading",
-        access: "action",
-        ok: false,
-        code,
-        durationMs: Date.now() - started,
-      });
-      throw new TradingServiceError(code, message);
+    return settleTradingOrder(this.env, this.config(), input, "rpc-approval");
+  }
+
+  /**
+   * Start the durable approval workflow for a previewed order (#291 T3b).
+   * Returns the workflow id; the workflow waits up to 24h for a decision
+   * delivered via decideTradeApproval, then settles through the same core
+   * as the synchronous door. Fails closed when the workflow binding is
+   * not configured.
+   */
+  async startTradeApproval(input: {
+    provider?: string;
+    userLogin?: string;
+    orderId: string;
+  }): Promise<{ workflowId: string; orderId: string; status: "awaiting_approval" }> {
+    if (!input?.orderId || typeof input.orderId !== "string") {
+      throw new TradingServiceError("invalid_input", "startTradeApproval requires an orderId.");
     }
+    if (!(TRADE_WORKFLOW_BINDING in this.env)) {
+      throw new TradingServiceError(
+        "internal_error",
+        "The trade approval workflow is not configured (TRADE_WORKFLOW binding missing).",
+      );
+    }
+    const params: TradeApprovalParams = {
+      orderId: input.orderId,
+      provider: input.provider,
+      userLogin: input.userLogin ?? "default_trader",
+    };
+    const workflowId = await this.runWorkflow(TRADE_WORKFLOW_BINDING, params);
+    return { workflowId, orderId: input.orderId, status: "awaiting_approval" };
+  }
+
+  /**
+   * Deliver a decision to a waiting trade approval workflow (#291 T3b).
+   * The authorizer identity is mandatory and travels in the event payload
+   * — the workflow re-verifies it at settle time through the shared core.
+   */
+  async decideTradeApproval(input: {
+    workflowId: string;
+    authorizerDid: string;
+    decision: "approved" | "rejected";
+    reason?: string;
+  }): Promise<{ workflowId: string; delivered: true }> {
+    if (!input?.workflowId || typeof input.workflowId !== "string") {
+      throw new TradingServiceError("invalid_input", "decideTradeApproval requires a workflowId.");
+    }
+    if (!input.authorizerDid || typeof input.authorizerDid !== "string") {
+      throw new TradingServiceError(
+        "invalid_input",
+        "decideTradeApproval requires an authorizerDid — anonymous decisions are refused.",
+      );
+    }
+    if (input.decision !== "approved" && input.decision !== "rejected") {
+      throw new TradingServiceError(
+        "invalid_input",
+        `decideTradeApproval decision must be "approved" or "rejected".`,
+      );
+    }
+    await this.sendWorkflowEvent(TRADE_WORKFLOW_BINDING, input.workflowId, {
+      type: "approval",
+      payload: {
+        decision: input.decision,
+        authorizerDid: input.authorizerDid,
+        reason: input.reason,
+      },
+    });
+    return { workflowId: input.workflowId, delivered: true };
   }
 
   /**

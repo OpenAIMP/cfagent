@@ -176,6 +176,8 @@ export interface Env {
   TRADING_AGENT?: DurableObjectNamespace;
   /** Bearer token required on A2A dispatch POSTs (#291 A5). Unset = dispatch disabled (fail closed). */
   A2A_API_TOKEN?: string;
+  /** Trade approval workflow binding (#291 T3b). */
+  TRADE_WORKFLOW?: Workflow;
 }
 
 export interface TransactionRecord {
