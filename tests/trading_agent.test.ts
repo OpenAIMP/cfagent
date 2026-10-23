@@ -121,7 +121,7 @@ describe("TradingAgent surfaces stay in sync (#291 anti-drift)", () => {
     );
     const narrowed = buildTradingTools(env, {
       ...TRADING_AGENT_CONFIG_BASELINE,
-      enabledServices: ["options_trading"],
+      enabledServices: ["not_a_service"],
     });
     expect(Object.keys(narrowed)).toEqual([]);
   });
@@ -224,6 +224,7 @@ describe("TradingAgent A2A door (#291)", () => {
       "stock_screening",
       "options_screening",
       "stock_trading",
+      "options_trading",
     ]);
   });
 
@@ -618,5 +619,86 @@ describe("TradingAgent stock trading + approval door (#291 T3)", () => {
     expect(
       TRADING_SERVICE_REGISTRY.every((s) => s.a2aOperation !== "trading.execute_approved_order"),
     ).toBe(true);
+  });
+});
+
+describe("TradingAgent options trading service (#291 T4)", () => {
+  const orderCalls: { previews: any[]; executions: any[] } = { previews: [], executions: [] };
+  TradingPlatformRegistry.register("fakeopt291" as any, () => ({
+    platformId: "fakeopt291",
+    name: "Fake Options 291",
+    getStatus: async () => ({}),
+    getQuote: async () => ({}),
+    getAccounts: async () => [],
+    getPositions: async () => ({ account: {}, positions: [] }),
+    previewOrder: async (params: any) => {
+      orderCalls.previews.push(params);
+      return { id: "opt-draft-291", ...params, estimatedCost: 250 };
+    },
+    executeOrder: async (orderId: string, authorizerDid: string, decision: string) => {
+      orderCalls.executions.push({ orderId, authorizerDid, decision });
+      return { orderId, status: decision === "approved" ? "placed" : "cancelled", authorizerDid };
+    },
+  }) as any);
+  const optConfig = {
+    enabledProviders: ["fakeopt291"],
+    defaultProvider: "fakeopt291",
+    enabledServices: ["options_trading"],
+  };
+  const spread = {
+    operation: "trading.trade_options",
+    provider: "fakeopt291",
+    symbol: "AAPL",
+    action: "BUY",
+    quantity: 1,
+    orderType: "LIMIT",
+    strategyNetDebit: 2.5,
+    optionLegs: [
+      { underlyingSymbol: "AAPL", securityType: "OPTN", side: "BUY", quantity: 1, optionType: "CALL", strike: 150, expirationDate: "2027-01-15" },
+      { underlyingSymbol: "AAPL", securityType: "OPTN", side: "SELL", quantity: 1, optionType: "CALL", strike: 160, expirationDate: "2027-01-15" },
+    ],
+  };
+
+  it("is action-class, previews the spread, and never places", async () => {
+    orderCalls.previews.length = 0;
+    orderCalls.executions.length = 0;
+    const svc = TRADING_SERVICE_REGISTRY.find((s) => s.id === "options_trading");
+    expect(svc!.access).toBe("action");
+    expect(svc!.toolName).toBe("trade_options");
+    const result: any = await dispatchTradingA2A(env, optConfig as any, spread);
+    expect(result.ok).toBe(true);
+    expect(result.result.status).toBe("pending_approval");
+    expect(result.result.proposal.id).toBe("opt-draft-291");
+    expect(orderCalls.previews).toHaveLength(1);
+    expect(orderCalls.previews[0].assetClass).toBe("options");
+    expect(orderCalls.previews[0].optionLegs).toHaveLength(2);
+    expect(orderCalls.previews[0].strategyNetDebit).toBe(2.5);
+    expect(orderCalls.executions).toHaveLength(0);
+  });
+
+  it("rejects a leg-less options order as invalid_input at the schema layer", async () => {
+    const { optionLegs: _drop, ...legless } = spread;
+    const result = await dispatchTradingA2A(env, optConfig as any, legless);
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("invalid_input");
+  });
+
+  it("the shared approval door places the options draft by id", async () => {
+    const { TradingAgent } = await import("../src/agents/trading-agent");
+    const agent: any = Object.create(TradingAgent.prototype);
+    agent.env = env;
+    agent.config = () => optConfig;
+    const placed: any = await agent.executeApprovedOrder({
+      provider: "fakeopt291",
+      orderId: "opt-draft-291",
+      authorizerDid: "did:web:venus",
+      decision: "approved",
+    });
+    expect(placed.status).toBe("placed");
+    expect(orderCalls.executions.at(-1)).toEqual({
+      orderId: "opt-draft-291",
+      authorizerDid: "did:web:venus",
+      decision: "approved",
+    });
   });
 });
