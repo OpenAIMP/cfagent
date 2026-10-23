@@ -2,6 +2,7 @@ import { Think, type ChatResponseResult, type TurnConfig, type TurnContext } fro
 import type { AgentContext, Schedule } from "agents";
 import type { ToolSet } from "ai";
 import { getWorkersAIModel } from "./model";
+import { resolveScreenerAgentName } from "./screenerAgentName";
 import { buildOrchestratorSystemPrompt, resolveShadowMaxSteps } from "./chatPrompt";
 import { LLMJudge } from "./judge";
 import { VectorMemory } from "../memory/vector-memory";
@@ -152,11 +153,6 @@ export const STRATEGY_SCAN_CRON = "35 * * * *";
 /** Issue #624: research task heartbeat interval while a run is in flight (2 minutes). */
 const RESEARCH_TASK_HEARTBEAT_MS = 120_000;
 
-function screenerAgentName(userLogin: string): string {
-  // Preserve the original shared agent for the legacy system identity.
-  return userLogin === "default_trader" ? "default" : `screener:${userLogin}`;
-}
-
 export class OrchestratorAgent extends Think<Env> {
   constructor(ctx: AgentContext, env: Env) {
     super(ctx, env);
@@ -248,7 +244,7 @@ export class OrchestratorAgent extends Think<Env> {
       followupDeliveryPort: () => createFollowupDeliveryPort({
         env: this.env,
         getOrm: () => this.getOrm(),
-        getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
+        getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin),
       }),
       reportDispatchHitlEnabled: () => getReportDispatchHitl(this.reportDispatchContext()),
       createScreenerConfirmation: (payloadJson: string) =>
@@ -323,8 +319,10 @@ export class OrchestratorAgent extends Think<Env> {
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
    * E*TRADE-only market data; honest failure when unavailable.
    */
-  private getScreenerAgent(userLogin = "default_trader"): ScreenerAgent {
-    const id = this.env.SCREENER_AGENT.idFromName(screenerAgentName(userLogin));
+  private getScreenerAgent(userLogin?: string): ScreenerAgent {
+    // Issue #1185: per-owner instances; naming/owner resolution lives
+    // in ./screenerAgentName (fail closed without an identity).
+    const id = this.env.SCREENER_AGENT.idFromName(resolveScreenerAgentName(this.env, userLogin));
     return this.env.SCREENER_AGENT.get(id) as unknown as ScreenerAgent;
   }
 
@@ -1864,7 +1862,7 @@ export class OrchestratorAgent extends Think<Env> {
         scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin),
       getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
-      getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
+      getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin),
       persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
       evaluateAndRecordAutopilotVerdict: (params) => this.evaluateAndRecordAutopilotVerdict(params),
       getAutopilotState: () => this.getAutopilotState(),
@@ -1907,7 +1905,7 @@ export class OrchestratorAgent extends Think<Env> {
       env: this.env,
       getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
-      getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
+      getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin),
       persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
       evaluateAndRecordAutopilotVerdict: (params) => this.evaluateAndRecordAutopilotVerdict(params),
       getAutopilotState: () => this.getAutopilotState(),
@@ -1936,7 +1934,7 @@ export class OrchestratorAgent extends Think<Env> {
       agentCtx: this.ctx,
       ensureTables: () => this.ensureTables(),
       requestedEnv,
-      getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
+      getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin),
     });
     if (etradeOptionsResponse) return etradeOptionsResponse;
 
