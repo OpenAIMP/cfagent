@@ -341,6 +341,60 @@ export async function storeReportAtGenerationWithR2(
 }
 
 /**
+ * Issue #338 S3: the coupled delete — the ONLY way a mas_reports row may
+ * be removed. The design requires the R2 body object to be deleted in
+ * the same scope as the row, or every deletion strands an object. The
+ * object delete runs first and is best-effort: if it fails (or no bucket
+ * is bound) the failure is logged and the row is still deleted — a
+ * stranded object is inert and is the orphan sweep's job (the design's
+ * named follow-up), while a stranded ROW pointing at a deleted object
+ * would break reads. mas_reports has no pruning today (retention
+ * decision #786: KEEP — pruning is a product decision); this primitive
+ * exists so that any future deletion path is coupled by construction.
+ * Never throws; returns true when the row is gone.
+ */
+export async function deleteCanonicalReport(
+  sql: SqlStorage,
+  env: { REPORTS_BUCKET?: R2Bucket },
+  reportId: string
+): Promise<boolean> {
+  try {
+    if (!reportId) return false;
+    ensureScheduledReportsTable(sql);
+    const hit = getCanonicalReport(sql, reportId);
+    if (!hit) return false;
+    if (hit.bodyR2Key) {
+      const bucket = env?.REPORTS_BUCKET;
+      if (bucket) {
+        try {
+          await bucket.delete(hit.bodyR2Key);
+        } catch (err) {
+          console.error(
+            `[scheduledReports] deleteCanonicalReport: R2 delete failed for report ${reportId} (key ${hit.bodyR2Key}); deleting the row anyway — the orphan sweep owns the stranded object: ${err instanceof Error ? err.message : String(err)}`,
+            err
+          );
+        }
+      } else {
+        console.error(
+          `[scheduledReports] deleteCanonicalReport: no REPORTS_BUCKET bound; deleting row ${reportId} strands its R2 object (key ${hit.bodyR2Key}) for the orphan sweep`
+        );
+      }
+    }
+    sql.exec(
+      `DELETE FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ?`,
+      reportId
+    );
+    return true;
+  } catch (err) {
+    console.error(
+      `[scheduledReports] deleteCanonicalReport failed for report ${reportId}: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
+    return false;
+  }
+}
+
+/**
  * Issue #338 S2: resolve a stored report's canonical body. A null pointer
  * means the body is inline — return it as-is. A set pointer reads the R2
  * object; a missing bucket, missing object, or read error resolves to
