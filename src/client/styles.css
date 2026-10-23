@@ -8363,6 +8363,35 @@ body {
   filter: brightness(1.1);
 }
 
+.etrade-menu-msg-banner {
+  margin-top: 0.5rem;
+  padding: 0.38rem 0.6rem;
+  font-size: 0.78rem;
+  border-radius: var(--radius-xs, 4px);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-medium);
+  color: var(--color-text-primary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.38rem;
+  word-break: break-word;
+}
+
+.etrade-menu-msg-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0 0.125rem;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.etrade-menu-msg-dismiss:hover {
+  opacity: 1;
+}
+
 /* Tools Cluster — Single Horizontal Row Layout */
 .etrade-tools-cluster,
 .etrade-tools-cluster.single-row {

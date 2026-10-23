@@ -197,19 +197,23 @@ is exactly one scheduler for social posts: the goal system.
    toggle for the seeded one). Until a brief is provisioned for
    the firing date (slice 2: human route or NLQ), the enabled goal
    reports `noBrief` every tick — enabled but harmless.
-3. Approval-channel posts still need an approval action:
-   `approveDraft` over the durable stores, then a re-fire of the
-   same day's goal publishes them. Slack approval-card delivery
-   is still a later wiring step.
+3. Approval-channel posts still need an approval action (slice 3):
+   a Slack approval card, or the session-gated route below. Either
+   approval publishes the draft promptly (publish-on-approve); a
+   same-day approval that arrives after the firing is also picked
+   up by the next firing's catch-up sweep.
 
-## Known limitation (follow-up, not slice 1)
+## Known limitation (fixed in slice 3)
 
-Each goal firing publishes ONLY its own date's drafts. An approval
-that arrives after the day's firing is therefore not published by
-any later firing (the next day builds new drafts). The fix belongs
-in a later slice: publish-on-approve (the approval action itself
-publishes), or a catch-up sweep in the executor. Do not silently
-widen the executor's date scope to paper over this.
+Each goal firing used to publish ONLY its own date's drafts, so an
+approval arriving after the day's firing was never published by a
+later firing. Slice 3 fixes this two ways (see the slice 3 section
+below): publish-on-approve (the approval action itself publishes)
+and a 7-day catch-up sweep in the executor. The dry-run "posted"
+carry-forward from Phase 5a still stands: a dry-run publish marks
+its draft "posted", so flipping live mid-day skips that day's
+drafts — dry-run needs its own status before durable storage
+matters for the live flip (see "What still gates").
 
 ## What still gates the first live post (after slice 1)
 
@@ -221,14 +225,12 @@ widen the executor's date scope to paper over this.
 - Posting-time/weekday confirmation (defaults 09:00 ET Mon–Fri stand
   until the owner changes them — now as the seeded goal, editable
   via the dashboard).
-- A live transport behind the injected-transport seam, Slack
-  approval-card delivery for pending approvals, and the
-  approval-latency fix above.
-- Re-confirmation of every payload shape against current platform
+- A live transport behind the injected-transport seam, plus
+  re-confirmation of every payload shape against current platform
   docs, plus a token-expiry health check and rotation runbook
   (tokens expire; expiry must warn before it breaks posting).
 
-# Social posting — Phase 5b slice 2 (NLQ/human content intake)
+# Social posting — Phase 5b slice 3 (Slack approval delivery + publish-on-approve/catch-up)
 
 Issue #1077, Phase 5b slice 2: the brief stops being null. Content
 arrives two ways — a human-provision route and an NLQ request — and
@@ -313,6 +315,159 @@ else in this slice invents, generates, or defaults content.
   defaults, any channel gating/disposition, or any token/secret
   handling. The goal still needs owner activation (see slice 1).
 - No admin gate on provisioning (documented above, not assumed).
-- No publish-on-approve / catch-up sweep (the slice 1 limitation
-  stands: a same-day approval arriving after that day's firing is
-  still not published by a later firing).
+- Publish-on-approve and the catch-up sweep are slice 3 (below),
+  not slice 2.
+
+# Social posting — Phase 5b slice 3 (Slack approval delivery + publish-on-approve/catch-up)
+
+Issue #1077, Phase 5b slice 3: the slice-1 limitations are fixed.
+A pending approval is delivered as a Slack card, an approval
+publishes promptly instead of waiting for the next 09:00 firing,
+and every firing sweeps the prior week for approved-but-unposted
+drafts and failed publishes. No channel gating, disposition list,
+config default, token handling, or goal enabled-state changes:
+the goal stays DISABLED until owner activation, dry-run stays
+the default, and production still passes no live transport (the
+Phase 5a gap — live publish fails honestly, dry-run works end to
+end).
+
+## Delivery channel (delivery.ts)
+
+- When `publishDueDrafts` records a pending approval, the next
+  social tick's delivery pass sends a Block Kit card to Slack.
+  The card shows date, channel, and the draft text — exactly what
+  would be approved, nothing more. The text renders as
+  `plain_text`, so user content can never inject mrkdwn. Buttons:
+  Approve (`social_approve`, primary) and Reject
+  (`social_reject`, danger), both valued `date|channel|draftId`.
+- Destination, exactly one per attempt: `SLACK_WEBHOOK_URL` when
+  configured, else `chat.postMessage` via `SLACK_BOT_TOKEN`.
+  cfpay `slack.post` is NOT used — it carries text only, no
+  blocks, so it cannot carry buttons. Channel resolution:
+  `SOCIAL_SLACK_CHANNEL`, then `SLACK_CHANNEL_ID`, then
+  `SLACK_CHANNEL` (the screener/trading convention) — never a
+  hardcoded id. A webhook failure falls back to the bot token;
+  a bot failure is judged by Slack's own `{ok}` field, not just
+  the HTTP status. No webhook AND no token is an honest error at
+  the delivery unit — but see the onCron rule below.
+- Idempotency per (date, channel, draftId): the pending record
+  carries `deliveredDraftId` (backward-compatible: records written
+  before slice 3 lack it and are treated as undelivered, delivered
+  once). A pass skips records whose `deliveredDraftId` already
+  equals their `draftId`, skips missing/posted/failed/approved
+  drafts and draft-id mismatches (stale pending), and never marks
+  a failed delivery — the next pass retries it. `publishDueDrafts`
+  preserves `deliveredDraftId` when it re-records an unchanged
+  pending request, so a catch-up sweep cannot wipe the mark and
+  re-deliver. One bad record never takes down a pass: failures
+  are result entries, and the pass never throws for per-record
+  problems.
+
+## onCron delivery pass (scheduled-agent.ts)
+
+- After the goal executes (fired OR not-fired — delivery is
+  independent of the day's brief, so a `noBrief` tick can still
+  carry undelivered backlog), the pass runs over the firing date
+  plus the 7-day catch-up lookback. The one exception is posting
+  disabled: the kill switch gates delivery too.
+- When NO Slack destination is configured at all (neither webhook
+  nor bot token), the pass is skipped silently: Slack delivery is
+  opt-in by configuration, and the session-gated route below
+  remains the approval path. A configured destination that fails
+  DOES record tick errors — non-fatal, never unfiring the goal.
+- Production poster is a fetch wrapper; tests inject
+  `ScheduledAgentCronOpts.socialSlackPost`.
+
+## Approval paths (which is live)
+
+Both paths share one core (`approvalActions.ts`): approve →
+`approveDraft`, then the date's FULL `publishDueDrafts` pass (so
+other approved/failed drafts for that date resolve too); reject →
+`rejectDraft`, publishes nothing, record retained as failed.
+
+1. Slack buttons (LIVE, signature-verified). `POST
+   /slack/interactions` already runs the #147 gate
+   (`gateSlackRequest`: missing signing secret → loud 503, bad
+   signature → 401) and only then scans for `social_approve` /
+   `social_reject`. A social action never reaches trading; any
+   other action_id falls through to trading exactly as before.
+   The handler (`interactions.ts`) verifies the card's draftId
+   against the pending record — a stale card (rebuilt draft) is
+   refused with nothing changed, as is a missing pending record.
+   The approver is recorded as `slack:<userId>` (stable;
+   usernames change), following the trading authorizerDid
+   convention. The response replaces the card (trading
+   convention: `replace_original: true`, header with the outcome,
+   fields, draft text as plain_text, outcome context). A publish
+   failure still counts as approved, and the message says so with
+   the reason — catch-up retries it. Trust model, same as trading
+   HITL: any workspace member who can click the button can
+   approve. There is NO per-user allowlist, and no Slack
+   verification scheme was invented: the gate is the repo's
+   existing #147 pattern.
+2. Session-gated route (LIVE, fallback). `POST
+   /api/social/approval` `{date, channel, action}` — 401
+   unauthenticated, 400 bad date/channel/action, 404 no draft,
+   409 already posted/rejected or posting disabled. Approve
+   publishes promptly and returns the channel publish outcome;
+   reject publishes nothing. `GET /api/social/approvals`
+   (`?date`, default today NY) lists pending approvals with draft
+   text for review without Slack. Any signed-in user may decide;
+   admin-only approval is a later item, not silently assumed.
+   Both routes are in the IAAA endpoint catalog (pin rule).
+
+## Publish-on-approve semantics
+
+- Approval triggers the date's full publish pass under the same
+  gates as the goal path (posting switch, live/dry-run
+  resolution, token/account checks) — never a second publish
+  implementation. Posting disabled refuses approval outright,
+  leaving the draft untouched for a later decision.
+- A publish failure leaves the draft APPROVED with the error in
+  the result: retryable via catch-up, never silently dropped,
+  never marked posted on failure. The approval action returns the
+  draft's final stored state (posted, or still approved).
+- The handler awaits publish before answering Slack (repo
+  convention, like trading execution). Known wart: a slow
+  platform call may exceed Slack's 3s interaction window — the
+  user sees a timeout even if the publish later succeeds. Draft
+  status is the source of truth, and catch-up will NOT duplicate
+  a posted draft.
+
+## Catch-up sweep + goal-run semantics (goalExecutor.ts)
+
+- Every firing sweeps the 7 prior dates (`priorDates`, newest
+  first, `SOCIAL_CATCH_UP_LOOKBACK_DAYS = 7`) through the same
+  `publishDueDrafts` path — no second publish implementation.
+  Only dates with at least one posted or error result are
+  reported in `catchUp`; skipped-only dates are omitted.
+  Unapproved approval drafts are re-recorded pending and skipped
+  (never published); posted/failed drafts are skipped; dates
+  older than 7 days are never auto-published (staleness beyond a
+  week is a human decision). Posting disabled short-circuits
+  catch-up too.
+- Fired rule, extended from slice 1: the goal counts as run when
+  the day produced drafts OR catch-up published something. A
+  catch-up-only firing (no brief today, backlog published) counts
+  and sets `lastRun` with the firing date. A firing with nothing
+  to do stays not-fired (`noBrief` / `noDrafts`) and the goal
+  stays due. Publish errors do NOT unfire a run; catch-up errors
+  land in the tick record via `onCron`.
+- Note on the brief's "for the firing date" phrasing: the test
+  statements ("catch-up publishes late approvals on the next
+  firing; failed publish retried on the next firing") require
+  cross-date coverage — a next-day firing cannot retry yesterday's
+  drafts if it only looks at the new date — so the sweep covers
+  the prior 7 days, not just the firing date.
+
+## What slice 3 does NOT do
+
+- No change to channel gating/disposition lists, config defaults,
+  token/secret handling, posting-switch defaults, or the goal's
+  disabled state. Activation remains owner-gated.
+- No live transport: production publish (goal path AND
+  publish-on-approve) still fails honestly with "no transport
+  provided for live publish" until activation wiring lands.
+- No per-user approval allowlist; no admin gate on the route.
+- No retry of drafts older than 7 days; no re-delivery of an
+  unchanged pending record; no duplicate cards on tick replay.

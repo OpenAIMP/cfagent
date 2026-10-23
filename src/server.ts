@@ -9,6 +9,17 @@ import {
   createSocialBriefStoreFromNamespace,
   isBriefDate,
 } from "./agents/social/briefStore";
+import { createSocialStoresFromNamespace } from "./agents/social/durableStores";
+import {
+  KNOWN_SOCIAL_CHANNELS,
+  parseSocialConfig,
+} from "./agents/social/config";
+import { createMemoryDryRunSink } from "./agents/social/publisher";
+import { approveAndPublish, rejectSocialDraft } from "./agents/social/approvalActions";
+import {
+  handleSocialSlackInteraction,
+  parseSocialAction,
+} from "./agents/social/interactions";
 import { validateAndTouchWiredSession } from "./security/iaaaEnforcement";
 import { requiresStepUpForMint } from "./security/iaaaGates";
 import { createWiredAuditStore } from "./security/iaaaAuditStore";
@@ -743,6 +754,140 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
+    // #1077 Phase 5b slice 3 — social approval routes (human path).
+    // Placed before the generic /api/ forwarder, next to the brief
+    // routes. Session-gated (401 unauthenticated), like the brief
+    // routes — never an unauthenticated approve endpoint. Any
+    // signed-in user may decide; the workspace trust model is the
+    // same as the Slack cards (any workspace member with access).
+    // POST /api/social/approval {date, channel, action} approves
+    // (publishes promptly through the existing path) or rejects
+    // (publishes nothing, record retained). Missing draft → 404;
+    // already posted/rejected for the requested decision → 409.
+    // GET /api/social/approvals lists pending approvals for a date
+    // with draft text, so a reviewer can decide without Slack.
+    if (path === "/api/social/approval" || path === "/api/social/approvals") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      const stores = createSocialStoresFromNamespace(
+        (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+      );
+      if (!stores) {
+        return Response.json({ error: "Social stores unavailable." }, { status: 500 });
+      }
+      if (path === "/api/social/approvals") {
+        if (request.method !== "GET") {
+          return Response.json({ error: "Method not allowed" }, { status: 405 });
+        }
+        const rawDate = new URL(request.url).searchParams.get("date");
+        const date = rawDate ?? zonedDateParts(Date.now(), "America/New_York").date;
+        if (!isBriefDate(date)) {
+          return Response.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
+        }
+        try {
+          const pending = await stores.approvals.listPending(date);
+          const approvals: unknown[] = [];
+          for (const record of pending) {
+            const draft = await stores.ledger.getDraft(date, record.channel);
+            if (!draft) continue;
+            approvals.push({
+              date,
+              channel: record.channel,
+              draftId: record.draftId,
+              requestedAtMs: record.requestedAtMs,
+              text: draft.text,
+              status: draft.status,
+            });
+          }
+          return Response.json({ ok: true, date, approvals });
+        } catch {
+          return Response.json({ error: "Social stores unavailable." }, { status: 500 });
+        }
+      }
+      if (request.method !== "POST") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+      const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!body) return Response.json({ error: "JSON body required." }, { status: 400 });
+      const date = body.date;
+      const channel = body.channel;
+      const action = body.action;
+      if (
+        typeof date !== "string" ||
+        !isBriefDate(date) ||
+        typeof channel !== "string" ||
+        !(KNOWN_SOCIAL_CHANNELS as readonly string[]).includes(channel) ||
+        (action !== "approve" && action !== "reject")
+      ) {
+        return Response.json(
+          { error: "date must be YYYY-MM-DD, channel must be a known social channel, action must be approve or reject." },
+          { status: 400 },
+        );
+      }
+      const draft = await stores.ledger.getDraft(date, channel);
+      if (!draft) {
+        return Response.json({ error: `no draft for ${channel} on ${date}` }, { status: 404 });
+      }
+      if (draft.status === "posted" || draft.status === "failed") {
+        return Response.json(
+          { error: `draft for ${channel} on ${date} is already ${draft.status}` },
+          { status: 409 },
+        );
+      }
+      const rawEnv = env as unknown as Record<string, string | undefined>;
+      const socialEnv = {
+        SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
+        SOCIAL_AUTONOMOUS_CHANNELS: rawEnv.SOCIAL_AUTONOMOUS_CHANNELS,
+        SOCIAL_APPROVAL_CHANNELS: rawEnv.SOCIAL_APPROVAL_CHANNELS,
+        SOCIAL_LIVE_PUBLISHING: rawEnv.SOCIAL_LIVE_PUBLISHING,
+      };
+      if (action === "reject") {
+        const rejected = await rejectSocialDraft({
+          store: stores.ledger,
+          approvals: stores.approvals,
+          date,
+          channel,
+        });
+        if (!rejected.ok) {
+          return Response.json({ error: rejected.error }, { status: 409 });
+        }
+        return Response.json({ ok: true, rejected: true, date, channel });
+      }
+      if (!parseSocialConfig(socialEnv).postingEnabled) {
+        return Response.json({ error: "social posting is not enabled" }, { status: 409 });
+      }
+      const approver = session.internalUserId ?? session.githubLogin ?? "session-user";
+      const approved = await approveAndPublish({
+        env: socialEnv,
+        tokens: {
+          X_ACCESS_TOKEN: rawEnv.X_ACCESS_TOKEN,
+          THREADS_ACCESS_TOKEN: rawEnv.THREADS_ACCESS_TOKEN,
+          FACEBOOK_PAGE_ACCESS_TOKEN: rawEnv.FACEBOOK_PAGE_ACCESS_TOKEN,
+          INSTAGRAM_ACCESS_TOKEN: rawEnv.INSTAGRAM_ACCESS_TOKEN,
+          LINKEDIN_ACCESS_TOKEN: rawEnv.LINKEDIN_ACCESS_TOKEN,
+          LINKEDIN_AUTHOR_URN: rawEnv.LINKEDIN_AUTHOR_URN,
+        },
+        store: stores.ledger,
+        approvals: stores.approvals,
+        transport: undefined,
+        dryRunSink: createMemoryDryRunSink(),
+        nowMs: Date.now(),
+        date,
+        channel,
+        approver,
+      });
+      if (!approved.ok) {
+        return Response.json({ error: approved.error }, { status: 409 });
+      }
+      return Response.json({
+        ok: true,
+        approved: true,
+        date,
+        channel,
+        publish: approved.channelResult,
+      });
+    }
+
     // --- User Profile API ---
     if (path === "/api/me") {
       const session = await requireAuth(request, env);
@@ -1301,6 +1446,56 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         return new Response("Invalid payload JSON", { status: 400 });
       }
 
+      // #1077 Phase 5b slice 3: social approval cards are answered
+      // here, AFTER the #147 gate above and BEFORE the trading
+      // forward. A social action_id (social_approve/social_reject)
+      // never reaches trading; any other action_id falls through to
+      // trading exactly as before. The handler verifies the card's
+      // draftId against the pending record, so a stale card cannot
+      // approve a rebuilt draft. Production passes no live transport
+      // (the Phase 5a gap): live publish-on-approve fails honestly
+      // here exactly as the goal path does; dry-run works end to end.
+      const socialParsed = parseSocialAction(payload);
+      if (socialParsed.kind !== "other") {
+        const socialStores = createSocialStoresFromNamespace(
+          (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+        );
+        if (!socialStores) {
+          return new Response("Social stores unavailable", { status: 500 });
+        }
+        const rawEnv = env as unknown as Record<string, string | undefined>;
+        const outcome = await handleSocialSlackInteraction({
+          payload,
+          env: {
+            SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
+            SOCIAL_AUTONOMOUS_CHANNELS: rawEnv.SOCIAL_AUTONOMOUS_CHANNELS,
+            SOCIAL_APPROVAL_CHANNELS: rawEnv.SOCIAL_APPROVAL_CHANNELS,
+            SOCIAL_LIVE_PUBLISHING: rawEnv.SOCIAL_LIVE_PUBLISHING,
+          },
+          tokens: {
+            X_ACCESS_TOKEN: rawEnv.X_ACCESS_TOKEN,
+            THREADS_ACCESS_TOKEN: rawEnv.THREADS_ACCESS_TOKEN,
+            FACEBOOK_PAGE_ACCESS_TOKEN: rawEnv.FACEBOOK_PAGE_ACCESS_TOKEN,
+            INSTAGRAM_ACCESS_TOKEN: rawEnv.INSTAGRAM_ACCESS_TOKEN,
+            LINKEDIN_ACCESS_TOKEN: rawEnv.LINKEDIN_ACCESS_TOKEN,
+            LINKEDIN_AUTHOR_URN: rawEnv.LINKEDIN_AUTHOR_URN,
+          },
+          store: socialStores.ledger,
+          approvals: socialStores.approvals,
+          transport: undefined,
+          dryRunSink: createMemoryDryRunSink(),
+          nowMs: Date.now(),
+        });
+        if (outcome.handled) {
+          return Response.json({
+            response_type: "in_channel",
+            replace_original: true,
+            text: outcome.message,
+            blocks: outcome.blocks,
+          });
+        }
+      }
+
       const teamId = payload.team?.id || "default_workspace";
       const id = env.SEARCH_AGENT.idFromName(`slack_${teamId}`);
       const targetUrl = new URL("/trading/slack/interaction", "https://agent.internal");
@@ -1511,7 +1706,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", session.githubLogin);
-      const isImmediateSync = /^\/(?:clear|reset|memory|audit|chat)(?:\/|\?|$)/i.test(subPath);
+      const isImmediateSync = /^\/(?:clear|reset|memory|audit|chat|etrade|broker|trading|screener|options)(?:\/|\?|$)/i.test(subPath);
       if (!isImmediateSync) {
         forwardReq.headers.set("x-async-eligible", "1");
       }

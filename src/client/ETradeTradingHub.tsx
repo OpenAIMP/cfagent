@@ -815,16 +815,12 @@ export function ETradeTradingHub({
       const data = (await resp.json()) as any;
       setDiagnostics(data);
       setShowDiagnosticsModal(true);
-      if (data?.upstreamAccounts?.count > 0 || (data?.upstreamAccounts?.accounts && data.upstreamAccounts.accounts.length > 0)) {
-        // These panels make their own broker requests. Keep them off the
-        // diagnostics critical path so a slow positions/status call cannot
-        // leave the successful REST verification stuck in a loading state.
-        void Promise.allSettled([
-          fetchBrokerStatus(envToUse),
-          fetchPositions(envToUse),
-          fetchOAuthStatus(envToUse),
-        ]);
-      }
+      // Unconditionally sync broker status, positions, and OAuth state on diagnostics run
+      void Promise.allSettled([
+        fetchBrokerStatus(envToUse),
+        fetchPositions(envToUse),
+        fetchOAuthStatus(envToUse),
+      ]);
     } catch (err: any) {
       setDiagnostics({ error: err.message || "Failed to run diagnostics" });
       setShowDiagnosticsModal(true);
@@ -837,9 +833,32 @@ export function ETradeTradingHub({
     const handleOpenDiag = () => {
       runDiagnostics();
     };
+    const handleSync = () => {
+      runDiagnostics();
+    };
+    const handleStartOAuthEvt = () => {
+      handleStartOAuth();
+    };
+    const handleRenewOAuthEvt = () => {
+      handleRenewOAuth();
+    };
+    const handleRevokeOAuthEvt = () => {
+      handleRevokeOAuth();
+    };
+
     if (typeof window !== "undefined") {
       window.addEventListener("open-etrade-diagnostics", handleOpenDiag);
-      return () => window.removeEventListener("open-etrade-diagnostics", handleOpenDiag);
+      window.addEventListener("sync-etrade-api", handleSync);
+      window.addEventListener("start-etrade-oauth", handleStartOAuthEvt);
+      window.addEventListener("renew-etrade-oauth", handleRenewOAuthEvt);
+      window.addEventListener("revoke-etrade-oauth", handleRevokeOAuthEvt);
+      return () => {
+        window.removeEventListener("open-etrade-diagnostics", handleOpenDiag);
+        window.removeEventListener("sync-etrade-api", handleSync);
+        window.removeEventListener("start-etrade-oauth", handleStartOAuthEvt);
+        window.removeEventListener("renew-etrade-oauth", handleRenewOAuthEvt);
+        window.removeEventListener("revoke-etrade-oauth", handleRevokeOAuthEvt);
+      };
     }
   }, [activeEnv]);
 
