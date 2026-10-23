@@ -9,8 +9,9 @@
 
 import type { ScheduleOptions } from "agents";
 import type { AgentScheduleItem } from "../../types";
-import type { NLQSchedulingPort, NLQStockScreenPort } from "../nlq";
+import type { NLQSchedulingPort, NLQSocialBriefPort, NLQStockScreenPort } from "../nlq";
 import type { ScreenerAgent, ScreenerRunRequest } from "../screener-agent";
+import type { SocialBriefStore } from "../social/briefStore";
 
 /**
  * Ports the NLQ-port constructors receive from the class. The schedule
@@ -24,6 +25,7 @@ export interface NlqPortsContext {
   cancelSchedule: (id: string) => Promise<boolean>;
   listSchedules: () => Promise<unknown[]>;
   getScreenerAgent: (userLogin?: string) => ScreenerAgent;
+  getSocialBriefStore: () => SocialBriefStore | null;
 }
 
 /**
@@ -77,6 +79,24 @@ export function nlqStockScreenPort(ctx: NlqPortsContext): NLQStockScreenPort {
         userLogin,
         maxItems: 10,
       });
+    },
+  };
+}
+
+/**
+ * #1077 Phase 5b slice 2: the NLQ social-brief port — binds the
+ * durable brief store into the NLQ execution deps, so an explicit
+ * "set social brief" request in trusted chat writes the day's brief
+ * the social goal will publish. Returns null when no store is
+ * available, so callers pass no port and the executor fails honestly
+ * instead of writing to nowhere.
+ */
+export function nlqSocialBriefPort(ctx: NlqPortsContext): NLQSocialBriefPort | null {
+  const store = ctx.getSocialBriefStore();
+  if (!store) return null;
+  return {
+    setBrief: async ({ date, text }) => {
+      await store.putBrief(date, text);
     },
   };
 }
