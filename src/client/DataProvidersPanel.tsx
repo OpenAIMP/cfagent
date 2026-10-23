@@ -20,18 +20,27 @@
  * Honest states: a spinner while loading, the server's error
  * message verbatim on failure, a distinct sign-in-required state on
  * 401, and an explicit empty state — never placeholder rows.
+ *
+ * E6 (issue #1235): each provider card also renders the health
+ * block the API derives from the provider's capture records —
+ * status label, capture/failure counts, last success/failure, and
+ * captured bytes. The panel formats only; every number and the
+ * status itself are computed server-side, and "no-data" (zero
+ * captures) renders as its own honest state, never as healthy.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { Button, EmptyState, Notice, Spinner, TextInput } from "./components/ui";
 import {
   fetchDataProviders,
+  fmtCaptureBytes,
   fmtDataProviderTime,
   postDataProviderAction,
   providerActions,
   providerDisplayName,
   type CapabilityRouteView,
   type DataProviderActionName,
+  type DataProviderHealthStatus,
   type DataProviderView,
 } from "./dataProvidersApi";
 import "./dataProvidersPanel.css";
@@ -42,6 +51,14 @@ const ACTION_LABELS: Record<DataProviderActionName, string> = {
   enable: "Enable",
   disable: "Disable",
   deprovision: "Deprovision",
+};
+
+/** Plain-language labels for the E6 capture-derived health status. */
+const HEALTH_STATUS_LABELS: Record<DataProviderHealthStatus, string> = {
+  healthy: "Healthy",
+  degraded: "Degraded",
+  down: "Down",
+  "no-data": "No data yet",
 };
 
 export function DataProvidersPanel() {
@@ -216,6 +233,36 @@ export function DataProvidersPanel() {
                       <span>Not verified</span>
                     )}
                   </div>
+                  {view.health ? (
+                    <div className="dpp-health">
+                      <div className="dpp-health-head">
+                        <span className={`dpp-health-status dpp-health-status-${view.health.status}`}>
+                          {HEALTH_STATUS_LABELS[view.health.status] ?? view.health.status}
+                        </span>
+                        <span>{`Captures: ${view.health.totalCaptures}`}</span>
+                        <span>{`Failure rate: ${Math.round(view.health.failureRate * 100)}%`}</span>
+                        <span>{`Last 24h: ${view.health.capturesLast24h} captures, ${view.health.failuresLast24h} failed`}</span>
+                      </div>
+                      <div className="dpp-health-meta">
+                        <span>{`Last success: ${fmtDataProviderTime(view.health.lastSuccessAt)}`}</span>
+                        <span>{`Last failure: ${fmtDataProviderTime(view.health.lastFailureAt)}`}</span>
+                        <span>{`Captured data: ${fmtCaptureBytes(view.health.totalRawBytes)}`}</span>
+                      </div>
+                      {Object.keys(view.health.byCapability ?? {}).length > 0 && (
+                        <ul className="dpp-health-caps">
+                          {Object.entries(view.health.byCapability).map(([capability, agg]) => (
+                            <li key={capability} className="dpp-health-cap">
+                              {`${capability}: ${agg.totalCaptures} captures (${agg.failedCount} failed)`}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="dpp-health">
+                      <span className="dpp-health-status">Health unavailable</span>
+                    </div>
+                  )}
                   {myRoutes.length > 0 && (
                     <ul className="dpp-routes">
                       {myRoutes.map((route) => (
