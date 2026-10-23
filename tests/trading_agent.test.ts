@@ -714,6 +714,8 @@ describe("TradingAgent read surface (#291 T5a)", () => {
       getQuote: async (symbol: string) => ({ symbol, lastPrice: 42 }),
       getAccounts: async () => [{ accountIdKey: "acc-1" }],
       getPositions: async (accountKey?: string) => ({ account: { accountIdKey: accountKey ?? "acc-1" }, positions: [{ symbol: "AAPL" }] }),
+      getOptionChains: async (params: any) => ({ symbol: params.symbol, underlyingPrice: 150, marker: "chain" }),
+      getOptionExpireDates: async (symbol: string) => [{ year: 2027, month: 1, day: 15, symbol }],
       previewOrder: async () => ({}),
       executeOrder: async () => ({}),
     };
@@ -757,5 +759,25 @@ describe("TradingAgent read surface (#291 T5a)", () => {
     expect(tradingAgentUserLogin(tradingAgentName("default_trader"))).toBe("default_trader");
     expect(tradingAgentUserLogin(tradingAgentName("bob"))).toBe("bob");
     expect(tradingAgentUserLogin("trading")).toBe("default_trader");
+  });
+
+  it("options data reads pass through, and platforms without them get provider_unsupported (#291 T5b)", async () => {
+    const agent = await agentNamed("trading");
+    expect(await agent.getOptionChains({ symbol: "AAPL", chainType: "CALLPUT" })).toEqual({
+      symbol: "AAPL",
+      underlyingPrice: 150,
+      marker: "chain",
+    });
+    expect(await agent.getOptionExpireDates("AAPL")).toEqual([
+      { year: 2027, month: 1, day: 15, symbol: "AAPL" },
+    ]);
+    // fake291 (the screening fake) has no options data plane.
+    const { TradingAgent } = await import("../src/agents/trading-agent");
+    const plain: any = Object.create(TradingAgent.prototype);
+    plain.env = env;
+    plain.name = "trading";
+    plain.config = () => fakeConfig;
+    const err: any = await plain.getOptionChains({ symbol: "AAPL" }).catch((e: any) => e);
+    expect(err.code).toBe("provider_unsupported");
   });
 });

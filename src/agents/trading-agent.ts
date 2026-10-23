@@ -795,6 +795,41 @@ export class TradingAgent extends Think<Env> {
     return this.readPlatform(provider).getPositions(accountKey);
   }
 
+  async getOptionChains(
+    params: {
+      symbol: string;
+      expiryYear?: number;
+      expiryMonth?: number;
+      expiryDay?: number;
+      strikePrice?: number;
+      noOfStrikes?: number;
+      includeWeekly?: boolean;
+      chainType?: "CALL" | "PUT" | "CALLPUT";
+      includeRawResponse?: boolean;
+    },
+    provider?: string,
+  ): Promise<unknown> {
+    const platform = this.readPlatform(provider);
+    if (typeof platform.getOptionChains !== "function") {
+      throw new TradingServiceError(
+        "provider_unsupported",
+        `Provider "${platform.platformId}" does not expose options chain data.`,
+      );
+    }
+    return platform.getOptionChains(params);
+  }
+
+  async getOptionExpireDates(symbol: string, provider?: string): Promise<unknown> {
+    const platform = this.readPlatform(provider);
+    if (typeof platform.getOptionExpireDates !== "function") {
+      throw new TradingServiceError(
+        "provider_unsupported",
+        `Provider "${platform.platformId}" does not expose options expiry data.`,
+      );
+    }
+    return platform.getOptionExpireDates(symbol);
+  }
+
   /**
    * The approval door — the ONLY path that can place an order (#291 T3,
    * cfpay proposal -> approval -> verify -> execute). Deliberately NOT a
