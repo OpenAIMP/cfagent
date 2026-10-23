@@ -420,6 +420,7 @@ export function SettingsMenu({
     } else {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("open-etrade-diagnostics"));
+        window.dispatchEvent(new CustomEvent("sync-etrade-api"));
       }
       setLocalDiagLoading(true);
       fetch(`/api/etrade/diagnostics`, {
@@ -437,6 +438,36 @@ export function SettingsMenu({
         .finally(() => {
           setLocalDiagLoading(false);
         });
+    }
+  };
+
+  const onStartOAuth = () => {
+    setIsPinned(false);
+    setIsHovered(false);
+    if (handleStartOAuth) {
+      handleStartOAuth();
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("start-etrade-oauth"));
+    }
+  };
+
+  const onRenewOAuth = () => {
+    setIsPinned(false);
+    setIsHovered(false);
+    if (handleRenewOAuth) {
+      handleRenewOAuth();
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("renew-etrade-oauth"));
+    }
+  };
+
+  const onRevokeOAuth = () => {
+    setIsPinned(false);
+    setIsHovered(false);
+    if (handleRevokeOAuth) {
+      handleRevokeOAuth();
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("revoke-etrade-oauth"));
     }
   };
 
@@ -572,7 +603,7 @@ export function SettingsMenu({
                       type="button"
                       className="btn-menu-action renew"
                       disabled={oauthLoading}
-                      onClick={handleRenewOAuth}
+                      onClick={onRenewOAuth}
                     >
                       🔑 Renew Token
                     </button>
@@ -581,7 +612,7 @@ export function SettingsMenu({
                     type="button"
                     className="btn-menu-action disconnect"
                     disabled={oauthLoading}
-                    onClick={handleRevokeOAuth}
+                    onClick={onRevokeOAuth}
                   >
                     🔌 Disconnect
                   </button>
@@ -591,12 +622,48 @@ export function SettingsMenu({
                   type="button"
                   className="btn-menu-action connect"
                   disabled={oauthLoading}
-                  onClick={handleStartOAuth}
+                  onClick={onStartOAuth}
                 >
                   {oauthLoading ? "Connecting…" : "⚡ Connect E*TRADE"}
                 </button>
               )}
             </div>
+            {effectiveMsg && (
+              <div
+                className="etrade-menu-msg-banner"
+                style={{
+                  marginTop: "8px",
+                  padding: "6px 10px",
+                  fontSize: "0.78rem",
+                  borderRadius: "4px",
+                  background: "var(--surface-layer-2, rgba(255,255,255,0.06))",
+                  border: "1px solid var(--border-subtle, rgba(255,255,255,0.12))",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "6px",
+                  wordBreak: "break-word",
+                }}
+              >
+                <span>{effectiveMsg}</span>
+                <button
+                  type="button"
+                  onClick={clearMsg}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "inherit",
+                    cursor: "pointer",
+                    padding: "0 2px",
+                    opacity: 0.7,
+                    flexShrink: 0,
+                  }}
+                  title="Dismiss message"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Tuning & Options Data Download (Single Horizontal Line) */}

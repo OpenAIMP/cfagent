@@ -1644,7 +1644,7 @@ export class OrchestratorAgent extends Think<Env> {
     // The Worker strips the /api prefix when forwarding and marks queue-eligible requests.
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
     const isScheduleEndpoint = /(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path);
-    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat|chat-activity|screener\/report\.pdf|etrade\/screen|etrade\/options\/profiles|etrade\/options\/scans|etrade\/options\/strategy)(?:\/|$)/i.test(path);
+    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat|chat-activity|screener|etrade|broker|trading|options)(?:\/|$)/i.test(path);
     const isApiRequest = path.startsWith("/api/") || request.headers.get("x-async-eligible") === "1";
     if (isApiRequest && !/(?:^|\/api)\/jobs(?:\/|$)/.test(path) && !isMcpEndpoint && !isScheduleEndpoint && !isImmediateEndpoint) {
       return this.enqueueHttpRequest(request, url);
