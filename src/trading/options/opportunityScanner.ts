@@ -889,6 +889,15 @@ export class OpportunityScanner {
       candidate.minDte === band.minDte && candidate.maxDte === band.maxDte
     ) === index);
 
+    // Issue #1204: ONE subrequest budget for the whole scan. Snapshots
+    // are fetched per symbol over a shared screener, so without a
+    // shared ledger each symbol would re-fan-out up to
+    // maxExpirationsPerSymbol chain fetches and the batch as a whole
+    // would trip the Worker per-invocation subrequest cap — the
+    // 100-of-100 failure mode. Symbols past the budget are deferred:
+    // their snapshot carries the named budget reason, which surfaces
+    // below as the skip reason.
+    const fetchBudget = this.data.createFetchBudget();
     const outcomes = await mapLimit(batch, CONCURRENCY, async (symbol): Promise<{ opportunity: OpportunityRow | null; matrix: ScanMatrixRow }> => {
       const skippedMatrixRow = (reason: string): ScanMatrixRow => ({
         symbol,
@@ -904,7 +913,7 @@ export class OpportunityScanner {
         gateReasons: [],
       });
       try {
-        const snapshot = await this.data.loadSnapshot({ ...requestTemplate, maxDte: dataMaxDte, expirationDteBands, symbol });
+        const snapshot = await this.data.loadSnapshot({ ...requestTemplate, maxDte: dataMaxDte, expirationDteBands, symbol, fetchBudget });
         const price = snapshot.contracts[0]?.underlyingPrice;
         if (!price) {
           const reason = snapshot.validationError || snapshot.screen.fetchErrors?.[0]?.reason || "No eligible option contracts";
