@@ -253,6 +253,9 @@ export interface OptionsScreenRequest {
   /** Label-only envelope field the route's Slack summary falls back to;
    *  never forwarded into the engine filter. */
   universe?: string;
+  /** Per-request email recipient for the manual route (#1336);
+   *  never forwarded into the engine filter. */
+  emailTo?: string;
 }
 
 const optionsScreenRequestSchema = z.strictObject({
@@ -260,12 +263,15 @@ const optionsScreenRequestSchema = z.strictObject({
   pushToSlack: z.boolean().optional(),
   slackChannel: z.string().optional(),
   universe: z.string().optional(),
+  // Issue #1336: per-request email recipient for the manual route;
+  // env fallback (OPTIONS_EMAIL_TO / SCREENER_EMAIL_TO) applies when absent.
+  emailTo: z.string().optional(),
 });
 
 export function parseOptionsScreenRequest(input: unknown): ScreeningValidationResult<OptionsScreenRequest> {
   const parsed = parseWith("options screen request", optionsScreenRequestSchema, input);
   if (!parsed.ok) return parsed;
-  const { pushToSlack, slackChannel, universe, ...filter } = parsed.value as Record<string, unknown>;
+  const { pushToSlack, slackChannel, universe, emailTo, ...filter } = parsed.value as Record<string, unknown>;
   return {
     ok: true,
     value: {
@@ -273,6 +279,7 @@ export function parseOptionsScreenRequest(input: unknown): ScreeningValidationRe
       ...(pushToSlack !== undefined ? { pushToSlack: pushToSlack as boolean } : {}),
       ...(slackChannel !== undefined ? { slackChannel: slackChannel as string } : {}),
       ...(universe !== undefined ? { universe: universe as string } : {}),
+      ...(emailTo !== undefined ? { emailTo: emailTo as string } : {}),
     },
   };
 }

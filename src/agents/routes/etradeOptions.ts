@@ -674,11 +674,12 @@ export async function handleEtradeOptionsRoutes(
         const screenPushToSlack = parsedScreen.value.pushToSlack;
         const screenSlackChannel = parsedScreen.value.slackChannel;
         const screenUniverseLabel = parsedScreen.value.universe;
+        const screenEmailTo = parsedScreen.value.emailTo;
 
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const screener = new DynamicOptionsScreener(etrade.client);
-        return await executeOptionsScreen({ ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, deferDelivery: Boolean(ctx.asyncJobId) });
+        return await executeOptionsScreen({ ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, screenEmailTo, deferDelivery: Boolean(ctx.asyncJobId) });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Options screening failed";
         if (!ctx.asyncJobId && (filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1")) {
