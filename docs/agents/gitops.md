@@ -213,6 +213,43 @@ Architecture decisions:
 
 If blocked, report the blocker and seek a decision. Do not quietly switch work.
 
+### Sizing guidance (issue #1303)
+
+There is deliberately no line-count limit: a line count misleads across
+code, docs, and tests (a 40-line security rule can be harder to review
+than 400 lines of generated snapshots). Use these two tests instead:
+
+1. Reviewable in one pass: a reviewer can hold the whole change and its
+   tests in mind in a single sitting. If the description needs a tour
+   ("part 1 does X, part 2 does Y, part 3 is unrelated cleanup"), it is
+   more than one PR.
+2. Independently shippable, independently revertible: if the PR mixes
+   two changes that could ship separately, split it. If it cannot be
+   reverted without breaking something else, it is too big.
+
+A PR that fails either test is split BEFORE implementation work starts
+on the oversized half — not after review has already begun.
+
+### Phased work: epics and sub-issues (issue #1303)
+
+Large work ships as phases, not as one PR. The structure is:
+
+- One epic issue holds the goal, the acceptance criteria, and the
+  rollout/rollback. The epic is the only issue that names the whole
+  outcome.
+- Each phase is a sub-issue of the epic with its own scope, acceptance,
+  branch, and PR. Blocking order goes in the sub-issue Dependencies
+  section; dependent phases use §20 stacked PRs where they overlap in
+  time.
+- A phase PR closes only its own sub-issue, never the epic (see §9:
+  closing keywords only when the PR fully resolves the issue). The epic
+  closes only when every sub-issue is closed, with a §15 report covering
+  the whole outcome.
+- One PR per issue (§2 rule 5) is not waived by phasing: related work
+  distributed across sub-issues still ships as one PR per sub-issue.
+  Bundling sub-issues into one PR breaks clean revert, coherent review,
+  and §15 traceability, and stays forbidden.
+
 ***
 
 ## 6. Branching and synchronization
