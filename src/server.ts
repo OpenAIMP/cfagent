@@ -25,7 +25,9 @@ import { checkAllTokenHealth } from "./agents/social/tokenHealth";
 import { validateAndTouchWiredSession } from "./security/iaaaEnforcement";
 import { requiresStepUpForMint } from "./security/iaaaGates";
 import { createWiredAuditStore } from "./security/iaaaAuditStore";
-import { createKvMembershipStore } from "./security/iaaaMembershipStore";
+import { createKvMembershipStore, grantMembership } from "./security/iaaaMembershipStore";
+import { canGrantRole } from "./security/authorization";
+import { createAccessRequestStore } from "./security/iaaaAccessRequests";
 import { buildAdminOverview } from "./security/iaaaAdminOverview";
 import { buildOpenApiSpec, SWAGGER_UI_HTML } from "./security/openapiSpec";
 import {
@@ -47,6 +49,7 @@ import {
   disabledLoginResponse,
   enabledProviders,
   getProvider,
+  getProviderByIssuer,
   isWiringEnabled,
   resolveLoginProvider,
 } from "./security/providers";
@@ -1065,6 +1068,15 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       if (!session) {
         return Response.json({ authenticated: false });
       }
+      // #1274: login-provider display. Derived from the session's own
+      // providerIssuer (set at wired login from the binding, never
+      // from user input) via the provider registry — so a future
+      // provider displays with only a registry entry. Legacy sessions
+      // carry no internalUserId/providerIssuer, and unknown issuers
+      // resolve to null, so the key is absent in both cases.
+      const provider = session.internalUserId
+        ? getProviderByIssuer(session.providerIssuer)
+        : null;
       return Response.json({
         authenticated: true,
         login: session.githubLogin,
@@ -1081,6 +1093,15 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         // instead of looking up their GitHub numeric subject.
         ...(session.internalUserId
           ? { internalUserId: session.internalUserId }
+          : {}),
+        ...(provider
+          ? {
+              provider: {
+                id: provider.providerId,
+                name: provider.displayName,
+                issuer: provider.issuer,
+              },
+            }
           : {}),
       });
     }
@@ -1122,6 +1143,144 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         return Response.json(overview);
       } catch {
         return Response.json({ error: "IAAA admin overview unavailable." }, { status: 500 });
+      }
+    }
+
+    // --- Access requests (issue #1274): request access + admin decide.
+    // A signed-in member asks for tenant-admin; an admin approves or
+    // denies. Requests NEVER auto-grant: approval calls grantMembership
+    // (with its canGrantRole enforcement), and the approval is
+    // idempotent — a requester who already holds tenant-admin is
+    // marked approved without a duplicate grant. Gating is fail-closed:
+    // 401 unauthenticated; 403 legacy sessions, callers with no active
+    // membership in the tenant (create), and callers who cannot grant
+    // the requested role (list/decide). Only tenant-admin may be
+    // requested in this cut; platform-admin requests are 400.
+    if (
+      path === "/api/iaaa/access-request" ||
+      path === "/api/iaaa/access-requests" ||
+      path === "/api/iaaa/access-request/decision"
+    ) {
+      const session = await requireAuth(request, env);
+      if (!session) {
+        return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      }
+      if (!session.internalUserId) {
+        return Response.json({ error: "Forbidden: access requests require a wired session." }, { status: 403 });
+      }
+      const tenantId = resolveIaaaTenant(env);
+      const membershipStore = createKvMembershipStore(sessionStore(env));
+      const requestStore = createAccessRequestStore(sessionStore(env));
+      const nowMs = Date.now();
+      const callerHasActiveMembership = async (): Promise<boolean> => {
+        const memberships = await membershipStore.getMembershipsByUser(session.internalUserId as string);
+        return memberships.some(
+          (m) =>
+            m.tenantId === tenantId &&
+            m.revokedAtMs === undefined &&
+            m.roleBindings.some((b) => b.expiresAtMs === undefined || b.expiresAtMs > nowMs),
+        );
+      };
+      try {
+        if (path === "/api/iaaa/access-request") {
+          if (request.method !== "POST") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          if (!(await callerHasActiveMembership())) {
+            return Response.json({ error: "Forbidden: access requests require an active membership." }, { status: 403 });
+          }
+          const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+          const requestedRole = typeof body?.requestedRole === "string" ? body.requestedRole : "";
+          const created = await requestStore.create({
+            requesterInternalUserId: session.internalUserId,
+            requestedRole,
+            tenantId,
+            nowMs,
+          });
+          if (!created.ok && created.code === "INVALID_ROLE") {
+            return Response.json({ error: "Only tenant-admin may be requested." }, { status: 400 });
+          }
+          if (!created.ok && created.code === "ALREADY_PENDING") {
+            return Response.json({ error: "A pending request for this role already exists.", request: created.request }, { status: 409 });
+          }
+          if (!created.ok) {
+            return Response.json({ error: "Access request could not be created." }, { status: 400 });
+          }
+          return Response.json({ ok: true, request: created.request }, { status: 201 });
+        }
+        if (path === "/api/iaaa/access-requests") {
+          if (request.method !== "GET") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          const grantCheck = await canGrantRole(membershipStore, {
+            granterInternalUserId: session.internalUserId,
+            targetTenantId: tenantId,
+            targetScope: "tenant",
+            targetRole: "tenant-admin",
+            nowMs,
+          });
+          if (grantCheck.decision === "deny") {
+            return Response.json({ error: "Forbidden: listing access requests requires tenant-admin." }, { status: 403 });
+          }
+          return Response.json({ ok: true, requests: await requestStore.list() });
+        }
+        // POST /api/iaaa/access-request/decision
+        if (request.method !== "POST") {
+          return Response.json({ error: "Method not allowed" }, { status: 405 });
+        }
+        const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+        const requestId = typeof body?.requestId === "string" ? body.requestId : "";
+        const decision = body?.decision === "approve" || body?.decision === "deny" ? body.decision : "";
+        if (requestId === "" || decision === "") {
+          return Response.json({ error: "requestId and decision (approve|deny) are required." }, { status: 400 });
+        }
+        const existing = await requestStore.get(requestId);
+        if (!existing) {
+          return Response.json({ error: "Access request not found." }, { status: 404 });
+        }
+        const grantCheck = await canGrantRole(membershipStore, {
+          granterInternalUserId: session.internalUserId,
+          targetTenantId: tenantId,
+          targetScope: "tenant",
+          targetRole: existing.requestedRole,
+          nowMs,
+        });
+        if (grantCheck.decision === "deny") {
+          return Response.json({ error: "Forbidden: deciding access requests requires tenant-admin." }, { status: 403 });
+        }
+        if (existing.status !== "pending") {
+          return Response.json({ error: "Access request is no longer pending.", request: existing }, { status: 409 });
+        }
+        if (decision === "approve") {
+          const targetMemberships = await membershipStore.getMembershipsByUser(existing.requesterInternalUserId);
+          const alreadyAdmin = targetMemberships.some(
+            (m) =>
+              m.tenantId === tenantId &&
+              m.revokedAtMs === undefined &&
+              m.roleBindings.some(
+                (b) => b.role === "tenant-admin" && (b.expiresAtMs === undefined || b.expiresAtMs > nowMs),
+              ),
+          );
+          if (!alreadyAdmin) {
+            const granted = await grantMembership(membershipStore, {
+              granterInternalUserId: session.internalUserId,
+              internalUserId: existing.requesterInternalUserId,
+              tenantId,
+              roleBindings: [{ role: existing.requestedRole, scope: "tenant", grantedBy: session.internalUserId }],
+              nowMs,
+            });
+            if (!granted.ok) {
+              return Response.json({ error: "Forbidden: grant denied." }, { status: 403 });
+            }
+          }
+        }
+        const decided = await requestStore.decide(requestId, decision === "approve" ? "approved" : "denied", session.internalUserId, nowMs);
+        if (!decided.ok) {
+          return Response.json({ error: "Access request is no longer pending." }, { status: 409 });
+        }
+        return Response.json({ ok: true, request: decided.request });
+      } catch {
+        return Response.json({ error: "Access requests unavailable." }, { status: 500 });
       }
     }
 
