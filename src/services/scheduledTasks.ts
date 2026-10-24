@@ -51,7 +51,7 @@ import { DynamicOptionsScreener } from "../trading";
 import { OptionsDataAgent } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
 import type { IvHistoryStore } from "../trading";
-// Issue #278: durable scheduled-run reports for the AI Search agent.
+// Issue #278: durable scheduled-run reports for the NextGenTP agent.
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
 import {
   getCfpayConfig,
@@ -2502,7 +2502,7 @@ export class ScheduledTasksService {
       }
 
       // Issue #278: persist the scheduled run's report durably
-      // (mas_reports) so the AI Search agent can surface it later.
+      // (mas_reports) so the NextGenTP agent can surface it later.
       // Issue #308: through the single generate→store seam — one
       // canonical row per generation (generationId = run id).
       if (this.orm?.storeCanonicalReport) {
