@@ -209,7 +209,7 @@ Architecture decisions:
 - Split oversized work before implementation.
 - Do not add unrelated improvements.
 - Record discovered work separately.
-- Do not begin the next issue while the current issue remains unmerged or its required pipeline is unhealthy.
+- Do not begin the next issue while the current issue remains unmerged or its required pipeline is unhealthy, unless §20 parallel delivery applies (independent issue, CI-wait window).
 
 If blocked, report the blocker and seek a decision. Do not quietly switch work.
 
