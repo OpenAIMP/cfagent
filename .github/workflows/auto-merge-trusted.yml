@@ -1,0 +1,100 @@
+# Auto-merge trusted PRs — issue #1307 (no-wait Phase 1 extension).
+#
+# WHAT: enables GitHub auto-merge (rebase only) on two classes of PR:
+# (1) PRs carrying the `auto-merge` label (the opt-in), and (2)
+# auto-merge-safe PRs: docs-only PRs (every changed file ends with
+# `.md`, none under `public/` — whose HTML is served as assets).
+# Enabling auto-merge merges NOTHING by itself: GitHub merges only
+# when every requirement passes (required checks green, conversations
+# resolved, and — once the queue is on — queue validation on the
+# merge-group commit).
+#
+# TRUST: the label is the opt-in, and only someone with write access
+# can add it. No author allowlist is used (PR authors here are the
+# owner's token, so author alone proves nothing). PRs touching
+# .github/workflows/ are never auto-merged by this job (workflow
+# changes need a human merge). NOT safe by default, even though this
+# job does not merge them silently: production config (wrangler.jsonc),
+# pinned security modules, migrations/schemas, production activations
+# (flag flips, provider enablements) — those need the label path or
+# manual merge. Test-only, dependency, and config PRs are NOT safe by
+# default either; a class is promoted to safe only by amending the
+# safe list in gitops.md, never by assuming it.
+#
+# NOTE: removing the label does NOT disable auto-merge once enabled —
+# disable it on the PR page if you change your mind.
+#
+# INSTALL (owner, web UI — the assistant's integration cannot write
+# .github/workflows/, 403): create `.github/workflows/auto-merge-trusted.yml`
+# with exactly this content ON A BRANCH via the web UI, open a PR, and
+# merge it. Do NOT commit directly to main (protectmain requires a PR).
+# No new secrets: uses the built-in GITHUB_TOKEN.
+# Prerequisite: General → "Allow auto-merge" must be ON, or PR-level
+# auto-merge does not exist at all.
+
+name: Auto-merge trusted PRs
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  enable-auto-merge:
+    name: Enable auto-merge (rebase) for trusted or safe PRs
+    runs-on: ubuntu-24.04
+    if: !github.event.pull_request.draft
+    steps:
+      - name: Decide trust (label or docs-only safe PR)
+        id: trust
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          labels=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name')
+          if printf '%s\n' "$labels" | grep -qx 'auto-merge'; then
+            echo "trusted=true" >> "$GITHUB_OUTPUT"
+            echo "Labeled auto-merge."
+            exit 0
+          fi
+          files=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json files --jq '.files[].path')
+          if [ -z "$files" ]; then
+            echo "trusted=false" >> "$GITHUB_OUTPUT"
+            echo "No files listed — not trusted."
+            exit 0
+          fi
+          if printf '%s\n' "$files" | grep -qv '\.md$' || printf '%s\n' "$files" | grep -q '^public/'; then
+            echo "trusted=false" >> "$GITHUB_OUTPUT"
+            echo "Not docs-only — not auto-merge-safe."
+          else
+            echo "trusted=true" >> "$GITHUB_OUTPUT"
+            echo "Docs-only safe PR."
+          fi
+      - name: Skip PRs that touch workflows
+        id: guard
+        if: steps.trust.outputs.trusted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          files=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json files --jq '.files[].path')
+          if printf '%s\n' "$files" | grep -q '^\.github/workflows/'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR touches .github/workflows/ — not auto-merging."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Enable auto-merge (rebase)
+        if: steps.trust.outputs.trusted == 'true' && steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh pr merge --auto --rebase --repo "$GITHUB_REPOSITORY" "$PR_NUMBER"
