@@ -107,26 +107,27 @@ export interface LoginPageProvider {
 export function renderLoginPage(env: Env, providers?: LoginPageProvider[]): string {
   const multiProvider = Array.isArray(providers) && providers.length > 0;
   const intro = multiProvider
-    ? "Sign in with one of your accounts to research and trade with human-approved, audit-logged workflows."
-    : "Sign in with your GitHub account to research and trade with human-approved, audit-logged workflows.";
-  const githubMark = `<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
+    ? "Sign in with your authorized credentials to access your trading workspace."
+    : "Sign in with your GitHub account to access your trading workspace.";
+  const githubMark = `<svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
   const buttons = multiProvider
     ? providers!
         .map((p) => {
-          const mark = p.id === "github" ? `${githubMark}\n      ` : "";
-          return `<a href="/auth/login/${encodeURIComponent(p.id)}" class="btn">\n      ${mark}Sign in with ${escapeHtml(p.displayName)}\n    </a>`;
+          const mark = p.id === "github" ? `${githubMark}\n        ` : "";
+          return `<a href="/auth/login/${encodeURIComponent(p.id)}" class="btn btn-${escapeHtml(p.id)}">\n        ${mark}<span>Sign in with ${escapeHtml(p.displayName)}</span>\n        <span class="btn-arrow" aria-hidden="true">&rarr;</span>\n      </a>`;
         })
-        .join("\n    ")
-    : `<a href="/auth/login" class="btn">
-      ${githubMark}
-      Sign in with GitHub
-    </a>`;
+        .join("\n      ")
+    : `<a href="/auth/login" class="btn btn-github">
+        ${githubMark}
+        <span>Sign in with GitHub</span>
+        <span class="btn-arrow" aria-hidden="true">&rarr;</span>
+      </a>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${env.APP_NAME || "NextGenTP"} — Sign In</title>
+  <title>${escapeHtml(env.APP_NAME || "NextGenTP")} — Sign In</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -134,7 +135,7 @@ export function renderLoginPage(env: Env, providers?: LoginPageProvider[]): stri
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-      background: radial-gradient(circle at 50% 10%, ${SERVER_PALETTE.indigo950} 0%, ${SERVER_PALETTE.pageBackground} 60%, ${SERVER_PALETTE.backgroundEnd} 100%);
+      background: radial-gradient(circle at 50% 10%, ${SERVER_PALETTE.indigo950} 0%, ${SERVER_PALETTE.surface} 55%, ${SERVER_PALETTE.backgroundEnd} 100%);
       color: ${SERVER_PALETTE.gray100};
       display: flex;
       align-items: center;
@@ -144,68 +145,66 @@ export function renderLoginPage(env: Env, providers?: LoginPageProvider[]): stri
     }
     .card {
       background: ${SERVER_PALETTE.loginCard};
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid ${SERVER_PALETTE.whiteAlpha10};
-      border-radius: 20px;
-      padding: 3rem 2.5rem;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid ${SERVER_PALETTE.cardBorder};
+      border-radius: 24px;
+      padding: 3rem 2.25rem;
       text-align: center;
-      max-width: 440px;
+      max-width: 420px;
       width: 100%;
-      box-shadow: 0 25px 50px -12px ${SERVER_PALETTE.blackAlpha50}, 0 0 40px ${SERVER_PALETTE.primaryAlpha};
-      animation: fadeIn 0.5s ease-out;
+      box-shadow: 0 25px 60px -12px ${SERVER_PALETTE.blackAlpha60}, 0 0 45px -5px ${SERVER_PALETTE.primaryAlpha};
+      position: relative;
+      overflow: hidden;
+      animation: fadeIn 0.4s ease-out;
     }
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(12px); }
       to { opacity: 1; transform: translateY(0); }
     }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 15%;
+      right: 15%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, ${SERVER_PALETTE.accent}, ${SERVER_PALETTE.indigo400}, transparent);
+    }
     .logo-badge {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 64px;
-      height: 64px;
+      width: 56px;
+      height: 56px;
       background: linear-gradient(135deg, ${SERVER_PALETTE.indigo500}, ${SERVER_PALETTE.cyan500});
       border-radius: 16px;
-      font-size: 2rem;
       margin-bottom: 1.5rem;
-      box-shadow: 0 8px 24px ${SERVER_PALETTE.primaryBorder};
+      box-shadow: 0 8px 24px ${SERVER_PALETTE.primaryBorder}, 0 0 20px ${SERVER_PALETTE.primaryAlpha};
     }
     h1 {
-      font-size: 1.75rem;
+      font-size: 1.55rem;
       font-weight: 700;
-      letter-spacing: -0.02em;
+      letter-spacing: -0.025em;
       margin-bottom: 0.5rem;
-      background: linear-gradient(180deg, ${SERVER_PALETTE.onGradient} 0%, ${SERVER_PALETTE.textSecondary} 100%);
+      color: ${SERVER_PALETTE.textPrimary};
+    }
+    .brand-gradient {
+      background: linear-gradient(135deg, ${SERVER_PALETTE.onGradient} 40%, ${SERVER_PALETTE.accent} 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
-    p {
+    .subtitle {
       color: ${SERVER_PALETTE.textMuted};
-      font-size: 0.95rem;
-      line-height: 1.6;
-      margin-bottom: 2.25rem;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      margin-bottom: 2rem;
     }
-    .features {
+    .btn-stack {
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
-      margin-bottom: 2.25rem;
-      text-align: left;
-      background: ${SERVER_PALETTE.whiteAlpha3};
-      padding: 1rem 1.25rem;
-      border-radius: 12px;
-      border: 1px solid ${SERVER_PALETTE.muted};
-      font-size: 0.85rem;
-      color: ${SERVER_PALETTE.textSecondary};
-    }
-    .feature-item {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .feature-item span {
-      color: ${SERVER_PALETTE.accent};
+      gap: 0.85rem;
+      margin-bottom: 2rem;
     }
     .btn {
       display: inline-flex;
@@ -215,41 +214,98 @@ export function renderLoginPage(env: Env, providers?: LoginPageProvider[]): stri
       background: ${SERVER_PALETTE.onGradient};
       color: ${SERVER_PALETTE.card};
       text-decoration: none;
-      padding: 0.85rem 1.75rem;
-      border-radius: 12px;
-      font-size: 1rem;
+      padding: 0.9rem 1.5rem;
+      border-radius: 14px;
+      font-size: 0.95rem;
       font-weight: 600;
       width: 100%;
-      transition: all 0.2s ease;
-      box-shadow: 0 4px 12px ${SERVER_PALETTE.whiteAlpha10};
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 4px 14px ${SERVER_PALETTE.whiteAlpha15}, 0 0 24px ${SERVER_PALETTE.primaryAlpha};
+      border: 1px solid ${SERVER_PALETTE.whiteAlpha15};
+      position: relative;
     }
     .btn:hover {
       background: ${SERVER_PALETTE.slate100};
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px ${SERVER_PALETTE.whiteAlpha15};
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px ${SERVER_PALETTE.whiteAlpha15}, 0 0 32px ${SERVER_PALETTE.primaryAlpha};
+    }
+    .btn:active {
+      transform: translateY(0);
     }
     .btn svg {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       fill: ${SERVER_PALETTE.card};
+      flex-shrink: 0;
+    }
+    .btn-arrow {
+      margin-left: auto;
+      opacity: 0.6;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+      font-size: 1.15rem;
+      line-height: 1;
+    }
+    .btn:hover .btn-arrow {
+      opacity: 1;
+      transform: translateX(3px);
+    }
+    .card-footer {
+      border-top: 1px solid ${SERVER_PALETTE.cardBorder};
+      padding-top: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      align-items: center;
+    }
+    .security-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.775rem;
+      color: ${SERVER_PALETTE.textMuted};
+    }
+    .security-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: ${SERVER_PALETTE.green500};
+      box-shadow: 0 0 8px ${SERVER_PALETTE.green500};
+    }
+    .back-link {
+      color: ${SERVER_PALETTE.accent};
+      font-size: 0.825rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+    .back-link:hover {
+      color: ${SERVER_PALETTE.textPrimary};
     }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="logo-badge">🤖</div>
-    <h1>${env.APP_NAME || "NextGenTP"}</h1>
-    <p>${intro}</p>
-    
-    <div class="features">
-      <div class="feature-item"><span>✦</span> trading-platform order preview with human approval</div>
-      <div class="feature-item"><span>✦</span> Options strategy screening &amp; best-trade ranking</div>
-      <div class="feature-item"><span>✦</span> Quant vs LLM recommendation comparison</div>
-      <div class="feature-item"><span>✦</span> Signed, audited trade drafts &amp; ledger</div>
+    <div class="logo-badge">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${SERVER_PALETTE.onGradient}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5"></polygon>
+        <line x1="12" y1="22" x2="12" y2="15.5"></line>
+        <polyline points="22 8.5 12 15.5 2 8.5"></polyline>
+      </svg>
+    </div>
+    <h1>Sign in to <span class="brand-gradient">${escapeHtml(env.APP_NAME || "NextGenTP")}</span></h1>
+    <p class="subtitle">${intro}</p>
+
+    <div class="btn-stack">
+      ${buttons}
     </div>
 
-    ${buttons}
-    <a href="/" style="display:block;margin-top:1rem;color:${SERVER_PALETTE.accent};font-size:.85rem;text-decoration:none">&larr; What can this platform do?</a>
+    <div class="card-footer">
+      <div class="security-note">
+        <span class="security-dot" aria-hidden="true"></span>
+        <span>Protected by W3C Agent DIDs &amp; deterministic risk gates</span>
+      </div>
+      <a href="/" class="back-link">&larr; Back to ${escapeHtml(env.APP_NAME || "NextGenTP")} Home</a>
+    </div>
   </div>
 </body>
 </html>`;

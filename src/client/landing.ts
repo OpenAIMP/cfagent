@@ -1436,11 +1436,28 @@ ${hcTokens}
         Eliminate LLM execution risks. Algorithmic intent is modeled in code, validated with Black-Scholes quant formulas, and gated by deterministic policy engines.
       </p>
 
+      <div class="features-grid">
         <article class="feature-card">
           <div class="feature-icon-box">🧠</div>
           <h3>Natural-Language Strategy Copilot</h3>
           <p>
             Screen options chains, compare bull put spreads, and research risk profiles in plain English. Your prompt is converted into visible, deterministic mathematical parameters with zero guesswork.
+          </p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon-box">⚡</div>
+          <h3>Fast order ticket &amp; preview</h3>
+          <p>
+            trading-platform order preview with human approval. Turn a recommendation into a signed order ticket in one click with policy verification sealed by an auditable cryptographic identity.
+          </p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon-box">📊</div>
+          <h3>Options strategy screening &amp; best-trade ranking</h3>
+          <p>
+            Quantitative screener across multi-leg options chains and strikes. Ranks bull puts, iron condors, and covered calls by risk-adjusted alpha, probability of profit, and Greeks profile.
           </p>
         </article>
 
@@ -1453,10 +1470,10 @@ ${hcTokens}
         </article>
 
         <article class="feature-card">
-          <div class="feature-icon-box">⚡</div>
-          <h3>Fast order ticket &amp; preview</h3>
+          <div class="feature-icon-box">📜</div>
+          <h3>Signed, audited trade drafts &amp; ledger</h3>
           <p>
-            Turn a recommendation into a signed order preview in one click. Every trade requires explicit policy verification and human approval, sealed with an auditable cryptographic identity.
+            Cryptographically signed trade drafts and append-only execution ledger. Every proposal and execution action is verified against W3C Agent DIDs and recorded immutably.
           </p>
         </article>
 
