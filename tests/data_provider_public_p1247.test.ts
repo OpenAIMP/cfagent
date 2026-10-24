@@ -1228,14 +1228,17 @@ describe("public registration and lifecycle", () => {
 // ---------------------------------------------------------------------------
 
 describe("public verifier", () => {
-  it("buildDataProviderVerifier binds public (and binds yahoo; alpaca stays unbound)", () => {
+  it("buildDataProviderVerifier binds public (and binds yahoo and nasdaq; alpaca stays unbound)", () => {
     const store = makeFakeSessionStore();
     const env = makeEnv(store);
     expect(buildDataProviderVerifier(env, LOGIN, "public", null)).toBeDefined();
     // #1317 binds the yahoo verifier (FOSS isConfigured + conformance);
-    // alpaca is now the remaining adapter-without-verifier case, so the
-    // explicit-binding-matrix intent of this pin moves to it unchanged.
+    // #1368 binds the nasdaq verifier (configured-by-construction +
+    // conformance); alpaca is now the remaining adapter-without-
+    // verifier case, so the explicit-binding-matrix intent of this
+    // pin moves to it unchanged.
     expect(buildDataProviderVerifier(env, LOGIN, "yahoo")).toBeDefined();
+    expect(buildDataProviderVerifier(env, LOGIN, "nasdaq")).toBeDefined();
     expect(buildDataProviderVerifier(env, LOGIN, "alpaca")).toBeUndefined();
   });
 
