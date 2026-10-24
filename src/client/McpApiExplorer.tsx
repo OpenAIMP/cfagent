@@ -457,7 +457,7 @@ export function McpApiExplorer() {
           <div className="endpoints-list-pane">
             <div className="pane-header">
               <h4>Exposed MCP Resources ({MCP_RESOURCES_CATALOG.length})</h4>
-              <p className="pane-sub">Direct access to stateful SQLite tables, revenue, and memory vaults.</p>
+              <p className="pane-sub">Direct access to stateful data records, revenue metrics, and memory vaults.</p>
             </div>
             <div className="tools-cards-scroll">
               {MCP_RESOURCES_CATALOG.map((res) => (
@@ -593,7 +593,7 @@ export function McpApiExplorer() {
                 <option value="all">All Categories ({REST_APIS_CATALOG.length})</option>
                 <option value="Agents & NLQ">Agents & NLQ</option>
                 <option value="Payments & DIDs">Payments & DIDs</option>
-                <option value="Database & ORM">Database & ORM</option>
+                <option value="Enterprise Data & Ledger">Enterprise Data & Ledger</option>
                 <option value="Monetization & Ads">Monetization & Ads</option>
                 <option value="Referrals & Community">Referrals & Community</option>
                 <option value="System & Audit">System & Audit</option>

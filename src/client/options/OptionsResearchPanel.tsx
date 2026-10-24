@@ -238,9 +238,9 @@ function BestTradeCard({
               type="button"
               className="options-eval-llm-btn"
               onClick={() => onEvaluateLlm(candidateToEval(pick.best!.candidate))}
-              title="Evaluate this top trade recommendation with neural LLM against complete option chains"
+              title="Evaluate this top trade recommendation with neural strategy AI against complete option chains"
             >
-              🧠 Evaluate with LLM
+              🧠 Evaluate with AI
             </button>
           )}
           {pick.best && onRiskAnalysis && (
@@ -292,9 +292,9 @@ function BestTradeCard({
                             e.stopPropagation();
                             onEvaluateLlm(candidateToEval(alt.candidate));
                           }}
-                          title="Evaluate runner-up trade with LLM"
+                          title="Evaluate runner-up trade with AI"
                         >
-                          🧠 LLM
+                          🧠 AI
                         </button>
                       )}
                       {onRiskAnalysis && (
@@ -332,7 +332,7 @@ function RecommendationComparison({ data, onPreview }: { data: ComparisonData; o
   return (
     <section className="options-comparison" aria-label="Quant and LLM recommendation comparison">
       <header className="options-results-header">
-        <h2>Quant vs. LLM ranking</h2>
+        <h2>Quant vs. AI ranking</h2>
         <span>{data.llm.model || "Neural Strategy Model"} · {data.quant.candidateCount} shared candidates</span>
       </header>
       <LlmInputPanel input={data.llmInput} />
@@ -343,13 +343,13 @@ function RecommendationComparison({ data, onPreview }: { data: ComparisonData; o
         </details>
       )}
       <p className="options-comparison-note">
-        Both rank the same quant-generated, risk-screened trades from the same option-chain snapshot. The LLM score is a subjective assessment, not a pricing model or forecast.
+        Both rank the same quant-generated, risk-screened trades from the same option-chain snapshot. The AI score is an analytical assessment, not a pricing model or forecast.
       </p>
       {data.llm.status === "error" && <div className="options-error" role="alert">Quant results are available, but the LLM ranking failed: {data.llm.error}</div>}
       {data.quant.ranked.length === 0 ? <p>No quant candidates passed the request constraints.</p> : (
         <div className="options-table-scroll">
           <table className="options-comparison-table">
-            <thead><tr><th>Strategy</th><th>Trade (legs)</th><th>Quant rank</th><th>Quant score</th><th>LLM rank</th><th>LLM score</th><th>LLM rationale</th><th>LLM risks</th></tr></thead>
+            <thead><tr><th>Strategy</th><th>Trade (legs)</th><th>Quant rank</th><th>Quant score</th><th>AI rank</th><th>AI score</th><th>AI rationale</th><th>AI risks</th></tr></thead>
             <tbody>{data.quant.ranked.map((item) => {
               const judgment = llmById.get(item.candidate.id);
               return (
@@ -627,9 +627,9 @@ function StrategyCard({
               type="button"
               className="options-eval-llm-btn"
               onClick={() => onEvaluateLlm(candidateToEval(candidate))}
-              title="Evaluate this strategy with neural LLM against raw and normalized options chains"
+              title="Evaluate this strategy with neural strategy AI against raw and normalized options chains"
             >
-              🧠 Evaluate with LLM
+              🧠 Evaluate with AI
             </button>
           )}
           {onRiskAnalysis && (
@@ -1054,12 +1054,12 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           },
           {
             id: "llm-ideas",
-            label: "LLM Idea Experiment & Exporter",
+            label: "AI Strategy Ideas & Exporter",
             icon: "🧪",
             tooltip: {
-              eyebrow: "INDEPENDENT RAW-DATA LLM EXPERIMENT",
-              title: "LLM Options Idea Experiment",
-              description: "Divides chains into near/mid/long-term expiration cohorts for multi-stage LLM evaluation against raw market data.",
+              eyebrow: "INDEPENDENT RAW-DATA AI ANALYSIS",
+              title: "AI Options Strategy Experiment",
+              description: "Divides chains into near/mid/long-term expiration cohorts for multi-stage AI evaluation against raw market data.",
             },
           },
           {
@@ -1228,9 +1228,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
                     legsText: nlqQuery,
                   });
                 }}
-                title="Evaluate this NLQ screening question against live option chains with neural LLM"
+                title="Evaluate this NLQ screening question against live option chains with neural AI"
               >
-                🧠 Evaluate NLQ with LLM
+                🧠 Evaluate NLQ with AI
               </button>
               <OptionsDataDownloadDropdown
                 symbol={symbol.trim() || (nlqResult.rows?.[0]?.symbol as string) || "NVDA"}
@@ -1258,7 +1258,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
                 boxSizing: "border-box",
               }}
             >
-              <span>🧠 <strong>LLM Validated:</strong></span>
+              <span>🧠 <strong>AI Validated:</strong></span>
               <span style={{ color: "var(--color-text-secondary)" }}>{nlqResult.llmValidation.interpretation}</span>
               {nlqResult.llmValidation.corrected && (
                 <span style={{ color: "var(--color-success)", fontSize: "0.75rem", fontWeight: 700, marginLeft: "auto" }}>✓ Intent Protected</span>
@@ -1444,7 +1444,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             {loading ? "Evaluating…" : "Pick best trade"}
           </button>
           <button type="button" disabled={loading || !canRun} onClick={() => void run("compare")}>
-            {loading ? "Comparing…" : "Compare Quant vs LLM"}
+            {loading ? "Comparing…" : "Compare Quant vs AI"}
           </button>
         </div>
       </form>
