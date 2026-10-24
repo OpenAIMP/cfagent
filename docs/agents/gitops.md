@@ -581,6 +581,18 @@ Use automatic closing keywords only when the PR fully resolves the issue.
 - Revalidate approvals after material changes according to repository policy.
 - Keep review discussions factual and evidence-backed.
 
+### PR sizing: one logical change set
+
+A pull request MUST contain one logical set of related changes — the complete change set for its issue, with code, tests, documentation, and configuration landing together in the same PR (owner direction, 2026-10-24).
+
+- Do not split one implementation across multiple or stacked PRs by default. A stack of partial PRs multiplies merge round-trips, leaves `main` in intermediate states the issue never specified, and forces reviewers to reconstruct the whole from fragments.
+- Split only when the parts are genuinely separable, and record the justification in the tracker issue before opening the extra PRs. Recognized grounds:
+  - An independently mergeable logical unit that is useful and safe on `main` without the rest.
+  - A precondition-gated landing (for example, a configuration or authorization step that must occur between two code changes).
+  - A change set so large that a single PR would defeat review.
+- When in doubt, prefer fewer, coherent PRs: one PR that a reviewer can hold in their head whole beats three that each look reasonable and only make sense together.
+- The pin rule (§7) is part of this rule, not an exception to it: a change and the pins it alters travel in the same PR, never in a follow-up.
+
 ***
 
 ## 10. CI/CD: stop-the-line policy
