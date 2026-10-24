@@ -1095,6 +1095,26 @@ wait it saved.
   dangling-PR problem (§11).
 
 ### Merge-queue interaction (§19.5)
+### Auto-merge and queue discipline (no-wait Phase 1, issue #1298)
+
+Once the merge queue is enabled (§19.5), the agent never waits for the
+merge moment:
+
+- Enable GitHub auto-merge on the PR (rebase strategy, matching §11) as
+  soon as the local gate is green and the PR description is complete.
+  Auto-merge fires only when branch protection is satisfied — required
+  checks green on the queue's combination commit, branch current through
+  the queue — so enabling it early grants nothing and bypasses nothing.
+- The queue, not the agent, chases `main`: it builds the temporary merge
+  commit against current `main` plus earlier queued PRs and runs required
+  checks on it. A PR that fails there never lands; the agent fixes and
+  re-queues instead of merging manually.
+- Manual merge is the fallback only when the queue or auto-merge is
+  unavailable, and then the §11 checklist applies in full (fetch, update
+  in place, re-test on the rebased head, confirm green checks).
+- Never enable auto-merge on a PR whose scope, acceptance, or rollback
+  is not yet written up: auto-merge removes the waiting, not the review.
+
 
 - Where the merge queue is enabled, use it: it validates combinations
   (a PR against current `main` plus earlier queued PRs) instead of each
