@@ -25,6 +25,16 @@ import {
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
 import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
+import {
+  cfpaySendEmail,
+  cfpaySendEmailWithAttachments,
+  getCfpayConfig,
+} from "../../services/cfpayA2A";
+import {
+  resolveOptionsRunEmailRecipient,
+  sendOptionsRunEmail,
+} from "../../services/optionsRunEmail";
+import { ETradeEmailTradingService } from "../../trading";
 import { getEventCalendarCoverage, toEventCalendarInfo } from "../../services/eventCalendar";
 import type { EtradeOptionsRouteContext } from "./etradeOptions";
 
@@ -38,11 +48,12 @@ export async function executeOptionsScreen(args: {
   screenPushToSlack: OptionsScreenValue["pushToSlack"];
   screenSlackChannel: OptionsScreenValue["slackChannel"];
   screenUniverseLabel: OptionsScreenValue["universe"];
+  screenEmailTo: OptionsScreenValue["emailTo"];
   /** Issue #1123: when the screen runs as a tracked job, the follow-up
    *  pipeline owns delivery — skip the inline Slack delivery. */
   deferDelivery?: boolean;
 }): Promise<Response> {
-  const { ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, deferDelivery } = args;
+  const { ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, screenEmailTo, deferDelivery } = args;
   // Consolidation C1 (issue #1201, epic #1151 R1): the manual options
   // screen executes through the Phase 0 ScreeningProvider (the
   // registry's options provider wrapping this same screener) — the
@@ -191,6 +202,42 @@ export async function executeOptionsScreen(args: {
       if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract PDF delivery failed:", sent.error);
     } catch (slackErr) {
       console.warn("[Orchestrator] Slack A2A options delivery error:", slackErr instanceof Error ? slackErr.message : String(slackErr));
+    }
+  }
+
+  // Issue #1336: manual options email — the one delivery cell the
+  // manual route lacked. Only the inline path sends here: when the
+  // follow-up pipeline owns delivery (bridge present, or a tracked
+  // job context via deferDelivery), the bridge plans the email
+  // instead — sending here too would double-deliver. Best-effort:
+  // failures warn, never fail the run (same idiom as inline Slack).
+  if (!deferDelivery && !ctx.scheduleScreenerFollowups) {
+    const emailTo = resolveOptionsRunEmailRecipient(screenEmailTo, ctx.env as unknown as Record<string, unknown>);
+    if (emailTo) {
+      const symbolsLabel = (screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings";
+      const emailSummary = `📊 Options Contract Screen — ${symbolsLabel}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;
+      try {
+        const emailService = new ETradeEmailTradingService(ctx.env as any, ctx.getOrm(), userLogin);
+        const sent = await sendOptionsRunEmail(
+          {
+            cfpay: getCfpayConfig(ctx.env),
+            sendCfpay: (config, a) => cfpaySendEmail(config, a.to, a.subject, a.body),
+            sendCfpayWithAttachments: (config, a) => cfpaySendEmailWithAttachments(config, a),
+            sendLocal: (to, subject, html, text, attachments) => emailService.sendOutboundEmail(to, subject, html, text, attachments),
+          },
+          {
+            to: emailTo,
+            subject: `📊 Options Contract Screen — ${symbolsLabel} — ${new Date().toISOString().slice(0, 10)}`,
+            textBody: `${emailSummary}${optionsReportUrl ? `\n\nPDF report: ${optionsReportUrl}` : ""}`,
+            htmlBody: `${emailSummary.replace(/\n/g, "<br/>")}${optionsReportUrl ? `<br/><br/>PDF report: ${optionsReportUrl}` : ""}`,
+            ...(pdfBytes && fileName ? { pdf: { bytes: pdfBytes, fileName } } : {}),
+            ...(optionsXlsxBytes && optionsXlsxFileName ? { xlsx: { bytes: optionsXlsxBytes, fileName: optionsXlsxFileName } } : {}),
+          },
+        );
+        if (!sent.sent) console.warn("[Orchestrator] Manual options email delivery failed for", emailTo);
+      } catch (emailErr) {
+        console.warn("[Orchestrator] Manual options email error:", emailErr instanceof Error ? emailErr.message : String(emailErr));
+      }
     }
   }
 
