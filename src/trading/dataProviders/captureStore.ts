@@ -73,6 +73,20 @@
  * one, using assessment-01 §8.1's classes (Ephemeral / Retained 30d /
  * Retained 365d / Permanent Audit). Default for provider captures:
  * "retained-365d". Enforcement scheduling is a later slice's concern.
+ *
+ * E7 (issue #1248): the log gains the fetch-failure dimension.
+ * A fetch that THROWS — previously invisible here — is recorded
+ * by recordFetchFailure as a "fetch_failed" row carrying the
+ * classified failure kind and a bounded, credential-scrubbed
+ * message (fetchOutcome.ts), with no blob stored. The table gains
+ * failure_kind / failure_message columns via the same PRAGMA-probe
+ * migration idiom as E5's min_tier: pre-E7 tables are altered in
+ * place, and pre-E7 rows read back with null kind/message. The
+ * store also implements the FetchOutcomeRecorder port
+ * (createCaptureFetchOutcomeRecorder): recordFailure writes the
+ * fetch_failed row; recordSuccess writes NOTHING — on this
+ * platform a fetch's success record is the capture row the
+ * adapter writes for that same fetch (see fetchOutcome.ts).
  */
 
 import type { SqlStorage } from "../../orm";
@@ -81,6 +95,12 @@ import type {
   DataProviderId,
   DataRunContext,
 } from "./contract";
+import {
+  scrubFailureMessage,
+  type FetchFailureKind,
+  type FetchOutcomeMeta,
+  type FetchOutcomeRecorder,
+} from "./fetchOutcome";
 
 export const DATA_CAPTURE_TABLE = "mas_data_captures";
 
@@ -110,8 +130,15 @@ export type DataCaptureRawKind = "provider-response" | "provider-result";
  * no_payload   — the fetch completed with no payload to store (e.g. a
  *                null chain); an audit row exists so the run's trail
  *                is complete, but no raw is fabricated for it.
+ * fetch_failed — E7 (#1248): the FETCH itself failed (threw); the
+ *                row carries the classified failure kind + a
+ *                scrubbed, bounded message, and stores no payload.
  */
-export type DataCaptureStatus = "captured" | "capture_failed" | "no_payload";
+export type DataCaptureStatus =
+  | "captured"
+  | "capture_failed"
+  | "no_payload"
+  | "fetch_failed";
 
 export interface DataCaptureRecord {
   id: string;
@@ -133,6 +160,18 @@ export interface DataCaptureRecord {
   normalizedDigest: string | null;
   retentionClass: DataCaptureRetentionClass;
   failureError: string | null;
+  /**
+   * E7 (#1248): the classified fetch-failure kind — set only on
+   * fetch_failed rows (null on every E1 status, and on pre-E7 rows
+   * read back from tables written before the columns existed).
+   */
+  failureKind: FetchFailureKind | null;
+  /**
+   * E7 (#1248): the fetch failure's message after scrubbing
+   * (credential-shaped substrings stripped, ≤200 chars) — set
+   * only on fetch_failed rows.
+   */
+  failureMessage: string | null;
   createdAt: string;
 }
 
@@ -338,8 +377,27 @@ export function ensureCaptureTable(sql: SqlStorage): void {
     normalized_digest TEXT,
     retention_class TEXT NOT NULL,
     failure_error TEXT,
+    failure_kind TEXT,
+    failure_message TEXT,
     created_at TEXT NOT NULL
   )`);
+  // Pre-E7 tables lack the failure columns: add them in place (the
+  // E5 ensure-column idiom from providerConfigStore). Existing rows
+  // read back with NULL kind/message — they predate fetch-outcome
+  // recording and claim none.
+  const captureColumns = Array.from(
+    sql.exec(`PRAGMA table_info(${DATA_CAPTURE_TABLE})`)
+  ) as any[];
+  if (!captureColumns.some((c) => c.name === "failure_kind")) {
+    sql.exec(
+      `ALTER TABLE ${DATA_CAPTURE_TABLE} ADD COLUMN failure_kind TEXT`
+    );
+  }
+  if (!captureColumns.some((c) => c.name === "failure_message")) {
+    sql.exec(
+      `ALTER TABLE ${DATA_CAPTURE_TABLE} ADD COLUMN failure_message TEXT`
+    );
+  }
   sql.exec(
     `CREATE INDEX IF NOT EXISTS idx_mas_data_captures_run ON ${DATA_CAPTURE_TABLE}(tenant_id, run_id)`
   );
@@ -378,6 +436,11 @@ function recordFromRow(r: any): DataCaptureRecord {
     normalizedDigest: r.normalized_digest ?? null,
     retentionClass: r.retention_class,
     failureError: r.failure_error ?? null,
+    failureKind:
+      typeof r.failure_kind === "string"
+        ? (r.failure_kind as FetchFailureKind)
+        : null,
+    failureMessage: r.failure_message ?? null,
     createdAt: r.created_at,
   };
 }
@@ -386,8 +449,8 @@ function insertCaptureRow(sql: SqlStorage, record: DataCaptureRecord): void {
   ensureCaptureTable(sql);
   sql.exec(
     `INSERT INTO ${DATA_CAPTURE_TABLE}
-     (id, provider_id, capability, request_params_json, run_id, tenant_id, user_login, fetched_at, status, raw_kind, raw_blob_ref, raw_byte_size, raw_sha256, normalized_digest, retention_class, failure_error, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (id, provider_id, capability, request_params_json, run_id, tenant_id, user_login, fetched_at, status, raw_kind, raw_blob_ref, raw_byte_size, raw_sha256, normalized_digest, retention_class, failure_error, failure_kind, failure_message, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     record.id,
     record.providerId,
     record.capability,
@@ -404,6 +467,8 @@ function insertCaptureRow(sql: SqlStorage, record: DataCaptureRecord): void {
     record.normalizedDigest,
     record.retentionClass,
     record.failureError,
+    record.failureKind,
+    record.failureMessage,
     record.createdAt
   );
 }
@@ -420,7 +485,7 @@ export async function recordCapture(
   input: RecordCaptureInput
 ): Promise<DataCaptureRecord> {
   const fetchedAt = input.fetchedAt ?? new Date().toISOString();
-  const base: Omit<DataCaptureRecord, "status" | "rawKind" | "rawBlobRef" | "rawByteSize" | "rawSha256" | "normalizedDigest" | "failureError"> = {
+  const base: Omit<DataCaptureRecord, "status" | "rawKind" | "rawBlobRef" | "rawByteSize" | "rawSha256" | "normalizedDigest" | "failureError" | "failureKind" | "failureMessage"> = {
     id: crypto.randomUUID(),
     providerId: input.providerId,
     capability: input.capability,
@@ -455,6 +520,8 @@ export async function recordCapture(
         normalizedDigest,
         failureError:
           "Provider returned no payload for this request; no raw response was available at the adapter seam.",
+        failureKind: null,
+        failureMessage: null,
       };
       insertCaptureRow(sql, record);
       return getCaptureById(sql, base.tenantId, base.id) ?? record;
@@ -475,6 +542,8 @@ export async function recordCapture(
       rawSha256,
       normalizedDigest,
       failureError: null,
+      failureKind: null,
+      failureMessage: null,
     };
     insertCaptureRow(sql, record);
     return getCaptureById(sql, base.tenantId, base.id) ?? record;
@@ -497,6 +566,8 @@ export async function recordCapture(
       rawSha256,
       normalizedDigest,
       failureError: message,
+      failureKind: null,
+      failureMessage: null,
     };
     try {
       insertCaptureRow(sql, marker);
@@ -514,6 +585,111 @@ export async function recordCapture(
       return marker;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Fetch-failure recording (E7, issue #1248) — the write side of the
+// FetchOutcomeRecorder port, plus the port's capture-store adapter.
+// ---------------------------------------------------------------------------
+
+export interface RecordFetchFailureInput {
+  providerId: DataProviderId;
+  capability: DataProviderCapability;
+  /** The caller's request parameters (normalized to canonical JSON for storage). */
+  requestParams: unknown;
+  runId: string;
+  tenantId: string;
+  userLogin?: string | null;
+  /** The classified failure kind (fetchOutcome.ts's Strategy). */
+  kind: FetchFailureKind;
+  /** The failure's raw message — scrubbed + bounded HERE, at the storage boundary. */
+  message: string;
+  retentionClass?: DataCaptureRetentionClass;
+  /** Fetch timestamp override (tests / backfill); defaults to now. */
+  fetchedAt?: string;
+}
+
+/**
+ * Record one failed fetch. NEVER throws (recordCapture's invariant,
+ * extended): on success returns the stored record; on a write
+ * failure logs and returns the unpersisted record — the failure is
+ * real either way, and recording it must never become a second
+ * failure for the caller. The stored message is scrubbed at this
+ * boundary (scrubFailureMessage), so no caller can persist
+ * credential material by forgetting to scrub.
+ */
+export async function recordFetchFailure(
+  sql: SqlStorage,
+  input: RecordFetchFailureInput
+): Promise<DataCaptureRecord> {
+  const fetchedAt = input.fetchedAt ?? new Date().toISOString();
+  const record: DataCaptureRecord = {
+    id: crypto.randomUUID(),
+    providerId: input.providerId,
+    capability: input.capability,
+    requestParams: parseParams(canonicalJson(input.requestParams ?? {})),
+    runId: input.runId,
+    tenantId: input.tenantId,
+    userLogin: input.userLogin ?? null,
+    fetchedAt,
+    status: "fetch_failed",
+    rawKind: null,
+    rawBlobRef: null,
+    rawByteSize: 0,
+    rawSha256: null,
+    normalizedDigest: null,
+    retentionClass: input.retentionClass ?? DEFAULT_CAPTURE_RETENTION_CLASS,
+    failureError: null,
+    failureKind: input.kind,
+    failureMessage: scrubFailureMessage(input.message ?? ""),
+    createdAt: fetchedAt,
+  };
+  try {
+    insertCaptureRow(sql, record);
+    return getCaptureById(sql, record.tenantId, record.id) ?? record;
+  } catch (err) {
+    console.error("[dataProviders] fetch-failure record write failed", {
+      captureId: record.id,
+      providerId: record.providerId,
+      capability: record.capability,
+      runId: record.runId,
+      tenantId: record.tenantId,
+      failureKind: record.failureKind,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return record;
+  }
+}
+
+/**
+ * The capture store as the FetchOutcomeRecorder port's adapter:
+ * recordFailure writes the fetch_failed row; recordSuccess writes
+ * nothing — a fetch's success record on this platform is the
+ * capture row the adapter writes for that same fetch through
+ * recordCapture (captured / no_payload, or the capture_failed
+ * marker when the capture write itself failed), so writing here
+ * too would double-count every success. The recorder never throws.
+ */
+export function createCaptureFetchOutcomeRecorder(
+  sql: SqlStorage
+): FetchOutcomeRecorder {
+  return {
+    recordSuccess: async (_meta: FetchOutcomeMeta) => {
+      // Attested by the fetch's capture row — see the note above.
+    },
+    recordFailure: async (meta, failure) => {
+      await recordFetchFailure(sql, {
+        providerId: meta.providerId,
+        capability: meta.capability,
+        requestParams: meta.requestParams ?? {},
+        runId: meta.runId,
+        tenantId: meta.tenantId,
+        userLogin: meta.userLogin ?? null,
+        kind: failure.kind,
+        message: failure.message,
+      });
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -586,6 +762,14 @@ export function listCaptureFailures(
   tenantId: string
 ): DataCaptureRecord[] {
   return listCapturesWhere(sql, tenantId, "status", "capture_failed");
+}
+
+/** E7 (#1248): the recorded fetch failures — fetches that threw. */
+export function listFetchFailures(
+  sql: SqlStorage,
+  tenantId: string
+): DataCaptureRecord[] {
+  return listCapturesWhere(sql, tenantId, "status", "fetch_failed");
 }
 
 /**
