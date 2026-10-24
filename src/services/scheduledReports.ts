@@ -666,7 +666,7 @@ export function searchScheduledReports(
     // #584 EP-003: tenant scoping. When the caller knows the user, filter
     // strictly. When unknown (undefined), preserve legacy behavior (all
     // rows): the deployment's identity strings are not yet unified
-    // ("default" vs "default_trader" vs session ids), so a strict default
+    // ("default" vs the legacy shared login vs session ids), so a strict default
     // would hide a user's own rows. See #488.
     const owner =
       opts?.userLogin && typeof opts.userLogin === "string"

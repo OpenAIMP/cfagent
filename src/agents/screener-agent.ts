@@ -19,6 +19,7 @@
 
 import { Agent } from "agents";
 import type { Env } from "../types";
+import { getServiceUserLogin } from "../security/serviceIdentity";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
 import { DynamicMarketScreener } from "../trading";
@@ -232,8 +233,36 @@ export class ScreenerAgent extends Agent<Env> {
     return true;
   }
 
-  private userLogin(): string {
-    return "default_trader";
+  private static OWNER_STORAGE_KEY = "screener:owner-login";
+
+  /**
+   * Issue #1185: record this instance's owner at entry — the login the
+   * orchestrator threaded from the validated session header (or the
+   * schedule's stored owner) when dispatching work to this instance.
+   */
+  private async recordOwner(userLogin: string): Promise<void> {
+    if (userLogin) {
+      await this.ctx.storage.put(ScreenerAgent.OWNER_STORAGE_KEY, userLogin);
+    }
+  }
+
+  /**
+   * Issue #1185: this instance's owner login — the owner recorded at
+   * entry; before any entry, the instance name itself encodes it
+   * (`screener:<login>`; the bare shared instance belongs to the
+   * configured service identity). Fail closed when none exists: there
+   * is no synthetic shared identity to attribute runs or reports to.
+   */
+  private async userLogin(): Promise<string> {
+    const recorded = await this.ctx.storage.get<string>(ScreenerAgent.OWNER_STORAGE_KEY);
+    if (recorded) return recorded;
+    const name = this.name ?? "";
+    if (name.startsWith("screener:")) return name.slice("screener:".length);
+    if (name === "default") {
+      const serviceLogin = getServiceUserLogin(this.env);
+      if (serviceLogin) return serviceLogin;
+    }
+    throw new Error("ScreenerAgent has no owner identity recorded for this instance (issue #1185: no default identity).");
   }
 
   /**
@@ -377,7 +406,11 @@ export class ScreenerAgent extends Agent<Env> {
     // Issue #828: prevent concurrent runs for same user/universe.
     // Multiple clicks were spawning parallel runs that exhausted the
     // Cloudflare subrequest budget and spammed Slack with partials.
-    const lockKey = `screen_lock:${this.userLogin()}:${req.universe || "nasdaq100"}`;
+    // Issue #1185: the run's owner is the request's threaded login;
+    // record it at entry so later reads on this instance resolve to
+    // the same owner. Without one, the recorded/derived owner applies.
+    if (req.userLogin) await this.recordOwner(req.userLogin);
+    const lockKey = `screen_lock:${await this.userLogin()}:${req.universe || "nasdaq100"}`;
     const existingLock = await this.ctx.storage.get<string>(lockKey);
     if (existingLock) {
       const lockAge = Date.now() - parseInt(existingLock, 10);
@@ -413,7 +446,7 @@ export class ScreenerAgent extends Agent<Env> {
     // default, which made NASDAQ100 reports claim "Technology sector".
     const sector = req.sector || req.filters?.sector || "ALL";
     const screener = new DynamicMarketScreener();
-    const userLogin = req.userLogin || this.userLogin();
+    const userLogin = req.userLogin || (await this.userLogin());
     const universe: UniverseId = req.universe ?? "TECH";
     // Issue #1007: the run's data provider (default E*TRADE). Recorded
     // on every result — success, duplicate and failure alike — so the
@@ -750,7 +783,7 @@ export class ScreenerAgent extends Agent<Env> {
     baseStockFilter?: StockScreenerFilter;
     baseOptionsFilter?: OptionScreenerFilter;
   }): Promise<{ task: ScreenerTask; executed: boolean; result?: GoalDrivenScreenResult }> {
-    const userLogin = req.userLogin || this.userLogin();
+    const userLogin = req.userLogin || (await this.userLogin());
     const etrade = new ETradeService(
       this.getOrm(),
       this.env,
@@ -808,7 +841,7 @@ export class ScreenerAgent extends Agent<Env> {
     const local = await getReportPdf(this.env, this.ctx.storage, PDF_LATEST_KEY);
     if (local) return local;
     const { getPdfAsset } = await import("./report-asset-agent");
-    return await getPdfAsset(this.env, this.userLogin(), PDF_LATEST_KEY);
+    return await getPdfAsset(this.env, await this.userLogin(), PDF_LATEST_KEY);
   }
 
   /**
@@ -819,7 +852,7 @@ export class ScreenerAgent extends Agent<Env> {
     const local = await getReportPdf(this.env, this.ctx.storage, pdfKey);
     if (local) return local;
     const { getPdfAsset } = await import("./report-asset-agent");
-    return await getPdfAsset(this.env, this.userLogin(), pdfKey);
+    return await getPdfAsset(this.env, await this.userLogin(), pdfKey);
   }
 
   /**
@@ -846,7 +879,7 @@ export class ScreenerAgent extends Agent<Env> {
     const local = await getReportPdf(this.env, this.ctx.storage, OPTIONS_PDF_LATEST_KEY);
     if (local) return local;
     const { getPdfAsset } = await import("./report-asset-agent");
-    return await getPdfAsset(this.env, this.userLogin(), OPTIONS_PDF_LATEST_KEY);
+    return await getPdfAsset(this.env, await this.userLogin(), OPTIONS_PDF_LATEST_KEY);
   }
 
   /**
@@ -857,7 +890,7 @@ export class ScreenerAgent extends Agent<Env> {
     const local = await getReportPdf(this.env, this.ctx.storage, pdfKey);
     if (local) return local;
     const { getPdfAsset } = await import("./report-asset-agent");
-    return await getPdfAsset(this.env, this.userLogin(), pdfKey);
+    return await getPdfAsset(this.env, await this.userLogin(), pdfKey);
   }
 
   /**
@@ -962,7 +995,7 @@ export class ScreenerAgent extends Agent<Env> {
         type: "screener",
         trigger: result.trigger === "manual" ? "manual" : "scheduled",
         result,
-        userLogin: this.userLogin(),
+        userLogin: await this.userLogin(),
         title: `Market screen — ${String((result as any).universe ?? (result as any).sector ?? "ALL")}`,
         summary: result.success
           ? `Scanned ${result.totalScanned} symbols, ${result.matchedCount} matched.`
@@ -975,7 +1008,7 @@ export class ScreenerAgent extends Agent<Env> {
       let stored = await getReportPdf(this.env, this.ctx.storage as any, pipelineResult.pdfKey);
       if (!stored) {
         const { getPdfAsset } = await import("./report-asset-agent");
-        stored = await getPdfAsset(this.env, this.userLogin(), pipelineResult.pdfKey);
+        stored = await getPdfAsset(this.env, await this.userLogin(), pipelineResult.pdfKey);
       }
       if (stored) {
         await putReportPdf(this.env, this.ctx.storage as any, pipelineResult.pdfKey, stored.fileName, stored.bytes);

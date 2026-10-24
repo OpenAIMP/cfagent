@@ -265,7 +265,7 @@ describe("fetchQuotes onWireResponse hook (issue #1157)", () => {
 
   it("service: fetchQuotesRemote forwards onWireResponse to the client; a default call passes no options object (the #495 pin shape)", async () => {
     const liveEnv = { ETRADE_ENVIRONMENT: "live" } as Env;
-    const service = new ETradeService(liveEnv);
+    const service = new ETradeService(liveEnv, undefined, "test-user");
     const fetchQuotes = vi.fn(async (symbols: string[], _options?: any) =>
       symbols.map((s) => quoteFixture(s))
     );
