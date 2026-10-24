@@ -114,6 +114,7 @@ Before the first change, inspect:
 - Release and deployment process.
 - Existing failing checks and known incidents.
 - Security and secret-management requirements.
+- Existing implementations of any capability you intend to add — this search is part of reconnaissance, not an afterthought (§7, reuse before you build).
 
 Record unresolved access limitations.
 
@@ -356,6 +357,17 @@ Run affected tests and required repository checks.
 - Do not claim Red/Green evidence that was not observed.
 
 For prose-only documentation, static configuration, generated output, or other changes where classic TDD does not fit, use appropriate validation and document the exception.
+
+### Reuse before you build
+
+Every change MUST start from what already exists. Locate the capability, then extend it in preference to adding another path beside it. Parallel and near-duplicate implementations are the most expensive rework this repository produces: they drift silently, they disagree at the edges, and every later change must be made twice to stay consistent.
+
+1. **Search before writing.** Look for the behavior you are about to add, its synonyms, its tests, and its documentation (§4). "There was nothing to reuse" is a finding to state, not an assumption to skip.
+2. **Choose in this order: reuse, enhance, optimize, consolidate, extend.** Reuse the surface as it stands; enhance it when the gap is real; optimize it when it is correct but too slow or too blunt; consolidate when several partial implementations already cover the case; extend when the need is genuinely new. A new parallel implementation is the last option, never the first.
+3. **Justify the exception in the PR.** A second implementation of something the repository already does requires an explicit note: the existing surface you found, why extending or consolidating it was not viable, and what keeps the two from drifting. Silence is not a waiver — state it under the PR template's `## Implementation` field (§9).
+4. **A copy is a second source of truth.** Duplicated validation rules, regexes, parsers, prompt text, and config blocks are defects even while they agree. Where a surface must be reached from a context that cannot import it — a client bundle, a separate runtime, a workflow file — extract the shared piece, or pin the copies together with a test that fails when they diverge (§7, the pin rule).
+5. **Consolidate on contact.** A change touching a duplicated implementation MUST fold it into the canonical one when the scope allows. When it does not, open the follow-up issue in the same PR and link it.
+6. **Reviewers enforce this gate.** A PR that adds a parallel implementation without the note in item 3 is sent back, not merged.
 
 ### The pin rule
 
