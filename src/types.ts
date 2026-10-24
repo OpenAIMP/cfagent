@@ -1726,6 +1726,26 @@ export interface StageChainConfig {
   deliverDelaySeconds?: number;
 }
 
+/** Issue #1355: context carried on every shard of a sharded
+ *  scheduled screen, so any stage's completion hook can plan the
+ *  next stage without re-reading the schedule. */
+export interface ShardChainContext {
+  chainId: string;
+  universe: string;
+  userLogin: string;
+  environment?: "TEST" | "PROD";
+  trigger?: "manual" | "scheduled";
+  maxItems?: number;
+  timestamp: string;
+  channels: AsyncJobChannel[];
+  emailTo?: string;
+  slackChannel?: string;
+  webhookUrl?: string;
+  stageChain?: StageChainConfig;
+  /** Spacing between shard starts inside a stage (ms). 0 = start together. */
+  staggerMs?: number;
+}
+
 /** Issue #1123: optional graph fields on a job submission. */
 export interface AsyncJobGraphFields {
   parentJobId?: string;
@@ -1847,6 +1867,18 @@ export type AsyncJobSubmission =
         userLogin: string;
         channel: AsyncJobChannel;
         detail?: string;
+      };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1355: one shard of a sharded scheduled screen.
+       *  `inputs` carries the previous stage's outputs the planner
+       *  embedded (e.g. store keys) — never datasets (those live in
+       *  sibling rows' result_json). */
+      capability: "shard.execute";
+      payload: {
+        shard: { stage: "feed" | "generate" | "store"; key: string };
+        chain: ShardChainContext;
+        inputs?: Record<string, unknown>;
       };
     } & AsyncJobGraphFields);
 
