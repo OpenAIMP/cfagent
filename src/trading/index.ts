@@ -35,7 +35,10 @@ export * from "./alpaca/platform";
 export * from "./optionsScreener";
 
 // --- boundary surface (#290): every capability external code used via deep paths ---
-export * from "./yahooDataSource";
+// Issue #1317: the deleted Yahoo data-source module's helpers moved
+// into screenerPipeline.ts; yahooHistory stays (its runtime still
+// serves screener-agent, discoveryService, researchProviders,
+// screeningRuntime).
 export * from "./yahooHistory";
 export * from "./universes";
 export * from "./screenerConfig";
