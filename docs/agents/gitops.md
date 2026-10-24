@@ -679,7 +679,7 @@ If a merge queue is required, enqueue the PR. Ensure GitHub Actions workflows ha
 3. Verify applicable delivery or smoke-test results.
 4. Reconcile issue status.
 5. Update local `main` using a fast-forward pull.
-6. Delete the completed branch only when authorized and safe.
+6. Head-branch deletion is automatic: the repo setting "Automatically delete head branches" is ON, so GitHub deletes the head branch on merge. Do not manually delete a branch automation already removed. If auto-delete is ever turned off, fall back to deleting the completed branch only when authorized and safe.
 7. Record the completion summary.
 8. Begin the next issue only after the gate is satisfied — unless §20 parallel delivery applies, in which case the next independent issue may already be in flight and this gate closes the current issue, not the stream.
 
