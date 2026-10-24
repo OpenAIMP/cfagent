@@ -27,6 +27,12 @@
  * captured bytes. The panel formats only; every number and the
  * status itself are computed server-side, and "no-data" (zero
  * captures) renders as its own honest state, never as healthy.
+ *
+ * E7 (issue #1248): when the API sends the fetch-outcome fields,
+ * the card additionally shows the fetch failure rate and the
+ * latest fetch failure WITH its classified kind — again formatted
+ * only, never derived client-side; an older (v1-shaped) response
+ * without those fields renders exactly as before.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -248,6 +254,20 @@ export function DataProvidersPanel() {
                         <span>{`Last failure: ${fmtDataProviderTime(view.health.lastFailureAt)}`}</span>
                         <span>{`Captured data: ${fmtCaptureBytes(view.health.totalRawBytes)}`}</span>
                       </div>
+                      {typeof view.health.fetchFailureRate === "number" &&
+                        typeof view.health.fetchAttempts === "number" && (
+                          <div className="dpp-health-meta">
+                            <span>{`Fetch failure rate: ${Math.round(view.health.fetchFailureRate * 100)}%`}</span>
+                            <span>{`${view.health.fetchFailures ?? 0} of ${view.health.fetchAttempts} attempts failed`}</span>
+                            {view.health.lastFetchFailureAt && (
+                              <span>{`Latest fetch failure: ${fmtDataProviderTime(view.health.lastFetchFailureAt)}${
+                                view.health.latestFetchFailureKind
+                                  ? ` (${view.health.latestFetchFailureKind})`
+                                  : ""
+                              }`}</span>
+                            )}
+                          </div>
+                        )}
                       {Object.keys(view.health.byCapability ?? {}).length > 0 && (
                         <ul className="dpp-health-caps">
                           {Object.entries(view.health.byCapability).map(([capability, agg]) => (
