@@ -47,7 +47,7 @@ jobs:
   enable-auto-merge:
     name: Enable auto-merge (rebase) for trusted or safe PRs
     runs-on: ubuntu-24.04
-    if: !github.event.pull_request.draft
+    if: ${{ !github.event.pull_request.draft }}
     steps:
       - name: Decide trust (label or docs-only safe PR)
         id: trust
