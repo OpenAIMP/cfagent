@@ -628,11 +628,14 @@ const deliveryFields = {
  * completion. Absent = the fused immediate chain (the degenerate
  * case). Delays are whole seconds, 0..604800 (7 days).
  *
- * Only the market-screen criteria carry the field in C3: its runs
- * ride the #1123 follow-up bridge end-to-end. The other callbacks'
- * strict schemas reject the field explicitly rather than silently
- * ignoring it — their stage-chaining lands in C4 when every run
- * kind joins the one pipeline.
+ * Only the market-screen criteria carried the field in C3: its runs
+ * rode the #1123 follow-up bridge end-to-end. Consolidation C4
+ * (#1329) extends it to the options, discovery, and goal criteria:
+ * options chains fully in chain mode (bridge delivery replaces the
+ * direct path); discovery/goal chains carry chain identity + the
+ * serve stage, with delivery staying on the run's direct path (see
+ * screenerFollowups deliverViaChain) — their deliver-stage chaining
+ * is #1236 remainder for C5's delivery convergence.
  *
  * The config type itself lives in src/types.ts (with PipelineStage)
  * and is re-exported here, where its validation lives.
@@ -678,6 +681,7 @@ export const optionsAnalysisScheduleCriteriaSchema = z.strictObject({
   allowedStrategies: z.array(z.string()).optional(),
   riskProfile: riskProfileSchema.optional(),
   ...deliveryFields,
+  ...stageChainFields,
   ...triggerField,
 });
 
@@ -695,6 +699,7 @@ export const strategyDiscoveryScheduleCriteriaSchema = z.strictObject({
   profileId: z.unknown().optional(),
   constraintSets: z.unknown().optional(),
   scheduleId: z.unknown().optional(),
+  ...stageChainFields,
   ...triggerField,
 });
 
@@ -730,6 +735,7 @@ export const goalScreenScheduleCriteriaSchema = z.strictObject({
   symbols: z.array(z.string()).optional(),
   assetClasses: z.array(z.enum(["stocks", "options"])).optional(),
   ...deliveryFields,
+  ...stageChainFields,
   ...triggerField,
 });
 

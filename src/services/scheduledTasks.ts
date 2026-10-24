@@ -8,7 +8,7 @@
  * - Persistent scheduled task reminders with SQLite auditing.
  */
 
-import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from "../types";
+import type { Env, ScheduledTaskResult, StageChainConfig, TradeRecord, ScreenedStockItem } from "../types";
 import { DatabaseORM } from "../orm";
 import { codedMessage } from "../errors/errorAspects";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
@@ -62,6 +62,7 @@ import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "./tradingWebhooks";
 import { ScreenerEventBus } from "../events/screenerEvents";
 import { screenerOutcomeFromEvent } from "./screenerFollowups";
+import { storeReportStage } from "./unifiedReportPipeline";
 import { registerScreenerPublishers } from "../events/screenerPublishers";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
 import { getEventCalendarCoverage, getSymbolEventCalendar } from "./eventCalendar";
@@ -83,6 +84,11 @@ export interface AutonomousOptionsAnalysisOptions {
   environment?: string;
   trigger?: "manual" | "scheduled";
   userLogin?: string;
+  /** Consolidation C4 (#1329): per-record stage-chain config — in
+   *  chain mode the run bridges fully (bridge deliver jobs carry the
+   *  adopted PDF; direct Slack/email delivery is suppressed so the
+   *  artifact is delivered exactly once). Absent ⇒ direct path. */
+  stageChain?: StageChainConfig;
 }
 
 export interface AutonomousStrategyDiscoveryOptions {
@@ -115,6 +121,13 @@ export interface AutonomousStrategyDiscoveryOptions {
   /** The arming schedule's id, when the caller knows it (recorded as
    *  run provenance; the SDK callback path supplies none). */
   scheduleId?: string;
+  /** Consolidation C4 (#1329): per-record stage-chain config — a
+   *  completed discovery run bridges generate + serve (canonical
+   *  report adoption); delivery stays on the run's direct path
+   *  (deliverViaChain=false). Absent ⇒ unbridged. Failed runs do not
+   *  bridge: their existing failure-notice path is channel-divergent
+   *  from the bridge's, and suppressing it would risk a lost notice. */
+  stageChain?: StageChainConfig;
 }
 
 /**
@@ -147,9 +160,9 @@ export class ScheduledTasksService {
     private strategyProfileStore?: StrategyProfileStore,
     /** Issue #1123 S5b: the follow-up bridge. When the host wires it,
      *  screener events join the tracked job pipeline instead of the
-     *  private event bus (stock chains fully; options record-only —
-     *  chainReport=false — because their delivery stays on the #223
-     *  direct path). */
+     *  private event bus (stock chains fully; options bridge fully in
+     *  chain mode — C4 #1329 — and record-only otherwise, because
+     *  unchained options delivery stays on the #223 direct path). */
     private followupScheduler?: (
       outcome: import("./screenerFollowups").ScreenerRunOutcome,
       userLogin: string,
@@ -263,10 +276,15 @@ export class ScheduledTasksService {
       // deliveries → notifications) exactly like an interactive
       // screen. The bus remains for hosts that don't wire the bridge.
       if (this.followupScheduler) {
+        // Consolidation C4 (#1329): a chained event bridges fully —
+        // options in chain mode, and any screener event carrying a
+        // stage-chain config. Unchained options events stay
+        // record-only (chainReport=false); their delivery stays on
+        // the #223 direct path.
         await this.followupScheduler(
           screenerOutcomeFromEvent(event),
           this.userLogin,
-          event.type.startsWith("screener."),
+          Boolean((event as { stageChain?: unknown }).stageChain) || event.type.startsWith("screener."),
         );
         return;
       }
@@ -597,6 +615,12 @@ export class ScheduledTasksService {
     emailTo?: string;
     slackChannel?: string;
     pushToSlack?: boolean;
+    /** Consolidation C4 (#1329): per-record stage-chain config — a
+     *  completed goal screen bridges generate + serve (canonical
+     *  report adoption); delivery stays on the run's direct path
+     *  (deliverViaChain=false, Phase 6 HITL delivery unchanged).
+     *  Absent ⇒ unbridged. */
+    stageChain?: StageChainConfig;
   } = {}): Promise<ScheduledTaskResult<{
     taskId: string;
     status?: string;
@@ -681,6 +705,30 @@ export class ScheduledTasksService {
       });
       if (out.result?.status === "failed") {
         throw new Error("Goal-driven screen failed on every requested asset class.");
+      }
+      // Consolidation C4 (#1329): chain identity + serve stage for a
+      // completed goal screen. Delivery is NOT chained — the run's
+      // direct Phase 6 delivery (incl. its HITL posture) stays
+      // untouched, and a bridge failure never fails the run.
+      if (options.stageChain && this.followupScheduler) {
+        try {
+          await this.followupScheduler(
+            {
+              kind: "goal",
+              trigger,
+              success: true,
+              thesis: `Goal screen — ${out.result?.goalKind ?? "goal"}`,
+              pdfKeys: [],
+              canonicalReportId: out.canonicalReportId,
+              deliverViaChain: false,
+              stageChain: options.stageChain,
+            },
+            userLogin,
+            true,
+          );
+        } catch (bridgeErr) {
+          console.warn("[ScheduledTasksService] Goal bridge failed (canonical row kept):", bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr));
+        }
       }
       return {
         success: true,
@@ -1143,9 +1191,16 @@ export class ScheduledTasksService {
         createdAt: timestamp,
       });
 
+      // Consolidation C4 (#1329): chain mode suppresses the direct
+      // Slack/email/webhook delivery below — the bridge's deliver jobs
+      // carry the adopted PDF instead, so the artifact is delivered
+      // exactly once. Audit + session message stay (they are the run's
+      // record, not delivery channels).
+      const chainMode = Boolean(options.stageChain);
+
       // One A2A file operation creates one Slack notification with the
       // summary attached, avoiding the old text-plus-file duplicate pair.
-      if (shouldNotifySlack) {
+      if (shouldNotifySlack && !chainMode) {
         const slackChannel = options.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL || (this.env as any).SLACK_CHANNEL;
         const slackPayload = response.toSlack();
         const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
@@ -1179,7 +1234,7 @@ export class ScheduledTasksService {
       // 2. Push Email if recipient is specified or environment configured
       // Issue #303: Try cfpay via A2A first, fall back to local.
       const targetEmail = options.emailTo || (this.env as any).OPTIONS_EMAIL_TO || (this.env as any).SCREENER_EMAIL_TO;
-      if (targetEmail) {
+      if (targetEmail && !chainMode) {
         const cfpay = getCfpayConfig(this.env);
         let emailOk = false;
         if (cfpay) {
@@ -1248,7 +1303,7 @@ export class ScheduledTasksService {
 
       // 3. Push Webhook if target URL is specified or default configured
       const targetWebhookUrl = options.webhookUrl || this.env.OUTBOUND_WEBHOOK_URL;
-      if (targetWebhookUrl) {
+      if (targetWebhookUrl && !chainMode) {
         try {
           const webhookService = new ETradeWebhookService(this.orm, this.env, this.userLogin);
           const webhookPayload = { ...response.toWebhook(), reportUrl };
@@ -1294,8 +1349,11 @@ export class ScheduledTasksService {
       }
 
       // Issue #223: put the run on the screener event bus, mirroring the
-      // stock screen (#210). Delivery above stays on the direct A2A path;
-      // the event is the lifecycle record subscribers consume.
+      // stock screen (#210). In chain mode (#1329) the event carries
+      // the PDF key + stage-chain config so the bridge can plan the
+      // serve/deliver stages; unchained, delivery stays on the direct
+      // A2A path and the event is the lifecycle record subscribers
+      // consume.
       await this.publishScreenerEvent({
         type: "options.completed",
         timestamp,
@@ -1307,6 +1365,9 @@ export class ScheduledTasksService {
         symbols,
         summary: response.summary,
         reportUrl,
+        pdfKey: optionsPdfKey,
+        pdfStatus: optionsPdfKey ? "generated" : undefined,
+        stageChain: options.stageChain,
         opportunities: (response.data?.opportunities || []).slice(0, 10).map((row: any) => ({
           symbol: row.symbol,
           strategy: row.pick?.best?.candidate?.type,
@@ -1353,7 +1414,10 @@ export class ScheduledTasksService {
         }
       }
 
-      if (shouldNotifySlack) {
+      // Consolidation C4 (#1329): in chain mode the bridge's failure
+      // notifications cover the failure, so the direct notice is
+      // suppressed (same exactly-once rule as the success path).
+      if (shouldNotifySlack && !options.stageChain) {
         const failure = await deliverScreenerToSlackA2A(this.env, {
           channel: options.slackChannel,
           text: `⚠️ Scheduled Options Screen FAILED — ${options.universe || symbols.join(", ") || "NASDAQ100"} (${targetThesis})\nError: ${err.message || "Scheduled options analysis failed"}\n_Time: ${timestamp}_`,
@@ -1369,6 +1433,7 @@ export class ScheduledTasksService {
         universe: options.universe,
         thesis: targetThesis,
         error: err.message || "Scheduled options analysis failed",
+        stageChain: options.stageChain,
       });
 
       return {
@@ -1603,6 +1668,14 @@ export class ScheduledTasksService {
         status,
       });
 
+      await this.persistDiscoveryCanonicalAndBridge({
+        run,
+        summary: `Strategy discovery (saved-request) ${status}: ${requests.length - failures.length} of ${requests.length} requests produced results.`,
+        symbols,
+        options,
+        timestamp,
+      });
+
       if (status === "failed") {
         return await fail(
           `Every saved discovery request failed (${failures.map((f) => `${f.symbol}: ${f.error}`).join("; ")})`,
@@ -1658,6 +1731,67 @@ export class ScheduledTasksService {
     } catch (err: any) {
       return await fail(err?.message || "Scheduled strategy discovery failed");
     }
+  }
+
+  /**
+   * Consolidation C4 (#1329): persist the canonical mas_reports row
+   * for a discovery run and, when the run carries stageChain, bridge
+   * it (generate + serve stages; delivery stays on the run's direct
+   * path via deliverViaChain=false). Called right after the detail
+   * save, before the status is judged — so even a failed run gains
+   * its canonical row (the detail prune can never erase it from
+   * GET /api/runs). Failed runs do NOT bridge: their failure-notice
+   * path is channel-divergent from the bridge's, and suppressing it
+   * would risk a lost notice. A bridge failure never fails the run
+   * itself — it is logged, and the canonical row is the record.
+   */
+  private async persistDiscoveryCanonicalAndBridge(args: {
+    run: { id: string; status: DiscoveryRunStatus; inputModel: string };
+    summary: string;
+    symbols: string[];
+    options: AutonomousStrategyDiscoveryOptions;
+    timestamp: string;
+  }): Promise<string | undefined> {
+    let reportId: string | undefined;
+    if (this.orm) {
+      const stored = await storeReportStage(this.orm, {
+        runId: `discovery:${args.run.id}`,
+        generationId: `discovery:${args.run.id}`,
+        title: `Strategy discovery — ${args.run.inputModel}`,
+        source: "discovery",
+        summary: args.summary,
+        body: {
+          discoveryRunId: args.run.id,
+          status: args.run.status,
+          inputModel: args.run.inputModel,
+          symbols: args.symbols,
+          trigger: args.options.trigger || "scheduled",
+        },
+        createdAt: args.timestamp,
+      });
+      reportId = stored?.reportId;
+    }
+    if (args.run.status !== "failed" && args.options.stageChain && this.followupScheduler) {
+      try {
+        await this.followupScheduler(
+          {
+            kind: "discovery",
+            trigger: args.options.trigger || "scheduled",
+            success: true,
+            thesis: `Strategy discovery (${args.run.inputModel}) — ${args.symbols.join(", ")}`,
+            pdfKeys: [],
+            canonicalReportId: reportId,
+            deliverViaChain: false,
+            stageChain: args.options.stageChain,
+          },
+          this.userLogin,
+          true,
+        );
+      } catch (bridgeErr) {
+        console.warn("[ScheduledTasksService] Discovery bridge failed (canonical row kept):", bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr));
+      }
+    }
+    return reportId;
   }
 
   /**
@@ -2006,6 +2140,14 @@ export class ScheduledTasksService {
         status,
       });
 
+      await this.persistDiscoveryCanonicalAndBridge({
+        run,
+        summary: `Strategy discovery (profile-derived) ${status}: ${completedCount} of ${constructed.length} derived requests produced results.`,
+        symbols,
+        options,
+        timestamp,
+      });
+
       if (status === "failed") {
         const parts = [
           ...failures.map((f) => `${f.symbol}: ${f.error}`),
@@ -2277,6 +2419,14 @@ export class ScheduledTasksService {
         constraintSets: outcomes.flatMap((o) => (o.constraintSet ? [o.constraintSet] : [])),
         outcomes,
         status,
+      });
+
+      await this.persistDiscoveryCanonicalAndBridge({
+        run,
+        summary: `Strategy discovery (no-view) ${status}: ${completedCount} of ${constraintSets.length} constraint sets produced ranked structures.`,
+        symbols,
+        options,
+        timestamp,
       });
 
       if (status === "failed") {

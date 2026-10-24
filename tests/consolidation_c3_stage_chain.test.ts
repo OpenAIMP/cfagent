@@ -6,7 +6,10 @@
  *  - `stageChain` schedule-payload config: validated by the one shared
  *    builder (buildSchedulePayload) for autonomousMarketScreen;
  *    rejected for callbacks whose runs do not ride the follow-up
- *    bridge in C3; absent ⇒ payload unchanged (the degenerate case).
+ *    bridge in C3 — SUPERSEDED in C4 (#1329), which accepts it on
+ *    options/discovery/goal (see the C4 acceptance test in this file
+ *    and tests/consolidation_c4_pipeline_chain.test.ts); absent ⇒
+ *    payload unchanged (the degenerate case).
  *  - The async-job substrate gains per-stage timing: a job submitted
  *    with `runAt` is armed at the remaining delay, never executes
  *    before its not-before time (executor guard), and recovery
@@ -247,16 +250,23 @@ describe("stageChain in buildSchedulePayload", () => {
     }
   });
 
-  it("rejects stageChain for callbacks the chain does not carry in C3", () => {
+  it("accepts stageChain for callbacks the chain carries in C4 (supersedes the C3 rejection)", () => {
+    // Consolidation C4 (#1329) extends stage-chaining beyond
+    // market screens: options chains fully in chain mode, discovery
+    // and goal chains carry identity + the serve stage. The C3
+    // rejection above is superseded — these payloads now build.
     for (const callback of ["autonomousOptionsAnalysis", "autonomousStrategyDiscovery", "autonomousGoalScreen"]) {
       const criteria =
         callback === "autonomousOptionsAnalysis"
           ? { symbols: ["AAA"], stageChain: { serveDelaySeconds: 0 } }
           : callback === "autonomousGoalScreen"
             ? { goalKind: "income", stageChain: { serveDelaySeconds: 0 } }
-            : { inputModel: "no-view", constraintSets: [], stageChain: { serveDelaySeconds: 0 } };
+            : { inputModel: "no-view", constraintSets: [{ symbol: "AAA" }], stageChain: { serveDelaySeconds: 0 } };
       const built = buildSchedulePayload(callback, criteria, identity);
-      expect(built.ok).toBe(false);
+      // Discovery no-view sets still validate on their own fields;
+      // the assertion is that stageChain is not the rejection.
+      if (!built.ok) expect(built.error).not.toContain("stageChain");
+      else expect(built.value.stageChain).toEqual({ serveDelaySeconds: 0 });
     }
   });
 

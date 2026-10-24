@@ -38,8 +38,10 @@ import {
   planInitialFollowups,
   planLifecycleNotifications,
   plannedDeliveryChannels,
+  resolveHttpJobChain,
   resolveScreenerFollowupConfig,
   screenerKindForPath,
+  screenerKindLabel,
   screenerOutcomeFromHttpJob,
   type FollowupLifecycleEvent,
   type FollowupReportResult,
@@ -217,6 +219,14 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
   );
   const jobId = crypto.randomUUID();
   const now = new Date().toISOString();
+  // Consolidation C4 (#1329): a generic http.request job whose payload
+  // carries stageChain is submitted as its chain's generate stage —
+  // the same idiom as the bridge (chainId minted when stageChain is
+  // present). An explicit stage/chainId on the submission wins; a job
+  // without stageChain is untouched (the degenerate case).
+  const payloadStageChain = (job.payload as Record<string, unknown> | undefined)?.stageChain;
+  const httpChainStage = job.capability === "http.request" && payloadStageChain && !job.stage ? "generate" : job.stage;
+  const httpChainId = job.capability === "http.request" && payloadStageChain && !job.chainId ? crypto.randomUUID() : job.chainId;
   const displayName = job.displayName ?? (job.capability === "http.request"
     ? `${job.payload.method} ${job.payload.pathAndQuery.split("?")[0]}`
     : job.capability === "mcp.tool"
@@ -246,8 +256,8 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
     job.jobKind ?? "main",
     job.channel ?? null,
     job.runAt ?? null,
-    job.stage ?? null,
-    job.chainId ?? null,
+    httpChainStage ?? null,
+    httpChainId ?? null,
   );
 
   try {
@@ -429,7 +439,7 @@ export async function recordScreenerRunMainJob(
   const sql = ctx.ensureTables();
   const jobId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
+  const kindLabel = screenerKindLabel(outcome.kind);
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
   const displayName = `${kindLabel} screen${scope ? ` — ${scope}` : ""}`;
   // Consolidation C3 (#1277): with a stage chain on the outcome, the
@@ -716,6 +726,21 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       if (!outcome || typeof outcome !== "object") throw new Error("followup.report job requires an outcome payload.");
       if (outcome.pdfStatus === "failed") {
         result = { status: "skipped", reason: codedMessage("REPORT_001", outcome.pdfError || undefined) };
+      } else if (outcome.canonicalReportId) {
+        // Consolidation C4 (#1329): serve's schedulable content for
+        // runs whose artifact is a canonical row (discovery, goal) —
+        // verify the row exists via the serve stage. A missing row
+        // fails the serve job explicitly (the chain's stop point),
+        // exactly like a missing PDF key below.
+        const { serveReportStage } = await import("../../services/unifiedReportPipeline");
+        const checked = await serveReportStage({
+          canonicalReportId: outcome.canonicalReportId,
+          findCanonicalReport: (id: string) => ctx.getOrm().reports.findById(id),
+        });
+        if (!checked.verified) {
+          throw new Error(codedMessage("REPORT_003", checked.reason));
+        }
+        result = { status: "ready", artifacts: [], canonicalReportId: outcome.canonicalReportId };
       } else if (!outcome.pdfKeys || outcome.pdfKeys.length === 0) {
         result = { status: "skipped", reason: codedMessage("REPORT_003", "The run produced no report artifact key.") };
       } else {
@@ -909,7 +934,24 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
           const headers = (payload.headers || {}) as Record<string, string>;
           const userLogin = typeof headers["x-user-login"] === "string" ? headers["x-user-login"] : ctx.sessionKey();
-          const initialSpecs = planInitialFollowups(outcome, config, jobId, userLogin);
+          // Consolidation C4 (#1329): a staged http.request job plans
+          // its serve/deliver stages with per-stage delays instead of
+          // the legacy immediate chain. The job row carries the stage
+          // + chain identity (stamped at submit); the payload carries
+          // the config. Unstaged jobs and non-screener completions
+          // keep the legacy behavior (no outcome ⇒ no specs).
+          const httpChain = resolveHttpJobChain(
+            { stage: job.stage, chainId: job.chain_id },
+            payload as { stageChain?: import("../../types").StageChainConfig },
+          );
+          if (httpChain) outcome.stageChain = httpChain.stageChain;
+          const initialSpecs = planInitialFollowups(
+            outcome,
+            config,
+            jobId,
+            userLogin,
+            httpChain ? { chainId: httpChain.chainId, nowIso: new Date().toISOString() } : undefined,
+          );
           for (const spec of initialSpecs) {
             await submitAsyncJob(ctx, spec);
           }
