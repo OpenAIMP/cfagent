@@ -51,7 +51,7 @@ import { DynamicOptionsScreener } from "../trading";
 import { OptionsDataAgent } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
 import type { IvHistoryStore } from "../trading";
-// Issue #278: durable scheduled-run reports for the NextGenTP agent.
+// Issue #278: durable scheduled-run reports for the AI Search agent.
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
 import {
   getCfpayConfig,
@@ -999,18 +999,31 @@ export class ScheduledTasksService {
       if (hasCoverage && evaluatedCount === 0) {
         // Issue #915 (Mubasher): name the dominant skip reason alongside
         // the counts — counts alone left failing runs undiagnosable.
+        // Issue #1290: the scanner now stamps that ranking on the
+        // result (partial.topSkipReason); consume the stamp when
+        // present and keep the local ranking only as the fallback for
+        // hand-built results (e.g. test mocks) that carry no stamp.
         const skippedList: Array<{ reason?: unknown }> = Array.isArray(scanData?.skipped) ? scanData.skipped : [];
-        const reasonCounts = new Map<string, number>();
-        for (const entry of skippedList) {
-          const reason = typeof entry?.reason === "string" && entry.reason ? entry.reason : "Unknown";
-          reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
-        }
-        let topReason: string | null = null;
-        let topCount = 0;
-        for (const [reason, count] of reasonCounts) {
-          if (count > topCount) {
-            topReason = reason;
-            topCount = count;
+        const stampedReason =
+          typeof scanData?.partial?.topSkipReason === "string" && scanData.partial.topSkipReason &&
+          typeof scanData?.partial?.topSkipCount === "number" && scanData.partial.topSkipCount > 0
+            ? (scanData.partial.topSkipReason as string)
+            : null;
+        let topReason: string | null = stampedReason;
+        let topCount = stampedReason
+          ? Number(scanData.partial.topSkipCount)
+          : 0;
+        if (!topReason) {
+          const reasonCounts = new Map<string, number>();
+          for (const entry of skippedList) {
+            const reason = typeof entry?.reason === "string" && entry.reason ? entry.reason : "Unknown";
+            reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+          }
+          for (const [reason, count] of reasonCounts) {
+            if (count > topCount) {
+              topReason = reason;
+              topCount = count;
+            }
           }
         }
         const reasonSuffix = topReason
@@ -2502,7 +2515,7 @@ export class ScheduledTasksService {
       }
 
       // Issue #278: persist the scheduled run's report durably
-      // (mas_reports) so the NextGenTP agent can surface it later.
+      // (mas_reports) so the AI Search agent can surface it later.
       // Issue #308: through the single generate→store seam — one
       // canonical row per generation (generationId = run id).
       if (this.orm?.storeCanonicalReport) {
