@@ -39,6 +39,11 @@ export interface ScreenerCompletedEvent {
   xlsxKey?: string;
   xlsxStatus?: "generated" | "failed" | "skipped";
   xlsxError?: string;
+  /** Issue #1346: per-run CSV artifact, mirroring the PDF/XLSX
+   *  triple. */
+  csvKey?: string;
+  csvStatus?: "generated" | "failed" | "skipped";
+  csvError?: string;
   /** Stable delivery id used to suppress duplicate scheduled notifications. */
   deliveryId?: string;
   sector: string;
