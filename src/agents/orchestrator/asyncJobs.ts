@@ -18,7 +18,9 @@ import type {
   AsyncJobStatus,
   AsyncJobSubmission,
   Env,
+  PipelineStage,
 } from "../../types";
+import { recordScreeningActivity } from "../../services/screeningActivity";
 import type { NLQSchedulingPort, NLQStockScreenPort } from "../nlq";
 import { codedMessage } from "../../errors/errorAspects";
 import { executeMCPTool } from "../../mcp";
@@ -100,12 +102,17 @@ export interface AsyncJobsContext {
 
 const ASYNC_JOB_KINDS: readonly AsyncJobKind[] = ["main", "report", "delivery", "notification"];
 const ASYNC_JOB_CHANNELS: readonly AsyncJobChannel[] = ["email", "slack", "webhook"];
+const PIPELINE_STAGES: readonly PipelineStage[] = ["feed", "generate", "store", "serve", "deliver"];
 
 /**
  * Issue #1123: additive job-graph migration for mas_async_jobs —
  * parent_job_id / job_kind / channel, probed and added when missing so
  * existing DO tables upgrade in place. Called from
  * OrchestratorAgent.ensureTables after the CREATE TABLE.
+ * Consolidation C3 (#1277): the same probed migration adds the
+ * stage-chain columns — not_before (per-stage timing), stage and
+ * chain_id (stage identity) — all nullable, so legacy rows read as
+ * unchained.
  */
 export function ensureAsyncJobGraphColumns(sql: AgentContext["storage"]["sql"]): void {
   const cols = Array.from(sql.exec("PRAGMA table_info(mas_async_jobs)")) as Array<{ name?: unknown }>;
@@ -119,7 +126,17 @@ export function ensureAsyncJobGraphColumns(sql: AgentContext["storage"]["sql"]):
   if (!names.has("channel")) {
     sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN channel TEXT");
   }
+  if (!names.has("not_before")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN not_before TEXT");
+  }
+  if (!names.has("stage")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN stage TEXT");
+  }
+  if (!names.has("chain_id")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN chain_id TEXT");
+  }
   sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_parent ON mas_async_jobs(parent_job_id)");
+  sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_chain ON mas_async_jobs(chain_id)");
 }
 
 /** Issue #1123: map a row's graph columns onto record fields, tolerating
@@ -128,14 +145,64 @@ function jobGraphFields(row: Record<string, unknown>): {
   parentJobId?: string;
   jobKind: AsyncJobKind;
   channel?: AsyncJobChannel;
+  stage?: PipelineStage;
+  chainId?: string;
+  notBefore?: string;
 } {
   const kind = ASYNC_JOB_KINDS.find((k) => k === row.job_kind);
   const channel = ASYNC_JOB_CHANNELS.find((c) => c === row.channel);
+  const stage = PIPELINE_STAGES.find((s) => s === row.stage);
   return {
     parentJobId: typeof row.parent_job_id === "string" && row.parent_job_id ? row.parent_job_id : undefined,
     jobKind: kind ?? "main",
     channel,
+    stage,
+    chainId: typeof row.chain_id === "string" && row.chain_id ? row.chain_id : undefined,
+    notBefore: typeof row.not_before === "string" && row.not_before ? row.not_before : undefined,
   };
+}
+
+/** Consolidation C3 (#1277): whole seconds from now until an ISO
+ *  not-before time — the arming delay for a deferred job (0 when the
+ *  time has passed or is unparseable). */
+function delaySecondsUntil(iso: string | undefined, nowMs: number): number {
+  if (!iso) return 0;
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return 0;
+  return Math.max(0, Math.ceil((at - nowMs) / 1000));
+}
+
+/** Consolidation C3 (#1277): record one stage transition in the
+ *  screening activity log, so a chain's stages are visible per stage
+ *  (with held/failed/skipped reasons) in the screening activity feed
+ *  — never invisible (the #1209 anti-pattern). Recording follows the
+ *  activity log's own contract: it never throws. */
+function recordStageTransition(
+  ctx: AsyncJobsContext,
+  input: {
+    userLogin?: string;
+    stage: PipelineStage;
+    chainId?: string;
+    jobId: string;
+    status: "completed" | "failed" | "skipped" | "held";
+    reason?: string;
+  },
+): void {
+  const userLogin = input.userLogin || ctx.sessionKey();
+  const reasonText = input.reason ? `: ${input.reason}` : "";
+  recordScreeningActivity(ctx.agentCtx.storage.sql, {
+    userLogin,
+    kind: "stage",
+    summary: `Stage ${input.stage} ${input.status}${reasonText}`,
+    detail: {
+      chainId: input.chainId ?? null,
+      jobId: input.jobId,
+      stage: input.stage,
+      status: input.status,
+      reason: input.reason ?? null,
+    },
+    refId: input.jobId,
+  });
 }
 
 export async function submitAsyncJob(ctx: AsyncJobsContext,
@@ -178,7 +245,7 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
   // not span newlines inside the column list (tests would silently drop
   // the row) — keep this statement on one line.
   sql.exec(
-    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at, parent_job_id, job_kind, channel) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at, parent_job_id, job_kind, channel, not_before, stage, chain_id) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     jobId,
     ctx.sessionKey(),
     job.capability,
@@ -189,10 +256,16 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
     job.parentJobId ?? null,
     job.jobKind ?? "main",
     job.channel ?? null,
+    job.runAt ?? null,
+    job.stage ?? null,
+    job.chainId ?? null,
   );
 
   try {
-    await ctx.schedule(0, "executeAsyncJob", { jobId } satisfies AsyncJobPayload, {
+    // Consolidation C3 (#1277): a job with a not-before time is armed
+    // at the remaining delay instead of immediately — the executor
+    // still refuses an early claim (defense in depth for re-arms).
+    await ctx.schedule(delaySecondsUntil(job.runAt, Date.now()), "executeAsyncJob", { jobId } satisfies AsyncJobPayload, {
       idempotent: true,
       retry: { maxAttempts: 1 },
     });
@@ -214,15 +287,24 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
 
 export async function recoverQueuedAsyncJobs(ctx: AsyncJobsContext): Promise<void> {
   const pending = Array.from(ctx.ensureTables().exec(
-    "SELECT job_id FROM mas_async_jobs WHERE session_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 100",
+    "SELECT job_id, not_before FROM mas_async_jobs WHERE session_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 100",
     ctx.sessionKey(),
-  )) as Array<{ job_id: string }>;
-  for (const { job_id: jobId } of pending) {
+  )) as Array<{ job_id: string; not_before?: string | null }>;
+  for (const row of pending) {
+    const jobId = row.job_id;
     try {
-      await ctx.schedule(0, "executeAsyncJob", { jobId } satisfies AsyncJobPayload, {
-        idempotent: true,
-        retry: { maxAttempts: 1 },
-      });
+      // Consolidation C3 (#1277): re-arm at the remaining delay — a
+      // deferred stage must not fire early just because the DO
+      // restarted and recovered its queue.
+      await ctx.schedule(
+        delaySecondsUntil(typeof row.not_before === "string" ? row.not_before : undefined, Date.now()),
+        "executeAsyncJob",
+        { jobId } satisfies AsyncJobPayload,
+        {
+          idempotent: true,
+          retry: { maxAttempts: 1 },
+        },
+      );
     } catch (error) {
       console.error(`[OrchestratorAgent] Could not reschedule queued async job ${jobId}:`, error);
     }
@@ -233,7 +315,7 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
   const sql = ctx.ensureTables();
   const rows = Array.from(sql.exec(
     `SELECT job_id, session_id, capability, display_name, status, result_json, response_status,
-            error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel
+            error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel, not_before, stage, chain_id
      FROM mas_async_jobs WHERE job_id = ? AND session_id = ?`,
     jobId,
     ctx.sessionKey(),
@@ -280,7 +362,7 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
 
 export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord[] {
   const rows = Array.from(ctx.ensureTables().exec(
-    `SELECT job_id, session_id, capability, display_name, status, error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel
+    `SELECT job_id, session_id, capability, display_name, status, result_json, error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel, not_before, stage, chain_id
      FROM mas_async_jobs WHERE session_id = ?
      ORDER BY created_at DESC LIMIT ?`,
     ctx.sessionKey(),
@@ -291,6 +373,20 @@ export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord
       const updated = getAsyncJob(ctx, String(row.job_id));
       if (updated?.status === "failed") return updated;
     }
+    // Consolidation C3 (#1277): the parsed result rides the list
+    // record so stage projections can read a stage's terminal state
+    // (skipped / held + reason). Wire consumers strip it before
+    // responding, exactly as they already do for getAsyncJob-shaped
+    // records. Lenient parse: one corrupt result must not take the
+    // whole list down (the per-job read stays strict).
+    let result: unknown;
+    if (typeof row.result_json === "string") {
+      try {
+        result = JSON.parse(row.result_json);
+      } catch {
+        result = undefined;
+      }
+    }
     return {
       jobId: String(row.job_id),
       sessionId: String(row.session_id),
@@ -298,6 +394,7 @@ export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord
       label: String(row.display_name),
       status: row.status as AsyncJobStatus,
       ...jobGraphFields(row),
+      result,
       error: typeof row.error === "string" ? row.error : undefined,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -346,10 +443,14 @@ export async function recordScreenerRunMainJob(
   const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
   const displayName = `${kindLabel} screen${scope ? ` — ${scope}` : ""}`;
+  // Consolidation C3 (#1277): with a stage chain on the outcome, the
+  // run's main job IS the chain's generate stage — stamped with the
+  // stage + a fresh chain id the serve/deliver stages link back to.
+  const chainId = outcome.stageChain ? crypto.randomUUID() : undefined;
   // Single-line INSERT per the MockSqlStorage lesson (multi-line
   // column lists silently no-op in the shared mock).
   sql.exec(
-    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, result_json, error, created_at, updated_at, completed_at, job_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, result_json, error, created_at, updated_at, completed_at, job_kind, stage, chain_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     jobId,
     ctx.sessionKey(),
     "screener.run",
@@ -370,15 +471,33 @@ export async function recordScreenerRunMainJob(
     now,
     now,
     "main",
+    chainId ? "generate" : null,
+    chainId ?? null,
   );
   ctx.audit("screener.run_bridged", "orchestrator", { jobId, kind: outcome.kind, success: outcome.success });
+  if (chainId) {
+    recordStageTransition(ctx, {
+      userLogin,
+      stage: "generate",
+      chainId,
+      jobId,
+      status: outcome.success ? "completed" : "failed",
+      reason: outcome.success ? undefined : outcome.error,
+    });
+  }
   const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
   // chainReport=false covers sources whose report delivery lives on
   // another sanctioned path (scheduled options, #223): the run is
   // recorded + notified, never double-delivered.
   let reportChained = false;
   if (options?.chainReport !== false) {
-    const initialSpecs = planInitialFollowups(outcome, config, jobId, userLogin);
+    const initialSpecs = planInitialFollowups(
+      outcome,
+      config,
+      jobId,
+      userLogin,
+      chainId ? { chainId, nowIso: now } : undefined,
+    );
     reportChained = initialSpecs.length > 0;
     for (const spec of initialSpecs) {
       await submitAsyncJob(ctx, spec);
@@ -405,8 +524,99 @@ export async function scheduleScreenerFollowups(
   await recordScreenerRunMainJob(ctx, outcome, userLogin, { chainReport: chainReport !== false });
 }
 
+/**
+ * Consolidation C3 (#1277, #1236 per-stage retry): resubmit a FAILED
+ * job from its recorded payload — the retried stage reuses its
+ * recorded inputs verbatim and the executor's existing completion
+ * hooks resume the chain from it. No upstream job is re-executed;
+ * the failed row stays failed (the failure record is kept), and the
+ * retry carries `retryOf` in its payload plus the original's stage /
+ * chain identity. A second retry while an earlier retry is queued,
+ * running, or completed is refused, so a stage is never delivered
+ * twice by double-clicking retry.
+ */
+export async function retryAsyncJob(
+  ctx: AsyncJobsContext,
+  jobId: string,
+): Promise<{ jobId: string; status: "queued"; statusUrl: string }> {
+  const sql = ctx.ensureTables();
+  const rows = Array.from(sql.exec(
+    `SELECT job_id, capability, display_name, status, payload_json, parent_job_id, job_kind, channel, stage, chain_id
+     FROM mas_async_jobs WHERE job_id = ? AND session_id = ?`,
+    jobId,
+    ctx.sessionKey(),
+  )) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) {
+    throw new Error(`Async job ${jobId} was not found in this session.`);
+  }
+  if (row.status !== "failed") {
+    throw new Error(`Only a failed job can be retried; job ${jobId} is ${String(row.status)}.`);
+  }
+  const prior = Array.from(sql.exec(
+    "SELECT job_id, status, payload_json FROM mas_async_jobs WHERE session_id = ?",
+    ctx.sessionKey(),
+  )) as Array<Record<string, unknown>>;
+  for (const candidate of prior) {
+    if (candidate.job_id === jobId) continue;
+    if (!["queued", "running", "completed"].includes(String(candidate.status))) continue;
+    try {
+      const parsed = JSON.parse(String(candidate.payload_json)) as { retryOf?: unknown };
+      if (parsed?.retryOf === jobId) {
+        throw new Error(
+          `Job ${jobId} was already retried as job ${String(candidate.job_id)} (status ${String(candidate.status)}); refusing a duplicate retry.`,
+        );
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("already retried")) throw error;
+      // An unparseable sibling payload cannot be a retry of this job.
+    }
+  }
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(String(row.payload_json)) as Record<string, unknown>;
+  } catch {
+    throw new Error(`Stored payload for async job ${jobId} is invalid JSON; it cannot be retried.`);
+  }
+  payload.retryOf = jobId;
+  const graph = jobGraphFields(row);
+  const submission = {
+    capability: String(row.capability),
+    payload,
+    displayName: String(row.display_name),
+    parentJobId: graph.parentJobId,
+    jobKind: graph.jobKind,
+    channel: graph.channel,
+    stage: graph.stage,
+    chainId: graph.chainId,
+  } as unknown as AsyncJobSubmission;
+  const submitted = await submitAsyncJob(ctx, submission);
+  ctx.audit("async_job.retried", "orchestrator", { jobId, retryJobId: submitted.jobId, capability: String(row.capability) });
+  return submitted;
+}
+
 export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJobPayload): Promise<void> {
   const sql = ctx.ensureTables();
+  // Consolidation C3 (#1277): the not-before guard — a deferred stage
+  // job whose alarm fired early (recovery re-arm, duplicate fire) is
+  // re-armed for the remainder instead of being claimed early. A
+  // stage never runs before its time.
+  const preRows = Array.from(sql.exec(
+    "SELECT status, not_before FROM mas_async_jobs WHERE job_id = ? AND session_id = ?",
+    jobId,
+    ctx.sessionKey(),
+  )) as Array<{ status: string; not_before?: string | null }>;
+  const preRow = preRows[0];
+  if (preRow?.status === "queued" && typeof preRow.not_before === "string") {
+    const remainingSeconds = delaySecondsUntil(preRow.not_before, Date.now());
+    if (remainingSeconds > 0) {
+      await ctx.schedule(remainingSeconds, "executeAsyncJob", { jobId } satisfies AsyncJobPayload, {
+        idempotent: true,
+        retry: { maxAttempts: 1 },
+      });
+      return;
+    }
+  }
   const now = new Date().toISOString();
   const claimed = sql.exec(
     `UPDATE mas_async_jobs SET status = 'running', started_at = ?, updated_at = ?
@@ -419,12 +629,23 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
   if (claimed.rowsWritten !== 1) return;
 
   const rows = Array.from(sql.exec(
-    "SELECT capability, payload_json FROM mas_async_jobs WHERE job_id = ? AND session_id = ?",
+    "SELECT capability, payload_json, stage, chain_id FROM mas_async_jobs WHERE job_id = ? AND session_id = ?",
     jobId,
     ctx.sessionKey(),
-  )) as Array<{ capability: string; payload_json: string }>;
+  )) as Array<{ capability: string; payload_json: string; stage?: string | null; chain_id?: string | null }>;
   const job = rows[0];
   if (!job) throw new Error(`Async job ${jobId} disappeared after it was claimed.`);
+  // Consolidation C3 (#1277): stage identity for transition recording
+  // (in scope for both the completion and failure paths below).
+  const jobStage = PIPELINE_STAGES.find((s) => s === job.stage);
+  const jobChainId = typeof job.chain_id === "string" && job.chain_id ? job.chain_id : undefined;
+  let jobUserLogin: string | undefined;
+  try {
+    const parsed = JSON.parse(job.payload_json) as { userLogin?: unknown };
+    if (typeof parsed?.userLogin === "string") jobUserLogin = parsed.userLogin;
+  } catch {
+    jobUserLogin = undefined;
+  }
 
   try {
     const payload = JSON.parse(job.payload_json) as Record<string, unknown>;
@@ -706,6 +927,22 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       jobId,
     );
     ctx.audit("async_job.completed", "orchestrator", { jobId, capability: job.capability });
+    // Consolidation C3 (#1277): a stage job's terminal state is
+    // recorded per stage — a skipped or held stage says so, with its
+    // reason, instead of reading as a plain completion.
+    if (jobStage) {
+      const stageResult = (result ?? {}) as { status?: unknown; reason?: unknown };
+      const stageStatus =
+        stageResult.status === "skipped" ? "skipped" : stageResult.status === "held" ? "held" : "completed";
+      recordStageTransition(ctx, {
+        userLogin: jobUserLogin,
+        stage: jobStage,
+        chainId: jobChainId,
+        jobId,
+        status: stageStatus,
+        reason: typeof stageResult.reason === "string" ? stageResult.reason : undefined,
+      });
+    }
 
     // Issue #1123 S2: a completed screener main-job schedules its
     // follow-ups (report first; deliveries/notifications chain from
@@ -761,12 +998,22 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           : ctx.sessionKey();
         if (outcome) {
           const mainJobId = getAsyncJob(ctx, jobId)?.parentJobId ?? jobId;
+          // Consolidation C3 (#1277): in chain mode the completed
+          // serve stage's payload carries the chain config + id, so
+          // the deliver stages planned here inherit their own delay
+          // and chain identity from the completed stage's record.
+          const chainPayload = payload as { stageChain?: unknown; chainId?: unknown };
+          const chain =
+            outcome.stageChain && typeof chainPayload.chainId === "string"
+              ? { chainId: chainPayload.chainId, nowIso: completedAt }
+              : undefined;
           const specs = planDeliveryFollowups(
             outcome,
             config,
             (result ?? {}) as FollowupReportResult,
             mainJobId,
             userLogin,
+            chain,
           );
           for (const spec of specs) {
             await submitAsyncJob(ctx, spec);
@@ -819,6 +1066,19 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       jobId,
     );
     ctx.audit("async_job.failed", "orchestrator", { jobId, capability: job.capability, error: message });
+    // Consolidation C3 (#1277): a failed stage is the chain's stop
+    // point — recorded per stage with its reason; nothing downstream
+    // was scheduled (the completion hooks above never ran).
+    if (jobStage) {
+      recordStageTransition(ctx, {
+        userLogin: jobUserLogin,
+        stage: jobStage,
+        chainId: jobChainId,
+        jobId,
+        status: "failed",
+        reason: message,
+      });
+    }
     console.error(`[OrchestratorAgent] Async job ${jobId} failed:`, error);
     // Issue #1123 S4: a screener main job that fails hard (the route
     // threw before any response) still emits its failed notifications

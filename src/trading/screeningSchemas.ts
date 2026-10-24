@@ -610,6 +610,39 @@ const deliveryFields = {
   webhookUrl: z.string().optional(),
 };
 
+/**
+ * Consolidation C3 (issue #1277, epic #1151; stage-layered
+ * scheduling, #1236): per-stage timing for a scheduled run's stage
+ * chain. When a market-screen schedule carries `stageChain`, the
+ * run's follow-up bridge records the run as the chain's `generate`
+ * stage and schedules the `serve` (report adoption) and `deliver`
+ * (per-channel delivery) stages as stage jobs on the async-job
+ * substrate, each delayed by its own offset from its predecessor's
+ * completion. Absent = the fused immediate chain (the degenerate
+ * case). Delays are whole seconds, 0..604800 (7 days).
+ *
+ * Only the market-screen criteria carry the field in C3: its runs
+ * ride the #1123 follow-up bridge end-to-end. The other callbacks'
+ * strict schemas reject the field explicitly rather than silently
+ * ignoring it — their stage-chaining lands in C4 when every run
+ * kind joins the one pipeline.
+ *
+ * The config type itself lives in src/types.ts (with PipelineStage)
+ * and is re-exported here, where its validation lives.
+ */
+export type { StageChainConfig } from "../types";
+
+const stageDelaySecondsSchema = z.number().int().min(0).max(604_800);
+
+const stageChainFields = {
+  stageChain: z
+    .strictObject({
+      serveDelaySeconds: stageDelaySecondsSchema.optional(),
+      deliverDelaySeconds: stageDelaySecondsSchema.optional(),
+    })
+    .optional(),
+};
+
 /** `trigger` is part of the services' options types and the manager's
  *  payloads carry it; it is accepted as criteria and always overwritten
  *  by the identity stamp at assembly. */
@@ -626,6 +659,7 @@ export const marketScreenScheduleCriteriaSchema = z.strictObject({
   // the E*TRADE default every existing schedule already runs under.
   provider: z.enum(["etrade", "yahoo"]).optional(),
   ...deliveryFields,
+  ...stageChainFields,
   ...triggerField,
 });
 

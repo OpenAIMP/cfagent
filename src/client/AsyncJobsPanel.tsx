@@ -14,6 +14,11 @@ type AsyncJob = {
   parentJobId?: string;
   jobKind?: "main" | "report" | "delivery" | "notification";
   channel?: "email" | "slack" | "webhook";
+  /** Consolidation C3 (#1277): stage-chain identity, when the job is
+   *  a stage of a chained run. */
+  stage?: "feed" | "generate" | "store" | "serve" | "deliver";
+  chainId?: string;
+  notBefore?: string;
 };
 
 export interface JobTreeNode {
@@ -100,6 +105,20 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
     }
   };
 
+  // Consolidation C3 (#1277): per-stage retry — resubmits the failed
+  // job from its recorded payload (upstream stages never re-run).
+  const retryJob = async (jobId: string) => {
+    setError("");
+    try {
+      const response = await globalThis.fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Could not retry the job.");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not retry the job.");
+    }
+  };
+
   const downloadResult = () => {
     if (result === undefined || !selectedJob) return;
     const blobUrl = URL.createObjectURL(new Blob([resultJson], { type: "application/json" }));
@@ -164,6 +183,16 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
                     {node.job.status === "completed" ? "Result" : "Error"}
                   </button>
                 )}
+                {node.job.status === "failed" && (
+                  <button
+                    type="button"
+                    className="btn-async-view-result"
+                    onClick={() => void retryJob(node.job.jobId)}
+                    title="Retry this job from its recorded payload — upstream stages are not re-run"
+                  >
+                    Retry
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -207,11 +236,19 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
               <li key={node.job.jobId}>
                 <span>
                   <strong>{node.job.label}</strong>
-                  <small>{node.job.status} · {new Date(node.job.createdAt).toLocaleString()}</small>
+                  <small>
+                    {node.job.status}
+                    {node.job.stage ? ` · stage: ${node.job.stage}` : ""} · {new Date(node.job.createdAt).toLocaleString()}
+                  </small>
                 </span>
                 {(node.job.status === "completed" || node.job.status === "failed") && (
                   <button type="button" onClick={() => void openResult(node.job.jobId)}>
                     {node.job.status === "completed" ? "View result" : "View error"}
+                  </button>
+                )}
+                {node.job.status === "failed" && (
+                  <button type="button" onClick={() => void retryJob(node.job.jobId)}>
+                    Retry
                   </button>
                 )}
                 {node.children.length > 0 && (
@@ -222,12 +259,19 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
                           <strong>{child.label}</strong>
                           <small>
                             {child.status} · {child.jobKind ?? "sub-job"}
+                            {child.stage ? ` · stage: ${child.stage}` : ""}
+                            {child.notBefore && child.status === "queued" ? ` · runs after ${new Date(child.notBefore).toLocaleString()}` : ""}
                             {child.channel ? ` · ${child.channel}` : ""} · {new Date(child.createdAt).toLocaleString()}
                           </small>
                         </span>
                         {(child.status === "completed" || child.status === "failed") && (
                           <button type="button" onClick={() => void openResult(child.jobId)}>
                             {child.status === "completed" ? "View result" : "View error"}
+                          </button>
+                        )}
+                        {child.status === "failed" && (
+                          <button type="button" onClick={() => void retryJob(child.jobId)}>
+                            Retry
                           </button>
                         )}
                       </li>

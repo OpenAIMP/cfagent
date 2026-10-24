@@ -17,7 +17,7 @@
  * audited by the executor into mas_events.
  */
 
-import type { AsyncJobChannel, AsyncJobSubmission } from "../types";
+import type { AsyncJobChannel, AsyncJobSubmission, StageChainConfig } from "../types";
 
 export type ScreenerKind = "stock" | "options";
 
@@ -62,6 +62,11 @@ export interface ScreenerRunOutcome {
   webhookUrl?: string;
   /** Stable per-run delivery id (dedupe for notifications/deliveries). */
   deliveryId?: string;
+  /** Consolidation C3 (#1277): the schedule record's stage-chain
+   *  config, when the run opted into stage-layered scheduling. The
+   *  bridge stamps the chain's stage jobs from it; absent = the
+   *  fused immediate chain (the degenerate case). */
+  stageChain?: StageChainConfig;
   error?: string;
 }
 
@@ -205,12 +210,27 @@ export function plannedDeliveryChannels(
   return channels;
 }
 
+/** Consolidation C3 (#1277): chain context for one planning hop —
+ *  the chain the stage jobs belong to and the predecessor's
+ *  completion time the stage's delay counts from. */
+export interface StageChainPlanContext {
+  chainId: string;
+  nowIso?: string;
+}
+
+function stageRunAt(chain: StageChainPlanContext, delaySeconds: number | undefined): string {
+  const base = chain.nowIso ? Date.parse(chain.nowIso) : Date.now();
+  const from = Number.isFinite(base) ? base : Date.now();
+  return new Date(from + Math.max(0, delaySeconds ?? 0) * 1000).toISOString();
+}
+
 export function planDeliveryFollowups(
   outcome: ScreenerRunOutcome,
   config: ScreenerFollowupConfig,
   reportResult: FollowupReportResult,
   mainJobId: string,
   userLogin: string,
+  chain?: StageChainPlanContext,
 ): FollowupDeliverySubmission[] {
   if (!config.enabled) return [];
   const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
@@ -229,6 +249,16 @@ export function planDeliveryFollowups(
       jobKind: "delivery",
       channel,
       displayName: `Deliver by ${CHANNEL_LABEL[channel]} — ${kindLabel} screen`,
+      // Consolidation C3 (#1277): in chain mode the delivery is the
+      // chain's deliver stage, deferred by its own delay. Without a
+      // chain context the spec is byte-identical to the legacy one.
+      ...(chain && outcome.stageChain
+        ? {
+            stage: "deliver" as const,
+            chainId: chain.chainId,
+            runAt: stageRunAt(chain, outcome.stageChain.deliverDelaySeconds),
+          }
+        : {}),
     });
   }
   return specs;
@@ -407,6 +437,7 @@ export function screenerOutcomeFromEvent(
         slackChannel: event.slackChannel,
         webhookUrl: event.webhookUrl,
         deliveryId: event.deliveryId,
+        stageChain: event.stageChain,
       };
     case "screener.failed":
       return {
@@ -419,6 +450,7 @@ export function screenerOutcomeFromEvent(
         slackChannel: event.slackChannel,
         webhookUrl: event.webhookUrl,
         deliveryId: event.deliveryId,
+        stageChain: event.stageChain,
         error: event.error,
       };
     case "options.completed":
@@ -500,17 +532,38 @@ export function planInitialFollowups(
   config: ScreenerFollowupConfig,
   mainJobId: string,
   userLogin: string,
+  chain?: StageChainPlanContext,
 ): FollowupReportSubmission[] {
   if (!config.enabled || !config.reportEnabled || !outcome.success) return [];
   const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
+  // Consolidation C3 (#1277): in chain mode the report job is the
+  // chain's serve stage — deferred by its own delay, with the chain
+  // config riding its payload so the deliver hop planned at its
+  // completion reads its delay from the completed stage's record.
+  // Without a chain context the spec is byte-identical to the
+  // legacy one (the degenerate case).
+  const chained = chain && outcome.stageChain ? chain : undefined;
   return [
     {
       capability: "followup.report",
-      payload: { outcome, userLogin },
+      payload: {
+        outcome,
+        userLogin,
+        ...(chained
+          ? { stageChain: outcome.stageChain, chainId: chained.chainId }
+          : {}),
+      },
       parentJobId: mainJobId,
       jobKind: "report",
       displayName: `Generate report — ${kindLabel} screen${scope ? ` (${scope})` : ""}`,
+      ...(chained
+        ? {
+            stage: "serve" as const,
+            chainId: chained.chainId,
+            runAt: stageRunAt(chained, outcome.stageChain?.serveDelaySeconds),
+          }
+        : {}),
     },
   ];
 }

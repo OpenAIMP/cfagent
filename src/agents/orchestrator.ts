@@ -38,7 +38,7 @@ import { autoRenewETradeTokens, autonomousGoalScreen, autonomousMarketScreen, au
 import { nlqSchedulingPort, nlqSocialBriefPort, nlqStockScreenPort, type NlqPortsContext } from "./orchestrator/nlqPorts";
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
 import type { DoNamespaceLike } from "../security/durableKv";
-import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobGraphColumns, scheduleScreenerFollowups, type AsyncJobsContext } from "./orchestrator/asyncJobs";
+import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobGraphColumns, scheduleScreenerFollowups, retryAsyncJob, type AsyncJobsContext } from "./orchestrator/asyncJobs";
 import type { ScreenerRunOutcome } from "../services/screenerFollowups";
 import { marketDateKey, readAutopilotStateRaw, getAutopilotState, writeAutopilotState, incrementAutopilotOrdersToday, fetchBrokerBalanceSnapshot, openNotionalForSymbol, evaluateAndRecordAutopilotVerdict, type AutopilotContext } from "./orchestrator/autopilot";
 import { readSettingRaw, writeSetting, getReportDispatchHitl, setReportDispatchHitl, createReportConfirmation, getReportConfirmation, decideReportConfirmation, storeResearchReportCanonicalAsync, confirmationDeliveryMeta, deliverStoredReportEmail, deliverStoredReportWebhook, persistScreenerReportCanonical, sendReportEmail, sendReportWebhook, type ReportDispatchContext } from "./orchestrator/reportDispatch";
@@ -592,6 +592,7 @@ export class OrchestratorAgent extends Think<Env> {
     pushToSlack?: boolean;
     filters?: import("../types").StockScreenerFilter;
     provider?: import("../trading").StockScreenProvider;
+    stageChain?: import("../types").StageChainConfig;
   }): Promise<void> {
     return autonomousMarketScreen(this.scheduledCallbacksContext(), payload);
   }
@@ -1026,6 +1027,11 @@ export class OrchestratorAgent extends Think<Env> {
   // Issue #992: extracted to ./orchestrator/asyncJobs.ts (executeAsyncJob);
   async executeAsyncJob({ jobId }: AsyncJobPayload): Promise<void> {
     return executeAsyncJob(this.asyncJobsContext(), { jobId });
+  }
+
+  // Consolidation C3 (#1277): extracted to ./orchestrator/asyncJobs.ts (retryAsyncJob);
+  private async retryAsyncJob(jobId: string): Promise<{ jobId: string; status: "queued"; statusUrl: string }> {
+    return retryAsyncJob(this.asyncJobsContext(), jobId);
   }
 
   private sessionKey(): string {
@@ -1658,6 +1664,21 @@ export class OrchestratorAgent extends Think<Env> {
       return job
         ? Response.json(job)
         : Response.json({ error: "Async job not found." }, { status: 404 });
+    }
+
+    // Consolidation C3 (#1277): per-stage retry — resubmit a failed
+    // job (e.g. a chain's failed deliver stage) from its recorded
+    // payload; upstream stages are never re-executed.
+    const jobRetryMatch = path.match(/(?:^|\/api)\/jobs\/([0-9a-f-]{36})\/retry$/i);
+    if (jobRetryMatch && request.method === "POST") {
+      try {
+        const retried = await this.retryAsyncJob(jobRetryMatch[1]);
+        return Response.json({ success: true, ...retried });
+      } catch (err: any) {
+        const message = err?.message || "Retry failed.";
+        const status = /not found/i.test(message) ? 404 : /already retried|Only a failed/i.test(message) ? 409 : 500;
+        return Response.json({ success: false, error: message }, { status });
+      }
     }
 
     if (/(?:^|\/api)\/chat-activity$/.test(path) && request.method === "POST") {
