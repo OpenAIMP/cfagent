@@ -334,7 +334,10 @@ describe("executeAsyncJob follow-up integration", () => {
     await executeAsyncJob(ctx, { jobId: String(reportRow?.job_id) });
     const report = getAsyncJob(ctx, String(reportRow?.job_id));
     expect(report?.status).toBe("completed");
-    expect(report?.result).toMatchObject({ status: "skipped", reason: "render blew up" });
+    expect(report?.result).toMatchObject({ status: "skipped" });
+    // #1252: the skip reason carries its catalog code (REPORT_001).
+    expect((report?.result as { reason?: string }).reason).toContain("[REPORT_001]");
+    expect((report?.result as { reason?: string }).reason).toContain("render blew up");
   });
 
   it("non-screener jobs spawn no follow-ups", async () => {
