@@ -327,7 +327,7 @@ export function LlmStrategyEvalModal({
                       marginLeft: "auto",
                     }}
                   >
-                    ⚡ Stored SQLite Cache
+                    ⚡ Stored Market Cache
                   </span>
                 )}
               </div>

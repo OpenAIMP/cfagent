@@ -510,10 +510,10 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     title: "Conversational Financial Intelligence & NLQ Analytics",
     category: "nlq",
     categoryLabel: "NLQ & Chat",
-    badge: "LLM Judge & RAG",
+    badge: "AI Decision & Knowledge Engine",
     badgeColor: "purple",
-    subtitle: "Natural language query planner and LLM Judge router converting plain queries into parameter-bound scans, RAG retrievals, and memory updates.",
-    overview: "Natural Language Query (NLQ) engine converting user questions into parameter-bound queries, market scans, and options evaluations. Integrates the LLM Judge router to classify intents (search, trading, research, payments, tasks, memory) with confidence scoring. Backed by neural strategy intelligence models and enterprise vector RAG knowledge retrieval.",
+    subtitle: "Natural language query planner and AI decision router converting inquiries into parameter-bound scans, knowledge retrieval, and firm memory updates.",
+    overview: "Natural Language Query (NLQ) engine converting user questions into parameter-bound queries, market scans, and options evaluations. Integrates the AI decision router to classify intents (search, trading, research, payments, tasks, memory) with confidence scoring. Backed by neural strategy intelligence models and enterprise semantic knowledge retrieval.",
     apiEndpoint: "POST /api/nlq · POST /api/chat · POST /nlq/webhook",
     targetTab: "chat",
     keyParameters: "model: glm-4.7-flash, judgeRouting: true, vectorSearch: true, memoryVault: Persistent Distributed Ledger",
@@ -521,18 +521,18 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     steps: [
       {
         step: "Step 1",
-        title: "Intent Classification & LLM Judge",
+        title: "Intent Classification & AI Decision Routing",
         description: "Classifies user query across 6 domains (search, trading, research, payments, tasks, memory) with confidence grading.",
       },
       {
         step: "Step 2",
         title: "Sub-Agent Tool Coordination",
-        description: "Routes query to specialized sub-agents: options scanner, FOSS equity research, RAG knowledge search, or payment intent drafter.",
+        description: "Routes query to specialized sub-agents: options scanner, FOSS equity research, institutional knowledge search, or payment intent drafter.",
       },
       {
         step: "Step 3",
         title: "Transactional Memory & Knowledge Retrieval",
-        description: "Queries persistent state tables (mas_messages, mas_events, mas_memory) and semantic vector indexes for relevant facts.",
+        description: "Queries persistent firm records (messages, events, institutional memory) and semantic vector indexes for relevant facts.",
       },
       {
         step: "Step 4",
@@ -548,8 +548,8 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     ],
     dataSources: [
       "Neural Strategy AI Engine (glm-4.7-flash / Llama 3.3 70B)",
-      "Enterprise Vector RAG Intelligence Index",
-      "Persistent transactional SQLite storage (mas_messages, mas_events, mas_memory)",
+      "Enterprise Semantic Knowledge Index",
+      "Persistent transactional record storage (messages, events, institutional memory)",
     ],
     faq: {
       question: "What happens if the primary neural AI model quota is reached?",
@@ -597,7 +597,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 4",
         title: "Authorized Execution & Audit Logging",
-        description: "Submits previewId to E*TRADE Place Order API and commits transaction receipt to the persistent SQLite order ledger.",
+        description: "Submits previewId to broker order execution gateway and commits transaction receipt to the persistent institutional order ledger.",
       },
     ],
     keyFeatures: [
@@ -855,13 +855,13 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     title: "Enterprise Observability & Cryptographic Audit Ledger Execution",
     category: "audit",
     categoryLabel: "Audit & Telemetry",
-    badge: "Cryptographic WAL",
+    badge: "Cryptographic Audit Ledger",
     badgeColor: "cyan",
-    subtitle: "Records immutable audit events for every system action, judge evaluation, payment lifecycle transition, order preview, and execution to SQLite WAL.",
-    overview: "Records immutable audit events for every system action: routing decisions, judge evaluations, payment lifecycle transitions, order previews, and executions. Publishes events to the SQLite event store and streams telemetry to external observability collectors.",
+    subtitle: "Records immutable audit events for every system action, judge evaluation, payment lifecycle transition, order preview, and execution to an append-only audit ledger.",
+    overview: "Records immutable audit events for every system action: routing decisions, judge evaluations, payment lifecycle transitions, order previews, and executions. Publishes events to the institutional event store and streams telemetry to external observability collectors.",
     apiEndpoint: "GET /api/audit · POST /api/audit/event",
     targetTab: "audit",
-    keyParameters: "storage: mas_events (SQLite WAL), hashChain: SHA-256, retention: mas_messages pruned nightly (window default 90d via MAS_MESSAGES_RETENTION_DAYS); mas_events ledger append-only until cold-storage vault archival",
+    keyParameters: "storage: Immutable Audit Store, hashChain: SHA-256, retention: mas_messages pruned nightly (window default 90d via MAS_MESSAGES_RETENTION_DAYS); mas_events ledger append-only until cold-storage vault archival",
     governingDecisionRuleId: "additional-decisioning-gates",
     steps: [
       {
@@ -876,8 +876,8 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       },
       {
         step: "Step 3",
-        title: "SQLite WAL Commitment",
-        description: "Writes event records to mas_events transactional table in persistent SQLite storage.",
+        title: "Immutable Ledger Commitment",
+        description: "Writes event records to the persistent transactional audit ledger.",
       },
       {
         step: "Step 4",
@@ -889,16 +889,16 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       "Cryptographically verifiable audit log of all agent routing decisions and order previews.",
       "Aspect-oriented error logging with externalized error codes and remediation guides.",
       "Real-time event streaming over WebSockets to client UI.",
-      "Zero data loss with persistent SQLite Write-Ahead Logging (WAL).",
+      "Zero data loss with resilient transactional write-ahead logging.",
     ],
     dataSources: [
-      "SQLite Transactional WAL Store (mas_events)",
+      "Transactional Audit Ledger Store",
       "Platform Execution Telemetry & Performance Metrics",
       "Aspect-Oriented Logging Engine (src/aspects/loggingAspect.ts)",
     ],
     faq: {
       question: "Are audit events preserved if the browser disconnects?",
-      answer: "Yes. All audit events are stored persistently in the server-side transactional SQLite database and survive browser reloads.",
+      answer: "Yes. All audit events are stored persistently in the server-side transactional ledger and survive browser reloads.",
     },
     sampleQueryOrAction: "Inspect recent audit logs for order preview and judge routing events",
   },
