@@ -77,7 +77,7 @@ import {
 import { ETradeRestClient } from "./trading";
 import { resolveEnvironmentConfig } from "./config/environment";
 import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./trading";
-import { ETradeSlackTradingService } from "./trading";
+import { ETradeSlackTradingService, confirmSlackLink } from "./trading";
 import { gateSlackRequest } from "./security/webhookSecurity";
 import { checkRateLimit } from "./security/rateLimiter";
 import {
@@ -1520,6 +1520,33 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
     }
 
+    // --- Omnichannel Trading Agent: Slack Principal Link Confirm ---
+    // Issue #1262 Phase 1: a signed-in user confirms the connect code
+    // the bot issued in a Slack DM (`link`). The code names the Slack
+    // user (team_id + user_id); the SESSION names the account — the
+    // binding written is slack user → session.githubLogin at tier
+    // "trade". Self-binding only: no request field can name the login.
+    if (path === "/api/trading/slack/link" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as any;
+      const result = await confirmSlackLink(
+        env,
+        typeof body.code === "string" ? body.code : "",
+        session.githubLogin
+      );
+      if (!result.ok) {
+        return Response.json({ ok: false, error: result.error }, { status: 400 });
+      }
+      return Response.json({
+        ok: true,
+        teamId: result.teamId,
+        slackUserId: result.userId,
+        login: result.login,
+        tier: result.tier,
+      });
+    }
+
     // --- Omnichannel Trading Agent: Voice Trading Turn Simulator & API ---
     if ((path === "/api/trading/voice/turn" || path === "/api/trading/voice/test") && request.method === "POST") {
       const session = await requireAuth(request, env);
@@ -1584,7 +1611,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if ((path === "/voice/trade" || path === "/api/trading/voice/ws") && request.headers.get("Upgrade") === "websocket") {
       // Issue #154: the voice-trading session requires an app session,
       // checked BEFORE the WebSocket is accepted. Previously a null
-      // session proceeded under a shared "voice_trader" identity, so an
+      // session proceeded under a shared synthetic voice identity, so an
       // unauthenticated caller could open a voice trading session.
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
