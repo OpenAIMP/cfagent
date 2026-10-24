@@ -28,7 +28,12 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { PortfolioRiskPanel } from "../src/client/PortfolioRiskPanel";
-import { exampleBundleCandidateJson } from "../src/client/portfolioRiskApi";
+import {
+  STAGED_BUNDLE_CANDIDATE_KEY,
+  exampleBundleCandidateJson,
+  stageBundleCandidate,
+  takeStagedBundleCandidate,
+} from "../src/client/portfolioRiskApi";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -156,5 +161,32 @@ describe("PortfolioRiskPanel bundle section (issue #1205)", () => {
     expect(post).toBeTruthy();
     expect(JSON.parse(post!.body!).candidate.symbol).toBe("XYZ");
     expect(container.textContent || "").toContain(SESSION_ERROR);
+  });
+});
+
+describe("staged bundle candidate (issue #1361, C5 from-results flow)", () => {
+  it("stage/take round-trips, take is one-shot, and invalid staged JSON is dropped", () => {
+    localStorage.removeItem(STAGED_BUNDLE_CANDIDATE_KEY);
+    expect(takeStagedBundleCandidate()).toBeNull();
+    stageBundleCandidate(JSON.parse(exampleBundleCandidateJson()));
+    const taken = takeStagedBundleCandidate();
+    expect(taken).toBeTruthy();
+    expect(JSON.parse(taken!).symbol).toBe("XYZ");
+    expect(takeStagedBundleCandidate()).toBeNull();
+    expect(localStorage.getItem(STAGED_BUNDLE_CANDIDATE_KEY)).toBeNull();
+    localStorage.setItem(STAGED_BUNDLE_CANDIDATE_KEY, "{not json");
+    expect(takeStagedBundleCandidate()).toBeNull();
+    expect(localStorage.getItem(STAGED_BUNDLE_CANDIDATE_KEY)).toBeNull();
+  });
+
+  it("a staged screening candidate pre-fills the textarea with a note, and is consumed", async () => {
+    stageBundleCandidate(JSON.parse(exampleBundleCandidateJson()));
+    await renderPanel();
+    // Staging re-serializes (compact form); the parsed candidate is
+    // what must survive, not the original pretty-printing.
+    expect(JSON.parse(bundleTextarea().value)).toEqual(JSON.parse(exampleBundleCandidateJson()));
+    expect(buttonByText("Build bundle").disabled).toBe(false);
+    expect(container.textContent || "").toMatch(/loaded from screening results/i);
+    expect(localStorage.getItem(STAGED_BUNDLE_CANDIDATE_KEY)).toBeNull();
   });
 });

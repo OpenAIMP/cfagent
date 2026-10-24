@@ -14,6 +14,7 @@ import { toLeg } from "../../trading/options/strategies/legs";
 import type { ScreenedOptionContractItem } from "../../types";
 import type { StrategyEvaluation } from "../../trading/options/strategies/types";
 import { ResearchReportActions } from "../ResearchReportActions";
+import { stageBundleCandidate } from "../portfolioRiskApi";
 import { defaultRegistry } from "../../trading/options/strategies/catalog";
 import { StrategyDiscoveryPanel } from "./StrategyDiscoveryPanel";
 import { DiscoveryRunsPanel } from "./DiscoveryRunsPanel";
@@ -220,11 +221,13 @@ function BestTradeCard({
   onPreview,
   onEvaluateLlm,
   onRiskAnalysis,
+  onSendToBundle,
 }: {
   pick: BestTradeData;
   onPreview?: PreviewTrade;
   onEvaluateLlm?: (strategy: StrategyToEvaluate) => void;
   onRiskAnalysis?: (subject: RiskSubject) => void;
+  onSendToBundle?: (candidate: StrategyCandidate) => void;
 }) {
   return (
     <section className={`options-best-trade options-best-trade-${pick.status}`} role="region" aria-label="Best trade">
@@ -252,6 +255,11 @@ function BestTradeCard({
               🛡️ Risk Analysis
             </Button>
           )}
+          {pick.best && onSendToBundle && (
+            <button type="button" onClick={() => onSendToBundle(pick.best!.candidate)} title="Stage this candidate for the bundle builder (Portfolio & Risk panel)">
+              📦 Send to bundle builder
+            </button>
+          )}
         </div>
       </header>
       <ul className="options-explanations">{pick.rationale.map((line) => <li key={line}>{line}</li>)}</ul>
@@ -270,7 +278,7 @@ function BestTradeCard({
           </table>
         </div>
       )}
-      {pick.best && <StrategyCard candidate={pick.best.candidate} onPreview={onPreview} onEvaluateLlm={onEvaluateLlm} onRiskAnalysis={onRiskAnalysis} />}
+      {pick.best && <StrategyCard candidate={pick.best.candidate} onPreview={onPreview} onEvaluateLlm={onEvaluateLlm} onRiskAnalysis={onRiskAnalysis} onSendToBundle={onSendToBundle} />}
       {pick.alternatives.length > 0 && (
         <details className="options-excluded">
           <summary>{pick.alternatives.length} runner-up trades</summary>
@@ -558,11 +566,13 @@ function StrategyCard({
   onPreview,
   onEvaluateLlm,
   onRiskAnalysis,
+  onSendToBundle,
 }: {
   candidate: StrategyCandidate;
   onPreview?: PreviewTrade;
   onEvaluateLlm?: (strategy: StrategyToEvaluate) => void;
   onRiskAnalysis?: (subject: RiskSubject) => void;
+  onSendToBundle?: (candidate: StrategyCandidate) => void;
 }) {
   const chain = useContext(ChainContext);
   const [legs, setLegs] = useState<StrategyLeg[]>(suggested.legs);
@@ -640,6 +650,11 @@ function StrategyCard({
             >
               🛡️ Risk Analysis
             </Button>
+          )}
+          {onSendToBundle && (
+            <button type="button" onClick={() => onSendToBundle(candidate)} title="Stage this candidate for the bundle builder (Portfolio & Risk panel)">
+              📦 Send to bundle builder
+            </button>
           )}
           {chain && (
             <button type="button" disabled={chain.refreshing} onClick={() => void chain.refresh()}>
@@ -846,6 +861,16 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       Number(screenedContracts.find((c) => typeof c.underlyingPrice === "number")?.underlyingPrice) || undefined,
     ))
     : undefined;
+
+  // Consolidation C5 (#1361): from-results flow — stage a ranked or
+  // best-trade candidate for the bundle builder (Portfolio & Risk
+  // panel consumes it on mount). Staging never navigates away; the
+  // banner names the staged candidate and where it went.
+  const [stagedBundle, setStagedBundle] = useState<{ id: string; label: string } | null>(null);
+  const sendToBundle = (candidate: StrategyCandidate) => {
+    stageBundleCandidate(candidate);
+    setStagedBundle({ id: candidate.id, label: candidate.label });
+  };
 
   const loadExample = (example: string) => {
     setNlqQuery(example);
@@ -1271,6 +1296,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               onPreview={previewTrade}
               onEvaluateLlm={handleEvaluateLlm}
               onRiskAnalysis={setRiskSubject}
+              onSendToBundle={sendToBundle}
             />
           )}
           {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
@@ -1456,7 +1482,13 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           onPreview={previewTrade}
           onEvaluateLlm={handleEvaluateLlm}
           onRiskAnalysis={setRiskSubject}
+          onSendToBundle={sendToBundle}
         />
+      )}
+      {stagedBundle && (
+        <div className="options-assumptions" role="status">
+          Staged for the bundle builder: {stagedBundle.label} — open Portfolio &amp; Risk to build its bundle.
+        </div>
       )}
       {comparison && <RecommendationComparison data={comparison} onPreview={previewTrade} />}
       {(result?.evaluations || evaluations).length > 0 && <EvaluationTable evaluations={result?.evaluations || evaluations} />}
@@ -1484,6 +1516,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               onPreview={previewTrade}
               onEvaluateLlm={handleEvaluateLlm}
               onRiskAnalysis={setRiskSubject}
+              onSendToBundle={sendToBundle}
             />
           ))}
           {result.excluded.length > 0 && (

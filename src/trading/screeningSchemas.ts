@@ -992,7 +992,7 @@ export function buildSchedulePayload(
 
 /** The kind filter of GET /api/runs — the one Runs read surface over
  *  the four run stores. "all" is the unfiltered merge. */
-export const runsListKindSchema = z.enum(["screener", "options_scanner", "discovery", "all"]);
+export const runsListKindSchema = z.enum(["screener", "options_scanner", "discovery", "goal", "all"]);
 export type RunsListKind = z.infer<typeof runsListKindSchema>;
 
 /** Validate the `kind` query parameter of GET /api/runs in the S1
@@ -1003,6 +1003,6 @@ export function parseRunsListKind(input: unknown): ScreeningValidationResult<Run
   if (result.success) return { ok: true, value: result.data };
   return {
     ok: false,
-    error: `Invalid runs list query: kind: must be one of "screener", "options_scanner", "discovery", "all".`,
+    error: `Invalid runs list query: kind: must be one of "screener", "options_scanner", "discovery", "goal", "all".`,
   };
 }
