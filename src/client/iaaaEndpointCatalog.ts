@@ -97,16 +97,6 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: POST /nlq/webhook",
   },
   {
-    id: "auth-login",
-    method: "ANY",
-    path: "/auth/login",
-    aliases: [],
-    kind: "http",
-    auth: "public",
-    authNote: "Redirect flow (no method check). Wiring ON dispatches via the provider registry (GitHub); a disabled or unregistered provider returns 403, never a fallback.",
-    source: "src/server.ts branch: path === /auth/login",
-  },
-  {
     id: "login-page",
     method: "GET",
     path: "/login",
@@ -115,16 +105,6 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     auth: "public",
     authNote: "Renders the login page with one button per enabled registered provider.",
     source: "src/server.ts branch: GET /login",
-  },
-  {
-    id: "auth-callback",
-    method: "ANY",
-    path: "/auth/callback",
-    aliases: [],
-    kind: "http",
-    auth: "public",
-    authNote: "GitHub-only OAuth callback (redirect flow).",
-    source: "src/server.ts branch: path === /auth/callback",
   },
   {
     id: "auth-login-provider",
@@ -966,22 +946,6 @@ export const IAAA_CORRELATION_ROWS: CorrelationRow[] = [
     }),
   ),
   // Event to endpoint: emitted events cite their emitting endpoints.
-  {
-    kind: "event-endpoint",
-    left: "auth.login",
-    right: "auth-login",
-    relation: "emits",
-    source: "src/security/iaaaLogin.ts wired callback audit seam",
-    note: "Login success and failure events are both emitted from the wired callback path.",
-  },
-  {
-    kind: "event-endpoint",
-    left: "auth.login",
-    right: "auth-callback",
-    relation: "emits",
-    source: "src/security/iaaaLogin.ts wired callback audit seam",
-    note: "Login success and failure events are both emitted from the wired callback path.",
-  },
   {
     kind: "event-endpoint",
     left: "auth.login",
