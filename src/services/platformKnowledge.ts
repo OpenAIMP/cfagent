@@ -518,7 +518,7 @@ function getAnalysisAndExecutionWorkflowsMarkdown(): string {
     ``,
     `1. **A1: Multi-Exchange Stock Screener & Equity Momentum Analysis**`,
     `   - **Scope**: Screens 8,000+ US equities with 14-period RSI & MACD momentum across NASDAQ, NYSE, AMEX.`,
-    `   - **Components**: \`DynamicMarketScreener\` + the Yahoo data-source adapter (\`yahooDataSource.ts\`) inside the one screener pipeline, \`curatedStockUniverse.json\`, \`ETradeRestClient\`, \`FossResearchService\`.`,
+    `   - **Components**: \`DynamicMarketScreener\` + the platform's Yahoo provider (\`dataProviders/adapters.ts\`, bound via \`bindYahooScreenerDeps\`) inside the one screener pipeline, \`curatedStockUniverse.json\`, \`ETradeRestClient\`, \`FossResearchService\`.`,
     `   - **APIs Leveraged**: \`api.nasdaq.com/api/screener/stocks\`, \`query1/query2.finance.yahoo.com\`, \`fc.yahoo.com\`, \`api.etrade.com/v1/market/quote\`.`,
     `   - **Endpoints**: \`POST /api/etrade/screen\`, \`POST /api/foss/screen\`.`,
     ``,
