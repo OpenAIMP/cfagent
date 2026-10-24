@@ -1238,6 +1238,37 @@ assuming it.
 
 ***
 
+## 21. Lane labels (issue #1360)
+
+Every issue and PR carries its lane label, so lane ownership is filterable,
+not just visible in prose.
+
+- Scheme: `lane:<agent-id>`. Current labels: `lane:ceo-aimp`,
+  `lane:ciso-bhdm`, `lane:caio-quns`, `lane:cpo-dhmp`, `lane:cdo-mha7`,
+  `lane:cto-mbshr`, `lane:coo-spr9`. Finance has no lane agent ID on record;
+  no finance label exists until one does. A new lane gets its label by the
+  mechanism below — never by inventing a name for an agent that has none.
+- At creation: the creating agent applies its lane label to the issue or PR,
+  alongside the `## Agent #` hashtag (the hashtag stays the human-readable
+  attribution; the label is the filterable one). The hashtag rule is not
+  replaced by labels.
+- Mechanics: labels are applied with the issue-update call's labels
+  parameter. Applying a name that does not exist yet auto-creates the label
+  (default grey, no description) — there is no separate label-creation step.
+  A label update MUST preserve existing labels: always pass the existing
+  label set plus the lane label, never the lane label alone, or topic labels
+  (`bug`, `security`, `epic`, ...) are wiped.
+- Backfill rule: the lane signal is the first `Agent #` hashtag in the
+  issue/PR body, matched case-insensitively against known agent IDs. No
+  hashtag in the body → the item stays unlabeled; never guess a lane from
+  title, author, or topic. Tags matching no known lane agent (`autoclaw`,
+  `muse-cpo-dhmp`, `muse`) stay unlabeled.
+- PRs are labeled exactly like issues (same issue-update path). A PR's lane
+  label is its author's lane, not its reviewer's.
+- Backfill record (2026-10-24): 311 of 1,358 items carried a body hashtag
+  and were labeled; 1,047 stay unlabeled by this rule, not by omission.
+
+***
 ## Instruction to add to `AGENTS.md`
 
 > Follow `docs/engineering/github-agent-policy.md` for all repository work. Work one issue at a time per delivery stream; §20 authorizes parallel independent streams during CI waits. Every change requires an issue and PR. Synchronize with `main`, use TDD for behavioral changes, resolve required reviews and CI/CD failures, merge the current issue into `main`, and verify post-merge health before the issue is Done. Respect all approval boundaries; if blocked, report the blocker instead of bypassing the policy.
