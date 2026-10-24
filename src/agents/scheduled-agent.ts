@@ -26,6 +26,7 @@ import {
   type DryRunSink,
   type SocialTransport,
 } from "./social/publisher";
+import { createFetchSocialTransport } from "./social/liveTransport";
 import type { DoNamespaceLike } from "../security/durableKv";
 
 // ScheduledAgent: autonomous trigger for goal-driven agent work.
@@ -186,7 +187,7 @@ export class ScheduledAgent extends Agent<Env> {
             ledger: stores.ledger,
             nowMs: now.getTime(),
             timeZone: goal.timeZone,
-            transport: opts?.socialTransport,
+            transport: opts?.socialTransport ?? createFetchSocialTransport(),
             dryRunSink: opts?.socialDryRunSink ?? createMemoryDryRunSink(),
             slackPost: opts?.socialSlackPost,
             slackEnv: rawEnv,
@@ -254,7 +255,7 @@ export class ScheduledAgent extends Agent<Env> {
             briefProvider: opts?.socialBriefProvider ?? (() => storedBrief),
             nowMs: now.getTime(),
             timeZone: goal.timeZone,
-            transport: opts?.socialTransport,
+            transport: opts?.socialTransport ?? createFetchSocialTransport(),
             dryRunSink: opts?.socialDryRunSink ?? createMemoryDryRunSink(),
           });
           if (!result.fired) {
