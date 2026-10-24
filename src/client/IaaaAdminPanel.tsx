@@ -18,8 +18,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { EmptyState, Notice, Spinner, Tabs, TabPanel } from "./components/ui";
 import {
+  decideAccessRequest,
+  fetchAccessRequests,
   fetchAdminOverview,
   formatEventTime,
+  type AccessRequestView,
   type AdminOverview,
 } from "./iaaaAdminApi";
 import {
@@ -51,6 +54,13 @@ export function IaaaAdminPanel() {
   const [error, setError] = useState("");
   const [notAdmin, setNotAdmin] = useState(false);
   const [tab, setTab] = useState<IaaaAdminTab>("overview");
+  // #1274: pending access requests for this tenant. A tenant-admin
+  // without platform-admin never reaches this panel (the overview
+  // gate is platform-admin), so the decide buttons serve admins who
+  // hold both; the route itself accepts any tenant-admin granter.
+  const [accessRequests, setAccessRequests] = useState<AccessRequestView[]>([]);
+  const [accessError, setAccessError] = useState("");
+  const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +80,38 @@ export function IaaaAdminPanel() {
       setLoading(false);
     }
   }, []);
+
+  const loadAccessRequests = useCallback(async () => {
+    setAccessError("");
+    try {
+      setAccessRequests(await fetchAccessRequests());
+    } catch (err: any) {
+      // A tenant-admin-only caller gets 403 here; the panel gate
+      // already passed, so this is a backend failure, not a gate.
+      setAccessError(err?.message || "Failed to load access requests.");
+      setAccessRequests([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!loading && !notAdmin && !error) void loadAccessRequests();
+  }, [loading, notAdmin, error, loadAccessRequests]);
+
+  const decide = useCallback(
+    async (requestId: string, decision: "approve" | "deny") => {
+      setDecidingId(requestId);
+      setAccessError("");
+      try {
+        const updated = await decideAccessRequest(requestId, decision);
+        setAccessRequests((prev) => prev.map((r) => (r.requestId === requestId ? updated : r)));
+      } catch (err: any) {
+        setAccessError(err?.message || "Failed to decide the access request.");
+      } finally {
+        setDecidingId(null);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     void load();
@@ -120,8 +162,61 @@ export function IaaaAdminPanel() {
         </div>
 
         <p className="iaaa-admin-note">
-          Read-only view. Memberships, roles, and audit events cannot be changed from here.
+          Memberships and audit events are read-only. Pending access requests below can be
+          approved or denied here; approval grants the requested role, denial grants nothing.
         </p>
+
+        <h4>Access requests</h4>
+        {accessError && <Notice tone="danger">{accessError}</Notice>}
+        {accessRequests.length === 0 ? (
+          <EmptyState title="No access requests" description="No elevation requests recorded for this tenant yet." />
+        ) : (
+          <table className="iaaa-admin-table">
+            <thead>
+              <tr>
+                <th>Requested</th>
+                <th>Requester</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Decision</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accessRequests.map((r) => (
+                <tr key={r.requestId}>
+                  <td>{formatEventTime(r.createdAtMs)}</td>
+                  <td>
+                    <code>{r.requesterInternalUserId}</code>
+                  </td>
+                  <td>{r.requestedRole}</td>
+                  <td>{r.status}</td>
+                  <td>
+                    {r.status === "pending" ? (
+                      <>
+                        <button
+                          type="button"
+                          disabled={decidingId === r.requestId}
+                          onClick={() => void decide(r.requestId, "approve")}
+                        >
+                          Approve
+                        </button>{" "}
+                        <button
+                          type="button"
+                          disabled={decidingId === r.requestId}
+                          onClick={() => void decide(r.requestId, "deny")}
+                        >
+                          Deny
+                        </button>
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
 
         <h4>Recent audit events</h4>
         {overview.recentAuditEvents.length === 0 ? (

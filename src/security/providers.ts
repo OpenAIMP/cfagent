@@ -171,6 +171,31 @@ export function getProvider(providerId: string): LoginProvider | null {
   return defaultRegistry.getProvider(providerId);
 }
 
+/**
+ * Issue #1274 — issuer → provider display lookup, registry-backed.
+ * The session carries providerIssuer (set at wired login from the
+ * binding, never from user input); this resolves it to the registered
+ * adapter's id + display name for /api/me. Unknown issuers return
+ * null — the caller omits the provider field rather than guessing.
+ * A future provider needs only a registry entry to display.
+ */
+export function getProviderByIssuer(
+  issuer: unknown,
+): Pick<LoginProvider, "providerId" | "displayName" | "issuer"> | null {
+  if (typeof issuer !== "string" || issuer.trim() === "") return null;
+  for (const id of defaultRegistry.listProviders()) {
+    const provider = defaultRegistry.getProvider(id);
+    if (provider && provider.issuer === issuer) {
+      return {
+        providerId: provider.providerId,
+        displayName: provider.displayName ?? provider.providerId,
+        issuer: provider.issuer,
+      };
+    }
+  }
+  return null;
+}
+
 export function listProviders(): string[] {
   return defaultRegistry.listProviders();
 }
