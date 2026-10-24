@@ -49,10 +49,13 @@ const baseCtx = (overrides: Partial<EtradeBrokerRouteContext> = {}): EtradeBroke
     ...overrides,
   }) as EtradeBrokerRouteContext;
 
+// Issue #1185: requests model the production session gate — src/server.ts
+// sets x-user-login from the verified session on every authenticated
+// /api/* request, and the handlers now fail closed without it.
 const req = (method: string, path: string, body?: unknown) =>
   new Request(`https://agent.internal${path}`, {
     method,
-    headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+    headers: { "x-user-login": "alice", ...(body !== undefined ? { "content-type": "application/json" } : {}) },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
