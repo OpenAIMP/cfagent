@@ -1,6 +1,6 @@
 # Capability Architecture: Stock & Options Screening
 
-**Location:** `docs/architecture/business/capabilities/screener.md`
+**Location:** `docs/architecture/application/screener.md`
 **Status:** Living Architectural Specification & Capability Assessment
 **Last Updated:** 2026-10-24
 **Scope:** Stock & Options Screening Capability, Execution Modes, Consumption Channels, Implementations & Variations, Design Patterns & Principles, Optimization Opportunities, and RSI (Recursive Self-Improvement) Enablement.
