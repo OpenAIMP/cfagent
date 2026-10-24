@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { OptionsDataDownloadDropdown } from "./options/OptionsDataDownloadDropdown";
 import {
   NAVIGATION_ITEMS,
@@ -198,6 +198,53 @@ export function SettingsMenu({
 
   // Local state for Ad / Sponsor banner configuration
   const [localAdConfig, setLocalAdConfig] = useState<AdBannerConfig>(() => getStoredAdBannerConfig());
+  // #1274: login-provider display + request access. /api/me reports
+  // provider {id, name, issuer} only for wired sessions with a known
+  // issuer; a failed or provider-less response simply shows no line
+  // (legacy sessions keep the previous display, unchanged).
+  const [loginProviderName, setLoginProviderName] = useState<string | null>(null);
+  const [accessRequestStatus, setAccessRequestStatus] = useState<string>("");
+  const [requestingAccess, setRequestingAccess] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    globalThis
+      .fetch("/api/me")
+      .then((r) => r.json())
+      .then((data: unknown) => {
+        if (cancelled) return;
+        const provider = (data as { provider?: { name?: unknown } } | null)?.provider;
+        if (provider && typeof provider.name === "string" && provider.name !== "") {
+          setLoginProviderName(provider.name);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const requestAdminAccess = useCallback(async () => {
+    setRequestingAccess(true);
+    setAccessRequestStatus("");
+    try {
+      const res = await globalThis.fetch("/api/iaaa/access-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestedRole: "tenant-admin" }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (res.status === 201) {
+        setAccessRequestStatus("Access requested — pending admin approval.");
+      } else if (res.status === 409) {
+        setAccessRequestStatus("You already have a pending access request.");
+      } else {
+        setAccessRequestStatus(data.error || "Access request was not submitted.");
+      }
+    } catch {
+      setAccessRequestStatus("Access request was not submitted.");
+    } finally {
+      setRequestingAccess(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (adBannerConfig) {
@@ -1088,6 +1135,17 @@ export function SettingsMenu({
                 <div className="settings-user-details">
                   <span className="settings-user-name">{userName || userLogin}</span>
                   <span className="settings-user-login">@{userLogin}</span>
+                  {loginProviderName && (
+                    <span className="settings-user-login">Logged in via {loginProviderName}</span>
+                  )}
+                  <button type="button" disabled={requestingAccess} onClick={() => void requestAdminAccess()}>
+                    Request admin access
+                  </button>
+                  {accessRequestStatus && (
+                    <span className="settings-user-login" role="status">
+                      {accessRequestStatus}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
