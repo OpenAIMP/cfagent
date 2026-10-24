@@ -33,16 +33,17 @@
  *
  * VERIFY BINDING: ctx.buildVerifier supplies the real check per
  * provider. The orchestrator binds etrade (the vertical's
- * reference provider) and public (#1247) through
+ * reference provider), public (#1247), and yahoo (#1317) through
  * buildDataProviderVerifier below — etrade's is the adapter's own
  * status (isConfigured defers to ETradeService.getStatus) plus the
  * P1 conformance kit over the live adapter; public's resolves the
  * record's configured credential reference to the user's stored
- * token, then runs the same kit. A provider with no bound verifier
- * gets an honest failure ("no adapter…"), never a rubber stamp:
- * provisioning is configuration, and a config for an adapter-less
- * id may exist but can never become verified/enabled into
- * servability.
+ * token, then runs the same kit; yahoo's is the FOSS provider's own
+ * isConfigured plus the same kit over the yahoo adapter. A provider
+ * with no bound verifier gets an honest failure ("no adapter…"),
+ * never a rubber stamp: provisioning is configuration, and a config
+ * for an adapter-less id may exist but can never become
+ * verified/enabled into servability.
  */
 
 import type { SqlStorage } from "../../orm";
@@ -56,6 +57,7 @@ import {
   verifyETradeDataProvider,
   createPublicDataProviderFromEnv,
   verifyPublicDataProvider,
+  verifyYahooDataProvider,
   createCaptureFetchOutcomeRecorder,
   createNasdaqDataProvider,
   createYahooDataProvider,
@@ -126,15 +128,17 @@ function buildPlatformRegistry(ctx: DataProviderRoutesContext): DataProviderRegi
 
 /**
  * The orchestrator's verifier binding: etrade (the #1116 vertical's
- * reference provider) and, since #1247, public. The etrade check is
- * the adapter's own status first — a service that reports itself
- * unconfigured fails with that reason — then the P1 conformance
- * kit against the live adapter. The public check resolves the
- * provider record's configured credential REFERENCE (the caller
- * passes it through) to the user's stored token, then runs the
- * same kit. Any other provider id returns undefined (= no adapter
- * wired for verification), and the route substitutes the honest
- * no-adapter failure.
+ * reference provider), since #1247 public, and since #1317 yahoo.
+ * The etrade check is the adapter's own status first — a service
+ * that reports itself unconfigured fails with that reason — then
+ * the P1 conformance kit against the live adapter. The public check
+ * resolves the provider record's configured credential REFERENCE
+ * (the caller passes it through) to the user's stored token, then
+ * runs the same kit. The yahoo check is the FOSS provider's own
+ * isConfigured plus the same kit over the yahoo adapter. Any other
+ * provider id returns undefined (= no adapter wired for
+ * verification), and the route substitutes the honest no-adapter
+ * failure.
  *
  * E7 (issue #1248): when the caller passes the platform sql, the
  * probes run through a capture-store fetch-outcome recorder — a
@@ -159,6 +163,9 @@ export function buildDataProviderVerifier(
       verifyPublicDataProvider(env, userLogin, credentialRef ?? null, {
         outcomeRecorder,
       });
+  }
+  if (providerId === "yahoo") {
+    return async () => verifyYahooDataProvider(env, { outcomeRecorder });
   }
   return undefined;
 }
