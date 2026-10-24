@@ -4,6 +4,7 @@ import { StockSearchBar } from "./StockSearchBar";
 import { Badge, type BadgeTone } from "./ui";
 import { MarketStatusPill } from "./MarketStatusPill";
 import { adjustFontScale, getStoredFontScale } from "../typography";
+import { BRAND } from "../branding";
 
 export type NavTabId =
   | "trading"
@@ -612,7 +613,7 @@ export function NavigationMenu({
   if (layout === "left") {
     return (
       <aside
-        className={`nextgentp-sidebar ${collapsed ? "collapsed" : ""}`}
+        className={`app-sidebar nextgentp-sidebar ${collapsed ? "collapsed" : ""}`}
         aria-label="Sidebar Navigation"
       >
         {/* Brand Header */}
@@ -621,8 +622,8 @@ export function NavigationMenu({
             <NavIcons.NextGenLogo />
             {!collapsed && (
               <div className="brand-text-block">
-                <span className="brand-main-title">NextGenTP</span>
-                <span className="brand-sub-badge">Trading Platform</span>
+                <span className="brand-main-title">{BRAND.name}</span>
+                <span className="brand-sub-badge">{BRAND.tagline}</span>
               </div>
             )}
           </div>
@@ -785,14 +786,15 @@ export function NavigationMenu({
 
   // 2. TOP NAV BAR LAYOUT (Two-tier institutional layout with dedicated full menu bar)
   return (
-    <div className="nextgentp-top-nav-container" aria-label="Top Navigation">
+    <div className="app-top-header nextgentp-top-nav-container" aria-label="Top Navigation">
       {/* Tier 1: Brand, Status Badges, Stock Search, Quick Trade & Profile Controls */}
       <div className="top-nav-utility-bar">
         {/* Brand & Market Badges */}
         <div className="top-nav-brand-section">
           <div className="top-brand" onClick={() => onSelectTab("autopilot")}>
             <NavIcons.NextGenLogo />
-            <span className="top-brand-name">NextGenTP</span>
+            <span className="top-brand-name">{BRAND.name}</span>
+            <span className="brand-badge-pill">{BRAND.badge}</span>
           </div>
 
           {/* Institutional Market Status */}

@@ -1,3 +1,4 @@
+import { BRAND } from "../branding";
 import React from "react";
 import { TabHoverItem } from "../TabHoverItem";
 
@@ -115,7 +116,7 @@ export function CopilotTriggerButton({
       onClick={() => {
         window.dispatchEvent(new CustomEvent("open-ask-agent", { detail: { prompt } }));
       }}
-      title="Open NextGenTP AI Agent Copilot with contextual prompts"
+      title={`Open ${BRAND.copilotName} with contextual prompts`}
     >
       <span style={{ fontSize: "0.85rem" }}>🤖</span>
       <span>{label}</span>
