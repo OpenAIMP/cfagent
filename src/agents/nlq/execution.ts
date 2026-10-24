@@ -324,7 +324,7 @@ function executeNLQQueryCore(
         domain: "agentic_payments",
         targetTable: "mas_agentic_wallet",
         count: 1,
-        summary: `Cloudflare Agentic Wallet: Balance $${wallet.balanceUSD.toFixed(2)} USDC on ${wallet.network}. This is a SIMULATED local-ledger balance (includes a $${wallet.startingCreditUSD.toFixed(2)} local starting credit and locally recorded entries only) — not an on-chain wallet balance. Auto-approve limit: $${wallet.autoApproveLimitUSD.toFixed(2)}. Total spent: $${wallet.totalSpentUSD.toFixed(2)}, total earned: $${wallet.totalEarnedUSD.toFixed(2)} across ${wallet.transactionCount} micropayments.`,
+        summary: `Agentic Wallet: Balance $${wallet.balanceUSD.toFixed(2)} USDC on ${wallet.network}. This is a SIMULATED local-ledger balance (includes a $${wallet.startingCreditUSD.toFixed(2)} local starting credit and locally recorded entries only) — not an on-chain wallet balance. Auto-approve limit: $${wallet.autoApproveLimitUSD.toFixed(2)}. Total spent: $${wallet.totalSpentUSD.toFixed(2)}, total earned: $${wallet.totalEarnedUSD.toFixed(2)} across ${wallet.transactionCount} micropayments.`,
         rows: [
           {
             network: wallet.network,
