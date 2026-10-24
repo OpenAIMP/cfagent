@@ -252,7 +252,6 @@ const EXPECTED_INVENTORY = [
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/compare\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/recommend\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/catalog\")",
-  "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/catalog\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/strategies\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/best-trade\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/best-trade\")",
