@@ -34,9 +34,13 @@
  * (see captureStore.ts's header for the seam analysis) plus the
  * normalized digest, attributed to the caller's run context or a
  * generated collection run. Capture never changes what the fetch
- * returns and never fails it (recordCapture does not throw). The
- * yahoo/alpaca/nasdaq adapters are untouched by E1: their capture
- * lands with their add-provider slices.
+ * returns and never fails it (recordCapture does not throw). Issue
+ * #1317 (Yahoo slice) extends the same capture shape to the FOSS
+ * adapters: the FOSS surface has no wire-response hook, so the
+ * capture's raw payload is the provider's result itself (rawKind
+ * "provider-result", the E*TRADE fallback posture) — the result still
+ * travels to the capture store run-linked with its normalized digest.
+ * The nasdaq adapter's capture lands with its own slice.
  *
  * E2 (issue #1157): the E*TRADE adapter grows the two methods the
  * screening cutover needs — getQuotesBatch (the stock screener's
@@ -52,12 +56,15 @@
  * injected alone — verifier probes), and each fetch runs through
  * the trackFetchOutcome decorator, so a throwing fetch writes one
  * fetch_failed row and rethrows the identical error, while a
- * successful fetch's only record stays its capture row. The FOSS
- * and nasdaq adapters take the recorder by injection only — their
- * capture seam lands with their add-provider slices.
+ * successful fetch's only record stays its capture row. The nasdaq
+ * adapter takes the recorder by injection only — its capture seam
+ * lands with its own slice. Issue #1317 wires the FOSS adapters'
+ * capture (and, through it, the derived recorder) the same way the
+ * E*TRADE adapter derives its own.
  */
 
 import { ETradeService } from "../../services/etrade";
+import { YahooFinanceProvider } from "../../services/fossResearch";
 import { PublicMcpClient } from "../../services/publicMcp";
 import {
   PublicDataError,
@@ -589,7 +596,9 @@ export function bindETradeScreenerDeps(
     fetchETradeQuote: async (symbol: string) =>
       (await provider.getQuote!(symbol, runContext)).result as ETradeQuote,
     fetchETradeQuotes: async (symbols: string[]) =>
-      (await provider.getQuotesBatch!(symbols, runContext)).result,
+      // #1317 widened the batch element type to QuoteResult; the
+      // E*TRADE adapter's batch is ETradeQuote rows by construction.
+      (await provider.getQuotesBatch!(symbols, runContext)).result as ETradeQuote[],
   };
 }
 
@@ -605,15 +614,43 @@ export function bindETradeScreenerDeps(
  * outcomeRecorder and every fetch is tracked through the same
  * decorator; omit it and the adapter is the plain parity wrapper,
  * exactly as before.
+ *
+ * Issue #1317 (Yahoo slice): the FOSS adapters take the E1 capture
+ * seam (options.capture), derived-recorder included, exactly like the
+ * E*TRADE adapter. The FOSS surface exposes no wire-response hook,
+ * so the capture's raw payload is the provider's result itself
+ * (rawKind "provider-result"); the normalized digest is computed over
+ * the same result. A throwing fetch writes fetch_failed via the
+ * decorator and rethrows unchanged; a capture-write failure writes
+ * the capture_failed marker via recordCapture and never fails the
+ * fetch. The batch method exists only when the wrapped provider
+ * offers getQuotes (YahooFinanceProvider does; the interface does
+ * not declare it) — one capture per batch call, mirroring the
+ * E*TRADE batch's one-record-per-sub-batch posture.
  */
+export interface FossDataProviderOptions {
+  capture?: ETradeCaptureDeps;
+  /**
+   * E7 (issue #1248): the fetch-outcome recorder. Absent, it is
+   * derived from the capture deps (capture.sql) whenever capture
+   * is wired — every capture-wired construction gets outcome
+   * tracking by construction. Injected explicitly by callers that
+   * record outcomes without full capture wiring (verifier probes).
+   */
+  outcomeRecorder?: FetchOutcomeRecorder;
+}
+
 function createFossDataProvider(
   id: "yahoo" | "alpaca",
   name: string,
   provider: IFossMarketDataProvider,
   env?: Env,
-  options?: { outcomeRecorder?: FetchOutcomeRecorder }
+  options?: FossDataProviderOptions
 ): DataProvider {
-  const outcomeRecorder = options?.outcomeRecorder;
+  const capture = options?.capture;
+  const outcomeRecorder =
+    options?.outcomeRecorder ??
+    (capture ? createCaptureFetchOutcomeRecorder(capture.sql) : undefined);
   const meta = (
     capability: DataProvider["capabilities"][number],
     requestParams: Record<string, unknown>,
@@ -629,45 +666,101 @@ function createFossDataProvider(
       userLogin: ctx.userLogin,
     };
   };
+  const captureFetch = async (
+    capability: DataProvider["capabilities"][number],
+    requestParams: Record<string, unknown>,
+    result: unknown,
+    runContext?: DataRunContext
+  ): Promise<void> => {
+    if (!capture) return;
+    const ctx = resolveRunContext(runContext);
+    await recordCapture(
+      capture.sql,
+      { storage: capture.blobStorage, env: capture.env },
+      {
+        providerId: id,
+        capability,
+        requestParams,
+        runId: ctx.runId,
+        tenantId: ctx.tenantId,
+        userLogin: ctx.userLogin,
+        rawPayload: result,
+        rawKind: "provider-result",
+        normalizedResult: result,
+        retentionClass: capture.retentionClass,
+      }
+    );
+  };
+  const batchProvider = provider as IFossMarketDataProvider & {
+    getQuotes?: (symbols: string[]) => Promise<import("../../types").FossQuote[]>;
+  };
   return {
     id,
     name,
     capabilities: ["quotes", "historicalBars", "fundamentals"] as const,
     isConfigured: () => provider.isConfigured(env),
-    getQuote: async (symbol: string, runContext?: DataRunContext) =>
-      tag(
-        id,
-        "quotes",
-        await trackedFetch(outcomeRecorder, meta("quotes", { symbol }, runContext), () =>
-          provider.getQuote(symbol)
-        )
-      ),
-    getHistoricalBars: async (symbol: string, timeframe?: string, limit?: number, runContext?: DataRunContext) =>
-      tag(
-        id,
+    getQuote: async (symbol: string, runContext?: DataRunContext) => {
+      const result = await trackedFetch(outcomeRecorder, meta("quotes", { symbol }, runContext), () =>
+        provider.getQuote(symbol)
+      );
+      await captureFetch("quotes", { symbol }, result, runContext);
+      return tag(id, "quotes", result);
+    },
+    getHistoricalBars: async (symbol: string, timeframe?: string, limit?: number, runContext?: DataRunContext) => {
+      const result = await trackedFetch(
+        outcomeRecorder,
+        meta("historicalBars", { symbol, timeframe: timeframe ?? null, limit: limit ?? null }, runContext),
+        () => provider.getHistoricalBars(symbol, timeframe, limit)
+      );
+      await captureFetch(
         "historicalBars",
-        await trackedFetch(
-          outcomeRecorder,
-          meta("historicalBars", { symbol, timeframe: timeframe ?? null, limit: limit ?? null }, runContext),
-          () => provider.getHistoricalBars(symbol, timeframe, limit)
-        )
-      ),
-    getFundamentals: async (symbol: string, runContext?: DataRunContext) =>
-      tag(
-        id,
-        "fundamentals",
-        await trackedFetch(outcomeRecorder, meta("fundamentals", { symbol }, runContext), () =>
-          provider.getFundamentals(symbol)
-        )
-      ),
+        { symbol, timeframe: timeframe ?? null, limit: limit ?? null },
+        result,
+        runContext
+      );
+      return tag(id, "historicalBars", result);
+    },
+    getFundamentals: async (symbol: string, runContext?: DataRunContext) => {
+      const result = await trackedFetch(outcomeRecorder, meta("fundamentals", { symbol }, runContext), () =>
+        provider.getFundamentals(symbol)
+      );
+      await captureFetch("fundamentals", { symbol }, result, runContext);
+      return tag(id, "fundamentals", result);
+    },
+    ...(typeof batchProvider.getQuotes === "function"
+      ? {
+          getQuotesBatch: async (symbols: string[], runContext?: DataRunContext) => {
+            const result = await trackedFetch(
+              outcomeRecorder,
+              meta("quotes", { symbols }, runContext),
+              () => batchProvider.getQuotes!(symbols)
+            );
+            await captureFetch("quotes", { symbols }, result, runContext);
+            return tag(id, "quotes", result);
+          },
+        }
+      : {}),
   };
+}
+
+/** Capture wiring for the Yahoo adapter: identical shape to E*TRADE's (E1). */
+export type YahooCaptureDeps = ETradeCaptureDeps;
+
+export interface YahooDataProviderOptions {
+  capture?: YahooCaptureDeps;
+  /**
+   * E7 (issue #1248): the fetch-outcome recorder — derived from the
+   * capture deps whenever capture is wired, injectable on its own
+   * for verifier probes (see ETradeDataProviderOptions).
+   */
+  outcomeRecorder?: FetchOutcomeRecorder;
 }
 
 /** Yahoo adapter — wraps YahooFinanceProvider (the FOSS "yfinance" impl). */
 export function createYahooDataProvider(
   provider: IFossMarketDataProvider,
   env?: Env,
-  options?: { outcomeRecorder?: FetchOutcomeRecorder }
+  options?: YahooDataProviderOptions
 ): DataProvider {
   return createFossDataProvider("yahoo", "Yahoo Finance", provider, env, options);
 }
@@ -676,9 +769,51 @@ export function createYahooDataProvider(
 export function createAlpacaDataProvider(
   provider: IFossMarketDataProvider,
   env?: Env,
-  options?: { outcomeRecorder?: FetchOutcomeRecorder }
+  options?: FossDataProviderOptions
 ): DataProvider {
   return createFossDataProvider("alpaca", "Alpaca Markets", provider, env, options);
+}
+
+/**
+ * Issue #1317: the Yahoo lifecycle verifier, mirroring
+ * verifyETradeDataProvider — configuration from the FOSS provider's
+ * own isConfigured, then the conformance kit over the adapter. The
+ * provider is injectable for tests; production constructs the real
+ * YahooFinanceProvider from env. A failed conformance fails
+ * verification (never a silent pass).
+ */
+export async function verifyYahooDataProvider(
+  env?: Env,
+  options?: {
+    provider?: IFossMarketDataProvider;
+    outcomeRecorder?: FetchOutcomeRecorder;
+  }
+): Promise<{ ok: boolean; summary: string }> {
+  const adapter = createYahooDataProvider(
+    options?.provider ?? new YahooFinanceProvider(env),
+    env,
+    { outcomeRecorder: options?.outcomeRecorder }
+  );
+  if (!adapter.isConfigured(env)) {
+    return {
+      ok: false,
+      summary:
+        "Yahoo Finance provider reports not configured.",
+    };
+  }
+  const report = await runDataProviderConformance(adapter);
+  if (!report.ok) {
+    const failures = report.checks
+      .flatMap((c) => c.failures.map((f) => `${c.capability}: ${f}`))
+      .join("; ");
+    return { ok: false, summary: `Yahoo adapter conformance failed — ${failures}` };
+  }
+  return {
+    ok: true,
+    summary: `Yahoo adapter status configured; conformance passed for ${report.checks
+      .map((c) => c.capability)
+      .join(", ")}.`,
+  };
 }
 
 /**
