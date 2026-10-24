@@ -254,10 +254,6 @@ export class OrchestratorAgent extends Think<Env> {
         getOrm: () => this.getOrm(),
         getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
       }),
-      reportDispatchHitlEnabled: () => getReportDispatchHitl(this.reportDispatchContext()),
-      createScreenerConfirmation: (payloadJson: string) =>
-        createReportConfirmation(this.reportDispatchContext(), "screener", payloadJson, null),
-      reportConfirmationTtlMs: () => OrchestratorAgent.REPORT_CONFIRMATION_TTL_MS,
     };
   }
 

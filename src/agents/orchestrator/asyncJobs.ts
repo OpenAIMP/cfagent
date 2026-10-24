@@ -31,7 +31,6 @@ import { createDiscoveryService } from "../../services/discoveryService";
 import { createFitDiscoveryRunner } from "../../services/fitDiscoveryRunner";
 import {
   followupChannelLabel,
-  formatHeldNotification,
   formatLifecycleNotification,
   formatUndeliverableNotification,
   isEmailAllowed,
@@ -88,16 +87,6 @@ export interface AsyncJobsContext {
       text: string;
     }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
   };
-  /** Issue #1123 S5c: the #277 report-dispatch confirmation gate.
-   *  When enabled, followup.deliver jobs hold for approval instead of
-   *  sending; the hold is recorded as a 'screener' confirmation in
-   *  the same pending-review store (same 24h TTL). */
-  reportDispatchHitlEnabled: () => boolean;
-  createScreenerConfirmation: (payloadJson: string) => string;
-  /** Issue #1228: the #277 confirmation TTL, so a held delivery's
-   *  announcement can state its exact expiry. Optional — the hold
-   *  branch defaults to 24h (the store's TTL) when unbound. */
-  reportConfirmationTtlMs?: () => number;
 }
 
 const ASYNC_JOB_KINDS: readonly AsyncJobKind[] = ["main", "report", "delivery", "notification"];
@@ -797,50 +786,11 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         result = { status: "skipped", reason: payload.skipReason, channel, noticeSent };
       } else if (!shouldNotify(pipelinePolicy, "completed", channel)) {
         result = { status: "skipped", reason: `Pipeline policy disables completed-run deliveries on ${channel}.`, channel };
-      } else if (typeof payload.approvedConfirmationId !== "string" && ctx.reportDispatchHitlEnabled()) {
-        // Issue #1123 S5c / #277: with the confirmation gate on, the
-        // delivery HOLDS — it is recorded as a pending 'screener'
-        // confirmation carrying the full delivery spec, and approval
-        // in the pending-review surface resubmits it with the
-        // approval marker. Nothing unapproved is ever sent.
-        const self = getAsyncJob(ctx, jobId);
-        const confirmationId = ctx.createScreenerConfirmation(JSON.stringify({
-          delivery: {
-            outcome,
-            userLogin,
-            channel,
-            artifacts,
-            parentJobId: self?.parentJobId,
-            displayName: self?.label,
-          },
-        }));
-        result = {
-          status: "held",
-          channel,
-          confirmationId,
-          reason: "Report-dispatch confirmation (#277) is enabled; delivery held for approval.",
-        };
-        // Issue #1191 (#1173 R3): a held delivery announces itself —
-        // before R3 the hold was silent, which is how completed runs
-        // produced no message of any kind. Best-effort: announcement
-        // failure never changes the hold outcome. (Webhook is a
-        // delivery channel, not a notification channel — slack/email
-        // only, and only when the policy allows held notices.)
-        if (channel !== "webhook" && shouldNotify(pipelinePolicy, "held", channel)) {
-          try {
-            await ctx.followupDeliveryPort().notify({
-              channel,
-              userLogin,
-              text: formatHeldNotification(outcome, {
-                expiresAtIso: new Date(Date.now() + (ctx.reportConfirmationTtlMs?.() ?? 24 * 60 * 60 * 1000)).toISOString(),
-              }),
-              ...(channel === "email" && outcome.emailTo ? { emailTo: outcome.emailTo } : {}),
-              ...(channel === "slack" && outcome.slackChannel ? { slackChannel: outcome.slackChannel } : {}),
-            });
-          } catch (announceError) {
-            console.warn("[asyncJobs] held-delivery announcement failed:", announceError instanceof Error ? announceError.message : String(announceError));
-          }
-        }
+      // Issue #1347 (owner ruling 2026-10-24, reversing #277 for
+      // RUN deliveries): screener follow-up deliveries send
+      // immediately — no confirmation hold, no held announcement.
+      // The research-report dispatch gate is untouched: it lives
+      // in reportDispatch / the reports routes, not this executor.
       } else {
         if (channel === "email") {
           const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
