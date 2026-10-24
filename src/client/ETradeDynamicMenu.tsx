@@ -1082,8 +1082,8 @@ export function SettingsMenu({
                   <span>Internal W3C DID Cryptographic Stamping</span>
                 </div>
                 <div className="etrade-provenance-row">
-                  <strong>Database:</strong>
-                  <span>Persistent Distributed SQLite (<code>mas_trades</code>, <code>mas_events</code>)</span>
+                  <strong>Ledger Architecture:</strong>
+                  <span>Institutional Execution Ledger &amp; Audit Trail</span>
                 </div>
               </div>
             </details>

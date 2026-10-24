@@ -69,7 +69,7 @@ export const BRAND: BrandConfig = {
         name: "AI Search Agent",
         role: "Market-wide intelligence, SEC filing retrieval, financial news, and web grounding",
         category: "Intelligence",
-        badge: "RAG",
+        badge: "Knowledge",
         badgeType: "ai",
       },
       {
