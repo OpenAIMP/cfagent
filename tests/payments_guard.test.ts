@@ -65,6 +65,9 @@ function makeLedgerEnv(): any {
   const routeCtx = { env: {}, getOrm: () => orm, audit: () => {} };
   return {
     CF_WALLET_FACILITATOR: "https://facilitator.test",
+    // Issue #1185: the fixture's configured service identity — the
+    // ledger owner login the fake namespace serves.
+    SERVICE_USER_LOGIN: "default_trader",
     SEARCH_AGENT: {
       idFromName: (name: string) => name,
       get: (_id: unknown) => ({

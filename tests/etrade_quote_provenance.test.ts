@@ -127,7 +127,7 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
 
   describe("service getQuote twin (F12)", () => {
     it("LIVE env curated symbol → STATIC_FALLBACK with static-table source and zeroed invented fields", () => {
-      const service = new ETradeService(orm, liveEnv);
+      const service = new ETradeService(orm, liveEnv, "test-user");
       const q = service.getQuote(CURATED_ONLY);
       expect(q.quoteStatus).toBe("STATIC_FALLBACK");
       expect(q.source).not.toContain("Live");
@@ -139,14 +139,14 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
     });
 
     it("LIVE env cached universe symbol → STATIC_FALLBACK, not a live-feed label", () => {
-      const service = new ETradeService(orm, liveEnv);
+      const service = new ETradeService(orm, liveEnv, "test-user");
       const q = service.getQuote(FIXTURE_SYMBOL);
       expect(q.quoteStatus).toBe("STATIC_FALLBACK");
       expect(q.source).not.toBe("E*TRADE Market Data Feed");
     });
 
     it("TEST env curated symbol → SIMULATED_LEVEL1 kept (sandbox behaviour unchanged)", () => {
-      const service = new ETradeService(orm, sandboxEnv);
+      const service = new ETradeService(orm, sandboxEnv, "test-user");
       const q = service.getQuote(CURATED_ONLY);
       expect(q.quoteStatus).toBe("SIMULATED_LEVEL1");
       expect(q.source).toBe("E*TRADE Market Data Feed");
@@ -155,7 +155,7 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
     });
 
     it("getQuoteAsync returns a genuine live quote unchanged", async () => {
-      const service = new ETradeService(orm, liveEnv);
+      const service = new ETradeService(orm, liveEnv, "test-user");
       const live = liveQuote("ACME");
       // Issue #462: fetchQuoteRemote calls fetchQuoteDetailed (per-call
       // error capture) — mock the detailed seam, not the shared wrapper.
@@ -183,7 +183,7 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
     });
 
     it("service previewOrder (LIVE, static fallback) flags the draft and the message", () => {
-      const service = new ETradeService(orm, liveEnv);
+      const service = new ETradeService(orm, liveEnv, "test-user");
       const draft = service.previewOrder({
         sessionId,
         symbol: CURATED_ONLY,
@@ -196,7 +196,7 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
     });
 
     it("service previewOrder (sandbox, simulated quote) records status without the non-live alarm", () => {
-      const service = new ETradeService(orm, sandboxEnv);
+      const service = new ETradeService(orm, sandboxEnv, "test-user");
       const draft = service.previewOrder({
         sessionId,
         symbol: FIXTURE_SYMBOL,
@@ -236,7 +236,7 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
 
     it("async quote action: rows carry quoteStatus and the summary never claims real-time for fallback data", async () => {
       const plan = await planNLQ(sandboxEnv, `quote ${CURATED_ONLY}`);
-      const result = await executeNLQQueryAsync(orm, sessionId, plan, sandboxEnv);
+      const result = await executeNLQQueryAsync(orm, sessionId, plan, sandboxEnv, "test-user");
       expect(result.rows[0].quoteStatus).toBe("SIMULATED_LEVEL1");
       expect(result.summary).not.toContain("Real-time quote");
       expect(result.summary).toContain("Simulated quote");
@@ -256,7 +256,7 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
       const quoteFailure = vi.spyOn(ETradeService.prototype, "fetchQuoteRemote")
         .mockRejectedValue(new Error("fixture: live quote unavailable"));
       try {
-        await expect(executeNLQQueryAsync(orm, sessionId, plan, liveEnv))
+        await expect(executeNLQQueryAsync(orm, sessionId, plan, liveEnv, "test-user"))
           .rejects.toThrow("fixture: live quote unavailable");
       } finally {
         quoteFailure.mockRestore();
@@ -267,7 +267,7 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
 
 describe("ETradeService.fetchQuotesRemote — batch acquisition (#495)", () => {
   it("normalises and delegates a live batch to the client in one call", async () => {
-    const service = new ETradeService(liveEnv);
+    const service = new ETradeService(liveEnv, undefined, "test-user");
     const fetchQuotes = vi.fn(async (symbols: string[]) =>
       symbols.map((symbol) => liveQuote(symbol))
     );
@@ -282,7 +282,7 @@ describe("ETradeService.fetchQuotesRemote — batch acquisition (#495)", () => {
   });
 
   it("does not pretend a sandbox batch quoted anything", async () => {
-    const service = new ETradeService(sandboxEnv);
+    const service = new ETradeService(sandboxEnv, undefined, "test-user");
     const fetchQuotes = vi.fn();
     service.client = { getEnvConfig: () => ({ isLive: false }), fetchQuotes } as any;
 
