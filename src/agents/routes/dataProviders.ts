@@ -58,6 +58,7 @@ import {
   createPublicDataProviderFromEnv,
   verifyPublicDataProvider,
   verifyYahooDataProvider,
+  verifyNasdaqDataProvider,
   createCaptureFetchOutcomeRecorder,
   createNasdaqDataProvider,
   createYahooDataProvider,
@@ -166,6 +167,9 @@ export function buildDataProviderVerifier(
   }
   if (providerId === "yahoo") {
     return async () => verifyYahooDataProvider(env, { outcomeRecorder });
+  }
+  if (providerId === "nasdaq") {
+    return async () => verifyNasdaqDataProvider({ outcomeRecorder });
   }
   return undefined;
 }
