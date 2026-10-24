@@ -158,6 +158,30 @@ export async function executeOptionsScreen(args: {
     ? `/api/options/report.xlsx?key=${encodeURIComponent(optionsXlsxKey)}`
     : undefined;
 
+  // Issue #1346: options CSV — its own failure domain, mirroring
+  // the XLSX block (failures recorded, never fatal, never silent).
+  let optionsCsvKey: string | undefined;
+  let optionsCsvStatus: "generated" | "failed" | undefined;
+  let optionsCsvError: string | undefined;
+  let optionsCsvBytes: Uint8Array | undefined;
+  let optionsCsvFileName: string | undefined;
+  try {
+    const agent = ctx.getScreenerAgent(userLogin);
+    const stored = await agent.generateAndStoreOptionsCsv(result);
+    optionsCsvKey = stored.key;
+    optionsCsvFileName = stored.fileName;
+    optionsCsvStatus = "generated";
+    const data = await agent.getOptionsCsvByKey(stored.key);
+    if (data) optionsCsvBytes = data.bytes;
+  } catch (csvErr) {
+    optionsCsvStatus = "failed";
+    optionsCsvError = csvErr instanceof Error ? csvErr.message : String(csvErr);
+    console.warn("[Orchestrator] Manual options CSV generation failed:", optionsCsvError);
+  }
+  const optionsCsvUrl = optionsCsvKey
+    ? `/api/options/report.csv?key=${encodeURIComponent(optionsCsvKey)}`
+    : undefined;
+
   // Deliver over A2A to Slack channel unless caller explicitly opted out
   // (or the tracked follow-up pipeline owns delivery — issue #1123).
   // S5a: when the host provides the follow-up bridge, the run is
@@ -176,6 +200,9 @@ export async function executeOptionsScreen(args: {
         xlsxKey: optionsXlsxKey,
         xlsxStatus: optionsXlsxStatus,
         xlsxError: optionsXlsxError,
+        csvKey: optionsCsvKey,
+        csvStatus: optionsCsvStatus,
+        csvError: optionsCsvError,
         summary: `${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.`,
       }),
       userLogin,
@@ -197,6 +224,9 @@ export async function executeOptionsScreen(args: {
         } : {}),
         ...(optionsXlsxBytes && optionsXlsxFileName ? {
           files: [{ bytes: optionsXlsxBytes, fileName: optionsXlsxFileName, title: optionsXlsxFileName }],
+        } : {}),
+        ...(optionsCsvBytes && optionsCsvFileName ? {
+          files: [{ bytes: optionsCsvBytes, fileName: optionsCsvFileName, title: optionsCsvFileName }],
         } : {}),
       });
       if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract PDF delivery failed:", sent.error);
@@ -249,11 +279,11 @@ export async function executeOptionsScreen(args: {
     title: `Options contract screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}`,
     source: "options_scanner",
     summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
-    body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl },
+    body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl, csvKey: optionsCsvKey, csvUrl: optionsCsvUrl },
     createdAt: generatedAt,
   });
 
-  return Response.json({ ...result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl });
+  return Response.json({ ...result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl, csvKey: optionsCsvKey, csvUrl: optionsCsvUrl });
 }
 
 export async function executeUnifiedOptions(args: {
@@ -293,6 +323,10 @@ export async function executeUnifiedOptions(args: {
   let scannerXlsxBytes: Uint8Array | undefined;
   let scannerXlsxFileName: string | undefined;
   let scannerXlsxUrl: string | undefined;
+  let scannerCsvKey: string | undefined;
+  let scannerCsvBytes: Uint8Array | undefined;
+  let scannerCsvFileName: string | undefined;
+  let scannerCsvUrl: string | undefined;
 
   if (reqData.action === "opportunities" && result.success) {
     const timestamp = new Date().toISOString();
@@ -344,6 +378,20 @@ export async function executeUnifiedOptions(args: {
       console.warn("[Orchestrator] Manual options XLSX generation failed:", xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr));
     }
 
+    // Issue #1346: CSV from the same result payload (own failure
+    // domain; recorded in the log, never fatal).
+    try {
+      const agent = ctx.getScreenerAgent(userLogin);
+      const stored = await agent.generateAndStoreOptionsCsv(result.data);
+      scannerCsvKey = stored.key;
+      scannerCsvFileName = stored.fileName;
+      scannerCsvUrl = `/api/options/report.csv?key=${encodeURIComponent(stored.key)}`;
+      const data = await agent.getOptionsCsvByKey(stored.key);
+      if (data) scannerCsvBytes = data.bytes;
+    } catch (csvErr) {
+      console.warn("[Orchestrator] Manual options CSV generation failed:", csvErr instanceof Error ? csvErr.message : String(csvErr));
+    }
+
     const shouldNotifySlack = reqData.pushToSlack !== false && reqData.pushToSlack !== "false";
     if (shouldNotifySlack) {
       const slackChannel = reqData.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
@@ -365,6 +413,9 @@ export async function executeUnifiedOptions(args: {
           ...(scannerXlsxBytes && scannerXlsxFileName ? {
             files: [{ bytes: scannerXlsxBytes, fileName: scannerXlsxFileName, title: scannerXlsxFileName }],
           } : {}),
+          ...(scannerCsvBytes && scannerCsvFileName ? {
+            files: [{ bytes: scannerCsvBytes, fileName: scannerCsvFileName, title: scannerCsvFileName }],
+          } : {}),
         });
         if (!sent.ok) console.warn("[Orchestrator] Slack A2A PDF delivery (manual options) failed:", sent.error);
       } catch (slackErr) {
@@ -380,7 +431,7 @@ export async function executeUnifiedOptions(args: {
       title: `Options scanner — ${reqData.thesis || "mixed"} (${generatedAt.slice(0, 10)})`,
       source: "options_scanner",
       summary: result.summary,
-      body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, reportUrl, xlsxKey: scannerXlsxKey, xlsxUrl: scannerXlsxUrl },
+      body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, reportUrl, xlsxKey: scannerXlsxKey, xlsxUrl: scannerXlsxUrl, csvKey: scannerCsvKey, csvUrl: scannerCsvUrl },
       createdAt: generatedAt,
     });
   } else if (!result.success && reqData.pushToSlack !== false && reqData.pushToSlack !== "false") {
@@ -402,7 +453,7 @@ export async function executeUnifiedOptions(args: {
     return Response.json(result.toVoice());
   }
   if (channel === "webhook") {
-    return Response.json({ ...result.toWebhook(), reportUrl, xlsxUrl: scannerXlsxUrl });
+    return Response.json({ ...result.toWebhook(), reportUrl, xlsxUrl: scannerXlsxUrl, csvUrl: scannerCsvUrl });
   }
   if (channel === "mcp") {
     return Response.json(result.toMcp());
