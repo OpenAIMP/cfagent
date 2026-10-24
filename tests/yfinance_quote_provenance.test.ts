@@ -6,7 +6,7 @@
  * honesty contract they pin — live-fetch failure yields NO quote, a
  * non-live provider quote is never re-stamped as live Yahoo data, the
  * success path invents no fields — now lives in the Yahoo data-source
- * adapter (src/trading/yahooDataSource.ts) that feeds the one stock
+ * adapter (src/trading/screenerPipeline.ts, moved from yahooDataSource.ts in #1317) that feeds the one stock
  * pipeline, so the pins are re-pointed there at equal or greater
  * strength (the adapter-level assertions are joined by the pipeline
  * acquisition behaviour: an all-failing symbol set fails the run
@@ -32,7 +32,7 @@ import {
   fetchYahooQuotes,
   yahooDepsFromProvider,
   yahooQuoteToPipelineQuote,
-} from "../src/trading/yahooDataSource";
+} from "../src/trading/screenerPipeline";
 import { acquireUniverse } from "../src/trading/screenerPipeline";
 import { YahooFinanceProvider } from "../src/services/fossResearch";
 import { __resetQuoteCache } from "../src/services/quoteCache";
@@ -150,7 +150,7 @@ describe("#916 yahoo adapter provenance (retargeted by #1007)", () => {
   });
 
   it("source pins: fabrication literals are gone; the retired engine module is gone", () => {
-    const src = readFileSync("src/trading/yahooDataSource.ts", "utf8");
+    const src = readFileSync("src/trading/screenerPipeline.ts", "utf8");
     expect(src).not.toContain("lastPrice: 100.0");
     expect(src).not.toContain("bid: 99.9");
     expect(src).not.toContain("* 1.25");
