@@ -56,6 +56,7 @@ import {
   verifyETradeDataProvider,
   createPublicDataProviderFromEnv,
   verifyPublicDataProvider,
+  createCaptureFetchOutcomeRecorder,
   createNasdaqDataProvider,
   createYahooDataProvider,
   createAlpacaDataProvider,
@@ -134,18 +135,30 @@ function buildPlatformRegistry(ctx: DataProviderRoutesContext): DataProviderRegi
  * same kit. Any other provider id returns undefined (= no adapter
  * wired for verification), and the route substitutes the honest
  * no-adapter failure.
+ *
+ * E7 (issue #1248): when the caller passes the platform sql, the
+ * probes run through a capture-store fetch-outcome recorder — a
+ * failed verify leaves a fetch_failed row under the provider
+ * (visible in its health block) instead of vanishing.
  */
 export function buildDataProviderVerifier(
   env: Env,
   userLogin: string,
   providerId: string,
-  credentialRef?: string | null
+  credentialRef?: string | null,
+  sql?: SqlStorage
 ): ProviderVerifier | undefined {
+  const outcomeRecorder = sql
+    ? createCaptureFetchOutcomeRecorder(sql)
+    : undefined;
   if (providerId === "etrade") {
-    return async () => verifyETradeDataProvider(env, userLogin);
+    return async () => verifyETradeDataProvider(env, userLogin, { outcomeRecorder });
   }
   if (providerId === "public") {
-    return async () => verifyPublicDataProvider(env, userLogin, credentialRef ?? null);
+    return async () =>
+      verifyPublicDataProvider(env, userLogin, credentialRef ?? null, {
+        outcomeRecorder,
+      });
   }
   return undefined;
 }
@@ -326,7 +339,10 @@ export async function handleDataProviderRoutes(
                     // #1247: verifiers that resolve a configured
                     // credential reference (public) get the record's
                     // own reference; etrade's ignores it.
-                    getProviderConfig(ctx.sql, id as DataProviderId)?.credentialRef ?? null
+                    getProviderConfig(ctx.sql, id as DataProviderId)?.credentialRef ?? null,
+                    // E7 (#1248): probe outcomes are recorded
+                    // against the provider's capture log.
+                    ctx.sql
                   )) ??
               noAdapterVerifier(id)
             : undefined,
