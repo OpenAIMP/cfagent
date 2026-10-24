@@ -39,11 +39,11 @@ Repository policies cannot override higher-priority security requirements, tool 
 2. Every change to `main` MUST arrive through a pull request.
 3. Start each issue from the latest healthy `main`.
 4. Fetch and synchronize before implementation, before requesting final review, and before merge when required.
-5. Use one issue-scoped branch and one focused PR by default.
+5. Use one issue-scoped branch and one focused PR per issue. An agent may hold several issue-scoped branches at once under §20 (parallel delivery); one branch per issue is never waived.
 6. Follow test-driven development for behavior changes.
 7. Resolve required reviews, conversations, and checks before merging.
-8. Merge the current issue into `main` before starting the next issue.
-9. Verify post-merge CI and applicable continuous-delivery checks before moving on.
+8. Merge the current issue into `main` before starting the next issue, unless §20 parallel delivery applies (independent issue, CI-wait window).
+9. Verify post-merge CI and applicable continuous-delivery checks before the issue is Done. Under §20 this verification no longer blocks starting the next independent issue — except that a red post-merge check stops all new-issue work first (§18.2).
 10. If required CI/CD fails, stop feature work and restore a healthy state.
 11. Never bypass checks, weaken tests, or conceal failures to make a PR appear ready.
 12. Never claim completion without links or recorded evidence.
@@ -622,7 +622,7 @@ If a merge queue is required, enqueue the PR. Ensure GitHub Actions workflows ha
 5. Update local `main` using a fast-forward pull.
 6. Delete the completed branch only when authorized and safe.
 7. Record the completion summary.
-8. Begin the next issue only after the gate is satisfied.
+8. Begin the next issue only after the gate is satisfied — unless §20 parallel delivery applies, in which case the next independent issue may already be in flight and this gate closes the current issue, not the stream.
 
 If the PR cannot merge, the issue is blocked—not finished.
 
@@ -805,7 +805,7 @@ Workflow changes are security-sensitive and require appropriate review.
 - Keep changes issue-scoped.
 - Respect the sequential completion gate for each assigned delivery stream.
 
-Parallel issue execution requires an explicit exception to this policy. A merge queue does not itself authorize parallel feature work.
+Parallel issue execution is authorized by §20 when its conditions hold — no per-case exception is needed for that case. A merge queue does not itself authorize parallel feature work; §20 is the authorization, the queue (§19.5) is the combination validator. Anything outside §20 still requires an explicit exception.
 
 ### Exception record
 
@@ -1020,6 +1020,99 @@ Manual rebasing does not scale to concurrent lanes: two PRs can each be green on
 
 ***
 
+## 20. Parallel delivery during CI waits
+
+CI waits are machine time, not human time. An agent that finishes a branch
+idles through two waits: PR checks on its branch, then post-merge
+CI/Deploy/CodeQL/Secret Scanning on `main`. When the next issue is
+independent of the in-flight one, that wait is wasted: the next issue needs
+no result from either check run. This section converts those waits into
+implementation time. It relaxes no gate: every merge still requires green
+checks on its own head, branch currency, and conflict-freedom (§11); every
+issue still gets post-merge verification before it is Done (§17.2); and
+§18.2 still preempts everything else.
+
+### What may run in parallel
+
+- While PR A is in CI (checks running), the agent may start issue B:
+  new branch from latest `main`, separate worktree, claim comment naming B
+  and noting A in flight.
+- While post-merge verification for A is running (CI/Deploy/CodeQL/Secret
+  Scanning on `main`), the agent may start issue B the same way.
+- While awaiting a write approval (branch push, PR, merge, comment), the
+  same: start the next independent issue instead of idling.
+- Multiple PRs from one agent may be in CI simultaneously.
+
+### The independence test
+
+All four must hold. If any is uncertain, default to sequential — a wrong
+parallel call costs a rebase plus a full re-gate, which is more than the
+wait it saved.
+
+1. No shared files between the in-flight branches (compare the file lists
+   before starting).
+2. No API, schema, contract, migration, or test-fixture dependency in
+   either direction.
+3. Neither issue's acceptance depends on the other's merge order.
+4. Neither issue is a production activation (flag flip, secret sync,
+   deploy step) — activations stay serial (below).
+
+### What stays serial, always
+
+1. Merges: one rebase merge at a time; each merge only when its own checks
+   are green, its branch is current, and it is conflict-free (§11).
+2. A single issue's own lifecycle: branch → PR → merge → post-merge
+   verification → Done, in that order, for that issue. Parallelism is
+   across issues, never within one issue.
+3. Production activations: flags, secrets, deploys, and any live-behavior
+   flip — one at a time, verified before the next.
+4. Post-merge red (§18.2): a red post-merge check on ANY in-flight issue
+   is the agent's first job. Stop all new-issue work — including
+   implementation on parallel branches — and fix before continuing.
+   Parallelism never queues a red behind new work.
+5. Overlapping files at merge time: if two sibling branches turn out to
+   touch the same files (main moved, scope grew), the later merge updates
+   in place and re-runs the full gate after ANY tree change. Never merge
+   over a stale combination.
+
+### Branch and claim discipline for parallel streams
+
+- One worktree per branch. Never share a worktree between streams: test
+  runs and uncommitted changes collide.
+- Every sibling branch forks from latest `main`, never from a sibling
+  branch — unless the dependency is declared and the stack is explicit, in
+  which case the dependent PR waits for its base and the branches merge in
+  dependency order.
+- The claim comment for each issue names the issue, the branch, and the
+  other in-flight siblings, so other lanes see the whole set (§6).
+- A branch with no PR open is still an in-flight stream. Do not let
+  un-PR'd branches accumulate: open the PR promptly once the local gate
+  is green, so CI starts and the wait becomes productive.
+- No hard cap on in-flight streams, but each must show active progress
+  (branch plus local gate, or open PR). A stale branch with no activity
+  and no PR must be closed or converted to a draft PR with a status
+  comment — a pile of stale branches is the parallel version of the
+  dangling-PR problem (§11).
+
+### Merge-queue interaction (§19.5)
+
+- Where the merge queue is enabled, use it: it validates combinations
+  (a PR against current `main` plus earlier queued PRs) instead of each
+  lane chasing `main` manually.
+- Until the queue is enabled, the manual substitute stands and is not
+  waived by parallelism: update in place, re-test on the rebased head,
+  verify post-merge CI — per merge, per branch.
+
+### Rule of thumb
+
+If the next issue is independent, starting it during a CI wait is the
+default, not the exception. If the next issue is dependent, waiting is
+the work: use the wait to review the in-flight diff, prepare the next
+issue's test plan, or verify post-merge results — do not start dependent
+implementation on a stale base.
+
+***
+
 ## Instruction to add to `AGENTS.md`
 
-> Follow `docs/engineering/github-agent-policy.md` for all repository work. Work one issue at a time. Every change requires an issue and PR. Synchronize with `main`, use TDD for behavioral changes, resolve required reviews and CI/CD failures, merge the current issue into `main`, and verify post-merge health before starting the next issue. Respect all approval boundaries; if blocked, report the blocker instead of bypassing the policy.
+> Follow `docs/engineering/github-agent-policy.md` for all repository work. Work one issue at a time per delivery stream; §20 authorizes parallel independent streams during CI waits. Every change requires an issue and PR. Synchronize with `main`, use TDD for behavioral changes, resolve required reviews and CI/CD failures, merge the current issue into `main`, and verify post-merge health before the issue is Done. Respect all approval boundaries; if blocked, report the blocker instead of bypassing the policy.
