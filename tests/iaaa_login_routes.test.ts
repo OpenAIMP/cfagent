@@ -203,16 +203,17 @@ describe("composable /login page", () => {
     expect(html).not.toContain("/auth/login/google");
   });
 
-  it("wiring off → no-arg page keeps the exact legacy anchor block and intro, byte for byte", async () => {
+  it("wiring off → no-arg page renders the focused GitHub login button and subtitle", async () => {
     const { env } = makeEnv();
     const res = await worker.fetch(req("/login"), env);
     const html = await res.text();
     expect(html).toContain(
-      "<p>Sign in with your GitHub account to research and trade with human-approved, audit-logged workflows.</p>"
+      '<p class="subtitle">Sign in with your GitHub account to access your trading workspace.</p>'
     );
-    // The legacy anchor block, verbatim (indentation included).
-    expect(html).toContain('<a href="/auth/login" class="btn">\n      <svg viewBox="0 0 16 16"');
-    expect(html).toContain("\n      Sign in with GitHub\n    </a>");
+    // The sleek GitHub anchor block
+    expect(html).toContain('<a href="/auth/login" class="btn btn-github">');
+    expect(html).toContain("<span>Sign in with GitHub</span>");
+    expect(html).toContain('<span class="btn-arrow" aria-hidden="true">&rarr;</span>');
   });
 
   it("wiring on with google enabled → one button per enabled provider", async () => {
