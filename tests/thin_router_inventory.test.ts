@@ -74,6 +74,10 @@
  * /screening/reselection-proposals and GET /screening/outcomes (in
  * handleScreenerResearchRoutes, after /screening/controls, before
  * /screening/goal-screen) — bringing the pinned array to 203 entries.
+ * Issue #1278 (#1173 R5) added one more — POST
+ * /screener/report/regenerate (in handleScreenerResearchRoutes, after
+ * /screener/report.pdf, before /screener/report.xlsx) — bringing the
+ * pinned array to 204 entries.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -281,6 +285,7 @@ const EXPECTED_INVENTORY = [
   "handleFossCompareScreenRoutes :: endsWith(\"/yfinance/screen\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/latest\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/report.pdf\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screener/report/regenerate\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/report.xlsx\")",
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.xlsx\")",
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.pdf\")",
