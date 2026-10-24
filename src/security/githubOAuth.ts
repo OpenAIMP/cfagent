@@ -1,6 +1,15 @@
-import type { Env, SessionData } from "../types";
-import { verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId, isSessionIdFormat, getSession, deleteSession } from "./session";
-import { getProvider } from "./providers";
+/**
+ * What remains of the original GitHub OAuth module after #1254:
+ * the logout handler and the login-page renderer. The GitHub
+ * login FLOW itself is the declarative factory registration in
+ * providers.ts (PR-A), served by the generic registry routes;
+ * PR-B deleted the wiring-off legacy flow that used to live here
+ * (handleLogin / handleOAuthCallback / exchangeGithubCode /
+ * fetchGithubProfile) together with the exact /auth/login +
+ * /auth/callback routes that reached it.
+ */
+import type { Env } from "../types";
+import { clearSessionCookie, getSessionId, isSessionIdFormat, getSession, deleteSession } from "./session";
 import { invalidateSessionCache } from "./sessionCache";
 import {
   buildLogoutAuditEventInput,
@@ -10,147 +19,6 @@ import type { AuditStore } from "./iaaaAudit";
 import { logoutAuditTenant } from "./iaaaGates";
 import { revokeStoredTokens } from "./etradeOAuth";
 import { SERVER_PALETTE } from "../theme/serverPalette";
-
-/**
- * Login start for the wiring-off legacy route (server.ts calls this
- * when IAAA wiring is off). Since #1254 PR-A the GitHub flow itself
- * is the declarative factory registration in providers.ts — this
- * entry point simply delegates to it, so the legacy route and the
- * registry routes run the identical flow. (Importing providers.ts
- * is safe now: providers.ts no longer imports this module.)
- */
-export async function handleLogin(env: Env): Promise<Response> {
-  const provider = getProvider("github");
-  if (!provider) {
-    // Unreachable with the default registry, which always registers
-    // github; a guard, never a fallback flow.
-    return new Response("GitHub login provider is not registered", { status: 500 });
-  }
-  return provider.startLogin(env);
-}
-
-/** Error carrying the HTTP status the legacy callback used for this failure. */
-export class GithubAuthError extends Error {
-  status: number;
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-  }
-}
-
-/** GitHub user profile as returned by GET https://api.github.com/user. */
-export interface GithubUserProfile {
-  /** Stable provider subject — the numeric GitHub user id, NOT the login. */
-  id: number;
-  login: string;
-  avatar_url: string;
-  name?: string | null;
-}
-
-/**
- * Exchange an OAuth code for a GitHub access token.
- *
- * LEGACY wiring-off flow only (handleOAuthCallback below, reached
- * from server.ts's wiring-off branches, which are frozen in PR-A).
- * The wired/registry flow exchanges through the shared oauth2 core
- * via the factory instead. This helper — and the whole legacy flow
- * in this file — is deleted with the legacy routes in #1254 PR-B.
- */
-export async function exchangeGithubCode(env: Env, code: string): Promise<string> {
-  const tokenResp = await fetch("https://github.com/login/oauth/access_token", {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: env.GITHUB_CLIENT_ID,
-      client_secret: env.GITHUB_CLIENT_SECRET,
-      code,
-    }),
-  });
-
-  if (!tokenResp.ok) {
-    throw new GithubAuthError(`Token exchange failed with upstream status ${tokenResp.status}`, 502);
-  }
-
-  const tokenData = (await tokenResp.json()) as {
-    access_token?: string;
-    error?: string;
-    error_description?: string;
-  };
-
-  if (!tokenData.access_token) {
-    throw new GithubAuthError(
-      tokenData.error_description || tokenData.error || "GitHub did not grant an access token",
-      400
-    );
-  }
-  return tokenData.access_token;
-}
-
-/** Fetch the GitHub user profile for an access token (legacy wiring-off flow only; see exchangeGithubCode). */
-export async function fetchGithubProfile(accessToken: string): Promise<GithubUserProfile> {
-  const profileResp = await fetch("https://api.github.com/user", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": "ai-search-agent",
-    },
-  });
-
-  if (!profileResp.ok) {
-    throw new GithubAuthError("Failed to fetch user profile from GitHub", 502);
-  }
-  return (await profileResp.json()) as GithubUserProfile;
-}
-
-/**
- * The legacy (wiring-off) OAuth callback: state check, legacy
- * exchange/profile helpers, a legacy-shaped session (no Slice 1/2
- * fields), and this module's styled error pages. Frozen in #1254
- * PR-A — server.ts's wiring-off branches import it and server.ts
- * is unchanged in PR-A; deleted with those branches in PR-B. The
- * wired callback is the factory's (providers.ts → oidcProvider.ts
- * → iaaaLogin.ts completeWiredLogin).
- */
-export async function handleOAuthCallback(env: Env, request: Request): Promise<Response> {
-  const url = new URL(request.url);
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const error = url.searchParams.get("error");
-
-  if (error) return errorPage(`GitHub authentication was cancelled or failed: ${error}`, 400);
-  if (!code || !state) return errorPage("Missing required authorization code or state parameter", 400);
-
-  const isValidState = await verifyState(env, state);
-  if (!isValidState) {
-    return errorPage("Invalid or expired OAuth state session. Please try signing in again.", 403);
-  }
-
-  try {
-    const accessToken = await exchangeGithubCode(env, code);
-    const user = await fetchGithubProfile(accessToken);
-
-    const sessionData: SessionData = {
-      githubLogin: user.login,
-      githubAvatar: user.avatar_url,
-      githubName: user.name || user.login,
-      createdAt: Date.now(),
-    };
-
-    const sessionId = await createSession(env, sessionData);
-
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: "/",
-        "Set-Cookie": setSessionCookie(sessionId),
-      },
-    });
-  } catch (err) {
-    if (err instanceof GithubAuthError) return errorPage(err.message, err.status);
-    const message = err instanceof Error ? err.message : "Unexpected OAuth authentication error";
-    return errorPage(message, 500);
-  }
-}
 
 /**
  * Audit seam for the logout hook (Phase 2b-part1). The caller —
@@ -393,62 +261,4 @@ function escapeHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-function errorPage(message: string, status = 400): Response {
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authentication Error</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: ${SERVER_PALETTE.card};
-      color: ${SERVER_PALETTE.textPrimary};
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 1.5rem;
-    }
-    .card {
-      background: ${SERVER_PALETTE.slate800};
-      border: 1px solid ${SERVER_PALETTE.slate700};
-      border-radius: 16px;
-      padding: 2.5rem;
-      max-width: 420px;
-      width: 100%;
-      text-align: center;
-    }
-    .icon { font-size: 2.5rem; margin-bottom: 1rem; }
-    h1 { font-size: 1.4rem; margin-bottom: 0.5rem; color: ${SERVER_PALETTE.dangerText}; }
-    p { color: ${SERVER_PALETTE.textMuted}; font-size: 0.95rem; line-height: 1.5; margin-bottom: 1.5rem; word-break: break-word; }
-    a {
-      display: inline-block;
-      background: ${SERVER_PALETTE.blue500};
-      color: ${SERVER_PALETTE.onGradient};
-      text-decoration: none;
-      padding: 0.65rem 1.25rem;
-      border-radius: 8px;
-      font-weight: 500;
-    }
-    a:hover { background: ${SERVER_PALETTE.blue600}; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">⚠️</div>
-    <h1>Authentication Error</h1>
-    <p>${message}</p>
-    <a href="/">← Return to Sign In</a>
-  </div>
-</body>
-</html>`;
-
-  return new Response(html, {
-    status,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
 }
