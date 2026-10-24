@@ -217,7 +217,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
           </select>
         </label>
         <label style={{ ...fieldStyle, flex: "1 1 220px" }}>
-          Symbols (optional, comma-separated)
+          Symbols (optional, comma-separated — scopes the options leg only; the stock leg always scans the full universe)
           <input
             type="text"
             value={symbolsText}

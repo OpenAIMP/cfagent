@@ -271,6 +271,18 @@ export async function executeGoalScreenRun(input: {
       scenarioSource: input.scenarioSource,
       taskId: run.task.id,
       result,
+      // Issue #1335: artifact keys ride top-level so the Runs read
+      // surface (runSummaryFromReport) finds them — the result object
+      // alone is not in its lookup chain.
+      ...(result.pdfKey ? { pdfKey: result.pdfKey } : {}),
+      ...(result.pdfStatus ? { pdfStatus: result.pdfStatus } : {}),
+      ...(result.pdfError ? { pdfError: result.pdfError } : {}),
+      ...(result.xlsxKey ? { xlsxKey: result.xlsxKey } : {}),
+      ...(result.xlsxStatus ? { xlsxStatus: result.xlsxStatus } : {}),
+      ...(result.xlsxError ? { xlsxError: result.xlsxError } : {}),
+      ...(result.csvKey ? { csvKey: result.csvKey } : {}),
+      ...(result.csvStatus ? { csvStatus: result.csvStatus } : {}),
+      ...(result.csvError ? { csvError: result.csvError } : {}),
     },
     createdAt: result.completedAt,
   });

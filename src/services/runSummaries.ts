@@ -64,6 +64,13 @@ export interface RunSummary {
   resultCount: number | null;
   pdfKey: string | null;
   reportUrl: string | null;
+  /** Issue #1335: stored XLSX / CSV artifact keys + download urls, when
+   *  the home store records them (goal-screen rows record all three;
+   *  other rows null until their pipelines record keys). */
+  xlsxKey: string | null;
+  xlsxUrl: string | null;
+  csvKey: string | null;
+  csvUrl: string | null;
   /** Issue #1239 (#1209 F3): the run's recorded PDF generation state
    *  ("generated" / "failed" / …) and its failure reason, when the
    *  home store records them — so the Reports list can say a PDF is
@@ -117,6 +124,22 @@ const KIND_BY_REPORT_SOURCE: Record<string, RunKind> = {
   options_screen: "options_scanner",
 };
 
+function xlsxUrlForSource(source: string, key: string): string | null {
+  if (source === "screener") return `/api/screener/report.xlsx?key=${encodeURIComponent(key)}`;
+  if (source === "options_scanner" || source === "options_screen")
+    return `/api/options/report.xlsx?key=${encodeURIComponent(key)}`;
+  if (source === "goal_screen")
+    return `/api/screening/goal-screen/report.xlsx?key=${encodeURIComponent(key)}`;
+  return null;
+}
+
+function statusFromResultStatus(v: unknown): string | null {
+  if (v === "complete") return "completed";
+  if (v === "partial") return "partial";
+  if (v === "failed") return "failed";
+  return null;
+}
+
 export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
   const body = parseBody(hit.body);
   const kind = KIND_BY_REPORT_SOURCE[hit.source] ?? "report";
@@ -138,10 +161,30 @@ export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
     summary: hit.summary,
     trigger: strOrNull(body?.trigger),
     createdAt: hit.createdAt,
-    status: success === true ? "completed" : success === false ? "failed" : null,
+    status:
+      success === true
+        ? "completed"
+        : success === false
+          ? "failed"
+          : // Issue #1335: goal-screen bodies carry no `success` — the
+            // result's own status verb is the status.
+            (statusFromResultStatus(body?.result?.status) ??
+            statusFromResultStatus(body?.report?.result?.status)),
     resultCount,
     pdfKey: strOrNull(body?.pdfKey) ?? strOrNull(body?.report?.result?.pdfKey),
     reportUrl: scheduledReportPdfUrl(hit.source, hit.body) ?? null,
+    xlsxKey: strOrNull(body?.xlsxKey) ?? strOrNull(body?.report?.result?.xlsxKey),
+    xlsxUrl: (() => {
+      const k = strOrNull(body?.xlsxKey) ?? strOrNull(body?.report?.result?.xlsxKey);
+      return k ? xlsxUrlForSource(hit.source, k) : null;
+    })(),
+    csvKey: strOrNull(body?.csvKey) ?? strOrNull(body?.report?.result?.csvKey),
+    csvUrl: (() => {
+      const k = strOrNull(body?.csvKey) ?? strOrNull(body?.report?.result?.csvKey);
+      return k && hit.source === "goal_screen"
+        ? `/api/screening/goal-screen/report.csv?key=${encodeURIComponent(k)}`
+        : null;
+    })(),
     pdfStatus:
       strOrNull(body?.pdfStatus) ??
       strOrNull(body?.report?.result?.pdfStatus) ??
@@ -177,6 +220,10 @@ export function runSummaryFromScanRun(scan: ScanRunSummary): RunSummary {
     reportUrl: scan.pdfKey
       ? `/api/options/report.pdf?key=${encodeURIComponent(scan.pdfKey)}`
       : null,
+    xlsxKey: null,
+    xlsxUrl: null,
+    csvKey: null,
+    csvUrl: null,
     pdfStatus: scan.pdfKey ? "generated" : null,
     pdfError: null,
     reportId: null,
@@ -200,6 +247,10 @@ export function runSummaryFromDiscoveryRun(run: DiscoveryRunSummary): RunSummary
     resultCount: run.completedCount,
     pdfKey: null,
     reportUrl: null,
+    xlsxKey: null,
+    xlsxUrl: null,
+    csvKey: null,
+    csvUrl: null,
     pdfStatus: null,
     pdfError: null,
     reportId: null,
@@ -226,6 +277,12 @@ export function runSummaryFromScreenerRun(run: ScreenerRunResult): RunSummary {
     reportUrl: run.pdfKey
       ? `/api/screener/report.pdf?key=${encodeURIComponent(run.pdfKey)}`
       : null,
+    xlsxKey: run.xlsxKey ?? null,
+    xlsxUrl: run.xlsxKey
+      ? `/api/screener/report.xlsx?key=${encodeURIComponent(run.xlsxKey)}`
+      : null,
+    csvKey: null,
+    csvUrl: null,
     pdfStatus: run.pdfStatus ?? null,
     pdfError: run.pdfError ?? null,
     reportId: null,
