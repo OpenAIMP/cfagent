@@ -94,16 +94,39 @@ export async function runReportPipeline(
   input: UnifiedReportInput
 ): Promise<UnifiedReportOutput> {
   const generationId = `${input.type}:${input.trigger}:${input.timestamp}`;
+  const { codedMessage } = await import("../errors/errorAspects");
 
   try {
     // Issue #680: delegate to ReportAssetAgent (single owner for PDF gen).
     const { generatePdfAsset } = await import("../agents/report-asset-agent");
     const assetType = input.type === "screener" ? "screener" : "options";
-    const asset = await generatePdfAsset(env as any, input.userLogin, assetType as any, input.result);
-
-    if (!asset) {
-      throw new Error("generatePdfAsset returned null");
-    }
+    // Issue #1278 (#1173 R5): retry under the R1 pipeline policy
+    // (retry.report — PIPELINE_REPORT_RETRY_* / pipeline.retry.report).
+    // generatePdfAsset never throws: null IS its failure signal, so a
+    // null asset counts as a failed attempt and is retried like a throw.
+    const { resolvePipelinePolicy } = await import("./pipelinePolicy");
+    const { withRetry } = await import("./resilience");
+    const policy = resolvePipelinePolicy(env as Record<string, unknown>);
+    const asset = await withRetry(
+      async () => {
+        const generated = await generatePdfAsset(env as any, input.userLogin, assetType as any, input.result);
+        if (!generated) {
+          throw new Error("generatePdfAsset returned null");
+        }
+        return generated;
+      },
+      policy.retry.report,
+      {
+        label: `report-pdf:${input.type}/${input.trigger}`,
+        onRetry: (event) => {
+          console.warn(
+            `[UnifiedReport] PDF generation attempt ${event.attempt} failed (${input.type}/${input.trigger}):`,
+            event.error,
+            `— retrying in ${Math.round(event.delayMs)}ms`
+          );
+        },
+      }
+    );
 
     return {
       pdfKey: asset.key,
@@ -117,7 +140,8 @@ export async function runReportPipeline(
       pdfKey: "",
       generationId,
       pdfStatus: "failed",
-      pdfError: message,
+      // Issue #1252 (R4): the recorded error carries its catalog code.
+      pdfError: message.startsWith("[REPORT_") ? message : codedMessage("REPORT_001", message),
     };
   }
 }
