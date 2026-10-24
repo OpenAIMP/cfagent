@@ -41,6 +41,12 @@ export interface ShardExecutorDeps {
   storage: any;
   createETradeService: (userLogin: string, environment?: string) => ETradeService;
   sessionId: string;
+  /**
+   * Issue #1368: test seam for the nasdaq feed shard — the listings
+   * fetcher the platform nasdaq adapter wraps. Production leaves it
+   * unset and the shard uses the listings module, exactly as before.
+   */
+  fetchListings?: () => Promise<unknown>;
 }
 
 function chainRows(deps: ShardExecutorDeps, chainId: string): ShardRow[] {
@@ -71,12 +77,34 @@ async function symbolsForUniverse(chain: ShardChainContext, listings: any[]): Pr
   return maxSymbols > 0 ? syms.slice(0, maxSymbols) : syms;
 }
 
-async function feedNasdaq(deps: ShardExecutorDeps): Promise<{ listings: unknown }> {
-  const { fetchAllUsStockListings } = await import("./nasdaqListings");
-  const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
-  const listings = await withRetry(() => fetchAllUsStockListings(), policy, {
-    label: "shard.feed.nasdaq",
+/**
+ * Issue #1368: the nasdaq feed shard acquires through the platform
+ * nasdaq adapter (the feedEtrade precedent: bootstrap this chain's
+ * platform store, bind the adapter with capture deps, mint nothing —
+ * the chain id IS the run id, so the listings capture is run-linked
+ * to the chain). The return shape is unchanged ({ listings }), so
+ * the etrade shard's sibling consumption is untouched; the retry
+ * policy, bucket, and label are unchanged — only the fetch goes
+ * through the adapter. The listings module stays the adapter's
+ * fetcher; deps.fetchListings is the offline test seam only.
+ */
+async function feedNasdaq(deps: ShardExecutorDeps, chain: ShardChainContext): Promise<{ listings: unknown }> {
+  const { bootstrapDataProviders, createNasdaqDataProvider } = await import("../trading");
+  bootstrapDataProviders(deps.sql as any);
+  const fetchListings =
+    deps.fetchListings ?? (await import("./nasdaqListings")).fetchAllUsStockListings;
+  const adapter = createNasdaqDataProvider(fetchListings as never, {
+    capture: { sql: deps.sql as any, blobStorage: deps.storage as any, env: deps.env as any },
   });
+  const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
+  const listings = await withRetry(
+    () =>
+      adapter
+        .getScreenUniverse!({ runId: chain.chainId, userLogin: chain.userLogin })
+        .then((r) => r.result),
+    policy,
+    { label: "shard.feed.nasdaq" }
+  );
   return { listings };
 }
 
@@ -313,7 +341,7 @@ export async function executeShardJob(
   payload: ShardPayload
 ): Promise<unknown> {
   const { shard, chain } = payload;
-  if (shard.stage === "feed" && shard.key === "nasdaq") return feedNasdaq(deps);
+  if (shard.stage === "feed" && shard.key === "nasdaq") return feedNasdaq(deps, chain);
   if (shard.stage === "feed" && shard.key === "etrade") return feedEtrade(deps, chain);
   if (shard.stage === "feed" && shard.key === "yahoo") return feedYahoo(deps, chain);
   if (shard.stage === "generate" && shard.key === "assemble") return generateAssemble(deps, chain);
