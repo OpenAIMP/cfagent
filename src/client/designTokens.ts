@@ -1,4 +1,5 @@
 /** Typed semantic tokens and density preference compatibility APIs. */
+export { BRAND, getBrand, type BrandConfig, type BrandEcosystemAgent } from "./branding";
 export const colorRoles = [
   "surface", "surface-foreground", "surface-raised", "surface-raised-foreground",
   "surface-sunken", "surface-sunken-foreground", "card", "card-foreground",
