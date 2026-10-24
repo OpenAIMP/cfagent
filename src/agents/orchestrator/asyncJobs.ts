@@ -21,6 +21,7 @@ import type {
   PipelineStage,
 } from "../../types";
 import { recordScreeningActivity } from "../../services/screeningActivity";
+import { recordJobOutcome } from "../../services/jobOutcomes";
 import type { NLQSchedulingPort, NLQStockScreenPort } from "../nlq";
 import { codedMessage } from "../../errors/errorAspects";
 import { executeMCPTool } from "../../mcp";
@@ -476,6 +477,30 @@ export async function recordScreenerRunMainJob(
     chainId ?? null,
   );
   ctx.audit("screener.run_bridged", "orchestrator", { jobId, kind: outcome.kind, success: outcome.success });
+  // Issue #1333: every bridged run lands in the job-outcome sink
+  // Autopilot Control renders as its job feed. The id is the run's
+  // deliveryId when one exists (shared with any bus re-record, so a
+  // run recorded twice converges to one row), else this main job's
+  // id. Never throws: a sink failure must not fail the run.
+  try {
+    recordJobOutcome(ctx.ensureTables(), {
+      id: outcome.deliveryId ?? jobId,
+      kind: outcome.kind,
+      trigger: outcome.trigger,
+      status: outcome.success ? "completed" : "failed",
+      scanned: outcome.totalScanned,
+      matched: outcome.matchedCount,
+      codedError: outcome.success ? undefined : outcome.error ?? undefined,
+      reportUrl: outcome.reportUrl,
+      pdfKey: outcome.pdfKeys?.[0],
+      xlsxKey: outcome.xlsxKey,
+      csvKey: outcome.csvKey,
+      origin: "job-tree",
+      createdAt: now,
+    });
+  } catch (err) {
+    console.warn("[AsyncJobs] job outcome record failed:", err instanceof Error ? err.message : String(err));
+  }
   if (chainId) {
     recordStageTransition(ctx, {
       userLogin,
