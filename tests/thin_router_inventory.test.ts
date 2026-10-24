@@ -216,6 +216,7 @@ const EXPECTED_INVENTORY = [
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/orders/remote\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/orders/cancel\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/email/inbound\")",
+  "handleTradingIntegrationsRoutes :: endsWith(\"/trading/email/approve-link\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/slack/event\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/slack/interaction\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/slack/command\")",

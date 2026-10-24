@@ -421,7 +421,7 @@ const EMAIL_GOLDEN = `<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Order Approval Failed</title>
+  <title>Order Approval Refused</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #f8fafc;">
   <div style="max-width: 620px; margin: 0 auto; background-color: #0f172a; border-radius: 10px; border: 1px solid #1e293b; overflow: hidden; margin-top: 20px; margin-bottom: 20px;">
@@ -429,23 +429,17 @@ const EMAIL_GOLDEN = `<!DOCTYPE html>
     <div style="background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%); padding: 24px; border-bottom: 1px solid #1e293b;">
       <div style="display: flex; align-items: center; justify-content: space-between;">
         <div>
-          <span style="background: #3b82f6; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; letter-spacing: 0.05em; text-transform: uppercase;">
+          <span style="background: #3b82f6; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; letter-spacing: 0.05em; text-transform: uppercase;">
             E*TRADE AGENTIC HUB
           </span>
-          <h1 style="color: #ffffff; font-size: 20px; margin: 8px 0 0 0; font-weight: 700;">Order Approval Failed</h1>
+          <h1 style="color: #ffffff; font-size: 20px; margin: 8px 0 0 0; font-weight: 700;">Order Approval Refused</h1>
         </div>
       </div>
     </div>
 
     <!-- Body Content -->
     <div style="padding: 24px;">
-      
-        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-          <h3 style="color: #ef4444; margin-top: 0;">❌ Approval Not Processed</h3>
-          <p style="color: #cbd5e1; margin-bottom: 0;">No pending order preview found awaiting approval. Orders may have already been executed or cancelled.</p>
-        </div>
-        <p style="color: #94a3b8; font-size: 13px;">To draft a new trade, email commands like: <code>Buy 10 NVDA limit 125.00</code>.</p>
-        
+      <p style="color: #cbd5e1;">Approval refused: a bare APPROVE reply no longer executes an order. Approve from the signed link in the order-preview email (click it, or reply quoting it). Email approvals require a mapped trade-tier sender (CHANNEL_EMAIL_PRINCIPALS).</p>
     </div>
 
     <!-- Security & Provenance Footer -->
@@ -503,8 +497,11 @@ describe("server palette — golden renders are unchanged (#678)", () => {
     // Issue #781 wiring: processInboundEmail now requires an injected ORM
     // (it used to run against a stub and fabricate this same failure
     // render from an empty ledger). A real in-memory ORM keeps the
-    // approval lookup honest — no pending preview exists either way, so
-    // the golden render is unchanged.
+    // approval lookup honest. Issue #1262 Phase 5: a bare APPROVE no
+    // longer reaches the "no pending preview" render — it is refused
+    // by the signed-link gate — so the golden below is the refusal
+    // render (container title "Order Approval Refused"), regenerated
+    // from the service's actual output.
     const goldenOrm = new DatabaseORM(new MockSqlStorage());
     goldenOrm.initializeSchema("palette_golden");
     const svc = new ETradeEmailTradingService({} as any, goldenOrm);
