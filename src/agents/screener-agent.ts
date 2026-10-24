@@ -39,14 +39,22 @@ import {
   UNIVERSES,
   shardableUniverses,
   resolveUniverse,
-  yahooDepsFromProvider,
   type StockScreenProvider,
   type UniverseId,
 } from "../trading";
 import { YahooFinanceProvider } from "../services/fossResearch";
 import {
   bindETradeScreenerDeps,
+  bindYahooScreenerDeps,
   bootstrapDataProviders,
+  createYahooDataProvider,
+  DataProviderRegistry,
+  getProviderConfig,
+  listCapabilityRoutes,
+  listProviderConfigs,
+  transitionProvider,
+  verifyYahooDataProvider,
+  yahooQuoteProviderFromRoute,
 } from "../trading";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
 import {
@@ -88,14 +96,14 @@ export interface ScreenerRunRequest {
   environment?: "TEST" | "PROD";
   /**
    * Issue #1007: data provider for this run (default "etrade"). The
-   * Yahoo provider quotes through the Yahoo data-source adapter; it
-   * never touches E*TRADE and never falls back to it.
+   * Yahoo provider quotes through the platform yahoo provider
+   * (#1317); it never touches E*TRADE and never falls back to it.
    */
   provider?: StockScreenProvider;
   /**
    * Issue #1007: test seam — an injected Yahoo quote fetcher for
    * provider "yahoo" runs (mirrors the pipeline's yahooDeps). Absent
-   * in production, where YahooFinanceProvider is constructed here.
+   * in production, where the platform yahoo provider is bound here.
    */
   yahooDeps?: import("../trading").YahooScreenerDeps;
 }
@@ -560,6 +568,47 @@ export class ScreenerAgent extends Agent<Env> {
           quoteTrace
         );
       }
+      // Issue #1317: Yahoo-provider runs acquire through the
+      // data-provider platform, mirroring the E2 etrade cutover:
+      // bootstrap this DO's platform store (seed + routes), verify
+      // + enable yahoo through the lifecycle API when it is not
+      // already enabled, resolve the quotes route's gap-fill
+      // assignment to the yahoo adapter, and bind the pipeline deps
+      // over it (batch via getQuotesBatch, per-symbol via getQuote
+      // — capture + outcome tracking ride along under the run id).
+      // A Yahoo-provider run never touches the broker (no
+      // ETradeService constructed) and never falls back to it. The
+      // req.yahooDeps seam stays as a test override.
+      let platformYahooDeps: ReturnType<typeof bindYahooScreenerDeps> | undefined;
+      if (provider === "yahoo" && !req.yahooDeps) {
+        bootstrapDataProviders(this.ctx.storage.sql);
+        platformRunId = crypto.randomUUID();
+        const yahooConfig = getProviderConfig(this.ctx.storage.sql, "yahoo");
+        if (!yahooConfig || yahooConfig.lifecycleState !== "enabled" || !yahooConfig.enabled) {
+          await transitionProvider(this.ctx.storage.sql, "yahoo", "verify", userLogin, {
+            verifier: async () => verifyYahooDataProvider(this.env),
+          });
+          await transitionProvider(this.ctx.storage.sql, "yahoo", "enable", userLogin, {});
+        }
+        const yahooRegistry = new DataProviderRegistry();
+        const yahooAdapter = createYahooDataProvider(new YahooFinanceProvider(this.env), this.env, {
+          capture: {
+            sql: this.ctx.storage.sql,
+            blobStorage: this.ctx.storage,
+            env: this.env,
+          },
+        });
+        yahooRegistry.register(yahooAdapter);
+        const yahooProvider = yahooQuoteProviderFromRoute(
+          yahooRegistry,
+          listProviderConfigs(this.ctx.storage.sql),
+          listCapabilityRoutes(this.ctx.storage.sql)
+        );
+        platformYahooDeps = bindYahooScreenerDeps(yahooProvider, {
+          runId: platformRunId,
+          userLogin,
+        });
+      }
       // Provider-scoped acquisition (#261, #1007). Symbols come from
       // the listings directory (membership, not market data) for both
       // providers; quotes come from the named provider or nothing.
@@ -570,7 +619,7 @@ export class ScreenerAgent extends Agent<Env> {
             maxSymbols: selectedSymbols.length,
             yahooDeps:
               req.yahooDeps ??
-              yahooDepsFromProvider(new YahooFinanceProvider(this.env)),
+              platformYahooDeps!,
           })
         : await acquireUniverse({
             mode: "etrade-only",
