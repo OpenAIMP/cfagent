@@ -946,6 +946,7 @@ The Risks and limitations section MUST state known test-coverage gaps for the ch
 [ ] Refactor and rerun tests
 [ ] Review diff and security implications
 [ ] Push and open PR with required authorization
+[ ] Agents must continue to work in parallel while CI/CD does its job — start the next independent issue (§20), never idle waiting for checks
 [ ] Resolve review and CI failures
 [ ] Synchronize or use merge queue as configured
 [ ] Obtain merge authorization
@@ -955,7 +956,7 @@ The Risks and limitations section MUST state known test-coverage gaps for the ch
 [ ] Confirm §18/§19 regression coverage (pins bite-proofed; detection covers the changed surface; fix + coverage where a defect was fixed)
 [ ] Update issue and completion evidence
 [ ] Synchronize local main
-[ ] Only now begin the next issue
+[ ] Only now begin the next dependent issue (independent issues already started in parallel under §20)
 ```
 
 ## 17. Post-merge verification discipline
