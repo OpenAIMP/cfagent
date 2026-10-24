@@ -51,7 +51,6 @@ const PINNED_STAR_REEXPORTS = [
   "./etrade/platform",
   "./alpaca/platform",
   "./optionsScreener",
-  "./yahooDataSource",
   "./yahooHistory",
   "./universes",
   "./screenerConfig",
