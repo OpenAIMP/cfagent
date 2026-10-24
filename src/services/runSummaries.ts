@@ -147,6 +147,16 @@ function xlsxUrlForSource(source: string, key: string): string | null {
   return null;
 }
 
+/** Issue #1346: mirrors xlsxUrlForSource for the stored CSV artifact. */
+function csvUrlForSource(source: string, key: string): string | null {
+  if (source === "screener") return `/api/screener/report.csv?key=${encodeURIComponent(key)}`;
+  if (source === "options_scanner" || source === "options_screen")
+    return `/api/options/report.csv?key=${encodeURIComponent(key)}`;
+  if (source === "goal_screen")
+    return `/api/screening/goal-screen/report.csv?key=${encodeURIComponent(key)}`;
+  return null;
+}
+
 function statusFromResultStatus(v: unknown): string | null {
   if (v === "complete") return "completed";
   if (v === "partial") return "partial";
@@ -202,9 +212,7 @@ export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
     csvKey: strOrNull(body?.csvKey) ?? strOrNull(body?.report?.result?.csvKey),
     csvUrl: (() => {
       const k = strOrNull(body?.csvKey) ?? strOrNull(body?.report?.result?.csvKey);
-      return k && hit.source === "goal_screen"
-        ? `/api/screening/goal-screen/report.csv?key=${encodeURIComponent(k)}`
-        : null;
+      return k ? csvUrlForSource(hit.source, k) : null;
     })(),
     pdfStatus:
       strOrNull(body?.pdfStatus) ??
@@ -304,8 +312,10 @@ export function runSummaryFromScreenerRun(run: ScreenerRunResult): RunSummary {
     xlsxUrl: run.xlsxKey
       ? `/api/screener/report.xlsx?key=${encodeURIComponent(run.xlsxKey)}`
       : null,
-    csvKey: null,
-    csvUrl: null,
+    csvKey: run.csvKey ?? null,
+    csvUrl: run.csvKey
+      ? `/api/screener/report.csv?key=${encodeURIComponent(run.csvKey)}`
+      : null,
     pdfStatus: run.pdfStatus ?? null,
     pdfError: run.pdfError ?? null,
     reportId: null,
