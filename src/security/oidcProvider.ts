@@ -13,8 +13,8 @@
  * - startLogin: redirect to the provider's authorization endpoint
  *   with client_id, redirect_uri, response_type=code, scope, and a
  *   server-side state (createState from ./session). The redirect
- *   URI is ${APP_BASE_URL || "https://agent.openaimp.com"}/auth/callback/<providerId>
- *   unless a redirectPathOverride replaces the path. A provider
+ *   URI is ${APP_BASE_URL || "https://agent.openaimp.com"}/auth/callback/<providerId>.
+ *   A provider
  *   with the credentials gate on (the default) fails start with an
  *   error page when its client id/secret env is missing — never a
  *   redirect to a flow that cannot complete.
@@ -46,16 +46,21 @@
  * GitHub deltas (#1254 PR-A), each an option, none speculative:
  * - protocol "oauth2" (profile fetch, no ID token);
  * - avatarField "avatar_url" (Google: "picture");
+ * - userinfoAccept "application/vnd.github+json" (Google: the
+ *   "application/json" default) — #1265: the factory's userinfo
+ *   fetch also sends a User-Agent ("ai-search-agent", the legacy
+ *   flow's value) for every provider, because GitHub's API 403s
+ *   requests without one; PR-A initially sent neither header and
+ *   wired GitHub login failed at the profile step in production;
  * - subjectField "id" (numeric, coerced by the normalizer),
  *   loginKeyField "login", no email-verified gate;
  * - includeResponseType false — GitHub's authorize request never
  *   carried response_type, and its redirect bytes are pinned;
- * - redirectPathOverride "/auth/callback" in PR-A (the legacy
- *   route stays the registered callback until the owner repoints
- *   the GitHub app registration; PR-B removes the override);
  * - requireConfiguredCredentials false — GitHub's credentials are
  *   required core Env config and its legacy start never gated on
  *   them; the exchange still fails closed upstream.
+ * (#1254 PR-B deleted the redirectPathOverride option with its
+ * only consumer, PR-A's legacy-callback bridge.)
  */
 import type { Env } from "../types";
 import type { LoginCallbackOptions, LoginProvider } from "./providers";
@@ -93,13 +98,15 @@ export interface OidcProviderOptions {
   loginKeyField: string;
   /** Userinfo field carrying the avatar URL. Default "picture"; GitHub uses "avatar_url". */
   avatarField?: string;
+  /**
+   * Accept header sent on the userinfo request. Default
+   * "application/json"; GitHub registers
+   * "application/vnd.github+json" — the versioned media type its
+   * legacy flow sent (#1265).
+   */
+  userinfoAccept?: string;
   /** When true, the userinfo email_verified flag must be true. */
   requireEmailVerified?: boolean;
-  /**
-   * Exact redirect path replacing /auth/callback/<providerId>
-   * (e.g. "/auth/callback" for GitHub during #1254 PR-A).
-   */
-  redirectPathOverride?: string;
   /** When false, the authorize request omits response_type (GitHub's legacy shape). Default true. */
   includeResponseType?: boolean;
   /**
@@ -118,7 +125,7 @@ function readEnvString(env: Env, key: string): string | undefined {
 
 function redirectUri(env: Env, options: OidcProviderOptions): string {
   const base = env.APP_BASE_URL || "https://agent.openaimp.com";
-  return `${base}${options.redirectPathOverride ?? `/auth/callback/${options.providerId}`}`;
+  return `${base}/auth/callback/${options.providerId}`;
 }
 
 function errorPage(message: string, status = 400): Response {
@@ -319,7 +326,15 @@ export function createOidcProvider(options: OidcProviderOptions): LoginProvider 
         throw err;
       }
       const profileResp = await fetch(options.userinfoEndpoint, {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: options.userinfoAccept ?? "application/json",
+          // GitHub's API rejects requests with no User-Agent (403),
+          // so every factory provider sends one (#1265). The value
+          // is the legacy GitHub flow's, kept for continuity; it is
+          // inert for providers that don't require it.
+          "User-Agent": "ai-search-agent",
+        },
       });
       if (!profileResp.ok) {
         throw new OidcAuthError(
