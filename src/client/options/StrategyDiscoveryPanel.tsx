@@ -2107,8 +2107,8 @@ export function StrategyDiscoveryPanel({
                           })),
                         });
                       }}
-                      title={`Evaluate ${strat.name} with AI / LLM`}
-                      aria-label={`Evaluate ${strat.name} with LLM`}
+                      title={`Evaluate ${strat.name} with AI Engine`}
+                      aria-label={`Evaluate ${strat.name} with AI`}
                     >
                       <span className="strat-icon">🧠</span>
                       <span className="strat-icon-tooltip">AI Eval</span>
@@ -2262,7 +2262,7 @@ export function StrategyDiscoveryPanel({
                   });
                 }}
               >
-                🧠 Evaluate with LLM
+                🧠 Evaluate with AI
               </button>
               <button
                 type="button"

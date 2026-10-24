@@ -510,12 +510,12 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
   },
   {
     id: "nlq",
-    label: "Database Explorer",
-    shortLabel: "Database",
+    label: "Records & Ledger Explorer",
+    shortLabel: "Records",
     category: "Playbooks",
-    badge: "ORM",
+    badge: "Ledger",
     icon: NavIcons.Database,
-    description: "Natural language SQLite query engine, schema inspector & table data browser",
+    description: "Natural language records analytics, enterprise schema inspector & data browser",
   },
 
   // Platform

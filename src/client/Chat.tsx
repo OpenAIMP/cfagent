@@ -1023,7 +1023,7 @@ export function Chat({ user }: { user: User }) {
                     : tab === "chat"
                     ? "Copilot Ideas"
                     : tab === "nlq"
-                    ? "Database NLQ"
+                    ? "Records NLQ"
                     : tab === "audit"
                     ? "Audit Vault"
                     : tab === "payments"
@@ -1267,9 +1267,9 @@ export function Chat({ user }: { user: User }) {
         {tab === "nlq" && (
           <div className="nlq-view">
             <div className="nlq-header">
-              <h3>📊 Natural Language Database Query Engine (SQLite ORM)</h3>
+              <h3>📊 Natural Language Records &amp; Audit Analytics</h3>
               <p>
-                Query relational SQLite tables, introspect database schema, retrieve table records, or add referral categories using natural language or direct ORM browsing.
+                Query business records, inspect enterprise data schemas, retrieve transaction records, and manage commercial categories with natural language or interactive record browsing.
               </p>
             </div>
 
@@ -1316,7 +1316,7 @@ export function Chat({ user }: { user: User }) {
             <form className="chat-input-bar nlq-bar" onSubmit={(event) => {
               event.preventDefault();
               if (nlqInput.trim()) {
-                setPendingPrompt({ prompt: nlqInput.trim(), sourceTab: "Database Explorer" });
+                setPendingPrompt({ prompt: nlqInput.trim(), sourceTab: "Records Explorer" });
                 setNlqInput("");
                 setTab("chat");
               }
@@ -1334,7 +1334,7 @@ export function Chat({ user }: { user: User }) {
 
             {/* Direct ORM Table Explorer Toolbar */}
             <div className="nlq-orm-toolbar">
-              <span className="orm-tag">⚡ DIRECT ORM EXPLORER:</span>
+              <span className="orm-tag">⚡ RECORD EXPLORER:</span>
               <select
                 value={selectedBrowseTable}
                 onChange={(e) => setSelectedBrowseTable(e.target.value)}
@@ -1363,7 +1363,7 @@ export function Chat({ user }: { user: User }) {
                 onClick={() => browseTable(selectedBrowseTable, browseSearch)}
                 loading={browsingLoading}
               >
-                {browsingLoading ? "Querying ORM…" : "🔍 Browse Records"}
+                {browsingLoading ? "Loading Records…" : "🔍 Browse Records"}
               </Button>
             </div>
 
@@ -1373,7 +1373,7 @@ export function Chat({ user }: { user: User }) {
                 <div className="browsed-card-header">
                   <div className="browsed-title">
                     <span>🗄️ Table Data: <strong>{browsedData.tableName}</strong></span>
-                    <span className="row-count-badge">{browsedData.total} Total Rows in SQLite ORM</span>
+                    <span className="row-count-badge">{browsedData.total} Total Records</span>
                   </div>
                   <button
                     type="button"
@@ -1457,7 +1457,7 @@ export function Chat({ user }: { user: User }) {
                             browseTable(tbl.tableName);
                           }}
                         >
-                          🔍 Browse Records (ORM) →
+                          🔍 Browse Records →
                         </button>
                       </div>
                     ))}
@@ -1567,7 +1567,7 @@ export function Chat({ user }: { user: User }) {
             <div className="audit-header">
               <div>
                 <h3>🛡️ System Audit & Memory Vault</h3>
-                <p>Live observability stream into router decisions, sub-agent executions, LLM Judge evaluations, and SQLite memory state.</p>
+                <p>Live observability stream into router decisions, sub-agent executions, AI decision evaluations, and firm memory state.</p>
               </div>
               <button className="refresh-btn" onClick={fetchAuditData} disabled={auditLoading}>
                 {auditLoading ? "Refreshing…" : "🔄 Refresh Data"}

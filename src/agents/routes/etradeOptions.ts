@@ -60,6 +60,9 @@ import {
   validateStrategyProfile,
   describeLlmInput,
   OptionsAgentPipeline,
+  OptionsDataAgent,
+  RecommendationAgent,
+  StrategyRiskAgent,
   TradingPlatformRegistry,
   type RiskProfile,
   type StrategyScreenFilter,
@@ -80,6 +83,7 @@ import type { DatabaseORM, SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
 import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
+import { RecommendationService } from "../../services/recommendationKernel";
 import { getSymbolEventCalendar, toEventCalendarInfo } from "../../services/eventCalendar";
 import {
   handleOptionsLatestRuns,
@@ -573,8 +577,32 @@ export async function handleEtradeOptionsRoutes(
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
-        const result = await pipeline.run(parsedDiscovery.value.request, {
+        // Consolidation C4 (#1329): the panel route runs through the
+        // Recommendation Kernel facade (panel configuration: D1 fit
+        // + research gates, same ranking agents). The response shape
+        // is unchanged — ranked / riskReports / bestTrade are computed
+        // via the same StrategyRiskAgent / RecommendationAgent over
+        // the kernel-passed candidates, and evaluations / nameLedger
+        // / excluded ride the facade's legacy mapping. /compare and
+        // /llm-ideas below are untouched.
+        const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
+        const result = await new RecommendationService().discoverPanel({
+          dataAgent: {
+            loadSnapshot: async (params: unknown) => {
+              const s = await dataAgent.loadSnapshot(params as StrategyRequest);
+              return {
+                symbol: s.symbol,
+                contracts: s.contracts,
+                dataSource: s.dataSource,
+                screen: s.screen,
+                rejections: s.rejections,
+                validationError: s.validationError,
+              };
+            },
+          },
+          riskAgent: new StrategyRiskAgent(),
+          recommender: new RecommendationAgent(),
+          request: parsedDiscovery.value.request,
           strategyFilter: parsedDiscovery.value.strategyFilter,
           riskProfile: parsedDiscovery.value.riskProfile,
           alternatives: parsedDiscovery.value.alternatives,
@@ -587,14 +615,14 @@ export async function handleEtradeOptionsRoutes(
           snapshotError: result.snapshot.validationError,
         };
         if (path.endsWith("/best-trade")) {
-          return Response.json({ bestTrade: result.bestTrade, evaluations: result.strategies.evaluations, nameLedger: result.strategies.nameLedger, ...common });
+          return Response.json({ bestTrade: result.bestTrade, evaluations: result.legacy?.evaluations, nameLedger: result.legacy?.nameLedger, ...common });
         }
         return Response.json({
           status: result.ranked.length > 0 ? "ranked_candidates" : "no_candidates",
           ranked: result.ranked,
           riskReports: result.riskReports,
           screenedOut: result.screenedOut.slice(0, 50),
-          excluded: result.strategies.excluded,
+          excluded: result.legacy?.excluded,
           ...common,
         });
       } catch (err) {

@@ -30,6 +30,9 @@
  *    `screener:<timestamp>` (the persistScreenerReportCanonical /
  *    scheduled-callback generation id) and its createdAt is the feed
  *    run's timestamp.
+ *  - discovery runs (consolidation C4, #1329): the canonical
+ *    discovery body's body.discoveryRunId (stamped by the discovery
+ *    store stage) equals the discovery store's run id.
  * A detail row with no canonical twin survives as its own row.
  */
 
@@ -85,6 +88,13 @@ export interface RunSummary {
    *  (the exact de-duplication join); a scan-store row carries its own
    *  id; every other row null. */
   scanRunId: string | null;
+  /** Consolidation C4 (#1329): the mas_discovery_runs run id this row
+   *  corresponds to, when known — the discovery twin of scanRunId. A
+   *  canonical discovery row carries the id its body links to
+   *  (body.discoveryRunId, stamped by the discovery store stage); a
+   *  discovery-store row carries its own id; every other row null.
+   *  Optional so pre-C4 literals still typecheck. */
+  discoveryRunId?: string | null;
   /** Display source: the mas_reports source for canonical rows;
    *  "options_scanner" / "discovery" / "screener" for detail-only rows. */
   source: string;
@@ -122,6 +132,10 @@ const KIND_BY_REPORT_SOURCE: Record<string, RunKind> = {
   screener: "screener",
   options_scanner: "options_scanner",
   options_screen: "options_scanner",
+  // Consolidation C4 (#1329): discovery runs store canonical reports
+  // now (source "discovery"), so their canonical rows map to kind
+  // "discovery" instead of falling through to "report".
+  discovery: "discovery",
 };
 
 function xlsxUrlForSource(source: string, key: string): string | null {
@@ -138,6 +152,13 @@ function statusFromResultStatus(v: unknown): string | null {
   if (v === "partial") return "partial";
   if (v === "failed") return "failed";
   return null;
+}
+
+/** The discovery-run id a canonical discovery body links to, if any —
+ *  the exact de-duplication join for the discovery store. */
+export function canonicalDiscoveryRunId(body: unknown): string | null {
+  const parsed = parseBody(body);
+  return strOrNull(parsed?.discoveryRunId);
 }
 
 export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
@@ -195,6 +216,7 @@ export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
       strOrNull(body?.result?.pdfError),
     reportId: hit.id,
     scanRunId: kind === "options_scanner" ? canonicalScanRunId(hit.body) : null,
+    discoveryRunId: kind === "discovery" ? canonicalDiscoveryRunId(hit.body) : null,
     source: hit.source,
   };
 }
@@ -255,6 +277,7 @@ export function runSummaryFromDiscoveryRun(run: DiscoveryRunSummary): RunSummary
     pdfError: null,
     reportId: null,
     scanRunId: null,
+    discoveryRunId: run.id,
     source: "discovery",
   };
 }
@@ -300,20 +323,27 @@ export function runSummaryFromScreenerRun(run: ScreenerRunResult): RunSummary {
 export function mergeRunSummaries(lists: RunSummary[][], limit: number): RunSummary[] {
   const canonicalScanIds = new Set<string>();
   const canonicalScreenerRunIds = new Set<string>();
+  // Consolidation C4 (#1329): the discovery twin of the scan join —
+  // canonical discovery rows link their detail run via
+  // body.discoveryRunId (see canonicalDiscoveryRunId).
+  const canonicalDiscoveryIds = new Set<string>();
   // Issue #1239 (#1209 F3): the detail-store twins a canonical row is
   // about to absorb, keyed by the same exact joins — the winner
   // inherits any PDF facts it lacks from the twin it drops.
   const scanTwins = new Map<string, RunSummary>();
   const screenerTwins = new Map<string, RunSummary>();
+  const discoveryTwins = new Map<string, RunSummary>();
   for (const list of lists) {
     for (const row of list) {
       if (row.reportId === null) {
         if (row.kind === "options_scanner") scanTwins.set(row.id, row);
         if (row.kind === "screener") screenerTwins.set(row.runId, row);
+        if (row.kind === "discovery" && row.discoveryRunId) discoveryTwins.set(row.discoveryRunId, row);
         continue;
       }
       if (row.kind === "options_scanner" && row.scanRunId) canonicalScanIds.add(row.scanRunId);
       if (row.kind === "screener") canonicalScreenerRunIds.add(row.runId);
+      if (row.kind === "discovery" && row.discoveryRunId) canonicalDiscoveryIds.add(row.discoveryRunId);
     }
   }
   const seen = new Set<string>();
@@ -326,6 +356,9 @@ export function mergeRunSummaries(lists: RunSummary[][], limit: number): RunSumm
       if (row.reportId === null && row.kind === "screener" && canonicalScreenerRunIds.has(row.runId)) {
         continue; // the canonical twin wins
       }
+      if (row.reportId === null && row.kind === "discovery" && row.discoveryRunId && canonicalDiscoveryIds.has(row.discoveryRunId)) {
+        continue; // the canonical twin wins
+      }
       const key = `${row.kind}:${row.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -334,7 +367,9 @@ export function mergeRunSummaries(lists: RunSummary[][], limit: number): RunSumm
           ? scanTwins.get(row.scanRunId)
           : row.kind === "screener"
             ? screenerTwins.get(row.runId)
-            : undefined;
+            : row.kind === "discovery" && row.discoveryRunId
+              ? discoveryTwins.get(row.discoveryRunId)
+              : undefined;
         if (twin) {
           // The status/error describe ONE artifact: they inherit only
           // when they belong to the winner's key — i.e. the key itself

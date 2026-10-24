@@ -215,6 +215,10 @@ export interface GoalScreenRunOutcome {
   executed: boolean;
   result?: GoalDrivenScreenResult;
   delivery?: ScreeningChannelResult[];
+  /** Consolidation C4 (#1329): the canonical mas_reports row id for
+   *  this run (the serve stage verifies it). Undefined when the run
+   *  was not executed or the store write was skipped. */
+  canonicalReportId?: string;
 }
 
 /**
@@ -260,7 +264,7 @@ export async function executeGoalScreenRun(input: {
     `Goal screen (${result.goalKind}/${result.outlook}) ${result.status}: ` +
     `${result.counts.hits} hit(s) from ${result.counts.stocksScanned} stocks + ` +
     `${result.counts.optionsUnderlyingsScanned} option underlyings.`;
-  input.orm.storeCanonicalReport({
+  const canonical = input.orm.storeCanonicalReport({
     runId: `goal-screen:${run.task.id}`,
     generationId: `goal-screen:${run.task.id}`,
     title: `Goal screen — ${result.goalKind} (${result.outlook})`,
@@ -329,6 +333,7 @@ export async function executeGoalScreenRun(input: {
     executed: true,
     result,
     ...(delivery ? { delivery } : {}),
+    ...(canonical?.reportId ? { canonicalReportId: canonical.reportId } : {}),
   };
 }
 

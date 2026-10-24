@@ -47,7 +47,7 @@ export const TAB_QUICK_PROMPTS: Record<string, Array<{ label: string; prompt: st
     { label: "⚠️ Beta & Downside", prompt: "Evaluate portfolio beta exposure, concentration risk, and downside protection." },
   ],
   ledger: [
-    { label: "📜 Order History", prompt: "Show recent executed trade orders from the SQLite mas_trades ledger." },
+    { label: "📜 Order History", prompt: "Show recent executed trade orders from the institutional order ledger." },
     { label: "🛡️ Attestation Proofs", prompt: "Verify cryptographic W3C DID attestations for recently filled trades." },
   ],
   screeners: [

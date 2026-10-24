@@ -277,6 +277,10 @@ export async function autonomousGoalScreen(ctx: ScheduledCallbacksContext, paylo
   emailTo?: string;
   slackChannel?: string;
   pushToSlack?: boolean;
+  /** Consolidation C4 (#1329): stage-chain config from the schedule
+   *  payload, forwarded to the service (spread into the service call
+   *  below) so a completed goal screen bridges generate + serve. */
+  stageChain?: import("../../types").StageChainConfig;
 }): Promise<void> {
   try {
     await ctx.waitUntilStable({ timeout: 30_000 });
