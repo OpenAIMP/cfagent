@@ -169,6 +169,7 @@ const EXPECTED_INVENTORY = [
   "handleDataProviderRoutes :: === \"/data-providers\"",
   "handleDataProviderRoutes :: === \"/data-providers/\"",
   "handleAutopilotRoutes :: endsWith(\"/autopilot\")",
+  "handleAutopilotRoutes :: endsWith(\"/autopilot/jobs\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/state\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/kill-switch\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/limits\")",

@@ -25,6 +25,7 @@ import {
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
 import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
+import { recordJobOutcome } from "../../services/jobOutcomes";
 import {
   cfpaySendEmail,
   cfpaySendEmailWithAttachments,
@@ -188,6 +189,10 @@ export async function executeOptionsScreen(args: {
   // recorded + chained through the pipeline instead of delivering
   // inline; the A2A block remains the fallback for hosts without it.
   const shouldNotifySlack = screenPushToSlack !== false && !deferDelivery;
+  // Issue #1333: delivery states for the inline outcome record below
+  // (the bridged path records through the job-tree hook instead).
+  let slackState: string | undefined;
+  let emailState: string | undefined;
   if (shouldNotifySlack && ctx.scheduleScreenerFollowups) {
     await ctx.scheduleScreenerFollowups(
       screenerOutcomeFromRunResult("options", {
@@ -229,6 +234,7 @@ export async function executeOptionsScreen(args: {
           files: [{ bytes: optionsCsvBytes, fileName: optionsCsvFileName, title: optionsCsvFileName }],
         } : {}),
       });
+      slackState = sent.ok ? "sent" : "failed";
       if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract PDF delivery failed:", sent.error);
     } catch (slackErr) {
       console.warn("[Orchestrator] Slack A2A options delivery error:", slackErr instanceof Error ? slackErr.message : String(slackErr));
@@ -264,6 +270,7 @@ export async function executeOptionsScreen(args: {
             ...(optionsXlsxBytes && optionsXlsxFileName ? { xlsx: { bytes: optionsXlsxBytes, fileName: optionsXlsxFileName } } : {}),
           },
         );
+        emailState = sent.sent ? "sent" : "failed";
         if (!sent.sent) console.warn("[Orchestrator] Manual options email delivery failed for", emailTo);
       } catch (emailErr) {
         console.warn("[Orchestrator] Manual options email error:", emailErr instanceof Error ? emailErr.message : String(emailErr));
@@ -282,6 +289,35 @@ export async function executeOptionsScreen(args: {
     body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl, csvKey: optionsCsvKey, csvUrl: optionsCsvUrl },
     createdAt: generatedAt,
   });
+
+  // Issue #1333: the inline manual-options outcome — recorded here
+  // ONLY when the bridge did not take the run (bridged runs record
+  // through the job-tree hook; recording both would double the feed).
+  // Never throws: a sink failure must not fail the run.
+  if (!(shouldNotifySlack && ctx.scheduleScreenerFollowups)) {
+    try {
+      recordJobOutcome(ctx.ensureTables(), {
+        id: `options-manual:${generationId}`,
+        kind: "options",
+        trigger: "manual",
+        status: "completed",
+        scanned: result.totalUnderlyingsScanned,
+        matched: result.matchedCount,
+        reportUrl: optionsReportUrl,
+        pdfKey: optionsPdfKey,
+        xlsxKey: optionsXlsxKey,
+        csvKey: optionsCsvKey,
+        deliveryStates: {
+          ...(slackState ? { slack: slackState } : {}),
+          ...(emailState ? { email: emailState } : {}),
+        },
+        origin: "manual-options-inline",
+        createdAt: generatedAt,
+      });
+    } catch (outcomeErr) {
+      console.warn("[Orchestrator] Manual options outcome record failed:", outcomeErr instanceof Error ? outcomeErr.message : String(outcomeErr));
+    }
+  }
 
   return Response.json({ ...result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl, csvKey: optionsCsvKey, csvUrl: optionsCsvUrl });
 }
