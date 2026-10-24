@@ -379,6 +379,10 @@ export class ScheduledTasksService {
     /** Issue #1007: data provider (default "etrade"); "yahoo" runs the
      *  same pipeline over the Yahoo data-source adapter. */
     provider?: import("../trading").StockScreenProvider;
+    /** Consolidation C3 (#1277): stage-chain config from the schedule
+     *  payload — carried onto the run's events so the follow-up
+     *  bridge stamps the run's stage jobs. */
+    stageChain?: import("../types").StageChainConfig;
   } = {}): Promise<ScheduledTaskResult<{
     totalScanned: number;
     matchedCount: number;
@@ -483,6 +487,7 @@ export class ScheduledTasksService {
         matchedCount: result.matchedCount,
         opportunities: result.opportunities,
         filterSummary: result.filterSummary,
+        stageChain: options.stageChain,
         emailTo: options.emailTo,
         slackChannel: options.slackChannel,
         webhookUrl: options.webhookUrl,
@@ -553,6 +558,7 @@ export class ScheduledTasksService {
         deliveryId: `${options.trigger || "scheduled"}:${options.universe || "TECH"}:${timestamp.slice(0, 16)}`,
         sector: options.sector || "ALL",
         error: err.message || "Market screener execution error",
+        stageChain: options.stageChain,
         emailTo: options.emailTo,
         slackChannel: options.slackChannel,
         webhookUrl: options.webhookUrl,

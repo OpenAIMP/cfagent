@@ -44,6 +44,7 @@ export const SCREENING_ACTIVITY_KIND_LABELS: Record<string, string> = {
   promotion: "Promotion",
   delivery: "Channel delivery",
   schedule_control: "Schedule control",
+  stage: "Pipeline stage",
 };
 
 interface ScreeningActivityPanelProps {

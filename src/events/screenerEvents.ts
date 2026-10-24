@@ -71,6 +71,10 @@ export interface ScreenerCompletedEvent {
   slackChannel?: string;
   /** Outbound webhook endpoint. */
   webhookUrl?: string;
+  /** Consolidation C3 (#1277): the schedule record's stage-chain
+   *  config, carried so the follow-up bridge can stamp the run's
+   *  stage jobs. Absent = the fused immediate chain. */
+  stageChain?: import("../types").StageChainConfig;
 }
 
 export interface ScreenerFailedEvent {
@@ -84,6 +88,9 @@ export interface ScreenerFailedEvent {
   emailTo?: string;
   slackChannel?: string;
   webhookUrl?: string;
+  /** Consolidation C3 (#1277): stage-chain config, as on the
+   *  completed event. */
+  stageChain?: import("../types").StageChainConfig;
 }
 
 /** One options opportunity as carried on the bus: a summary, not the full row. */

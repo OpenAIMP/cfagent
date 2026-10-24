@@ -32,6 +32,10 @@ export const SCREENING_ACTIVITY_TABLE = "mas_screening_activity";
 export type ScreeningActivityKind =
   | "discovery_run"
   | "screen_run"
+  /** Consolidation C3 (#1277): one entry per stage-chain stage
+   *  transition (stage completed / failed / skipped / held, with
+   *  the reason in the summary + detail). */
+  | "stage"
   | "goal_decision"
   | "reselection"
   | "weights_adjustment"

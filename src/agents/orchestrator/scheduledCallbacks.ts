@@ -109,6 +109,10 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
   filters?: import("../../types").StockScreenerFilter;
   /** Issue #1007: data provider for the scheduled run (default "etrade"). */
   provider?: import("../../trading").StockScreenProvider;
+  /** Consolidation C3 (#1277): stage-chain config from the schedule
+   *  payload, forwarded to the service so the run's stage jobs are
+   *  stamped at the follow-up bridge. */
+  stageChain?: import("../../types").StageChainConfig;
 }): Promise<void> {
   try {
     await ctx.waitUntilStable({ timeout: 30_000 });
