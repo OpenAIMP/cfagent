@@ -1133,7 +1133,12 @@ export class ScheduledTasksService {
           "options screen"
         );
         if (guard.blocked) {
-          return { success: false, taskType: "options_analysis", error: guard.error, timestamp };
+          // Issue #1358: a blocked run is a failure, not a quiet
+          // return — throw so the catch below runs the full failure
+          // path (audit + session message + Slack notice + bus
+          // event). The episode alert itself stays deduped inside
+          // the guard; the per-run notice here is never deduped.
+          throw new Error(guard.error);
         }
       }
       if (options.trigger === "scheduled") {
@@ -1581,7 +1586,7 @@ export class ScheduledTasksService {
             id: crypto.randomUUID(),
             sessionId: this.userLogin,
             role: "assistant",
-            content: `⚠️ Scheduled Options Intelligence failed for ${symbols.join(", ")}: ${err.message || "Scheduled options analysis failed"}`,
+            content: `⚠️ Scheduled Options Intelligence failed for ${symbols.join(", ") || options.universe || "NASDAQ100"}: ${err.message || "Scheduled options analysis failed"}`,
             agent: "orchestrator",
             createdAt: timestamp,
           });
