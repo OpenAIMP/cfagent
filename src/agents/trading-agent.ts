@@ -34,6 +34,7 @@
 
 import { Think } from "@cloudflare/think";
 import { tool, type ToolSet } from "ai";
+import { getServiceUserLogin } from "../security/serviceIdentity";
 import { z } from "zod";
 import { resolveAiModelName } from "./model";
 import type { Env } from "../types";
@@ -364,8 +365,8 @@ export function liveTradingServices(config: TradingAgentConfig): TradingServiceD
 export function resolveTradingPlatform(
   env: Env,
   config: TradingAgentConfig,
-  providerId?: string,
-  userLogin = "default_trader",
+  providerId: string | undefined,
+  userLogin: string,
 ): ITradingPlatform {
   const provider = (providerId ?? config.defaultProvider).toLowerCase();
   if (!config.enabledProviders.includes(provider)) {
@@ -373,6 +374,14 @@ export function resolveTradingPlatform(
       "provider_not_enabled",
       `Provider "${provider}" is not enabled for the TradingAgent ` +
         `(enabled: ${config.enabledProviders.join(", ") || "none"}).`,
+    );
+  }
+  // Issue #1185: the platform is per-user — an explicit login is
+  // required; there is no default identity to resolve under.
+  if (!userLogin) {
+    throw new TradingServiceError(
+      "invalid_input",
+      "resolveTradingPlatform requires an explicit userLogin.",
     );
   }
   const registered = TradingPlatformRegistry.getRegisteredPlatforms() as string[];
@@ -394,6 +403,13 @@ export function resolveTradingPlatform(
 export interface TradingServiceCall {
   serviceId: string;
   input?: Record<string, unknown>;
+  /**
+   * The caller's login, threaded by the door (issue #1185): the
+   * TradingAgent DO passes its own instance-derived login; external
+   * dispatchers pass the authenticated session login. `input.userLogin`
+   * takes precedence. Without either, execution fails closed.
+   */
+  userLogin?: string;
   /** Which door the call came through ("tool" | "a2a" | "rpc") — logging only. */
   door?: string;
   /** Correlation id for the dispatch log; generated when absent. */
@@ -443,10 +459,21 @@ export async function executeTradingService(
       );
     }
     const input = service.inputSchema.parse(call.input ?? {});
+    // Issue #1185: services execute under an explicit login — the
+    // input's, or the door-threaded caller's (call.userLogin). A missing
+    // one fails closed instead of resolving to a synthetic user.
     const userLogin =
       typeof input.userLogin === "string" && input.userLogin.length > 0
         ? input.userLogin
-        : "default_trader";
+        : typeof call.userLogin === "string" && call.userLogin.length > 0
+          ? call.userLogin
+          : null;
+    if (!userLogin) {
+      throw new TradingServiceError(
+        "invalid_input",
+        `Trading service "${service.id}" requires an explicit userLogin.`,
+      );
+    }
     const ctx: TradingServiceContext = {
       env,
       config,
@@ -472,7 +499,7 @@ export async function executeTradingService(
 // Door 1: Think tools (agent-as-a-tool), generated from the registry
 // ---------------------------------------------------------------------------
 
-export function buildTradingTools(env: Env, config: TradingAgentConfig): ToolSet {
+export function buildTradingTools(env: Env, config: TradingAgentConfig, userLogin?: string): ToolSet {
   const tools: ToolSet = {};
   for (const service of liveTradingServices(config)) {
     tools[service.toolName] = tool({
@@ -483,6 +510,7 @@ export function buildTradingTools(env: Env, config: TradingAgentConfig): ToolSet
           const result = await executeTradingService(env, config, {
             serviceId: service.id,
             input,
+            userLogin,
             door: "tool",
           });
           return JSON.stringify({ ok: true, service: service.id, result });
@@ -541,6 +569,7 @@ export async function dispatchTradingA2A(
   env: Env,
   config: TradingAgentConfig,
   body: unknown,
+  userLogin?: string,
 ): Promise<A2ADataResult> {
   const correlationId = crypto.randomUUID();
   const extracted = extractA2AOperation(body);
@@ -566,6 +595,7 @@ export async function dispatchTradingA2A(
     const result = await executeTradingService(env, config, {
       serviceId: service.id,
       input: extracted.args,
+      userLogin,
       door: "a2a",
       traceId: correlationId,
     });
@@ -690,11 +720,19 @@ export async function settleTradingOrder(
         `settleTradingOrder decision must be "approved" or "rejected".`,
       );
     }
+    // Issue #1185: settling an order acts on a specific user's platform —
+    // the login is required, never defaulted.
+    if (!input.userLogin) {
+      throw new TradingServiceError(
+        "invalid_input",
+        "settleTradingOrder requires an explicit userLogin.",
+      );
+    }
     const platform = resolveTradingPlatform(
       env,
       config,
       input.provider,
-      input.userLogin ?? "default_trader",
+      input.userLogin,
     );
     if (typeof platform.executeOrder !== "function") {
       throw new TradingServiceError(
@@ -754,12 +792,16 @@ export class TradingAgent extends Think<Env> {
   }
 
   getTools(): ToolSet {
-    return buildTradingTools(this.env, this.config());
+    return buildTradingTools(this.env, this.config(), this.instanceUserLogin() ?? undefined);
   }
 
   /** Door 3: typed RPC for in-process callers. */
   async executeService(call: TradingServiceCall): Promise<unknown> {
-    return executeTradingService(this.env, this.config(), { ...call, door: "rpc" });
+    return executeTradingService(this.env, this.config(), {
+      ...call,
+      userLogin: call.userLogin ?? this.instanceUserLogin() ?? undefined,
+      door: "rpc",
+    });
   }
 
   // -- Read surface (#291 T5a) ---------------------------------------------
@@ -770,12 +812,29 @@ export class TradingAgent extends Think<Env> {
   // positions read here is the broker's live view; the caller's
   // ORM-merged view stays caller-side by design (see #291 T5 note).
 
+  /**
+   * This instance's user login (issue #1185): "trading:<login>"
+   * instances encode their owner; the bare "trading" instance is the
+   * configured service identity. Null when the bare instance has no
+   * service identity configured — reads then fail closed.
+   */
+  private instanceUserLogin(): string | null {
+    return tradingAgentUserLogin(this.name ?? "trading", getServiceUserLogin(this.env));
+  }
+
   private readPlatform(provider?: string): ITradingPlatform {
+    const userLogin = this.instanceUserLogin();
+    if (!userLogin) {
+      throw new TradingServiceError(
+        "invalid_input",
+        "This TradingAgent instance has no user identity (the shared instance requires SERVICE_USER_LOGIN to be configured).",
+      );
+    }
     return resolveTradingPlatform(
       this.env,
       this.config(),
       provider,
-      tradingAgentUserLogin(this.name ?? "trading"),
+      userLogin,
     );
   }
 
@@ -857,7 +916,15 @@ export class TradingAgent extends Think<Env> {
     authorizerDid: string;
     decision: "approved" | "rejected";
   }): Promise<unknown> {
-    return settleTradingOrder(this.env, this.config(), input, "rpc-approval");
+    // Issue #1185: settle under the caller's explicit login or this
+    // instance's own owner login — settleTradingOrder fails closed
+    // when neither exists.
+    return settleTradingOrder(
+      this.env,
+      this.config(),
+      { ...input, userLogin: input.userLogin ?? this.instanceUserLogin() ?? undefined },
+      "rpc-approval",
+    );
   }
 
   /**
@@ -881,10 +948,20 @@ export class TradingAgent extends Think<Env> {
         "The trade approval workflow is not configured (TRADE_WORKFLOW binding missing).",
       );
     }
+    // Issue #1185: the approval workflow runs under the order owner's
+    // login — the caller's explicit login, or this instance's own
+    // (the instance name encodes its owner). Absent both, fail closed.
+    const ownerLogin = input.userLogin ?? this.instanceUserLogin() ?? undefined;
+    if (!ownerLogin) {
+      throw new TradingServiceError(
+        "invalid_input",
+        "startTradeApproval requires an explicit userLogin.",
+      );
+    }
     const params: TradeApprovalParams = {
       orderId: input.orderId,
       provider: input.provider,
-      userLogin: input.userLogin ?? "default_trader",
+      userLogin: ownerLogin,
     };
     const workflowId = await this.runWorkflow(TRADE_WORKFLOW_BINDING, params);
     return { workflowId, orderId: input.orderId, status: "awaiting_approval" };
@@ -935,27 +1012,37 @@ export class TradingAgent extends Think<Env> {
    */
   async handleA2A(body: unknown, origin: string): Promise<TradingA2AOutcome> {
     void origin; // reserved for per-origin policy (cfpay parity); unused in v1
-    const data = await dispatchTradingA2A(this.env, this.config(), body);
+    const data = await dispatchTradingA2A(this.env, this.config(), body, this.instanceUserLogin() ?? undefined);
     return tradingA2AOutcome(data);
   }
 }
 
 /**
- * The one instance-name scheme, shared by every door: the default user's
- * instance is "trading" — the same name the A2A dispatcher resolves from
- * the URL — and other users get "trading:<login>". (Before the #291 A2
- * fix, the RPC helper used "default"/"trading:<login>" while A2A used
- * "trading", forking state per door.)
+ * The one instance-name scheme, shared by every door: the SERVICE
+ * identity's instance is the bare "trading" — the same name the A2A
+ * dispatcher resolves from the URL — and other users get
+ * "trading:<login>". (Before the #291 A2 fix, the RPC helper used
+ * "default"/"trading:<login>" while A2A used "trading", forking state
+ * per door.) Issue #1185: the bare name belongs to the configured
+ * service identity (getServiceUserLogin) — the only login that maps to
+ * it — so the live state behind it is never orphaned and no other
+ * login inherits it.
  */
-export function tradingAgentName(userLogin: string): string {
-  return userLogin === "default_trader" ? "trading" : `trading:${userLogin}`;
+export function tradingAgentName(userLogin: string, serviceUserLogin?: string | null): string {
+  return serviceUserLogin && userLogin === serviceUserLogin
+    ? "trading"
+    : `trading:${userLogin}`;
 }
 
-/** Inverse of tradingAgentName: the user login an instance name encodes. */
-export function tradingAgentUserLogin(instanceName: string): string {
+/**
+ * Inverse of tradingAgentName: the user login an instance name
+ * encodes. The bare "trading" instance encodes the service identity —
+ * null when none is configured (callers fail closed).
+ */
+export function tradingAgentUserLogin(instanceName: string, serviceUserLogin?: string | null): string | null {
   return instanceName.startsWith("trading:")
     ? instanceName.slice("trading:".length)
-    : "default_trader";
+    : (serviceUserLogin ?? null);
 }
 
 /**
@@ -966,5 +1053,5 @@ export function tradingAgentUserLogin(instanceName: string): string {
 export function getTradingAgentStub(env: Env, userLogin: string): any | null {
   const ns = (env as any).TRADING_AGENT;
   if (!ns) return null;
-  return ns.get(ns.idFromName(tradingAgentName(userLogin)));
+  return ns.get(ns.idFromName(tradingAgentName(userLogin, getServiceUserLogin(env))));
 }

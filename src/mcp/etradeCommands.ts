@@ -54,7 +54,7 @@ export class ETradeMarketScanCommand implements IMcpToolCommand<{
   });
 
   async execute(input: any, context: McpToolContext) {
-    const etrade = new ETradeService(context.orm, context.env);
+    const etrade = new ETradeService(context.orm, context.env, context.sessionId);
     const result = await etrade.screenMarketsAsync(input);
 
     context.audit("etrade.market_scanned", "trading", {
@@ -90,7 +90,10 @@ export class ETradeGetQuoteCommand implements IMcpToolCommand<{ symbol: string }
     // #291 Q4: registry-resolved platform + the LIVE_STRICT policy — the
     // semantics getQuoteAsync enforced (live failure propagates to the
     // MCP framework exactly as before; no user override existed here).
-    const platform = TradingPlatformRegistry.getPlatform("etrade", context.env, context.orm, "default_trader");
+    // Issue #1185: post-#180 the MCP context is bound to a per-user API
+    // key / app session, and context.sessionId IS that caller's login
+    // (the sibling commands use it directly) — no synthetic default.
+    const platform = TradingPlatformRegistry.getPlatform("etrade", context.env, context.orm, context.sessionId);
     const quote = await fetchQuoteLiveStrict(platform, symbol, {
       isLive: resolveEnvironmentConfig(context.env).isLive,
     });
@@ -140,7 +143,7 @@ export class ETradePreviewOrderCommand implements IMcpToolCommand<{
   });
 
   async execute(input: any, context: McpToolContext) {
-    const etrade = new ETradeService(context.orm, context.env);
+    const etrade = new ETradeService(context.orm, context.env, context.sessionId);
     const draft = etrade.previewOrder({
       symbol: input.symbol,
       action: input.action || input.orderAction,
@@ -209,7 +212,7 @@ export class ETradeExecuteOrderCommand implements IMcpToolCommand<{
 
   async execute(input: { orderId: string; decision: "approved" | "rejected"; note?: string }, context: McpToolContext) {
     const { orderId, decision, note } = input;
-    const etrade = new ETradeService(context.orm, context.env);
+    const etrade = new ETradeService(context.orm, context.env, context.sessionId);
     const result = etrade.executeOrder(orderId, context.sessionId, decision);
 
     context.audit(decision === "approved" ? "etrade.order_executed" : "etrade.order_rejected", "trading", {
@@ -237,7 +240,7 @@ export class ETradeGetPositionsCommand implements IMcpToolCommand<{}> {
   readonly zodSchema = z.object({});
 
   async execute(_input: any, context: McpToolContext) {
-    const etrade = new ETradeService(context.orm, context.env);
+    const etrade = new ETradeService(context.orm, context.env, context.sessionId);
     const { account, positions } = await etrade.fetchPortfolioRemote();
     const accounts = await etrade.fetchAccountsRemote();
 
