@@ -252,6 +252,28 @@ Large work ships as phases, not as one PR. The structure is:
 
 ***
 
+### Architecture decision records (issue #1309)
+
+Architecture decisions live in `docs/architecture/adr/` as ADRs, not
+only in issue comments (which bury the reasoning). A PR MUST create or
+update an ADR when it:
+
+- makes a decision that is hard to reverse or cross-cutting (identity
+  derivation, provider/framework choice, tier/pricing model, pipeline
+  shape, security boundary), or
+- overturns a decision recorded in an existing ADR.
+
+Routine slices, bug fixes, docs-only conforming edits, and
+configuration changes do not need an ADR. Each ADR is one file,
+`NNNN-short-title.md`, with: Status (proposed → accepted →
+superseded/deprecated), Context, Decision, Consequences, and
+Alternatives considered. ADRs are never deleted or rewritten: a changed
+decision gets a new ADR that supersedes the old one, and the old ADR's
+Status is updated to superseded with a pointer. The issue that makes
+the decision references the ADR, and the ADR references the issue and
+the implementing PR. `docs/architecture/adr/README.md` is the index and
+the template.
+
 ## 6. Branching and synchronization
 
 ### Branch naming
@@ -1190,6 +1212,29 @@ workflow (`.github/workflows/auto-merge-trusted.yml`):
   cannot be written via API (403 workflow scope): the workflow is
   installed by the owner via the web UI on a branch + PR, never direct
   to main.
+
+### Auto-merge-safe PRs (issue #1307 extension)
+
+Beyond the label, one class of PR auto-merges without any label: the
+safe PR. A PR is auto-merge-safe iff ALL hold:
+
+- Every changed file is documentation: path ends with `.md` and none
+  is under `public/` (whose HTML is served as assets). Docs-only PRs
+  cannot change runtime behavior, so they are safe to merge as soon as
+  required checks pass.
+- Base branch is `main`, the PR is not a draft, and no conversation is
+  unresolved (GitHub enforces the last two at merge time regardless).
+- It is NOT safe if any file is a workflow, production config
+  (`wrangler.jsonc`), a pinned security module, a migration/schema, or
+  a production activation (flag flip, provider enablement) — those need
+  the label path (deliberate opt-in) or manual merge, never silent
+  auto-merge.
+
+The workflow enables auto-merge for safe PRs on the same rebase-only
+terms as labeled PRs; GitHub still merges only when every requirement
+passes. Test-only, dependency, and config PRs are NOT safe by default
+— promote a class to safe only by amending this list, never by
+assuming it.
 
 ***
 
