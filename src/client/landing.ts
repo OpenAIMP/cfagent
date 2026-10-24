@@ -1,62 +1,1690 @@
 import { generatedThemeTokens } from "./designTokens";
-const capabilities: Array<{ icon: string; title: string; body: string }> = [
-  { icon: "📈", title: "Market screening", body: "Screen stocks and options chains on demand from E*TRADE and Yahoo Finance data, with filters for price, market cap, liquidity, spreads and quote freshness." },
-  { icon: "🧠", title: "Natural-language research", body: "Ask in plain English, for example “list all strategies evaluated for NVDA bullish target $260”. The question is translated into a visible, editable set of parameters." },
-  { icon: "🧮", title: "Quant strategy engine", body: "A deterministic engine builds and scores 60+ options strategies (calls, spreads, condors, straddles, calendars and more) with payoff curves, Greeks, break-evens and probability of profit." },
-  { icon: "⚖️", title: "Quant vs LLM comparison", body: "Give the same option data to an LLM and compare its rankings and rationale side by side with the quant scores. The LLM can only choose from validated candidates." },
-  { icon: "⚡", title: "Fast order ticket & preview", body: "Turn a recommendation into a signed order preview in one click. Every order requires explicit human approval and is stamped with an auditable identity." },
-  { icon: "🗂️", title: "Portfolio & ledger", body: "Track positions, drafts and executions with a full audit trail of who proposed, approved or rejected each order." },
-  { icon: "📤", title: "Export & share", body: "Download results as .xlsx, or send them by email, Slack, voice or signed webhooks. Every channel gives the same answers as the web app." },
-  { icon: "🔌", title: "API & MCP endpoints", body: "Integrate the same capabilities into your own tools through documented API and Model Context Protocol endpoints." },
-];
-
-const steps = ["Scan the market", "Research options", "Rank & compare strategies", "Preview an order", "Approve & track"];
 
 export function renderLandingPage(appName?: string): string {
-  const t = generatedThemeTokens.dark;
-  const name = appName || "Agentic Trading";
-  const cards = capabilities.map((c) => `<article class="cap"><div class="ic">${c.icon}</div><h3>${c.title}</h3><p>${c.body}</p></article>`).join("");
-  const flow = steps.map((s, i) => `<li><b>${i + 1}</b>${s}</li>`).join("");
+  const name = appName || "AlgoNexus";
+  const darkTokens = Object.entries(generatedThemeTokens.dark)
+    .map(([k, v]) => `  ${k}: ${v};`)
+    .join("\n");
+  const lightTokens = Object.entries(generatedThemeTokens.light)
+    .map(([k, v]) => `  ${k}: ${v};`)
+    .join("\n");
+  const hcTokens = Object.entries(generatedThemeTokens["high-contrast"])
+    .map(([k, v]) => `  ${k}: ${v};`)
+    .join("\n");
+
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${name} — Agentic analysis &amp; trading</title>
+  <title>${name} — Institutional Autonomous Trading &amp; Deterministic Risk Gates</title>
+  <meta name="description" content="Deploy self-driving trading strategies across US equities, index options, and futures. Guaranteed pre-trade risk policy enforcement and W3C Agent DID audit ledgers.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+      --radius-sm: 0.375rem;
+      --radius-md: 0.5rem;
+      --radius-lg: 0.75rem;
+      --radius-xl: 1rem;
+      --radius-2xl: 1.25rem;
+      --radius-full: 9999px;
+      --transition-normal: 180ms cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-slow: 280ms cubic-bezier(0.4, 0, 0.2, 1);
+      --backdrop-blur-md: blur(12px);
+      --backdrop-blur-lg: blur(20px);
+    }
+    :root, [data-theme="dark"] {
+${darkTokens}
+    }
+    [data-theme="light"] {
+${lightTokens}
+    }
+    [data-theme="high-contrast"] {
+${hcTokens}
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: radial-gradient(circle at 50% 0%, ${t["--color-surface-raised"]} 0%, ${t["--color-surface"]} 55%, ${t["--color-surface-sunken"]} 100%); color: ${t["--color-text-primary"]}; line-height: 1.6; }
-    header.hero { text-align: center; padding: 4rem 1.5rem 2rem; max-width: 820px; margin: 0 auto; }
-    h1 { font-size: 2.4rem; letter-spacing: -0.02em; margin-bottom: .75rem; }
-    .hero p { color: ${t["--color-text-muted"]}; font-size: 1.05rem; margin-bottom: 1.75rem; }
-    .btn { display: inline-block; background: ${t["--color-text-primary"]}; color: ${t["--color-text-inverse"]}; font-weight: 600; text-decoration: none; padding: .8rem 1.8rem; border-radius: 12px; }
-    main { max-width: 1100px; margin: 0 auto; padding: 1rem 1.5rem 3rem; }
-    h2 { margin: 2rem 0 1rem; font-size: 1.3rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
-    .cap { background: ${t["--color-card"]}; border: 1px solid ${t["--color-border-subtle"]}; border-radius: 14px; padding: 1.25rem; }
-    .cap .ic { font-size: 1.6rem; } .cap h3 { margin: .4rem 0; font-size: 1.05rem; } .cap p { color: ${t["--color-text-muted"]}; font-size: .9rem; }
-    ol.flow { list-style: none; display: flex; flex-wrap: wrap; gap: .75rem; }
-    ol.flow li { background: ${t["--color-accent-subtle"]}; border: 1px solid ${t["--color-accent-border"]}; border-radius: 999px; padding: .4rem 1rem; font-size: .9rem; }
-    ol.flow b { margin-right: .5rem; color: ${t["--color-accent"]}; }
-    .safety { background: ${t["--color-success-subtle"]}; border: 1px solid ${t["--color-success-border"]}; border-radius: 14px; padding: 1rem 1.25rem; color: ${t["--color-text-secondary"]}; font-size: .92rem; }
-    footer { text-align: center; padding: 2rem 1rem 3rem; color: ${t["--color-text-dim"]}; font-size: .8rem; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--color-surface);
+      color: var(--color-text-primary);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Grid overlay background */
+    .bg-grid-pattern {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 980px;
+      background-image: 
+        linear-gradient(to right, var(--color-border-subtle) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--color-border-subtle) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, var(--color-surface) 30%, transparent 80%);
+      -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, var(--color-surface) 30%, transparent 80%);
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.55;
+    }
+
+    .spotlight-radial {
+      position: absolute;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 600px;
+      background: radial-gradient(circle, var(--color-accent-subtle) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.6;
+    }
+
+    /* Top Announcement Bar */
+    .announcement-bar {
+      position: relative;
+      z-index: 20;
+      background: var(--color-surface-sunken);
+      border-bottom: 1px solid var(--color-border-subtle);
+      padding: 0.5rem 1rem;
+      text-align: center;
+      font-size: 0.8125rem;
+      color: var(--color-text-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .announcement-pill {
+      background: var(--color-accent-subtle);
+      border: 1px solid var(--color-accent-border);
+      color: var(--color-accent);
+      padding: 0.15rem 0.5rem;
+      border-radius: var(--radius-full);
+      font-weight: 600;
+      font-size: 0.725rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .announcement-link {
+      color: var(--color-accent);
+      text-decoration: none;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .announcement-link:hover { text-decoration: underline; }
+
+    /* Main Navigation */
+    .main-nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: var(--backdrop-blur-lg);
+      -webkit-backdrop-filter: var(--backdrop-blur-lg);
+      background: var(--color-surface-glass);
+      border-bottom: 1px solid var(--color-surface-glass-border);
+      transition: background var(--transition-normal);
+    }
+    .nav-container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0.85rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: var(--color-text-primary);
+    }
+    .brand-logo-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-contrast) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px var(--color-accent-subtle);
+    }
+    .brand-name {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .brand-badge {
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 0.1rem 0.35rem;
+      background: var(--color-surface-raised);
+      border: 1px solid var(--color-border-subtle);
+      color: var(--color-text-muted);
+      border-radius: var(--radius-sm);
+      letter-spacing: 0.05em;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      list-style: none;
+    }
+    .nav-links a {
+      color: var(--color-text-secondary);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: color var(--transition-normal);
+    }
+    .nav-links a:hover { color: var(--color-text-primary); }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .search-trigger-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--color-surface-raised);
+      border: 1px solid var(--color-border-subtle);
+      color: var(--color-text-muted);
+      padding: 0.45rem 0.8rem;
+      border-radius: var(--radius-md);
+      font-size: 0.8125rem;
+      cursor: pointer;
+      transition: all var(--transition-normal);
+    }
+    .search-trigger-btn:hover {
+      border-color: var(--color-border-focus);
+      color: var(--color-text-primary);
+    }
+    .kbd-shortcut {
+      background: var(--color-surface-sunken);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-xs);
+      padding: 0.1rem 0.35rem;
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+    }
+    .theme-toggle-btn {
+      background: var(--color-surface-raised);
+      border: 1px solid var(--color-border-subtle);
+      color: var(--color-text-secondary);
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: all var(--transition-normal);
+    }
+    .theme-toggle-btn:hover {
+      color: var(--color-text-primary);
+      border-color: var(--color-border-focus);
+    }
+    .btn-nav-login {
+      color: var(--color-text-secondary);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      padding: 0.45rem 0.85rem;
+      transition: color var(--transition-normal);
+    }
+    .btn-nav-login:hover { color: var(--color-text-primary); }
+    .btn-nav-cta {
+      background: var(--color-text-primary);
+      color: var(--color-text-inverse);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 600;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      transition: opacity var(--transition-normal), transform var(--transition-normal);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .btn-nav-cta:hover { opacity: 0.92; transform: translateY(-1px); }
+
+    /* Live Ticker Tape */
+    .ticker-tape-wrap {
+      background: var(--color-night);
+      border-bottom: 1px solid var(--color-night-border);
+      overflow: hidden;
+      white-space: nowrap;
+      position: relative;
+      z-index: 10;
+    }
+    .ticker-tape-inner {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.45rem 1rem;
+      animation: tickerSlide 45s linear infinite;
+      gap: 2.25rem;
+    }
+    @keyframes tickerSlide {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    .ticker-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.775rem;
+      font-family: var(--font-mono);
+    }
+    .ticker-sym { font-weight: 600; color: var(--color-text-primary); }
+    .ticker-val { color: var(--color-text-secondary); }
+    .ticker-chg {
+      font-weight: 600;
+      padding: 0.05rem 0.3rem;
+      border-radius: var(--radius-xs);
+    }
+    .ticker-chg.gain {
+      color: var(--color-gain);
+      background: var(--color-gain-subtle);
+    }
+    .ticker-chg.loss {
+      color: var(--color-loss);
+      background: var(--color-loss-subtle);
+    }
+
+    /* Hero Section */
+    .hero-section {
+      position: relative;
+      z-index: 10;
+      padding: 4.5rem 1.5rem 3.5rem;
+      max-width: 1280px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .hero-badge-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--color-surface-glass);
+      border: 1px solid var(--color-surface-glass-border);
+      backdrop-filter: var(--backdrop-blur-md);
+      -webkit-backdrop-filter: var(--backdrop-blur-md);
+      padding: 0.35rem 0.9rem;
+      border-radius: var(--radius-full);
+      font-size: 0.775rem;
+      font-weight: 600;
+      color: var(--color-text-secondary);
+      margin-bottom: 1.5rem;
+    }
+    .hero-badge-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: var(--radius-full);
+      background: var(--color-gain);
+      box-shadow: 0 0 8px var(--color-gain);
+    }
+    .hero-headline {
+      font-size: 3.6rem;
+      font-weight: 800;
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+      margin-bottom: 1.25rem;
+      color: var(--color-text-primary);
+    }
+    .hero-headline-gradient {
+      background: linear-gradient(135deg, var(--color-text-primary) 30%, var(--color-accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-subtitle {
+      max-width: 780px;
+      margin: 0 auto 2.25rem;
+      font-size: 1.15rem;
+      color: var(--color-text-secondary);
+      line-height: 1.6;
+    }
+    .hero-ctas {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+      flex-wrap: wrap;
+    }
+    .btn-hero-primary {
+      background: var(--color-text-primary);
+      color: var(--color-text-inverse);
+      padding: 0.85rem 2rem;
+      border-radius: var(--radius-lg);
+      font-size: 1rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all var(--transition-normal);
+      box-shadow: 0 4px 20px var(--color-surface-hover);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .btn-hero-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px var(--color-surface-hover);
+    }
+    .btn-hero-secondary {
+      background: var(--color-surface-glass);
+      color: var(--color-text-primary);
+      border: 1px solid var(--color-surface-glass-border);
+      backdrop-filter: var(--backdrop-blur-md);
+      -webkit-backdrop-filter: var(--backdrop-blur-md);
+      padding: 0.85rem 1.75rem;
+      border-radius: var(--radius-lg);
+      font-size: 1rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all var(--transition-normal);
+    }
+    .btn-hero-secondary:hover {
+      background: var(--color-surface-raised);
+      border-color: var(--color-border-focus);
+    }
+    .hero-trust-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 2rem;
+      font-size: 0.825rem;
+      color: var(--color-text-muted);
+      flex-wrap: wrap;
+    }
+    .trust-item {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .trust-check {
+      color: var(--color-gain);
+      font-weight: 700;
+    }
+
+    /* Showcase Console (AlgoNexus Hero Interactive Mockup) */
+    .showcase-container {
+      position: relative;
+      z-index: 10;
+      max-width: 1180px;
+      margin: 1.5rem auto 4rem;
+      padding: 0 1rem;
+    }
+    .console-chrome-card {
+      background: var(--color-card);
+      border: 1px solid var(--color-surface-glass-border);
+      border-radius: var(--radius-2xl);
+      box-shadow: var(--shadow-e3);
+      overflow: hidden;
+      backdrop-filter: var(--backdrop-blur-lg);
+      -webkit-backdrop-filter: var(--backdrop-blur-lg);
+    }
+    .console-header-bar {
+      background: var(--color-surface-sunken);
+      border-bottom: 1px solid var(--color-border-subtle);
+      padding: 0.75rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .window-dots {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .dot {
+      width: 11px;
+      height: 11px;
+      border-radius: var(--radius-full);
+      display: inline-block;
+    }
+    .dot.red { background: var(--color-loss); }
+    .dot.yellow { background: var(--color-warning); }
+    .dot.green { background: var(--color-gain); }
+    .console-url-pill {
+      background: var(--color-surface-raised);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-full);
+      padding: 0.2rem 1rem;
+      font-size: 0.75rem;
+      color: var(--color-text-secondary);
+      font-family: var(--font-mono);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .console-status-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--color-gain);
+      background: var(--color-gain-subtle);
+      border: 1px solid var(--color-gain-border);
+      padding: 0.2rem 0.65rem;
+      border-radius: var(--radius-full);
+    }
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: var(--radius-full);
+      background: var(--color-gain);
+      animation: pulseAnim 2s infinite;
+    }
+    @keyframes pulseAnim {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+
+    /* Console KPI Metric Ribbon */
+    .console-kpi-ribbon {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-bottom: 1px solid var(--color-border-subtle);
+      background: var(--color-surface-raised);
+    }
+    .kpi-cell {
+      padding: 1.15rem 1.25rem;
+      border-right: 1px solid var(--color-border-subtle);
+    }
+    .kpi-cell:last-child { border-right: none; }
+    .kpi-micro-title {
+      font-size: 0.725rem;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.35rem;
+    }
+    .kpi-main-val {
+      font-size: 1.45rem;
+      font-weight: 700;
+      color: var(--color-text-primary);
+      font-family: var(--font-mono);
+      letter-spacing: -0.02em;
+    }
+    .kpi-sub-text {
+      font-size: 0.775rem;
+      margin-top: 0.2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .kpi-sub-text.positive { color: var(--color-gain); font-weight: 600; }
+    .kpi-sub-text.neutral { color: var(--color-text-muted); }
+
+    /* Chart Area */
+    .chart-section {
+      padding: 1.5rem 1.5rem 1rem;
+      background: var(--color-card);
+    }
+    .chart-top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.25rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .chart-heading-group h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+    .chart-heading-group p {
+      font-size: 0.8rem;
+      color: var(--color-text-muted);
+    }
+    .timeframe-pills {
+      display: flex;
+      align-items: center;
+      background: var(--color-surface-raised);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-md);
+      padding: 0.15rem;
+      gap: 0.15rem;
+    }
+    .tf-btn {
+      background: transparent;
+      border: none;
+      color: var(--color-text-muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.6rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+    .tf-btn.active, .tf-btn:hover {
+      background: var(--color-card);
+      color: var(--color-text-primary);
+      box-shadow: var(--shadow-e1);
+    }
+
+    .svg-chart-wrap {
+      width: 100%;
+      height: 240px;
+      position: relative;
+    }
+    .svg-chart-wrap svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    /* Split Dashboard (Positions vs Risk Stream) */
+    .console-split-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-top: 1px solid var(--color-border-subtle);
+      background: var(--color-card);
+    }
+    .split-col {
+      padding: 1.25rem;
+    }
+    .split-col:first-child {
+      border-right: 1px solid var(--color-border-subtle);
+    }
+    .split-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.85rem;
+    }
+    .split-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--color-text-secondary);
+    }
+    .split-badge {
+      font-size: 0.7rem;
+      background: var(--color-surface-raised);
+      border: 1px solid var(--color-border-subtle);
+      color: var(--color-text-muted);
+      padding: 0.1rem 0.45rem;
+      border-radius: var(--radius-full);
+      font-family: var(--font-mono);
+    }
+
+    /* Mini Table */
+    .mini-positions-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8125rem;
+    }
+    .mini-positions-table th {
+      text-align: left;
+      font-size: 0.6875rem;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      padding: 0.4rem 0.5rem;
+      border-bottom: 1px solid var(--color-border-subtle);
+    }
+    .mini-positions-table td {
+      padding: 0.55rem 0.5rem;
+      border-bottom: 1px solid var(--color-border-subtle);
+      color: var(--color-text-secondary);
+    }
+    .mini-positions-table tr:last-child td { border-bottom: none; }
+    .pos-sym {
+      font-weight: 600;
+      color: var(--color-text-primary);
+      font-family: var(--font-mono);
+    }
+    .pos-pnl.gain { color: var(--color-gain); font-weight: 600; font-family: var(--font-mono); }
+    .pos-policy-pill {
+      font-size: 0.675rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: var(--radius-xs);
+      background: var(--color-gain-subtle);
+      color: var(--color-gain);
+      font-weight: 600;
+    }
+
+    /* Live Risk Gate Stream */
+    .risk-stream-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+    .risk-stream-item {
+      background: var(--color-surface-raised);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-md);
+      padding: 0.65rem 0.85rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+    }
+    .verdict-tag {
+      font-size: 0.675rem;
+      font-weight: 700;
+      padding: 0.15rem 0.4rem;
+      border-radius: var(--radius-xs);
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .verdict-tag.pass {
+      background: var(--color-gain-subtle);
+      color: var(--color-gain);
+      border: 1px solid var(--color-gain-border);
+    }
+    .verdict-tag.block {
+      background: var(--color-loss-subtle);
+      color: var(--color-loss);
+      border: 1px solid var(--color-loss-border);
+    }
+    .verdict-tag.review {
+      background: var(--color-warning-subtle);
+      color: var(--color-warning);
+      border: 1px solid var(--color-warning-border);
+    }
+    .risk-info { flex: 1; }
+    .risk-rule-title {
+      font-size: 0.775rem;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin-bottom: 0.15rem;
+    }
+    .risk-did-meta {
+      font-size: 0.7rem;
+      color: var(--color-text-muted);
+      font-family: var(--font-mono);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* 4-Pillars Global Stats Band */
+    .stats-band-section {
+      border-top: 1px solid var(--color-border-subtle);
+      border-bottom: 1px solid var(--color-border-subtle);
+      background: var(--color-surface-sunken);
+      padding: 3.5rem 1.5rem;
+    }
+    .stats-band-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 2rem;
+      text-align: center;
+    }
+    .stat-counter-box h4 {
+      font-size: 2.8rem;
+      font-weight: 800;
+      color: var(--color-text-primary);
+      letter-spacing: -0.03em;
+      line-height: 1;
+      margin-bottom: 0.4rem;
+      font-family: var(--font-mono);
+    }
+    .stat-counter-box p {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--color-text-secondary);
+      margin-bottom: 0.2rem;
+    }
+    .stat-counter-box span {
+      font-size: 0.775rem;
+      color: var(--color-text-muted);
+    }
+
+    /* Broker Marquee */
+    .broker-section {
+      padding: 3.5rem 1.5rem;
+      max-width: 1280px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .broker-title {
+      font-size: 0.8125rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-text-muted);
+      margin-bottom: 1.75rem;
+      font-weight: 600;
+    }
+    .broker-marquee-strip {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+    }
+    .broker-pill {
+      background: var(--color-surface-raised);
+      border: 1px solid var(--color-border-subtle);
+      padding: 0.65rem 1.25rem;
+      border-radius: var(--radius-lg);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--color-text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all var(--transition-normal);
+    }
+    .broker-pill:hover {
+      border-color: var(--color-border-focus);
+      color: var(--color-text-primary);
+      transform: translateY(-2px);
+    }
+
+    /* Architecture Features Grid */
+    .features-section {
+      padding: 4.5rem 1.5rem;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    .section-eyebrow {
+      text-align: center;
+      font-size: 0.8125rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-accent);
+      margin-bottom: 0.65rem;
+    }
+    .section-title {
+      text-align: center;
+      font-size: 2.3rem;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      color: var(--color-text-primary);
+      margin-bottom: 1rem;
+    }
+    .section-desc {
+      text-align: center;
+      max-width: 680px;
+      margin: 0 auto 3rem;
+      font-size: 1.05rem;
+      color: var(--color-text-muted);
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.5rem;
+    }
+    .feature-card {
+      background: var(--color-card);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-xl);
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+      transition: all var(--transition-normal);
+    }
+    .feature-card:hover {
+      border-color: var(--color-border-focus);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-e2);
+    }
+    .feature-icon-box {
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-lg);
+      background: var(--color-accent-subtle);
+      border: 1px solid var(--color-accent-border);
+      color: var(--color-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.35rem;
+      margin-bottom: 1.25rem;
+    }
+    .feature-card h3 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--color-text-primary);
+      margin-bottom: 0.65rem;
+    }
+    .feature-card p {
+      color: var(--color-text-muted);
+      font-size: 0.925rem;
+      line-height: 1.6;
+    }
+
+    /* Comparison Table Section */
+    .comparison-section {
+      padding: 4rem 1.5rem;
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+    .comp-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--color-card);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+    }
+    .comp-table th {
+      padding: 1.15rem 1.25rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--color-border-subtle);
+      background: var(--color-surface-sunken);
+      color: var(--color-text-secondary);
+      text-align: left;
+    }
+    .comp-table th.highlight-col {
+      color: var(--color-accent);
+      background: var(--color-accent-subtle);
+    }
+    .comp-table td {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--color-border-subtle);
+      font-size: 0.875rem;
+      color: var(--color-text-secondary);
+    }
+    .comp-table tr:last-child td { border-bottom: none; }
+    .comp-table td.highlight-col {
+      background: var(--color-surface-raised);
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+
+    /* Institutional Footer */
+    .footer-section {
+      background: var(--color-night);
+      border-top: 1px solid var(--color-night-border);
+      padding: 4rem 1.5rem 2.5rem;
+      color: var(--color-text-muted);
+      font-size: 0.8125rem;
+    }
+    .footer-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 3rem;
+      margin-bottom: 3rem;
+    }
+    .footer-brand h4 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--color-text-primary);
+      margin-bottom: 0.75rem;
+    }
+    .footer-brand p {
+      max-width: 320px;
+      line-height: 1.6;
+      margin-bottom: 1.25rem;
+    }
+    .footer-col h5 {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--color-text-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 1rem;
+    }
+    .footer-col ul { list-style: none; display: flex; flex-direction: column; gap: 0.6rem; }
+    .footer-col a {
+      color: var(--color-text-muted);
+      text-decoration: none;
+      transition: color var(--transition-fast);
+    }
+    .footer-col a:hover { color: var(--color-text-primary); }
+    .footer-bottom-bar {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding-top: 2rem;
+      border-top: 1px solid var(--color-night-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .disclaimer-box {
+      font-size: 0.725rem;
+      line-height: 1.6;
+      max-width: 820px;
+      color: var(--color-text-dim);
+    }
+
+    /* ⌘K Search Modal */
+    .search-modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: var(--color-night);
+      opacity: 0.8;
+      backdrop-filter: var(--backdrop-blur-md);
+      -webkit-backdrop-filter: var(--backdrop-blur-md);
+    }
+    .search-modal-box {
+      display: none;
+      position: fixed;
+      top: 15%;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 101;
+      width: 90%;
+      max-width: 580px;
+      background: var(--color-card);
+      border: 1px solid var(--color-border-focus);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-e3);
+      overflow: hidden;
+    }
+    .search-modal-input-wrap {
+      padding: 1rem;
+      border-bottom: 1px solid var(--color-border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .search-input {
+      width: 100%;
+      background: transparent;
+      border: none;
+      outline: none;
+      font-size: 1rem;
+      color: var(--color-text-primary);
+      font-family: var(--font-sans);
+    }
+    .search-results-list {
+      max-height: 320px;
+      overflow-y: auto;
+      padding: 0.5rem;
+      list-style: none;
+    }
+    .search-res-item {
+      padding: 0.65rem 0.85rem;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--color-text-secondary);
+      font-size: 0.875rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .search-res-item:hover {
+      background: var(--color-surface-raised);
+      color: var(--color-text-primary);
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .hero-headline { font-size: 2.8rem; }
+      .console-kpi-ribbon { grid-template-columns: repeat(2, 1fr); }
+      .kpi-cell:nth-child(2) { border-right: none; }
+      .kpi-cell:nth-child(3) { border-top: 1px solid var(--color-border-subtle); }
+      .kpi-cell:nth-child(4) { border-top: 1px solid var(--color-border-subtle); border-right: none; }
+      .console-split-grid { grid-template-columns: 1fr; }
+      .split-col:first-child { border-right: none; border-bottom: 1px solid var(--color-border-subtle); }
+      .stats-band-inner { grid-template-columns: repeat(2, 1fr); gap: 2.5rem; }
+      .features-grid { grid-template-columns: 1fr; }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 768px) {
+      .nav-links, .search-trigger-btn { display: none; }
+      .hero-headline { font-size: 2.2rem; }
+      .stats-band-inner { grid-template-columns: 1fr; }
+      .footer-inner { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-  <header class="hero">
-    <h1>${name}</h1>
-    <p>Agentic analysis and trading: screen the market, research options strategies with a transparent quant engine and an LLM cross-check, then preview and approve trades through E*TRADE, all with a human in the loop.</p>
-    <a class="btn" href="/login">Sign in with GitHub to get started</a>
+  <!-- Ambient decorative patterns -->
+  <div class="bg-grid-pattern" aria-hidden="true"></div>
+  <div class="spotlight-radial" aria-hidden="true"></div>
+
+  <!-- Announcement Bar -->
+  <aside class="announcement-bar" role="region" aria-label="Announcement">
+    <span class="announcement-pill">Algo 2.0 Engine</span>
+    <span>Multi-broker autonomous execution &amp; deterministic risk gates are now live.</span>
+    <a href="/login" class="announcement-link">Get early access &rarr;</a>
+  </aside>
+
+  <!-- Navigation -->
+  <header class="main-nav">
+    <div class="nav-container">
+      <a href="/" class="brand-wrap">
+        <div class="brand-logo-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
+            <line x1="12" y1="22" x2="12" y2="15.5"></line>
+            <polyline points="22 8.5 12 15.5 2 8.5"></polyline>
+          </svg>
+        </div>
+        <span class="brand-name">${name} <span class="brand-badge">PRO</span></span>
+      </a>
+
+      <nav aria-label="Primary navigation">
+        <ul class="nav-links">
+          <li><a href="#autopilot">Autopilot</a></li>
+          <li><a href="#risk-engine">Risk Gates</a></li>
+          <li><a href="#brokers">Brokers</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+        </ul>
+      </nav>
+
+      <div class="nav-actions">
+        <button type="button" class="search-trigger-btn" id="openSearchBtn" aria-label="Search strategies and documentation">
+          <span>Search...</span>
+          <span class="kbd-shortcut">⌘K</span>
+        </button>
+
+        <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="Toggle visual theme">
+          <span id="themeIcon">🌙</span>
+        </button>
+
+        <a href="/login" class="btn-nav-login">Sign in</a>
+        <a href="/login" class="btn-nav-cta">
+          <span>Start on paper</span>
+          &rarr;
+        </a>
+      </div>
+    </div>
   </header>
+
+  <!-- Live Market Ticker Tape -->
+  <div class="ticker-tape-wrap" role="region" aria-label="Live Market Indices">
+    <div class="ticker-tape-inner">
+      <div class="ticker-item"><span class="ticker-sym">S&amp;P 500</span><span class="ticker-val">5,864.67</span><span class="ticker-chg gain">+0.42%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">NASDAQ 100</span><span class="ticker-val">18,518.61</span><span class="ticker-chg gain">+0.63%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">DOW JONES</span><span class="ticker-val">42,114.40</span><span class="ticker-chg loss">-0.61%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">RUSSELL 2000</span><span class="ticker-val">2,213.78</span><span class="ticker-chg gain">+0.15%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">CBOE VIX</span><span class="ticker-val">18.24</span><span class="ticker-chg loss">-4.10%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">US 10Y YIELD</span><span class="ticker-val">4.24%</span><span class="ticker-chg gain">+0.03</span></div>
+      <div class="ticker-item"><span class="ticker-sym">BTC / USD</span><span class="ticker-val">68,450.00</span><span class="ticker-chg gain">+2.15%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">ETH / USD</span><span class="ticker-val">2,540.00</span><span class="ticker-chg gain">+1.80%</span></div>
+      <!-- Duplicate for infinite marquee effect -->
+      <div class="ticker-item"><span class="ticker-sym">S&amp;P 500</span><span class="ticker-val">5,864.67</span><span class="ticker-chg gain">+0.42%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">NASDAQ 100</span><span class="ticker-val">18,518.61</span><span class="ticker-chg gain">+0.63%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">DOW JONES</span><span class="ticker-val">42,114.40</span><span class="ticker-chg loss">-0.61%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">RUSSELL 2000</span><span class="ticker-val">2,213.78</span><span class="ticker-chg gain">+0.15%</span></div>
+    </div>
+  </div>
+
+  <!-- Hero Section -->
   <main>
-    <h2>What you can do</h2>
-    <section class="grid">${cards}</section>
-    <h2>How it works</h2>
-    <ol class="flow">${flow}</ol>
-    <h2>Safety first</h2>
-    <p class="safety">Research outputs are informational, not financial advice. Orders are never sent autonomously: each trade is previewed, signed and requires your explicit approval, and every action is recorded in an audit ledger. Start in the E*TRADE sandbox (TEST) before using production.</p>
+    <section class="hero-section">
+      <div class="hero-badge-wrap">
+        <span class="hero-badge-dot"></span>
+        <span>Deterministic Agentic Trading Engine &bull; Zero Hallucination Risk Gates</span>
+      </div>
+
+      <h1 class="hero-headline">
+        Self-Driving Alpha.<br>
+        <span class="hero-headline-gradient">Deterministic Risk Gates.</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        Deploy verifiable autonomous trading strategies across equities, multi-leg options, and index futures. Every trade proposal passes through strict runtime guardrails, signed by W3C Agent DIDs, and executed directly via non-custodial broker APIs.
+      </p>
+
+      <div class="hero-ctas">
+        <a href="/login" class="btn-hero-primary">
+          <span>Launch Autopilot (Paper &amp; Live)</span>
+          &rarr;
+        </a>
+        <a href="#autopilot" class="btn-hero-secondary">
+          <span>Explore Live Risk Console</span>
+        </a>
+      </div>
+
+      <div class="hero-trust-row">
+        <div class="trust-item"><span class="trust-check">&check;</span> Non-custodial API execution</div>
+        <div class="trust-item"><span class="trust-check">&check;</span> Pre-trade deterministic risk policy</div>
+        <div class="trust-item"><span class="trust-check">&check;</span> Cryptographic W3C Agent DID signatures</div>
+        <div class="trust-item"><span class="trust-check">&check;</span> 0% Performance fees</div>
+      </div>
+    </section>
+
+    <!-- Showcase Console (AlgoNexus Hero Component) -->
+    <section class="showcase-container" id="autopilot">
+      <div class="console-chrome-card">
+        <!-- Chrome Top Bar -->
+        <div class="console-header-bar">
+          <div class="window-dots">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+          </div>
+
+          <div class="console-url-pill">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            <span>cfagent://autopilot/runtime-gate &bull; Node 01 (US-East)</span>
+          </div>
+
+          <div class="console-status-pill">
+            <span class="pulse-dot"></span>
+            <span>AUTOPILOT ARMED</span>
+          </div>
+        </div>
+
+        <!-- 4 KPI Performance Ribbon -->
+        <div class="console-kpi-ribbon">
+          <div class="kpi-cell">
+            <div class="kpi-micro-title">Portfolio NAV</div>
+            <div class="kpi-main-val" id="kpiNav">$142,850.00</div>
+            <div class="kpi-sub-text positive">&uarr; +$24,190.20 (+20.39% YTD)</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-micro-title">Max Drawdown</div>
+            <div class="kpi-main-val" id="kpiDd">-2.84%</div>
+            <div class="kpi-sub-text neutral">Policy Threshold: 5.00% Max</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-micro-title">Sharpe Ratio (6M)</div>
+            <div class="kpi-main-val">2.64</div>
+            <div class="kpi-sub-text positive">&uarr; S&amp;P 500 Benchmark: 1.12</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-micro-title">Risk Gate Verdicts</div>
+            <div class="kpi-main-val">1,428</div>
+            <div class="kpi-sub-text positive">&check; 100% Signed &bull; 0 Overrides</div>
+          </div>
+        </div>
+
+        <!-- Chart Section -->
+        <div class="chart-section">
+          <div class="chart-top-bar">
+            <div class="chart-heading-group">
+              <h3>Strategy Equity vs S&amp;P 500 Benchmark</h3>
+              <p>Real-time mark-to-market performance including execution slippage &amp; commissions</p>
+            </div>
+
+            <div class="timeframe-pills" role="tablist" aria-label="Chart timeframe">
+              <button type="button" class="tf-btn" data-tf="1d">1D</button>
+              <button type="button" class="tf-btn" data-tf="1w">1W</button>
+              <button type="button" class="tf-btn" data-tf="1m">1M</button>
+              <button type="button" class="tf-btn" data-tf="3m">3M</button>
+              <button type="button" class="tf-btn active" data-tf="6m">6M</button>
+              <button type="button" class="tf-btn" data-tf="ytd">YTD</button>
+            </div>
+          </div>
+
+          <!-- Interactive SVG Equity Chart -->
+          <div class="svg-chart-wrap">
+            <svg viewBox="0 0 1000 240" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="var(--color-gain)" stop-opacity="0.32"></stop>
+                  <stop offset="100%" stop-color="var(--color-gain)" stop-opacity="0.00"></stop>
+                </linearGradient>
+              </defs>
+
+              <!-- Grid reference lines -->
+              <line x1="0" y1="40" x2="1000" y2="40" stroke="var(--color-border-subtle)" stroke-width="1" stroke-dasharray="4 4"></line>
+              <line x1="0" y1="100" x2="1000" y2="100" stroke="var(--color-border-subtle)" stroke-width="1" stroke-dasharray="4 4"></line>
+              <line x1="0" y1="160" x2="1000" y2="160" stroke="var(--color-border-subtle)" stroke-width="1" stroke-dasharray="4 4"></line>
+              <line x1="0" y1="220" x2="1000" y2="220" stroke="var(--color-border-subtle)" stroke-width="1"></line>
+
+              <!-- S&P 500 Benchmark line (Dashed) -->
+              <path d="M 0,195 Q 150,185 300,170 T 600,145 T 850,130 T 1000,120"
+                    fill="none" stroke="var(--color-text-dim)" stroke-width="2" stroke-dasharray="6 6"></path>
+
+              <!-- Alpha Strategy Gradient Fill -->
+              <path id="chartAreaPath"
+                    d="M 0,220 L 0,190 Q 120,180 240,150 T 480,110 T 720,70 T 880,45 T 1000,25 L 1000,220 Z"
+                    fill="url(#curveGradient)"></path>
+
+              <!-- Alpha Strategy Glowing Curve -->
+              <path id="chartLinePath"
+                    d="M 0,190 Q 120,180 240,150 T 480,110 T 720,70 T 880,45 T 1000,25"
+                    fill="none" stroke="var(--color-gain)" stroke-width="3" stroke-linecap="round"></path>
+
+              <!-- Milestone Event Nodes -->
+              <g transform="translate(480, 110)">
+                <circle r="5" fill="var(--color-gain)" stroke="var(--color-surface)" stroke-width="2"></circle>
+              </g>
+              <g transform="translate(720, 70)">
+                <circle r="5" fill="var(--color-gain)" stroke="var(--color-surface)" stroke-width="2"></circle>
+              </g>
+              <g transform="translate(1000, 25)">
+                <circle r="6" fill="var(--color-gain)" stroke="var(--color-surface)" stroke-width="2"></circle>
+              </g>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Split Grid: Positions vs Risk Stream -->
+        <div class="console-split-grid">
+          <!-- Left: Positions -->
+          <div class="split-col">
+            <div class="split-header">
+              <span class="split-title">Active Strategy Allocations</span>
+              <span class="split-badge">4 Holdings</span>
+            </div>
+
+            <table class="mini-positions-table">
+              <thead>
+                <tr>
+                  <th>Asset &amp; Strategy</th>
+                  <th>Qty</th>
+                  <th>Notional</th>
+                  <th>Unrealized P&amp;L</th>
+                  <th>Risk Gate</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="pos-sym">SPY</span> 580/590 Bull Put</td>
+                  <td>20</td>
+                  <td>$18,400</td>
+                  <td><span class="pos-pnl gain">+$1,420.00</span></td>
+                  <td><span class="pos-policy-pill">&check; Compliant</span></td>
+                </tr>
+                <tr>
+                  <td><span class="pos-sym">NVDA</span> 135/140 Bull Call</td>
+                  <td>15</td>
+                  <td>$21,750</td>
+                  <td><span class="pos-pnl gain">+$3,840.00</span></td>
+                  <td><span class="pos-policy-pill">&check; Compliant</span></td>
+                </tr>
+                <tr>
+                  <td><span class="pos-sym">MSFT</span> Covered Calls</td>
+                  <td>100</td>
+                  <td>$42,800</td>
+                  <td><span class="pos-pnl gain">+$890.00</span></td>
+                  <td><span class="pos-policy-pill">&check; Compliant</span></td>
+                </tr>
+                <tr>
+                  <td><span class="pos-sym">US TREASURY</span> 5.1% Yield</td>
+                  <td>Cash</td>
+                  <td>$59,900</td>
+                  <td><span class="pos-pnl gain">+$285.40</span></td>
+                  <td><span class="pos-policy-pill">&check; 41.9% Reserve</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Right: Live Risk Stream -->
+          <div class="split-col" id="risk-engine">
+            <div class="split-header">
+              <span class="split-title">Live Risk Gate Decisions</span>
+              <span class="split-badge">W3C DID Ledger</span>
+            </div>
+
+            <div class="risk-stream-list">
+              <div class="risk-stream-item">
+                <span class="verdict-tag pass">PASS</span>
+                <div class="risk-info">
+                  <div class="risk-rule-title">Max position sizing: 12.4% &le; 15.0% policy cap</div>
+                  <div class="risk-did-meta">
+                    <span>did:key:z6Mku7y9...#sig-01</span>
+                    <span>2 mins ago</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="risk-stream-item">
+                <span class="verdict-tag block">BLOCK</span>
+                <div class="risk-info">
+                  <div class="risk-rule-title">Single order notional $32,000 exceeds $25,000 limit</div>
+                  <div class="risk-did-meta">
+                    <span>did:key:z6Mku7y9...#sig-02</span>
+                    <span>14 mins ago</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="risk-stream-item">
+                <span class="verdict-tag pass">PASS</span>
+                <div class="risk-info">
+                  <div class="risk-rule-title">Delta neutrality check: Portfolio Delta -0.04 &isin; [-0.15, +0.15]</div>
+                  <div class="risk-did-meta">
+                    <span>did:key:z6Mku7y9...#sig-03</span>
+                    <span>31 mins ago</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="risk-stream-item">
+                <span class="verdict-tag review">REVIEW</span>
+                <div class="risk-info">
+                  <div class="risk-rule-title">Implied Volatility spike &gt; 35% &bull; Routed to human queue</div>
+                  <div class="risk-did-meta">
+                    <span>did:key:z6Mku7y9...#sig-04</span>
+                    <span>1 hour ago</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Global Stats Band -->
+    <section class="stats-band-section">
+      <div class="stats-band-inner">
+        <div class="stat-counter-box">
+          <h4>4</h4>
+          <p>Asset Classes</p>
+          <span>Equities, Options, Index ETFs, Futures</span>
+        </div>
+        <div class="stat-counter-box">
+          <h4>63+</h4>
+          <p>Connected Brokers</p>
+          <span>E*TRADE, Schwab, IBKR, Alpaca</span>
+        </div>
+        <div class="stat-counter-box">
+          <h4>0%</h4>
+          <p>Performance Fees</p>
+          <span>Keep 100% of generated alpha</span>
+        </div>
+        <div class="stat-counter-box">
+          <h4>14-Day</h4>
+          <p>Paper Sandbox</p>
+          <span>Unrestricted institutional testing</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Supported Brokers Section -->
+    <section class="broker-section" id="brokers">
+      <div class="broker-title">Direct Non-Custodial Broker &amp; Exchange Connectivity</div>
+      <div class="broker-marquee-strip">
+        <div class="broker-pill"><span>⚡</span> E*TRADE from Morgan Stanley</div>
+        <div class="broker-pill"><span>🏛️</span> Charles Schwab</div>
+        <div class="broker-pill"><span>🌐</span> Interactive Brokers (IBKR)</div>
+        <div class="broker-pill"><span>🦙</span> Alpaca Markets</div>
+        <div class="broker-pill"><span>📈</span> Tradier Brokerage</div>
+        <div class="broker-pill"><span>🏦</span> Fidelity Investments</div>
+        <div class="broker-pill"><span>📊</span> Cboe Live Options Data</div>
+      </div>
+    </section>
+
+    <!-- Architecture & Features Grid -->
+    <section class="features-section" id="architecture">
+      <div class="section-eyebrow">Enterprise Architecture</div>
+      <h2 class="section-title">Built for Quant Rigor. Sealed for Safety.</h2>
+      <p class="section-desc">
+        Eliminate LLM execution risks. Algorithmic intent is modeled in code, validated with Black-Scholes quant formulas, and gated by deterministic policy engines.
+      </p>
+
+        <article class="feature-card">
+          <div class="feature-icon-box">🧠</div>
+          <h3>Natural-Language Strategy Copilot</h3>
+          <p>
+            Screen options chains, compare bull put spreads, and research risk profiles in plain English. Your prompt is converted into visible, deterministic mathematical parameters with zero guesswork.
+          </p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon-box">⚖️</div>
+          <h3>Quant vs LLM comparison</h3>
+          <p>
+            Give the same market options data to an LLM and compare rankings and rationale side by side with the deterministic quant scores. The LLM can only select from strictly validated candidates.
+          </p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon-box">⚡</div>
+          <h3>Fast order ticket &amp; preview</h3>
+          <p>
+            Turn a recommendation into a signed order preview in one click. Every trade requires explicit policy verification and human approval, sealed with an auditable cryptographic identity.
+          </p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon-box">🛡️</div>
+          <h3>Zero-Hallucination Risk Gate</h3>
+          <p>
+            Orders cannot bypass code. Max drawdown limits, single-trade caps, portfolio delta bounds, and cash reserve thresholds are computed in an isolated runtime that blocks unauthorized orders.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Comparison Table Section -->
+    <section class="comparison-section" id="pricing">
+      <div class="section-eyebrow">Platform Comparison</div>
+      <h2 class="section-title">Why AlgoNexus Outperforms</h2>
+      <p class="section-desc">Compare the architecture of true deterministic trading against traditional platforms and unconstrained AI chatbots.</p>
+
+      <table class="comp-table">
+        <thead>
+          <tr>
+            <th>Architecture Dimension</th>
+            <th class="highlight-col">${name} Engine</th>
+            <th>Traditional Broker Desk</th>
+            <th>Generic LLM Chatbot</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Pre-Trade Risk Gates</strong></td>
+            <td class="highlight-col">&check; Strict Deterministic Runtime</td>
+            <td>&check; Manual Margin Checks</td>
+            <td>&cross; Zero (Hallucination Risk)</td>
+          </tr>
+          <tr>
+            <td><strong>Cryptographic Audit Proofs</strong></td>
+            <td class="highlight-col">&check; W3C Agent DID Signed</td>
+            <td>&cross; Opaque Internal DB</td>
+            <td>&cross; None</td>
+          </tr>
+          <tr>
+            <td><strong>Multi-Leg Options Pricing</strong></td>
+            <td class="highlight-col">&check; Real-time Greeks &amp; Payoffs</td>
+            <td>&check; Basic Greeks</td>
+            <td>&cross; Text approximations</td>
+          </tr>
+          <tr>
+            <td><strong>Autonomous Execution</strong></td>
+            <td class="highlight-col">&check; Autopilot with Kill Switch</td>
+            <td>&cross; Manual click only</td>
+            <td>&cross; Unsafe</td>
+          </tr>
+          <tr>
+            <td><strong>Fee Structure</strong></td>
+            <td class="highlight-col">&check; 0% Performance Fees</td>
+            <td>High AUM or Commission</td>
+            <td>Subscription only</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
   </main>
-  <footer>Sign in to access the platform. <a href="/login" style="color:${t["--color-accent"]}">Sign in</a></footer>
+
+  <!-- Institutional Footer -->
+  <footer class="footer-section">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <h4>${name}</h4>
+        <p>Institutional autonomous trading infrastructure, deterministic pre-trade risk policy engines, and cryptographic audit ledgers.</p>
+        <p>&copy; 2026 ${name} Inc. All rights reserved.</p>
+      </div>
+
+      <div class="footer-col">
+        <h5>Platform</h5>
+        <ul>
+          <li><a href="#autopilot">Autopilot</a></li>
+          <li><a href="#risk-engine">Risk Engine</a></li>
+          <li><a href="#brokers">Broker Connectors</a></li>
+          <li><a href="/login">Paper Sandbox</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h5>Quant Engine</h5>
+        <ul>
+          <li><a href="#architecture">Options Greeks</a></li>
+          <li><a href="#architecture">Black-Scholes Models</a></li>
+          <li><a href="#architecture">Delta Neutrality</a></li>
+          <li><a href="/login">API &amp; MCP Endpoints</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h5>Security &amp; Policy</h5>
+        <ul>
+          <li><a href="#risk-engine">W3C Agent DIDs</a></li>
+          <li><a href="#risk-engine">Risk Policies</a></li>
+          <li><a href="/login">Sign in</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bottom-bar">
+      <div class="disclaimer-box">
+        <strong>Regulatory Disclaimers:</strong> ${name} is a financial technology software provider and is not a registered broker-dealer or investment adviser. Research outputs, strategy scoring, and simulations are informational and educational, not personalized investment advice. All options trading involves significant financial risk and is not suitable for all investors. Test all automated strategies in paper trading sandboxes before routing live capital.
+      </div>
+      <a href="/login" class="btn-nav-cta">Launch Autopilot &rarr;</a>
+    </div>
+  </footer>
+
+  <!-- ⌘K Search Modal -->
+  <div class="search-modal-backdrop" id="searchBackdrop"></div>
+  <div class="search-modal-box" id="searchModal" role="dialog" aria-modal="true" aria-label="Search">
+    <div class="search-modal-input-wrap">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="text" class="search-input" id="searchField" placeholder="Search strategies, Greeks, risk gates, docs..." autocomplete="off">
+    </div>
+    <ul class="search-results-list" id="searchResults">
+      <li><a href="#autopilot" class="search-res-item"><span>⚡ Autopilot Control Center</span><span class="kbd-shortcut">JUMP</span></a></li>
+      <li><a href="#risk-engine" class="search-res-item"><span>🛡️ Deterministic Risk Gate Policy</span><span class="kbd-shortcut">JUMP</span></a></li>
+      <li><a href="#brokers" class="search-res-item"><span>🏦 Connected Brokers (E*TRADE, Schwab, IBKR)</span><span class="kbd-shortcut">JUMP</span></a></li>
+      <li><a href="#architecture" class="search-res-item"><span>🧮 60+ Options Strategies &amp; Payoffs</span><span class="kbd-shortcut">JUMP</span></a></li>
+      <li><a href="/login" class="search-res-item"><span>🚀 Launch Paper Trading Sandbox</span><span class="kbd-shortcut">ENTER</span></a></li>
+    </ul>
+  </div>
+
+  <!-- Interactive Scripts -->
+  <script>
+    // Theme switching logic
+    (function() {
+      const themes = ['dark', 'light', 'high-contrast'];
+      const themeIcons = { 'dark': '🌙', 'light': '☀️', 'high-contrast': '👁️' };
+      const btn = document.getElementById('themeToggleBtn');
+      const icon = document.getElementById('themeIcon');
+      
+      const storedTheme = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', storedTheme);
+      if (icon) icon.textContent = themeIcons[storedTheme] || '🌙';
+
+      if (btn) {
+        btn.addEventListener('click', () => {
+          const current = document.documentElement.getAttribute('data-theme') || 'dark';
+          const nextIndex = (themes.indexOf(current) + 1) % themes.length;
+          const next = themes[nextIndex];
+          document.documentElement.setAttribute('data-theme', next);
+          localStorage.setItem('theme', next);
+          if (icon) icon.textContent = themeIcons[next];
+        });
+      }
+    })();
+
+    // ⌘K Search Modal logic
+    (function() {
+      const openBtn = document.getElementById('openSearchBtn');
+      const backdrop = document.getElementById('searchBackdrop');
+      const modal = document.getElementById('searchModal');
+      const field = document.getElementById('searchField');
+
+      function openModal() {
+        if (!modal || !backdrop) return;
+        backdrop.style.display = 'block';
+        modal.style.display = 'block';
+        if (field) { field.value = ''; field.focus(); }
+      }
+
+      function closeModal() {
+        if (!modal || !backdrop) return;
+        backdrop.style.display = 'none';
+        modal.style.display = 'none';
+      }
+
+      if (openBtn) openBtn.addEventListener('click', openModal);
+      if (backdrop) backdrop.addEventListener('click', closeModal);
+
+      window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+          e.preventDefault();
+          if (modal && modal.style.display === 'block') closeModal();
+          else openModal();
+        }
+        if (e.key === 'Escape') closeModal();
+      });
+
+      // Quick filter
+      if (field) {
+        field.addEventListener('input', () => {
+          const q = field.value.toLowerCase();
+          const items = document.querySelectorAll('#searchResults .search-res-item');
+          items.forEach((item) => {
+            const txt = item.textContent.toLowerCase();
+            const li = item.parentElement;
+            if (li) li.style.display = txt.includes(q) ? 'block' : 'none';
+          });
+        });
+      }
+    })();
+
+    // Timeframe switcher in showcase chart
+    (function() {
+      const tfBtns = document.querySelectorAll('.tf-btn');
+      const navEl = document.getElementById('kpiNav');
+      const ddEl = document.getElementById('kpiDd');
+      const data = {
+        '1d': { nav: '$142,850.00', dd: '-0.32%', pnl: '+$1,120.40' },
+        '1w': { nav: '$142,850.00', dd: '-0.85%', pnl: '+$3,450.00' },
+        '1m': { nav: '$142,850.00', dd: '-1.42%', pnl: '+$8,920.10' },
+        '3m': { nav: '$142,850.00', dd: '-2.10%', pnl: '+$16,400.00' },
+        '6m': { nav: '$142,850.00', dd: '-2.84%', pnl: '+$24,190.20' },
+        'ytd': { nav: '$142,850.00', dd: '-2.84%', pnl: '+$24,190.20' },
+      };
+
+      tfBtns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          tfBtns.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const tf = btn.getAttribute('data-tf') || '6m';
+          const match = data[tf];
+          if (match && navEl && ddEl) {
+            navEl.textContent = match.nav;
+            ddEl.textContent = match.dd;
+          }
+        });
+      });
+    })();
+  </script>
 </body>
 </html>`;
 }
