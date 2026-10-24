@@ -312,7 +312,7 @@ git rev-parse HEAD
 git rev-parse origin/main
 ```
 
-A failed fetch, pull, or fast-forward is a **hard stop**: do not branch from an unverified or stale base, and do not proceed on the assumption that the divergence is harmless. Branching from a stale base is how merged work gets silently overwritten — in the #137 Phase 3a stack, a slice branched after a failed pull and its merge wiped the previous slice's `styles.css` changes from `main`; the loss was found two slices later and restored. The equality check costs seconds; the incident cost a repair slice.
+A failed fetch, pull, or fast-forward is a **hard stop**: do not branch from an unverified or stale base, and do not proceed on the assumption that the divergence is harmless. Branching from a stale base is how merged work gets silently overwritten — in the #137 Phase 3a stack, a slice branched after a failed pull and its merge wiped the previous slice's `styles.css` changes from `main`; the loss was found two slices later and restored. The equality check costs seconds; the incident cost a repair slice. Before stacking on another PR's branch, verify that PR's merge state first: a stack built on the assumption its base has landed, when it has not, must be retargeted before it can gate (the #1310 branch assumed #1279 had landed).
 
 ### Claim the issue before starting
 
@@ -592,6 +592,15 @@ A pull request MUST contain one logical set of related changes — the complete 
   - A change set so large that a single PR would defeat review.
 - When in doubt, prefer fewer, coherent PRs: one PR that a reviewer can hold in their head whole beats three that each look reasonable and only make sense together.
 - The pin rule (§7) is part of this rule, not an exception to it: a change and the pins it alters travel in the same PR, never in a follow-up.
+
+### Reconciliation with §5 phased work (issue #1276 follow-up, owner direction 2026-10-24)
+
+The unit of this rule is the ISSUE, not the epic (§2 rule 5: one PR per issue):
+
+- Phases of a single issue default to one PR. That is why the #1185 consolidation (one issue → one PR, #1289) was correct — and why the #1185 stack, five PRs for one issue, violated §2 rule 5.
+- Sub-issues of an epic keep one PR each per §5: this rule does NOT authorize bundling sub-issues into one PR. A phase gets its own PR only when it passes §5's test 2 (independently shippable, independently revertible) — e.g. #1262 Phase 1 (#1279) as an independently mergeable foundation — with the justification recorded in the tracker issue.
+- Stacked PRs (base on a non-main branch) register ZERO CI checks — workflows are main-scoped — and that is not a failure. A stacked PR MUST state its base, its merge order, and that its gate runs only after retargeting to main; the author retargets, re-gates, and only then is it mergeable.
+- A large-but-logical PR stays reviewable by organization, not by splitting the logical set: organize it as phase-grouped commits with a file-group map in the PR body (how the 88-file #1289 stays reviewable). §5's "reviewable in one pass" test is satisfied by commit grouping, not by breaking the set apart.
 
 ***
 
