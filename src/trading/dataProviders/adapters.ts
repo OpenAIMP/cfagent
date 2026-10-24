@@ -45,6 +45,16 @@
  * (the options engines' expiry lookup, served under optionsChains) —
  * plus bindETradeScreenerDeps, the LiveScreenerDeps binding the
  * stock screener consumes.
+ *
+ * E7 (issue #1248): every fetch above also records its OUTCOME via
+ * the FetchOutcomeRecorder port (fetchOutcome.ts): the recorder is
+ * derived from the capture deps whenever capture is wired (or
+ * injected alone — verifier probes), and each fetch runs through
+ * the trackFetchOutcome decorator, so a throwing fetch writes one
+ * fetch_failed row and rethrows the identical error, while a
+ * successful fetch's only record stays its capture row. The FOSS
+ * and nasdaq adapters take the recorder by injection only — their
+ * capture seam lands with their add-provider slices.
  */
 
 import { ETradeService } from "../../services/etrade";
@@ -81,6 +91,12 @@ import type {
   OptionsChainRequest,
 } from "./contract";
 import { recordCapture, resolveRunContext } from "./captureStore";
+import { createCaptureFetchOutcomeRecorder } from "./captureStore";
+import {
+  trackFetchOutcome,
+  type FetchOutcomeMeta,
+  type FetchOutcomeRecorder,
+} from "./fetchOutcome";
 import { runDataProviderConformance } from "./conformance";
 import type {
   CaptureBlobEnv,
@@ -96,6 +112,22 @@ function tag<T>(
   result: T
 ): DataResult<T> {
   return { providerId, capability, result };
+}
+
+/**
+ * E7 (issue #1248): run one fetch through the outcome decorator
+ * when a recorder is wired, or plainly when none is. The recorder
+ * is created from the capture-deps seam (capture.sql) by the
+ * adapter factories unless a caller injects one — verifier probes
+ * inject the store recorder directly, so a failed verify records
+ * fetch_failed rows without a full capture wiring.
+ */
+async function trackedFetch<T>(
+  recorder: FetchOutcomeRecorder | undefined,
+  meta: FetchOutcomeMeta,
+  fetchFn: () => Promise<T>
+): Promise<T> {
+  return recorder ? trackFetchOutcome(recorder, meta, fetchFn) : fetchFn();
 }
 
 /**
@@ -128,6 +160,14 @@ export interface ETradeCaptureDeps {
 
 export interface ETradeDataProviderOptions {
   capture?: ETradeCaptureDeps;
+  /**
+   * E7 (issue #1248): the fetch-outcome recorder. Absent, it is
+   * derived from the capture deps (capture.sql) whenever capture
+   * is wired — every capture-wired construction gets outcome
+   * tracking by construction. Injected explicitly by callers that
+   * record outcomes without full capture wiring (verifier probes).
+   */
+  outcomeRecorder?: FetchOutcomeRecorder;
   /**
    * E2 (issue #1157): the caller's per-run QuoteTrace (issue #816),
    * forwarded verbatim to fetchQuotesRemote so the screener's trace
@@ -188,19 +228,37 @@ export function createETradeDataProvider(
   options?: ETradeDataProviderOptions
 ): DataProvider {
   const capture = options?.capture;
+  const outcomeRecorder =
+    options?.outcomeRecorder ??
+    (capture ? createCaptureFetchOutcomeRecorder(capture.sql) : undefined);
   return {
     id: "etrade",
     name: "E*TRADE",
     capabilities: ["quotes", "optionsChains"] as const,
     isConfigured: () => service.getStatus().configured,
     getQuote: async (symbol: string, runContext?: DataRunContext) => {
-      if (!capture) {
+      if (!capture && !outcomeRecorder) {
         return tag("etrade", "quotes", await service.getQuoteAsync(symbol));
       }
-      const result = await service.getQuoteAsync(symbol, {
-        includeRawResponse: true,
-      });
       const ctx = resolveRunContext(runContext);
+      const result = await trackedFetch(
+        outcomeRecorder,
+        {
+          providerId: "etrade",
+          capability: "quotes",
+          requestParams: { symbol },
+          runId: ctx.runId,
+          tenantId: ctx.tenantId,
+          userLogin: ctx.userLogin,
+        },
+        () =>
+          capture
+            ? service.getQuoteAsync(symbol, { includeRawResponse: true })
+            : service.getQuoteAsync(symbol)
+      );
+      if (!capture) {
+        return tag("etrade", "quotes", result);
+      }
       let normalized: ETradeQuote = result;
       let rawPayload: unknown = result;
       let rawKind: DataCaptureRawKind = "provider-result";
@@ -243,17 +301,35 @@ export function createETradeDataProvider(
         includeWeekly: request.includeWeekly,
         chainType: request.chainType,
       };
-      if (!capture) {
+      if (!capture && !outcomeRecorder) {
         return tag(
           "etrade",
           "optionsChains",
           await service.getOptionChains(params)
         );
       }
-      const chain = await (
-        service as ETradeDataSurface & ETradeRawChainSurface
-      ).getOptionChains({ ...params, includeRawResponse: true });
       const ctx = resolveRunContext(runContext);
+      const chain = await trackedFetch(
+        outcomeRecorder,
+        {
+          providerId: "etrade",
+          capability: "optionsChains",
+          requestParams: { ...request },
+          runId: ctx.runId,
+          tenantId: ctx.tenantId,
+          userLogin: ctx.userLogin,
+        },
+        () =>
+          capture
+            ? (service as ETradeDataSurface & ETradeRawChainSurface).getOptionChains({
+                ...params,
+                includeRawResponse: true,
+              })
+            : service.getOptionChains(params)
+      );
+      if (!capture) {
+        return tag("etrade", "optionsChains", chain);
+      }
       const blobDeps = { storage: capture.blobStorage, env: capture.env };
       if (chain === null) {
         // A completed fetch with no payload: an audit row records the
@@ -294,7 +370,7 @@ export function createETradeDataProvider(
       return tag("etrade", "optionsChains", normalized);
     },
     getQuotesBatch: async (symbols: string[], runContext?: DataRunContext) => {
-      if (!capture) {
+      if (!capture && !outcomeRecorder) {
         return tag(
           "etrade",
           "quotes",
@@ -309,15 +385,28 @@ export function createETradeDataProvider(
       // as fetchQuotesRemote produced them — no raw ever rides the
       // result (the hook's payloads exist only in this closure and in
       // the captures written from it).
-      const wireBatches: Array<{ symbols: string[]; payload: unknown }> = [];
-      const quotes = await service.fetchQuotesRemote(
-        symbols,
-        options?.trace,
-        (batchSymbols, payload) => {
-          wireBatches.push({ symbols: batchSymbols, payload });
-        }
-      );
       const ctx = resolveRunContext(runContext);
+      const wireBatches: Array<{ symbols: string[]; payload: unknown }> = [];
+      const quotes = await trackedFetch(
+        outcomeRecorder,
+        {
+          providerId: "etrade",
+          capability: "quotes",
+          requestParams: { symbols },
+          runId: ctx.runId,
+          tenantId: ctx.tenantId,
+          userLogin: ctx.userLogin,
+        },
+        () =>
+          capture
+            ? service.fetchQuotesRemote(symbols, options?.trace, (batchSymbols, payload) => {
+                wireBatches.push({ symbols: batchSymbols, payload });
+              })
+            : service.fetchQuotesRemote(symbols, options?.trace)
+      );
+      if (!capture) {
+        return tag("etrade", "quotes", quotes);
+      }
       const blobDeps = { storage: capture.blobStorage, env: capture.env };
       if (wireBatches.length === 0) {
         // No wire response reached the hook (e.g. the service's
@@ -361,15 +450,29 @@ export function createETradeDataProvider(
       symbol: string,
       runContext?: DataRunContext
     ) => {
-      if (!capture) {
+      if (!capture && !outcomeRecorder) {
         return tag(
           "etrade",
           "optionsChains",
           await service.getOptionExpireDates(symbol)
         );
       }
-      const dates = await service.getOptionExpireDates(symbol);
       const ctx = resolveRunContext(runContext);
+      const dates = await trackedFetch(
+        outcomeRecorder,
+        {
+          providerId: "etrade",
+          capability: "optionsChains",
+          requestParams: { symbol, kind: "expiryDates" },
+          runId: ctx.runId,
+          tenantId: ctx.tenantId,
+          userLogin: ctx.userLogin,
+        },
+        () => service.getOptionExpireDates(symbol)
+      );
+      if (!capture) {
+        return tag("etrade", "optionsChains", dates);
+      }
       // The expiry-dates call has no wire hook on the client, so the
       // service's result is the deepest payload at the seam
       // ("provider-result"); an empty result is a completed fetch
@@ -429,9 +532,12 @@ export function createETradeDataProviderFromEnv(
  */
 export async function verifyETradeDataProvider(
   env: Env,
-  userLogin: string
+  userLogin: string,
+  options?: { outcomeRecorder?: FetchOutcomeRecorder }
 ): Promise<{ ok: boolean; summary: string }> {
-  const adapter = createETradeDataProviderFromEnv(env, userLogin);
+  const adapter = createETradeDataProviderFromEnv(env, userLogin, {
+    outcomeRecorder: options?.outcomeRecorder,
+  });
   if (!adapter.isConfigured(env)) {
     return {
       ok: false,
@@ -492,45 +598,87 @@ export function bindETradeScreenerDeps(
  * both implement IFossMarketDataProvider, whose quote/bars/fundamentals
  * surface maps one-for-one onto the contract. Results pass through by
  * reference.
+ *
+ * E7 (issue #1248): these adapters have no capture seam yet — their
+ * capture lands with their add-provider slices (the E1 note) — but
+ * the outcome wrapper is construction-level: supply an
+ * outcomeRecorder and every fetch is tracked through the same
+ * decorator; omit it and the adapter is the plain parity wrapper,
+ * exactly as before.
  */
 function createFossDataProvider(
   id: "yahoo" | "alpaca",
   name: string,
   provider: IFossMarketDataProvider,
-  env?: Env
+  env?: Env,
+  options?: { outcomeRecorder?: FetchOutcomeRecorder }
 ): DataProvider {
+  const outcomeRecorder = options?.outcomeRecorder;
+  const meta = (
+    capability: DataProvider["capabilities"][number],
+    requestParams: Record<string, unknown>,
+    runContext?: DataRunContext
+  ): FetchOutcomeMeta => {
+    const ctx = resolveRunContext(runContext);
+    return {
+      providerId: id,
+      capability,
+      requestParams,
+      runId: ctx.runId,
+      tenantId: ctx.tenantId,
+      userLogin: ctx.userLogin,
+    };
+  };
   return {
     id,
     name,
     capabilities: ["quotes", "historicalBars", "fundamentals"] as const,
     isConfigured: () => provider.isConfigured(env),
-    getQuote: async (symbol: string) =>
-      tag(id, "quotes", await provider.getQuote(symbol)),
-    getHistoricalBars: async (symbol: string, timeframe?: string, limit?: number) =>
+    getQuote: async (symbol: string, runContext?: DataRunContext) =>
+      tag(
+        id,
+        "quotes",
+        await trackedFetch(outcomeRecorder, meta("quotes", { symbol }, runContext), () =>
+          provider.getQuote(symbol)
+        )
+      ),
+    getHistoricalBars: async (symbol: string, timeframe?: string, limit?: number, runContext?: DataRunContext) =>
       tag(
         id,
         "historicalBars",
-        await provider.getHistoricalBars(symbol, timeframe, limit)
+        await trackedFetch(
+          outcomeRecorder,
+          meta("historicalBars", { symbol, timeframe: timeframe ?? null, limit: limit ?? null }, runContext),
+          () => provider.getHistoricalBars(symbol, timeframe, limit)
+        )
       ),
-    getFundamentals: async (symbol: string) =>
-      tag(id, "fundamentals", await provider.getFundamentals(symbol)),
+    getFundamentals: async (symbol: string, runContext?: DataRunContext) =>
+      tag(
+        id,
+        "fundamentals",
+        await trackedFetch(outcomeRecorder, meta("fundamentals", { symbol }, runContext), () =>
+          provider.getFundamentals(symbol)
+        )
+      ),
   };
 }
 
 /** Yahoo adapter — wraps YahooFinanceProvider (the FOSS "yfinance" impl). */
 export function createYahooDataProvider(
   provider: IFossMarketDataProvider,
-  env?: Env
+  env?: Env,
+  options?: { outcomeRecorder?: FetchOutcomeRecorder }
 ): DataProvider {
-  return createFossDataProvider("yahoo", "Yahoo Finance", provider, env);
+  return createFossDataProvider("yahoo", "Yahoo Finance", provider, env, options);
 }
 
 /** Alpaca adapter — wraps AlpacaMarketDataProvider. */
 export function createAlpacaDataProvider(
   provider: IFossMarketDataProvider,
-  env?: Env
+  env?: Env,
+  options?: { outcomeRecorder?: FetchOutcomeRecorder }
 ): DataProvider {
-  return createFossDataProvider("alpaca", "Alpaca Markets", provider, env);
+  return createFossDataProvider("alpaca", "Alpaca Markets", provider, env, options);
 }
 
 /**
@@ -540,8 +688,10 @@ export function createAlpacaDataProvider(
  * transport without touching the adapter.
  */
 export function createNasdaqDataProvider(
-  fetchListings: typeof fetchAllUsStockListings = fetchAllUsStockListings
+  fetchListings: typeof fetchAllUsStockListings = fetchAllUsStockListings,
+  options?: { outcomeRecorder?: FetchOutcomeRecorder }
 ): DataProvider {
+  const outcomeRecorder = options?.outcomeRecorder;
   return {
     id: "nasdaq",
     name: "Nasdaq Listings",
@@ -549,8 +699,25 @@ export function createNasdaqDataProvider(
     // Public listings feed, no credentials — configured by construction,
     // matching the FOSS provider-status semantics for Yahoo.
     isConfigured: () => true,
-    getScreenUniverse: async () =>
-      tag("nasdaq", "screenUniverse", await fetchListings()),
+    getScreenUniverse: async (runContext?: DataRunContext) => {
+      const ctx = resolveRunContext(runContext);
+      return tag(
+        "nasdaq",
+        "screenUniverse",
+        await trackedFetch(
+          outcomeRecorder,
+          {
+            providerId: "nasdaq",
+            capability: "screenUniverse",
+            requestParams: {},
+            runId: ctx.runId,
+            tenantId: ctx.tenantId,
+            userLogin: ctx.userLogin,
+          },
+          () => fetchListings()
+        )
+      );
+    },
   };
 }
 
@@ -563,6 +730,12 @@ export type PublicCaptureDeps = ETradeCaptureDeps;
 
 export interface PublicDataProviderOptions {
   capture?: PublicCaptureDeps;
+  /**
+   * E7 (issue #1248): the fetch-outcome recorder — derived from the
+   * capture deps whenever capture is wired, injectable on its own
+   * for verifier probes (see ETradeDataProviderOptions).
+   */
+  outcomeRecorder?: FetchOutcomeRecorder;
   /** Transport seam (tests); production uses the global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -600,6 +773,50 @@ export function createPublicDataProvider(
   options?: PublicDataProviderOptions
 ): DataProvider {
   const capture = options?.capture;
+  const outcomeRecorder =
+    options?.outcomeRecorder ??
+    (capture ? createCaptureFetchOutcomeRecorder(capture.sql) : undefined);
+
+  /**
+   * E7: run one read (the MCP fetch + its interpretation — for
+   * this adapter the read IS the fetch boundary) through the
+   * outcome decorator when a recorder is wired. Callers pass the
+   * pre-resolved run context (see effectiveRunContext in the
+   * methods below) so the failure row and the success capture for
+   * one call share one attribution.
+   */
+  async function trackedRead<T>(
+    capability: "quotes" | "optionsChains",
+    requestParams: Record<string, unknown>,
+    runContext: DataRunContext | undefined,
+    readFn: () => Promise<T>
+  ): Promise<T> {
+    if (!outcomeRecorder) return readFn();
+    const ctx = resolveRunContext(runContext);
+    return trackFetchOutcome(
+      outcomeRecorder,
+      {
+        providerId: "public",
+        capability,
+        requestParams,
+        runId: ctx.runId,
+        tenantId: ctx.tenantId,
+        userLogin: ctx.userLogin,
+      },
+      readFn
+    );
+  }
+
+  /** The run context the methods below thread through: pre-resolved when recording (see trackedRead). */
+  function effectiveRunContext(runContext?: DataRunContext): DataRunContext | undefined {
+    if (!outcomeRecorder) return runContext;
+    const ctx = resolveRunContext(runContext);
+    return {
+      runId: ctx.runId,
+      tenantId: ctx.tenantId,
+      ...(ctx.userLogin ? { userLogin: ctx.userLogin } : {}),
+    };
+  }
 
   async function captureRead(
     capability: "quotes" | "optionsChains",
@@ -660,51 +877,78 @@ export function createPublicDataProvider(
     capabilities: ["quotes", "optionsChains"] as const,
     isConfigured: () => true,
     getQuote: async (symbol: string, runContext?: DataRunContext) => {
-      const read = await readPublicQuotes(client, [symbol]);
-      const fetchedAt = new Date().toISOString();
-      const wanted = symbol.toUpperCase();
-      const row = extractPublicQuoteRows(read.payload).find((r) => {
-        const direct = typeof r.symbol === "string" ? r.symbol : undefined;
-        const nested =
-          r.instrument && typeof r.instrument === "object"
-            ? (r.instrument as { symbol?: unknown }).symbol
-            : undefined;
-        return (
-          (typeof direct === "string" && direct.toUpperCase() === wanted) ||
-          (typeof nested === "string" && nested.toUpperCase() === wanted)
-        );
-      });
-      const quote = row ? mapPublicQuoteRow(row, fetchedAt) : null;
-      if (!quote) {
-        throw new PublicDataError(
-          `Public.com get_quotes returned no usable quote for ${symbol}.`
-        );
-      }
-      await captureRead("quotes", read, quote, runContext);
+      const ctx = effectiveRunContext(runContext);
+      const { read, quote } = await trackedRead(
+        "quotes",
+        { tool: "get_quotes", symbols: [symbol] },
+        ctx,
+        async () => {
+          const read = await readPublicQuotes(client, [symbol]);
+          const fetchedAt = new Date().toISOString();
+          const wanted = symbol.toUpperCase();
+          const row = extractPublicQuoteRows(read.payload).find((r) => {
+            const direct = typeof r.symbol === "string" ? r.symbol : undefined;
+            const nested =
+              r.instrument && typeof r.instrument === "object"
+                ? (r.instrument as { symbol?: unknown }).symbol
+                : undefined;
+            return (
+              (typeof direct === "string" && direct.toUpperCase() === wanted) ||
+              (typeof nested === "string" && nested.toUpperCase() === wanted)
+            );
+          });
+          const quote = row ? mapPublicQuoteRow(row, fetchedAt) : null;
+          if (!quote) {
+            throw new PublicDataError(
+              `Public.com get_quotes returned no usable quote for ${symbol}.`
+            );
+          }
+          return { read, quote };
+        }
+      );
+      await captureRead("quotes", read, quote, ctx);
       return tag("public", "quotes", quote);
     },
     getQuotesBatch: async (symbols: string[], runContext?: DataRunContext) => {
-      const read = await readPublicQuotes(client, symbols);
-      const fetchedAt = new Date().toISOString();
-      const quotes = extractPublicQuoteRows(read.payload)
-        .map((r) => mapPublicQuoteRow(r, fetchedAt))
-        .filter((q): q is ETradeQuote => q !== null);
-      await captureRead("quotes", read, quotes, runContext);
+      const ctx = effectiveRunContext(runContext);
+      const { read, quotes } = await trackedRead(
+        "quotes",
+        { tool: "get_quotes", symbols },
+        ctx,
+        async () => {
+          const read = await readPublicQuotes(client, symbols);
+          const fetchedAt = new Date().toISOString();
+          const quotes = extractPublicQuoteRows(read.payload)
+            .map((r) => mapPublicQuoteRow(r, fetchedAt))
+            .filter((q): q is ETradeQuote => q !== null);
+          return { read, quotes };
+        }
+      );
+      await captureRead("quotes", read, quotes, ctx);
       return tag("public", "quotes", quotes);
     },
     getOptionExpiryDates: async (symbol: string, runContext?: DataRunContext) => {
-      const read = await readPublicOptionExpirations(client, symbol);
-      const dates = read.expirations
-        .map((ymd) => expiryDateFromYmd(ymd))
-        .filter((d): d is ETradeOptionExpireDate => d !== null);
+      const ctx = effectiveRunContext(runContext);
+      const { read, dates } = await trackedRead(
+        "optionsChains",
+        { tool: "get_option_expirations", symbol },
+        ctx,
+        async () => {
+          const read = await readPublicOptionExpirations(client, symbol);
+          const dates = read.expirations
+            .map((ymd) => expiryDateFromYmd(ymd))
+            .filter((d): d is ETradeOptionExpireDate => d !== null);
+          return { read, dates };
+        }
+      );
       if (dates.length > 0) {
-        await captureRead("optionsChains", read, dates, runContext);
+        await captureRead("optionsChains", read, dates, ctx);
       } else {
         await captureNoPayload(
           "optionsChains",
           { tool: read.tool, args: read.args },
           dates,
-          runContext
+          ctx
         );
       }
       return tag("public", "optionsChains", dates);
@@ -713,30 +957,39 @@ export function createPublicDataProvider(
       request: OptionsChainRequest,
       runContext?: DataRunContext
     ) => {
+      const ctx = effectiveRunContext(runContext);
       const expiry =
         request.expiryYear && request.expiryMonth && request.expiryDay
           ? `${request.expiryYear}-${String(request.expiryMonth).padStart(2, "0")}-${String(
               request.expiryDay
             ).padStart(2, "0")}`
           : null;
-      const read = await readPublicOptionChain(client, request.symbol, expiry);
-      let chain = read.chain;
-      if (chain && request.chainType && request.chainType !== "CALLPUT") {
-        const keep = request.chainType === "CALL" ? "call" : "put";
-        chain = {
-          ...chain,
-          pairs: chain.pairs.map((p) => ({ [keep]: p[keep] })),
-        };
-      }
+      const { read, chain } = await trackedRead(
+        "optionsChains",
+        { tool: "get_option_chain", symbol: request.symbol },
+        ctx,
+        async () => {
+          const read = await readPublicOptionChain(client, request.symbol, expiry);
+          let chain = read.chain;
+          if (chain && request.chainType && request.chainType !== "CALLPUT") {
+            const keep = request.chainType === "CALL" ? "call" : "put";
+            chain = {
+              ...chain,
+              pairs: chain.pairs.map((p) => ({ [keep]: p[keep] })),
+            };
+          }
+          return { read, chain };
+        }
+      );
       if (chain === null) {
         await captureNoPayload(
           "optionsChains",
           { tool: read.tool, args: read.args },
           null,
-          runContext
+          ctx
         );
       } else {
-        await captureRead("optionsChains", read, chain, runContext);
+        await captureRead("optionsChains", read, chain, ctx);
       }
       return tag("public", "optionsChains", chain);
     },
@@ -776,7 +1029,7 @@ export async function verifyPublicDataProvider(
   env: Env,
   userLogin: string,
   credentialRef: string | null,
-  options?: { fetchImpl?: typeof fetch }
+  options?: { fetchImpl?: typeof fetch; outcomeRecorder?: FetchOutcomeRecorder }
 ): Promise<{ ok: boolean; summary: string }> {
   const resolution = await resolvePublicCredentialRef(
     env,
@@ -791,7 +1044,9 @@ export async function verifyPublicDataProvider(
     accessTokenProvider: async () => resolution.accessToken,
     fetchImpl: options?.fetchImpl,
   });
-  const adapter = createPublicDataProvider(client);
+  const adapter = createPublicDataProvider(client, {
+    outcomeRecorder: options?.outcomeRecorder,
+  });
   const report = await runDataProviderConformance(adapter);
   if (!report.ok) {
     const failures = report.checks
