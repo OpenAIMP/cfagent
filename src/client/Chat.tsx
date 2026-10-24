@@ -32,6 +32,7 @@ import { ReferralsTab } from "./chat/tabs/ReferralsTab";
 import { AdsTab } from "./chat/tabs/AdsTab";
 import { RevenueTab } from "./chat/tabs/RevenueTab";
 import { EndpointsTab } from "./chat/tabs/EndpointsTab";
+import { SocialPostingPanel } from "./SocialPostingPanel";
 export function Chat({ user }: { user: User }) {
   const [tab, setTab] = useState<NavTabId>("autopilot");
   const [brokerProps, setBrokerProps] = useState<ETradeDynamicMenuProps | null>(null);
@@ -1032,6 +1033,8 @@ export function Chat({ user }: { user: User }) {
                     ? "Referrals"
                     : tab === "ads"
                     ? "Marketplace"
+                    : tab === "social"
+                    ? "Social"
                     : "Revenue"}
                 </span>
                 <span className="crumb-divider">/</span>
@@ -2076,6 +2079,10 @@ export function Chat({ user }: { user: User }) {
             setTab={setTab}
             tables={tables}
           />
+        )}
+
+        {tab === "social" && (
+          <SocialPostingPanel />
         )}
 
         {/* API & Model Context Protocol (MCP) Endpoints Explorer */}
