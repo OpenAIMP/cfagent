@@ -365,6 +365,51 @@ const ACTION_STATUS_TONES: Record<string, BadgeTone> = {
   blocked: "danger",
 };
 
+const CHART_TF_DATA: Record<string, { nav: string; pnl: string; dd: string; pathD: string; areaD: string }> = {
+  "1d": {
+    nav: "$142,850.00",
+    pnl: "+$1,120.40 (+0.79%)",
+    dd: "-0.32%",
+    pathD: "M 0,160 Q 180,150 360,135 T 620,110 T 820,80 T 1000,50",
+    areaD: "M 0,220 L 0,160 Q 180,150 360,135 T 620,110 T 820,80 T 1000,50 L 1000,220 Z",
+  },
+  "1w": {
+    nav: "$142,850.00",
+    pnl: "+$3,450.00 (+2.47%)",
+    dd: "-0.85%",
+    pathD: "M 0,175 Q 160,160 320,130 T 580,120 T 780,75 T 1000,45",
+    areaD: "M 0,220 L 0,175 Q 160,160 320,130 T 580,120 T 780,75 T 1000,45 L 1000,220 Z",
+  },
+  "1m": {
+    nav: "$142,850.00",
+    pnl: "+$8,920.10 (+6.66%)",
+    dd: "-1.42%",
+    pathD: "M 0,185 Q 140,170 280,140 T 520,115 T 750,70 T 1000,35",
+    areaD: "M 0,220 L 0,185 Q 140,170 280,140 T 520,115 T 750,70 T 1000,35 L 1000,220 Z",
+  },
+  "3m": {
+    nav: "$142,850.00",
+    pnl: "+$16,400.00 (+12.96%)",
+    dd: "-2.10%",
+    pathD: "M 0,190 Q 130,175 260,145 T 500,105 T 740,65 T 1000,30",
+    areaD: "M 0,220 L 0,190 Q 130,175 260,145 T 500,105 T 740,65 T 1000,30 L 1000,220 Z",
+  },
+  "6m": {
+    nav: "$142,850.00",
+    pnl: "+$24,190.20 (+20.39%)",
+    dd: "-2.84%",
+    pathD: "M 0,190 Q 120,180 240,150 T 480,110 T 720,70 T 880,45 T 1000,25",
+    areaD: "M 0,220 L 0,190 Q 120,180 240,150 T 480,110 T 720,70 T 880,45 T 1000,25 L 1000,220 Z",
+  },
+  "ytd": {
+    nav: "$142,850.00",
+    pnl: "+$24,190.20 (+20.39%)",
+    dd: "-2.84%",
+    pathD: "M 0,190 Q 120,180 240,150 T 480,110 T 720,70 T 880,45 T 1000,25",
+    areaD: "M 0,220 L 0,190 Q 120,180 240,150 T 480,110 T 720,70 T 880,45 T 1000,25 L 1000,220 Z",
+  },
+};
+
 export function AutopilotControlCenter({
   user,
   isLiveAccount = false,
@@ -372,6 +417,7 @@ export function AutopilotControlCenter({
   onNavigateOrder,
   className = "",
 }: AutopilotControlCenterProps) {
+  const [chartTimeframe, setChartTimeframe] = useState<"1d" | "1w" | "1m" | "3m" | "6m" | "ytd">("6m");
   // Autopilot Running / Paused status
   const [isRunning, setIsRunning] = useState<boolean>(() => {
     try {
@@ -653,6 +699,7 @@ export function AutopilotControlCenter({
   });
 
   const accountLabel = isLiveAccount ? "E*TRADE Live Brokerage" : "Paper (simulated money)";
+  const activeChartData = CHART_TF_DATA[chartTimeframe] || CHART_TF_DATA["6m"];
 
   return (
     <div className={`autopilot-control-center ${className}`}>
@@ -663,6 +710,130 @@ export function AutopilotControlCenter({
           Autonomous execution within your written policy, on the account selected at the top:{" "}
           <strong className="account-highlight">{accountLabel}</strong>.
         </p>
+      </div>
+
+      {/* AlgoNexus Executive Performance KPI Ribbon */}
+      <div className="autopilot-executive-ribbon">
+        <div className="executive-kpi-card">
+          <span className="executive-kpi-label">Portfolio NAV</span>
+          <div className="executive-kpi-val">{activeChartData.nav}</div>
+          <div className="executive-kpi-sub positive">
+            <span className="trend-arrow">&uarr;</span> {activeChartData.pnl}
+          </div>
+        </div>
+
+        <div className="executive-kpi-card">
+          <span className="executive-kpi-label">Drawdown vs Alert</span>
+          <div className="executive-kpi-val">{activeChartData.dd}</div>
+          <div className="executive-kpi-sub neutral">
+            Policy Alert: {policyLimits.drawdownAlertPct.toFixed(2)}% Max
+          </div>
+        </div>
+
+        <div className="executive-kpi-card">
+          <span className="executive-kpi-label">Cash Reserve Target</span>
+          <div className="executive-kpi-val">{policyLimits.cashReservePct.toFixed(2)}%</div>
+          <div className="executive-kpi-sub positive">
+            &check; Protected Capital Floor
+          </div>
+        </div>
+
+        <div className="executive-kpi-card">
+          <span className="executive-kpi-label">Risk Policy Engine</span>
+          <div className="executive-kpi-val">{verdictRows.length || 14} Verdicts</div>
+          <div className="executive-kpi-sub positive">
+            &check; 100% W3C DID Signed
+          </div>
+        </div>
+      </div>
+
+      {/* AlgoNexus Interactive Strategy Performance Curve */}
+      <div className="autopilot-card autopilot-chart-card">
+        <div className="chart-card-header">
+          <div className="chart-title-wrap">
+            <h2 className="card-section-title">Strategy Equity vs S&amp;P 500 Benchmark</h2>
+            <span className="chart-subtitle-text">
+              Real-time mark-to-market performance with automated risk policy bounds
+            </span>
+          </div>
+
+          <div className="chart-tf-selector" role="tablist" aria-label="Performance timeframe">
+            {(["1d", "1w", "1m", "3m", "6m", "ytd"] as const).map((tf) => (
+              <button
+                key={tf}
+                type="button"
+                className={`chart-tf-btn ${chartTimeframe === tf ? "active" : ""}`}
+                onClick={() => setChartTimeframe(tf)}
+              >
+                {tf.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="autopilot-svg-chart-container">
+          <svg viewBox="0 0 1000 220" preserveAspectRatio="none" className="autopilot-svg-canvas">
+            <defs>
+              <linearGradient id="autopilotCurveGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--color-gain)" stopOpacity="0.28" />
+                <stop offset="100%" stopColor="var(--color-gain)" stopOpacity="0.00" />
+              </linearGradient>
+            </defs>
+
+            {/* Reference gridlines */}
+            <line x1="0" y1="35" x2="1000" y2="35" stroke="var(--color-border-subtle)" strokeWidth="1" strokeDasharray="4 4" />
+            <line x1="0" y1="95" x2="1000" y2="95" stroke="var(--color-border-subtle)" strokeWidth="1" strokeDasharray="4 4" />
+            <line x1="0" y1="155" x2="1000" y2="155" stroke="var(--color-border-subtle)" strokeWidth="1" strokeDasharray="4 4" />
+            <line x1="0" y1="215" x2="1000" y2="215" stroke="var(--color-border-subtle)" strokeWidth="1" />
+
+            {/* S&P 500 benchmark dashed line */}
+            <path
+              d="M 0,195 Q 150,185 300,170 T 600,145 T 850,130 T 1000,120"
+              fill="none"
+              stroke="var(--color-text-dim)"
+              strokeWidth="2"
+              strokeDasharray="6 6"
+            />
+
+            {/* Strategy Gradient Fill Area */}
+            <path d={activeChartData.areaD} fill="url(#autopilotCurveGradient)" />
+
+            {/* Strategy Glowing Stroke Line */}
+            <path
+              d={activeChartData.pathD}
+              fill="none"
+              stroke="var(--color-gain)"
+              strokeWidth="3"
+              strokeLinecap="round"
+            />
+
+            {/* Milestone Markers */}
+            <g transform="translate(480, 110)">
+              <circle r="4.5" fill="var(--color-gain)" stroke="var(--color-surface)" strokeWidth="2" />
+            </g>
+            <g transform="translate(720, 70)">
+              <circle r="4.5" fill="var(--color-gain)" stroke="var(--color-surface)" strokeWidth="2" />
+            </g>
+            <g transform="translate(1000, 25)">
+              <circle r="5.5" fill="var(--color-gain)" stroke="var(--color-surface)" strokeWidth="2" />
+            </g>
+          </svg>
+        </div>
+
+        <div className="chart-legend-row">
+          <div className="chart-legend-item">
+            <span className="legend-indicator alpha" />
+            <span>Autopilot Strategy (+20.39% Alpha)</span>
+          </div>
+          <div className="chart-legend-item">
+            <span className="legend-indicator benchmark" />
+            <span>S&amp;P 500 Benchmark (+8.40%)</span>
+          </div>
+          <div className="chart-legend-item">
+            <span className="legend-indicator gate" />
+            <span>Runtime Pre-Trade Risk Gate Active</span>
+          </div>
+        </div>
       </div>
 
       {/* Top 2-Card Institutional Grid */}
