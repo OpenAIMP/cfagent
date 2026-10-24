@@ -1168,6 +1168,29 @@ the work: use the wait to review the in-flight diff, prepare the next
 issue's test plan, or verify post-merge results — do not start dependent
 implementation on a stale base.
 
+### Trusted auto-merge automation (issue #1307, no-wait Phase 1 extension)
+
+Per-PR auto-merge (rebase strategy) above is the manual form of this
+rule: the author enables it once the local gate is green and the PR
+description is complete. The automated form is the `auto-merge-trusted`
+workflow (`.github/workflows/auto-merge-trusted.yml`):
+
+- It enables auto-merge (rebase only) on PRs carrying the `auto-merge`
+  label, and on nothing else. The label is the opt-in: only someone
+  with write access can add it, so no author allowlist is used (PR
+  authors here are the owner's token, so author alone proves nothing).
+- PRs touching `.github/workflows/` are never auto-merged by it.
+- Enabling auto-merge merges nothing by itself: GitHub merges only
+  when every requirement passes (required checks green, conversations
+  resolved, queue validation once the queue is on). Removing the label
+  does not disable an already-enabled auto-merge — disable it on the
+  PR page.
+- Prerequisite: the repo-level General → "Allow auto-merge" switch must
+  be ON, or PR-level auto-merge does not exist at all. Workflow files
+  cannot be written via API (403 workflow scope): the workflow is
+  installed by the owner via the web UI on a branch + PR, never direct
+  to main.
+
 ***
 
 ## Instruction to add to `AGENTS.md`
