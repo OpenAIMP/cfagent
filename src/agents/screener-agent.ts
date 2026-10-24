@@ -807,7 +807,7 @@ export class ScreenerAgent extends Agent<Env> {
       req.environment
     );
     const { runProductionGoalScreen } = await import("../services/screeningRuntime");
-    return runProductionGoalScreen({
+    const out = await runProductionGoalScreen({
       ledger: this.taskLedger(),
       optionsScreener: new DynamicOptionsScreener(etrade.client),
       scenario: req.scenario,
@@ -819,6 +819,22 @@ export class ScreenerAgent extends Agent<Env> {
       baseStockFilter: req.baseStockFilter,
       baseOptionsFilter: req.baseOptionsFilter,
     });
+    // Issue #1335: every completed goal-screen run — 0 hits included —
+    // leaves PDF + XLSX + CSV artifacts in the blob store, mirroring
+    // generateRunPdf for stock runs. Artifact failure is recorded on
+    // the result, never thrown: the run completed, the artifact did not.
+    if (out.executed && out.result) {
+      const { generateAndStoreGoalScreenArtifacts } = await import(
+        "../services/goalScreenReports"
+      );
+      const artifacts = await generateAndStoreGoalScreenArtifacts(
+        this.env,
+        this.ctx.storage as any,
+        out.result
+      );
+      Object.assign(out.result, artifacts);
+    }
+    return out;
   }
 
   async getLatest(): Promise<ScreenerRunResult | null> {
@@ -885,6 +901,21 @@ export class ScreenerAgent extends Agent<Env> {
   async getXlsxByKey(xlsxKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
     return await getReportPdf(this.env, this.ctx.storage, xlsxKey);
+  }
+
+  /**
+   * Issue #1335: one getter for all three goal-screen artifact formats.
+   * The key must be goal_screen-namespaced — this getter never serves
+   * stock/options blobs, so a goal-screen download link cannot be
+   * repurposed into an open blob read.
+   */
+  async getGoalScreenArtifactByKey(
+    key: string
+  ): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { isGoalScreenArtifactKey } = await import("../services/goalScreenReports");
+    if (!isGoalScreenArtifactKey(key)) return null;
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, key);
   }
 
   /**

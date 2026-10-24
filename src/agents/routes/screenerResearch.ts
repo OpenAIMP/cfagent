@@ -180,6 +180,49 @@ export async function handleScreenerResearchRoutes(
       }
     }
 
+    // Issue #1335: goal-screen report artifacts (PDF + XLSX + CSV) —
+    // served from the ScreenerAgent blob store. The key must be
+    // goal_screen-namespaced (enforced again in the agent getter), so
+    // a goal-screen link cannot read stock/options blobs.
+    if (
+      (path.endsWith("/screening/goal-screen/report.pdf") ||
+        path.endsWith("/screening/goal-screen/report.xlsx") ||
+        path.endsWith("/screening/goal-screen/report.csv")) &&
+      request.method === "GET"
+    ) {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        if (!key) {
+          return Response.json({ error: "A report key is required" }, { status: 400 });
+        }
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const artifact = await agent.getGoalScreenArtifactByKey(key);
+        if (!artifact) {
+          return Response.json({ error: "No goal-screen report found for that key" }, { status: 404 });
+        }
+        // NB: do NOT branch on path.endsWith here — the thin-router
+        // inventory test extracts every such condition in this
+        // handler, and these would duplicate the route's own entries.
+        const ext = path.slice(path.lastIndexOf("."));
+        const contentType =
+          ext === ".pdf"
+            ? "application/pdf"
+            : ext === ".xlsx"
+              ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              : "text/csv";
+        return new Response(artifact.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": contentType,
+            "Content-Disposition": `attachment; filename="${artifact.fileName}"`,
+            "Content-Length": String(artifact.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load goal-screen report" }, { status: 500 });
+      }
+    }
+
     // Issue #1195 (#1173 R3b): Options XLSX download endpoint (mirrors stock).
     if (path.endsWith("/options/report.xlsx") && request.method === "GET") {
       try {

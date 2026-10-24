@@ -927,6 +927,9 @@ export function scheduledReportPdfUrl(source: string, body: unknown): string | u
     if (typeof pdfKey === "string" && pdfKey) {
       if (source === "screener") return `/api/screener/report.pdf?key=${encodeURIComponent(pdfKey)}`;
       if (source === "options_scanner") return `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
+      // Issue #1335: goal-screen PDFs serve from the goal-screen route.
+      if (source === "goal_screen")
+        return `/api/screening/goal-screen/report.pdf?key=${encodeURIComponent(pdfKey)}`;
     }
     const stored = parsed?.reportUrl ?? parsed?.result?.reportUrl;
     return typeof stored === "string" && stored ? stored : undefined;
