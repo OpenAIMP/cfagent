@@ -14,8 +14,13 @@
 import type { Env, InboundEmailPayload, EmailTradingResult, ETradeOrderDraft } from "../../types";
 import { DatabaseORM, requireOrm } from "../../orm";
 import { ETradeService } from "../../services/etrade";
-import { executeNaturalLanguageQuery } from "../../agents/nlq";
+import { executeNaturalLanguageQuery, planNLQ } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
+import {
+  channelPlanRefusal,
+  tierAtLeast,
+  type ChannelPrincipal,
+} from "../channels/intake";
 import PostalMime from "postal-mime";
 import { SERVER_PALETTE } from "../../theme/serverPalette";
 
@@ -30,11 +35,26 @@ function escapeHtml(value: string): string {
 }
 
 export class ETradeEmailTradingService {
+  /**
+   * Issue #1262 Phase 1: `principal` is the resolved channel principal
+   * (src/trading/channels/intake) supplied by the route. Three states:
+   * a principal object — tier enforcement applies and NLQ/execution run
+   * under the principal's login; null — the sender is unmapped and every
+   * inbound message gets an explicit refusal; undefined — direct/internal
+   * construction with no channel assertion (outbound sending, tests),
+   * legacy behaviour.
+   */
   constructor(
     private env: Env,
     private orm?: DatabaseORM,
-    private sessionId: string = "email_agent_session"
+    private sessionId: string = "email_agent_session",
+    private principal?: ChannelPrincipal | null
   ) {}
+
+  /** The login trading/NLQ work runs under: the principal's, never a fallback. */
+  private identityLogin(): string {
+    return this.principal?.userLogin ?? this.sessionId;
+  }
 
   /**
    * Process inbound email message (from Cloudflare Email Routing or HTTP webhook)
@@ -55,14 +75,38 @@ export class ETradeEmailTradingService {
     const combinedContent = `${subject}\n${bodyText}`.trim();
     const timestamp = new Date().toISOString();
 
+    // Issue #1262 Phase 1: an unmapped sender (principal === null) is
+    // refused explicitly — inbound email never runs under a shared
+    // instance identity on behalf of an unknown sender.
+    if (this.principal === null) {
+      const respText =
+        `Your email address (${from || "unknown"}) is not mapped to a trading account, so this request was not processed. ` +
+        `Quotes, screens, previews and approvals only run for mapped senders (CHANNEL_EMAIL_PRINCIPALS). ` +
+        `Ask the account owner to map your address, then resend.`;
+      return {
+        success: false,
+        actionType: "refusal",
+        from: to,
+        to: from,
+        responseSubject: "⚠️ Trading Request Refused: Sender Not Mapped",
+        responseText: respText,
+        responseHtml: this.renderEmailContainer(
+          "Trading Request Refused",
+          `<p style="color: ${SERVER_PALETTE.textSecondary};">${respText}</p>`
+        ),
+        proposerDid: AGENT_DIDS.TRADING,
+        timestamp,
+      };
+    }
+
     // Issue #815: env-preserving construction (the pattern #781's
     // pass-through sites adopted). ETradeService's orm-first overload
     // assigns env from its first argument, so an undefined ORM would
     // silently drop the caller's env. requireOrm above guarantees the
     // ORM on this path, but the construction stays env-safe regardless.
     const tradingService = this.orm
-      ? new ETradeService(this.orm, this.env, this.sessionId)
-      : new ETradeService(this.env, undefined, this.sessionId);
+      ? new ETradeService(this.orm, this.env, this.identityLogin())
+      : new ETradeService(this.env, undefined, this.identityLogin());
 
     // 1. Detect Approval Action: "APPROVE <orderId>" or "APPROVE"
     const approveMatch = combinedContent.match(/\b(APPROVE|CONFIRM|EXECUTE)\b(?:\s+(ord_[a-zA-Z0-9_-]+))?/i);
@@ -90,6 +134,35 @@ export class ETradeEmailTradingService {
     tradingService: ETradeService,
     timestamp: string
   ): Promise<EmailTradingResult> {
+    // Issue #1262 Phase 1: executing an order requires the trade tier.
+    // Until Phase 5 (signed approval links), a bare APPROVE from a
+    // mapped trade-tier principal is the only email execute path — the
+    // former behaviour (any sender could approve against the shared
+    // instance) is closed here.
+    const approvalPrincipal = this.principal;
+    if (approvalPrincipal && !tierAtLeast(approvalPrincipal.tier, "trade")) {
+      const respText =
+        `Approval refused: your mapped principal (${approvalPrincipal.userLogin}) has ${approvalPrincipal.tier} access, and executing an order requires the trade tier. The order draft was not executed.` +
+        (approvalPrincipal.notice ? ` ${approvalPrincipal.notice}` : "");
+      return {
+        success: false,
+        actionType: "approval",
+        from: to,
+        to: from,
+        responseSubject: "⚠️ E*TRADE Order Approval Refused: Trade Tier Required",
+        responseText: respText,
+        responseHtml: this.renderEmailContainer(
+          "Order Approval Refused",
+          `<p style="color: ${SERVER_PALETTE.textSecondary};">${respText}</p>`
+        ),
+        orderId: specifiedOrderId,
+        orderStatus: "refused",
+        proposerDid: AGENT_DIDS.TRADING,
+        authorizerDid: approvalPrincipal.authorizerDid,
+        timestamp,
+      };
+    }
+
     let targetTrade: any = null;
 
     if (this.orm?.trades) {
@@ -132,7 +205,9 @@ export class ETradeEmailTradingService {
     }
 
     // Explicit Human Authorization: Stamp user DID from email address
-    const authorizerDid = `did:user:email:${from}`;
+    // (#1262 Phase 1: the resolved principal's DID when one was supplied —
+    // the same string, built from the normalized mapped address).
+    const authorizerDid = this.principal?.authorizerDid ?? `did:user:email:${from}`;
 
     // Execute order on genuine E*TRADE REST API with HITL verification
     let execRes: any;
@@ -146,7 +221,7 @@ export class ETradeEmailTradingService {
         quantity: targetTrade.quantity,
         orderType: targetTrade.orderType,
         limitPrice: targetTrade.price,
-        userLogin: this.sessionId,
+        userLogin: this.identityLogin(),
       });
       if (this.orm?.trades) {
         this.orm.trades.update(targetTrade.id, {
@@ -208,6 +283,32 @@ export class ETradeEmailTradingService {
     tradingService: ETradeService,
     timestamp: string
   ): Promise<EmailTradingResult> {
+    // Issue #1262 Phase 1: cancelling a draft is an operation on a trade
+    // preview — it requires the preview tier or above (read is
+    // quote/screen/discovery/recommendation only).
+    const rejectionPrincipal = this.principal;
+    if (rejectionPrincipal && !tierAtLeast(rejectionPrincipal.tier, "preview")) {
+      const respText =
+        `Cancellation refused: your mapped principal (${rejectionPrincipal.userLogin}) has ${rejectionPrincipal.tier} access, and cancelling an order draft requires the preview tier or above. The draft was left unchanged.`;
+      return {
+        success: false,
+        actionType: "rejection",
+        from: to,
+        to: from,
+        responseSubject: "⚠️ E*TRADE Order Cancellation Refused: Preview Tier Required",
+        responseText: respText,
+        responseHtml: this.renderEmailContainer(
+          "Order Cancellation Refused",
+          `<p style="color: ${SERVER_PALETTE.textSecondary};">${respText}</p>`
+        ),
+        orderId: specifiedOrderId,
+        orderStatus: "refused",
+        proposerDid: AGENT_DIDS.TRADING,
+        authorizerDid: rejectionPrincipal.authorizerDid,
+        timestamp,
+      };
+    }
+
     let targetTrade: any = null;
 
     if (this.orm?.trades) {
@@ -248,7 +349,7 @@ export class ETradeEmailTradingService {
       orderId: targetTrade?.id || specifiedOrderId,
       orderStatus: "rejected",
       proposerDid: AGENT_DIDS.TRADING,
-      authorizerDid: `did:user:email:${from}`,
+      authorizerDid: this.principal?.authorizerDid ?? `did:user:email:${from}`,
       timestamp,
     };
   }
@@ -268,13 +369,45 @@ export class ETradeEmailTradingService {
 
     try {
       const orm = requireOrm(this.orm, "ETradeEmailTradingService.handleEmailQuery");
+
+      // Issue #1262 Phase 1: channel seam gate. When a principal was
+      // resolved, plan first and refuse what the channel must not do —
+      // paid actions (all tiers, v1) and tier-gated trading actions —
+      // BEFORE anything executes. The executor re-plans deterministically
+      // inside executeNaturalLanguageQuery; the paid fast-paths are
+      // regex-determined, so the peek and the execution plan agree.
+      if (this.principal) {
+        const peek = await planNLQ(this.env, prompt, { untrustedContent: true });
+        const refusal = channelPlanRefusal(peek, this.principal);
+        if (refusal) {
+          return {
+            success: false,
+            actionType: "refusal",
+            from: to,
+            to: from,
+            responseSubject: "⚠️ Trading Request Refused",
+            responseText: refusal,
+            responseHtml: this.renderEmailContainer(
+              "Trading Request Refused",
+              `<p style="color: ${SERVER_PALETTE.textSecondary};">${refusal}</p>`
+            ),
+            proposerDid: AGENT_DIDS.TRADING,
+            authorizerDid: this.principal.authorizerDid,
+            timestamp,
+          };
+        }
+      }
+
       const { plan, result: nlqRes } = await executeNaturalLanguageQuery(
         orm,
         this.sessionId,
         prompt,
         this.env,
-        this.sessionId,
-        `did:user:email:${from}`,
+        // #1262 Phase 1: the NLQ userLogin is the resolved principal's
+        // login — never the session/instance id (paid actions attribute
+        // the payer from this value, #183).
+        this.identityLogin(),
+        this.principal?.authorizerDid ?? `did:user:email:${from}`,
         // #767/#862: email subject+body is untrusted inbound content — the
         // NLQ planner/validator apply instruction/data separation.
         { untrustedContent: true },
@@ -745,6 +878,16 @@ export async function handleCloudflareEmailMessage(
   let subject = "";
   let text = "";
   let html = "";
+  // Issue #1262 Phase 1: the Authentication-Results header (RFC 8601) is
+  // the transport-authentication evidence the channel intake uses to
+  // gate the email trade tier (DKIM/SPF pass). Forward it verbatim; the
+  // parsing lives in src/trading/channels/intake.
+  let authenticationResults = "";
+  try {
+    authenticationResults = message.headers?.get?.("authentication-results") || "";
+  } catch {
+    authenticationResults = "";
+  }
 
   try {
     if (message.raw) {
@@ -753,6 +896,14 @@ export async function handleCloudflareEmailMessage(
       subject = parsed.subject || "";
       text = parsed.text || "";
       html = parsed.html || "";
+      if (!authenticationResults) {
+        const authHeader = (parsed.headers || []).find(
+          (h: any) => typeof h?.key === "string" && h.key.toLowerCase() === "authentication-results"
+        );
+        if (authHeader && typeof authHeader.value === "string") {
+          authenticationResults = authHeader.value;
+        }
+      }
     }
   } catch (err) {
     console.warn("[CloudflareEmail] PostalMime parse failed, falling back to header inspect:", err);
@@ -781,9 +932,13 @@ export async function handleCloudflareEmailMessage(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-user-login": INBOUND_EMAIL_ORCHESTRATOR_INSTANCE,
+        // Issue #1262 Phase 1: no identity header is asserted here. The
+        // instance name above is ROUTING (addressing, #815) only; the
+        // caller's identity is resolved inside the DO from the payload
+        // (sender → CHANNEL_EMAIL_PRINCIPALS map + Authentication-
+        // Results) by the channel intake.
       },
-      body: JSON.stringify({ from, to, subject, text, html }),
+      body: JSON.stringify({ from, to, subject, text, html, authenticationResults }),
     })
   );
   if (!response.ok) {

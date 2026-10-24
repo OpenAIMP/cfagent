@@ -20,8 +20,16 @@ import type {
 } from "../../types";
 import { DatabaseORM, requireOrm } from "../../orm";
 import { ETradeService } from "../../services/etrade";
-import { executeNaturalLanguageQuery } from "../../agents/nlq";
+import { executeNaturalLanguageQuery, planNLQ } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
+import {
+  channelPlanRefusal,
+  slackPrincipalLinkStoreFromEnv,
+  tierAtLeast,
+  type ChannelPrincipal,
+  type ChannelTier,
+  type SlackPrincipalLinkStore,
+} from "../channels/intake";
 import { ETradeEmailTradingService } from "../email/agent";
 import { ETradeWebhookService } from "../../services/tradingWebhooks";
 import { ETradeBrowserService } from "../../services/browserAgent";
@@ -41,11 +49,98 @@ function escapeHtml(value: string): string {
 export { timingSafeEqual, verifySlackSignature } from "../../security/webhookSecurity";
 
 export class ETradeSlackTradingService {
+  /**
+   * Issue #1262 Phase 1: `principal` is the resolved channel principal
+   * (src/trading/channels/intake) supplied by the route. Three states:
+   * a principal object — tier enforcement applies and NLQ/execution run
+   * under the principal's login; null — the Slack user is not linked
+   * and every event/interaction gets an explicit refusal (the `link`
+   * DM command still works: it is how linking starts); undefined —
+   * direct/internal construction with no channel assertion
+   * (notifications, OAuth, tests), legacy behaviour.
+   */
   constructor(
     private env: Env,
     private orm?: DatabaseORM,
-    private sessionId: string = "slack_agent_session"
+    private sessionId: string = "slack_agent_session",
+    private principal?: ChannelPrincipal | null,
+    private linkStore?: SlackPrincipalLinkStore
   ) {}
+
+  /** The login trading/NLQ work runs under: the principal's, never a fallback. */
+  private identityLogin(): string {
+    return this.principal?.userLogin ?? this.sessionId;
+  }
+
+  private links(): SlackPrincipalLinkStore {
+    return this.linkStore ?? slackPrincipalLinkStoreFromEnv(this.env);
+  }
+
+  /**
+   * Issue #1262 Phase 1: post an explicit tier refusal and shape it as
+   * the event result. Below-tier approvals/previews are refused BEFORE
+   * any ledger read or execution attempt.
+   */
+  private async refuseSlackEvent(
+    channel: string,
+    threadTs: string | undefined,
+    text: string,
+    orderId: string | undefined,
+    timestamp: string
+  ): Promise<SlackEventResult> {
+    const refusalPayload: SlackBlockKitPayload = { channel, thread_ts: threadTs, text };
+    await this.postSlackMessage(refusalPayload);
+    return {
+      handled: true,
+      actionType: "refusal",
+      orderId,
+      response: refusalPayload,
+      proposerDid: AGENT_DIDS.TRADING,
+      authorizerDid: this.principal?.authorizerDid,
+      timestamp,
+    };
+  }
+
+  /**
+   * Issue #1262 Phase 1: the `link` DM command. Issues a short-lived
+   * single-use connect code for (team_id, user_id) and posts it back.
+   * Confirming happens in an authenticated web session
+   * (POST /api/trading/slack/link), which binds this Slack user to the
+   * SESSION's login at tier "trade" — the code alone grants nothing.
+   */
+  private async handleSlackLinkCommand(args: {
+    teamId: string;
+    user: string;
+    channel: string;
+    threadTs?: string;
+    channelType?: string;
+    timestamp: string;
+  }): Promise<SlackEventResult> {
+    const { teamId, user, channel, threadTs, channelType, timestamp } = args;
+    const isDm = channelType === "im" || (typeof channel === "string" && channel.startsWith("D"));
+    if (!isDm) {
+      const hintPayload: SlackBlockKitPayload = {
+        channel,
+        thread_ts: threadTs,
+        text: "🔒 Account linking starts in a direct message — DM me `link` and I'll issue your connect code there, where only you can see it.",
+      };
+      await this.postSlackMessage(hintPayload);
+      return { handled: true, actionType: "link", response: hintPayload, timestamp };
+    }
+
+    const { code, expiresAt } = await this.links().issueLinkCode(teamId, user);
+    const expiresIso = new Date(expiresAt).toISOString();
+    const codePayload: SlackBlockKitPayload = {
+      channel,
+      thread_ts: threadTs,
+      text:
+        `🔗 Your connect code is \`${code}\` (expires ${expiresIso}, single use). ` +
+        `While signed in to the trading app, confirm it via POST /api/trading/slack/link with {"code": "${code}"}. ` +
+        `Confirming binds THIS Slack user to the account you are signed in as — never share the code.`,
+    };
+    await this.postSlackMessage(codePayload);
+    return { handled: true, actionType: "link", response: codePayload, timestamp };
+  }
 
   /**
    * Process inbound Slack Events API payload (URL verification or event_callback)
@@ -82,6 +177,45 @@ export class ETradeSlackTradingService {
       const queryText = emailMatch ? rawText.replace(emailMatch[0], "").trim() : rawText;
       const channel = event.channel;
       const threadTs = event.thread_ts || event.ts;
+      const user = event.user || "unknown";
+      const teamId = payload.team_id || payload.team?.id || "unknown";
+
+      // Issue #1262 Phase 1: the connect-code command comes FIRST — it
+      // is how an unlinked user starts linking, so it must work with no
+      // principal and no ORM. DM-only: a code posted in a channel would
+      // be visible to everyone in it, and whoever confirms it first
+      // binds this Slack user to THEIR account.
+      if (/^link$/i.test(queryText)) {
+        return this.handleSlackLinkCommand({
+          teamId,
+          user,
+          channel,
+          threadTs,
+          channelType: event.channel_type,
+          timestamp,
+        });
+      }
+
+      // Issue #1262 Phase 1: an unlinked Slack user (principal === null)
+      // is refused explicitly — never processed under the workspace
+      // instance's identity. Workspace membership is not an account
+      // relationship, so v1 grants no default tier.
+      if (this.principal === null) {
+        const refusalPayload: SlackBlockKitPayload = {
+          channel,
+          thread_ts: threadTs,
+          text:
+            "🔒 Your Slack user is not linked to a trading account, so I can't run that. " +
+            "DM me `link` to get a connect code, confirm it while signed in to the trading app, and then try again.",
+        };
+        await this.postSlackMessage(refusalPayload);
+        return {
+          handled: true,
+          actionType: "refusal",
+          response: refusalPayload,
+          timestamp,
+        };
+      }
 
       // Issue #781: event handling is persistence-backed (trade approvals
       // read/update the ledger; queries run NLQ against it). Without an
@@ -90,13 +224,25 @@ export class ETradeSlackTradingService {
       // Notification-only methods (postSlackMessage) never reach this line
       // and remain ORM-free.
       const orm = requireOrm(this.orm, "ETradeSlackTradingService.processSlackEvent");
-      const user = event.user || "unknown";
-      const authorizerDid = `did:user:slack:${user}`;
+      const authorizerDid = this.principal?.authorizerDid ?? `did:user:slack:${user}`;
 
       // 2a. Direct Conversational Pre-Trade Approval: "approve <orderId>" or "authorize <orderId>"
       const approveMatch = rawText.match(/^(?:approve|authorize|confirm|execute)\s+([a-zA-Z0-9_\-]+)$/i);
       if (approveMatch) {
         const targetOrderId = approveMatch[1].trim();
+        // Issue #1262 Phase 1: executing an order requires the trade
+        // tier — refused before any ledger read, so a below-tier
+        // principal cannot even probe draft existence.
+        if (this.principal !== undefined && !tierAtLeast(this.principal.tier, "trade")) {
+          return this.refuseSlackEvent(
+            channel,
+            threadTs,
+            `🔒 Approval refused: your linked principal (${this.principal.userLogin}) has ${this.principal.tier} access, and executing an order requires the trade tier. The order draft was not executed.` +
+              (this.principal.notice ? ` ${this.principal.notice}` : ""),
+            targetOrderId,
+            timestamp
+          );
+        }
         const targetTrade = orm.trades?.findById(targetOrderId.toLowerCase()) || orm.trades?.findById(targetOrderId);
 
         if (!targetTrade) {
@@ -131,7 +277,7 @@ export class ETradeSlackTradingService {
           };
         }
 
-        const tradingService = new ETradeService(orm, this.env, this.sessionId);
+        const tradingService = new ETradeService(orm, this.env, this.identityLogin());
         let execRes: any;
         try {
           execRes = tradingService.executeOrder(targetTrade.id, authorizerDid, "approved");
@@ -143,7 +289,7 @@ export class ETradeSlackTradingService {
             quantity: targetTrade.quantity,
             orderType: targetTrade.orderType,
             limitPrice: targetTrade.price,
-            userLogin: this.sessionId,
+            userLogin: this.identityLogin(),
           });
           if (orm.trades) {
             orm.trades.update(targetTrade.id, {
@@ -235,6 +381,17 @@ export class ETradeSlackTradingService {
       const cancelMatch = rawText.match(/^(?:cancel|reject|abort|dismiss)\s+([a-zA-Z0-9_\-]+)$/i);
       if (cancelMatch) {
         const targetOrderId = cancelMatch[1].trim();
+        // Issue #1262 Phase 1: cancelling a draft operates on a trade
+        // preview — preview tier or above.
+        if (this.principal !== undefined && !tierAtLeast(this.principal.tier, "preview")) {
+          return this.refuseSlackEvent(
+            channel,
+            threadTs,
+            `🔒 Cancellation refused: your linked principal (${this.principal.userLogin}) has ${this.principal.tier} access, and cancelling an order draft requires the preview tier or above. The draft was left unchanged.`,
+            targetOrderId,
+            timestamp
+          );
+        }
         if (orm.trades) {
           orm.trades.update(targetOrderId, { status: "rejected", updatedAt: timestamp, authorizerDid });
         }
@@ -332,13 +489,26 @@ export class ETradeSlackTradingService {
         }
       }
 
+      // Issue #1262 Phase 1: channel seam gate — plan first and refuse
+      // paid actions (all tiers, v1) and tier-gated trading actions
+      // BEFORE anything executes, exactly as on the email seam.
+      if (this.principal) {
+        const peek = await planNLQ(this.env, queryText);
+        const refusal = channelPlanRefusal(peek, this.principal);
+        if (refusal) {
+          return this.refuseSlackEvent(channel, threadTs, `🔒 ${refusal}`, undefined, timestamp);
+        }
+      }
+
       const { plan, result: nlqRes } = await executeNaturalLanguageQuery(
         orm,
         this.sessionId,
         queryText,
         this.env,
-        this.sessionId,
-        `did:user:slack:${event.user || "unknown"}`,
+        // #1262 Phase 1: the NLQ userLogin is the resolved principal's
+        // login — never the session/instance id (#183 payer attribution).
+        this.identityLogin(),
+        this.principal?.authorizerDid ?? `did:user:slack:${event.user || "unknown"}`,
       );
 
       const domain = plan.domain;
@@ -361,7 +531,7 @@ export class ETradeSlackTradingService {
         if (!emailCheck.ok) {
           emailStatus = `failed (${emailCheck.reason})`;
         } else {
-          const emailAgent = new ETradeEmailTradingService(this.env, orm, this.sessionId);
+          const emailAgent = new ETradeEmailTradingService(this.env, orm, this.sessionId, this.principal);
           emailStatus = await emailAgent.sendOutboundEmail(
             emailTo,
             "NLQ response",
@@ -748,8 +918,45 @@ export class ETradeSlackTradingService {
     const actionId = action.action_id;
     const orderId = action.value;
     const user = payload.user || { id: "unknown", username: "user" };
-    const authorizerDid = `did:user:slack:${user.id}`;
-    const tradingService = new ETradeService(this.orm, this.env, this.sessionId);
+    const authorizerDid = this.principal?.authorizerDid ?? `did:user:slack:${user.id}`;
+
+    // Issue #1262 Phase 1: interactive components are gated on the
+    // resolved principal before any ledger read or execution. An
+    // unlinked user is refused outright; below-tier actions are refused
+    // with the tier they require. (Dismiss/snap are read-level.)
+    if (this.principal === null) {
+      return {
+        success: false,
+        actionId,
+        orderId,
+        status: "error",
+        message:
+          "🔒 Your Slack user is not linked to a trading account. DM the bot `link` to get a connect code, confirm it while signed in to the trading app, and then try again.",
+        timestamp,
+      };
+    }
+    if (this.principal !== undefined) {
+      const requiredTier: ChannelTier =
+        actionId === "etrade_approve_order"
+          ? "trade"
+          : actionId === "etrade_cancel_order" ||
+              actionId === "etrade_approve_options_order" ||
+              actionId === "etrade_preview_options"
+            ? "preview"
+            : "read";
+      if (!tierAtLeast(this.principal.tier, requiredTier)) {
+        return {
+          success: false,
+          actionId,
+          orderId,
+          status: "error",
+          message: `🔒 This action requires the ${requiredTier} tier; your linked principal (${this.principal.userLogin}) has ${this.principal.tier} access. Nothing was changed.`,
+          timestamp,
+        };
+      }
+    }
+
+    const tradingService = new ETradeService(this.orm, this.env, this.identityLogin());
 
     // 1. Approve & Execute Order on E*TRADE
     if (actionId === "etrade_approve_order") {
@@ -793,7 +1000,7 @@ export class ETradeSlackTradingService {
           quantity: targetTrade.quantity,
           orderType: targetTrade.orderType,
           limitPrice: targetTrade.price,
-          userLogin: this.sessionId,
+          userLogin: this.identityLogin(),
         });
         if (this.orm?.trades) {
           this.orm.trades.update(targetTrade.id, {
