@@ -520,10 +520,14 @@ export async function handleEtradeOptionsRoutes(
     }
 
     // Unified Options Strategy Catalog (Single source of truth: 74 registered strategies & 114 aliases)
+    // Issue #1334: emit BOTH name and label — the Scanner browser list
+    // and StrategyLibraryModal render `label`, and the previous shape
+    // carried only `name`, so every strategy name rendered blank.
     if (path.endsWith("/trading/options/catalog") && request.method === "GET") {
       const list = defaultRegistry.list().map((s) => ({
         id: s.id,
         name: s.label,
+        label: s.label,
         category: s.category,
         description: s.description,
         aliases: s.aliases,
@@ -542,23 +546,11 @@ export async function handleEtradeOptionsRoutes(
     }
 
     // Strategy screener (capability 2) and best-trade picker (capability 3) over the options data agent (capability 1)
-    // Issue #275: strategy catalog with direction tags (GET).
-    if (path.endsWith("/trading/options/catalog") && request.method === "GET") {
-      try {
-        const strategies = defaultRegistry.list().map((s) => ({
-          id: s.id,
-          label: s.label,
-          category: s.category,
-          description: s.description,
-          theses: s.theses ?? [],
-          aliases: s.aliases ?? [],
-        }));
-        return Response.json({ count: strategies.length, strategies });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to load catalog" }, { status: 500 });
-      }
-    }
-
+    // Issue #1334: the second /trading/options/catalog handler below
+    // (ex-#275, label shape) was dead — the first matching if above
+    // always returned first — and its existence masked the missing
+    // `label` on the live shape. Removed; the live handler above now
+    // emits both name and label.
     if ((path.endsWith("/trading/options/strategies") || path.endsWith("/trading/options/best-trade")) && request.method === "POST") {
       const body = await request.json().catch(() => null) as (Partial<StrategyRequest> & {
         strategyFilter?: StrategyScreenFilter;

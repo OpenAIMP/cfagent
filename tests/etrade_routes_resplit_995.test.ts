@@ -27,7 +27,9 @@
  * (the #359 target, strictest reading); (b) the whole-file route
  * condition inventory of each original file is byte-identical to the
  * pre-split baseline captured on main ac61fb39 (order and duplicates
- * included — the same COND_RE scan thin_router_inventory uses); (c) the
+ * included — the same COND_RE scan thin_router_inventory uses), except
+ * the #1334 dedup below (catalog 2→1: the dead second handler is gone,
+ * so the baseline carries one catalog condition); (c) the
  * regex-match conditions stay in etradeOptions.ts in order; (d) the
  * construction ledger is preserved exactly — originals keep their
  * counts, new modules construct no ETradeService; (e) the originals
@@ -76,7 +78,7 @@ const OPTIONS_CONDITIONS_BASELINE = [
   'endsWith("/trading/options/compare")',
   'endsWith("/trading/options/compare")',
   'endsWith("/trading/options/recommend")',
-  'endsWith("/trading/options/catalog")',
+  // Issue #1334: one catalog condition — the dead second handler is gone.
   'endsWith("/trading/options/catalog")',
   'endsWith("/trading/options/strategies")',
   'endsWith("/trading/options/best-trade")',
