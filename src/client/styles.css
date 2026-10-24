@@ -9709,6 +9709,7 @@ body {
    Left Sidebar Navigation Styles
    ========================================================================== */
 
+.app-sidebar,
 .nextgentp-sidebar {
   width: 250px !important;
   min-width: 250px !important;
@@ -9725,6 +9726,7 @@ body {
   box-sizing: border-box !important;
 }
 
+.app-sidebar.collapsed,
 .nextgentp-sidebar.collapsed {
   width: 68px !important;
   min-width: 68px !important;
@@ -10217,6 +10219,7 @@ body {
    Top Navigation Bar Layout Styles (NextGenTP)
    ========================================================================== */
 
+.app-top-header,
 .nextgentp-top-header,
 .app-header.nextgentp-top-header {
   flex-shrink: 0 !important;
@@ -10238,6 +10241,7 @@ body {
   box-sizing: border-box !important;
 }
 
+.app-top-nav-container,
 .nextgentp-top-nav-container {
   display: flex !important;
   flex-direction: column !important;

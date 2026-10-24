@@ -30,6 +30,11 @@
      1. PRIMITIVES — SCALES & FOUNDATIONS
      ========================================================================== */
 
+  /* Brand System Foundations — Single Source of Truth (Issue #1297) */
+  --brand-name: "NextGenTP";
+  --brand-tagline: "Autonomous Multi-Agent Options & Equity Trading Platform";
+  --brand-badge: "PRO";
+
   /* Typography Families — Enforced Universal Single Font (Inter) */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;

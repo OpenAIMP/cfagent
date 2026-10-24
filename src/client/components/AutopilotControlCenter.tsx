@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AGENT_DIDS } from "../../agents/did";
 import { EmptyState, Table, Badge, Button, type BadgeTone } from "./ui";
+import { BRAND } from "../branding";
 import { normalizeAutopilotLimits, type AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 import type { TradeRecord } from "../../types";
 
@@ -1128,7 +1129,7 @@ export function AutopilotControlCenter({
             framed
             icon="🛡️"
             title="No autonomous actions recorded"
-            description="As the NextGenTP autonomous agent scans opportunities and evaluates policy limits, live order executions and cryptographic audit proofs will appear here in real time."
+            description={`As the ${BRAND.name} autonomous agent scans opportunities and evaluates policy limits, live order executions and cryptographic audit proofs will appear here in real time.`}
             action={
             <button
             type="button"
