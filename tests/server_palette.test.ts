@@ -19,10 +19,12 @@
  *     tokens.css dark-theme values, and no other entry equals any
  *     dark --color-* token value (the hand-mirror cannot drift
  *     silently in either direction — the #677 pattern).
- *  4. Golden renders: the OAuth login page, OAuth error page, the
- *     browser placeholder SVG, a transaction receipt SVG, and an email
+ *  4. Golden renders: the OAuth login page, the browser
+ *     placeholder SVG, a transaction receipt SVG, and an email
  *     container render are byte-identical to their pre-migration
- *     output. The only tolerated difference is the CSS named colour
+ *     output. (The fifth golden, the legacy OAuth error page, was
+ *     removed in #1254 PR-B with the page itself.) The only
+ *     tolerated difference is the CSS named colour
  *     `white` rendering as its exact equivalent #ffffff (the
  *     --color-on-gradient token value) where the palette replaced the
  *     keyword; both sides are normalised for that one equivalence.
@@ -31,7 +33,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SERVER_PALETTE, SERVER_PALETTE_TOKEN_SOURCES } from "../src/theme/serverPalette";
-import { renderLoginPage, handleOAuthCallback } from "../src/security/githubOAuth";
+import { renderLoginPage } from "../src/security/githubOAuth";
 import { ETradeBrowserService } from "../src/services/browserAgent";
 import { ETradeEmailTradingService } from "../src/trading/email/agent";
 import { DatabaseORM } from "../src/orm";
@@ -306,57 +308,6 @@ const LOGIN_GOLDEN = `<!DOCTYPE html>
 </body>
 </html>`;
 
-const ERROR_GOLDEN = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authentication Error</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0f172a;
-      color: #f8fafc;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 1.5rem;
-    }
-    .card {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 16px;
-      padding: 2.5rem;
-      max-width: 420px;
-      width: 100%;
-      text-align: center;
-    }
-    .icon { font-size: 2.5rem; margin-bottom: 1rem; }
-    h1 { font-size: 1.4rem; margin-bottom: 0.5rem; color: #f87171; }
-    p { color: #94a3b8; font-size: 0.95rem; line-height: 1.5; margin-bottom: 1.5rem; word-break: break-word; }
-    a {
-      display: inline-block;
-      background: #3b82f6;
-      color: white;
-      text-decoration: none;
-      padding: 0.65rem 1.25rem;
-      border-radius: 8px;
-      font-weight: 500;
-    }
-    a:hover { background: #2563eb; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">⚠️</div>
-    <h1>Authentication Error</h1>
-    <p>GitHub authentication was cancelled or failed: access_denied</p>
-    <a href="/">← Return to Sign In</a>
-  </div>
-</body>
-</html>`;
-
 const PLACEHOLDER_GOLDEN = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
   <rect width="100%" height="100%" fill="#0a0f1d"/>
   <rect x="16" y="16" width="768" height="418" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="10 6"/>
@@ -469,10 +420,11 @@ describe("server palette — golden renders are unchanged (#678)", () => {
     expect(renderLoginPage({ APP_NAME: "Test App" } as any)).toBe(LOGIN_GOLDEN);
   });
 
-  it("OAuth error page renders identically (modulo white -> #ffffff)", async () => {
-    const res = await handleOAuthCallback({} as any, new Request("https://x.test/auth/callback?error=access_denied"));
-    expect(whiteKeyword(await res.text())).toBe(whiteKeyword(ERROR_GOLDEN));
-  });
+  // #1254 PR-B: the OAuth error-page golden was removed with its
+  // subject — the legacy styled error page and the
+  // handleOAuthCallback that rendered it are deleted; login
+  // errors are the factory's minimal pages now (pinned byte
+  // for byte in the #1254 characterization suite).
 
   it("browser placeholder SVG renders byte-identically", () => {
     const svc = new ETradeBrowserService({} as any);
