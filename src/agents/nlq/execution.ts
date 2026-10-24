@@ -1402,6 +1402,9 @@ async function executeSchedulingAction(
       "constraintSets",
       "profileId",
       "watchlistName",
+      // Consolidation C3 (#1277): stage-chain timing rides the same
+      // builder-validated criteria as every other field.
+      "stageChain",
     ] as const) {
       if (sd[key] !== undefined) criteria[key] = sd[key];
     }

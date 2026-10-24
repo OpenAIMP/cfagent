@@ -127,6 +127,7 @@ export interface SchedulesRouteContext {
     pushToSlack?: boolean;
     filters?: import("../../types").StockScreenerFilter;
     provider?: import("../../trading").StockScreenProvider;
+    stageChain?: import("../../types").StageChainConfig;
   }): Promise<void>;
   /** E*TRADE token renewal (owner: OrchestratorAgent.autoRenewETradeTokens - was `this.autoRenewETradeTokens`). */
   autoRenewETradeTokens(payload?: { userLogin?: string; env?: string }): Promise<void>;

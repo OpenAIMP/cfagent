@@ -1706,6 +1706,26 @@ export type AsyncJobKind = "main" | "report" | "delivery" | "notification";
 /** Issue #1123: delivery/notification channel for sub-jobs. */
 export type AsyncJobChannel = "email" | "slack" | "webhook";
 
+/** Consolidation C3 (issue #1277, epic #1151; stage-layered
+ *  scheduling, #1236): the unified pipeline's stages. C3 schedules
+ *  generate (the run itself, recorded as the chain's main job),
+ *  serve and deliver as stage jobs; feed and store join as stage
+ *  jobs in C4, when the feed output contract and the generate→store
+ *  split land. */
+export type PipelineStage = "feed" | "generate" | "store" | "serve" | "deliver";
+
+/** Consolidation C3 (#1277): per-stage timing carried on a schedule
+ *  payload (validated by buildSchedulePayload in
+ *  src/trading/screeningSchemas.ts) and on the run outcome the
+ *  follow-up bridge consumes. Delays are whole seconds from the
+ *  predecessor stage's completion, 0..604800. */
+export interface StageChainConfig {
+  /** Delay after the run (generate) completes before serve runs. */
+  serveDelaySeconds?: number;
+  /** Delay after serve completes before the deliver stages run. */
+  deliverDelaySeconds?: number;
+}
+
 /** Issue #1123: optional graph fields on a job submission. */
 export interface AsyncJobGraphFields {
   parentJobId?: string;
@@ -1713,6 +1733,16 @@ export interface AsyncJobGraphFields {
   channel?: AsyncJobChannel;
   /** Overrides the capability-derived label (sub-jobs carry human names). */
   displayName?: string;
+  /** Consolidation C3 (#1277): not-before time (ISO). The job is
+   *  armed at the remaining delay and the executor refuses to claim
+   *  it earlier — per-stage timing on the async-job substrate. */
+  runAt?: string;
+  /** Consolidation C3 (#1277): the pipeline stage this job executes,
+   *  when it belongs to a stage chain. */
+  stage?: PipelineStage;
+  /** Consolidation C3 (#1277): the stage chain this job belongs to
+   *  (links the stage rows of one run). */
+  chainId?: string;
 }
 
 export interface AsyncJobRecord {
@@ -1725,6 +1755,11 @@ export interface AsyncJobRecord {
   parentJobId?: string;
   jobKind: AsyncJobKind;
   channel?: AsyncJobChannel;
+  /** Consolidation C3 (#1277): stage identity for chained jobs. */
+  stage?: PipelineStage;
+  chainId?: string;
+  /** Consolidation C3 (#1277): the job's not-before time (ISO), when deferred. */
+  notBefore?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -1772,6 +1807,16 @@ export type AsyncJobSubmission =
       payload: {
         outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
         userLogin: string;
+        /** Consolidation C3 (#1277): when this job is a chain's serve
+         *  stage, the chain config + id ride the payload so the
+         *  deliver hop planned at its completion can read its own
+         *  delay and chain identity from the completed stage's
+         *  record. */
+        stageChain?: StageChainConfig;
+        chainId?: string;
+        /** Consolidation C3 (#1277): per-stage retry marker, as on
+         *  followup.deliver. */
+        retryOf?: string;
       };
     } & AsyncJobGraphFields)
   | ({
@@ -1787,6 +1832,9 @@ export type AsyncJobSubmission =
         artifacts: Array<{ key: string; fileName: string }>;
         skipReason?: string;
         approvedConfirmationId?: string;
+        /** Consolidation C3 (#1277): set on a per-stage retry — the
+         *  job id of the failed job this submission retries. */
+        retryOf?: string;
       };
     } & AsyncJobGraphFields)
   | ({

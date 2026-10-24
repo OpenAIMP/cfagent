@@ -57,9 +57,14 @@ const ORCH = "agents/orchestrator.ts";
  *  Raised deliberately in the same change (the pin rule above):
  *  consolidation C1 (#1201) adds the autonomousGoalScreen delegating
  *  wrapper + its creatable/account-scoped list entries — measured
- *  95,030 B after the addition; budget keeps ~270 B headroom. */
-const BUDGET_LINES = 2075;
-const BUDGET_BYTES = 95_300;
+ *  95,030 B after the addition; budget keeps ~270 B headroom.
+ *  Consolidation C3 (#1277) adds the POST /jobs/:id/retry route in
+ *  onRequest + the retryAsyncJob delegating wrapper (execution in
+ *  orchestrator/asyncJobs.ts) and one stageChain field on the
+ *  autonomousMarketScreen wrapper — measured 2,079 lines / 96,028 B
+ *  after the addition; budget keeps similar headroom. */
+const BUDGET_LINES = 2095;
+const BUDGET_BYTES = 96_300;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

@@ -142,6 +142,15 @@ export const nlqPlanSchema = z.object({
       constraintSets: z.array(z.record(z.string(), z.unknown())).optional(),
       profileId: z.string().optional(),
       watchlistName: z.string().optional(),
+      // Consolidation C3 (#1277): stage-chain timing for a market
+      // screen schedule — loosely typed here like the other criteria;
+      // buildSchedulePayload validates it strictly before arming.
+      stageChain: z
+        .object({
+          serveDelaySeconds: z.number().optional(),
+          deliverDelaySeconds: z.number().optional(),
+        })
+        .optional(),
     })
     .optional(),
   agenticPaymentsData: z
