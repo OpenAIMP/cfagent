@@ -378,7 +378,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     dataSources: [
       "Live Option Chain Pricing (E*TRADE & Yahoo FOSS)",
       "Black-Scholes Analytical Pricing & Payoff Math Models",
-      "Cloudflare Workers AI (@cloudflare/ai-chat / Llama 3.3 70B)",
+      "Neural Strategy AI Engine (Llama 3.3 70B / Analytical Models)",
     ],
     faq: {
       question: "Can I simulate multi-expiration diagonal spreads in the builder?",
@@ -513,10 +513,10 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     badge: "LLM Judge & RAG",
     badgeColor: "purple",
     subtitle: "Natural language query planner and LLM Judge router converting plain queries into parameter-bound scans, RAG retrievals, and memory updates.",
-    overview: "Natural Language Query (NLQ) engine converting user questions into parameter-bound SQLite queries, market scans, and options evaluations. Integrates the LLM Judge router to classify intents (search, trading, research, payments, tasks, memory) with confidence scoring. Backed by Cloudflare Workers AI and Vectorize RAG knowledge retrieval.",
+    overview: "Natural Language Query (NLQ) engine converting user questions into parameter-bound queries, market scans, and options evaluations. Integrates the LLM Judge router to classify intents (search, trading, research, payments, tasks, memory) with confidence scoring. Backed by neural strategy intelligence models and enterprise vector RAG knowledge retrieval.",
     apiEndpoint: "POST /api/nlq · POST /api/chat · POST /nlq/webhook",
     targetTab: "chat",
-    keyParameters: "model: glm-4.7-flash, judgeRouting: true, vectorSearch: true, memoryVault: DO SQLite",
+    keyParameters: "model: glm-4.7-flash, judgeRouting: true, vectorSearch: true, memoryVault: Persistent Distributed Ledger",
     governingDecisionRuleId: "pickbesttrades-engine",
     steps: [
       {
@@ -532,7 +532,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 3",
         title: "Transactional Memory & Knowledge Retrieval",
-        description: "Queries Durable Object SQLite tables (mas_messages, mas_events, mas_memory) and Vectorize indexes for relevant facts.",
+        description: "Queries persistent state tables (mas_messages, mas_events, mas_memory) and semantic vector indexes for relevant facts.",
       },
       {
         step: "Step 4",
@@ -542,18 +542,18 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     ],
     keyFeatures: [
       `Natural language understanding mapped directly to ${STRATEGY_LIBRARY.length}-strategy catalog.`,
-      "Dual-engine AI routing: Cloudflare Workers AI (glm-4.7-flash) with deterministic screener fallback.",
-      "Durable memory vault storing user preferences and facts across sessions.",
+      "Dual-engine AI routing: Neural Strategy Models (glm-4.7-flash) with deterministic screener fallback.",
+      "Persistent memory vault storing user preferences and facts across sessions.",
       "Omnichannel support: Web chat, Slack events, inbound email, and WebRTC voice.",
     ],
     dataSources: [
-      "Cloudflare Workers AI (glm-4.7-flash / Llama 3.3 70B)",
-      "Cloudflare AI Search RAG (Vectorize index retrieval)",
-      "Durable Object transactional SQLite storage (mas_messages, mas_events, mas_memory)",
+      "Neural Strategy AI Engine (glm-4.7-flash / Llama 3.3 70B)",
+      "Enterprise Vector RAG Intelligence Index",
+      "Persistent transactional SQLite storage (mas_messages, mas_events, mas_memory)",
     ],
     faq: {
-      question: "What happens if Workers AI daily neuron allocation is exhausted?",
-      answer: "The orchestrator automatically detects Error 4006 and engages deterministic rule-based screening fallbacks with full diagnostic remediation cards in chat.",
+      question: "What happens if the primary neural AI model quota is reached?",
+      answer: "The orchestrator automatically detects upstream rate constraints and engages deterministic rule-based screening fallbacks with full diagnostic remediation cards in chat.",
     },
     sampleQueryOrAction: "Find top scoring options opportunities on TSLA with balanced risk",
   },
@@ -684,10 +684,10 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     title: "Autonomous Background Cron, Interval Alarms & Token Lifecycle",
     category: "scheduled",
     categoryLabel: "Automation",
-    badge: "Cloudflare DO Alarms",
+    badge: "Autonomous State Alarms",
     badgeColor: "purple",
     subtitle: "24/7 background automation: auto-renews E*TRADE OAuth access tokens daily at 23:00 EDT / 22:00 EST, runs scans every 5 min, and broadcasts WebSocket alerts.",
-    overview: "24/7 background automation powered by Cloudflare Durable Object Alarms. Automatically renews E*TRADE OAuth access tokens daily at 23:00 EDT / 22:00 EST (03:00 UTC), always at least an hour ahead of the midnight-ET expiration, triggers market screening scans every 5 minutes (300 seconds), processes queued async jobs, and broadcasts live alerts over WebSockets.",
+    overview: "24/7 autonomous background automation with persistent state-machine alarms. Automatically renews E*TRADE OAuth access tokens daily at 23:00 EDT / 22:00 EST (03:00 UTC), always at least an hour ahead of the midnight-ET expiration, triggers market screening scans every 5 minutes (300 seconds), processes queued async jobs, and broadcasts live alerts over WebSockets.",
     apiEndpoint: "POST /api/schedules/trigger-renew · POST /api/schedules/trigger-screen",
     targetTab: "trading",
     keyParameters: "cron: '0 3 * * *' UTC (renew, 23:00 EDT / 22:00 EST), interval: 300s (screen), keepAliveWhile: active",
@@ -696,7 +696,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 1",
         title: "Alarm Registration",
-        description: "Schedules recurring Durable Object alarms using schedule() and scheduleEvery() lifecycle methods.",
+        description: "Registers recurring persistent state-machine alarms using schedule() and scheduleEvery() lifecycle methods.",
       },
       {
         step: "Step 2",
@@ -722,7 +722,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     ],
     dataSources: [
       "E*TRADE OAuth Token Renewal (api.etrade.com/oauth/renew_access_token)",
-      "Cloudflare Durable Object Alarm Engine",
+      "Autonomous State-Machine Alarm Engine",
       "Durable Async Job Ledger (mas_async_jobs)",
     ],
     faq: {
@@ -753,7 +753,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 1",
         title: "Channel Ingestion",
-        description: "Ingests messages from Slack webhooks, Cloudflare Worker inbound email, or audio voice WebSockets.",
+        description: "Ingests messages from Slack webhooks, inbound corporate email, or audio voice WebSockets.",
       },
       {
         step: "Step 2",
@@ -779,7 +779,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     ],
     dataSources: [
       "Slack Web API (chat.postMessage)",
-      "Cloudflare EMAIL Worker Binding",
+      "Inbound Corporate Email Gateway",
       "Outbound HMAC-SHA256 Webhooks (OUTBOUND_WEBHOOK_URL)",
     ],
     faq: {
@@ -861,7 +861,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     overview: "Records immutable audit events for every system action: routing decisions, judge evaluations, payment lifecycle transitions, order previews, and executions. Publishes events to the SQLite event store and streams telemetry to external observability collectors.",
     apiEndpoint: "GET /api/audit · POST /api/audit/event",
     targetTab: "audit",
-    keyParameters: "storage: mas_events (SQLite WAL), hashChain: SHA-256, retention: mas_messages pruned nightly (window default 90d via MAS_MESSAGES_RETENTION_DAYS); mas_events ledger append-only until R2 archival",
+    keyParameters: "storage: mas_events (SQLite WAL), hashChain: SHA-256, retention: mas_messages pruned nightly (window default 90d via MAS_MESSAGES_RETENTION_DAYS); mas_events ledger append-only until cold-storage vault archival",
     governingDecisionRuleId: "additional-decisioning-gates",
     steps: [
       {
@@ -877,7 +877,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 3",
         title: "SQLite WAL Commitment",
-        description: "Writes event records to mas_events transactional table in Durable Object SQLite storage.",
+        description: "Writes event records to mas_events transactional table in persistent SQLite storage.",
       },
       {
         step: "Step 4",
@@ -889,16 +889,16 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       "Cryptographically verifiable audit log of all agent routing decisions and order previews.",
       "Aspect-oriented error logging with externalized error codes and remediation guides.",
       "Real-time event streaming over WebSockets to client UI.",
-      "Zero data loss with Durable Object SQLite Write-Ahead Logging (WAL).",
+      "Zero data loss with persistent SQLite Write-Ahead Logging (WAL).",
     ],
     dataSources: [
       "SQLite Transactional WAL Store (mas_events)",
-      "Cloudflare Workers Telemetry & Metrics",
+      "Platform Execution Telemetry & Performance Metrics",
       "Aspect-Oriented Logging Engine (src/aspects/loggingAspect.ts)",
     ],
     faq: {
       question: "Are audit events preserved if the browser disconnects?",
-      answer: "Yes. All audit events are stored persistently in the server-side Cloudflare Durable Object SQLite database and survive browser reloads.",
+      answer: "Yes. All audit events are stored persistently in the server-side transactional SQLite database and survive browser reloads.",
     },
     sampleQueryOrAction: "Inspect recent audit logs for order preview and judge routing events",
   },
@@ -1507,11 +1507,11 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                         </div>
                       </div>
 
-                      {/* Upstream APIs & Cloudflare Metrics Breakdown */}
+                      {/* Upstream APIs & Execution Metrics Breakdown */}
                       {wf.apiMetrics && wf.apiMetrics.length > 0 && (
                         <div className="workflow-api-metrics-panel" style={{ marginTop: "0.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "1rem" }}>
                           <h5 style={{ margin: "0 0 0.75rem", color: "var(--color-accent)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                            <span>📊</span> Upstream Subrequests &amp; Cloudflare Worker API Metrics
+                            <span>📊</span> Upstream Subrequests &amp; Edge Execution Metrics
                           </h5>
                           <div style={{ overflowX: "auto" }}>
                             <table style={{ width: "100%", fontSize: "0.8rem", borderCollapse: "collapse", color: "var(--color-text-secondary)" }}>

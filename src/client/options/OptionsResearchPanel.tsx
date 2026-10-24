@@ -238,7 +238,7 @@ function BestTradeCard({
               type="button"
               className="options-eval-llm-btn"
               onClick={() => onEvaluateLlm(candidateToEval(pick.best!.candidate))}
-              title="Evaluate this top trade recommendation with Workers AI LLM against complete option chains"
+              title="Evaluate this top trade recommendation with neural LLM against complete option chains"
             >
               🧠 Evaluate with LLM
             </button>
@@ -333,7 +333,7 @@ function RecommendationComparison({ data, onPreview }: { data: ComparisonData; o
     <section className="options-comparison" aria-label="Quant and LLM recommendation comparison">
       <header className="options-results-header">
         <h2>Quant vs. LLM ranking</h2>
-        <span>{data.llm.model || "Configured Workers AI model"} · {data.quant.candidateCount} shared candidates</span>
+        <span>{data.llm.model || "Neural Strategy Model"} · {data.quant.candidateCount} shared candidates</span>
       </header>
       <LlmInputPanel input={data.llmInput} />
       {data.quantStrategyPool && data.quantStrategyPool.length > 0 && (
@@ -627,7 +627,7 @@ function StrategyCard({
               type="button"
               className="options-eval-llm-btn"
               onClick={() => onEvaluateLlm(candidateToEval(candidate))}
-              title="Evaluate this strategy with Workers AI LLM against raw and normalized options chains"
+              title="Evaluate this strategy with neural LLM against raw and normalized options chains"
             >
               🧠 Evaluate with LLM
             </button>
@@ -1071,7 +1071,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             tooltip: {
               eyebrow: "DURABLE TIMERS & AUTONOMOUS DISPATCH",
               title: "Scheduled Screening & Schedulers",
-              description: "Create and monitor autonomous scheduled options scans powered by Cloudflare Durable Timers with Slack & Email notifications.",
+              description: "Create and monitor autonomous scheduled options scans with persistent background timers and Slack & Email notifications.",
             },
           },
         ]}
@@ -1228,7 +1228,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
                     legsText: nlqQuery,
                   });
                 }}
-                title="Evaluate this NLQ screening question against live option chains with Workers AI LLM"
+                title="Evaluate this NLQ screening question against live option chains with neural LLM"
               >
                 🧠 Evaluate NLQ with LLM
               </button>
@@ -1527,7 +1527,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         ]}
       />
 
-      {/* Holistic Workers AI LLM Strategy Evaluation & Options Data Export Modal */}
+      {/* Holistic Neural Strategy LLM Evaluation & Options Data Export Modal */}
       <LlmStrategyEvalModal
         isOpen={Boolean(evaluatingStrategy)}
         onClose={() => setEvaluatingStrategy(null)}

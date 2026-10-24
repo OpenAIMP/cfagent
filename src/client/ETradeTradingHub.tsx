@@ -390,7 +390,7 @@ export function ETradeTradingHub({
     }
   };
 
-  // Cloudflare Voice Trading Agent state
+  // Voice Trading Desk state
   const [voiceStatus, setVoiceStatus] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
   const [voiceTranscript, setVoiceTranscript] = useState<Array<{
     role: "user" | "assistant";
@@ -2726,8 +2726,7 @@ export function ETradeTradingHub({
         </div>
       )}
 
-      {/* Omnichannel Trading Agents (Cloudflare Email & Slack Agents) */}
-      {/* Omnichannel Trading Agents (Cloudflare Email & Slack Agents) */}
+      {/* Omnichannel Trading Desks (Autonomous Email & Slack Desks) */}
       {effectiveSubTab === "omnichannel" && (
         <div className="tab-pane active omnichannel-pane">
           {/* Header Card */}
@@ -2735,10 +2734,10 @@ export function ETradeTradingHub({
             <div className="omnichannel-header-top">
               <div>
                 <span className="omnichannel-header-badge">
-                  Cloudflare Agents SDK
+                  Autonomous Multi-Agent Architecture
                 </span>
                 <h3 className="omnichannel-header-title">
-                  💬 Omnichannel Trading Agents (Email &amp; Slack)
+                  💬 Omnichannel Trading Desks (Email &amp; Slack)
                 </h3>
                 <p className="omnichannel-header-desc">
                   Autonomous market research, quoting, and Human-in-the-Loop order drafting via Inbound Email and Slack Bot communication channels. All orders require explicit human authorization before live E*TRADE execution.
@@ -2753,11 +2752,11 @@ export function ETradeTradingHub({
           </div>
 
           <div className="omnichannel-grid">
-            {/* Channel 1: Cloudflare Email Trading Agent */}
+            {/* Channel 1: Autonomous Email Trading Desk */}
             <div className="omnichannel-card">
               <div className="omnichannel-card-header">
                 <h4 className="omnichannel-card-title email">
-                  <span>✉️</span> Cloudflare Email Trading Agent
+                  <span>✉️</span> Autonomous Email Trading Desk
                 </h4>
                 <span className="omnichannel-badge-subtle cyan">
                   send_email &amp; PostalMime
@@ -2879,11 +2878,11 @@ export function ETradeTradingHub({
               )}
             </div>
 
-            {/* Channel 2: Cloudflare Slack Trading Agent */}
+            {/* Channel 2: Autonomous Slack Trading Desk */}
             <div className="omnichannel-card">
               <div className="omnichannel-card-header">
                 <h4 className="omnichannel-card-title slack">
-                  <span>🤖</span> Cloudflare Slack Trading Agent
+                  <span>🤖</span> Autonomous Slack Trading Desk
                 </h4>
                 <span className="omnichannel-badge-subtle purple">
                   Events &amp; Block Kit
@@ -3036,7 +3035,7 @@ export function ETradeTradingHub({
         </div>
       )}
 
-      {/* Cloudflare Voice Trading Agent Desk */}
+      {/* Autonomous Voice Trading Desk */}
       {effectiveSubTab === "voice" && (
         <div className="tab-pane active voice-pane">
           {/* Header Card */}
@@ -3044,13 +3043,13 @@ export function ETradeTradingHub({
             <div className="voice-header-top">
               <div>
                 <span className="voice-header-badge">
-                  Cloudflare Agents Voice SDK
+                  Real-Time Voice Architecture
                 </span>
                 <h3 className="voice-header-title">
                   <span>🎙️</span> E*TRADE Voice Trading Desk
                 </h3>
                 <p className="voice-header-desc">
-                  Real-time conversational voice trading powered by Cloudflare Workers AI STT &amp; TTS. Verbal quote inquiries, technical screening, and strict two-stage verbal Human-in-the-Loop order drafting.
+                  Real-time conversational voice trading with speech synthesis and recognition. Verbal quote inquiries, technical screening, and strict two-stage verbal Human-in-the-Loop order drafting.
                 </p>
               </div>
               <div className="voice-header-status">
@@ -3413,11 +3412,11 @@ export function ETradeTradingHub({
                     <div className="diag-card">
                       <div className="diag-label">Consumer Secret</div>
                       <div className="diag-val">
-                        {diagnostics.credentials?.apiSecretConfigured ? "✓ Configured in Cloudflare" : "MISSING"}
+                        {diagnostics.credentials?.apiSecretConfigured ? "✓ Securely Configured" : "MISSING"}
                       </div>
                     </div>
                     <div className="diag-card">
-                      <div className="diag-label">Session Token in KV</div>
+                      <div className="diag-label">Session Token Vault</div>
                       <div className={`diag-val ${diagnostics.oauthToken?.present ? "token-active" : "token-inactive"}`}>
                         {diagnostics.oauthToken?.present ? "✓ Present & Active" : "No Active Token"}
                       </div>
@@ -3465,7 +3464,7 @@ export function ETradeTradingHub({
                       <div><strong>Trading Agent DID:</strong> <code>{tradingAgentDid}</code></div>
                       <div><strong>Microservice Architecture:</strong> Model Context Protocol (MCP) &amp; OAuth 1.0a REST Client</div>
                       <div><strong>Attestation Mechanism:</strong> Internal W3C DID cryptographic stamping for microservice audit logs (not a third-party brokerage guarantee)</div>
-                      <div><strong>Edge Database:</strong> Cloudflare Durable Objects + SQLite (tables: <code>mas_trades</code>, <code>mas_events</code>)</div>
+                      <div><strong>Transactional Ledger:</strong> Persistent Distributed SQLite (tables: <code>mas_trades</code>, <code>mas_events</code>)</div>
                     </div>
                   </details>
 

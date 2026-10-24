@@ -410,7 +410,7 @@ export const generatedThemeTokens: Record<"dark" | "light" | "high-contrast", Re
  */
 export const adAccentPalette = [
   { value: "#6366f1", label: "Indigo" },
-  { value: "#f38020", label: "Cloudflare Orange" },
+  { value: "#f38020", label: "Amber Orange" },
   { value: "#06b6d4", label: "Cyan" },
   { value: "#10b981", label: "Emerald Green" },
   { value: "#a855f7", label: "Purple" },

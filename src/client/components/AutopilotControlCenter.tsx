@@ -847,7 +847,7 @@ export function AutopilotControlCenter({
             {!isServerBacked && (
               <span
                 className="kill-switch-pill"
-                title="The Durable Object did not answer; the state shown here is this tab only."
+                title="The central orchestration service did not answer; the state shown here is this tab only."
               >
                 LOCAL ONLY
               </span>

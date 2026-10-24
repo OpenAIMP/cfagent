@@ -3688,7 +3688,7 @@ export function StrategyDiscoveryPanel({
         </div>
       )}
 
-      {/* Workers AI LLM Strategy Evaluation & Options Data Export Modal */}
+      {/* Neural Strategy LLM Evaluation & Options Data Export Modal */}
       <LlmStrategyEvalModal
         isOpen={Boolean(evaluatingStrategy)}
         onClose={() => setEvaluatingStrategy(null)}

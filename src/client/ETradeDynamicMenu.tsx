@@ -1083,7 +1083,7 @@ export function SettingsMenu({
                 </div>
                 <div className="etrade-provenance-row">
                   <strong>Database:</strong>
-                  <span>Durable Objects + SQLite (<code>mas_trades</code>, <code>mas_events</code>)</span>
+                  <span>Persistent Distributed SQLite (<code>mas_trades</code>, <code>mas_events</code>)</span>
                 </div>
               </div>
             </details>

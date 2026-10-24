@@ -448,7 +448,7 @@ export function Chat({ user }: { user: User }) {
   };
 
   const handleCopyDiscordEmbed = () => {
-    const text = `**Join Multi-Agent Studio:** [Autonomous AI Agents with Workers AI & SQLite](${personalReferralUrl})`;
+    const text = `**Join ${BRAND.name}:** [Autonomous AI Trading & Strategy Platform](${personalReferralUrl})`;
     navigator.clipboard.writeText(text);
     setDiscordCopied(true);
     setTimeout(() => setDiscordCopied(false), 2500);
