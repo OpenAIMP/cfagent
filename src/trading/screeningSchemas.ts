@@ -668,6 +668,10 @@ export const marketScreenScheduleCriteriaSchema = z.strictObject({
   // (the Yahoo data-source adapter inside the one pipeline). Absent =
   // the E*TRADE default every existing schedule already runs under.
   provider: z.enum(["etrade", "yahoo"]).optional(),
+  // Issue #1355: a scheduled stock screen may opt into sharded
+  // execution (feed → generate → store → serve → deliver as
+  // async-job shards). Absent/false keeps the monolithic path.
+  sharded: z.boolean().optional(),
   ...deliveryFields,
   ...stageChainFields,
   ...triggerField,
