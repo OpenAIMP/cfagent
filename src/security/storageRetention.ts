@@ -95,7 +95,7 @@
  */
 
 import type { DatabaseORM } from "../orm";
-// Issue #278: durable scheduled-run reports for the AI Search agent.
+// Issue #278: durable scheduled-run reports for the NextGenTP agent.
 
 /** Default retention window, days — matches the 90d the UI advertises. */
 export const STORAGE_RETENTION_DEFAULT_DAYS = 90;
@@ -407,7 +407,7 @@ export function runStorageRetention(
   );
 
   // Issue #278: persist the scheduled run's summary as a durable report
-  // (mas_reports) so the AI Search agent can surface it later.
+  // (mas_reports) so the NextGenTP agent can surface it later.
   // Issue #308: through the single generate→store seam — one canonical
   // row per generation (generationId = run id).
   try {

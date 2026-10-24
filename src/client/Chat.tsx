@@ -1121,7 +1121,7 @@ export function Chat({ user }: { user: User }) {
             </div>
           </header>
         ) : (
-          <header className="nextgentp-top-header algonexus-top-header app-header">
+          <header className="nextgentp-top-header app-header">
             <NavigationMenu
               layout="top"
               alertBadgeCount={unreadAlerts}
@@ -2152,7 +2152,7 @@ export function Chat({ user }: { user: User }) {
       </main>
       </div>
 
-      {/* Floating Ask Agent Widget (Docked bottom-right, matching AlgoNexus reference) */}
+      {/* Floating Ask Agent Widget (Docked bottom-right) */}
       <AskAgentWidget
         onAskAgent={handleAskAgent}
         onOpenFullChat={() => {

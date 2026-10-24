@@ -176,7 +176,7 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
       };
       await ctx.agentCtx.storage.put(key, [run, ...existing].slice(0, 20));
       // Issue #278: persist the scheduled run's report durably
-      // (mas_reports) so the AI Search agent can surface it later.
+      // (mas_reports) so the NextGenTP agent can surface it later.
       // Issue #308: through the single generate→store seam — one
       // canonical row per generation (generationId = run id).
       orm.storeCanonicalReport({

@@ -1,4 +1,4 @@
-name: Deploy AI Search Agent
+name: Deploy NextGenTP
 
 # Runner pin: ubuntu-24.04 everywhere below. ubuntu-latest began migrating
 # toward Ubuntu 26 and segfaulted deploys (exit 139, #596). Pin until a

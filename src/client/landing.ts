@@ -1,7 +1,7 @@
 import { generatedThemeTokens } from "./designTokens";
 
 export function renderLandingPage(appName?: string): string {
-  const name = appName || "AlgoNexus";
+  const name = appName || "NextGenTP";
   const darkTokens = Object.entries(generatedThemeTokens.dark)
     .map(([k, v]) => `  ${k}: ${v};`)
     .join("\n");
@@ -423,7 +423,7 @@ ${hcTokens}
       font-weight: 700;
     }
 
-    /* Showcase Console (AlgoNexus Hero Interactive Mockup) */
+    /* Showcase Console (NextGenTP Hero Interactive Mockup) */
     .showcase-container {
       position: relative;
       z-index: 10;
@@ -1167,7 +1167,7 @@ ${hcTokens}
       </div>
     </section>
 
-    <!-- Showcase Console (AlgoNexus Hero Component) -->
+    <!-- Showcase Console (NextGenTP Hero Component) -->
     <section class="showcase-container" id="autopilot">
       <div class="console-chrome-card">
         <!-- Chrome Top Bar -->
@@ -1472,7 +1472,7 @@ ${hcTokens}
     <!-- Comparison Table Section -->
     <section class="comparison-section" id="pricing">
       <div class="section-eyebrow">Platform Comparison</div>
-      <h2 class="section-title">Why AlgoNexus Outperforms</h2>
+      <h2 class="section-title">Why ${name} Outperforms</h2>
       <p class="section-desc">Compare the architecture of true deterministic trading against traditional platforms and unconstrained AI chatbots.</p>
 
       <table class="comp-table">

@@ -90,7 +90,7 @@ for completeness): `SLACK_BOT_TOKEN`, `OUTBOUND_WEBHOOK_SECRET`.
   requires the same confirmation pattern before sending.
 - **Scheduled runs**: scheduled screenings/reports run via the scheduler
   (`src/services/scheduledTasks.ts`); issue #278 is merged (commit `0af55d4`):
-  scheduled-run reports persist durably so the AI Search agent can surface
+  scheduled-run reports persist durably so the NextGenTP agent can surface
   them later.
 
 ## 5. Data stores touched

@@ -258,7 +258,7 @@ export function renderLoginPage(env: Env, providers?: LoginPageProvider[]): stri
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${env.APP_NAME || "AI Search Agent"} — Sign In</title>
+  <title>${env.APP_NAME || "NextGenTP"} — Sign In</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -370,7 +370,7 @@ export function renderLoginPage(env: Env, providers?: LoginPageProvider[]): stri
 <body>
   <div class="card">
     <div class="logo-badge">🤖</div>
-    <h1>${env.APP_NAME || "AI Multi-Agent"}</h1>
+    <h1>${env.APP_NAME || "NextGenTP"}</h1>
     <p>${intro}</p>
     
     <div class="features">

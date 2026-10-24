@@ -612,7 +612,7 @@ export function NavigationMenu({
   if (layout === "left") {
     return (
       <aside
-        className={`nextgentp-sidebar algonexus-sidebar ${collapsed ? "collapsed" : ""}`}
+        className={`nextgentp-sidebar ${collapsed ? "collapsed" : ""}`}
         aria-label="Sidebar Navigation"
       >
         {/* Brand Header */}
