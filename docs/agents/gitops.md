@@ -983,7 +983,7 @@ The Risks and limitations section MUST state known test-coverage gaps for the ch
 [ ] Refactor and rerun tests
 [ ] Review diff and security implications
 [ ] Push and open PR with required authorization
-[ ] While CI/CD runs on the PR, continue implementing the next independent issue in parallel (§20) — never idle waiting for checks
+[ ] Agents must continue to work in parallel while CI/CD does its job — start the next independent issue (§20), never idle waiting for checks
 [ ] Resolve review and CI failures
 [ ] Synchronize or use merge queue as configured
 [ ] Obtain merge authorization
