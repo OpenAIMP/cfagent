@@ -41,13 +41,13 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
   {
     name: "knowledge_search",
     category: "Knowledge & RAG",
-    description: "Search the organization's enterprise knowledge base using Cloudflare AI Search RAG with Vectorize index retrieval.",
+    description: "Search the organization's enterprise knowledge base using semantic vector RAG intelligence retrieval.",
     schema: {
       type: "object",
       properties: { query: { type: "string", description: "Search query or natural language inquiry" } },
       required: ["query"],
     },
-    sampleArgs: { query: "What features are available in Cloudflare Workers AI?" },
+    sampleArgs: { query: "What algorithmic screening workflows are available?" },
   },
   {
     name: "draft_payment",
@@ -510,7 +510,7 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     description:
       "Runs one agentic chat turn on the canonical chat pipeline (LLM judge routing across search, payments, tasks, and memory sub-agents) and returns the completed reply as JSON. True streaming remains available over the agent WebSocket chat; this route is explicit synchronous (streaming: false).",
     authRequired: true,
-    sampleBody: { messages: [{ role: "user", content: "What are the latest Cloudflare Workers AI features?" }] },
+    sampleBody: { messages: [{ role: "user", content: "What are the latest platform trading capabilities?" }] },
     sampleCurl: `curl -X POST https://agent.openaimp.com/api/chat \\
   -H "Content-Type: application/json" \\
   -d '{"messages":[{"role":"user","content":"Hello AI Assistant"}]}'`,
@@ -522,7 +522,7 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
         reason: "judge routing rationale",
         needsConfirmation: false,
       },
-      model: "Workers AI model id used for the turn",
+      model: "Neural model identifier used for the turn",
       streaming: false,
     },
   },
@@ -603,10 +603,10 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     title: "Publish Referral Link",
     description: "Publishes a new tool or platform referral link for user account with category attribution.",
     authRequired: true,
-    sampleBody: { title: "Cloudflare Workers AI Pro", url: "https://workers.cloudflare.com/?ref=team", category: "AI & Dev Tools", rewardText: "Get $10 in free API credits" },
+    sampleBody: { title: "Algorithmic Market Data Pro", url: "https://example.com/market-pro?ref=team", category: "AI & Dev Tools", rewardText: "Get $10 in free API credits" },
     sampleCurl: `curl -X POST https://agent.openaimp.com/api/referrals \\
   -H "Content-Type: application/json" \\
-  -d '{"title":"Workers AI","url":"https://workers.cloudflare.com/?ref=demo","category":"AI & Dev Tools","rewardText":"$10 credits"}'`,
+  -d '{"title":"Market Intelligence","url":"https://example.com/intel?ref=demo","category":"AI & Dev Tools","rewardText":"$10 credits"}'`,
   },
   {
     id: "api_revenue_get",

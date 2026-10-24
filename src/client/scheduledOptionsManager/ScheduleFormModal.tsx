@@ -78,7 +78,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
             <header className="sched-modal-header">
               <div>
         <h3>{editingScheduleId ? "✏ Update Screening Schedule" : "⏰ Configure New Schedule"}</h3>
-                <p>Register a durable Cloudflare Agents SDK timer to run in the background.</p>
+                <p>Register an autonomous persistent timer to run in the background.</p>
               </div>
               <button
                 type="button"

@@ -27,7 +27,7 @@ export function newsSentimentPresentation(
   item: Pick<NewsFlowItem, "sentiment" | "sentimentMethod" | "sentimentModel">,
 ): NewsSentimentPresentation {
   if (item.sentimentMethod === "llm") {
-    const model = item.sentimentModel || "Workers AI model";
+    const model = item.sentimentModel || "Neural Language Model";
     return {
       assessed: true,
       label: `${SENTIMENT_LABELS[item.sentiment]} · AI`,

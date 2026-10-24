@@ -75,7 +75,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
               <div className="hero-text-block">
                 <h3>💰 Revenue & Monetization Management</h3>
                 <p>
-                  Platform revenue accounting across external ad networks (CPM/CPC), sponsored marketplace placements, agent payment processing fees, and referral partner payouts powered by SQLite ORM.
+                  Platform revenue accounting across external ad networks (CPM/CPC), sponsored marketplace placements, agent payment processing fees, and referral partner payouts with transactional double-entry ledger persistence.
                 </p>
               </div>
               <button
@@ -448,7 +448,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
               <div className="card-header">
                 <h4>🗄️ Database Tables Schema & Record Counts (`DatabaseORM`)</h4>
                 <p>
-                  Direct view into the typed repositories and relational SQLite tables managed by the Durable Object ORM.
+                  Direct view into the typed repositories and relational SQLite tables managed by the transactional database ORM.
                 </p>
               </div>
 

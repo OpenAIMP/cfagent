@@ -808,7 +808,7 @@ export class ETradeVoiceTradingService {
             `- **Trigger:** **${timeDesc}**\n` +
             `- **Callback:** \`${callback}\`\n` +
             `- **Schedule ID:** \`${schedId}\`\n\n` +
-            `> ⏱️ **Cloudflare Agents Durable Timer**: Persists across worker restarts.\n` +
+            `> ⏱️ **Persistent Background Timer**: Persists across system restarts.\n` +
             `> *To Cancel:* Say *"Cancel schedule ${schedId}"*`;
 
           return {
@@ -829,7 +829,7 @@ export class ETradeVoiceTradingService {
           const displayMarkdown = `### 🛑 Task Schedule Cancelled\n\n` +
             `- **Schedule ID:** \`${schedId}\`\n` +
             `- **Status:** **CANCELLED**\n\n` +
-            `*The timer has been removed from active Cloudflare durable queues.*`;
+            `*The timer has been removed from active background queues.*`;
 
           return {
             success: true,
@@ -947,7 +947,7 @@ export class ETradeVoiceTradingService {
           Object.entries(r).map(([k, v]) => `- **${k}:** ${v}`).join("\n")
         ).join("\n\n");
 
-        const displayMarkdown = `### 💳 Cloudflare Agentic Payments (x402 & MPP)\n\n${nlqRes.summary}\n\n${details}`;
+        const displayMarkdown = `### 💳 Agentic Micropayments (x402 & MPP Protocol)\n\n${nlqRes.summary}\n\n${details}`;
 
         return {
           success: true,

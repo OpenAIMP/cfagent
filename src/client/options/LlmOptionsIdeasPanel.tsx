@@ -164,7 +164,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
         </label>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", flexWrap: "wrap" }}>
           <button type="submit" disabled={loading || !symbol.trim() || !question.trim()}>
-            {loading ? "Analyzing chains with Workers AI…" : "Ask LLM"}
+            {loading ? "Analyzing chains with Neural Engine…" : "Ask LLM"}
           </button>
           <button
             type="button"

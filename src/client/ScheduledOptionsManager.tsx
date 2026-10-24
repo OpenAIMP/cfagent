@@ -777,7 +777,7 @@ export function ScheduledOptionsManager({
             <span>⏰</span> Autonomous Options Screening &amp; Schedulers
           </h3>
           <p>
-            Cloudflare Agents Durable Timers (<code>schedule</code> / <code>scheduleEvery</code>) run inside the <strong>OrchestratorAgent</strong> Durable Object — each registered job fires on its own schedule, independently of whether your browser tab is open. When a scheduled analysis or screen completes, its results are broadcast to connected app clients, and notifications are sent only to the channels configured on that job (Slack, email, webhook) — a channel the job doesn&apos;t configure receives nothing.
+            Persistent Background Timers (<code>schedule</code> / <code>scheduleEvery</code>) run within the autonomous orchestration runtime — each registered job fires on its own schedule, independently of whether your browser tab is open. When a scheduled analysis or screen completes, its results are broadcast to connected app clients, and notifications are sent only to the channels configured on that job (Slack, email, webhook) — a channel the job doesn&apos;t configure receives nothing.
           </p>
         </div>
 
@@ -804,7 +804,7 @@ export function ScheduledOptionsManager({
 
       <div className="sched-arch-callout">
         <div>
-          🛡️ <strong>Page-Independent Execution Guarantee:</strong> Timers persist in Cloudflare Durable Object storage. You can close this browser anytime — scheduled tasks continue firing on schedule.
+          🛡️ <strong>Page-Independent Execution Guarantee:</strong> Timers persist in server-side distributed state. You can close this browser anytime — scheduled tasks continue firing on schedule.
         </div>
         <div className="sched-arch-badges">
           <span className="arch-pill">💬 Slack Block Kit [✓ Approve]</span>
