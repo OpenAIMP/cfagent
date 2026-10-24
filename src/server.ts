@@ -43,7 +43,7 @@ import {
 } from "./security/apiKeys";
 import { serveStaticAsset } from "./security/staticAssets";
 import { withErrorBoundary } from "./security/workerErrorBoundary";
-import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
+import { handleLogout, renderLoginPage } from "./oauth";
 import {
   disabledLoginResponse,
   enabledProviders,
@@ -341,19 +341,12 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (agentResponse) return agentResponse;
 
     // --- Authentication endpoints ---
-    // #945 Wiring Phase 1: when IAAA wiring is OFF, these dispatch
-    // exactly as before. When it is ON, they dispatch through the
-    // provider registry (default provider "github" in this phase);
-    // a disabled/unregistered provider gets a 403, never a fallback.
-    // Logout is unchanged in this phase.
-    if (path === "/auth/login") {
-      if (isWiringEnabled(env)) {
-        const { provider, disabledReason } = resolveLoginProvider(env, "github");
-        if (!provider || disabledReason) return disabledLoginResponse(disabledReason ?? "provider-not-registered");
-        return provider.startLogin(env);
-      }
-      return handleLogin(env);
-    }
+    // #945 provider registry dispatch, completed by #1254 PR-B:
+    // the generic /auth/login/<id> + /auth/callback/<id> family
+    // below is the ONLY login routing — the GitHub-only exact
+    // /auth/login + /auth/callback branches and the wiring-off
+    // legacy flow are deleted. A disabled/unregistered provider
+    // gets a 403, never a fallback. Logout is unchanged.
     if (path === "/login" && request.method === "GET") {
       // #945 Google-as-plugin — composable login page: when wiring
       // is on, the page renders one button per enabled, registered
@@ -370,31 +363,13 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
-    if (path === "/auth/callback") {
-      if (isWiringEnabled(env)) {
-        const { provider, disabledReason } = resolveLoginProvider(env, "github");
-        if (!provider || disabledReason) return disabledLoginResponse(disabledReason ?? "provider-not-registered");
-        // #945 GitHub end-to-end: the wired callback now receives
-        // the audit store + resolved tenant (login audit switched
-        // on, best-effort) and postLoginEnabled (alias recording +
-        // bootstrap-on-login, best-effort). The tenant resolves as
-        // IAAA_TENANT_ID else the documented default "primary".
-        return provider.handleCallback(env, request, {
-          auditStore: createWiredAuditStore(env),
-          auditTenantId: resolveIaaaTenant(env),
-          postLoginEnabled: true,
-        });
-      }
-      return handleOAuthCallback(env, request);
-    }
-    // #945 Google-as-plugin — generic provider routes. These are
-    // additive: the exact /auth/login and /auth/callback routes
-    // above stay GitHub-only and byte-identical. A provider id
-    // segment dispatches through the registry exactly like the
-    // GitHub route does (same wired-callback options: audit store,
-    // resolved tenant, post-login enabled). Wiring OFF is a 403 —
-    // no legacy flow exists for a plugin provider — and an unknown
-    // or unlisted id is a 403, never a fallback to another provider.
+    // #945 Google-as-plugin — generic provider routes: the only
+    // login routing since #1254 PR-B deleted the exact GitHub-only
+    // branches. A provider id segment dispatches through the
+    // registry (wired-callback options: audit store, resolved
+    // tenant, post-login enabled). Wiring OFF is a 403 — no legacy
+    // flow exists for any provider — and an unknown or unlisted id
+    // is a 403, never a fallback to another provider.
     const loginProviderMatch = path.match(/^\/auth\/login\/([^/]+)$/);
     if (loginProviderMatch) {
       if (!isWiringEnabled(env)) return disabledLoginResponse("wiring-disabled");
