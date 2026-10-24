@@ -46,7 +46,32 @@ export interface DataProviderCaptureAggregates {
   totalRawBytes: number;
   capturesLast24h: number;
   failuresLast24h: number;
+  /**
+   * E7 (issue #1248) fetch-outcome fields — OPTIONAL here because
+   * an older API response omits them; the panel renders the fetch
+   * line only when they are present and never derives them.
+   */
+  fetchAttempts?: number;
+  fetchFailures?: number;
+  /** fetchFailures / fetchAttempts; 0 when there were no attempts. */
+  fetchFailureRate?: number;
+  /** Capture-write failures, reported separately from fetch failures. */
+  captureFailures?: number;
+  lastFetchFailureAt?: string | null;
+  fetchConsecutiveFailures?: number;
+  /** The classified kind of the most recent fetch failure. */
+  latestFetchFailureKind?: DataProviderFetchFailureKind | null;
 }
+
+/** The classified kinds a failed provider fetch can carry (E7). */
+export type DataProviderFetchFailureKind =
+  | "auth"
+  | "rate_limit"
+  | "timeout"
+  | "network"
+  | "upstream"
+  | "parse"
+  | "unknown";
 
 /** The E6 health block on each provider view (server-derived; the panel only formats). */
 export interface DataProviderHealth extends DataProviderCaptureAggregates {
