@@ -1,7 +1,8 @@
 import { generatedThemeTokens } from "./designTokens";
+import { BRAND } from "./branding";
 
 export function renderLandingPage(appName?: string): string {
-  const name = appName || "NextGenTP";
+  const name = appName || BRAND.name;
   const darkTokens = Object.entries(generatedThemeTokens.dark)
     .map(([k, v]) => `  ${k}: ${v};`)
     .join("\n");

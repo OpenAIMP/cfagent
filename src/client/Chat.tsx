@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { BRAND } from "./branding";
 import { apiFetch as fetch } from "./apiFetch";
 import { didProofSignatureDisplay } from "./didProofCard";
 import { McpApiExplorer } from "./McpApiExplorer";
@@ -273,7 +274,7 @@ export function Chat({ user }: { user: User }) {
   };
 
   const handleAskAgent = (queryText: string) => {
-    setPendingPrompt({ prompt: queryText, sourceTab: "Global Search / NextGenTP" });
+    setPendingPrompt({ prompt: queryText, sourceTab: `Global Search / ${BRAND.name}` });
     setTab("chat");
   };
 
@@ -1121,7 +1122,7 @@ export function Chat({ user }: { user: User }) {
             </div>
           </header>
         ) : (
-          <header className="nextgentp-top-header app-header">
+          <header className="app-top-header nextgentp-top-header app-header">
             <NavigationMenu
               layout="top"
               alertBadgeCount={unreadAlerts}
