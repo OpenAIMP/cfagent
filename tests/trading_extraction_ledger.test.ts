@@ -58,6 +58,7 @@ const PINNED_STAR_REEXPORTS = [
   "./screeningSchemas",
   "./screenerReportPdf",
   "./screenerReportXlsx",
+  "./screenerReportCsv",
   "./optionsReportPdf",
   "./optionsReportXlsx",
   "./setupCatalog",
@@ -113,6 +114,7 @@ const PINNED_NAMED_REEXPORTS = ["MAX_SCAN_SYMBOLS from ./options/opportunityScan
  */
 const CONSTRUCTION_LEDGER: Record<string, number> = {
   "agents/nlq/execution.ts": 2,
+  "agents/orchestrator/asyncJobs.ts": 1,
   "agents/routes/etradeBroker.ts": 20,
   "agents/routes/etradeOptions.ts": 5,
   "agents/routes/watchlists.ts": 5,
@@ -151,6 +153,9 @@ describe("trading extraction ledger (issue #291 T0)", () => {
     // own ETradeService like every sibling portfolio-risk route.
     // 47 → 48 in #1201: ScreenerAgent.runGoalScreen constructs its
     // ETradeService for the options leg, like its sibling screen path.
-    expect(total).toBe(48);
+    // 48 → 49 in #1355: the shard executor dispatch constructs its
+    // ETradeService for the feed.etrade shard, like the scheduled
+    // screen path it shards.
+    expect(total).toBe(49);
   });
 });
