@@ -88,7 +88,7 @@ export {
 
 export function ScheduledOptionsManager({
   activeEnv = "sandbox",
-  userLogin = "default_trader",
+  userLogin,
   onPreviewTrade,
   onSendPrompt,
   groupFilter = "all",

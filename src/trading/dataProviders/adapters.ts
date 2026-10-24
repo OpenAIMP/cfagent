@@ -413,7 +413,7 @@ export function createETradeDataProviderFromEnv(
   options?: ETradeDataProviderOptions
 ): DataProvider {
   return createETradeDataProvider(
-    new ETradeService(env, undefined, userLogin || "default_trader"),
+    new ETradeService(env, undefined, userLogin),
     options
   );
 }
