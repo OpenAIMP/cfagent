@@ -9,6 +9,8 @@
  *   GET         /screener/latest                    (issue #212/#261)
  *   GET         /screener/report.pdf                (issue #269)
  *   POST        /screener/report/regenerate         (issue #1278, #1173 R5)
+ *   GET         /screener/report.xlsx               (issue #953)
+ *   GET         /screener/report.csv                (issue #1346)
  *   GET         /options/report.pdf                 (issue #361)
  *   POST        /research/run                       (issue #319, manual)
  *   POST        /research/scheduled-tick            (issue #319/#354, daily)
@@ -180,6 +182,31 @@ export async function handleScreenerResearchRoutes(
       }
     }
 
+    // Issue #1346: downloadable CSV report of the screener run
+    // (mirrors the XLSX route; the key must be screener:csv: —
+    // enforced in the agent getter — so this route cannot serve a
+    // PDF/XLSX blob as CSV).
+    if (path.endsWith("/screener/report.csv") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const csv = key ? await agent.getCsvByKey(key) : await agent.getLatestCsv();
+        if (!csv) {
+          return Response.json({ error: "No screener CSV report available yet" }, { status: 404 });
+        }
+        return new Response(csv.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "text/csv",
+            "Content-Disposition": `attachment; filename="${csv.fileName}"`,
+            "Content-Length": String(csv.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load CSV report" }, { status: 500 });
+      }
+    }
+
     // Issue #1335: goal-screen report artifacts (PDF + XLSX + CSV) —
     // served from the ScreenerAgent blob store. The key must be
     // goal_screen-namespaced (enforced again in the agent getter), so
@@ -242,6 +269,30 @@ export async function handleScreenerResearchRoutes(
         });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to load XLSX report" }, { status: 500 });
+      }
+    }
+
+    // Issue #1346: Options CSV download endpoint (mirrors options
+    // XLSX; the key must be options:csv: — enforced in the agent
+    // getter).
+    if (path.endsWith("/options/report.csv") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const csv = key ? await agent.getOptionsCsvByKey(key) : await agent.getLatestOptionsCsv();
+        if (!csv) {
+          return Response.json({ error: "No options CSV report available yet" }, { status: 404 });
+        }
+        return new Response(csv.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "text/csv",
+            "Content-Disposition": `attachment; filename="${csv.fileName}"`,
+            "Content-Length": String(csv.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load CSV report" }, { status: 500 });
       }
     }
 
