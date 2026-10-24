@@ -27,12 +27,16 @@
  *     for PUBLIC clients: token_endpoint_auth_method "none", no
  *     client secret) and token-response parsing
  *
- * Deliberately NOT done in this slice (consolidation residual, named
- * in #1247's report): migrating githubOAuth.ts / oidcProvider.ts onto
- * this core. Their flows are pinned by their own suites and use
- * confidential-client exchanges (client_secret in the form); the
- * grant helper below would need a credentials variant before either
- * could adopt it without behaviour change.
+ * #1254 PR-A adds the confidential-client variant of the code
+ * exchange (client_secret_post — the shape both login flows have
+ * always sent) and form-encoded token-response tolerance (GitHub's
+ * token endpoint answers form-encoded unless JSON is negotiated,
+ * and reports errors with HTTP 200 + an error payload). The login
+ * provider factory (oidcProvider.ts) now runs its exchange through
+ * this core. What remains hand-rolled is only the wiring-off legacy
+ * GitHub callback in githubOAuth.ts, frozen by its server.ts
+ * importer; it is deleted with the legacy routes in #1254 PR-B.
+ * E*TRADE (OAuth 1.0a) stays out of scope — a different protocol.
  *
  * CSRF state is NOT re-implemented here: session.ts createState /
  * verifyState is the established primitive and callers use it.
@@ -61,11 +65,19 @@ export interface OAuth2TokenSet {
 export class OAuth2Error extends Error {
   readonly status?: number;
   readonly errorCode?: string;
-  constructor(message: string, status?: number, errorCode?: string) {
+  /** The response's error_description, when the endpoint sent one. */
+  readonly errorDescription?: string;
+  constructor(
+    message: string,
+    status?: number,
+    errorCode?: string,
+    errorDescription?: string
+  ) {
     super(message);
     this.name = "OAuth2Error";
     this.status = status;
     this.errorCode = errorCode;
+    this.errorDescription = errorDescription;
   }
 }
 
@@ -247,13 +259,41 @@ interface TokenResponseBody {
   error_description?: string;
 }
 
+/**
+ * Token-response body from a grant response, tolerating the two
+ * shapes real endpoints use: JSON (the standard) and form-encoded
+ * (GitHub's token endpoint default). A body that parses as neither
+ * yields an empty record, and the caller fails closed on the
+ * missing access_token.
+ */
+function tokenBodyFrom(json: unknown, text: string): TokenResponseBody {
+  if (json && typeof json === "object") return json as TokenResponseBody;
+  if (text && text.includes("=")) {
+    const params = new URLSearchParams(text);
+    const body: TokenResponseBody = {};
+    const accessToken = params.get("access_token");
+    if (accessToken) body.access_token = accessToken;
+    const refreshToken = params.get("refresh_token");
+    if (refreshToken) body.refresh_token = refreshToken;
+    const expiresIn = params.get("expires_in");
+    if (expiresIn) body.expires_in = expiresIn;
+    const error = params.get("error");
+    if (error) body.error = error;
+    const errorDescription = params.get("error_description");
+    if (errorDescription) body.error_description = errorDescription;
+    return body;
+  }
+  return {};
+}
+
 function parseTokenResponse(body: TokenResponseBody): OAuth2TokenSet {
   if (!body?.access_token) {
     throw new OAuth2Error(
       "The token endpoint returned no access_token: " +
         (body?.error_description || body?.error || "unexpected response").slice(0, 200),
       undefined,
-      body?.error
+      body?.error,
+      body?.error_description
     );
   }
   const expiresIn =
@@ -279,15 +319,17 @@ async function postTokenGrant(
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: form.toString(),
   });
+  const body = tokenBodyFrom(res.json, res.text);
   if (!res.ok) {
     throw new OAuth2Error(
       `${failureLabel} failed (${res.status}): ` +
-        (res.json?.error_description || res.json?.error || res.text.slice(0, 200)),
+        (body.error_description || body.error || res.text.slice(0, 200)),
       res.status,
-      res.json?.error
+      body.error,
+      body.error_description
     );
   }
-  return parseTokenResponse(res.json as TokenResponseBody);
+  return parseTokenResponse(body);
 }
 
 /**
@@ -330,4 +372,33 @@ export async function refreshAccessToken(
   const next = await postTokenGrant(params.tokenEndpoint, form, fetchImpl, "The refresh grant");
   if (!next.refreshToken) next.refreshToken = params.refreshToken;
   return next;
+}
+
+/**
+ * Authorization-code exchange for a CONFIDENTIAL client
+ * (client_secret_post: the secret travels in the form body — the
+ * shape githubOAuth.ts and the OIDC factory have always sent;
+ * neither existing flow uses HTTP Basic client authentication).
+ * The secret is sent only in the token request body, never logged.
+ * Added in #1254 PR-A so the login provider factory runs its
+ * exchange through this core instead of an inline copy; the
+ * public-client exchange above is unchanged.
+ */
+export async function exchangeAuthorizationCodeConfidential(
+  params: {
+    tokenEndpoint: string;
+    code: string;
+    clientId: string;
+    clientSecret?: string;
+    redirectUri?: string;
+  },
+  fetchImpl: FetchImpl = fetch
+): Promise<OAuth2TokenSet> {
+  const form = new URLSearchParams();
+  form.set("grant_type", "authorization_code");
+  form.set("code", params.code);
+  if (params.redirectUri) form.set("redirect_uri", params.redirectUri);
+  form.set("client_id", params.clientId);
+  if (params.clientSecret) form.set("client_secret", params.clientSecret);
+  return postTokenGrant(params.tokenEndpoint, form, fetchImpl, "The authorization code exchange");
 }

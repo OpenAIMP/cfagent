@@ -50,7 +50,7 @@
  *   fresh (getSession) — see iaaaSessionActivity.ts for why the
  *   60s isolate cache cannot enforce idle timeouts.
  * - Auth audit recording exists as a seam, not a production
- *   store. handleGithubCallbackWired records a Slice 5 login
+ *   store. completeWiredLogin records a Slice 5 login
  *   success/failure event ONLY when the caller supplies an
  *   auditStore AND an auditTenantId; recording is best-effort
  *   and never changes the login outcome. (Phase 2a said there
@@ -110,7 +110,6 @@ import {
   createSession,
   SESSION_TTL,
   setSessionCookie,
-  verifyState,
 } from "./session";
 import { sessionStore } from "./session";
 import { createKvMembershipStore } from "./iaaaMembershipStore";
@@ -119,12 +118,6 @@ import {
   resolveIaaaTenant,
   runWiredPostLogin,
 } from "./iaaaGithubEndToEnd";
-import {
-  exchangeGithubCode,
-  fetchGithubProfile,
-  GithubAuthError,
-  type GithubUserProfile,
-} from "./githubOAuth";
 
 export const GITHUB_ISSUER = "https://github.com";
 export const IAAA_BINDING_KEY_PREFIX = "iaaa-binding:";
@@ -715,80 +708,6 @@ export async function completeWiredLogin(
     status: 302,
     headers: { Location: "/", "Set-Cookie": setSessionCookie(sessionId) },
   });
-}
-
-/**
- * Wired GitHub callback: the same upstream calls as the legacy callback
- * (state check, code exchange, profile fetch via the shared helpers),
- * then the generic wired tail. On any failure before the session
- * is created, no binding is created for a missing-id profile and no
- * session is created at all.
- *
- * `bindingStore` and `nowMs` are test seams; production callers omit
- * them and get the Kv-backed store and Date.now().
- *
- * Phase 2a audit seam: when the caller supplies BOTH `auditStore`
- * and `auditTenantId`, a Slice 5 login success event (after the
- * session is created, correlated by session id) or login failure
- * event (missing subject id / binding failure, actor "unknown",
- * correlated by a fresh UUID) is recorded best-effort. Recording
- * never changes the login outcome, and when either option is
- * absent nothing is recorded — server.ts dispatch passes neither,
- * so in production this is currently dormant. There is
- * deliberately no default tenant: login has no tenant concept
- * in this phase, and inventing one would fabricate attribution.
- */
-export async function handleGithubCallbackWired(
-  env: Env,
-  request: Request,
-  options?: {
-    bindingStore?: IdentityBindingStore;
-    nowMs?: number;
-    auditStore?: AuditStore;
-    auditTenantId?: string;
-    /** GitHub end-to-end: alias recording + bootstrap-on-login. Default off. */
-    postLoginEnabled?: boolean;
-  }
-): Promise<Response> {
-  const url = new URL(request.url);
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const error = url.searchParams.get("error");
-
-  if (error) return errorPage(`GitHub authentication was cancelled or failed: ${error}`, 400);
-  if (!code || !state) return errorPage("Missing required authorization code or state parameter", 400);
-
-  const isValidState = await verifyState(env, state);
-  if (!isValidState) {
-    return errorPage("Invalid or expired OAuth state session. Please try signing in again.", 403);
-  }
-
-  try {
-    const accessToken = await exchangeGithubCode(env, code);
-    const user: GithubUserProfile = await fetchGithubProfile(accessToken);
-
-    // Delegate to the generic wired tail. The subject normalization
-    // keeps the old fail-closed rule exactly: a missing/non-finite
-    // id becomes a blank subject, which completeWiredLogin rejects
-    // with the MISSING_SUBJECT_ID failure audit + error page, and
-    // no binding and no session are created.
-    return await completeWiredLogin(
-      env,
-      GITHUB_ISSUER,
-      {
-        subject:
-          typeof user.id === "number" && Number.isFinite(user.id) ? String(user.id) : "",
-        loginKey: user.login,
-        displayName: user.name || user.login,
-        avatarUrl: user.avatar_url,
-      },
-      options
-    );
-  } catch (err) {
-    if (err instanceof GithubAuthError) return errorPage(err.message, err.status);
-    const message = err instanceof Error ? err.message : "Unexpected OAuth authentication error";
-    return errorPage(message, 500);
-  }
 }
 
 /** Local error page (same shape as the legacy callback's error page). */

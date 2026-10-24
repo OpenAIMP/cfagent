@@ -1,5 +1,6 @@
 import type { Env, SessionData } from "../types";
-import { createState, verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId, isSessionIdFormat, getSession, deleteSession } from "./session";
+import { verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId, isSessionIdFormat, getSession, deleteSession } from "./session";
+import { getProvider } from "./providers";
 import { invalidateSessionCache } from "./sessionCache";
 import {
   buildLogoutAuditEventInput,
@@ -10,22 +11,22 @@ import { logoutAuditTenant } from "./iaaaGates";
 import { revokeStoredTokens } from "./etradeOAuth";
 import { SERVER_PALETTE } from "../theme/serverPalette";
 
-function getRedirectUri(env: Env): string {
-  return `${env.APP_BASE_URL}/auth/callback`;
-}
-
+/**
+ * Login start for the wiring-off legacy route (server.ts calls this
+ * when IAAA wiring is off). Since #1254 PR-A the GitHub flow itself
+ * is the declarative factory registration in providers.ts — this
+ * entry point simply delegates to it, so the legacy route and the
+ * registry routes run the identical flow. (Importing providers.ts
+ * is safe now: providers.ts no longer imports this module.)
+ */
 export async function handleLogin(env: Env): Promise<Response> {
-  const state = await createState(env);
-  const params = new URLSearchParams({
-    client_id: env.GITHUB_CLIENT_ID,
-    redirect_uri: getRedirectUri(env),
-    scope: "read:user",
-    state,
-  });
-  return new Response(null, {
-    status: 302,
-    headers: { Location: `https://github.com/login/oauth/authorize?${params}` },
-  });
+  const provider = getProvider("github");
+  if (!provider) {
+    // Unreachable with the default registry, which always registers
+    // github; a guard, never a fallback flow.
+    return new Response("GitHub login provider is not registered", { status: 500 });
+  }
+  return provider.startLogin(env);
 }
 
 /** Error carrying the HTTP status the legacy callback used for this failure. */
@@ -48,10 +49,12 @@ export interface GithubUserProfile {
 
 /**
  * Exchange an OAuth code for a GitHub access token.
- * Extracted verbatim from handleOAuthCallback (Wiring Phase 1) so the
- * wired callback can reuse the exact same upstream calls; the legacy
- * callback below still goes through this helper and keeps its messages
- * and statuses.
+ *
+ * LEGACY wiring-off flow only (handleOAuthCallback below, reached
+ * from server.ts's wiring-off branches, which are frozen in PR-A).
+ * The wired/registry flow exchanges through the shared oauth2 core
+ * via the factory instead. This helper — and the whole legacy flow
+ * in this file — is deleted with the legacy routes in #1254 PR-B.
  */
 export async function exchangeGithubCode(env: Env, code: string): Promise<string> {
   const tokenResp = await fetch("https://github.com/login/oauth/access_token", {
@@ -83,7 +86,7 @@ export async function exchangeGithubCode(env: Env, code: string): Promise<string
   return tokenData.access_token;
 }
 
-/** Fetch the GitHub user profile for an access token (same call as before). */
+/** Fetch the GitHub user profile for an access token (legacy wiring-off flow only; see exchangeGithubCode). */
 export async function fetchGithubProfile(accessToken: string): Promise<GithubUserProfile> {
   const profileResp = await fetch("https://api.github.com/user", {
     headers: {
@@ -99,6 +102,15 @@ export async function fetchGithubProfile(accessToken: string): Promise<GithubUse
   return (await profileResp.json()) as GithubUserProfile;
 }
 
+/**
+ * The legacy (wiring-off) OAuth callback: state check, legacy
+ * exchange/profile helpers, a legacy-shaped session (no Slice 1/2
+ * fields), and this module's styled error pages. Frozen in #1254
+ * PR-A — server.ts's wiring-off branches import it and server.ts
+ * is unchanged in PR-A; deleted with those branches in PR-B. The
+ * wired callback is the factory's (providers.ts → oidcProvider.ts
+ * → iaaaLogin.ts completeWiredLogin).
+ */
 export async function handleOAuthCallback(env: Env, request: Request): Promise<Response> {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
@@ -213,8 +225,8 @@ export async function handleLogout(env: Env, request: Request, options?: LogoutA
  *
  * With no second argument (or an empty list) this renders exactly
  * the legacy GitHub-only page, byte for byte. When server.ts passes
- * the enabled providers (computed there — this module must NOT
- * import providers.ts, which would create an import cycle), the
+ * the enabled providers (computed there and passed in, so this
+ * renderer stays registry-agnostic), the
  * page renders one button per provider, href /auth/login/<id>,
  * labelled "Sign in with <displayName>". Provider ids and display
  * names are HTML-escaped; the GitHub button keeps its brand mark.
