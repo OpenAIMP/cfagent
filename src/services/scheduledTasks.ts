@@ -62,6 +62,7 @@ import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "./tradingWebhooks";
 import { ScreenerEventBus } from "../events/screenerEvents";
 import { screenerOutcomeFromEvent } from "./screenerFollowups";
+import { recordJobOutcome } from "./jobOutcomes";
 import { storeReportStage } from "./unifiedReportPipeline";
 import { registerScreenerPublishers } from "../events/screenerPublishers";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
@@ -211,6 +212,33 @@ export class ScheduledTasksService {
       userLogin === "default_trader" ? "default" : `screener:${userLogin}`
     );
     return (this.env as any).SCREENER_AGENT.get(id);
+  }
+
+  /**
+   * Issue #1333: discovery outcomes into the job-outcome sink.
+   * Guarded on platformDeps.sql and never throwing — a sink failure
+   * must not fail the discovery run.
+   */
+  private recordDiscoveryOutcome(input: {
+    id: string;
+    trigger: "manual" | "scheduled";
+    status: "completed" | "failed" | "partial";
+    scanned?: number;
+    matched?: number;
+    codedError?: string;
+    createdAt?: string;
+  }): void {
+    try {
+      const sql = this.platformDeps?.sql;
+      if (!sql) return;
+      recordJobOutcome(sql, {
+        kind: "discovery",
+        origin: "discovery",
+        ...input,
+      });
+    } catch (err) {
+      console.warn("[ScheduledTasksService] discovery outcome record failed:", err instanceof Error ? err.message : String(err));
+    }
   }
 
   /**
@@ -1755,6 +1783,16 @@ export class ScheduledTasksService {
         ...(runId ? { runId } : {}),
         error,
       });
+      // Issue #1333: discovery outcomes into the job-outcome sink.
+      this.recordDiscoveryOutcome({
+        id: runId ?? `discovery:${timestamp}:${symbols.join(",")}`,
+        trigger: options.trigger || "scheduled",
+        status: "failed",
+        scanned: requests.length,
+        matched: 0,
+        codedError: error,
+        createdAt: timestamp,
+      });
       await this.notifyStrategyDiscoveryFailure({ error, symbols, trigger: options.trigger });
       if (this.orm?.messages) {
         try {
@@ -1875,6 +1913,16 @@ export class ScheduledTasksService {
         failedCount: failures.length,
         trigger: options.trigger || "scheduled",
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+      // Issue #1333: discovery outcomes into the job-outcome sink.
+      this.recordDiscoveryOutcome({
+        id: run.id,
+        trigger: options.trigger || "scheduled",
+        status: status === "completed" ? "completed" : "partial",
+        scanned: requests.length,
+        matched: requests.length - failures.length,
+        codedError: failures.length > 0 ? failures.map((f) => `${f.symbol}: ${f.error}`).join("; ") : undefined,
+        createdAt: timestamp,
       });
 
       if (this.orm?.messages) {
@@ -2120,6 +2168,15 @@ export class ScheduledTasksService {
         ...(abstentions.length > 0 ? { abstained: abstentions } : {}),
         error,
       });
+      // Issue #1333: profile-derived discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: runId ?? `discovery:profile-derived:${attemptedSymbols.join(",")}`,
+        trigger: options.trigger || "scheduled",
+        status: "failed",
+        scanned: constructedCount,
+        matched: 0,
+        codedError: error,
+      });
       await this.notifyStrategyDiscoveryFailure({ error, symbols: attemptedSymbols, trigger: options.trigger, inputModel: "profile-derived" });
       if (this.orm?.messages) {
         try {
@@ -2363,6 +2420,16 @@ export class ScheduledTasksService {
         trigger: options.trigger || "scheduled",
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
       });
+      // Issue #1333: profile-derived discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: run.id,
+        trigger: options.trigger || "scheduled",
+        status,
+        scanned: constructed.length,
+        matched: completedCount,
+        codedError: failures.length > 0 ? failures.map((f) => `${f.symbol}: ${f.error}`).join("; ") : undefined,
+        createdAt: timestamp,
+      });
 
       if (this.orm?.messages) {
         try {
@@ -2457,6 +2524,15 @@ export class ScheduledTasksService {
         ...(runId ? { runId } : {}),
         ...(abstentions.length > 0 ? { abstained: abstentions } : {}),
         error,
+      });
+      // Issue #1333: no-view discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: runId ?? `discovery:no-view:${symbols.join(",")}`,
+        trigger: options.trigger || "scheduled",
+        status: "failed",
+        scanned: symbols.length,
+        matched: 0,
+        codedError: error,
       });
       await this.notifyStrategyDiscoveryFailure({ error, symbols, trigger: options.trigger, inputModel: "no-view" });
       if (this.orm?.messages) {
@@ -2635,6 +2711,16 @@ export class ScheduledTasksService {
         abstained: abstentions,
         trigger: options.trigger || "scheduled",
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+      // Issue #1333: no-view discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: run.id,
+        trigger: options.trigger || "scheduled",
+        status,
+        scanned: constraintSets.length,
+        matched: completedCount,
+        codedError: failures.length > 0 ? failures.map((f) => `${f.symbol}: ${f.error}`).join("; ") : undefined,
+        createdAt: timestamp,
       });
 
       if (this.orm?.messages) {
