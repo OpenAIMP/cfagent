@@ -77,6 +77,11 @@ const OPTIONS_CONDITIONS_BASELINE = [
   'endsWith("/trading/options/llm-ideas")',
   'endsWith("/trading/options/compare")',
   'endsWith("/trading/options/compare")',
+  // Issue #1361 (consolidation C5): the comparison surface — ledger
+  // read-back first (its path ends with the comparison path), then
+  // the comparison run, both before recommend (source order).
+  'endsWith("/trading/options/comparison/outcomes")',
+  'endsWith("/trading/options/comparison")',
   'endsWith("/trading/options/recommend")',
   // Issue #1334: one catalog condition — the dead second handler is gone.
   'endsWith("/trading/options/catalog")',
@@ -158,7 +163,9 @@ describe("route module re-split (#995)", () => {
     // Was 7 at the #995 re-split; #291 T5c migrated the chain +
     // expire-dates handlers to the platform registry (ledger 51 -> 49),
     // shrinking this count in the migrating PR per the ledger's rule.
-    expect(count(OPTIONS_FILE)).toBe(5);
+    // #1361 (consolidation C5) added the comparison route, which
+    // constructs its own service like every sibling options route.
+    expect(count(OPTIONS_FILE)).toBe(6);
     // Was 20 at the re-split; #291 Q3 migrated the quote route to the
     // registry + LIVE_STRICT policy (ledger 48 -> 47); #1135 added the
     // recommendation-bundle route, which constructs its own service

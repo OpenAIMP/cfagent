@@ -83,7 +83,8 @@ import type { DatabaseORM, SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
 import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
-import { RecommendationService } from "../../services/recommendationKernel";
+import { RecommendationService, type KernelSnapshot } from "../../services/recommendationKernel";
+import { listComparisonOutcomes, runProductionComparison } from "../../services/comparisonRunner";
 import { getSymbolEventCalendar, toEventCalendarInfo } from "../../services/eventCalendar";
 import {
   handleOptionsLatestRuns,
@@ -507,6 +508,108 @@ export async function handleEtradeOptionsRoutes(
 
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Options candidate generation failed." }, { status: 500 });
+      }
+    }
+
+    // Consolidation C5 (#1361): the 3-way comparison surface — the
+    // caller + surface C4 left missing. POST runs llm/quant/hybrid
+    // over one snapshot through the kernel (no winner field by
+    // design; the hybrid LLM order lives only in the hybrid arm).
+    // GET reads the per-arm ledger back by run id. The outcomes
+    // handler sits first because its path ends with the comparison
+    // path; method checks on both handlers prevent suffix collision.
+    if (path.endsWith("/trading/options/comparison/outcomes") && request.method === "GET") {
+      const runId = url.searchParams.get("runId");
+      if (!runId) {
+        return Response.json({ error: "runId query parameter is required." }, { status: 400 });
+      }
+      try {
+        const outcomes = listComparisonOutcomes(ctx.getOrm(), runId);
+        return Response.json({ runId, outcomes });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to read comparison outcomes." }, { status: 500 });
+      }
+    }
+
+    if (path.endsWith("/trading/options/comparison") && request.method === "POST") {
+      const body = await request.json().catch(() => null) as (Partial<StrategyRequest> & {
+        strategyFilter?: StrategyScreenFilter;
+        riskProfile?: RiskProfile;
+        alternatives?: number;
+      }) | null;
+      const parsedDiscovery = parseOptionsDiscoveryRequest(body);
+      if (!parsedDiscovery.ok) {
+        return Response.json({ error: parsedDiscovery.error }, { status: 400 });
+      }
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
+        const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
+        const s = await dataAgent.loadSnapshot(parsedDiscovery.value.request);
+        // Same KernelSnapshot mapping the panel route builds (see
+        // RecommendationService.discoverPanel) — replicated here
+        // rather than calling discoverPanel, which would waste a full
+        // kernel run just for the snapshot — plus snapshot quotes,
+        // so the LLM builder's price source is the snapshot even
+        // where a detail carries its own bid/ask.
+        const snapshot: KernelSnapshot = {
+          symbol: s.symbol,
+          contracts: s.contracts,
+          dataSource: s.dataSource,
+          chainProvenance: s.dataSource === "calibrated-demo" ? "calibrated" : "live",
+          underlyingPrice: s.contracts[0]?.underlyingPrice,
+          screen: s.screen,
+          rejections: s.rejections,
+          validationError: s.validationError,
+          quotes: Object.fromEntries(
+            s.contracts.map((c) => [c.symbol, {
+              bid: c.bid, ask: c.ask,
+              iv: c.impliedVolatility ?? null,
+              volume: c.volume ?? null,
+              openInterest: c.openInterest ?? null,
+            }]),
+          ),
+        };
+        if ((snapshot.contracts ?? []).length === 0) {
+          return Response.json({
+            status: "no_candidates",
+            reason: "snapshot has no screened contracts",
+            symbol: s.symbol,
+            dataSource: s.dataSource,
+            screen: s.screen,
+            contractRejections: s.rejections,
+            snapshotError: s.validationError,
+          });
+        }
+        const riskAgent = new StrategyRiskAgent();
+        const recommender = new RecommendationAgent();
+        const req = parsedDiscovery.value.request;
+        const question = `What ${req.thesis ?? "directional"} option strategies on ${req.symbol} look best for a ${req.targetDate ?? "near-term"} horizon with max planned loss ${req.maxPlannedLoss ?? "the stated limit"}?`;
+        const { artifact, generationNotes } = await runProductionComparison({
+          snapshot,
+          request: req,
+          question,
+          riskProfile: parsedDiscovery.value.riskProfile ?? "balanced",
+          strategyFilter: parsedDiscovery.value.strategyFilter,
+          buildFn: (contracts, request) => riskAgent.buildStrategies(contracts, request as StrategyRequest),
+          rankFn: (candidates, request, profile) => recommender.rank(candidates, request as unknown as StrategyRequest, profile),
+          screenFn: (candidates, filter) => riskAgent.screenStrategies(candidates, filter),
+          env: ctx.env,
+          ledgerSql: ctx.getOrm(),
+        });
+        return Response.json({
+          status: "compared",
+          artifact,
+          generationNotes,
+          symbol: s.symbol,
+          dataSource: s.dataSource,
+          screen: s.screen,
+          contractRejections: s.rejections,
+          snapshotError: s.validationError,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Options comparison failed." }, { status: 502 });
       }
     }
 
