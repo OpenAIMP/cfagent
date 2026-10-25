@@ -751,7 +751,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
       {
         name: "Multi-Exchange Dynamic Listing Ingestion & Fallback Decision Tree",
         description: "Executes a multi-tiered ingestion hierarchy across NASDAQ, NYSE, and AMEX (~8,500 active securities), prioritizing authentic remote exchange feeds before falling back gracefully.",
-        formulaOrCode: "Priority 1: fetchAllUsStockListings() via api.nasdaq.com/api/screener/stocks (~8,500 rows, paginated)\nPriority 2: If upstream is rate-limited, blocked, or returns empty -> DynamicMarketScreener autonomously activates fallback\nPriority 3: Ingests getCuratedStockListings() from src/config/curatedStockUniverse.json (with sector, market cap, and exchange metadata)\nAudit Stamp: discovery.mode = 'all_us_listings', tagged with source count audit statistics",
+        formulaOrCode: "Priority 1: fetchAllUsStockListings() via api.nasdaq.com/api/screener/stocks (~8,500 rows, paginated)\nPriority 2 (since #1554, parent #913): If upstream is rate-limited, blocked, or returns empty, the listings feed FAILS EXPLICIT — no curated table is substituted, because NasdaqStockListing carries no provenance field and substituted rows would be indistinguishable from live rows\nAudit Stamp: discovery.mode = 'all_us_listings', tagged with source count audit statistics",
       },
       {
         name: "Options Flow Integration Rule: Screener-First Dynamic Resolution",
