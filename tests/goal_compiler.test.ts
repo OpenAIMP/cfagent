@@ -299,6 +299,12 @@ describe("goal compiler (#1441) — waves and planner prompt on the existing pat
   });
 
   it("the existing operation catalog is untouched by this phase", () => {
+    // #1517 (Lane 1) amends this pin: the catalog gains exactly one
+    // entry, the ScheduledAgent-owned `chain.execute` marker for
+    // materialized chain goals. No Phase 2 operation is removed or
+    // renamed; the marker rides the same precedent as the social
+    // entry (a goals-list-valid operation handled by its own agent
+    // branch, listed in the planner prompt like social.publish).
     expect(OPERATION_CATALOG.map((e) => e.agent)).toEqual([
       "search",
       "payments",
@@ -307,6 +313,7 @@ describe("goal compiler (#1441) — waves and planner prompt on the existing pat
       "nlq",
       "qa",
       "trading",
+      "scheduled",
       "social",
     ]);
   });

@@ -72,6 +72,21 @@ export const OPERATION_CATALOG: CatalogEntry[] = [
       "Provider-neutral trading competency (issue #291): stock/options screening and approval-gated trading across registered broker providers.",
   },
   {
+    // #1517 (Lane 1, follow-up of #1362): chain.execute is a
+    // materialized-chain marker, NOT an orchestrator job operation.
+    // ScheduledAgent handles it in its own onCron branch (governed
+    // firing decision, then a job descriptor like every other goal);
+    // the catalog entry exists so a materialized goals-list entry is
+    // a valid goal. It is listed in the planner prompt like the
+    // social marker operations; it is not a leg an orchestrator
+    // plan executes.
+    agent: "scheduled",
+    binding: "SCHEDULED_AGENT",
+    operations: ["chain.execute"],
+    blurb:
+      "A materialized approved chain goal (issue #1517): fired only through the governed predicate, executed by the chain lane.",
+  },
+  {
     // #1077 Phase 5b slice 1: social.publish is NOT an orchestrator
     // job. ScheduledAgent executes it directly through the social goal
     // executor; the catalog entry exists so addGoal accepts the
