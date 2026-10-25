@@ -392,6 +392,17 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: path === /api/social/approvals",
   },
   {
+    id: "social-posts-get",
+    method: "GET",
+    path: "/api/social/posts",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote:
+      "401 unauthenticated; lists drafts and submitted posts for a date with platform submission endpoints and live post URLs; optional ?date (default today NY); 405 other methods.",
+    source: "src/server.ts branch: path === /api/social/posts",
+  },
+  {
     id: "social-token-health-get",
     method: "GET",
     path: "/api/social/token-health",

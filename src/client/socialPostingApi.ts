@@ -104,3 +104,26 @@ export async function getTokenHealth(): Promise<{
 
   return { ok: data.ok, channels: byChannel, rawChannels };
 }
+
+export interface SocialPostItem {
+  channel: string;
+  draftId: string;
+  date: string;
+  status: string;
+  text: string;
+  platformPostId?: string | null;
+  submissionEndpoint: string;
+  postUrl: string | null;
+  createdAtMs: number;
+  approval?: {
+    approver: string;
+    approvedAtMs: number;
+  };
+}
+
+export function listPosts(date: string = todayInNewYork()) {
+  return api<{ ok: boolean; date: string; posts: SocialPostItem[] }>(
+    `/api/social/posts?date=${encodeURIComponent(date)}`,
+  );
+}
+
