@@ -25,7 +25,8 @@
  *    `tests/channel_consolidation.test.ts` as its verification.
  * Still honest: `news` is contract-only (no adapter declares it),
  * vector recall has no referencing test (in_flight, not shipped),
- * and plan-level composition memory stays planned.
+ * and plan-level composition memory SHIPS with #1461 (Phase 4 of
+ * #1362) — see the COMPOSITION_MEMORY entry below.
  */
 
 export type RegistryStage =
@@ -332,9 +333,9 @@ export const COMPOSITION_MEMORY: MemoryEntry[] = [
   {
     id: "memory-plan-composition",
     capability: "Plan-level composition memory: goal text → plan used → outcome → reuse",
-    source: "not implemented",
-    status: "planned",
-    verification: null,
+    source: "src/agentic/compositionMemory.ts + src/memory/vector-memory.ts rememberPlan/recallPlans (#1461, Phase 4 of #1362)",
+    status: "shipped",
+    verification: "tests/composition_memory.test.ts",
   },
 ];
 
