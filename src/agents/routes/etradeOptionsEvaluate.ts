@@ -15,7 +15,7 @@
 import { recordStrategyCandidates } from "../../services/strategyReviews";
 import {
   DynamicOptionsScreener,
-  OptionsAgentPipeline,
+  runPanelPipeline,
   generateSyntheticOptionChains,
   rankCandidatesWithLlm,
   type StrategyRequest,
@@ -169,8 +169,7 @@ export async function executeLlmIdeasEvaluation(args: {
     minRewardRisk: 0,
     allowedStrategies: ["all"],
   };
-  const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
-  const pipelineResult = await pipeline.run(strategyRequest, { riskProfile: "balanced" });
+  const pipelineResult = await runPanelPipeline(new DynamicOptionsScreener(etrade.client), strategyRequest, { riskProfile: "balanced" });
   const topRanked = pipelineResult.ranked.slice(0, 10);
   const candidates = topRanked.map((r) => r.candidate);
   let llmJudgment: Awaited<ReturnType<typeof rankCandidatesWithLlm>> | null = null;
@@ -308,7 +307,7 @@ export async function executeLlmIdeasEvaluation(args: {
   });
 }
 
-type ComparePipelineResult = Awaited<ReturnType<OptionsAgentPipeline["run"]>>;
+type ComparePipelineResult = Awaited<ReturnType<typeof runPanelPipeline>>;
 
 export async function rankOptionsCompareCandidates(ctx: EtradeOptionsRouteContext, strategyRequest: StrategyRequest, body: any, result: ComparePipelineResult, common: { llmInput: unknown; quantStrategyPool: unknown; screen: unknown; contracts: unknown; contractRejections: unknown }): Promise<Response> {
   const candidates = result.ranked.slice(0, 20);
