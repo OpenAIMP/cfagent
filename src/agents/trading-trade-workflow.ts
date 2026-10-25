@@ -93,10 +93,16 @@ export class TradingTradeWorkflow extends ThinkWorkflow<
     event: WorkflowEvent<TradeApprovalParams>,
     step: WorkflowStep,
   ): Promise<TradeApprovalOutcome> {
+    // Issue #1185: the workflow acts under the order owner's login,
+    // recorded in the payload at start — absent means the run fails
+    // closed rather than settling under a synthetic identity.
+    if (!event.payload.userLogin) {
+      throw new Error("Trade approval workflow payload is missing the required userLogin (issue #1185: no default identity).");
+    }
     const params: TradeApprovalParams = {
       orderId: event.payload.orderId,
       provider: event.payload.provider,
-      userLogin: event.payload.userLogin ?? "default_trader",
+      userLogin: event.payload.userLogin,
     };
     return runTradeApprovalFlow(this.env, params, step as unknown as TradeApprovalStep);
   }

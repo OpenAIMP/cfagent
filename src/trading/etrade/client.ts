@@ -67,7 +67,12 @@ export class ETradeRestClient {
   // empty result without one means "genuinely nothing there".
   public lastError?: string;
 
-  constructor(public env: Env, public userLogin: string = "default_trader", public overrideEnv?: string) {}
+  constructor(public env: Env, public userLogin: string, public overrideEnv?: string) {
+    // Issue #1185: the client keys stored tokens by login — required.
+    if (!userLogin) {
+      throw new Error("ETradeRestClient requires an explicit userLogin (issue #1185: no default identity).");
+    }
+  }
 
   private handleUpstreamAuthError(status: number, endpoint: string, errorBody: string): void {
     if (status === 401 || status === 403) {

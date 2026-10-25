@@ -12,6 +12,7 @@
  * original inline block returned.
  */
 
+import { unauthenticatedResponse } from "./routeIdentity";
 import { readOptionsRuns } from "../optionsRuns";
 import {
   SqlScanRunStore,
@@ -49,7 +50,8 @@ export async function handleOptionsScansList(request: Request, url: URL, session
     // Issue #103: history is scoped per user, like profiles —
     // runs the caller saved are theirs; legacy runs saved before
     // scoping (no user_login) remain visible to everyone.
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const store = new SqlScanRunStore(sql);
     const scans = await store.list({ limit, offset, userLogin });
     return Response.json({ count: scans.length, scans });
@@ -68,7 +70,8 @@ export async function handleOptionsScansDiff(request: Request, url: URL, session
     // Issue #103: both runs must be visible to the caller — an
     // invisible run produces the same 404 as a missing one, so a
     // diff can never leak another user's run (or its existence).
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const store = new SqlScanRunStore(sql);
     const from = await store.get(fromId, { userLogin });
     const to = await store.get(toId, { userLogin });
@@ -89,7 +92,8 @@ export async function handleOptionsScanRunById(request: Request, sessionId: stri
   try {
     // Issue #103: scoped like the list — another user's run is
     // indistinguishable from a pruned one (same 404).
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const store = new SqlScanRunStore(sql);
     const run = await store.get(decodeURIComponent(scanRunIdMatch[1]), { userLogin });
     if (!run) {
@@ -105,7 +109,8 @@ export async function handleOptionsDiscoveryRunsList(request: Request, url: URL,
   try {
     const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 25;
     const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const store = new SqlDiscoveryRunStore(sql);
     const runs = await store.list({ limit, offset, userLogin });
     return Response.json({ count: runs.length, runs });
@@ -118,7 +123,8 @@ export async function handleOptionsDiscoveryRunById(request: Request, sessionId:
   try {
     // Issue #103: scoped like the list — another user's run is
     // indistinguishable from a pruned one (same 404).
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const store = new SqlDiscoveryRunStore(sql);
     const run = await store.get(decodeURIComponent(discoveryRunIdMatch[1]), { userLogin });
     if (!run) {

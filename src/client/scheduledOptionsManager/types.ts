@@ -20,7 +20,9 @@ export interface ScheduledTaskItem {
 
 export interface ScheduledOptionsManagerProps {
   activeEnv?: string;
-  userLogin?: string;
+  /** Issue #1185: required — the authenticated user's login. There is
+   *  no default identity to scope schedules/profiles to. */
+  userLogin: string;
   onPreviewTrade?: (candidate: any) => void;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
   /** S7 (one schedule UI): the hosting SchedulesPanel's tab filter —

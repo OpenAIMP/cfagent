@@ -253,7 +253,7 @@ describe("hashDiscoveryConfig", () => {
 describe("unified discovery action wiring", () => {
   it("fails honestly when the discovery SQL seam is not wired", async () => {
     const { UnifiedOptionsService } = await import("../src/trading/options/unifiedOptionsService");
-    const service = new UnifiedOptionsService({} as never);
+    const service = new UnifiedOptionsService({} as never, "trader");
     const res = await service.execute({ action: "discovery", symbols: ["SPY"] });
     expect(res.success).toBe(false);
     expect(res.summary).toContain("isn't wired");
