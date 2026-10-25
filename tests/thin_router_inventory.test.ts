@@ -83,6 +83,12 @@
  * /trading/options/comparison (in handleEtradeOptionsRoutes, after
  * /trading/options/compare, before /trading/options/recommend) —
  * bringing the pinned array to 206 entries.
+ * Issue #1257 (challenger re-point) removes one — POST
+ * /adaptation/candidates/approve/decide, retired with the #759
+ * two-step — and adds three: GET /adaptation/promotions/active
+ * (drain gate), POST /adaptation/promotions/promote, and POST
+ * /adaptation/promotions/rollback — bringing the pinned array to
+ * 208 entries.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -317,11 +323,13 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/approvals\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/verdicts\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/approve\")",
-  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/approve/decide\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/gate\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/start\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/advance\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/active\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/promote\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/rollback\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/settings\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/settings\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/evaluate\")",
