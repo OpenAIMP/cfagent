@@ -34,10 +34,11 @@ export interface FollowupDeliveryInput {
   channel: AsyncJobChannel;
   userLogin: string;
   outcome: ScreenerRunOutcome;
-  artifacts: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" }>;
+  artifacts: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" | "csv" }>;
 }
 
 const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const CSV_CONTENT_TYPE = "text/csv";
 
 export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
   deliver: (input: FollowupDeliveryInput) => Promise<{ ok: boolean; error?: string; detail?: string }>;
@@ -56,17 +57,21 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
       const files: Array<{ bytes: Uint8Array; fileName: string; contentType: string }> = [];
       const missingArtifacts: string[] = [];
       for (const artifact of artifacts) {
-        const kind = artifact.kind ?? (artifact.fileName.endsWith(".xlsx") ? "xlsx" : "pdf");
+        const kind = artifact.kind
+          ?? (artifact.fileName.endsWith(".xlsx") ? "xlsx"
+            : artifact.fileName.endsWith(".csv") ? "csv" : "pdf");
         const fetched = kind === "xlsx"
           ? (outcome.kind === "stock" ? await agent.getXlsxByKey(artifact.key) : await agent.getOptionsXlsxByKey(artifact.key))
-          : outcome.kind === "stock"
-            ? await agent.getPdfByKey(artifact.key)
-            : await agent.getOptionsPdfByKey(artifact.key);
+          : kind === "csv"
+            ? (outcome.kind === "stock" ? await agent.getCsvByKey(artifact.key) : await agent.getOptionsCsvByKey(artifact.key))
+            : outcome.kind === "stock"
+              ? await agent.getPdfByKey(artifact.key)
+              : await agent.getOptionsPdfByKey(artifact.key);
         if (fetched) {
           files.push({
             bytes: fetched.bytes,
             fileName: fetched.fileName,
-            contentType: kind === "xlsx" ? XLSX_CONTENT_TYPE : "application/pdf",
+            contentType: kind === "xlsx" ? XLSX_CONTENT_TYPE : kind === "csv" ? CSV_CONTENT_TYPE : "application/pdf",
           });
         } else {
           missingArtifacts.push(artifact.key);
@@ -89,9 +94,9 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
       if (channel === "email") {
         const to = outcome.emailTo ?? config.channels.email.to;
         if (!to) return { ok: false, error: "Email delivery is not configured (SCREENER_EMAIL_TO is unset)." };
-        // Issue #1191: attach EVERY artifact (text + PDF + XLSX),
-        // each with its own content type — the pre-R3 leg attached
-        // only the first file, as PDF.
+        // Issue #1191: attach EVERY artifact (text + PDF + XLSX +
+        // CSV since #1346), each with its own content type — the
+        // pre-R3 leg attached only the first file, as PDF.
         const attachments = files.map((f) => {
           let binary = "";
           for (let i = 0; i < f.bytes.length; i += 8192) binary += String.fromCharCode(...f.bytes.subarray(i, i + 8192));
