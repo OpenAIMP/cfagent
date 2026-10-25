@@ -82,6 +82,8 @@ export * from "./email/agent";
 export * from "./slack/agent";
 export * from "./voice/agent";
 export * from "./channels/intake";
+export * from "./channels/approval";
+export * from "./channels/signedLinks";
 
 // Disambiguation (#290): MAX_SCAN_SYMBOLS exists in both ./optionsScreener
 // (screener config) and ./options/opportunityScanner (options config) with

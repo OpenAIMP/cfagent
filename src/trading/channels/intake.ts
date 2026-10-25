@@ -40,6 +40,18 @@
 import type { Env } from "../../types";
 import { createStoreKv, consumeStoreKey, type DoNamespaceLike } from "../../security/durableKv";
 import type { KvLike } from "../../security/kvResilience";
+import type { executeNaturalLanguageQuery } from "../../agents/nlq";
+
+/**
+ * Issue #1262 Phase 4: the NLQ dependency set a channel service
+ * threads into executeNaturalLanguageQuery — the web-chat set (scan +
+ * profile stores, scheduling port, discovery runners) minus the
+ * social-brief port, which web chat withholds from untrusted-origin
+ * NLQ for the same reason (#1077 slice 2: a brief is a public-post
+ * input). Built by the route (tradingIntegrations), never by the
+ * services themselves, so the services stay constructible in tests.
+ */
+export type ChannelNlqDeps = NonNullable<Parameters<typeof executeNaturalLanguageQuery>[6]>;
 
 export type ChannelKind = "email" | "slack" | "voice";
 

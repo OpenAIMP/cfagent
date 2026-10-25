@@ -23,9 +23,17 @@ import type {
 } from "../../types";
 import { DatabaseORM, requireOrm } from "../../orm";
 import { ETradeService } from "../../services/etrade";
-import { executeNaturalLanguageQuery, type NLQSchedulingPort } from "../../agents/nlq";
+import { executeNaturalLanguageQuery, planNLQ, type NLQSchedulingPort } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
-import type { ChannelPrincipal } from "../channels/intake";
+import {
+  channelPlanRefusal,
+  type ChannelNlqDeps,
+  type ChannelPrincipal,
+} from "../channels/intake";
+import {
+  approvePreviewedOrder,
+  cancelPreviewedOrder,
+} from "../channels/approval";
 import { getVoiceConfig, getTradingConstraints } from "../../config/etapiConfig";
 import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
 
@@ -141,7 +149,8 @@ export class ETradeVoiceTradingService {
     ormOrEnv?: DatabaseORM | Env,
     private sessionId: string = "voice_agent_session",
     schedulingPort?: NLQSchedulingPort,
-    principal?: ChannelPrincipal
+    principal?: ChannelPrincipal,
+    private nlqDeps?: ChannelNlqDeps
   ) {
     this.schedulingPort = schedulingPort;
     this.principal = principal;
@@ -224,18 +233,31 @@ export class ETradeVoiceTradingService {
     tradingService: ETradeService,
     timestamp: string
   ): Promise<VoiceTradingTurnResponse> {
-    let targetTrade: any = null;
-
-    if (this.orm?.trades) {
-      if (specifiedOrderId) {
-        targetTrade = this.orm.trades.findById(specifiedOrderId);
-      } else {
-        const pending = this.orm.trades.findMany({ where: { status: "previewed" }, orderBy: "created_at DESC", limit: 1 });
-        if (pending.length > 0) targetTrade = pending[0];
-      }
+    // Issue #1262 Phase 3: approval runs through the shared engine
+    // (trade-tier gate + draft lookup + execute/fallback). Voice
+    // principals are session logins at trade tier, so the gate passes
+    // exactly as before; the spoken rendering below is unchanged.
+    const outcome = await approvePreviewedOrder({
+      trades: this.orm?.trades ?? null,
+      executor: tradingService,
+      principal: this.principal,
+      authorizerDid,
+      userLogin: this.sessionId,
+      orderId: specifiedOrderId,
+      timestamp,
+    });
+    if (outcome.kind === "tier_refused") {
+      return {
+        success: false,
+        spokenText: outcome.reason,
+        displayMarkdown: `⚠️ **Voice Approval Refused**: ${outcome.reason}`,
+        actionType: "approval",
+        orderId: specifiedOrderId,
+        proposerDid: AGENT_DIDS.TRADING,
+        timestamp,
+      };
     }
-
-    if (!targetTrade || targetTrade.status !== "previewed") {
+    if (outcome.kind === "not_found" || outcome.kind === "not_previewed") {
       const spoken = "I could not find an active pending order preview awaiting authorization. Any previous orders may have already been executed or cancelled.";
       return {
         success: false,
@@ -249,42 +271,20 @@ export class ETradeVoiceTradingService {
       };
     }
 
-    // Execute order on genuine E*TRADE REST API with verified human authorizer DID
-    let execRes: any;
-    try {
-      execRes = tradingService.executeOrder(targetTrade.id, authorizerDid, "approved");
-    } catch {
-      execRes = await tradingService.placeOrderRemote({
-        orderId: targetTrade.id,
-        symbol: targetTrade.symbol,
-        action: targetTrade.action,
-        quantity: targetTrade.quantity,
-        orderType: targetTrade.orderType,
-        limitPrice: targetTrade.price,
-        userLogin: this.sessionId,
-      });
-      if (this.orm?.trades) {
-        this.orm.trades.update(targetTrade.id, {
-          status: execRes.success ? "executed" : "rejected",
-          authorizerDid,
-          orderRef: execRes.executionId || execRes.brokerOrderRef,
-          updatedAt: timestamp,
-        });
-      }
-    }
-
-    const isSuccess = execRes.success;
-    const execId = execRes.executionId || execRes.brokerOrderRef || `et_order_${Date.now()}`;
+    const targetTrade = outcome.trade;
+    const isSuccess = outcome.kind === "executed";
+    const execId = outcome.execId ?? `et_order_${Date.now()}`;
+    const execMessage = outcome.kind === "failed" ? outcome.message : undefined;
 
     const spokenText = isSuccess
       ? tuneFinancialPronunciation(
           `Order ${targetTrade.id} has been successfully executed on E*TRADE. Broker reference is ${execId}. Your trade to ${targetTrade.action} ${targetTrade.quantity} shares of ${targetTrade.symbol} has been placed.`
         )
-      : `E*TRADE order execution failed. The broker returned: ${execRes.message || "Unknown rejection"}. No capital was moved.`;
+      : `E*TRADE order execution failed. The broker returned: ${execMessage || "Unknown rejection"}. No capital was moved.`;
 
     const displayMarkdown = isSuccess
       ? `### ✅ Order Executed on E*TRADE\n\n- **Order ID:** \`${targetTrade.id}\`\n- **Action:** ${targetTrade.action} ${targetTrade.quantity} ${targetTrade.symbol}\n- **Broker Ref:** \`${execId}\`\n- **Total Settled:** $${targetTrade.totalValue.toFixed(2)} USD\n- **Authorizer DID:** \`${authorizerDid}\`\n- **Timestamp:** ${timestamp}`
-      : `### ❌ Order Execution Failed\n\n${execRes.message || "Upstream broker rejected execution."}`;
+      : `### ❌ Order Execution Failed\n\n${execMessage || "Upstream broker rejected execution."}`;
 
     return {
       success: isSuccess,
@@ -308,20 +308,30 @@ export class ETradeVoiceTradingService {
     authorizerDid: string,
     timestamp: string
   ): Promise<VoiceTradingTurnResponse> {
-    let targetTrade: any = null;
-
-    if (this.orm?.trades) {
-      if (specifiedOrderId) {
-        targetTrade = this.orm.trades.findById(specifiedOrderId);
-      } else {
-        const pending = this.orm.trades.findMany({ where: { status: "previewed" }, orderBy: "created_at DESC", limit: 1 });
-        if (pending.length > 0) targetTrade = pending[0];
-      }
+    // Issue #1262 Phase 3: cancellation runs through the shared
+    // engine (preview-tier gate + previewed-only update). The spoken
+    // rendering below is unchanged.
+    const outcome = cancelPreviewedOrder({
+      trades: this.orm?.trades ?? null,
+      principal: this.principal,
+      orderId: specifiedOrderId,
+      lookup: "previewed_only",
+      timestamp,
+    });
+    if (outcome.kind === "tier_refused") {
+      return {
+        success: false,
+        spokenText: outcome.reason,
+        displayMarkdown: `⚠️ **Voice Cancellation Refused**: ${outcome.reason}`,
+        actionType: "rejection",
+        orderId: specifiedOrderId,
+        proposerDid: AGENT_DIDS.TRADING,
+        authorizerDid,
+        timestamp,
+      };
     }
-
-    if (targetTrade && targetTrade.status === "previewed") {
-      this.orm?.trades?.update(targetTrade.id, { status: "rejected", updatedAt: timestamp });
-    }
+    const targetTrade =
+      outcome.kind === "cancelled" || outcome.kind === "not_previewed" ? outcome.trade ?? null : null;
 
     const orderId = targetTrade?.id || specifiedOrderId || "draft";
     const spokenText = tuneFinancialPronunciation(
@@ -359,6 +369,25 @@ export class ETradeVoiceTradingService {
       // spoken error. The former stub fallback computed answers against
       // an empty ledger and discarded every write.
       const orm = requireOrm(this.orm, "ETradeVoiceTradingService.handleVoiceNLQ");
+      // Issue #1262 Phase 4: the channel seam gate (paid actions refused
+      // for every tier in v1, tier-gated trading actions refused before
+      // anything executes) — voice was the one channel seam missing the
+      // peek gate — and the NLQ call itself is untrusted inbound
+      // content (#880) with the full web-chat deps.
+      if (this.principal) {
+        const peek = await planNLQ(this.env, cleanTranscript, { untrustedContent: true });
+        const refusal = channelPlanRefusal(peek, this.principal);
+        if (refusal) {
+          return {
+            success: false,
+            spokenText: refusal,
+            displayMarkdown: `⚠️ **Voice Request Refused**: ${refusal}`,
+            actionType: "error",
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
+      }
       const { plan, result: nlqRes } = await executeNaturalLanguageQuery(
         orm,
         this.sessionId,
@@ -366,7 +395,11 @@ export class ETradeVoiceTradingService {
         this.env,
         this.sessionId,
         authorizerDid,
-        this.schedulingPort ? { schedulingPort: this.schedulingPort } : undefined,
+        {
+          untrustedContent: true,
+          ...this.nlqDeps,
+          schedulingPort: this.nlqDeps?.schedulingPort ?? this.schedulingPort,
+        },
       );
 
       const domain = plan.domain;
