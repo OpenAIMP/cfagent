@@ -127,8 +127,8 @@ describe("S3 (a) — Yahoo adapter feeds the one pipeline", () => {
     const etradeAcquired = await acquireUniverse({
       mode: "etrade-only",
       symbols: LISTINGS,
-      liveDeps: {
-        fetchETradeQuote: vi.fn(async (sym: string) => ({
+      quoteDeps: {
+        fetchQuote: vi.fn(async (sym: string) => ({
           symbol: sym, companyName: sym, lastPrice: 100, price: 100, change: 1, changePercent: 1,
           bid: 0, ask: 0, volume: 0, open: 0, high: 0, low: 0, source: "E*TRADE live",
           quoteStatus: "LIVE", timestamp: "2026-10-22T00:00:00.000Z",
