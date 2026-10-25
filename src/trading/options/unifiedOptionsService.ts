@@ -304,7 +304,7 @@ export class UnifiedOptionsService {
 
   constructor(
     private env: Env,
-    private userLogin: string = "default_trader",
+    private userLogin: string,
     private overrideEnv?: string,
     orm?: DatabaseORM,
     scanRunStore?: ScanRunStore,
@@ -313,6 +313,11 @@ export class UnifiedOptionsService {
     platformDeps?: ETradeCaptureDeps,
     callerTier: Tier = "freemium"
   ) {
+    // Issue #1185: the service resolves the owner's stored token and
+    // scopes its runs/profiles by login — an explicit login is required.
+    if (!userLogin) {
+      throw new Error("UnifiedOptionsService requires an explicit userLogin (issue #1185: no default identity).");
+    }
     this.config = getEtapiConfig(env, overrideEnv);
     this.orm = orm;
     this.scanRunStore = scanRunStore;

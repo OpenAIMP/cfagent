@@ -58,11 +58,15 @@ export class ETradeTradingPlatform implements ITradingPlatform {
 
   constructor(
     private env: Env,
-    private orm?: DatabaseORM,
-    private userLogin: string = "default_trader",
+    private orm: DatabaseORM | undefined,
+    private userLogin: string,
     private overrideEnv?: string,
     existingClient?: ETradeRestClient
   ) {
+    // Issue #1185: per-user platform — an explicit login is required.
+    if (!userLogin) {
+      throw new Error("ETradeTradingPlatform requires an explicit userLogin (issue #1185: no default identity).");
+    }
     this.client = existingClient || new ETradeRestClient(env, userLogin, overrideEnv);
     this.screener = new DynamicMarketScreener();
   }
