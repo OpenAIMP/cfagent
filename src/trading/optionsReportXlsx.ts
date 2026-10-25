@@ -13,7 +13,11 @@
  */
 
 import * as XLSX from "@e965/xlsx";
-import type { OptionScreenResult } from "../types";
+import type { OptionScreenResult, ScreenedOptionContractItem } from "../types";
+// Type-only: the adapter maps the opportunity-scan shape to the workbook
+// shape, so importing the scanner module here costs nothing at runtime.
+import type { OpportunityScanResult } from "./options/opportunityScanner";
+import type { StrategyCandidate } from "./options/strategyEngine";
 
 function num(value: number | undefined, digits = 2): number | null {
   return typeof value === "number" && Number.isFinite(value)
@@ -83,6 +87,31 @@ export function generateOptionsXlsx(result: OptionScreenResult): Uint8Array {
         ]
       : []),
     { Field: "Status", Value: result.status || "" },
+    // Issue #1291: the R6 partial qualification (same `(result as any)
+    // .partial` convention the options PDF uses) renders as the Coverage
+    // row — wording mirrors optionsPartialBanner's counts line.
+    ...(() => {
+      const partial = (result as unknown as {
+        partial?: {
+          evaluatedCount: number;
+          consideredCount: number;
+          coverageErrors: number;
+          truncatedCount: number;
+          topSkipReason?: string;
+        };
+      }).partial;
+      if (!partial) return [];
+      return [
+        {
+          Field: "Coverage",
+          Value:
+            `Qualified partial: ${partial.evaluatedCount} of ${partial.consideredCount} underlyings evaluated; ` +
+            `${partial.coverageErrors} quote/chain failures, ${partial.truncatedCount} truncated.` +
+            (partial.topSkipReason ? ` Top skip reason: ${partial.topSkipReason}.` : "") +
+            " Results cover the evaluated subset only.",
+        },
+      ];
+    })(),
     ...((result.warnings ?? []).map((w, i) => ({ Field: `Warning ${i + 1}`, Value: w }))),
     {
       Field: "Methodology",
@@ -96,6 +125,139 @@ export function generateOptionsXlsx(result: OptionScreenResult): Uint8Array {
 
   const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
   return new Uint8Array(buffer);
+}
+
+/**
+ * Issue #1291 (R3b follow-up): adapt a scheduled opportunity-scan
+ * result to the workbook's OptionScreenResult input.
+ *
+ * The scheduled path runs the unified opportunity scan, whose
+ * opportunities are per-symbol best-trade STRATEGY picks (multi-leg
+ * candidates), not the single screened contracts generateOptionsXlsx
+ * reads. Passing the scan straight in rendered "(no contracts
+ * matched)" and empty summary fields on good runs. This adapter sits
+ * at the scheduled seam only; the manual route already produces a
+ * true OptionScreenResult and passes through untouched (a result that
+ * already carries a contracts array is returned as-is).
+ *
+ * Mapping, all from the scan's own fields (nothing invented):
+ * - One workbook row per opportunity WITH a best pick, from the
+ *   pick's first non-STOCK leg (a covered-call-style pick's stock leg
+ *   is not a contract; a pick with no option leg yields no row).
+ *   Strike/expiry/greeks/quote fields come from that leg; moneyness
+ *   and strike distance use the screener's own formulas (strict spot
+ *   comparison for moneyness — the adapter has no ATM-band config —
+ *   and |strike − spot| / spot × 100 for distance); lastPrice is the
+ *   leg's entry price, the leg's own price field.
+ * - Summary counts from coverage/scanned/generatedAt: underlyings
+ *   scanned = coverage.scanned (falling back to the top-level
+ *   scanned count); contracts evaluated = coverage.evaluated — the
+ *   opportunity scan evaluates symbols, not individual contracts,
+ *   and the column carries that evaluated count.
+ * - Status from withTrades (any actionable setup, or any adapted
+ *   row, means matches_found).
+ * - Warnings carry the scan's assumption disclosures verbatim.
+ * - The R6 partial qualification rides on the result (same
+ *   `(result as any).partial` convention the options PDF uses) so
+ *   the generator renders it as the Coverage row.
+ */
+export function adaptOpportunityScanToOptionScreenResult(
+  scan: OpportunityScanResult,
+): OptionScreenResult {
+  const input = scan as unknown as Record<string, unknown>;
+  if (input && Array.isArray(input.contracts)) {
+    return scan as unknown as OptionScreenResult;
+  }
+  const opportunities = Array.isArray(input?.opportunities)
+    ? (input.opportunities as Array<Record<string, any>>)
+    : [];
+  const coverage = (input?.coverage ?? {}) as Record<string, number | undefined>;
+  const snapshot = (input?.requestSnapshot ?? {}) as {
+    template?: { thesis?: string };
+    mode?: string;
+    riskProfile?: string;
+  };
+  const contracts: ScreenedOptionContractItem[] = [];
+  for (const row of opportunities) {
+    const candidate = row?.pick?.best?.candidate as StrategyCandidate | undefined;
+    if (!candidate) continue;
+    const legs = Array.isArray(candidate.legs) ? candidate.legs : [];
+    const leg = legs.find((l) => l.optionType !== "STOCK");
+    if (!leg) continue;
+    const spot = typeof row.underlyingPrice === "number" ? row.underlyingPrice : 0;
+    const strike = leg.strike;
+    const strikeDistancePct =
+      spot > 0 ? Number((Math.abs(strike - spot) / spot * 100).toFixed(2)) : 0;
+    const moneyness: "ITM" | "OTM" | "ATM" =
+      leg.optionType === "CALL"
+        ? strike < spot ? "ITM" : strike > spot ? "OTM" : "ATM"
+        : strike > spot ? "ITM" : strike < spot ? "OTM" : "ATM";
+    const daysToExpiration =
+      leg.daysToExpiration ??
+      (() => {
+        const gen = typeof input.generatedAt === "string" ? Date.parse(input.generatedAt) : NaN;
+        const exp = Date.parse(leg.expirationDate);
+        return Number.isFinite(gen) && Number.isFinite(exp)
+          ? Math.max(0, Math.round((exp - gen) / 86400000))
+          : 0;
+      })();
+    contracts.push({
+      symbol: leg.symbol,
+      underlyingSymbol: row.symbol ?? "",
+      underlyingPrice: spot,
+      optionType: leg.optionType as "CALL" | "PUT",
+      strikePrice: strike,
+      expirationDate: leg.expirationDate,
+      daysToExpiration,
+      moneyness,
+      strikeDistancePct,
+      spreadPct: leg.spreadPct,
+      bid: leg.bid,
+      ask: leg.ask,
+      lastPrice: leg.entryPrice,
+      volume: leg.volume,
+      openInterest: leg.openInterest,
+      volumeOiRatio:
+        leg.openInterest && leg.openInterest > 0 && leg.volume !== undefined
+          ? Number((leg.volume / leg.openInterest).toFixed(2))
+          : undefined,
+      impliedVolatility: leg.impliedVolatility,
+      delta: leg.delta,
+      gamma: leg.gamma,
+      theta: leg.theta,
+      vega: leg.vega,
+      quoteFreshness: leg.quoteFreshness,
+      technicalSignal: "",
+      highlightReason:
+        `${candidate.label} (strategy pick, gate ${row.gateBucket ?? "unknown"}${typeof row.score === "number" ? `, score ${row.score}` : ""})`,
+    });
+  }
+  const filterParts = [
+    "Opportunity scan",
+    snapshot.template?.thesis ? `thesis ${snapshot.template.thesis}` : undefined,
+    snapshot.mode ? `mode ${snapshot.mode}` : undefined,
+    snapshot.riskProfile ? `risk ${snapshot.riskProfile}` : undefined,
+  ].filter(Boolean);
+  const adapted: OptionScreenResult = {
+    totalUnderlyingsScanned: coverage.scanned ?? (typeof input.scanned === "number" ? input.scanned : 0),
+    totalContractsEvaluated: coverage.evaluated ?? 0,
+    matchedCount: contracts.length,
+    filterApplied: {} as OptionScreenResult["filterApplied"],
+    filterSummary: filterParts.join(" · "),
+    contracts,
+    scannedAt:
+      typeof input.generatedAt === "string" ? input.generatedAt : new Date().toISOString(),
+    dataSource: "live",
+    status:
+      (typeof input.withTrades === "number" && input.withTrades > 0) || contracts.length > 0
+        ? "matches_found"
+        : "no_matches",
+    warnings: Array.isArray(input.assumptions) ? [...(input.assumptions as string[])] : [],
+  };
+  if (input.partial !== undefined) {
+    (adapted as unknown as { partial: unknown }).partial = input.partial;
+  }
+  return adapted;
 }
 
 /** Standard filename for an options run's XLSX report. */
