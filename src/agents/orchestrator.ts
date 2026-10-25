@@ -1928,6 +1928,7 @@ export class OrchestratorAgent extends Think<Env> {
       scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string) =>
         scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin),
       getOrm: () => this.getOrm(),
+      readSettingRaw: (key) => this.readSettingRaw(key),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin),
       persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
@@ -1974,6 +1975,7 @@ export class OrchestratorAgent extends Think<Env> {
     const etradeBrokerActivityResponse = await handleEtradeBrokerActivityRoutes(request, url, path, sessionId, {
       env: this.env,
       getOrm: () => this.getOrm(),
+      readSettingRaw: (key) => this.readSettingRaw(key),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin),
       persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
