@@ -3,6 +3,13 @@ import { apiFetch as fetch } from "../apiFetch";
 import type { ScreenedOptionContractItem } from "../../types";
 import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "../x402Pay";
 import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
+import {
+  defaultOptionsCriteria,
+  optionsCriteriaToFilter,
+  optionsFilterToCriteria,
+  OptionsCriteriaPanel,
+} from "../OptionsCriteriaPanel";
+import { ScreenerPresetManager } from "../ScreenerPresetManager";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";
@@ -38,12 +45,14 @@ export function RawContractsScreener({
 }: RawContractsScreenerProps) {
   const [riskSubject, setRiskSubject] = useState<RiskSubject | null>(null);
   const [symbol, setSymbol] = useState(initialSymbol);
-  const [contractType, setContractType] = useState<"BOTH" | "CALL" | "PUT">("BOTH");
-  const [minDte, setMinDte] = useState("0");
-  const [maxDte, setMaxDte] = useState("90");
-  const [minVolume, setMinVolume] = useState("");
-  const [minOpenInterest, setMinOpenInterest] = useState("");
-  const [maxSpreadPct, setMaxSpreadPct] = useState("");
+  // Issue #1498 (#940-D): the six raw filter controls (contract type, DTE,
+  // volume, open interest, spread) moved into OptionsCriteriaPanel, which
+  // adds the remaining verified criteria (moneyness, strike distance,
+  // premium, greeks, IV) as toggle rows. All panel rows default off, which
+  // preserves the old form's behavior: omitted DTE falls back to the
+  // engine defaults (0/90), an omitted type screens BOTH.
+  const [optionsCriteria, setOptionsCriteria] = useState(defaultOptionsCriteria);
+  const [lastSentOptionsFilters, setLastSentOptionsFilters] = useState<Record<string, unknown> | null>(null);
   const [maxResults, setMaxResults] = useState("5000");
   // Issue #959: sort keys are the canonical OptionScreenSortKey values
   // the engine actually implements. The previous "openInterest",
@@ -172,15 +181,11 @@ export function RawContractsScreener({
     try {
       const filters = {
         underlyingSymbols: [symbol.trim().toUpperCase()],
-        contractType,
-        minDte: numberFilter(minDte),
-        maxDte: numberFilter(maxDte),
-        minVolume: numberFilter(minVolume),
-        minOpenInterest: numberFilter(minOpenInterest),
-        maxSpreadPct: numberFilter(maxSpreadPct),
         limit: numberFilter(maxResults) ?? 5000,
         sortBy,
+        ...optionsCriteriaToFilter(optionsCriteria),
       };
+      setLastSentOptionsFilters(filters);
 
       const outcome = await callScreen(filters);
       if (outcome) setPending({ challenge: outcome.challenge, filters });
@@ -273,71 +278,6 @@ export function RawContractsScreener({
         </label>
 
         <label className="options-field">
-          <span>Contract Type</span>
-          <select value={contractType} onChange={(e) => setContractType(e.target.value as any)}>
-            <option value="BOTH">Calls &amp; Puts</option>
-            <option value="CALL">Calls Only</option>
-            <option value="PUT">Puts Only</option>
-          </select>
-        </label>
-
-        <label className="options-field">
-          <span>Min DTE (Days)</span>
-          <input
-            type="number"
-            min="0"
-            value={minDte}
-            onChange={(e) => setMinDte(e.target.value)}
-            placeholder="0"
-          />
-        </label>
-
-        <label className="options-field">
-          <span>Max DTE (Days)</span>
-          <input
-            type="number"
-            min="0"
-            value={maxDte}
-            onChange={(e) => setMaxDte(e.target.value)}
-            placeholder="90"
-          />
-        </label>
-
-        <label className="options-field">
-          <span>Min Volume</span>
-          <input
-            type="number"
-            min="0"
-            value={minVolume}
-            onChange={(e) => setMinVolume(e.target.value)}
-            placeholder="e.g. 10"
-          />
-        </label>
-
-        <label className="options-field">
-          <span>Min Open Interest</span>
-          <input
-            type="number"
-            min="0"
-            value={minOpenInterest}
-            onChange={(e) => setMinOpenInterest(e.target.value)}
-            placeholder="e.g. 50"
-          />
-        </label>
-
-        <label className="options-field">
-          <span>Max Spread (%)</span>
-          <input
-            type="number"
-            step="0.5"
-            min="0"
-            value={maxSpreadPct}
-            onChange={(e) => setMaxSpreadPct(e.target.value)}
-            placeholder="e.g. 15"
-          />
-        </label>
-
-        <label className="options-field">
           <span>Sort By</span>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
             <option value="volume">Volume (Highest First)</option>
@@ -359,6 +299,18 @@ export function RawContractsScreener({
           />
         </label>
 
+        <ScreenerPresetManager
+          assetClass="options"
+          userLogin={userLogin}
+          currentFilter={optionsCriteriaToFilter(optionsCriteria)}
+          filterToCriteria={optionsFilterToCriteria}
+          onApplyPreset={setOptionsCriteria}
+        />
+        <OptionsCriteriaPanel
+          criteria={optionsCriteria}
+          onChange={setOptionsCriteria}
+          lastSentFilters={lastSentOptionsFilters}
+        />
         <div className="options-form-footer" style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
           <button type="submit" disabled={loading} style={{ minWidth: "180px", fontWeight: 600 }}>
             {loading ? "Scanning Chains…" : `⚡ Screen ${symbol || "Options"} Contracts`}
