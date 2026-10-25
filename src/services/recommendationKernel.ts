@@ -141,7 +141,7 @@ export interface KernelDiscoveryResult {
   limitations: string[];
   /** D1 engine build result, passed through for route-shape consumers
    *  that still need it (the /compare pool counts the full built set;
-   *  the adapter's PipelineResult.strategies IS this object). Never
+   *  the panel pipeline's PipelineResult.strategies IS this object). Never
    *  recomputed by the kernel. */
   legacy?: { evaluations?: unknown; nameLedger?: unknown; excluded?: unknown; buildResult?: EngineBuildResult };
 }
@@ -1278,8 +1278,8 @@ export interface PanelDiscoveryResult extends KernelDiscoveryResult {
  * kernel run (fit + research gates, price, falsify, rank) produces the
  * candidate list; ranked / riskReports / bestTrade are then computed via
  * the injected riskAgent / recommender over the kernel-passed wrapped
- * candidates, exactly as OptionsAgentPipeline does — so the route adapter
- * needs no engine imports. Note: panel candidates carry no research
+ * candidates, exactly as the retired OptionsAgentPipeline adapter
+ * did — so the panel route needs no engine imports. Note: panel candidates carry no research
  * quote or falsification evidence, so their kernel status lands
  * Unverified; the route-facing ranked / bestTrade output is unaffected.
  */
@@ -1431,16 +1431,21 @@ export class RecommendationService {
         structure: fit.structure,
         label: `${fit.symbol} fit for ${fit.structure}`,
         legs: [],
-        economics: {
-          structure: fit.structure,
-          legs: [],
-          netDebit: fit.economics.netDebit,
-          netCredit: fit.economics.netCredit,
-          maxLoss: fit.economics.maxLoss,
-          maxGain: fit.economics.maxGain,
-          breakevens: [],
-          derivationNotes: ["Mapped from NameFit economics summary; fit-level result, no structure legs."],
-        },
+        // A null-economics fit maps to a null-economics kernel
+        // candidate (Unverified at most via falsify) — never a
+        // fabricated summary.
+        economics: fit.economics
+          ? {
+              structure: fit.structure,
+              legs: [],
+              netDebit: fit.economics.netDebit,
+              netCredit: fit.economics.netCredit,
+              maxLoss: fit.economics.maxLoss,
+              maxGain: fit.economics.maxGain,
+              breakevens: [],
+              derivationNotes: ["Mapped from NameFit economics summary; fit-level result, no structure legs."],
+            }
+          : null,
         status: fit.status,
         provenance: "quant",
         chainProvenance: fit.provenance,
