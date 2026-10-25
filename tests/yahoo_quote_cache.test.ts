@@ -5,8 +5,8 @@ import { __resetQuoteCache } from "../src/services/quoteCache";
 /**
  * Issue #411 — Yahoo quotes are cached for 5 minutes in memory: repeat
  * getQuote calls for the same symbol must not refetch. Only live results
- * are cached; the deterministic fallback (live fetch failed) is never
- * cached, so a recovering feed is picked up on the next call.
+ * are cached; a failed fetch (#923: no fallback exists anymore) rejects
+ * and is never cached, so a recovering feed is picked up on the next call.
  */
 const CHART_URL = "query1.finance.yahoo.com/v8/finance/chart";
 let chartFetches = 0;
@@ -78,13 +78,15 @@ describe("Yahoo quote cache (#411)", () => {
     expect(chartFetches).toBe(2);
   });
 
-  it("never caches the deterministic fallback", async () => {
+  it("failed quotes reject and are never cached (#923)", async () => {
+    // #923: there is no deterministic fallback to (not) cache anymore —
+    // a failed live fetch rejects, and the failure itself is never
+    // cached either, so a recovering feed is picked up on the next call.
     chartOk = false;
     const provider = new YahooFinanceProvider();
-    const first = await provider.getQuote("NVDA");
-    expect(first.provenance).not.toBe("live");
+    await expect(provider.getQuote("NVDA")).rejects.toThrow(/unavailable/i);
     const afterFirst = chartFetches;
-    await provider.getQuote("NVDA");
+    await expect(provider.getQuote("NVDA")).rejects.toThrow(/unavailable/i);
     expect(chartFetches).toBeGreaterThan(afterFirst);
   });
 });
