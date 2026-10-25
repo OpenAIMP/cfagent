@@ -2,12 +2,25 @@
  * Fit-discovery runner (issue #1162, Phase 6 of epic #1096).
  *
  * The production runner behind the NLQ `options_fit_discovery` action:
- * it executes Phase 2's bidirectional discovery (`runDiscoveryMode`
- * over `researchDiscovery`, a researchPipeline mode) against the live
+ * it executes Phase 2's bidirectional discovery against the live
  * research data fabric (`EtradeResearchDataProvider`, the same
  * provider the research agent uses), and — only when the
  * `screening.weightsV2Ranking` flag is explicitly on — applies
  * Phase 5's strategy weights v2 to the ranking.
+ *
+ * #1256 remainder — NLQ fit rewire: the name direction
+ * (name_to_strategies) runs through the kernel research entry
+ * (`RecommendationService.discoverForName`) and maps back to
+ * `DiscoveryModeResult` via `kernelDiscoveryMapping` (nullable
+ * economics carried explicitly, never dropped or fabricated). Gate
+ * evidence (quote + chain) comes from the same provider session so
+ * the kernel's re-gate sees the same evidence the discovery run
+ * used. The strategy direction (strategy_to_names) DELIBERATELY
+ * stays on `runDiscoveryMode`: the kernel's falsify stage demotes
+ * fits (rankings carry no falsification evidence) from
+ * qualified/watchlist to unverified, which would change NLQ fit
+ * tiers — switching it needs a fit-tier design decision, not a
+ * forced mapping (see tests/fit_discovery_kernel.test.ts).
  *
  * Governance, stated once and pinned by tests:
  *
@@ -29,10 +42,13 @@
 
 import type { Env } from "../types";
 import {
+  discoverStrategiesForName,
   runDiscoveryMode,
   type DiscoveryModeRequest,
   type DiscoveryModeResult,
 } from "./researchDiscovery";
+import { RecommendationService } from "./recommendationKernel";
+import { mapKernelNameDiscovery } from "./kernelDiscoveryMapping";
 import { RESEARCH_CONFIG_DEFAULTS, type ResearchConfig } from "./researchConfig";
 import { EtradeResearchDataProvider } from "./researchProviders";
 import {
@@ -216,11 +232,51 @@ export function createFitDiscoveryRunner(deps: {
         };
       }
 
-      const raw = await runDiscoveryMode(
-        { provider },
-        deps.config ?? RESEARCH_CONFIG_DEFAULTS,
-        request
-      );
+      const config = deps.config ?? RESEARCH_CONFIG_DEFAULTS;
+      let raw: DiscoveryModeResult;
+      if (request.direction === "name_to_strategies") {
+        // Kernel path: run the discovery once, then re-gate + rank it
+        // through the kernel facade. Gate evidence is fetched from
+        // the same provider session (a second fetch — the discovery
+        // does not expose its internal quote/chain); without it, the
+        // kernel's missing-quote honesty would demote every
+        // candidate to Unverified.
+        const discovery = await discoverStrategiesForName(
+          { provider },
+          config,
+          {
+            symbol: request.symbol,
+            outlook: request.outlook,
+            goalKind: request.goalKind,
+            scenario: request.scenario,
+            now: request.now,
+            repairPosition: request.repairPosition,
+          },
+        );
+        const quote = await provider.getQuote(request.symbol);
+        const chain = await provider.getChain(request.symbol);
+        const kernelResult = await new RecommendationService().discoverForName({
+          discoverStrategiesForName: async () => discovery,
+          symbol: request.symbol,
+          outlook: request.outlook,
+          goalKind: request.goalKind,
+          scenario: request.scenario,
+          now: request.now,
+          gateQuote: quote
+            ? { price: quote.price, timestamp: quote.timestamp, source: quote.source }
+            : undefined,
+          gateChain: chain
+            ? { underlyingPrice: chain.underlyingPrice, asOf: chain.asOf, provenance: chain.provenance }
+            : undefined,
+        });
+        raw = {
+          direction: "name_to_strategies",
+          result: mapKernelNameDiscovery(kernelResult, discovery),
+        };
+      } else {
+        // Strategy direction: deliberately direct (see module doc).
+        raw = await runDiscoveryMode({ provider }, config, request);
+      }
 
       let result = raw;
       let weightsApplied = false;
