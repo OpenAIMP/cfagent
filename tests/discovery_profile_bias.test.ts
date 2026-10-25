@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { getDiscoveryConfig, getOpportunityScannerConfig } from "../src/config/etapiConfig";
-import type { YahooDailyBar } from "../src/trading/yahooHistory";
-import type { BestTradePick, RankedStrategy } from "../src/trading/options/recommendationAgent";
-import type { PipelineResult } from "../src/trading/options/panelPipeline";
+import type { YahooDailyBar } from "../src/trading/technicals";
+import type { BestTradePick, PipelineResult, RankedStrategy, StrategyCandidate } from "../src/trading/options/optionsAgentPipeline";
 import type { OptionsDataSnapshot } from "../src/trading/options/optionsDataAgent";
-import type { StrategyCandidate, StrategyRequest } from "../src/trading/options/strategyEngine";
+import type { StrategyRequest } from "../src/trading/options/strategyEngine";
 import {
   expressDiscoverySetup,
   resolveDiscoveryFitGate,
