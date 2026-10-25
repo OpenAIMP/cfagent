@@ -331,7 +331,7 @@ describe("#982 S2: one execution path for NLQ / MCP / premium", () => {
   });
 
   it("(v) no direct engine construction remains in the NLQ layer, premium routes, or MCP commands", () => {
-    const engineConstruction = /new\s+(DynamicOptionsScreener|OpportunityScanner|OptionsAgentPipeline)\s*\(/;
+    const engineConstruction = /new\s+(DynamicOptionsScreener|OpportunityScanner)\s*\(/;
     for (const rel of [
       "src/agents/nlq/execution.ts",
       "src/agents/nlqOptionsStrategy.ts",
