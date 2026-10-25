@@ -30,6 +30,8 @@ import type { EventCalendarInfo } from "../trading";
 export const EVENT_CALENDAR_SOURCE = "yahoo-calendarEvents";
 export const EVENT_CALENDAR_CACHE_TTL_MS = 6 * 60 * 60_000;
 export const EVENT_CALENDAR_CACHE_MAX_ENTRIES = 500;
+/** Keep options scans below the Workers Free 50-external-subrequest cap. */
+export const EVENT_CALENDAR_MAX_SCAN_FETCHES = 5;
 
 export interface SymbolEventCalendar extends EventCalendarInfo {
   symbol: string;
@@ -99,6 +101,14 @@ function uncovered(symbol: string, fetchedAt: string): SymbolEventCalendar {
   };
 }
 
+function cachedCalendar(symbol: string, nowMs: number): SymbolEventCalendar | null {
+  const cached = cache.get(symbol);
+  if (!cached) return null;
+  if (cached.expiresAt > nowMs) return cached.value;
+  cache.delete(symbol);
+  return null;
+}
+
 /**
  * The next earnings / ex-dividend dates for one name. `nowMs` is the
  * reference instant for the day counts (injectable for tests and for
@@ -111,11 +121,8 @@ export async function getSymbolEventCalendar(
   const cleanSym = symbol.toUpperCase().trim();
   const fetchedAt = new Date(nowMs).toISOString();
 
-  const cached = cache.get(cleanSym);
-  if (cached) {
-    if (cached.expiresAt > nowMs) return cached.value;
-    cache.delete(cleanSym);
-  }
+  const cached = cachedCalendar(cleanSym, nowMs);
+  if (cached) return cached;
 
   let result: SymbolEventCalendar;
   try {
@@ -199,12 +206,25 @@ export interface EventCalendarCoverage {
  */
 export async function getEventCalendarCoverage(
   symbols: string[],
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  maxFetches: number = EVENT_CALENDAR_MAX_SCAN_FETCHES
 ): Promise<EventCalendarCoverage> {
   const unique = Array.from(new Set(symbols.map((s) => s.toUpperCase().trim()).filter(Boolean)));
   const bySymbol = new Map<string, SymbolEventCalendar>();
-  await Promise.all(unique.map(async (sym) => {
-    bySymbol.set(sym, await getSymbolEventCalendar(sym, nowMs));
+  const fetchLimit = Math.max(0, Math.floor(maxFetches));
+  await Promise.all(unique.map(async (sym, index) => {
+    // Preserve fresh cache hits without spending a subrequest. On a cold
+    // isolate, fetch only a bounded prefix and label the tail uncovered;
+    // otherwise a 100-name options scan would exhaust the Worker request
+    // ceiling in Yahoo before the E*TRADE scanner starts.
+    const cached = cachedCalendar(sym, nowMs);
+    if (cached) {
+      bySymbol.set(sym, cached);
+    } else if (index < fetchLimit) {
+      bySymbol.set(sym, await getSymbolEventCalendar(sym, nowMs));
+    } else {
+      bySymbol.set(sym, uncovered(sym, new Date(nowMs).toISOString()));
+    }
   }));
   const coveredCount = Array.from(bySymbol.values()).filter((entry) => entry.covered).length;
   return {

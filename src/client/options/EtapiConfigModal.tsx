@@ -190,7 +190,7 @@ export function EtapiConfigModal({
           // Issue #1545 — carried at the baseline default so a saved
           // config stays complete; tuned via ETAPI_SUBREQUEST_BUDGET,
           // not edited in this modal.
-          subrequestBudget: 400,
+          subrequestBudget: 35,
           defaultMaxDte: Number(defaultMaxDte),
           defaultMinDte: Number(defaultMinDte),
           defaultQuoteAgeSeconds: 60,
