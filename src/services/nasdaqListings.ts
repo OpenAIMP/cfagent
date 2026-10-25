@@ -59,7 +59,6 @@ function parseRow(row: NasdaqScreenerRow, exchange: NasdaqExchange): NasdaqStock
 
 import { getExternalApisConfig } from "../config/etapiConfig";
 import { getCachedQuote, setCachedQuote } from "./quoteCache";
-import { getCuratedStockListings } from "../config/curatedStockUniverse";
 
 export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Promise<NasdaqStockListing[]> {
   // #411: the full-universe sweep is cached for 5 minutes in memory.
@@ -118,10 +117,14 @@ export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Pr
       return listings;
     }));
   } catch (err) {
-    console.warn(`[NasdaqListings] Live Nasdaq listing feed failed: ${err instanceof Error ? err.message : String(err)}; falling back to curated universe.`);
-    const fallback = getCuratedStockListings();
-    setCachedQuote("nasdaq:listings:all", fallback);
-    return fallback;
+    // #1554 (parent #913): fail explicit. The curated universe must
+    // never be substituted for a failed live feed, and a failed feed
+    // must never be cached: NasdaqStockListing carries no provenance
+    // field, so substituted rows would be indistinguishable from live
+    // rows downstream. Callers surface this throw as unavailable.
+    throw new Error(
+      `Live Nasdaq listings feed failed: ${err instanceof Error ? err.message : String(err)}; no static universe was substituted.`
+    );
   }
 
   const unique = new Map<string, NasdaqStockListing>();
@@ -132,10 +135,9 @@ export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Pr
   }
   const listings = Array.from(unique.values());
   if (listings.length === 0) {
-    console.warn("[NasdaqListings] 0 listings returned from live Nasdaq feed; falling back to curated universe.");
-    const fallback = getCuratedStockListings();
-    setCachedQuote("nasdaq:listings:all", fallback);
-    return fallback;
+    // #1554 (parent #913): an empty live result is a failure, not a
+    // cue to substitute the curated table (see the catch above).
+    throw new Error("Live Nasdaq listings feed returned no listings; no static universe was substituted.");
   }
   setCachedQuote("nasdaq:listings:all", listings);
   return listings;
