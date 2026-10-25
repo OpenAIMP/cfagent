@@ -52,7 +52,7 @@ import type {
 import type { DataProviderRegistry } from "./dataProviders/registry";
 import { computeScreeningIndicators } from "./screeningIndicators";
 import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
-import type { YahooTechnicals } from "./yahooHistory";
+import type { YahooTechnicals } from "./technicals";
 import {
   computeFactorGrades,
   EMPTY_GRADES,
