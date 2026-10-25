@@ -28,6 +28,11 @@ const makeSql = (tables: Record<string, any[]>) =>
 const baseCtx = (overrides: Partial<ReportsRouteContext> = {}): ReportsRouteContext =>
   ({
     ensureTables: () => makeSql({}),
+    // Issue #1057 (S5): the Runs merge reads the ScreenerAgent feed
+    // through these two accessors; the extraction fixtures serve an
+    // empty feed.
+    getScreenerAgent: () => ({ getHistory: async () => [] }) as any,
+    getScreenerExecutionContext: async () => undefined,
     getReportDispatchHitl: () => false,
     setReportDispatchHitl: vi.fn(),
     getReportConfirmation: vi.fn(() => null),
@@ -70,6 +75,7 @@ describe("reports/HITL route inventory (extraction #363)", () => {
       'path.endsWith("/trading/reports/confirm") && request.method === "POST"',
       'path.endsWith("/trading/reports/email") && request.method === "POST"',
       'path.endsWith("/trading/reports/webhook") && request.method === "POST"',
+      'path.endsWith("/runs") && request.method === "GET"',
       'path.endsWith("/reports")',
     ];
     let last = -1;

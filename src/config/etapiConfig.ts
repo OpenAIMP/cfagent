@@ -2,9 +2,22 @@ import defaultConfig from "../../environment.config.json";
 import { RISK_MATH } from "../shared/riskMath";
 import type { Env } from "../types";
 
+/** Issue #1204: baseline chain-fetch subrequest budget per scan. */
+export const DEFAULT_SUBREQUEST_BUDGET = 500;
+
 export interface EtapiScreenerConfig {
   maxScanSymbols: number;
   maxExpirationsPerSymbol: number;
+  /**
+   * Issue #1204: per-scan budget for options chain acquisition fetches
+   * (expire-dates + chain calls) inside one Worker invocation.
+   * Cloudflare caps subrequests per invocation (1,000 on the paid
+   * plan); the scheduled invocation also spends fetches outside the
+   * screener (listings, event calendar, report pipeline), so the
+   * chain budget stays well under the cap. Symbols that do not fit
+   * are deferred with a named reason — never fetched past the budget.
+   */
+  subrequestBudget: number;
   defaultMaxDte: number;
   defaultMinDte: number;
   defaultQuoteAgeSeconds: number;
@@ -80,6 +93,99 @@ export interface EtapiOpportunityScannerConfig {
     large_move: number;
     range_bound: number;
   };
+}
+
+/** Discovery (issue #14) signal thresholds. Every rule in the v1
+ *  signal catalog reads its bar from here, never from a literal, so
+ *  calibration is a config change rather than a deploy. The defaults
+ *  are v1 judgment calls pinned by tests/discovery_signals.test.ts:
+ *  IV rank bands match the common 20/80 convention; the range-pin
+ *  width (6% over 20 sessions) separates genuinely pinned names from
+ *  ordinary consolidation at typical large-cap volatility. */
+export interface EtapiDiscoveryConfig {
+  /** IV rank at or above which IV_EXPENSIVE fires. */
+  ivExpensiveRank: number;
+  /** IV rank at or below which IV_CHEAP fires. */
+  ivCheapRank: number;
+  /** Fast SMA window (sessions) for trend alignment. */
+  trendFastWindow: number;
+  /** Slow SMA window (sessions) for trend alignment. */
+  trendSlowWindow: number;
+  /** Minimum absolute fast-window return (%) for a trend to count. */
+  trendMinReturnPct: number;
+  /** Sessions over which the range width / drift are measured. */
+  rangeWindowDays: number;
+  /** Max (high − low) / spot (%) over the range window for RANGE_PINNED. */
+  rangePinMaxWidthPct: number;
+  /** Max absolute return (%) over the range window for RANGE_PINNED. */
+  rangePinMaxDriftPct: number;
+  /** Sessions of prior highs/lows for BREAKOUT_WATCH. */
+  breakoutLookbackDays: number;
+  /** Close within this % below the prior high counts as a watch. */
+  breakoutProximityPct: number;
+  /** Liquidity gate: minimum aggregate open interest across the chain. */
+  minOpenInterest: number;
+  /** Liquidity gate: minimum aggregate volume across the chain. */
+  minVolume: number;
+  /** Liquidity gate: maximum median spread (% of mid) across the chain. */
+  maxMedianSpreadPct: number;
+  /** Optionability pre-screen: minimum contracts in the chain snapshot. */
+  minContractsForOptionable: number;
+  /** DTE window the inference assigns per thesis (slice 2): trend
+   *  expressions get a standard swing window, range expressions a
+   *  longer premium window, large-move the shortest (the move either
+   *  happens soon or the thesis is wrong). */
+  dteWindows: {
+    bullish: DiscoveryDteWindow;
+    bearish: DiscoveryDteWindow;
+    range_bound: DiscoveryDteWindow;
+    large_move: DiscoveryDteWindow;
+  };
+  /** Composite-score floor for the discovery fit gate (spec §7 /
+   *  issue #14): the scanner's own gate defaults to 55 from its
+   *  fixture distribution (#24); discovery's settled floor is 50,
+   *  applied over the scanner gate's other criteria (slice 3). */
+  compositeFloor: number;
+  /** Score movement (composite points) at or beyond which a
+   *  continuing setup counts as STRENGTHENED / WEAKENED between
+   *  comparable runs (slice 4); inside the band, a confidence change
+   *  decides, and no change at all is UNCHANGED. */
+  deltaScoreThreshold: number;
+  /** Phase 2 (issue #18): earnings within this many days makes a
+   *  name earnings-adjacent — EVENT_NEAR fires, range_bound
+   *  inference is suppressed unless an IV signal dominates, and the
+   *  setup is labeled on its card. */
+  eventNearDays: number;
+  /** Phase 2 (issue #18): MOVE_UNDERPRICED fires when the implied
+   *  move (ATM IV) is at most this fraction of the name's realized
+   *  volatility into a near event — the market is pricing less
+   *  movement than the name habitually delivers. */
+  moveUnderpricedMaxRatio: number;
+  /** Phase 2 (issue #18): a FLOW_* signal fires when one side's
+   *  share of chain-derived directional premium reaches this
+   *  fraction (0.65 = roughly 2:1 dominance). */
+  flowDominanceShare: number;
+  /** Phase 2 (issue #18): minimum chain-derived flow records
+   *  before either FLOW_* signal may fire — a pair of prints is
+   *  anecdote, not flow. */
+  flowMinRecords: number;
+  /** Phase 2 (issue #18, Decision 2): a NEW setup alerts only at
+   *  or above this discoveryScore. */
+  alertMinScore: number;
+  /** Phase 2 (issue #18, Decision 2): maximum discovery alerts
+   *  per day per scope — the anti-spam budget. */
+  alertDailyCap: number;
+  /** Phase 2 (issue #18): Strategy Profile biasing — composite
+   *  points added, for PICK SELECTION ONLY, to candidates whose
+   *  strategy type the caller's profile allows. Recorded scores
+   *  always stay the raw composite; the boost exists only in the
+   *  comparison. */
+  profileBiasPoints: number;
+}
+
+export interface DiscoveryDteWindow {
+  minDte: number;
+  maxDte: number;
 }
 
 export interface EtapiExpirationGroup {
@@ -185,6 +291,7 @@ export interface EtapiConfig {
   screener: EtapiScreenerConfig;
   strategyEngine: EtapiStrategyEngineConfig;
   opportunityScanner: EtapiOpportunityScannerConfig;
+  discovery: EtapiDiscoveryConfig;
   llmIdeas: EtapiLlmIdeasConfig;
   client: EtapiClientConfig;
   cache: EtapiCacheConfig;
@@ -213,6 +320,7 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
   screener: {
     maxScanSymbols: 20,
     maxExpirationsPerSymbol: 100,
+    subrequestBudget: DEFAULT_SUBREQUEST_BUDGET,
     defaultMaxDte: 90,
     defaultMinDte: 0,
     defaultQuoteAgeSeconds: 60,
@@ -255,6 +363,37 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
       large_move: 1.2,
       range_bound: 0,
     },
+  },
+  discovery: {
+    ivExpensiveRank: 80,
+    ivCheapRank: 20,
+    trendFastWindow: 20,
+    trendSlowWindow: 50,
+    trendMinReturnPct: 2,
+    rangeWindowDays: 20,
+    rangePinMaxWidthPct: 6,
+    rangePinMaxDriftPct: 2,
+    breakoutLookbackDays: 20,
+    breakoutProximityPct: 1.5,
+    minOpenInterest: 5000,
+    minVolume: 500,
+    maxMedianSpreadPct: 8,
+    minContractsForOptionable: 5,
+    dteWindows: {
+      bullish: { minDte: 21, maxDte: 60 },
+      bearish: { minDte: 21, maxDte: 60 },
+      range_bound: { minDte: 30, maxDte: 60 },
+      large_move: { minDte: 14, maxDte: 45 },
+    },
+    compositeFloor: 50,
+    deltaScoreThreshold: 5,
+    eventNearDays: 21,
+    moveUnderpricedMaxRatio: 0.8,
+    flowDominanceShare: 0.65,
+    flowMinRecords: 3,
+    alertMinScore: 70,
+    alertDailyCap: 5,
+    profileBiasPoints: 5,
   },
   llmIdeas: {
     inputTokenBudget: 90000,
@@ -507,6 +646,7 @@ export function getEtapiConfig(env?: Partial<Env>, overrideEnv?: string): EtapiC
     if (proc.ETAPI_MAX_SCAN_SYMBOLS) config.screener.maxScanSymbols = Number(proc.ETAPI_MAX_SCAN_SYMBOLS);
     if (proc.ETAPI_MAX_RETURNED_CONTRACTS) config.screener.maxReturnedContracts = Number(proc.ETAPI_MAX_RETURNED_CONTRACTS);
     if (proc.ETAPI_DEFAULT_MAX_DTE) config.screener.defaultMaxDte = Number(proc.ETAPI_DEFAULT_MAX_DTE);
+    if (proc.ETAPI_SUBREQUEST_BUDGET) config.screener.subrequestBudget = Number(proc.ETAPI_SUBREQUEST_BUDGET);
     if (proc.ETAPI_RISK_FREE_RATE) config.strategyEngine.riskFreeRate = Number(proc.ETAPI_RISK_FREE_RATE);
     if (proc.ETAPI_FEE_PER_CONTRACT) config.strategyEngine.feePerContract = Number(proc.ETAPI_FEE_PER_CONTRACT);
     if (proc.ETAPI_LLM_TOKEN_BUDGET) config.llmIdeas.inputTokenBudget = Number(proc.ETAPI_LLM_TOKEN_BUDGET);
@@ -530,6 +670,10 @@ export function getStrategyEngineConfig(env?: Partial<Env>, overrideEnv?: string
 
 export function getOpportunityScannerConfig(env?: Partial<Env>, overrideEnv?: string): EtapiOpportunityScannerConfig {
   return getEtapiConfig(env, overrideEnv).opportunityScanner;
+}
+
+export function getDiscoveryConfig(env?: Partial<Env>, overrideEnv?: string): EtapiDiscoveryConfig {
+  return getEtapiConfig(env, overrideEnv).discovery;
 }
 
 export function getLlmIdeasConfig(env?: Partial<Env>, overrideEnv?: string): EtapiLlmIdeasConfig {

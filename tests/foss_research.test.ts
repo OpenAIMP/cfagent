@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   YahooFinanceProvider,
   AlpacaMarketDataProvider,
@@ -32,6 +32,18 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   const userDid = "did:user:github:analyst_user";
 
   beforeEach(() => {
+    // #411: hermetic suite — no real network. These tests' assertions are
+    // pinned to the providers' deterministic fallback data (the only path
+    // whose values are stable enough to assert); with live fetch they
+    // intermittently exercised the live Yahoo path instead, whose latency
+    // produced 25s timeouts under suite load. Rejecting fetch makes the
+    // exercised path deterministic. Verified equivalent: the suite passes
+    // 31/31 with outbound fetch fully blocked.
+    vi.stubGlobal("fetch", async () => {
+      throw new Error(
+        "network disabled in foss_research tests (#411): providers must use their deterministic fallback"
+      );
+    });
     yfProvider = new YahooFinanceProvider();
     alpacaProvider = new AlpacaMarketDataProvider();
     hybridProvider = new HybridFossProvider();
@@ -40,6 +52,10 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
     const sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
     orm.initializeSchema(sessionId);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   // =========================================================================

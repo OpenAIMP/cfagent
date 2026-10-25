@@ -1,19 +1,26 @@
 import { resolveEnvironmentConfig } from "../../config/environment";
+import {
+  buildSchedulePayload,
+  parseOptionScreenerFilter,
+  parseStockScreenerFilter,
+  SCREENING_SCHEDULE_CALLBACKS,
+} from "../../trading";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../../services/agenticPayments";
 import { ETradeBrowserService } from "../../services/browserAgent";
 import { ETradeService } from "../../services/etrade";
 import { FossResearchService, weakestFossProvenance } from "../../services/fossResearch";
 import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
-import { DynamicOptionsScreener, ETradeSlackTradingService, describeFlowProvenance, getDynamicLiveFlowItems, isNonLivePricingQuoteStatus, nonLivePricingNotice } from "../../trading";
+import { UnifiedOptionsService, ETradeSlackTradingService, describeFlowProvenance, getDynamicLiveFlowItems, isNonLivePricingQuoteStatus, nonLivePricingNotice } from "../../trading";
 import { runOptionsStrategyAction, type OptionsStrategyIntent } from "../nlqOptionsStrategy";
 import type { DatabaseORM } from "../../orm";
 import type { ScanRunStore, StrategyProfileStore } from "../../trading";
-import type { AgentScheduleItem, Env } from "../../types";
+import type { AgentScheduleItem, Env, OptionScreenResult } from "../../types";
 import { formatMarketCap, formatTradingQuoteBidAsk, formatTradingQuoteHeadline } from "./formatting";
 import { planNLQ, validateNLQPlanWithLLM } from "./llmPlanning";
 import { STOP_WORDS_REGEX } from "./orderParams";
 import { NLQPlan, isNlqTableAllowed } from "./schema";
-import { NLQExecutionDeps, NLQQueryResult, NLQSchedulingPort } from "./types";
+import { NLQExecutionDeps, NLQQueryResult, NLQSchedulingPort, type NLQSocialBriefPort, type NLQStockScreenPort, type NLQStockScreenRunResult } from "./types";
+import { SOCIAL_BRIEF_MAX_CHARS, resolveBriefDate } from "../social/briefStore";
 function auditNlqExecution(
   orm: DatabaseORM,
   sessionId: string,
@@ -47,6 +54,188 @@ function auditNlqExecution(
   } catch {
     // Audit is best-effort; never fail the execution for a logging write.
   }
+}
+
+/**
+ * Issue #982 (screening consolidation S2): the unified options service
+ * for NLQ executions. Every NLQ options screen runs through it (the
+ * REST unified route's service), so execution — and, with the persist
+ * helpers below, the canonical run record — is entry-point
+ * independent. Constructed the env-preserving way the other NLQ
+ * services are: the ORM is forwarded as-is (#781) and a missing env
+ * degrades to the empty-env idiom ETradeService itself uses.
+ */
+function nlqUnifiedOptionsService(
+  orm: DatabaseORM,
+  env: Env | undefined,
+  userLogin: string
+): UnifiedOptionsService {
+  return new UnifiedOptionsService(env ?? ({} as Env), userLogin, undefined, orm);
+}
+
+/**
+ * Issue #982: persist an NLQ options screen's canonical copy in
+ * mas_reports, mirroring the REST options-screen route's division of
+ * labour (the route persists the service run's copy — see
+ * routes/etradeOptions.ts) and its shape, with the entry point
+ * recorded in the generation id + body trigger ("nlq", cf. the REST
+ * route's "manual"). Best-effort exactly like the route's: a failed
+ * store never breaks the answer (storeReportAtGeneration logs the
+ * failure loudly itself, #876).
+ */
+function persistNlqOptionsScreenReport(
+  orm: DatabaseORM,
+  userLogin: string,
+  filter: { underlyingSymbols?: string[] },
+  result: {
+    totalUnderlyingsScanned: number;
+    totalContractsEvaluated: number;
+    matchedCount: number;
+  },
+  generatedAt: string
+): void {
+  try {
+    const generationId = `options_scanner:nlq:${generatedAt}`;
+    orm.storeCanonicalReport({
+      runId: generationId,
+      generationId,
+      title: `Options contract screen — ${(filter.underlyingSymbols || []).join(", ") || "selected underlyings"}`,
+      source: "options_scanner",
+      summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
+      body: { generatedAt, filter, result, trigger: "nlq" },
+      userLogin,
+      createdAt: generatedAt,
+    });
+  } catch {
+    // Non-critical: persistence failure must not break the screen
+    // (the same rule the REST route and premium endpoints follow).
+  }
+}
+
+/**
+ * Issue #982: persist an NLQ stock screen's canonical copy, mirroring
+ * the orchestrator's persistScreenerReportCanonical (the REST stock
+ * route's caller-layer persist) field for field — source "screener",
+ * generation `screener:<timestamp>` — with the entry point in the
+ * body's trigger ("nlq"; REST manual runs record "manual"). Same
+ * best-effort rule.
+ */
+function persistNlqStockScreenReport(
+  orm: DatabaseORM,
+  userLogin: string,
+  run: NLQStockScreenRunResult
+): void {
+  try {
+    const generationId = `screener:${run.timestamp}`;
+    orm.storeCanonicalReport({
+      runId: generationId,
+      generationId,
+      title: `Market screen — ${String(run.universe ?? run.sector ?? "ALL")} (nlq)`,
+      source: "screener",
+      summary: run.success
+        ? `Scanned ${run.totalScanned} symbols, ${run.matchedCount} matched, ${run.opportunities.length} opportunities.`
+        : `Screen failed: ${run.error ?? "unknown error"}.`,
+      userLogin,
+      body: {
+        timestamp: run.timestamp,
+        universe: run.universe,
+        sector: run.sector,
+        trigger: "nlq",
+        success: run.success,
+        totalScanned: run.totalScanned,
+        matchedCount: run.matchedCount,
+        opportunities: run.opportunities,
+        allStocks: run.allStocks,
+        pdfKey: run.pdfKey,
+        reportUrl: run.pdfKey
+          ? `/api/screener/report.pdf?key=${encodeURIComponent(run.pdfKey)}`
+          : undefined,
+        error: run.error,
+      },
+      createdAt: run.timestamp,
+    });
+  } catch {
+    // Non-critical: persistence failure must not break the screen.
+  }
+}
+
+/**
+ * Issue #982: build the NLQ stock-screen envelope from a service run
+ * (the ScreenerAgent pipeline result the stock-screen port returns),
+ * in the same shape the listings-screener path produces — same
+ * scanner states, same summary wording, same row keys. Fields the
+ * pipeline does not carry (per-stock market cap, absolute change, the
+ * listings discovery object) read as explicit "N/A" / are omitted
+ * rather than fabricated.
+ */
+function stockScreenEnvelopeFromServiceRun(
+  plan: NLQPlan,
+  run: NLQStockScreenRunResult,
+  screenFilters: { gainersOnly?: boolean; losersOnly?: boolean },
+  executedAt: string
+): NLQQueryResult {
+  const hasMismatch = run.allStocks.some((s) => {
+    if (screenFilters.gainersOnly && s.changePercent <= 0) return true;
+    if (screenFilters.losersOnly && s.changePercent >= 0) return true;
+    return false;
+  });
+  let scannerState: "no_universe" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
+  let summary: string;
+  if (!run.success) {
+    scannerState = "scan_failed";
+    summary = `Market Scanner: ${run.error || "The screening service reported a failed run."} (${run.filterSummary || "no filter summary"}).`;
+  } else if (hasMismatch) {
+    scannerState = "SCAN_INVALID_DATA_MISMATCH";
+    summary = `🚨 SCAN INVALID — DATA MISMATCH: One or more returned rows contradicted requested screen filter (${run.filterSummary}). Action shortcuts disabled.`;
+  } else if (run.totalScanned === 0) {
+    scannerState = "no_universe";
+    summary = run.discoveryMessage || "The screening service processed no universe for this request.";
+  } else if (run.matchedCount === 0) {
+    scannerState = "no_matches";
+    summary = `Market Scanner: [Scanned ${run.totalScanned} equities; 0 matched criteria] (${run.filterSummary}).`;
+  } else {
+    scannerState = "matches_found";
+    summary = `Market Scanner: [Scanned ${run.totalScanned} equities; ${run.matchedCount} passed criteria] (${run.filterSummary}).`;
+  }
+  return {
+    plan,
+    domain: "trading",
+    targetTable: "etrade_market_screener",
+    count: run.matchedCount,
+    status: scannerState,
+    summary,
+    validationError: run.success ? undefined : run.error,
+    provenance: {
+      scannerState,
+      universeCount: run.totalScanned,
+      passedCount: run.matchedCount,
+      rejectedCount: run.rejections?.length ?? 0,
+      dataSource: "ScreenerAgent screening pipeline (E*TRADE quotes) — the REST stock screening service",
+      quoteTimestamp: run.timestamp,
+      executedAt,
+    },
+    rows: run.allStocks.map((s) => {
+      const rowMismatch =
+        (screenFilters.gainersOnly && s.changePercent <= 0) ||
+        (screenFilters.losersOnly && s.changePercent >= 0);
+      return {
+        symbol: s.symbol,
+        companyName: s.companyName,
+        sector: s.sector || "N/A",
+        exchange: "N/A",
+        price: `$${s.lastPrice.toFixed(2)}`,
+        rawPrice: s.lastPrice,
+        change: `${s.changePercent >= 0 ? "+" : ""}${s.changePercent.toFixed(2)}%`,
+        changePercent: s.changePercent,
+        marketCap: "N/A",
+        source: s.source || "ScreenerAgent pipeline",
+        quoteTimestamp: run.timestamp,
+        validationStatus: rowMismatch ? "FAIL_MISMATCH" : "PASS_CONFIRMED",
+        actionAvailable: (hasMismatch || rowMismatch) ? "DISABLED (DATA MISMATCH)" : `Preview Buy/Sell for ${s.symbol}`,
+      };
+    }),
+    executedAt,
+  };
 }
 
 /** Issue #257: the original synchronous executor (renamed); the exported
@@ -102,6 +291,22 @@ function executeNLQQueryCore(
     };
   }
 
+  // #1077 Phase 5b slice 2: the sync executor cannot write a brief
+  // (the store is async-only), so it refuses honestly like
+  // scheduling above. The async executor with a live social brief
+  // port is the only write path.
+  if (plan.domain === "social") {
+    return {
+      plan,
+      domain: "social",
+      count: 0,
+      status: "error",
+      summary: "Social brief: this action requires the asynchronous NLQ executor (executeNLQQueryAsync) with a live social brief port. Nothing was stored by this call.",
+      rows: [],
+      executedAt,
+    };
+  }
+
   // 1c. Cloudflare Agentic Payments Operations (x402 & MPP)
   if (plan.domain === "agentic_payments") {
     const paymentService = new ETradeAgenticPaymentService(orm, env, sessionId);
@@ -119,7 +324,7 @@ function executeNLQQueryCore(
         domain: "agentic_payments",
         targetTable: "mas_agentic_wallet",
         count: 1,
-        summary: `Cloudflare Agentic Wallet: Balance $${wallet.balanceUSD.toFixed(2)} USDC on ${wallet.network}. This is a SIMULATED local-ledger balance (includes a $${wallet.startingCreditUSD.toFixed(2)} local starting credit and locally recorded entries only) — not an on-chain wallet balance. Auto-approve limit: $${wallet.autoApproveLimitUSD.toFixed(2)}. Total spent: $${wallet.totalSpentUSD.toFixed(2)}, total earned: $${wallet.totalEarnedUSD.toFixed(2)} across ${wallet.transactionCount} micropayments.`,
+        summary: `Agentic Wallet: Balance $${wallet.balanceUSD.toFixed(2)} USDC on ${wallet.network}. This is a SIMULATED local-ledger balance (includes a $${wallet.startingCreditUSD.toFixed(2)} local starting credit and locally recorded entries only) — not an on-chain wallet balance. Auto-approve limit: $${wallet.autoApproveLimitUSD.toFixed(2)}. Total spent: $${wallet.totalSpentUSD.toFixed(2)}, total earned: $${wallet.totalEarnedUSD.toFixed(2)} across ${wallet.transactionCount} micropayments.`,
         rows: [
           {
             network: wallet.network,
@@ -276,13 +481,30 @@ function executeNLQQueryCore(
     }
 
     if (action === "screen") {
-      const screenRes = etrade.screenStocks(plan.tradingData?.filters);
+      // Issue #959: NLQ stock screens validate through the ONE shared
+      // stock-filter schema — a mis-shaped plan filter is an explicit
+      // error, never a silently-mis-shaped engine run.
+      const parsedFilters = parseStockScreenerFilter(plan.tradingData?.filters ?? {});
+      if (!parsedFilters.ok) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "etrade_market_screener",
+          count: 0,
+          status: "error",
+          summary: `Market Scanner: ${parsedFilters.error}`,
+          rows: [],
+          executedAt,
+        };
+      }
+      const screenFilters = parsedFilters.value;
+      const screenRes = etrade.screenStocks(screenFilters);
       let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
       let summary = "";
 
       const hasMismatch = screenRes.status === "SCAN_INVALID_DATA_MISMATCH" || screenRes.stocks.some((s) => {
-        if (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) return true;
-        if (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0) return true;
+        if (screenFilters.gainersOnly && s.changePercent <= 0) return true;
+        if (screenFilters.losersOnly && s.changePercent >= 0) return true;
         return false;
       });
 
@@ -400,6 +622,22 @@ function executeNLQQueryCore(
       const quote = etrade.getQuote(sym);
       const relativeOffset = plan.tradingData?.relativePriceOffsetPercent;
       const relativeDesc = plan.tradingData?.relativePriceDescription;
+
+      // #913/#920: a relative-priced order ("x% below market") may only be
+      // priced off a LIVE E*TRADE quote. A static/simulated fallback quote
+      // or a missing price refuses the order — no draft is created and no
+      // static-derived price is ever substituted.
+      if (relativeOffset !== undefined && (!(quote.lastPrice > 0) || isNonLivePricingQuoteStatus(quote.quoteStatus))) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: `Cannot price this relative order for ${sym}: no live E*TRADE quote is available (quote status: ${quote.quoteStatus || "UNAVAILABLE"}). Relative orders are priced only from a live E*TRADE quote — no order draft was created.`,
+          rows: [],
+          executedAt,
+        };
+      }
 
       let limitPrice = plan.tradingData?.limitPrice;
       let orderType = plan.tradingData?.orderType || (limitPrice !== undefined || relativeOffset !== undefined ? "LIMIT" : "MARKET");
@@ -1134,14 +1372,52 @@ async function executeSchedulingAction(
   // Payload contracts are owned by the orchestrator callbacks:
   // sendScheduledReminder expects { reminderId, message, userLogin? }
   // (its reminderId is the dispatch/audit identifier, distinct from
-  // the schedule id the SDK returns); autonomousMarketScreen takes the
-  // same sector payload the onStart baseline registration uses.
-  const payload: Record<string, unknown> =
-    callback === "sendScheduledReminder"
-      ? { reminderId: crypto.randomUUID(), message: description, userLogin }
-      : callback === "autonomousMarketScreen"
-        ? { sector: "Technology", maxItems: 5 }
-        : { userLogin, description };
+  // the schedule id the SDK returns).
+  //
+  // Issue #959 (screening consolidation S1): the three screening
+  // callbacks' payloads are built by the ONE shared builder —
+  // buildSchedulePayload in src/trading/screeningSchemas.ts — from the
+  // plan's criteria, exactly as REST schedule creation builds them, so
+  // the same criteria arm the identical payload through every door.
+  // The pre-#959 hardcoded market-screen payload (a fixed Technology
+  // sector with a 5-item cap, regardless of what was asked) is gone:
+  // a criteria-less plan arms only the identity stamps, and the
+  // market-screen service's own defaults apply at run time.
+  // Mis-shaped criteria fail the action explicitly; nothing is armed.
+  let payload: Record<string, unknown>;
+  if (callback === "sendScheduledReminder") {
+    payload = { reminderId: crypto.randomUUID(), message: description, userLogin };
+  } else if ((SCREENING_SCHEDULE_CALLBACKS as readonly string[]).includes(callback)) {
+    const criteria: Record<string, unknown> = {};
+    for (const key of [
+      "sector",
+      "universe",
+      "maxItems",
+      "symbols",
+      "thesis",
+      "riskProfile",
+      "filters",
+      "inputModel",
+      "requests",
+      "constraintSets",
+      "profileId",
+      "watchlistName",
+      // Consolidation C3 (#1277): stage-chain timing rides the same
+      // builder-validated criteria as every other field.
+      "stageChain",
+    ] as const) {
+      if (sd[key] !== undefined) criteria[key] = sd[key];
+    }
+    const built = buildSchedulePayload(callback, criteria, { userLogin, trigger: "scheduled" });
+    if (!built.ok) {
+      return failure(
+        `Schedule creation failed: ${built.error} The schedule was NOT created.`
+      );
+    }
+    payload = built.value;
+  } else {
+    payload = { userLogin, description };
+  }
 
   let created: AgentScheduleItem;
   try {
@@ -1246,13 +1522,52 @@ async function executeNLQQueryAsyncCore(
     }
 
     if (action === "screen") {
-      const screenRes = await etrade.screenMarketsAsync(plan.tradingData?.filters);
+      // Issue #959: same shared stock-filter schema as the sync path.
+      const parsedFilters = parseStockScreenerFilter(plan.tradingData?.filters ?? {});
+      if (!parsedFilters.ok) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "etrade_market_screener",
+          count: 0,
+          status: "error",
+          summary: `Market Scanner: ${parsedFilters.error}`,
+          rows: [],
+          executedAt,
+        };
+      }
+      const screenFilters = parsedFilters.value;
+      // Issue #982: when the stock-screen port is threaded (the
+      // orchestrator binds the ScreenerAgent — the stock screening
+      // service the REST route delegates to), the screen runs through
+      // the service and persists like a REST run. Contexts without a
+      // port keep the listings-screener path below, exactly as
+      // store-less contexts behave for scan persistence (#27).
+      if (deps?.stockScreenPort) {
+        try {
+          const run = await deps.stockScreenPort.runScreen({ filters: screenFilters, userLogin: login });
+          persistNlqStockScreenReport(orm, login, run);
+          return stockScreenEnvelopeFromServiceRun(plan, run, screenFilters, executedAt);
+        } catch (err) {
+          return {
+            plan,
+            domain: "trading",
+            targetTable: "etrade_market_screener",
+            count: 0,
+            status: "error",
+            summary: `Market Scanner: ${err instanceof Error ? err.message : "The stock screening service was unavailable."}`,
+            rows: [],
+            executedAt,
+          };
+        }
+      }
+      const screenRes = await etrade.screenMarketsAsync(screenFilters);
       let scannerState: "not_run" | "no_universe" | "data_unavailable" | "scan_failed" | "no_matches" | "matches_found" | "SCAN_INVALID_DATA_MISMATCH";
       let summary = "";
 
       const hasMismatch = screenRes.status === "SCAN_INVALID_DATA_MISMATCH" || screenRes.stocks.some((s) => {
-        if (plan.tradingData?.filters?.gainersOnly && s.changePercent <= 0) return true;
-        if (plan.tradingData?.filters?.losersOnly && s.changePercent >= 0) return true;
+        if (screenFilters.gainersOnly && s.changePercent <= 0) return true;
+        if (screenFilters.losersOnly && s.changePercent >= 0) return true;
         return false;
       });
 
@@ -1366,6 +1681,22 @@ async function executeNLQQueryAsyncCore(
       const quote = await etrade.fetchQuoteRemote(sym);
       const relativeOffset = plan.tradingData?.relativePriceOffsetPercent;
       const relativeDesc = plan.tradingData?.relativePriceDescription;
+
+      // #913/#920: a relative-priced order ("x% below market") may only be
+      // priced off a LIVE E*TRADE quote. A static/simulated fallback quote
+      // or a missing price refuses the order — no draft is created and no
+      // static-derived price is ever substituted.
+      if (relativeOffset !== undefined && (!(quote.lastPrice > 0) || isNonLivePricingQuoteStatus(quote.quoteStatus))) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: `Cannot price this relative order for ${sym}: no live E*TRADE quote is available (quote status: ${quote.quoteStatus || "UNAVAILABLE"}). Relative orders are priced only from a live E*TRADE quote — no order draft was created.`,
+          rows: [],
+          executedAt,
+        };
+      }
 
       let limitPrice = plan.tradingData?.limitPrice;
       let orderType = plan.tradingData?.orderType || (limitPrice !== undefined || relativeOffset !== undefined ? "LIMIT" : "MARKET");
@@ -1503,10 +1834,12 @@ async function executeNLQQueryAsyncCore(
       };
     }
 
-    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities") {
+    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities" || action === "options_discovery" || action === "options_fit_discovery") {
       const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined, {
         scanRunStore: deps?.scanRunStore,
         profileStore: deps?.profileStore,
+        discoveryRunner: deps?.discoveryRunner,
+        fitDiscoveryRunner: deps?.fitDiscoveryRunner,
         // Issue #28: profile resolution is scoped to the session's
         // login — the same fallback chain the ETradeService above uses.
         userLogin: deps?.userLogin ?? login,
@@ -1514,7 +1847,7 @@ async function executeNLQQueryAsyncCore(
       return {
         plan,
         domain: "trading",
-        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : "etrade_options_strategies",
+        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : action === "options_discovery" ? "etrade_options_discovery" : action === "options_fit_discovery" ? "etrade_options_fit_discovery" : "etrade_options_strategies",
         count: res.count,
         status: res.status,
         summary: res.summary,
@@ -1525,6 +1858,9 @@ async function executeNLQQueryAsyncCore(
         // Issue #27: surface the persisted scan run id (opportunities
         // scans only; undefined everywhere else).
         scanRunId: res.scanRunId,
+        // Issue #14: surface the persisted discovery run id
+        // (options_discovery only; undefined everywhere else).
+        discoveryRunId: res.discoveryRunId,
         persisted: res.persisted,
         // Issue #28: surface the applied profile's provenance stamp.
         profileRef: res.profileRef,
@@ -1540,8 +1876,40 @@ async function executeNLQQueryAsyncCore(
       // live scan never fans out over every U.S. listing (sanitize clamps it to MAX_SCAN_SYMBOLS).
       const DEFAULT_BROAD_SCAN_UNDERLYINGS = 10;
       const filters = hasUniverse ? rawFilters : { ...rawFilters, maxUnderlyings: DEFAULT_BROAD_SCAN_UNDERLYINGS };
-      const screener = new DynamicOptionsScreener(etrade.client);
-      const res = await screener.screenOptions(filters);
+      // Issue #959: the effective filter validates through the ONE
+      // shared options-filter schema before the engine sees it — a
+      // mis-shaped plan filter is an explicit error naming the field,
+      // not a silent engine sanitization.
+      const parsedFilters = parseOptionScreenerFilter(filters);
+      if (!parsedFilters.ok) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "etrade_options_screener",
+          count: 0,
+          status: "error",
+          summary: `Options Screener: ${parsedFilters.error}`,
+          rows: [],
+          executedAt,
+        };
+      }
+      // Issue #982: the screen executes through UnifiedOptionsService
+      // (the REST unified route's service) — the service's data for
+      // the screen action is the raw screen result the envelope below
+      // is built from. The caller's symbols/limit ride the request so
+      // the service's screen filter matches the validated filter
+      // exactly. The canonical run copy is persisted at this layer,
+      // mirroring the REST options-screen route.
+      const service = nlqUnifiedOptionsService(orm, env, login);
+      const serviceResponse = await service.execute({
+        action: "screen",
+        channel: "chat",
+        filter: parsedFilters.value,
+        symbols: parsedFilters.value.underlyingSymbols,
+        limit: parsedFilters.value.limit,
+      });
+      const res = serviceResponse.data as OptionScreenResult;
+      persistNlqOptionsScreenReport(orm, login, parsedFilters.value, res, executedAt);
       const freshnessNote = res.quoteQuality?.staleContractsReturned || res.quoteQuality?.unknownFreshnessContracts
         ? ` Freshness: ${res.quoteQuality.staleContractsReturned} returned contracts are stale and ${res.quoteQuality.unknownFreshnessContracts} have unknown timestamps; freshest stale quote was ${Math.round(res.quoteQuality.freshestStaleQuoteAgeSeconds || 0)}s old (freshness reference ${res.quoteQuality.referenceAgeSeconds ?? res.quoteQuality.maxAgeSeconds ?? 60}s).`
         : "";
@@ -1625,8 +1993,20 @@ async function executeNLQQueryAsyncCore(
       const name = plan.tradingData?.watchlistName || "My Watchlist";
       let symbols = plan.tradingData?.symbols || [];
       if (symbols.length === 0) {
-        const screened = await etrade.screenMarketsAsync(plan.tradingData?.filters);
-        symbols = screened.stocks.slice(0, 10).map((s) => s.symbol);
+        // Issue #982: the fallback screen routes through the stock
+        // screening service when the port is threaded (the standout
+        // opportunities of the service run are its screened picks);
+        // contexts without a port keep the listings screener.
+        if (deps?.stockScreenPort) {
+          const run = await deps.stockScreenPort.runScreen({
+            filters: plan.tradingData?.filters ?? {},
+            userLogin: login,
+          });
+          symbols = run.opportunities.map((o) => o.symbol).slice(0, 10);
+        } else {
+          const screened = await etrade.screenMarketsAsync(plan.tradingData?.filters);
+          symbols = screened.stocks.slice(0, 10).map((s) => s.symbol);
+        }
       }
       if (symbols.length === 0) {
         symbols = ["NVDA", "AAPL", "MSFT", "AMD"];
@@ -1681,13 +2061,36 @@ async function executeNLQQueryAsyncCore(
     if (action === "paid_scan") {
       const sym = plan.agenticPaymentsData?.symbol;
       const login = userLogin || sessionId || "default_trader";
-      const etrade = new ETradeService(orm, env, login);
-      const screener = new DynamicOptionsScreener(etrade.client);
-      const res = await screener.screenOptions({
+      // Issue #959: the paid scan's literal filter validates through
+      // the ONE shared options-filter schema like every other screen.
+      const parsedPaidFilter = parseOptionScreenerFilter({
         underlyingSymbols: sym ? [sym] : undefined,
         maxUnderlyings: plan.agenticPaymentsData?.maxUnderlyings,
         contractType: plan.agenticPaymentsData?.contractType,
       });
+      if (!parsedPaidFilter.ok) {
+        return {
+          plan,
+          domain: "agentic_payments",
+          targetTable: "agentic_payments",
+          count: 0,
+          status: "error",
+          summary: `Paid options scan: ${parsedPaidFilter.error}`,
+          rows: [],
+          executedAt,
+        };
+      }
+      // Issue #982: the paid scan executes through UnifiedOptionsService
+      // like every other options screen (no persistence here — this
+      // path persists none today; the premium ROUTE persists its own).
+      const paidServiceResponse = await nlqUnifiedOptionsService(orm, env, login).execute({
+        action: "screen",
+        channel: "chat",
+        filter: parsedPaidFilter.value,
+        symbols: parsedPaidFilter.value.underlyingSymbols,
+        limit: parsedPaidFilter.value.limit,
+      });
+      const res = paidServiceResponse.data as OptionScreenResult;
 
       const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
       // Issue #122: no payment is collected or verified on this path — the
@@ -1797,6 +2200,77 @@ async function executeNLQQueryAsyncCore(
     );
   }
 
+  if (plan.domain === "social") {
+    // #1077 Phase 5b slice 2: NLQ brief provisioning. The plan's text
+    // is user-provided content, never agent-invented: the executor
+    // writes exactly what the plan carries, and only through the
+    // injected port. No port (MCP facade, Slack, async jobs, the
+    // webhook-forwarded route) means an honest error, never a write
+    // through a fallback store. The summary names the date only —
+    // the brief text itself is not echoed into result envelopes
+    // (they are audited and, on the webhook path, emailed).
+    const text = plan.socialData?.text ?? "";
+    if (!text.trim()) {
+      return {
+        plan,
+        domain: "social",
+        count: 0,
+        status: "error",
+        summary: "Social brief: no content was provided, so nothing was stored.",
+        rows: [],
+        executedAt,
+      };
+    }
+    if (text.length > SOCIAL_BRIEF_MAX_CHARS) {
+      return {
+        plan,
+        domain: "social",
+        count: 0,
+        status: "error",
+        summary: `Social brief: text must be ${SOCIAL_BRIEF_MAX_CHARS} characters or fewer; nothing was stored.`,
+        rows: [],
+        executedAt,
+      };
+    }
+    if (!deps?.socialBriefPort) {
+      return {
+        plan,
+        domain: "social",
+        count: 0,
+        status: "error",
+        summary: "Social brief: this action requires the asynchronous NLQ executor with a live social brief port. Nothing was stored.",
+        rows: [],
+        executedAt,
+      };
+    }
+    const date = resolveBriefDate(
+      Date.now(),
+      "America/New_York",
+      plan.socialData?.dayOffset === 1 ? 1 : 0,
+    );
+    try {
+      await deps.socialBriefPort.setBrief({ date, text });
+    } catch (err) {
+      return {
+        plan,
+        domain: "social",
+        count: 0,
+        status: "error",
+        summary: `Social brief: the brief store failed (${err instanceof Error ? err.message : "unknown error"}); nothing was stored.`,
+        rows: [],
+        executedAt,
+      };
+    }
+    return {
+      plan,
+      domain: "social",
+      count: 1,
+      summary: `Social brief set for ${date}.`,
+      rows: [],
+      executedAt,
+    };
+  }
+
   return executeNLQQueryCore(orm, sessionId, plan, env, effectiveUserDid);
 }
 
@@ -1831,9 +2305,9 @@ export async function executeNaturalLanguageQuery(
   sessionId: string,
   query: string,
   env: Env,
-  userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean },
+  userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean },
   userDid?: string,
-  options?: { context?: string; validateWithLLM?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort }
+  options?: { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort; stockScreenPort?: NLQStockScreenPort; socialBriefPort?: NLQSocialBriefPort; discoveryRunner?: NLQExecutionDeps["discoveryRunner"]; fitDiscoveryRunner?: NLQExecutionDeps["fitDiscoveryRunner"] }
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
   let userLogin: string | undefined;
   let resolvedOptions = options;
@@ -1844,8 +2318,8 @@ export async function executeNaturalLanguageQuery(
     userLogin = userLoginOrOptions;
   }
 
-  const plan = await planNLQ(env, query, { context: resolvedOptions?.context, preferLLM: resolvedOptions?.validateWithLLM });
-  const validation = await validateNLQPlanWithLLM(env, query, plan, resolvedOptions?.context);
+  const plan = await planNLQ(env, query, { context: resolvedOptions?.context, preferLLM: resolvedOptions?.validateWithLLM, untrustedContent: resolvedOptions?.untrustedContent });
+  const validation = await validateNLQPlanWithLLM(env, query, plan, resolvedOptions?.context, { untrustedContent: resolvedOptions?.untrustedContent });
   const result = await executeNLQQueryAsync(
     orm,
     sessionId,
@@ -1853,8 +2327,8 @@ export async function executeNaturalLanguageQuery(
     env,
     userLogin,
     userDid,
-    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort
-      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort }
+    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort || resolvedOptions?.stockScreenPort || resolvedOptions?.socialBriefPort || resolvedOptions?.discoveryRunner || resolvedOptions?.fitDiscoveryRunner
+      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort, stockScreenPort: resolvedOptions?.stockScreenPort, socialBriefPort: resolvedOptions?.socialBriefPort, discoveryRunner: resolvedOptions?.discoveryRunner, fitDiscoveryRunner: resolvedOptions?.fitDiscoveryRunner }
       : undefined,
   );
   if (!result.planSource && plan.planSource) {

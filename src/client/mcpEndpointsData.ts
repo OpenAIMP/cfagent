@@ -25,7 +25,7 @@ export interface McpPromptMeta {
 
 export interface RestEndpointMeta {
   id: string;
-  category: "Agents & NLQ" | "Payments & DIDs" | "Database & ORM" | "Monetization & Ads" | "Referrals & Community" | "System & Audit" | "Trading & E*TRADE" | "FOSS Research & Quoting";
+  category: "Agents & NLQ" | "Payments & DIDs" | "Enterprise Data & Ledger" | "Monetization & Ads" | "Referrals & Community" | "System & Audit" | "Trading & E*TRADE" | "FOSS Research & Quoting";
   method: "GET" | "POST" | "DELETE";
   path: string;
   title: string;
@@ -41,13 +41,13 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
   {
     name: "knowledge_search",
     category: "Knowledge & RAG",
-    description: "Search the organization's enterprise knowledge base using Cloudflare AI Search RAG with Vectorize index retrieval.",
+    description: "Search the organization's enterprise knowledge base using semantic vector RAG intelligence retrieval.",
     schema: {
       type: "object",
       properties: { query: { type: "string", description: "Search query or natural language inquiry" } },
       required: ["query"],
     },
-    sampleArgs: { query: "What features are available in Cloudflare Workers AI?" },
+    sampleArgs: { query: "What algorithmic screening workflows are available?" },
   },
   {
     name: "draft_payment",
@@ -133,19 +133,19 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
   },
   {
     name: "list_database_tables",
-    category: "Database & ORM",
-    description: "Introspect SQLite relational tables, schema columns, primary keys, and live row counts managed by the DatabaseORM.",
+    category: "Enterprise Data & Ledger",
+    description: "Introspect institutional relational tables, schema columns, record structures, and live row counts managed by the data repository.",
     schema: { type: "object", properties: {} },
     sampleArgs: {},
   },
   {
     name: "query_table_data",
-    category: "Database & ORM",
-    description: "Query rows from any SQLite table with pagination, column inspection, and full-text keyword filtering.",
+    category: "Enterprise Data & Ledger",
+    description: "Query rows from any enterprise table with pagination, column inspection, and full-text keyword filtering.",
     schema: {
       type: "object",
       properties: {
-        tableName: { type: "string", description: "Target SQLite table (mas_categories, mas_external_ads, etc.)" },
+        tableName: { type: "string", description: "Target institutional table (mas_categories, mas_external_ads, etc.)" },
         search: { type: "string", description: "Optional keyword search filter" },
         limit: { type: "number", description: "Maximum rows to return" },
         offset: { type: "number", description: "Row offset" },
@@ -157,7 +157,7 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
   {
     name: "manage_categories",
     category: "Taxonomy & Partners",
-    description: "CRUD operations on referral and partnership categories taxonomy in SQLite mas_categories table.",
+    description: "CRUD operations on referral and partnership categories taxonomy in firm records.",
     schema: {
       type: "object",
       properties: {
@@ -218,7 +218,7 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
   {
     name: "manage_session_memory",
     category: "Agent Memory",
-    description: "Read, write, or clear persistent memory facts and user preferences stored in SQLite across sessions.",
+    description: "Read, write, or clear persistent memory facts and user preferences stored across sessions.",
     schema: {
       type: "object",
       properties: {
@@ -426,7 +426,7 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
 export const MCP_RESOURCES_CATALOG: McpResourceMeta[] = [
   {
     uri: "sqlite://schema/tables",
-    name: "SQLite Database Schema & Table Metadata",
+    name: "Enterprise Data Schema & Table Metadata",
     description: "Complete database introspection of all 10 relational tables with columns, types, and primary keys.",
     mimeType: "application/json",
   },
@@ -463,7 +463,7 @@ export const MCP_RESOURCES_CATALOG: McpResourceMeta[] = [
   {
     uri: "sqlite://memory/facts",
     name: "Persistent Session Memory Vault",
-    description: "Long-term key-value user facts and preferences stored in SQLite.",
+    description: "Long-term key-value user facts and preferences stored in the session memory vault.",
     mimeType: "application/json",
   },
   {
@@ -495,7 +495,7 @@ export const MCP_PROMPTS_CATALOG: McpPromptMeta[] = [
   },
   {
     name: "nlq_schema_exploration",
-    description: "Explore SQLite schema and generate optimized analytical query plans for business metrics.",
+    description: "Explore enterprise schema and generate optimized analytical query plans for business metrics.",
     args: [{ name: "goal", description: "Analytical goal or question to answer from the database" }],
   },
 ];
@@ -508,9 +508,9 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     path: "/api/chat",
     title: "Multi-Agent Conversation (synchronous reply)",
     description:
-      "Runs one agentic chat turn on the canonical chat pipeline (LLM judge routing across search, payments, tasks, and memory sub-agents) and returns the completed reply as JSON. True streaming remains available over the agent WebSocket chat; this route is explicit synchronous (streaming: false).",
+      "Runs one agentic chat turn on the canonical chat pipeline (AI decision routing across search, payments, tasks, and memory sub-agents) and returns the completed reply as JSON. True streaming remains available over the agent WebSocket chat; this route is explicit synchronous (streaming: false).",
     authRequired: true,
-    sampleBody: { messages: [{ role: "user", content: "What are the latest Cloudflare Workers AI features?" }] },
+    sampleBody: { messages: [{ role: "user", content: "What are the latest platform trading capabilities?" }] },
     sampleCurl: `curl -X POST https://agent.openaimp.com/api/chat \\
   -H "Content-Type: application/json" \\
   -d '{"messages":[{"role":"user","content":"Hello AI Assistant"}]}'`,
@@ -522,7 +522,7 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
         reason: "judge routing rationale",
         needsConfirmation: false,
       },
-      model: "Workers AI model id used for the turn",
+      model: "Neural model identifier used for the turn",
       streaming: false,
     },
   },
@@ -532,7 +532,7 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     method: "POST",
     path: "/api/nlq",
     title: "Natural Language Query Engine",
-    description: "Translates natural language questions into deterministic read-only SQLite queries executed safely via ORM.",
+    description: "Translates natural language questions into deterministic read-only business queries executed safely via typed repositories.",
     authRequired: true,
     sampleBody: { query: "List all database tables and schema" },
     sampleCurl: `curl -X POST https://agent.openaimp.com/api/nlq \\
@@ -541,17 +541,17 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
   },
   {
     id: "api_schema_tables",
-    category: "Database & ORM",
+    category: "Enterprise Data & Ledger",
     method: "GET",
     path: "/api/schema/tables",
-    title: "List Database Tables & Schema",
+    title: "List Enterprise Tables & Schema",
     description: "Returns schema metadata, column types, primary keys, and row counts for all 8 relational tables.",
     authRequired: true,
     sampleCurl: `curl -X GET https://agent.openaimp.com/api/schema/tables`,
   },
   {
     id: "api_schema_query",
-    category: "Database & ORM",
+    category: "Enterprise Data & Ledger",
     method: "POST",
     path: "/api/schema/query",
     title: "Execute Table Data Query",
@@ -568,7 +568,7 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     method: "GET",
     path: "/api/categories",
     title: "List Referral Categories",
-    description: "Retrieves active partner categories sorted by priority order from SQLite mas_categories.",
+    description: "Retrieves active partner categories sorted by priority order from taxonomy records.",
     authRequired: true,
     sampleCurl: `curl -X GET https://agent.openaimp.com/api/categories`,
   },
@@ -578,7 +578,7 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     method: "POST",
     path: "/api/categories",
     title: "Create Referral Category",
-    description: "Creates a new category in the SQLite taxonomy using the DatabaseORM Repository.",
+    description: "Creates a new category in the business taxonomy using the enterprise repository.",
     authRequired: true,
     sampleBody: { name: "Web3 & Zero Knowledge", icon: "⚡", description: "Decentralized and ZK infrastructure", sortOrder: 6 },
     sampleCurl: `curl -X POST https://agent.openaimp.com/api/categories \\
@@ -603,10 +603,10 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     title: "Publish Referral Link",
     description: "Publishes a new tool or platform referral link for user account with category attribution.",
     authRequired: true,
-    sampleBody: { title: "Cloudflare Workers AI Pro", url: "https://workers.cloudflare.com/?ref=team", category: "AI & Dev Tools", rewardText: "Get $10 in free API credits" },
+    sampleBody: { title: "Algorithmic Market Data Pro", url: "https://example.com/market-pro?ref=team", category: "AI & Dev Tools", rewardText: "Get $10 in free API credits" },
     sampleCurl: `curl -X POST https://agent.openaimp.com/api/referrals \\
   -H "Content-Type: application/json" \\
-  -d '{"title":"Workers AI","url":"https://workers.cloudflare.com/?ref=demo","category":"AI & Dev Tools","rewardText":"$10 credits"}'`,
+  -d '{"title":"Market Intelligence","url":"https://example.com/intel?ref=demo","category":"AI & Dev Tools","rewardText":"$10 credits"}'`,
   },
   {
     id: "api_revenue_get",
@@ -680,7 +680,7 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     method: "POST",
     path: "/api/payments/confirm",
     title: "HITL Payment Confirmation",
-    description: "Authorizes and executes a pending payment draft, updating SQLite ledger and gateway status.",
+    description: "Authorizes and executes a pending payment draft, updating the institutional ledger and gateway status.",
     authRequired: true,
     sampleBody: { draftId: "pay_1a2b3c4d", decision: "approved", note: "Approved via REST API" },
     sampleCurl: `curl -X POST https://agent.openaimp.com/api/payments/confirm \\
@@ -775,7 +775,7 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     method: "GET",
     path: "/api/etrade/orders",
     title: "Order Ledger & Audit History",
-    description: "Queries persistent SQLite mas_trades ledger of all previewed, executed, and cancelled orders.",
+    description: "Queries persistent institutional order ledger of all previewed, executed, and cancelled orders.",
     authRequired: true,
     sampleCurl: `curl -X GET https://agent.openaimp.com/api/etrade/orders`,
   },
@@ -871,5 +871,45 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     description: "Retrieves queued/running status or the completed result/error for one session-scoped asynchronous job.",
     authRequired: true,
     sampleCurl: `curl -X GET "https://agent.openaimp.com/api/jobs/00000000-0000-4000-8000-000000000000"`,
+  },
+  // Issue #656: surface the #314/#313 routes.
+  {
+    id: "api_environment",
+    category: "Trading & E*TRADE",
+    method: "POST",
+    path: "/api/environment",
+    title: "Switch E*TRADE Environment",
+    description: "Switches between sandbox and production E*TRADE environments (both spellings supported).",
+    authRequired: true,
+    sampleBody: { environment: "sandbox" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/environment \\
+  -H "Content-Type: application/json" \\
+  -d '{"environment":"sandbox"}'`,
+  },
+  {
+    id: "api_options_strategy",
+    category: "Trading & E*TRADE",
+    method: "POST",
+    path: "/api/options/strategy",
+    title: "Options Strategy Analysis",
+    description: "Runs the quant pipeline + LLM ranking for options strategies on a symbol.",
+    authRequired: true,
+    sampleBody: { symbol: "AAPL", question: "Best bullish defined-risk strategy?" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/options/strategy \\
+  -H "Content-Type: application/json" \\
+  -d '{"symbol":"AAPL"}'`,
+  },
+  {
+    id: "api_nlq_webhook",
+    category: "Agents & NLQ",
+    method: "POST",
+    path: "/api/nlq/webhook",
+    title: "NLQ Webhook",
+    description: "Natural-language query webhook (all three spellings supported).",
+    authRequired: true,
+    sampleBody: { text: "Screen NASDAQ100 for momentum" },
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/nlq/webhook \\
+  -H "Content-Type: application/json" \\
+  -d '{"text":"Screen NASDAQ100"}'`,
   },
 ];

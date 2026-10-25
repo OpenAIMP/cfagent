@@ -192,6 +192,28 @@ export interface OodaStep {
   at: string;
 }
 
+/**
+ * Issue #774: the 8 pipeline stages from the design doc
+ * (docs/research/autonomous-options-research-pipeline.docx §1).
+ * The OODA steps (above) operate *within* these stages — OODA is the
+ * candidate-level loop, the pipeline stages are the run-level flow.
+ */
+export type PipelineStage =
+  | "configure"
+  | "observe"
+  | "orient"
+  | "decide"
+  | "build-and-price"
+  | "challenge-and-gate"
+  | "rank-and-report"
+  | "evaluate-later";
+
+export interface PipelineStageStep {
+  stage: PipelineStage;
+  detail: string;
+  at: string;
+}
+
 export interface ResearchReport {
   runId: string;
   generationId: string;
@@ -208,6 +230,8 @@ export interface ResearchReport {
   rejected: RejectedEntry[];
   stats: RunStats;
   oodaTrace: OodaStep[];
+  /** Issue #774: pipeline stage trace — the 8 stages from the design doc. */
+  stageTrace: PipelineStageStep[];
 }
 
 export interface ResearchRunOptions {
@@ -299,7 +323,7 @@ function draftThesis(
  */
 const PMCC_LONG_LEG_MIN_DTE = 180;
 
-function structuresForOutlook(
+export function structuresForOutlook(
   outlook: Outlook,
   ownershipAllowed: boolean,
   pmccEnabled: boolean
@@ -332,7 +356,7 @@ interface BuiltStructure {
   pmcc?: TradeCard["pmcc"];
 }
 
-function pickExpiry(
+export function pickExpiry(
   expiries: ProviderChainExpiry[],
   minDte: number,
   targetMin: number,
@@ -346,7 +370,7 @@ function pickExpiry(
   return inTarget ?? viable[0];
 }
 
-function findLeg(
+export function findLeg(
   expiry: ProviderChainExpiry,
   optionType: "call" | "put",
   strikeFilter: (strike: number, spot: number) => boolean,
@@ -363,7 +387,7 @@ function findLeg(
   return cands[0] ?? null;
 }
 
-function toResearchLeg(leg: ProviderChainLeg, quantity: number, quoteTs: number): ResearchLeg {
+export function toResearchLeg(leg: ProviderChainLeg, quantity: number, quoteTs: number): ResearchLeg {
   return {
     optionType: leg.optionType,
     strike: leg.strike,
@@ -379,7 +403,7 @@ function toResearchLeg(leg: ProviderChainLeg, quantity: number, quoteTs: number)
   };
 }
 
-function buildStructure(
+export function buildStructure(
   name: string,
   chain: ChainSnapshot,
   spot: number,
@@ -609,6 +633,8 @@ function scoreCandidate(
 
 export interface PipelineDeps {
   provider: ResearchDataProvider;
+  /** Issue #773: historical evaluation outcomes for feedback into Decide. */
+  trackRecord?: import("./researchTrackRecord").TrackRecord;
 }
 
 function newRunId(): string {
@@ -630,6 +656,11 @@ export async function runResearchPipeline(
   const trace: OodaStep[] = [];
   const step = (stage: OodaStep["stage"], detail: string) =>
     trace.push({ stage, detail, at: new Date().toISOString() });
+
+  // Issue #774: pipeline stage trace (the 8 stages from the design doc).
+  const stageTrace: PipelineStageStep[] = [];
+  const stage = (s: PipelineStage, detail: string) =>
+    stageTrace.push({ stage: s, detail, at: new Date().toISOString() });
 
   const rejected: RejectedEntry[] = [];
   const watchlist: WatchlistEntry[] = [];
@@ -654,7 +685,10 @@ export async function runResearchPipeline(
     contracts: 1,
   };
 
+  // CONFIGURE — load validated universe, thresholds, budgets.
+  stage("configure", `Universe ${config.universe}, rules v${config.rulesVersion || "1"}.`);
   // OBSERVE — market regime.
+  stage("observe", "Assessing market regime.");
   step("observe", "Assessing market regime.");
   let regime: RegimeAssessment;
   try {
@@ -662,6 +696,7 @@ export async function runResearchPipeline(
   } catch {
     regime = { regime: "unknown", notes: ["Regime feed failed — proceeding without regime context."], asOf: now };
   }
+  stage("orient", `Regime: ${regime.regime}.`);
   step("orient", `Regime: ${regime.regime}.`);
 
   // OBSERVE — universe.
@@ -671,7 +706,7 @@ export async function runResearchPipeline(
   } catch (err) {
     // Fail closed: no universe, no ideas — still publish the report honestly.
     return finishReport({
-      runId, config, opts, now, started, trace, regime,
+      runId, config, opts, now, started, trace, stageTrace, regime,
       ideas: [], watchlist, rejected: [{
         symbol: "*", outlook: "unknown", structure: "-",
         gate: "data_integrity",
@@ -746,9 +781,33 @@ export async function runResearchPipeline(
     }
     stats.candidatesEvaluated++;
 
-    // ACT — construct candidate structures per the §6 table; keep the best
+    // BUILD-AND-PRICE — construct candidate structures per the §6 table; keep the best
     // gated one. Alternatives are evaluated, not just the richest premium.
-    const structureNames = structuresForOutlook(draft.outlook, config.ownershipStrategiesAllowed, config.pmccEnabled);
+    stage("build-and-price", `${symbol}: building ${draft.outlook} structures.`);
+    let structureNames = structuresForOutlook(draft.outlook, config.ownershipStrategiesAllowed, config.pmccEnabled);
+    // Issue #773: reorder structures by historical direction accuracy.
+    // Families with poor accuracy (<40%, n>=10) go last; strong ones (>60%) go first.
+    if (deps.trackRecord?.byStrategy?.length) {
+      const acc = new Map<string, { correct: number; total: number }>();
+      for (const s of deps.trackRecord.byStrategy) {
+        // byStrategy slices have directionAccuracy and evaluated counts
+        const evaluated = (s as any).evaluated ?? 0;
+        const dirAcc = (s as any).directionAccuracy;
+        if (typeof dirAcc === "number" && evaluated >= 10) {
+          acc.set(s.key, { correct: Math.round(dirAcc * evaluated), total: evaluated });
+        }
+      }
+      if (acc.size > 0) {
+        const score = (name: string) => {
+          const a = acc.get(name);
+          if (!a) return 0.5; // no data → neutral
+          const rate = a.correct / a.total;
+          return rate < 0.4 ? -1 : rate > 0.6 ? 1 : 0;
+        };
+        structureNames = [...structureNames].sort((a, b) => score(b) - score(a));
+        step("decide", `Structure order by historical accuracy: ${structureNames.join(", ")}.`);
+      }
+    }
     let bestCard: TradeCard | null = null;
 
     for (const name of structureNames) {
@@ -896,6 +955,7 @@ export async function runResearchPipeline(
       if (!bestCard || card.score > bestCard.score) bestCard = card;
       step("act", `${symbol} ${name}: gated ${outcome.status}, score ${card.score}.`);
     }
+    stage("challenge-and-gate", `${symbol}: ${bestCard ? `qualified ${bestCard.structure}` : "no qualifying structure"}.`);
 
     if (bestCard) {
       qualified.push(bestCard);
@@ -903,9 +963,10 @@ export async function runResearchPipeline(
     }
   }
 
-  // Rank: top config.maxIdeas.
+  // RANK-AND-REPORT: top config.maxIdeas.
   qualified.sort((a, b) => b.score - a.score);
   const ideas = qualified.slice(0, config.maxIdeas).map((c, i) => ({ ...c, rank: i + 1 }));
+  stage("rank-and-report", `${ideas.length} ideas ranked from ${qualified.length} qualified.`);
 
   stats.qualified = ideas.length;
   stats.watchlist = watchlist.length;
@@ -918,7 +979,7 @@ export async function runResearchPipeline(
       : "No qualifying opportunities — no candidate passed the evidence and risk gates.";
 
   return finishReport({
-    runId, config, opts, now, started, trace, regime,
+    runId, config, opts, now, started, trace, stageTrace, regime,
     ideas, watchlist, rejected, stats, summary,
   });
 }
@@ -930,6 +991,7 @@ function finishReport(args: {
   now: number;
   started: number;
   trace: OodaStep[];
+  stageTrace: PipelineStageStep[];
   regime: RegimeAssessment;
   ideas: TradeCard[];
   watchlist: WatchlistEntry[];
@@ -937,7 +999,7 @@ function finishReport(args: {
   stats: RunStats;
   summary: string;
 }): ResearchReport {
-  const { runId, config, opts, now, started, trace, regime, ideas, watchlist, rejected, stats, summary } = args;
+  const { runId, config, opts, now, started, trace, stageTrace, regime, ideas, watchlist, rejected, stats, summary } = args;
   stats.durationMs = Date.now() - started;
   return {
     runId,
@@ -956,6 +1018,7 @@ function finishReport(args: {
     rejected,
     stats,
     oodaTrace: trace,
+    stageTrace,
   };
 }
 
@@ -975,6 +1038,8 @@ export interface StoredIdeaRecord {
   quoteTimestamp: number;
   rulesVersion: string;
   createdAt: string;
+  /** Idea outlook for direction scoring (#583); absent on legacy records. */
+  outlook?: Outlook;
 }
 
 export interface IdeaEvaluation {
@@ -984,6 +1049,12 @@ export interface IdeaEvaluation {
   /** P&L estimate per unit at evaluation (intrinsic-based when expired, BS otherwise). */
   pnlEstimatePerUnit: number | null;
   evalSpot: number | null;
+  /**
+   * #583 docx §9 direction dimension: did spot move in the thesis outlook's
+   * direction vs entry? Null when unscored (non-directional outlook or no
+   * follow-up quote). Heuristic, not a fill record.
+   */
+  directionCorrect: boolean | null;
   notes: string[];
 }
 
@@ -997,6 +1068,11 @@ export interface ResearchEvaluation {
     invalidated: number;
     avgPnlPerUnit: number | null;
     dataQualityFailures: number;
+    /**
+     * #583: fraction of direction-scored ideas that scored correct
+     * (null when none scored).
+     */
+    directionAccuracy: number | null;
   };
   /** Rules are versioned; evaluation never edits the original record. */
   note: string;
@@ -1034,6 +1110,7 @@ export async function runResearchEvaluation(
         invalidated: false,
         pnlEstimatePerUnit: null,
         evalSpot: null,
+        directionCorrect: null,
         notes: ["Evaluation quote unavailable — data quality failure recorded."],
       });
       continue;
@@ -1053,9 +1130,13 @@ export async function runResearchEvaluation(
     }
     // P&L estimate: intrinsic value of legs at eval spot minus opening cost.
     // When legs have not expired this is a rough estimate — flagged as such.
+    // No legs means no economics: the estimate is unknown (null), never 0.
     let pnl: number | null = null;
     try {
-      const intrinsic = idea.legs.reduce((s, leg) => {
+      if (idea.legs.length === 0) {
+        notes.push("P&L estimate unavailable — idea has no legs.");
+      } else {
+        const intrinsic = idea.legs.reduce((s, leg) => {
         const iv =
           leg.optionType === "call"
             ? Math.max(quote!.price - leg.strike, 0)
@@ -1067,7 +1148,8 @@ export async function runResearchEvaluation(
         0
       );
       pnl = Number((intrinsic - openCost).toFixed(2));
-      notes.push("P&L is an intrinsic-based estimate, not a fill record.");
+        notes.push("P&L is an intrinsic-based estimate, not a fill record.");
+      }
     } catch {
       notes.push("P&L estimation failed.");
     }
@@ -1077,6 +1159,7 @@ export async function runResearchEvaluation(
       invalidated,
       pnlEstimatePerUnit: pnl,
       evalSpot: quote.price,
+      directionCorrect: scoreDirection(idea.outlook, idea.entrySpot, quote.price),
       notes,
     });
   }
@@ -1084,6 +1167,7 @@ export async function runResearchEvaluation(
   const pnls = results
     .map((r) => r.pnlEstimatePerUnit)
     .filter((p): p is number => p !== null);
+  const scored = results.filter((r) => r.directionCorrect !== null);
   return {
     runId,
     evaluatedAt: new Date(at).toISOString(),
@@ -1097,7 +1181,50 @@ export async function runResearchEvaluation(
           ? Number((pnls.reduce((a, b) => a + b, 0) / pnls.length).toFixed(2))
           : null,
       dataQualityFailures,
+      directionAccuracy:
+        scored.length > 0
+          ? Number(
+              (
+                scored.filter((r) => r.directionCorrect).length / scored.length
+              ).toFixed(3)
+            )
+          : null,
     },
     note: `Evaluated under rules ${config.rulesVersion}; original records unmodified.`,
   };
+}
+
+/**
+ * #583 docx §9 direction dimension: did spot move in the thesis outlook's
+ * direction relative to entry? Returns null for non-directional outlooks.
+ * Heuristic — direction only, not magnitude or fill quality.
+ */
+function scoreDirection(
+  outlook: Outlook | undefined,
+  entrySpot: number,
+  evalSpot: number
+): boolean | null {
+  if (outlook === "bullish") return evalSpot > entrySpot;
+  if (outlook === "bearish") return evalSpot < entrySpot;
+  return null;
+}
+
+/**
+ * #583: select runs due for outcome evaluation — runs older than `minAgeMs`
+ * with no evaluation row yet, oldest first, capped at `limit`.
+ * Pure function over run metadata; the caller performs the evaluations.
+ */
+export function selectRunsDueForEvaluation(
+  runs: Array<{ runId: string; createdAt: string }>,
+  evaluatedRunIds: Set<string>,
+  nowMs: number,
+  minAgeMs: number,
+  limit = 5
+): string[] {
+  const cutoff = new Date(nowMs - minAgeMs).toISOString();
+  return runs
+    .filter((r) => r.createdAt < cutoff && !evaluatedRunIds.has(r.runId))
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+    .slice(0, limit)
+    .map((r) => r.runId);
 }

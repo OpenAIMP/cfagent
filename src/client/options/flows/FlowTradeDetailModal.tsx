@@ -1,4 +1,5 @@
 import React from "react";
+import { Button } from "../../components/ui";
 import { LiveFlowItem } from "../../../trading/options/flows/types";
 
 interface FlowTradeDetailModalProps {
@@ -218,13 +219,12 @@ export function FlowTradeDetailModal({
             Open in Builder
           </button>
           {onRiskAnalysis && (
-            <button
+            <Button variant="warning" tone="subtle" size="sm"
               type="button"
-              className="flow-btn-risk-analysis"
               onClick={() => onRiskAnalysis(trade)}
             >
               🛡️ Risk Analysis
-            </button>
+            </Button>
           )}
         </div>
       </div>

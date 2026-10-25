@@ -3,7 +3,7 @@ import type { Env } from "../types";
 /**
  * Paths served verbatim from the ASSETS binding (wrangler.jsonc,
  * `assets.directory` = ./dist). They carry no session semantics, so issue #329
- * requires them to be answered without a SESSIONS KV read.
+ * requires them to be answered without a session-store read.
  *
  * Anything not listed here — `/`, `/index.html`, the API and agent routes —
  * keeps going through `requireAuth`.
@@ -33,8 +33,9 @@ export function isStaticAssetRequest(request: Request, path: string): boolean {
  * Returns the asset response for an asset request, or `null` when the request
  * must continue through the normal (authenticated) handler. The response is
  * exactly what the ASSETS fallback at the end of the handler would return,
- * minus the KV read; this module never touches SESSIONS, which is what makes
- * the "no KV" property hold by construction rather than by convention.
+ * minus the session-store read; this module never touches the session store,
+ * which is what makes the "no session read" property hold by construction
+ * rather than by convention.
  */
 export async function serveStaticAsset(
   request: Request,

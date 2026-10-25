@@ -10,7 +10,46 @@ type AsyncJob = {
   updatedAt: string;
   completedAt?: string;
   error?: string;
+  /** Issue #1123: job-graph fields (sub-jobs hang off a main job). */
+  parentJobId?: string;
+  jobKind?: "main" | "report" | "delivery" | "notification";
+  channel?: "email" | "slack" | "webhook";
+  /** Consolidation C3 (#1277): stage-chain identity, when the job is
+   *  a stage of a chained run. */
+  stage?: "feed" | "generate" | "store" | "serve" | "deliver";
+  chainId?: string;
+  notBefore?: string;
 };
+
+export interface JobTreeNode {
+  job: AsyncJob;
+  children: AsyncJob[];
+}
+
+/**
+ * Issue #1123: group a flat job list into main jobs with their sub-jobs.
+ * Roots keep the API's order (newest first); children are ordered by
+ * creation (execution order). A sub-job whose parent is not in the list
+ * (e.g. paged out) renders as its own root — never hidden.
+ */
+export function buildJobTree(jobs: AsyncJob[]): JobTreeNode[] {
+  const byId = new Map(jobs.map((job) => [job.jobId, job]));
+  const childrenOf = new Map<string, AsyncJob[]>();
+  const roots: AsyncJob[] = [];
+  for (const job of jobs) {
+    if (job.parentJobId && byId.has(job.parentJobId)) {
+      const siblings = childrenOf.get(job.parentJobId) ?? [];
+      siblings.push(job);
+      childrenOf.set(job.parentJobId, siblings);
+    } else {
+      roots.push(job);
+    }
+  }
+  for (const siblings of childrenOf.values()) {
+    siblings.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+  return roots.map((job) => ({ job, children: childrenOf.get(job.jobId) ?? [] }));
+}
 
 export interface AsyncJobsPanelProps {
   embedded?: boolean;
@@ -22,6 +61,7 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
   const [result, setResult] = useState<unknown>();
   const [error, setError] = useState("");
   const resultJson = useMemo(() => result === undefined ? "" : JSON.stringify(result, null, 2), [result]);
+  const tree = useMemo(() => buildJobTree(jobs), [jobs]);
 
   const refresh = useCallback(async () => {
     try {
@@ -65,6 +105,20 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
     }
   };
 
+  // Consolidation C3 (#1277): per-stage retry — resubmits the failed
+  // job from its recorded payload (upstream stages never re-run).
+  const retryJob = async (jobId: string) => {
+    setError("");
+    try {
+      const response = await globalThis.fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Could not retry the job.");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not retry the job.");
+    }
+  };
+
   const downloadResult = () => {
     if (result === undefined || !selectedJob) return;
     const blobUrl = URL.createObjectURL(new Blob([resultJson], { type: "application/json" }));
@@ -105,25 +159,38 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
           </div>
         ) : (
           <ul className="settings-async-jobs-list">
-            {jobs.slice(0, 5).map((job) => (
-              <li key={job.jobId} className={`settings-async-job-item status-${job.status}`}>
+            {tree.slice(0, 5).map((node) => (
+              <li key={node.job.jobId} className={`settings-async-job-item status-${node.job.status}`}>
                 <div className="job-item-main">
-                  <span className="job-item-label" title={job.label}>{job.label}</span>
+                  <span className="job-item-label" title={node.job.label}>{node.job.label}</span>
                   <div className="job-item-tags">
-                    <span className={`job-tag-status ${job.status}`}>{job.status}</span>
+                    <span className={`job-tag-status ${node.job.status}`}>{node.job.status}</span>
+                    {node.children.length > 0 && (
+                      <span className="job-tag-subjobs">{node.children.length} sub-job{node.children.length === 1 ? "" : "s"}</span>
+                    )}
                     <span className="job-tag-time">
-                      {new Date(job.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {new Date(node.job.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
                 </div>
-                {(job.status === "completed" || job.status === "failed") && (
+                {(node.job.status === "completed" || node.job.status === "failed") && (
                   <button
                     type="button"
                     className="btn-async-view-result"
-                    onClick={() => void openResult(job.jobId)}
-                    title={job.status === "completed" ? "Inspect job payload result" : "Inspect failure reason"}
+                    onClick={() => void openResult(node.job.jobId)}
+                    title={node.job.status === "completed" ? "Inspect job payload result" : "Inspect failure reason"}
                   >
-                    {job.status === "completed" ? "Result" : "Error"}
+                    {node.job.status === "completed" ? "Result" : "Error"}
+                  </button>
+                )}
+                {node.job.status === "failed" && (
+                  <button
+                    type="button"
+                    className="btn-async-view-result"
+                    onClick={() => void retryJob(node.job.jobId)}
+                    title="Retry this job from its recorded payload — upstream stages are not re-run"
+                  >
+                    Retry
                   </button>
                 )}
               </li>
@@ -165,16 +232,51 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
           <p className="async-jobs-empty">Submitted work will appear here.</p>
         ) : (
           <ul className="async-jobs-list">
-            {jobs.map((job) => (
-              <li key={job.jobId}>
+            {tree.map((node) => (
+              <li key={node.job.jobId}>
                 <span>
-                  <strong>{job.label}</strong>
-                  <small>{job.status} · {new Date(job.createdAt).toLocaleString()}</small>
+                  <strong>{node.job.label}</strong>
+                  <small>
+                    {node.job.status}
+                    {node.job.stage ? ` · stage: ${node.job.stage}` : ""} · {new Date(node.job.createdAt).toLocaleString()}
+                  </small>
                 </span>
-                {(job.status === "completed" || job.status === "failed") && (
-                  <button type="button" onClick={() => void openResult(job.jobId)}>
-                    {job.status === "completed" ? "View result" : "View error"}
+                {(node.job.status === "completed" || node.job.status === "failed") && (
+                  <button type="button" onClick={() => void openResult(node.job.jobId)}>
+                    {node.job.status === "completed" ? "View result" : "View error"}
                   </button>
+                )}
+                {node.job.status === "failed" && (
+                  <button type="button" onClick={() => void retryJob(node.job.jobId)}>
+                    Retry
+                  </button>
+                )}
+                {node.children.length > 0 && (
+                  <ul className="async-jobs-children">
+                    {node.children.map((child) => (
+                      <li key={child.jobId}>
+                        <span>
+                          <strong>{child.label}</strong>
+                          <small>
+                            {child.status} · {child.jobKind ?? "sub-job"}
+                            {child.stage ? ` · stage: ${child.stage}` : ""}
+                            {child.notBefore && child.status === "queued" ? ` · runs after ${new Date(child.notBefore).toLocaleString()}` : ""}
+                            {child.channel ? ` · ${child.channel}` : ""} · {new Date(child.createdAt).toLocaleString()}
+                          </small>
+                        </span>
+                        {(child.status === "completed" || child.status === "failed") && (
+                          <button type="button" onClick={() => void openResult(child.jobId)}>
+                            {child.status === "completed" ? "View result" : "View error"}
+                          </button>
+                        )}
+                        {child.status === "failed" && (
+                          <button type="button" onClick={() => void retryJob(child.jobId)}>
+                            Retry
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </li>
             ))}

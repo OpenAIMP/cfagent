@@ -45,10 +45,12 @@ import {
   MCP_SERVER_INFO,
   MCP_TOOLS,
 } from "../../mcp";
-import { executeNaturalLanguageQuery, type NLQSchedulingPort } from "../nlq";
+import { executeNaturalLanguageQuery, type NLQSchedulingPort, type NLQSocialBriefPort } from "../nlq";
 import { resolveAiModelName } from "../model";
 import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
+import { createDiscoveryService } from "../../services/discoveryService";
+import { createFitDiscoveryRunner } from "../../services/fitDiscoveryRunner";
 
 /** The subset of OrchestratorAgent surface the MCP/chat/NLQ handlers need. */
 export interface McpChatNlqRouteContext {
@@ -66,14 +68,13 @@ export interface McpChatNlqRouteContext {
   getAsyncJob(jobId: string): AsyncJobRecord | undefined;
   listAsyncJobs(): AsyncJobRecord[];
   extractMessageText(message: unknown): string;
-  getMessages(): any[] | undefined;
-  setMessages(messages: any[]): void;
+  /** Issue #686: the Think session's async message read. */
+  getMessages(): Promise<any[]>;
   recordMessage(
     role: "user" | "assistant" | "system",
     content: string,
     agent: AgentName | "orchestrator"
   ): void;
-  persistMessages(messages: any[]): Promise<void>;
   runAgenticChatTurn(opts: {
     userText: string;
     recentTurns: Array<{ role?: string; content: string }>;
@@ -90,6 +91,14 @@ export interface McpChatNlqRouteContext {
   }>;
   buildChatErrorFallback(err: unknown, userText: string, userLogin: string): Promise<string>;
   nlqSchedulingPort(): NLQSchedulingPort;
+  /**
+   * #1077 Phase 5b slice 2: optional — test/older contexts omit it and
+   * the /nlq route then passes no social port (executor fails
+   * honestly). Production orchestrator contexts bind it from
+   * SESSION_STORE; the route still withholds it from
+   * webhook-originated requests (see below).
+   */
+  nlqSocialBriefPort?(): NLQSocialBriefPort | null;
 }
 
 /**
@@ -169,28 +178,27 @@ export async function handleMcpChatNlqRoutes(
     }
     const chatUserLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
     try {
-      // Merge this turn into the per-user conversation state (deduped by
-      // tail so a re-sent history is not duplicated), then run the pipeline.
-      const tailUser = [...(ctx.getMessages() || [])]
+      // Run the pipeline against the per-user conversation state.
+      // Issue #686: conversation state is the Think session. The turn
+      // driver owns session appends (the user message enters through
+      // runTurn's factory input, delta-by-id, so a re-sent history is
+      // not duplicated; Think persists the assistant reply), and
+      // beforeTurn is the single writer of the user mas_messages
+      // record. This adapter only reads history for the judge's
+      // recent-turns context.
+      const existingMessages = await ctx.getMessages();
+      const tailUser = [...existingMessages]
         .reverse()
         .find((m: any) => m?.role === "user");
-      if (ctx.extractMessageText(tailUser) !== chatUserText) {
-        ctx.setMessages([
-          ...(ctx.getMessages() || []),
-          {
-            id: crypto.randomUUID(),
-            role: "user",
-            content: chatUserText,
-            parts: [{ type: "text", text: chatUserText }],
-          } as any,
-        ]);
-        ctx.recordMessage("user", chatUserText, "orchestrator");
-        await ctx.persistMessages(ctx.getMessages() as any);
-      }
-      const chatRecentTurns = (ctx.getMessages() || []).slice(-6).map((m: any) => ({
-        role: m?.role,
-        content: ctx.extractMessageText(m),
-      }));
+      const chatRecentTurns = [
+        ...existingMessages.slice(-6).map((m: any) => ({
+          role: m?.role,
+          content: ctx.extractMessageText(m),
+        })),
+        ...(ctx.extractMessageText(tailUser) !== chatUserText
+          ? [{ role: "user", content: chatUserText }]
+          : []),
+      ].slice(-6);
 
       const { result: chatResult, route: chatRoute } = await ctx.runAgenticChatTurn({
         userText: chatUserText,
@@ -199,16 +207,6 @@ export async function handleMcpChatNlqRoutes(
         isAutoOptionsResearchRequest: false,
       });
       const chatText = await chatResult.text;
-      ctx.setMessages([
-        ...(ctx.getMessages() || []),
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: chatText,
-          parts: [{ type: "text", text: chatText }],
-        } as any,
-      ]);
-      await ctx.persistMessages(ctx.getMessages() as any);
       ctx.audit("chat.http_turn", "orchestrator", {
         route: chatRoute.agent,
         confidence: chatRoute.confidence,
@@ -250,6 +248,20 @@ export async function handleMcpChatNlqRoutes(
       const contextHeader = request.headers.get("x-nlq-context") || body.context;
       const userDid = getUserDid(sessionId);
       const orm = ctx.getOrm();
+      // #1077 Phase 5b slice 2: the social brief port is bound ONLY
+      // for trusted chat requests. Webhook-originated NLQ (the
+      // server's NLQ webhook forwards here with x-nlq-source:
+      // webhook) never gets it: webhook bodies are untrusted
+      // external content, and a brief is a public-post input —
+      // autonomous channels would publish it with no human approval.
+      // Withholding the port makes the executor fail honestly; the
+      // header can only REMOVE the port (a forged "webhook" value
+      // on a direct call disables intake for that caller), never
+      // grant it.
+      const socialBriefPort =
+        request.headers.get("x-nlq-source") === "webhook"
+          ? undefined
+          : (ctx.nlqSocialBriefPort?.() ?? undefined);
       const { plan, result } = await executeNaturalLanguageQuery(
         orm,
         sessionId,
@@ -257,7 +269,7 @@ export async function handleMcpChatNlqRoutes(
         ctx.env,
         userLogin,
         userDid,
-        { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort() }
+        { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), socialBriefPort, discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql() }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql: ctx.getStorageSql() }) }
       );
       ctx.audit("nlq.executed", "nlq", {
         query,

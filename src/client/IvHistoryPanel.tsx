@@ -29,7 +29,7 @@ interface IvSeriesPoint {
 }
 
 function IvSparkline({ series }: { series: IvSeriesPoint[] }) {
-  if (series.length < 2) return <div style={{ color: "var(--theme-text-muted)" }}>Not enough data for chart</div>;
+  if (series.length < 2) return <div style={{ color: "var(--color-text-muted)" }}>Not enough data for chart</div>;
   const W = 560;
   const H = 160;
   const PAD = 28;
@@ -41,10 +41,10 @@ function IvSparkline({ series }: { series: IvSeriesPoint[] }) {
   const y = (v: number) => H - PAD - ((v - min) / span) * (H - PAD * 2);
   const path = series.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.atmIv * 100).toFixed(1)}`).join(" ");
   return (
-    <svg width={W} height={H} style={{ border: "1px solid var(--theme-border)", borderRadius: 4 }}>
-      <text x={PAD} y={14} fontSize={10} fill="var(--theme-text-muted)">ATM IV % — {series[0].date} → {series[series.length - 1].date}</text>
-      <text x={4} y={y(max) + 3} fontSize={9} fill="var(--theme-text-muted)">{max.toFixed(1)}</text>
-      <text x={4} y={y(min) + 3} fontSize={9} fill="var(--theme-text-muted)">{min.toFixed(1)}</text>
+    <svg width={W} height={H} style={{ border: "1px solid var(--color-border-medium)", borderRadius: 4 }}>
+      <text x={PAD} y={14} fontSize={10} fill="var(--color-text-muted)">ATM IV % — {series[0].date} → {series[series.length - 1].date}</text>
+      <text x={4} y={y(max) + 3} fontSize={9} fill="var(--color-text-muted)">{max.toFixed(1)}</text>
+      <text x={4} y={y(min) + 3} fontSize={9} fill="var(--color-text-muted)">{min.toFixed(1)}</text>
       <path d={path} fill="none" stroke="var(--color-accent)" strokeWidth={1.8} />
     </svg>
   );
@@ -100,7 +100,7 @@ export function IvHistoryPanel() {
   return (
     <div>
       <h2 style={{ fontSize: "1.1rem", marginBottom: "0.25rem" }}>📈 IV History</h2>
-      <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)", marginBottom: "1rem" }}>
+      <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "1rem" }}>
         Daily E*TRADE option-chain snapshots · {names.length} symbols · {totalObs} observations ·{" "}
         <button onClick={loadCoverage} style={{ fontSize: "0.8rem" }}>↻ Refresh</button>
       </div>
@@ -122,7 +122,7 @@ export function IvHistoryPanel() {
             </label>
             <table style={{ fontSize: "0.8rem", marginTop: "0.75rem", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ textAlign: "left", color: "var(--theme-text-muted)" }}>
+                <tr style={{ textAlign: "left", color: "var(--color-text-muted)" }}>
                   <th>Symbol</th><th>Obs</th><th>IV Rank</th><th>Latest</th>
                 </tr>
               </thead>
@@ -133,7 +133,7 @@ export function IvHistoryPanel() {
                     onClick={() => setSymbol(n.symbol)}
                     style={{
                       cursor: "pointer",
-                      background: n.symbol === symbol ? "var(--theme-hover)" : undefined,
+                      background: n.symbol === symbol ? "var(--color-surface-hover)" : undefined,
                     }}
                   >
                     <td><strong>{n.symbol}</strong></td>

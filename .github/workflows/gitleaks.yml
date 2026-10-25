@@ -28,11 +28,12 @@ on:
   pull_request:
     branches:
       - main
+  merge_group:
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -40,7 +41,7 @@ permissions:
 jobs:
   gitleaks:
     name: Gitleaks secret scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: 📥 Checkout Repository (full history)
         uses: actions/checkout@v4

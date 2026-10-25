@@ -107,3 +107,39 @@ export function MetricCard({ label, value }: { label: string; value: string }) {
   color: #f8fafc;     /* DO NOT DO THIS */
 }
 ```
+
+## 4. UI Primitives (`src/client/components/ui/`)
+
+Surfaces are composed from the shared primitives in `src/client/components/ui/`
+(issue #492) instead of re-implementing recurring elements per page. Every
+primitive consumes semantic tokens only (styles in `components/ui/primitives.css`,
+imported once by `main.tsx`), so each one follows dark / light / system /
+high-contrast by construction, and is pinned by
+`tests/composable_ui_primitives.test.ts`.
+
+| Primitive | Role |
+|---|---|
+| `SegmentedControl` | Single-selection radio group (sizes, badges, roving-tabindex keys) |
+| `PillGroup` | Selection pill group (tone variants) |
+| `Badge` | Status/label pill (semantic tones, optional dot) |
+| `Button` | Action button (primary/secondary/ghost/danger/trade, loading state) |
+| `Spinner` | Loading indicator (`role="status"` + label) |
+| `Skeleton` | Decorative loading placeholder (text/block/circle) |
+| `EmptyState` | Icon/title/description/action empty block (optional framed panel) |
+| `Card` | Surface container (flat/elevated, padding scale) |
+| `Notice` | Inline banner/alert (tones, box/strip, dismissible) |
+| `Tabs` + `TabPanel` | WAI-ARIA tablist/tabpanel pair |
+| `TextInput` / `Select` | Labeled form controls (hint/error wiring via shared `FieldShell`) |
+| `Modal` | Dialog on the Universal Modal System classes (portal, Esc, focus trap) |
+| `Table` | Semantic data table from a column config (empty slot) |
+
+Rules for new work:
+
+- A repeated element becomes a primitive (with tests), never a page-local copy.
+- New primitives are added to the reviewed inventory in
+  `tests/ui_primitives_inventory.test.ts` in the same PR; the pin fails on
+  unreviewed component files in `components/ui/` and on any same-named
+  component defined elsewhere in `src/client`.
+- Accessibility follows `docs/agents/ux-architecture.md` §13: visible focus,
+  keyboard patterns per WAI-ARIA, status never carried by color alone,
+  `prefers-reduced-motion` honored.

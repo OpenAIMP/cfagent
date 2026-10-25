@@ -12,7 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { downloadScreenExport } from "./screenerExport";
+import { downloadScreenExport } from "./runExport";
 
 export interface StockTechnicalsData {
   rsi14: number | null;
@@ -55,6 +55,14 @@ export interface ScreenerResultData {
   reportUrl?: string;
   /** Durable, per-run PDF key returned by ScreenerAgent. */
   pdfKey?: string;
+  /** Issue #912: PDF generation status for error surfacing. */
+  pdfStatus?: "generated" | "failed" | "skipped";
+  pdfError?: string;
+  /** Durable, per-run XLSX key returned by ScreenerAgent. */
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed" | "skipped";
+  xlsxError?: string;
+  xlsxUrl?: string;
   trigger: "manual" | "scheduled";
   sector: string;
   success: boolean;
@@ -91,6 +99,23 @@ export interface ScreenerResultData {
     requestedCount: number;
     failedSymbols: string[];
     failureReasons: Record<string, number>;
+  };
+  /** Issue #816: quote pipeline trace for observability. */
+  quoteTrace?: {
+    traceId: string;
+    symbolCount: number;
+    batchCount: number;
+    quotesReceived: number;
+    quotesFailed: number;
+    failuresByCategory: Record<string, number>;
+    batches: Array<{
+      batchIndex: number;
+      symbolCount: number;
+      httpStatus: number | null;
+      quotesReceived: number;
+      failures: Array<{ symbol: string; category: string; detail: string }>;
+      durationMs: number;
+    }>;
   };
   error?: string;
 }
@@ -217,12 +242,12 @@ function SortTh({
 }
 
 function gradeColor(g: string | null | undefined): string {
-  if (!g) return "var(--theme-text-muted)";
+  if (!g) return "var(--color-text-muted)";
   const top = g[0];
-  if (top === "A") return "var(--color-success, #30a46c)";
-  if (top === "B") return "#8fc76f";
-  if (top === "C") return "var(--color-warning, #d4a017)";
-  return "var(--color-danger, #e5484d)";
+  if (top === "A") return "var(--color-success)";
+  if (top === "B") return "var(--color-sentiment-bullish)";
+  if (top === "C") return "var(--color-warning)";
+  return "var(--color-danger)";
 }
 
 function GradeBadge({
@@ -236,7 +261,7 @@ function GradeBadge({
     return (
       <span
         title={withheldReason ?? "Insufficient data — grade withheld, not estimated"}
-        style={{ color: "var(--theme-text-muted)", cursor: "help" }}
+        style={{ color: "var(--color-text-muted)", cursor: "help" }}
       >
         —
       </span>
@@ -262,25 +287,25 @@ function GradeBadge({
 }
 
 function quantRatingColor(r: string | null | undefined): string {
-  if (!r) return "var(--theme-text-muted)";
-  if (r === "Strong Buy") return "var(--color-success, #30a46c)";
-  if (r === "Buy") return "#8fc76f";
-  if (r === "Hold") return "var(--color-warning, #d4a017)";
-  if (r === "Sell") return "#e08080";
-  return "var(--color-danger, #e5484d)";
+  if (!r) return "var(--color-text-muted)";
+  if (r === "Strong Buy") return "var(--color-success)";
+  if (r === "Buy") return "var(--color-sentiment-bullish)";
+  if (r === "Hold") return "var(--color-warning)";
+  if (r === "Sell") return "var(--color-sentiment-bearish)";
+  return "var(--color-danger)";
 }
 
 function GapCell({ t }: { t?: StockTechnicalsData }) {
   if (t?.gapPercent == null) {
-    return <td style={{ color: "var(--theme-text-muted)" }} title="No history — gap unavailable">—</td>;
+    return <td style={{ color: "var(--color-text-muted)" }} title="No history — gap unavailable">—</td>;
   }
   const arrow = t.gapDirection === "up" ? "▲" : t.gapDirection === "down" ? "▼" : "•";
   const color =
     t.gapDirection === "up"
-      ? "var(--color-success, #30a46c)"
+      ? "var(--color-success)"
       : t.gapDirection === "down"
-        ? "var(--color-danger, #e5484d)"
-        : "var(--theme-text-muted)";
+        ? "var(--color-danger)"
+        : "var(--color-text-muted)";
   return (
     <td style={{ color, fontWeight: 600 }} title={`Overnight gap (Yahoo): ${t.gapPercent.toFixed(2)}%`}>
       {arrow} {t.gapPercent >= 0 ? "+" : ""}{t.gapPercent.toFixed(2)}%
@@ -292,7 +317,7 @@ function ChangeCell({ value }: { value: number }) {
   return (
     <td
       style={{
-        color: value >= 0 ? "var(--color-success, #30a46c)" : "var(--color-danger, #e5484d)",
+        color: value >= 0 ? "var(--color-success)" : "var(--color-danger)",
       }}
     >
       {value >= 0 ? "+" : ""}
@@ -308,30 +333,39 @@ function sentimentLabel(s?: string): string {
 function sentimentColor(s?: string): string {
   switch (s) {
     case "very_bullish":
-      return "var(--color-success, #30a46c)";
+      return "var(--color-success)";
     case "bullish":
-      return "var(--color-success, #30a46c)";
+      return "var(--color-success)";
     case "very_bearish":
-      return "var(--color-danger, #e5484d)";
+      return "var(--color-danger)";
     case "bearish":
-      return "var(--color-danger, #e5484d)";
+      return "var(--color-danger)";
     default:
-      return "var(--theme-text-muted)";
+      return "var(--color-text-muted)";
   }
 }
 
 export function ScreenerResultsView({ result }: { result: ScreenerResultData }) {
   const triggerLabel = result.trigger === "manual" ? "Manual Screen" : "Autonomous Screen";
+  // Issue #126 (PR-D): only THIS run's PDF — its own reportUrl, else
+  // its per-run pdfKey (#297). When neither exists (this run's PDF
+  // generation failed, or a failed run), there is NO PDF link: the
+  // previous keyless fallback ("/api/screener/report.pdf" with no
+  // key) serves the LATEST run's PDF, so the viewed run silently
+  // downloaded a different run's report.
   const reportUrl = result.reportUrl || (result.pdfKey
     ? `/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}`
-    : "/api/screener/report.pdf");
+    : undefined);
+  const xlsxUrl = result.xlsxUrl || (result.xlsxKey
+    ? `/api/screener/report.xlsx?key=${encodeURIComponent(result.xlsxKey)}`
+    : (result.pdfKey ? `/api/screener/report.xlsx?key=${encodeURIComponent(result.pdfKey)}` : undefined));
   const opps = useSortable(result.opportunities, "screenScore");
   const all = useSortable(result.allStocks ?? [], "screenScore");
 
   // Issue #125 (PR-B) / #126: result-set downloads of THIS run (the one
   // being viewed), beside the PDF report. A failed run produced no
   // result set, so it offers none; partial runs export with their #462
-  // qualification carried into the file (see screenerExport.ts).
+  // qualification carried into the file (see runExport.ts).
   const exportButtonStyle = {
     fontSize: "0.8rem",
     padding: "0.35rem 0.75rem",
@@ -378,20 +412,54 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             </button>
           </>
         )}
-        <a
-          href={reportUrl}
-          download
-          style={{
-            fontSize: "0.8rem",
-            padding: "0.35rem 0.75rem",
-            borderRadius: "4px",
-            border: "1px solid var(--color-accent)",
-            color: "var(--color-accent)",
-            textDecoration: "none",
-          }}
-        >
-          📄 Download PDF report
-        </a>
+        {reportUrl && (
+          <a
+            href={reportUrl}
+            download
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px solid var(--color-accent)",
+              color: "var(--color-accent)",
+              textDecoration: "none",
+            }}
+          >
+            📄 Download PDF report
+          </a>
+        )}
+        {xlsxUrl && (
+          <a
+            href={xlsxUrl}
+            download
+            className="screener-download-xlsx"
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px solid var(--color-accent)",
+              color: "var(--color-accent)",
+              textDecoration: "none",
+            }}
+          >
+            📊 Download XLSX report
+          </a>
+        )}
+        {/* Issue #912: surface PDF generation failure instead of silent missing button. */}
+        {!reportUrl && result.pdfStatus === "failed" && (
+          <span
+            title={result.pdfError || "PDF generation failed"}
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px solid var(--color-danger)",
+              color: "var(--color-danger)",
+            }}
+          >
+            ⚠️ PDF failed: {result.pdfError ? result.pdfError.slice(0, 50) : "unknown error"}
+          </span>
+        )}
       </div>
       <div style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
         {/* Issue #421: no sector claim when none was selected ("ALL"). */}
@@ -400,11 +468,11 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           <> • <strong>{result.sector}</strong> sector</>
         )}{" "}
         • {result.totalScanned.toLocaleString()} scanned • {result.matchedCount} matched •{" "}
-        <span style={{ color: "var(--theme-text-muted)" }}>
+        <span style={{ color: "var(--color-text-muted)" }}>
           {new Date(result.timestamp).toLocaleString()}
         </span>
         {!result.success && (
-          <span style={{ color: "var(--color-danger, #e5484d)", marginLeft: "0.5rem" }}>
+          <span style={{ color: "var(--color-danger)", marginLeft: "0.5rem" }}>
             ⚠️ Failed: {result.error || "E*TRADE unavailable"}
           </span>
         )}
@@ -414,9 +482,9 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
         <div
           style={{
             fontSize: "0.85rem",
-            color: "var(--theme-text-warning, #b45309)",
+            color: "var(--color-warning-text)",
             padding: "0.75rem",
-            border: "1px solid var(--theme-text-warning, #b45309)",
+            border: "1px solid var(--color-warning-border)",
             borderRadius: "4px",
             marginBottom: "0.5rem",
           }}
@@ -427,13 +495,49 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
         </div>
       )}
 
+      {/* Issue #816: Quote Pipeline trace section */}
+      {result.quoteTrace && (
+        <details
+          style={{
+            fontSize: "0.85rem",
+            border: "1px solid var(--color-border-subtle)",
+            borderRadius: "4px",
+            padding: "0.75rem",
+            marginBottom: "0.5rem",
+            background: "var(--color-surface-sunken)",
+          }}
+        >
+          <summary style={{ cursor: "pointer", fontWeight: 700, color: "var(--color-text-primary)" }}>
+            🔍 Quote Pipeline: {result.quoteTrace.quotesReceived} of {result.quoteTrace.symbolCount} quoted
+            {result.quoteTrace.quotesFailed > 0 && (
+              <span style={{ color: "var(--color-warning)", marginLeft: "0.5rem" }}>
+                ({result.quoteTrace.quotesFailed} failed)
+              </span>
+            )}
+          </summary>
+          <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+            <div>Trace ID: <code>{result.quoteTrace.traceId}</code></div>
+            <div>Batches: {result.quoteTrace.batchCount} · Received: {result.quoteTrace.quotesReceived} · Failed: {result.quoteTrace.quotesFailed}</div>
+            {Object.entries(result.quoteTrace.failuresByCategory).filter(([_, v]) => v > 0).length > 0 && (
+              <div style={{ marginTop: "0.25rem" }}>
+                Failures by category:{" "}
+                {Object.entries(result.quoteTrace.failuresByCategory)
+                  .filter(([_, v]) => v > 0)
+                  .map(([k, v]) => `${k}: ${v}`)
+                  .join(", ")}
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+
       {!result.success ? (
         <div
           style={{
             fontSize: "0.85rem",
-            color: "var(--color-danger, #e5484d)",
+            color: "var(--color-danger)",
             padding: "0.75rem",
-            border: "1px solid var(--color-danger, #e5484d)",
+            border: "1px solid var(--color-danger)",
             borderRadius: "4px",
           }}
         >
@@ -494,7 +598,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
               </table>
             </div>
           ) : (
-            <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>
+            <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
               No standout opportunities in this run.
             </div>
           )}
@@ -572,7 +676,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                             ? "—"
                             : `${s.technicals.macdHistogram >= 0 ? "+" : ""}${s.technicals.macdHistogram.toFixed(2)}`}
                         </td>
-                        <td style={{ fontSize: "0.75rem", color: "var(--theme-text-muted)" }}>
+                        <td style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
                           {s.source}
                         </td>
                       </tr>

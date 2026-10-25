@@ -2,7 +2,7 @@ import { useState } from "react";
 import { apiFetch as fetch } from "../apiFetch";
 import type { ScreenedOptionContractItem } from "../../types";
 import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "../x402Pay";
-import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
+import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";
@@ -45,7 +45,15 @@ export function RawContractsScreener({
   const [minOpenInterest, setMinOpenInterest] = useState("");
   const [maxSpreadPct, setMaxSpreadPct] = useState("");
   const [maxResults, setMaxResults] = useState("5000");
-  const [sortBy, setSortBy] = useState<"volume" | "openInterest" | "impliedVolatility" | "spreadPct" | "strike">("volume");
+  // Issue #959: sort keys are the canonical OptionScreenSortKey values
+  // the engine actually implements. The previous "openInterest",
+  // "impliedVolatility" and "strike" values were not engine sort keys —
+  // the engine's sanitizer silently discarded them and every such
+  // selection sorted by volume. "Open Interest" is dropped (no engine
+  // comparator exists; adding one is an engine change, out of #959's
+  // scope); IV maps to the canonical "iv" key and Strike to
+  // "strikeDistance" (distance from spot), which now actually sort.
+  const [sortBy, setSortBy] = useState<"volume" | "iv" | "spreadPct" | "strikeDistance">("volume");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -201,8 +209,8 @@ export function RawContractsScreener({
       {/* Top Banner & Quick Underlying Chips */}
       <div
         style={{
-          background: "linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.8))",
-          border: "1px solid rgba(56, 189, 248, 0.25)",
+          background: "var(--color-card)",
+          border: "1px solid var(--color-accent-border)",
           borderRadius: "10px",
           padding: "1rem 1.25rem",
           display: "flex",
@@ -333,10 +341,9 @@ export function RawContractsScreener({
           <span>Sort By</span>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
             <option value="volume">Volume (Highest First)</option>
-            <option value="openInterest">Open Interest (Highest)</option>
-            <option value="impliedVolatility">Implied Volatility (IV)</option>
+            <option value="iv">Implied Volatility (IV)</option>
             <option value="spreadPct">Tightest Spread (%)</option>
-            <option value="strike">Strike Price</option>
+            <option value="strikeDistance">Strike Distance</option>
           </select>
         </label>
 
@@ -418,7 +425,7 @@ export function RawContractsScreener({
                     padding: "0.25rem 0.6rem",
                     fontSize: "0.75rem",
                     border: "none",
-                    background: typeFilter === t ? "rgba(56, 189, 248, 0.25)" : "transparent",
+                    background: typeFilter === t ? "var(--color-info-subtle)" : "transparent",
                     color: typeFilter === t ? "var(--color-accent)" : "var(--color-text-muted)",
                     cursor: "pointer",
                   }}

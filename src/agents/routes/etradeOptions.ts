@@ -6,11 +6,14 @@
  * Owns the contiguous options block (between the E*TRADE broker
  * account-activity delegation and the E*TRADE watchlists block):
  *   GET  /etrade/options/chains
+ *   GET  /options/latest                       (#223 autonomous options runs)
  *   POST /etrade/options/strategy          (#314 advertised spelling -
  *         delegates to the single-owner strategy-discovery handler)
  *   GET  /etrade/options/expire-dates
  *   GET  /etrade/options/scans
  *   GET  /etrade/options/scans/diff
+ *   GET  /etrade/options/discovery-runs        (#126 scheduled discovery)
+ *   GET  /etrade/options/discovery-runs/:id    (#126 scheduled discovery)
  *   GET  /etrade/options/iv-history
  *   GET  /etrade/options/profiles
  *   POST /etrade/options/profiles
@@ -50,42 +53,80 @@ import type { AgentContext } from "agents";
 import { ETradeService } from "../../services/etrade";
 import {
   DynamicOptionsScreener,
+  createOptionsScreeningProvider,
+  OPTIONS_SCREENING_PROVIDER_ID,
   recommendOptionStrategies,
   validateStrategyRequest,
-  SqlScanRunStore,
-  diffScanRuns,
-  SqlIvHistoryStore,
-  UnifiedOptionsService,
-  SqlStrategyProfileStore,
-  flattenWatchlistSymbols,
-  getIvHistoryEntry,
-  resolveTrackedSymbols,
   validateStrategyProfile,
-  type StrategyProfileSpec,
-  generateSyntheticOptionChains,
   describeLlmInput,
-  rankCandidatesWithLlm,
-  buildCalibratedOptionChains,
   OptionsAgentPipeline,
+  OptionsDataAgent,
+  RecommendationAgent,
+  StrategyRiskAgent,
+  TradingPlatformRegistry,
   type RiskProfile,
   type StrategyScreenFilter,
   defaultRegistry,
   REQUESTED_STRATEGY_NAMES,
   type StrategyRequest,
 } from "../../trading";
+import {
+  parseOptionsDiscoveryRequest,
+  parseOptionsScreenRequest,
+  parseUnifiedOptionsRequest,
+} from "../../trading";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../../config/etapiConfig";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
-import { getCuratedStockUniverse } from "../../config/curatedStockUniverse";
 import { DEFAULT_AI_MODEL } from "../model";
 import type { Env, ETradeOptionChain, ETradeOptionExpireDate } from "../../types";
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
+import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
+import { RecommendationService, type KernelSnapshot } from "../../services/recommendationKernel";
+import { listComparisonOutcomes, runProductionComparison } from "../../services/comparisonRunner";
+import { getSymbolEventCalendar, toEventCalendarInfo } from "../../services/eventCalendar";
+import {
+  handleOptionsLatestRuns,
+  handleOptionsScansList,
+  handleOptionsScansDiff,
+  handleOptionsScanRunById,
+  handleOptionsDiscoveryRunsList,
+  handleOptionsDiscoveryRunById,
+  handleOptionsIvHistory,
+} from "./etradeOptionsRuns";
+import {
+  handleOptionsProfilesList,
+  handleOptionsProfilesCreate,
+  handleOptionsProfileGet,
+  handleOptionsProfileUpdate,
+  handleOptionsProfileDelete,
+  handleOptionsStrategyReviewsList,
+  handleOptionsStrategyReviewsDecide,
+} from "./etradeOptionsProfiles";
+import {
+  executeLlmIdeasEvaluation,
+  rankOptionsCompareCandidates,
+} from "./etradeOptionsEvaluate";
+import {
+  executeOptionsScreen,
+  executeUnifiedOptions,
+} from "./etradeOptionsScreen";
 
 /** The subset of OrchestratorAgent surface the E*TRADE options handlers need. */
 export interface EtradeOptionsRouteContext {
   /** Worker environment (owner: OrchestratorAgent - was `this.env`). */
   env: Env;
+  /** Issue #1123: set when this request is executed as an async job —
+   *  inline deliveries defer to the tracked follow-up pipeline. */
+  asyncJobId?: string;
+  /** Issue #1123 S5a: bridge a synchronously-completed screen into
+   *  the tracked follow-up pipeline. Preferred over inline delivery
+   *  whenever the host provides it. */
+  scheduleScreenerFollowups?: (
+    outcome: import("../../services/screenerFollowups").ScreenerRunOutcome,
+    userLogin: string,
+  ) => Promise<void>;
   /** ORM accessor (owner: OrchestratorAgent - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
   /** Durable Object agent context (owner: OrchestratorAgent - was `this.ctx`),
@@ -126,20 +167,37 @@ export async function handleOptionsStrategyRecommend(
 
   try {
     const strategyRequest = body as StrategyRequest;
+    // Issue #16: the event calendar is a server-side fact — a
+    // client-supplied one is never trusted. Fetch it for this name and
+    // overwrite whatever the body carried. The service never throws;
+    // an uncovered result simply keeps event risk unverified.
+    strategyRequest.eventCalendar = toEventCalendarInfo(await getSymbolEventCalendar(strategyRequest.symbol));
     const userLogin = request.headers.get("x-user-login") || deps.sessionKey || "default_trader";
     const etrade = new ETradeService(deps.orm, deps.env, userLogin, deps.requestedEnv);
     const screener = new DynamicOptionsScreener(etrade.client);
-    const screened = await screener.screenOptions({
-      underlyingSymbols: [strategyRequest.symbol.toUpperCase().trim()],
-      contractType: "BOTH",
-      minDte: strategyRequest.minDte,
-      maxDte: strategyRequest.maxDte,
-      minVolume: strategyRequest.minVolume,
-      minOpenInterest: strategyRequest.minOpenInterest,
-      maxSpreadPct: strategyRequest.maxSpreadPct,
-      maxQuoteAgeSeconds: strategyRequest.maxQuoteAgeSeconds,
-      limit: strategyRequest.contractLimit,
+    // Consolidation C1 (issue #1201, epic #1151 R1): the contract
+    // screen behind strategy recommendation executes through the
+    // Phase 0 ScreeningProvider (same engine, same result) — see
+    // executeOptionsScreen in etradeOptionsScreen.ts.
+    const provider = createOptionsScreeningProvider(OPTIONS_SCREENING_PROVIDER_ID, screener);
+    const provided = await provider.screen({
+      assetClass: "options",
+      filter: {
+        underlyingSymbols: [strategyRequest.symbol.toUpperCase().trim()],
+        contractType: "BOTH",
+        minDte: strategyRequest.minDte,
+        maxDte: strategyRequest.maxDte,
+        minVolume: strategyRequest.minVolume,
+        minOpenInterest: strategyRequest.minOpenInterest,
+        maxSpreadPct: strategyRequest.maxSpreadPct,
+        maxQuoteAgeSeconds: strategyRequest.maxQuoteAgeSeconds,
+        limit: strategyRequest.contractLimit,
+      },
     });
+    if (provided.assetClass !== "options") {
+      throw new Error("Options screening provider returned a non-options result.");
+    }
+    const screened = provided.result;
     const recommendations = recommendOptionStrategies(screened.contracts, strategyRequest, strategyRequest.candidateLimit);
     return Response.json({
       ...recommendations,
@@ -178,6 +236,14 @@ export async function handleEtradeOptionsRoutes(
 ): Promise<Response | null> {
   const sql = ctx.ensureTables();
 
+    // Issue #223: latest autonomous options-analysis runs. Results were only
+    // ever visible in the live broadcast; the scheduler now keeps the last 20
+    // runs in DO storage so the panel can render what actually ran.
+    // server.ts strips the /api prefix, so the DO sees /options/latest.
+    if (path.endsWith("/options/latest") && request.method === "GET") {
+      return handleOptionsLatestRuns(ctx);
+    }
+
     // Real E*TRADE REST API: Option Chains
     if (path.endsWith("/etrade/options/chains") && request.method === "GET") {
       try {
@@ -189,8 +255,11 @@ export async function handleEtradeOptionsRoutes(
         const noOfStrikes = url.searchParams.get("noOfStrikes") ? Number(url.searchParams.get("noOfStrikes")) : undefined;
         const chainType = (url.searchParams.get("chainType") as "CALL" | "PUT" | "CALLPUT") || undefined;
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const chain = await etrade.getOptionChains({
+        // #291 T5c: resolved through the platform registry (the chains
+        // read is a verbatim client passthrough on the platform contract);
+        // one instance serves the call and its #155 error read.
+        const etrade = TradingPlatformRegistry.getPlatform("etrade", ctx.env, ctx.getOrm(), userLogin, ctx.requestedEnv);
+        const chain = await etrade.getOptionChains?.({
           symbol,
           expiryYear,
           expiryMonth,
@@ -204,7 +273,7 @@ export async function handleEtradeOptionsRoutes(
           // upstream failure (expired OAuth, missing credentials,
           // network), not an empty chain — surface it as a 502 naming
           // the cause instead of a fabricated 200 empty payload.
-          const upstreamError = etrade.getLastError();
+          const upstreamError = etrade.getLastError?.();
           if (upstreamError) {
             return Response.json({ error: upstreamError, symbol }, { status: 502 });
           }
@@ -234,13 +303,15 @@ export async function handleEtradeOptionsRoutes(
         const symbol = (url.searchParams.get("symbol") || "NVDA").toUpperCase().trim();
         const expiryType = url.searchParams.get("expiryType") || undefined;
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const dates = await etrade.getOptionExpireDates(symbol, expiryType);
+        // #291 T5c: registry-resolved platform (verbatim passthrough
+        // reads); the #155 error read stays on this same instance.
+        const etrade = TradingPlatformRegistry.getPlatform("etrade", ctx.env, ctx.getOrm(), userLogin, ctx.requestedEnv);
+        const dates = (await etrade.getOptionExpireDates?.(symbol, expiryType)) ?? [];
         if (dates.length === 0) {
           // Issue #155: distinguish an upstream failure (client error
           // recorded) from a symbol that genuinely has no expirations —
           // only the genuine empty keeps the 200 empty payload.
-          const upstreamError = etrade.getLastError();
+          const upstreamError = etrade.getLastError?.();
           if (upstreamError) {
             return Response.json({ error: upstreamError, symbol }, { status: 502 });
           }
@@ -257,63 +328,30 @@ export async function handleEtradeOptionsRoutes(
     // diffed run-over-run. Declared in list → diff → by-id order: the
     // diff route must win over the by-id pattern below.
     if (path.endsWith("/etrade/options/scans") && request.method === "GET") {
-      try {
-        const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 25;
-        const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
-        // Issue #103: history is scoped per user, like profiles —
-        // runs the caller saved are theirs; legacy runs saved before
-        // scoping (no user_login) remain visible to everyone.
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlScanRunStore(sql);
-        const scans = await store.list({ limit, offset, userLogin });
-        return Response.json({ count: scans.length, scans });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to list scan runs" }, { status: 500 });
-      }
+      return handleOptionsScansList(request, url, sessionId, sql);
     }
 
     if (path.endsWith("/etrade/options/scans/diff") && request.method === "GET") {
-      try {
-        const fromId = url.searchParams.get("from") || "";
-        const toId = url.searchParams.get("to") || "";
-        if (!fromId || !toId) {
-          return Response.json({ error: "from and to scan run ids are required" }, { status: 400 });
-        }
-        // Issue #103: both runs must be visible to the caller — an
-        // invisible run produces the same 404 as a missing one, so a
-        // diff can never leak another user's run (or its existence).
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlScanRunStore(sql);
-        const from = await store.get(fromId, { userLogin });
-        const to = await store.get(toId, { userLogin });
-        if (!from || !to) {
-          return Response.json({ error: "scan run not found" }, { status: 404 });
-        }
-        return Response.json({
-          from: { id: from.id, generatedAt: from.generatedAt },
-          to: { id: to.id, generatedAt: to.generatedAt },
-          diff: diffScanRuns(from.result, to.result),
-        });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to diff scan runs" }, { status: 500 });
-      }
+      return handleOptionsScansDiff(request, url, sessionId, sql);
     }
 
     const scanRunIdMatch = path.match(/\/etrade\/options\/scans\/([^/]+)$/);
     if (scanRunIdMatch && request.method === "GET") {
-      try {
-        // Issue #103: scoped like the list — another user's run is
-        // indistinguishable from a pruned one (same 404).
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlScanRunStore(sql);
-        const run = await store.get(decodeURIComponent(scanRunIdMatch[1]), { userLogin });
-        if (!run) {
-          return Response.json({ error: "scan run not found" }, { status: 404 });
-        }
-        return Response.json(run);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch scan run" }, { status: 500 });
-      }
+      return handleOptionsScanRunById(request, sessionId, sql, scanRunIdMatch);
+    }
+
+    // Persisted scheduled-discovery runs (issue #126, PR-E): executions
+    // of autonomousStrategyDiscovery (scheduled fires and manual
+    // triggers) are retrievable here with their provenance, saved
+    // requests, and per-symbol outcomes. Scoped per user exactly like
+    // the scan runs above (issue #103 rule, enforced by the store).
+    if (path.endsWith("/etrade/options/discovery-runs") && request.method === "GET") {
+      return handleOptionsDiscoveryRunsList(request, url, sessionId, sql);
+    }
+
+    const discoveryRunIdMatch = path.match(/\/etrade\/options\/discovery-runs\/([^/]+)$/);
+    if (discoveryRunIdMatch && request.method === "GET") {
+      return handleOptionsDiscoveryRunById(request, sessionId, sql, discoveryRunIdMatch);
     }
 
     // IV history (issue #15): the daily collector's stored series,
@@ -324,45 +362,7 @@ export async function handleEtradeOptionsRoutes(
     // returns the per-name coverage summary for every tracked name
     // (curated ∪ watchlists) plus any name that has records.
     if (path.endsWith("/etrade/options/iv-history") && request.method === "GET") {
-      try {
-        const store = new SqlIvHistoryStore(sql);
-        const symbolParam = url.searchParams.get("symbol");
-        if (symbolParam) {
-          const entry = await getIvHistoryEntry(store, symbolParam);
-          // ?series=true includes the full time series for charting.
-          if (url.searchParams.get("series") === "true") {
-            const series = await store.listSeries(symbolParam.toUpperCase(), { limit: 365 });
-            return Response.json({
-              ...entry,
-              series: series.reverse().map((r) => ({
-                date: r.date,
-                atmIv: r.atmIv,
-                spot: r.spot,
-              })),
-            });
-          }
-          return Response.json(entry);
-        }
-        let watchlistSymbols: string[] = [];
-        try {
-          watchlistSymbols = flattenWatchlistSymbols(ctx.getOrm().watchlists.findMany({}));
-        } catch {
-          // Watchlist read failure → curated universe only.
-        }
-        const tracked = resolveTrackedSymbols(
-          getCuratedStockUniverse().map((s) => s.symbol),
-          watchlistSymbols
-        );
-        const recorded = await store.listSymbols();
-        const names = [...new Set([...tracked, ...recorded])].sort();
-        const entries = [];
-        for (const symbol of names) {
-          entries.push(await getIvHistoryEntry(store, symbol));
-        }
-        return Response.json({ count: entries.length, names: entries });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch IV history" }, { status: 500 });
-      }
+      return handleOptionsIvHistory(url, ctx, sql);
     }
 
     // Saved strategy profiles (issue #28): named, versioned "my
@@ -373,93 +373,22 @@ export async function handleEtradeOptionsRoutes(
     // per-user name uniqueness. The profiles UI panel is issue #84's
     // surface — these routes are the API it will consume.
     if (path.endsWith("/etrade/options/profiles") && request.method === "GET") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlStrategyProfileStore(sql);
-        const profiles = await store.list(userLogin);
-        return Response.json({ count: profiles.length, profiles });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to list strategy profiles" }, { status: 500 });
-      }
+      return handleOptionsProfilesList(request, sessionId, sql);
     }
 
     if (path.endsWith("/etrade/options/profiles") && request.method === "POST") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-        const { name, ...spec } = body;
-        const profileName = typeof name === "string" ? name : "";
-        const validationError = validateStrategyProfile(profileName, spec as StrategyProfileSpec);
-        if (validationError) {
-          return Response.json({ error: validationError }, { status: 400 });
-        }
-        const store = new SqlStrategyProfileStore(sql);
-        try {
-          const profile = await store.create(userLogin, profileName, spec as StrategyProfileSpec);
-          return Response.json(profile, { status: 201 });
-        } catch (err) {
-          return Response.json({ error: err instanceof Error ? err.message : "Failed to create strategy profile" }, { status: 400 });
-        }
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to create strategy profile" }, { status: 500 });
-      }
+      return handleOptionsProfilesCreate(request, sessionId, sql);
     }
 
     const profileIdMatch = path.match(/\/etrade\/options\/profiles\/([^/]+)$/);
     if (profileIdMatch && request.method === "GET") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlStrategyProfileStore(sql);
-        const profile = await store.get(userLogin, decodeURIComponent(profileIdMatch[1]));
-        if (!profile) {
-          return Response.json({ error: "profile not found" }, { status: 404 });
-        }
-        return Response.json(profile);
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch strategy profile" }, { status: 500 });
-      }
+      return handleOptionsProfileGet(request, sessionId, sql, profileIdMatch);
     }
-
     if (profileIdMatch && request.method === "PUT") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlStrategyProfileStore(sql);
-        const existing = await store.get(userLogin, decodeURIComponent(profileIdMatch[1]));
-        if (!existing) {
-          return Response.json({ error: "profile not found" }, { status: 404 });
-        }
-        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-        const { name, ...spec } = body;
-        // The body name wins when present; otherwise the profile keeps
-        // its current name (validation runs against the effective one).
-        const profileName = typeof name === "string" ? name : existing.name;
-        const validationError = validateStrategyProfile(profileName, spec as StrategyProfileSpec);
-        if (validationError) {
-          return Response.json({ error: validationError }, { status: 400 });
-        }
-        try {
-          const updated = await store.update(userLogin, existing.id, spec as StrategyProfileSpec, typeof name === "string" ? name : undefined);
-          return Response.json(updated);
-        } catch (err) {
-          return Response.json({ error: err instanceof Error ? err.message : "Failed to update strategy profile" }, { status: 400 });
-        }
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to update strategy profile" }, { status: 500 });
-      }
+      return handleOptionsProfileUpdate(request, sessionId, sql, profileIdMatch);
     }
-
     if (profileIdMatch && request.method === "DELETE") {
-      try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const store = new SqlStrategyProfileStore(sql);
-        const deleted = await store.delete(userLogin, decodeURIComponent(profileIdMatch[1]));
-        if (!deleted) {
-          return Response.json({ error: "profile not found" }, { status: 404 });
-        }
-        return Response.json({ deleted: true });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to delete strategy profile" }, { status: 500 });
-      }
+      return handleOptionsProfileDelete(request, sessionId, sql, profileIdMatch);
     }
 
     // ==========================================
@@ -477,241 +406,19 @@ export async function handleEtradeOptionsRoutes(
         return Response.json({ error: "Provide a natural-language question up to 4,000 characters." }, { status: 400 });
       }
 
-      let retrievedExpirations: ETradeOptionExpireDate[] = [];
       const retrievedChains: ETradeOptionChain[] = [];
-      let usedSyntheticChains = false;
+      const state: { retrievedExpirations: ETradeOptionExpireDate[]; usedSyntheticChains: boolean } = {
+        retrievedExpirations: [],
+        usedSyntheticChains: false,
+      };
       const orm = ctx.getOrm();
       const cached = !forceRefresh ? orm.getOptionsChain(symbol) : null;
 
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(orm, ctx.env, userLogin, ctx.requestedEnv);
-
-        if (cached && cached.expirations.length > 0 && cached.chains.length > 0) {
-          retrievedExpirations = cached.expirations;
-          for (const c of cached.chains) {
-            retrievedChains.push(c);
-          }
-        } else {
-          let expirations = await etrade.client.getOptionExpireDates(symbol);
-          if (expirations.length === 0) {
-            // Fall back to unscoped option chain request if expiration calendar endpoint was empty
-            const fallbackChain = await etrade.client.getOptionChains({
-              symbol,
-              includeWeekly: true,
-              chainType: "CALLPUT",
-              includeRawResponse: true,
-            }).catch(() => null);
-            if (fallbackChain && fallbackChain.selectedExpiry && fallbackChain.pairs.length > 0) {
-              expirations = [fallbackChain.selectedExpiry];
-              retrievedChains.push(fallbackChain);
-            }
-          }
-
-          if (expirations.length > 0 && retrievedChains.length === 0) {
-            retrievedExpirations = expirations;
-
-            // Target up to 18 most active expirations across near, mid, and long term to prevent unconstrained latency
-            const targetExpirations = expirations.length > 18
-              ? [...expirations.slice(0, 10), ...expirations.slice(10, 16), ...expirations.slice(-2)]
-              : expirations;
-
-            // Fetch option chains with concurrency chunking (4 parallel requests at a time)
-            const chunkSize = 4;
-            for (let i = 0; i < targetExpirations.length; i += chunkSize) {
-              const chunk = targetExpirations.slice(i, i + chunkSize);
-              const chunkChains = await Promise.all(
-                chunk.map((expiry) =>
-                  etrade.client.getOptionChains({
-                    symbol,
-                    expiryYear: expiry.year,
-                    expiryMonth: expiry.month,
-                    expiryDay: expiry.day,
-                    includeWeekly: true,
-                    chainType: "CALLPUT",
-                    includeRawResponse: true,
-                  })
-                )
-              );
-              for (const chain of chunkChains) {
-                if (chain) retrievedChains.push(chain);
-              }
-            }
-          } else if (expirations.length > 0) {
-            retrievedExpirations = expirations;
-          }
-
-          if (retrievedChains.length > 0) {
-            // Persist into durable SQLite table (10-minute TTL)
-            orm.setOptionsChain(symbol, retrievedExpirations, retrievedChains, 600);
-          }
-        }
-
-        let contractCount = retrievedChains.reduce(
-          (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
-          0,
-        );
-
-        if (contractCount === 0) {
-          const isTestEnv = ctx.requestedEnv === "TEST" || !etrade.client.getEnvConfig().isLive;
-          if (isTestEnv) {
-            usedSyntheticChains = true;
-            const synthetic = generateSyntheticOptionChains(symbol);
-            retrievedExpirations = synthetic.expirations;
-            retrievedChains.length = 0;
-            for (const sc of synthetic.chains) {
-              retrievedChains.push(sc);
-            }
-            contractCount = retrievedChains.reduce(
-              (count, chain) => count + chain.pairs.reduce((pairCount, pair) => pairCount + Number(Boolean(pair.call)) + Number(Boolean(pair.put)), 0),
-              0,
-            );
-          } else {
-            throw new Error(etrade.client.lastError || `E*TRADE returned no option contracts for ${symbol} in PROD environment; no LLM request was sent.`);
-          }
-        }
-
-        if (contractCount === 0) {
-          throw new Error(`E*TRADE returned no option contracts for ${symbol}; no LLM request was sent.`);
-        }
-
-        const rawData = {
-          symbol,
-          question,
-          // Provenance (issue #29): synthetic chains are TEST-only and must never be
-          // indistinguishable from live E*TRADE chains downstream.
-          dataSource: usedSyntheticChains ? "synthetic option chains (TEST environment)" : "E*TRADE option chains",
-          expirations: retrievedExpirations,
-          optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
-        };
-        // Issue #47 (follow-up to #29): this endpoint no longer runs the
-        // llm_ideas map-reduce (horizon groups over raw chains, existence-only
-        // verification, no risk constraints). Following the compare pattern —
-        // and the unified service's llm_ideas disposition in slice 4 — the
-        // quant pipeline runs first and the LLM evaluates its verified
-        // candidates, never overwriting the quant ranking. The response keeps
-        // the panel's shape: a single "pipeline" group carries the evaluation
-        // so rendering, exports, and provenance badges keep working.
-        const spot = retrievedChains.find((chain) => Number.isFinite(chain.underlyingPrice) && chain.underlyingPrice > 0)?.underlyingPrice ?? 100;
-        const questionLower = question.toLowerCase();
-        const thesis: StrategyRequest["thesis"] = /bear|downside|\bshort\b/.test(questionLower)
-          ? "bearish"
-          : /range|sideways|neutral|income|theta/.test(questionLower)
-            ? "range_bound"
-            : /volatil|big move|large move|breakout/.test(questionLower)
-              ? "large_move"
-              : "bullish";
-        const strategyRequest: StrategyRequest = {
-          symbol,
-          thesis,
-          targetPrice: Math.round(spot * (thesis === "bullish" ? 1.05 : thesis === "bearish" ? 0.95 : 1) * 100) / 100,
-          targetDate: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
-          expectedIvDirection: "unchanged",
-          maxPlannedLoss: 100000,
-          minRewardRisk: 0,
-          allowedStrategies: ["all"],
-        };
-        const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
-        const pipelineResult = await pipeline.run(strategyRequest, { riskProfile: "balanced" });
-        const topRanked = pipelineResult.ranked.slice(0, 10);
-        const candidates = topRanked.map((r) => r.candidate);
-        let llmJudgment: Awaited<ReturnType<typeof rankCandidatesWithLlm>> | null = null;
-        let llmError: string | null = null;
-        if (candidates.length > 0) {
-          try {
-            llmJudgment = await rankCandidatesWithLlm(ctx.env, strategyRequest, "balanced", pipelineResult.snapshot.contracts, candidates);
-          } catch (err) {
-            llmError = err instanceof Error ? err.message : "LLM evaluation failed.";
-          }
-        }
-        const llmStatus = llmJudgment ? "complete" as const : "error" as const;
-        const llmModel = llmJudgment?.model || ctx.env.AI_MODEL || DEFAULT_AI_MODEL;
-        const llmErrorText = llmError ?? "The quant pipeline produced no candidates for this symbol.";
-        const rationaleByCandidate = new Map((llmJudgment?.ranked ?? []).map((judgment) => [judgment.candidateId, judgment.rationale]));
-        const answer = llmJudgment
-          ? llmJudgment.ranked.slice(0, 3).map((judgment, idx) => {
-              const candidate = candidates.find((c) => c.id === judgment.candidateId);
-              return `${idx + 1}. ${candidate ? candidate.label : judgment.candidateId} — ${judgment.rationale}`;
-            }).join("\n")
-          : llmErrorText;
-        const candidateContractSymbols = [...new Set(candidates.flatMap((c) => c.legs.map((leg) => leg.symbol)))];
-        const groupResults = [{
-          id: "pipeline",
-          label: "Quant pipeline candidates",
-          status: llmStatus,
-          model: llmModel,
-          answer,
-          error: llmStatus === "error" ? llmErrorText : undefined,
-          contractSymbols: candidateContractSymbols,
-          contractWarnings: [] as string[],
-          contractDetails: [] as unknown[],
-          expirationCount: retrievedExpirations.length,
-          contractCount,
-          sentContractCount: candidates.length,
-          estimatedInputTokens: 0,
-          inputTruncated: false,
-        }];
-        const finalAnalysis = {
-          status: llmStatus,
-          model: llmModel,
-          answer: llmStatus === "complete" ? answer : undefined,
-          error: llmStatus === "error" ? llmErrorText : undefined,
-          rankings: topRanked.map((r, idx) => ({
-            rank: idx + 1,
-            groupId: "pipeline",
-            strategy: r.candidate.label,
-            rationale: rationaleByCandidate.get(r.candidate.id) ?? "",
-          })),
-          systemPrompt: "",
-          userPrompt: question,
-          isFallback: false,
-        };
-        const llmInputExport = {
-          id: "pipeline",
-          label: "Quant pipeline candidates",
-          symbol,
-          question,
-          expirations: retrievedExpirations,
-          optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
-          systemPrompt: "Quant pipeline candidate evaluation (issue #47): the LLM evaluates verified candidates; it does not generate strategies.",
-          userPrompt: question,
-          selection: { contractCount, candidateCount: candidates.length },
-          groupInputs: [] as unknown[],
-          finalRanking: { systemPrompt: "", userPrompt: question },
-        };
-        const dataCoverage = {
-          expirationCount: retrievedExpirations.length,
-          chainCount: retrievedChains.length,
-          contractCount,
-          sentContractCount: contractCount,
-          estimatedInputTokens: 0,
-          inputTruncated: false,
-          cached: Boolean(cached),
-          fetchedAt: cached?.fetchedAt || Date.now(),
-        };
-        return Response.json({
-          mode: "llm_evaluation_of_quant_candidates",
-          isSynthetic: usedSyntheticChains,
-          notice: usedSyntheticChains
-            ? "Synthetic option chains preview (TEST environment). Not verified live market data."
-            : "Quant-verified candidates evaluated by the LLM (compare pattern, issue #47); the quant pipeline's ranking stands.",
-          llm: {
-            status: llmStatus,
-            model: llmModel,
-            answer: llmStatus === "complete" ? answer : undefined,
-            error: llmStatus === "error" ? llmErrorText : undefined,
-            contractSymbols: candidateContractSymbols,
-          },
-          quant: {
-            ranked: topRanked,
-            scoreWeights: pipelineResult.strategies.scoreWeights,
-            candidateCount: candidates.length,
-          },
-          groups: groupResults,
-          finalAnalysis,
-          llmInput: llmInputExport,
-          retrievedData: rawData,
-          dataCoverage,
+        return await executeLlmIdeasEvaluation({
+          ctx, orm, etrade, userLogin, symbol, question, cached, retrievedChains, state,
         });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Failed to retrieve complete E*TRADE option data.";
@@ -724,7 +431,7 @@ export async function handleEtradeOptionsRoutes(
           label: "All Expirations",
           symbol,
           question,
-          expirations: retrievedExpirations,
+          expirations: state.retrievedExpirations,
           optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
           systemPrompt: "Normalized options contract dataset",
           userPrompt: question,
@@ -742,12 +449,12 @@ export async function handleEtradeOptionsRoutes(
           retrievedData: {
             symbol,
             question,
-            dataSource: usedSyntheticChains ? "synthetic option chains (TEST environment)" : "E*TRADE option chains",
-            expirations: retrievedExpirations,
+            dataSource: state.usedSyntheticChains ? "synthetic option chains (TEST environment)" : "E*TRADE option chains",
+            expirations: state.retrievedExpirations,
             optionChains: retrievedChains.map((chain) => chain.raw ?? chain),
           },
           dataCoverage: {
-            expirationCount: retrievedExpirations.length,
+            expirationCount: state.retrievedExpirations.length,
             chainCount: retrievedChains.length,
             contractCount: failedContractCount,
             sentContractCount: 0,
@@ -796,45 +503,113 @@ export async function handleEtradeOptionsRoutes(
         };
 
         if (path.endsWith("/trading/options/compare")) {
-          const candidates = result.ranked.slice(0, 20);
-          try {
-            const llm = await rankCandidatesWithLlm(
-              ctx.env,
-              strategyRequest,
-              body.riskProfile || "balanced",
-              result.snapshot.contracts,
-              candidates.map((ranked) => ranked.candidate),
-            );
-            return Response.json({
-              mode: "same_candidate_ranking",
-              quant: {
-                ranked: candidates,
-                scoreWeights: result.strategies.scoreWeights,
-                candidateCount: candidates.length,
-              },
-              llm: { status: "complete", ...llm },
-              ...common,
-            });
-          } catch (err) {
-            return Response.json({
-              mode: "same_candidate_ranking",
-              quant: {
-                ranked: candidates,
-                scoreWeights: result.strategies.scoreWeights,
-                candidateCount: candidates.length,
-              },
-              llm: {
-                status: "error",
-                model: ctx.env.AI_MODEL || DEFAULT_AI_MODEL,
-                error: err instanceof Error ? err.message : "LLM ranking failed.",
-              },
-              ...common,
-            });
-          }
+          return rankOptionsCompareCandidates(ctx, strategyRequest, body, result, common);
         }
 
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Options candidate generation failed." }, { status: 500 });
+      }
+    }
+
+    // Consolidation C5 (#1361): the 3-way comparison surface — the
+    // caller + surface C4 left missing. POST runs llm/quant/hybrid
+    // over one snapshot through the kernel (no winner field by
+    // design; the hybrid LLM order lives only in the hybrid arm).
+    // GET reads the per-arm ledger back by run id. The outcomes
+    // handler sits first because its path ends with the comparison
+    // path; method checks on both handlers prevent suffix collision.
+    if (path.endsWith("/trading/options/comparison/outcomes") && request.method === "GET") {
+      const runId = url.searchParams.get("runId");
+      if (!runId) {
+        return Response.json({ error: "runId query parameter is required." }, { status: 400 });
+      }
+      try {
+        const outcomes = listComparisonOutcomes(ctx.getOrm(), runId);
+        return Response.json({ runId, outcomes });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to read comparison outcomes." }, { status: 500 });
+      }
+    }
+
+    if (path.endsWith("/trading/options/comparison") && request.method === "POST") {
+      const body = await request.json().catch(() => null) as (Partial<StrategyRequest> & {
+        strategyFilter?: StrategyScreenFilter;
+        riskProfile?: RiskProfile;
+        alternatives?: number;
+      }) | null;
+      const parsedDiscovery = parseOptionsDiscoveryRequest(body);
+      if (!parsedDiscovery.ok) {
+        return Response.json({ error: parsedDiscovery.error }, { status: 400 });
+      }
+      try {
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
+        const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
+        const s = await dataAgent.loadSnapshot(parsedDiscovery.value.request);
+        // Same KernelSnapshot mapping the panel route builds (see
+        // RecommendationService.discoverPanel) — replicated here
+        // rather than calling discoverPanel, which would waste a full
+        // kernel run just for the snapshot — plus snapshot quotes,
+        // so the LLM builder's price source is the snapshot even
+        // where a detail carries its own bid/ask.
+        const snapshot: KernelSnapshot = {
+          symbol: s.symbol,
+          contracts: s.contracts,
+          dataSource: s.dataSource,
+          chainProvenance: s.dataSource === "calibrated-demo" ? "calibrated" : "live",
+          underlyingPrice: s.contracts[0]?.underlyingPrice,
+          screen: s.screen,
+          rejections: s.rejections,
+          validationError: s.validationError,
+          quotes: Object.fromEntries(
+            s.contracts.map((c) => [c.symbol, {
+              bid: c.bid, ask: c.ask,
+              iv: c.impliedVolatility ?? null,
+              volume: c.volume ?? null,
+              openInterest: c.openInterest ?? null,
+            }]),
+          ),
+        };
+        if ((snapshot.contracts ?? []).length === 0) {
+          return Response.json({
+            status: "no_candidates",
+            reason: "snapshot has no screened contracts",
+            symbol: s.symbol,
+            dataSource: s.dataSource,
+            screen: s.screen,
+            contractRejections: s.rejections,
+            snapshotError: s.validationError,
+          });
+        }
+        const riskAgent = new StrategyRiskAgent();
+        const recommender = new RecommendationAgent();
+        const req = parsedDiscovery.value.request;
+        const question = `What ${req.thesis ?? "directional"} option strategies on ${req.symbol} look best for a ${req.targetDate ?? "near-term"} horizon with max planned loss ${req.maxPlannedLoss ?? "the stated limit"}?`;
+        const { artifact, generationNotes } = await runProductionComparison({
+          snapshot,
+          request: req,
+          question,
+          riskProfile: parsedDiscovery.value.riskProfile ?? "balanced",
+          strategyFilter: parsedDiscovery.value.strategyFilter,
+          buildFn: (contracts, request) => riskAgent.buildStrategies(contracts, request as StrategyRequest),
+          rankFn: (candidates, request, profile) => recommender.rank(candidates, request as unknown as StrategyRequest, profile),
+          screenFn: (candidates, filter) => riskAgent.screenStrategies(candidates, filter),
+          env: ctx.env,
+          ledgerSql: ctx.getOrm(),
+        });
+        return Response.json({
+          status: "compared",
+          artifact,
+          generationNotes,
+          symbol: s.symbol,
+          dataSource: s.dataSource,
+          screen: s.screen,
+          contractRejections: s.rejections,
+          snapshotError: s.validationError,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Options comparison failed." }, { status: 502 });
       }
     }
 
@@ -848,10 +623,14 @@ export async function handleEtradeOptionsRoutes(
     }
 
     // Unified Options Strategy Catalog (Single source of truth: 74 registered strategies & 114 aliases)
+    // Issue #1334: emit BOTH name and label — the Scanner browser list
+    // and StrategyLibraryModal render `label`, and the previous shape
+    // carried only `name`, so every strategy name rendered blank.
     if (path.endsWith("/trading/options/catalog") && request.method === "GET") {
       const list = defaultRegistry.list().map((s) => ({
         id: s.id,
         name: s.label,
+        label: s.label,
         category: s.category,
         description: s.description,
         aliases: s.aliases,
@@ -870,44 +649,58 @@ export async function handleEtradeOptionsRoutes(
     }
 
     // Strategy screener (capability 2) and best-trade picker (capability 3) over the options data agent (capability 1)
-    // Issue #275: strategy catalog with direction tags (GET).
-    if (path.endsWith("/trading/options/catalog") && request.method === "GET") {
-      try {
-        const strategies = defaultRegistry.list().map((s) => ({
-          id: s.id,
-          label: s.label,
-          category: s.category,
-          description: s.description,
-          theses: s.theses ?? [],
-          aliases: s.aliases ?? [],
-        }));
-        return Response.json({ count: strategies.length, strategies });
-      } catch (err) {
-        return Response.json({ error: err instanceof Error ? err.message : "Failed to load catalog" }, { status: 500 });
-      }
-    }
-
+    // Issue #1334: the second /trading/options/catalog handler below
+    // (ex-#275, label shape) was dead — the first matching if above
+    // always returned first — and its existence masked the missing
+    // `label` on the live shape. Removed; the live handler above now
+    // emits both name and label.
     if ((path.endsWith("/trading/options/strategies") || path.endsWith("/trading/options/best-trade")) && request.method === "POST") {
       const body = await request.json().catch(() => null) as (Partial<StrategyRequest> & {
         strategyFilter?: StrategyScreenFilter;
         riskProfile?: RiskProfile;
         alternatives?: number;
       }) | null;
-      const validationError = validateStrategyRequest(body);
-      if (validationError || !body) {
-        return Response.json({ error: validationError }, { status: 400 });
-      }
-      if (body.riskProfile !== undefined && !["conservative", "balanced", "aggressive"].includes(body.riskProfile)) {
-        return Response.json({ error: "riskProfile must be conservative, balanced, or aggressive." }, { status: 400 });
+      // Issue #959: the discovery request validates through the ONE
+      // shared schema (src/trading/screeningSchemas.ts) — the request
+      // fields and the route envelope (strategyFilter / riskProfile /
+      // alternatives) are checked together, and a mis-shape is a 400
+      // naming the offending field.
+      const parsedDiscovery = parseOptionsDiscoveryRequest(body);
+      if (!parsedDiscovery.ok) {
+        return Response.json({ error: parsedDiscovery.error }, { status: 400 });
       }
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
-        const result = await pipeline.run(body as StrategyRequest, {
-          strategyFilter: body.strategyFilter,
-          riskProfile: body.riskProfile,
-          alternatives: body.alternatives,
+        // Consolidation C4 (#1329): the panel route runs through the
+        // Recommendation Kernel facade (panel configuration: D1 fit
+        // + research gates, same ranking agents). The response shape
+        // is unchanged — ranked / riskReports / bestTrade are computed
+        // via the same StrategyRiskAgent / RecommendationAgent over
+        // the kernel-passed candidates, and evaluations / nameLedger
+        // / excluded ride the facade's legacy mapping. /compare and
+        // /llm-ideas below are untouched.
+        const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
+        const result = await new RecommendationService().discoverPanel({
+          dataAgent: {
+            loadSnapshot: async (params: unknown) => {
+              const s = await dataAgent.loadSnapshot(params as StrategyRequest);
+              return {
+                symbol: s.symbol,
+                contracts: s.contracts,
+                dataSource: s.dataSource,
+                screen: s.screen,
+                rejections: s.rejections,
+                validationError: s.validationError,
+              };
+            },
+          },
+          riskAgent: new StrategyRiskAgent(),
+          recommender: new RecommendationAgent(),
+          request: parsedDiscovery.value.request,
+          strategyFilter: parsedDiscovery.value.strategyFilter,
+          riskProfile: parsedDiscovery.value.riskProfile,
+          alternatives: parsedDiscovery.value.alternatives,
         });
         const common = {
           screen: result.snapshot.screen,
@@ -917,14 +710,14 @@ export async function handleEtradeOptionsRoutes(
           snapshotError: result.snapshot.validationError,
         };
         if (path.endsWith("/best-trade")) {
-          return Response.json({ bestTrade: result.bestTrade, evaluations: result.strategies.evaluations, nameLedger: result.strategies.nameLedger, ...common });
+          return Response.json({ bestTrade: result.bestTrade, evaluations: result.legacy?.evaluations, nameLedger: result.legacy?.nameLedger, ...common });
         }
         return Response.json({
           status: result.ranked.length > 0 ? "ranked_candidates" : "no_candidates",
           ranked: result.ranked,
           riskReports: result.riskReports,
           screenedOut: result.screenedOut.slice(0, 50),
-          excluded: result.strategies.excluded,
+          excluded: result.legacy?.excluded,
           ...common,
         });
       } catch (err) {
@@ -963,106 +756,42 @@ export async function handleEtradeOptionsRoutes(
           };
         }
 
+        // Issue #959: the assembled filter (POST body or GET params)
+        // validates through the ONE shared options-screen schema — a
+        // mis-shaped filter is a 400 naming the field, and the engine
+        // receives exactly the validated filter (its internal sanitizer
+        // no longer silently drops unknown keys or enum values).
+        const parsedScreen = parseOptionsScreenRequest(filter);
+        if (!parsedScreen.ok) {
+          return Response.json({ error: parsedScreen.error }, { status: 400 });
+        }
+        const screenFilter = parsedScreen.value.filter;
+        const screenPushToSlack = parsedScreen.value.pushToSlack;
+        const screenSlackChannel = parsedScreen.value.slackChannel;
+        const screenUniverseLabel = parsedScreen.value.universe;
+        const screenEmailTo = parsedScreen.value.emailTo;
+
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const screener = new DynamicOptionsScreener(etrade.client);
-        let result = await screener.screenOptions(filter);
-
-        // Demo-mode fallback (issue #65): generated chains may substitute for an
-        // empty live screen ONLY in dev/demo deployments with the gate enabled,
-        // and the result is stamped dataSource "calibrated-demo". Production is
-        // live-only: an empty live screen returns empty, with its fetch errors.
-        if (result.contracts.length === 0 && isDemoCalibratedChainsEnabled() && filter.underlyingSymbols && filter.underlyingSymbols.length > 0 && filter.underlyingSymbols[0] !== "BROKEN") {
-          const fallbackChains = buildCalibratedOptionChains(filter.underlyingSymbols, filter.minDte ?? 0, filter.maxDte ?? 90);
-          if (fallbackChains.length > 0) {
-            const chainItems = fallbackChains.map((c) => ({ symbol: c.symbol, chain: c }));
-            const fallbackResult = screener.evaluateChains(chainItems, filter, filter.underlyingSymbols.length, {
-              warnings: ["Calibrated demo chains — generated data for development/demo, not live market data."],
-            });
-            if (fallbackResult.contracts.length > 0) {
-              fallbackResult.dataSource = "calibrated-demo";
-              result = fallbackResult;
-            }
-          }
-        }
-        if (result.dataSource === undefined) result.dataSource = "live";
-
-        // Issue #294/#421/#423/#424 (PR #432): manual screens honor pushToSlack
-        // — PDF generated, stored per-run, delivered via the Slack A2A path
-        // with a reportUrl; failures notify too.
-        const pushToSlack = filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1";
-        let optionsReportUrl: string | undefined;
-        let optionsPdfKey: string | undefined;
-        if (pushToSlack) {
-          const slackChannel = filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL;
-          const summary = `📊 Options Contract Screen — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;
-          try {
-            const { generateOptionsPdf, optionsPdfFileName } = await import("../../trading");
-            const pdfBytes = await generateOptionsPdf(result);
-            const fileName = optionsPdfFileName(result);
-            let binary = "";
-            for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
-            try {
-              const pdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
-              optionsPdfKey = pdfKey;
-              optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
-            } catch (storeErr) {
-              console.warn("[Orchestrator] Manual options contracts PDF storage failed:", storeErr instanceof Error ? storeErr.message : String(storeErr));
-            }
-            const sent = await deliverScreenerToSlackA2A(ctx.env, {
-              text: summary,
-              channel: filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL,
-              pdf: {
-                bytes: pdfBytes,
-                fileName,
-                title: `Options Contract Screen — ${new Date().toISOString().slice(0, 10)}`,
-                comment: `📄 Options contract screener PDF\n\n${summary}`,
-              },
-            });
-            if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract PDF delivery failed:", sent.error);
-          } catch (pdfErr) {
-            console.warn("[Orchestrator] Manual options contract PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
-            const sent = await deliverScreenerToSlackA2A(ctx.env, { text: summary, channel: slackChannel });
-            if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract notification failed:", sent.error);
-          }
-        }
-
-        // Every manual options scan gets a PDF and one searchable canonical
-        // row, whether or not Slack delivery was requested.
-        if (!optionsPdfKey) {
-          try {
-            const { generateOptionsPdf, optionsPdfFileName } = await import("../../trading");
-            const pdfBytes = await generateOptionsPdf(result);
-            const fileName = optionsPdfFileName(result);
-            let binary = "";
-            for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
-            optionsPdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
-            optionsReportUrl = `/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`;
-          } catch (pdfErr) {
-            console.warn("[Orchestrator] Manual options contract report generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
-          }
-        }
-        const generatedAt = new Date().toISOString();
-        const generationId = `options_scanner:manual:${generatedAt}`;
-        ctx.getOrm().storeCanonicalReport({
-          runId: generationId,
-          generationId,
-          title: `Options contract screen — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}`,
-          source: "options_scanner",
-          summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
-          body: { generatedAt, filter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl },
-          createdAt: generatedAt,
-        });
-
-        return Response.json({ ...result, reportUrl: optionsReportUrl });
+        return await executeOptionsScreen({ ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, screenEmailTo, deferDelivery: Boolean(ctx.asyncJobId) });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Options screening failed";
-        if (filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1") {
-          const sent = await deliverScreenerToSlackA2A(ctx.env, {
-            channel: filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL,
-            text: `⚠️ Options Contract Screen FAILED — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\nError: ${error}`,
-          });
-          if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract failure notification failed:", sent.error);
+        if (!ctx.asyncJobId && (filter.pushToSlack === true || filter.pushToSlack === "true" || filter.pushToSlack === "1")) {
+          if (ctx.scheduleScreenerFollowups) {
+            // Issue #1123 S5a: the failure joins the tracked pipeline
+            // (failed main-job record + failed notifications).
+            await ctx.scheduleScreenerFollowups(
+              screenerOutcomeFromRunResult("options", { success: false, error, thesis: filter.universe }),
+              request.headers.get("x-user-login") || sessionId || "default_trader",
+            );
+          } else {
+            const sent = await deliverScreenerToSlackA2A(ctx.env, {
+              channel: filter.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL,
+              text: `⚠️ Options Contract Screen FAILED — ${(filter.underlyingSymbols || []).join(", ") || filter.universe || "selected underlyings"}\nError: ${error}`,
+            });
+            if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract failure notification failed:", sent.error);
+          }
         }
         return Response.json({ error }, { status: 500 });
       }
@@ -1087,106 +816,23 @@ export async function handleEtradeOptionsRoutes(
           };
         }
 
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-        const service = new UnifiedOptionsService(ctx.env, userLogin, ctx.requestedEnv, ctx.getOrm(), new SqlScanRunStore(ctx.agentCtx.storage.sql), new SqlStrategyProfileStore(ctx.agentCtx.storage.sql));
-        const result = await service.execute(reqData);
+        // Issue #959: the unified request validates through the ONE
+        // shared schema before the service sees it — a mis-shaped body
+        // is a 400 naming the field instead of a service-level surprise.
+        // The delivery envelope (pushToSlack / slackChannel, read below)
+        // is split out by the schema and re-attached for the route's
+        // own delivery logic; the service receives the request fields.
+        const parsedUnified = parseUnifiedOptionsRequest(reqData);
+        if (!parsedUnified.ok) {
+          return Response.json({ error: parsedUnified.error }, { status: 400 });
+        }
+        reqData = {
+          ...parsedUnified.value.request,
+          ...(parsedUnified.value.pushToSlack !== undefined ? { pushToSlack: parsedUnified.value.pushToSlack } : {}),
+          ...(parsedUnified.value.slackChannel !== undefined ? { slackChannel: parsedUnified.value.slackChannel } : {}),
+        };
 
-        // Issue #358: manual options scans → Slack via A2A (preferred solution).
-        // Same pattern as scheduled in scheduledTasks.ts:autonomousOptionsAnalysis,
-        // triggered by the pushToSlack request-body param instead of cron.
-        const pushToSlack = reqData.pushToSlack === true || reqData.pushToSlack === "true" || reqData.pushToSlack === "1";
-        let reportUrl: string | undefined;
-        if (pushToSlack && reqData.action === "opportunities") {
-          const slackChannel = reqData.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL;
-          const timestamp = new Date().toISOString();
-          try {
-            // Issue #294/#421/#423/#424 (PR #432): cfpay A2A replaced by the
-            // screener Slack delivery seam; the PDF is stored per-run and the
-            // reportUrl rides the webhook/ui responses.
-            const slackPayload = result.toSlack();
-            const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
-            if (result.success) {
-              const { generateOptionsPdf, optionsPdfFileName } = await import("../../trading");
-              const pdfBytes = await generateOptionsPdf(result.data);
-              const fileName = optionsPdfFileName(result.data);
-              let binary = "";
-              for (let i = 0; i < pdfBytes.length; i += 8192) {
-                binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
-              }
-              try {
-                const pdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
-                reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
-              } catch (storeErr) {
-                console.warn("[Orchestrator] Manual options PDF storage failed:", storeErr instanceof Error ? storeErr.message : String(storeErr));
-              }
-              const sent = await deliverScreenerToSlackA2A(ctx.env, {
-                text,
-                channel: slackChannel,
-                pdf: {
-                  bytes: pdfBytes,
-                  fileName,
-                  title: `Options Scanner Report — manual ${timestamp.slice(0, 10)}`,
-                  comment: `📄 Manual options scan PDF — ${result.data?.matchedCount || 0} contracts matched\n\n${text}`,
-                },
-              });
-              if (!sent.ok) console.warn("[Orchestrator] Slack A2A PDF delivery (manual options) failed:", sent.error);
-            } else {
-              const sent = await deliverScreenerToSlackA2A(ctx.env, { text, channel: slackChannel });
-              if (!sent.ok) console.warn("[Orchestrator] Slack A2A notification (manual options) failed:", sent.error);
-            }
-          } catch (slackErr) {
-            console.warn("[Orchestrator] Slack notification (manual options) error:", slackErr instanceof Error ? slackErr.message : String(slackErr));
-          }
-        }
-
-        if (reqData.action === "opportunities" && result.success) {
-          let pdfKey: string | undefined;
-          if (reportUrl) {
-            try { pdfKey = new URL(reportUrl, "https://local.invalid").searchParams.get("key") || undefined; } catch { /* URL is optional metadata */ }
-          }
-          if (!pdfKey) {
-            try {
-              const { generateOptionsPdf, optionsPdfFileName } = await import("../../trading");
-              const pdfBytes = await generateOptionsPdf(result.data);
-              const fileName = optionsPdfFileName(result.data);
-              let binary = "";
-              for (let i = 0; i < pdfBytes.length; i += 8192) binary += String.fromCharCode(...pdfBytes.subarray(i, i + 8192));
-              pdfKey = await ctx.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), fileName);
-              reportUrl = `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
-            } catch (pdfErr) {
-              console.warn("[Orchestrator] Manual options report generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
-            }
-          }
-          const generatedAt = new Date().toISOString();
-          const generationId = `options_scanner:${generatedAt}:${reqData.thesis || "mixed"}`;
-          ctx.getOrm().storeCanonicalReport({
-            runId: generationId,
-            generationId,
-            title: `Options scanner — ${reqData.thesis || "mixed"} (${generatedAt.slice(0, 10)})`,
-            source: "options_scanner",
-            summary: result.summary,
-            body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, reportUrl },
-            createdAt: generatedAt,
-          });
-        }
-
-        const channel = reqData.channel || "ui";
-        if (channel === "slack") {
-          return Response.json(result.toSlack());
-        }
-        if (channel === "email") {
-          return Response.json({ html: result.toEmailHtml(), text: result.toEmailText(), summary: result.summary });
-        }
-        if (channel === "voice") {
-          return Response.json(result.toVoice());
-        }
-        if (channel === "webhook") {
-          return Response.json({ ...result.toWebhook(), reportUrl });
-        }
-        if (channel === "mcp") {
-          return Response.json(result.toMcp());
-        }
-        return Response.json({ ...result.toUi(), reportUrl });
+        return await executeUnifiedOptions({ request, sessionId, ctx, reqData });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Unified options query failed" }, { status: 500 });
       }
@@ -1217,6 +863,14 @@ export async function handleEtradeOptionsRoutes(
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to access options configuration" }, { status: 500 });
       }
+    }
+
+    // Issue #653: strategy candidate review endpoints.
+    if (path.endsWith("/options/strategy-reviews") && request.method === "GET") {
+      return handleOptionsStrategyReviewsList(url, ctx);
+    }
+    if (path.endsWith("/options/strategy-reviews/decide") && request.method === "POST") {
+      return handleOptionsStrategyReviewsDecide(request, ctx);
     }
 
   return null;

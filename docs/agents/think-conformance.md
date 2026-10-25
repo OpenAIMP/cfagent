@@ -220,3 +220,51 @@ installed framework, the baseline is now reproducible, and the material
 gaps (F2–F4) have tracked, sequenced remediation. Not ready to claim
 full Think conformance — by the plan's own rule, that claim waits on
 the F2 designation decision and live-path evidence.
+
+## Post-cutover addendum (2026-10-20, step 5 — issue #721)
+
+The assessment above is the pre-migration baseline and is preserved as
+written. Since it was taken: the F2 designation decision was made
+(#644 — `OrchestratorAgent` and `ResearchAgent` are **Required**), and
+the five-step migration program in `think-roles-decision.md` executed
+to completion. `OrchestratorAgent` now extends `Think<Env>` in
+production (#686 / PR #701, merge f7a0efc). Re-scored verdicts for the
+rows the cutover changes:
+
+| Requirement | Verdict at baseline | Re-scored | Basis |
+|---|---|---|---|
+| §8A Designated agents use the Think base class | PARTIAL | **PASS** | Both designated (Required) roles are Think-based: `ResearchAgent` and `OrchestratorAgent` (`src/agents/orchestrator.ts`, `src/agents/research-agent.ts`); pinned by `tests/think-conformance.test.ts`, whose adopter set is exactly these two files |
+| §8A Routing actually reaches the Think implementation | PARTIAL | **PASS** (source-level) | `SEARCH_AGENT` binding, the `SearchAgent` export alias, and the v1 migration are unchanged (pinned by `tests/orchestrator-think-cutover.test.ts`), so existing instances and routes reach the Think class; Think serves the same `cf_agent_chat_*` protocol the client uses. No live production turn was executed for this addendum — see the evidence note below |
+| §8A Tests exercise the Think path | FAIL | **PASS** (with the stub caveat recorded at F3) | The #542 conformance suite plus the step-2 parity harness and the step-4 cutover suite pin the Think surface (base class, model arm, tools, prompt bytes, route parity over all 105 judge-golden fixtures); the vitest Think stub now models the session surface centrally |
+| §8C Think owns the loop where adopted | PARTIAL | **PASS for the designated roles** | The orchestrator's manual `streamText` loop is removed; turns run through `beforeTurn` / `runTurn` / `onChatResponse`. The research fallback (F4) still exists by design and is observable since #543 |
+| §8E Turns, concurrency, recovery | UNKNOWN | **PARTIAL** | Admission is Think's durable queue (`cf_think_submissions`, FIFO, idempotency keys — verified in the shipped dist, #721 audit); step bounds are pinned equivalent-or-tighter (the sanitized clamp). Concurrent-turn and reconnect behavior under production load remain unexercised |
+| §9D Resource and cost controls | PASS (loop bounds) | **PASS** | The orchestrator bound is now Think's `maxSteps` from the shared clamp (`src/agents/chatPrompt.ts`); a non-numeric `MAS_MAX_STEPS` falls back to the default 6 instead of propagating NaN (deliberate delta, #686) |
+| §11 Cloudflare deployment profile | PARTIAL | **PARTIAL** (unchanged basis, stronger deploy evidence) | Two post-cutover deploys completed with Post-deploy QA green (f7a0efc, 8250179); no new migration was required. DO restart recovery against production instances is still not directly exercised |
+
+Finding status after the program: **F1** closed (#540). **F2** closed
+— the decision record names a designation for every exported class
+(#644); the five unmarked rows carry recommendations and await owner
+marks, which no longer blocks the designated roles' verdicts. **F3**
+closed in substance by the suites above. **F4** closed (#543).
+**F5** partially executed — the duplicate `PaymentsAgent` standalone
+class was removed by #597; the `SearchAgent` alias is intentional,
+documented at the export site, and load-bearing for the DO migration
+chain. **F6** remains open as a proposed follow-up.
+
+**Runtime-assumption audit (#721):** the five Think behaviors the
+cutover rests on were verified against the shipped
+`@cloudflare/think@0.19.0` dist and the `agents` sessions store —
+factory-form `runTurn` input (delta effect via the store's
+idempotent-on-id append), `addMessages` append semantics,
+`activeTurnMetadata` (server-turn metadata; the client stamps ride in
+the message's own metadata, which persists), `onChatResponse` firing
+for both entry points after persistence, and the native durable
+`submitMessages`. Full citations are on issue #721. No assumption
+failed verification.
+
+**Evidence note:** Post-deploy QA passing on both post-cutover deploys
+establishes deploy health, not an exercised production chat turn. The
+behavioral pins are the test suites above plus the source-level audit;
+a staging live-turn smoke remains a reasonable future addition but is
+not required to close the program, whose step-5 definition this
+addendum satisfies together with the #721 audit.

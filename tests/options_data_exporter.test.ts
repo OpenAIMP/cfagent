@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSyntheticOptionChains } from "../src/trading/options/syntheticChains";
-import { buildExportInput } from "../src/client/options/optionsDataExporter";
-import { createRawOptionsIdeasXls, createRetrievedOptionsDataXls } from "../src/client/options/optionsIdeasExport";
+import { buildExportInput } from "../src/client/runExport";
+import { createRawOptionsIdeasXls, createRetrievedOptionsDataXls } from "../src/client/runExport";
 
 describe("Options Data Exporter & Synthetic Fallback Chains", () => {
   it("generates realistic E*TRADE-compatible synthetic option chains for SPY", () => {

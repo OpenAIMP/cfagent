@@ -1002,3 +1002,85 @@
     grid-column: 1;
   }
 }
+
+/* Issue #223: autonomous options runs (schedules view) */
+.autonomous-runs {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-card);
+}
+.autonomous-runs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.autonomous-runs-head h3 {
+  margin: 0;
+  font-size: var(--font-size-body);
+  color: var(--color-text-primary);
+}
+.autonomous-runs-error {
+  color: var(--color-danger);
+  font-size: var(--font-size-body-sm);
+}
+.autonomous-runs-loading {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm);
+}
+.autonomous-runs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.autonomous-run {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+}
+.autonomous-run-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.autonomous-run-thesis {
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body-sm);
+}
+.autonomous-run-time {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+.autonomous-run-meta {
+  margin-top: 4px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+.autonomous-run-summary {
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+.autonomous-run-opps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.autonomous-run-opp {
+  padding: 2px 8px;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}

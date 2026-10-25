@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch as fetch } from "./apiFetch";
+import { EmptyState, Spinner, Button } from "./components/ui";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { TabHoverItem } from "./TabHoverItem";
 import { CapabilityNavBar, CopilotTriggerButton } from "./components/CapabilityNavBar";
@@ -583,15 +584,14 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                 </p>
               </div>
               <div className="section-intro-actions">
-                <button
+                <Button variant="secondary"
                   type="button"
-                  className="btn-refresh"
                   onClick={() => fetchScreener()}
                   disabled={screenerLoading}
                 >
                   <span className={screenerLoading ? "strat-spin" : ""}>🔄</span>
                   {screenerLoading ? "Scanning…" : "Refresh Screener"}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -619,14 +619,13 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <span className="status-dot amber" />
                   Alpaca Market Data v2 (On-Page)
                 </span>
-                <button
+                <Button variant="accent" tone="subtle" size="sm"
                   type="button"
-                  className="dual-card-refresh-btn"
                   onClick={() => loadAllSymbolData(activeSymbol)}
                   disabled={quoteLoading || snapshotLoading}
                 >
                   {quoteLoading || snapshotLoading ? "Refreshing…" : "🔄 Refresh Dual Feeds"}
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -738,43 +737,38 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             {/* Quick Action Navigation & Drawer Toggle */}
             <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", paddingTop: "0.25rem" }}>
               <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)", fontWeight: 600 }}>Deep-Dive Analysis:</span>
-              <button
+              <Button variant="accent" tone="subtle" size="sm"
                 type="button"
-                className="btn-table-action primary"
                 onClick={() => setSubTab("report")}
               >
                 🔬 In-Depth AI Research Report →
-              </button>
-              <button
+              </Button>
+              <Button variant="warning" size="sm" tone={showAlpacaDrawerOnScreener ? "solid" : "subtle"} aria-pressed={showAlpacaDrawerOnScreener}
                 type="button"
-                className={`btn-table-action warning ${showAlpacaDrawerOnScreener ? "active" : ""}`}
                 onClick={() => setShowAlpacaDrawerOnScreener(!showAlpacaDrawerOnScreener)}
               >
                 {showAlpacaDrawerOnScreener ? "▲ Hide Alpaca Snapshot Drawer" : "▼ Expand Alpaca Snapshot Drawer (On-Page)"}
-              </button>
-              <button
+              </Button>
+              <Button variant="secondary" tone="subtle" size="sm"
                 type="button"
-                className="btn-table-action secondary"
                 onClick={() => setSubTab("fundamentals")}
               >
                 ⚖️ Fundamentals &amp; Multiples →
-              </button>
-              <button
+              </Button>
+              <Button variant="trade" tone="subtle" size="sm"
                 type="button"
-                className="btn-table-action success"
                 onClick={() => setSubTab("bars")}
               >
                 📈 Candlestick Bars →
-              </button>
+              </Button>
               {onTradeSymbol && (
-                <button
+                <Button variant="trade"
                   type="button"
-                  className="btn-primary"
                   onClick={() => onTradeSymbol(activeSymbol)}
                   style={{ marginLeft: "auto" }}
                 >
                   ⚡ Trade {activeSymbol} on E*TRADE
-                </button>
+                </Button>
               )}
             </div>
 
@@ -989,9 +983,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                         </div>
                       </td>
                       <td style={{ textAlign: "center" }}>
-                        <button
+                        <Button variant="warning" size="sm" tone={activeSymbol === stock.symbol ? "solid" : "subtle"} aria-pressed={activeSymbol === stock.symbol}
                           type="button"
-                          className={`btn-table-action warning ${activeSymbol === stock.symbol ? "active" : ""}`}
                           title={`Inspect live Alpaca quote & snapshot for ${stock.symbol}`}
                           onClick={() => {
                             setSymbolInput(stock.symbol);
@@ -1001,13 +994,12 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                           {activeSymbol === stock.symbol && (alpacaQuote?.price || snapshot?.latestTrade?.price)
                             ? `🦙 $${Number(alpacaQuote?.price || snapshot?.latestTrade?.price || 0).toFixed(2)}`
                             : "🦙 Alpaca Quote"}
-                        </button>
+                        </Button>
                       </td>
                       <td style={{ textAlign: "center" }}>
                         <div style={{ display: "flex", gap: "0.35rem", justifyContent: "center" }}>
-                          <button
+                          <Button variant="accent" tone="subtle" size="sm"
                             type="button"
-                            className="btn-table-action primary"
                             title="Generate AI Research Report with Yahoo Finance & Alpaca"
                             onClick={() => {
                               setActiveSymbol(stock.symbol);
@@ -1016,10 +1008,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                             }}
                           >
                             🔬 Report
-                          </button>
-                          <button
+                          </Button>
+                          <Button variant="secondary" tone="subtle" size="sm"
                             type="button"
-                            className="btn-table-action secondary"
                             title="Inspect Fundamentals & Valuations via Yahoo Finance"
                             onClick={() => {
                               setActiveSymbol(stock.symbol);
@@ -1028,16 +1019,15 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                             }}
                           >
                             ⚖️ Ratios
-                          </button>
+                          </Button>
                           {onTradeSymbol && (
-                            <button
+                            <Button variant="trade" tone="subtle" size="sm"
                               type="button"
-                              className="btn-table-action success"
                               title="Send to E*TRADE Order Ticket for Execution"
                               onClick={() => onTradeSymbol(stock.symbol)}
                             >
                               ⚡ Trade on E*TRADE
-                            </button>
+                            </Button>
                           )}
                         </div>
                       </td>
@@ -1252,7 +1242,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               </div>
             </div>
           ) : (
-            <div className="empty-state">No research report available.</div>
+            <EmptyState title="No research report available." />
           )}
         </div>
       )}
@@ -1324,7 +1314,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   </div>
                 </div>
               ) : (
-                <div className="empty-state">Loading Yahoo Finance Quote…</div>
+                <EmptyState icon={<Spinner size="lg" label="Loading Yahoo Finance quote" />} title="Loading Yahoo Finance Quote…" />
               )}
             </div>
 
@@ -1391,7 +1381,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   </div>
                 </div>
               ) : (
-                <div className="empty-state">Loading Alpaca Quote…</div>
+                <EmptyState icon={<Spinner size="lg" label="Loading Alpaca quote" />} title="Loading Alpaca Quote…" />
               )}
             </div>
           </div>
@@ -1511,7 +1501,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               </div>
             </div>
           ) : (
-            <div className="empty-state">No fundamentals data available.</div>
+            <EmptyState title="No fundamentals data available." />
           )}
         </div>
       )}
@@ -1564,16 +1554,14 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                 <option value={60}>60 Bars</option>
                 <option value={90}>90 Bars</option>
               </select>
-              <button
+              <Button variant="secondary" size="sm"
                 type="button"
-                className="btn-compact btn-secondary"
                 disabled={barsLoading}
                 onClick={() => loadHistoricalBars(activeSymbol, barTimeframe, barLimit, barProvider)}
-                title="Refresh live market bars"
-                style={{ marginLeft: "0.25rem", padding: "0.25rem 0.65rem", fontSize: "0.78rem" }}
+                title="Refresh live market bars" style={{ marginLeft: "0.25rem" }}
               >
                 {barsLoading ? "Refreshing…" : "↻ Refresh"}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -1608,8 +1596,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               <tbody>
                 {bars.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="empty-state">
-                      {barsLoading ? "Loading historical bars…" : "No bars returned."}
+                    <td colSpan={8}>
+                      <EmptyState title={barsLoading ? "Loading historical bars…" : "No bars returned."} />
                     </td>
                   </tr>
                 ) : (
@@ -1705,18 +1693,17 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   W3C DID ATTESTED
                 </span>
               </div>
-              <button
+              <Button variant="secondary"
                 type="button"
-                className="btn-refresh"
                 onClick={loadAlpacaTraces}
                 disabled={tracesLoading}
               >
                 {tracesLoading ? "Refreshing Traces…" : "🔄 Refresh Audit Traces"}
-              </button>
+              </Button>
             </div>
 
             <p className="section-intro-desc" style={{ marginBottom: "1rem" }}>
-              Every market inquiry, snapshot lookup, and order routed through Alpaca is cryptographically stamped with Agent DID (<code>did:agent:openaimp:trading</code>) and recorded in SQLite Durable Objects (<code>mas_events</code>) for end-to-end provenance.
+              Every market inquiry, snapshot lookup, and order routed through Alpaca is cryptographically stamped with Agent DID (<code>did:agent:openaimp:trading</code>) and recorded in the persistent event ledger (<code>mas_events</code>) for end-to-end provenance.
             </p>
 
             {alpacaTraces.length === 0 ? (
@@ -1749,9 +1736,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                 <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--color-text-primary)" }}>
                   ⚡ Antigravity &amp; Agent MCP Server Config (Alpaca)
                 </span>
-                <button
+                <Button variant="accent"
                   type="button"
-                  className="btn-primary"
                   onClick={() => {
                     const cfg = JSON.stringify({
                       mcpServers: {
@@ -1771,7 +1757,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   }}
                 >
                   {copiedMcpConfig ? "✓ Copied Config!" : "📋 Copy MCP Config"}
-                </button>
+                </Button>
               </div>
               <pre style={{ margin: 0, background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "6px", padding: "0.75rem", fontSize: "0.78rem", color: "var(--color-text-primary)", overflowX: "auto" }}>
 {`{
@@ -1833,8 +1819,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               <tbody>
                 {comparisonResults.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="empty-state">
-                      {compareLoading ? "Gathering multi-stock metrics from Yahoo Finance & Alpaca…" : "No stocks to compare."}
+                    <td colSpan={11}>
+                      <EmptyState title={compareLoading ? "Gathering multi-stock metrics from Yahoo Finance & Alpaca…" : "No stocks to compare."} />
                     </td>
                   </tr>
                 ) : (

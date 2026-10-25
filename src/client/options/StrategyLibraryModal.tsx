@@ -12,6 +12,12 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { Button } from "../components/ui";
+import {
+  DIRECTION_TAGS,
+  DIRECTION_TAG_LABELS,
+  isDirectionTag,
+} from "../../trading/options/strategies/directionTags";
 import "./strategyDiscovery.css";
 
 export interface StrategyInfo {
@@ -58,11 +64,16 @@ export function StrategyLibraryModal({
 }: StrategyLibraryModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
+  // Issue #275: filter strategies by direction tag (the catalog theses).
+  const [directionFilter, setDirectionFilter] = useState<string>("All");
   const [localSelected, setLocalSelected] = useState<string[]>(selectedIds);
 
   // Re-sync the working selection each time the modal opens.
   useEffect(() => {
-    if (isOpen) setLocalSelected(selectedIds);
+    if (isOpen) {
+      setLocalSelected(selectedIds);
+      setDirectionFilter("All");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -74,15 +85,17 @@ export function StrategyLibraryModal({
         categoryFilter === "All" ||
         s.theses.some((t) => normalize(t) === normalize(categoryFilter)) ||
         normalize(s.category) === normalize(categoryFilter);
+      const matchDirection =
+        directionFilter === "All" || s.theses.includes(directionFilter);
       const q = searchQuery.trim().toLowerCase();
       const matchSearch =
         q === "" ||
         s.label.toLowerCase().includes(q) ||
         s.id.toLowerCase().includes(q) ||
         s.description.toLowerCase().includes(q);
-      return matchCat && matchSearch;
+      return matchCat && matchDirection && matchSearch;
     });
-  }, [strategies, categoryFilter, searchQuery]);
+  }, [strategies, categoryFilter, directionFilter, searchQuery]);
 
   if (!isOpen) return null;
 
@@ -135,6 +148,25 @@ export function StrategyLibraryModal({
               </button>
             ))}
           </div>
+          <div className="strat-library-directions" aria-label="Filter by direction">
+            <button
+              type="button"
+              className={`strat-cat-pill ${directionFilter === "All" ? "active" : ""}`}
+              onClick={() => setDirectionFilter("All")}
+            >
+              All directions
+            </button>
+            {DIRECTION_TAGS.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className={`strat-cat-pill dir-${tag} ${directionFilter === tag ? "active" : ""}`}
+                onClick={() => setDirectionFilter(tag)}
+              >
+                {DIRECTION_TAG_LABELS[tag]}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="strat-library-grid">
@@ -179,7 +211,10 @@ export function StrategyLibraryModal({
 
                 <div className="strat-card-theses">
                   {s.theses.map((t) => (
-                    <span key={t} className="strat-thesis-tag">
+                    <span
+                      key={t}
+                      className={`strat-thesis-tag${isDirectionTag(t) ? ` dir-${t}` : ""}`}
+                    >
                       {t.replace(/_/g, " ")}
                     </span>
                   ))}
@@ -192,10 +227,8 @@ export function StrategyLibraryModal({
                   )}
                   <div style={{ display: "flex", gap: "0.4rem" }}>
                     {onAnalyzeRisk && (
-                      <button
+                      <Button variant="warning" tone="subtle" size="sm"
                         type="button"
-                        className="strat-card-btn-risk"
-                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.72rem" }}
                         onClick={(e) => {
                           e.stopPropagation();
                           onAnalyzeRisk(s.id);
@@ -203,7 +236,7 @@ export function StrategyLibraryModal({
                         title="Analyze Strategy Risk & Management Playbook"
                       >
                         Risk
-                      </button>
+                      </Button>
                     )}
                     {!multiSelect && (
                       <button type="button" className="strat-lib-select-btn">

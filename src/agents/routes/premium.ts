@@ -29,13 +29,18 @@
 import {
   ETradeAgenticPaymentService,
   TRADING_PAID_SERVICES,
+  payerScopeId,
 } from "../../services/agenticPayments";
-import { ETradeService } from "../../services/etrade";
 import { FossResearchService } from "../../services/fossResearch";
-import { DynamicOptionsScreener, YFinanceMarketScreener } from "../../trading";
+import { UnifiedOptionsService } from "../../trading";
+import { parseOptionsScreenRequest } from "../../trading";
+import type { CaptureBlobStorage } from "../../trading";
+import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
+import type { NasdaqStockListing } from "../../services/nasdaqListings";
 import { sha256Hex } from "../../services/scheduledReports";
 import type { Env } from "../../types";
-import type { DatabaseORM } from "../../orm";
+import type { DatabaseORM, SqlStorage } from "../../orm";
+import type { ScreenerAgent } from "../screener-agent";
 
 /** The subset of OrchestratorAgent surface the premium handlers need. */
 export interface PremiumRouteContext {
@@ -43,6 +48,94 @@ export interface PremiumRouteContext {
   env: Env;
   /** ORM accessor (owner: OrchestratorAgent - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
+  /** Screener agent (owner: OrchestratorAgent.getScreenerAgent) — issue #1007: premium stock-signals execute through the one stock pipeline via this agent, with the Yahoo data-source adapter as provider. */
+  getScreenerAgent(userLogin?: string): ScreenerAgent;
+  /** Canonical-copy screener persistence (owner: OrchestratorAgent.persistScreenerReportCanonical) — the REST idiom. */
+  persistScreenerReportCanonical(result: {
+    timestamp: string;
+    universe?: unknown;
+    sector?: unknown;
+    provider?: unknown;
+    success: boolean;
+    totalScanned: number;
+    matchedCount: number;
+    opportunities: unknown[];
+    allStocks: unknown[];
+    pdfKey?: string;
+    error?: string;
+    trigger?: unknown;
+    userLogin?: string;
+  }): Promise<void>;
+  /** Durable Object SQL storage (owner: OrchestratorAgent — was
+   *  `this.ctx.storage.sql`). Issue #1206 (E5b): together with
+   *  blobStorage, supplies the data-provider platform deps for the
+   *  options scan. Optional: a host that owns no storage (unit
+   *  contexts) omits both handles and the scan constructs its
+   *  service exactly as before — no deps, nothing captured. */
+  sql?: SqlStorage;
+  /** Durable Object storage (owner: OrchestratorAgent — was
+   *  `this.ctx.storage`): the capture blob seam's storage half. */
+  blobStorage?: CaptureBlobStorage;
+}
+
+/**
+ * Issue #1206 (E5b): the OrchestratorAgent surface the factory below
+ * binds. env / getOrm / getScreenerAgent /
+ * persistScreenerReportCanonical are picked from PremiumRouteContext
+ * itself (the shapes are identical by construction); the only extra
+ * member is the agent context whose storage supplies the platform
+ * handles.
+ */
+type PremiumRouteHost = Pick<
+  PremiumRouteContext,
+  "env" | "getOrm" | "getScreenerAgent" | "persistScreenerReportCanonical"
+> & {
+  ctx: { storage: DurableObjectStorage };
+};
+
+/**
+ * Issue #1206 (E5b): build the premium route context from the
+ * orchestrator host. The context used to be an inline literal in
+ * routeRequest; it lives here now (the #992 extraction pattern, cf.
+ * makeRunScheduleCallback in routes/schedules.ts) so the storage
+ * handles the platform wiring needs could be added without growing
+ * orchestrator.ts past its size budget. The host arrives as unknown
+ * for the same reason makeRunScheduleCallback's does: the agent's
+ * ctx/env are protected DurableObject members, so no public
+ * structural type can name them; the cast below is the binding
+ * contract. Method calls go through the host object, so `this`
+ * stays bound to the agent.
+ */
+export function makePremiumRouteContext(host: unknown): PremiumRouteContext {
+  const h = host as PremiumRouteHost;
+  return {
+    env: h.env,
+    sql: h.ctx.storage.sql,
+    blobStorage: h.ctx.storage,
+    getOrm: () => h.getOrm(),
+    getScreenerAgent: (userLogin?: string) => h.getScreenerAgent(userLogin),
+    persistScreenerReportCanonical: (result) => h.persistScreenerReportCanonical(result),
+  };
+}
+
+/**
+ * Issue #183: build the payment service for a premium request. The
+ * worker (src/server.ts) sets the x-user-login header ONLY from the
+ * caller's verified session and strips it for anonymous traffic, which
+ * is served by the shared premium-gateway instance. So: header present
+ * → session traffic, per-user behaviour unchanged; header absent →
+ * anonymous traffic, and the service runs payer-bound so every
+ * persisted payment row/event is scoped by the VERIFIED payer
+ * (services/agenticPayments.ts payerScopeId), never by an asserted
+ * login and never pooled under the gateway instance's identity.
+ */
+function premiumPaymentService(
+  ctx: PremiumRouteContext,
+  sessionId: string,
+  request: Request
+): ETradeAgenticPaymentService {
+  const payerBound = !request.headers.get("x-user-login");
+  return new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId, undefined, { payerBound });
 }
 
 /**
@@ -59,7 +152,7 @@ export async function handlePremiumRoutes(
 ): Promise<Response | null> {
   // Paid Trading Service: Institutional Options & Greeks Screener ($0.05 USDC)
   if (path.includes("/premium/options-scan") && (request.method === "GET" || request.method === "POST")) {
-    const paymentService = new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId);
+    const paymentService = premiumPaymentService(ctx, sessionId, request);
     const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
 
     return paymentService.handleGatedEndpoint(
@@ -87,12 +180,59 @@ export async function handlePremiumRoutes(
             limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
           };
         }
-        const userLogin = request.headers.get("x-user-login") || sessionId || "premium_subscriber";
+        // Issue #959: the paid scan takes the same OptionScreenerFilter
+        // shape as every other options screen — validate through the
+        // ONE shared schema; a mis-shaped filter fails explicitly with
+        // the field named (in the endpoint's usual failure shape).
+        const parsedPremiumFilter = parseOptionsScreenRequest(filter);
+        if (!parsedPremiumFilter.ok) {
+          return { success: false, service: tier.name, receipt, error: parsedPremiumFilter.error };
+        }
+        filter = parsedPremiumFilter.value.filter;
+        // Issue #183: the fulfillment identity is the session login
+        // (x-user-login, set by the worker from the verified session)
+        // for signed-in traffic. For anonymous gateway traffic there is
+        // deliberately NO x-user-login — the identity is the VERIFIED
+        // payer scope from the payment receipt. That scope is not an app
+        // login and holds no stored E*TRADE tokens, so broker access
+        // fails honestly ("OAuth Token Missing") instead of running
+        // under a caller-asserted login. The previous fallbacks
+        // (sessionId, then a shared "premium_subscriber") are gone.
+        const userLogin = request.headers.get("x-user-login") || payerScopeId(receipt.payer);
         const rawEnvHdr = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
         const reqEnvLocal = (rawEnvHdr === "TEST" || rawEnvHdr === "PROD") ? rawEnvHdr : undefined;
-        const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, reqEnvLocal);
-        const screener = new DynamicOptionsScreener(etrade.client);
-        const result = await screener.screenOptions(filter);
+        // Issue #982 (screening consolidation S2): the paid scan
+        // executes through UnifiedOptionsService — the same service
+        // the REST routes call — instead of a route-local engine. The
+        // service's screen data IS the screen result this body has
+        // always carried; the caller's filter rides through with its
+        // symbols/limit lifted onto the request so the effective
+        // filter is unchanged. Payment gating above and the canonical
+        // persistence below are untouched.
+        // Issue #1206 (E5b): with the host's storage handles on the
+        // context, the paid scan executes ON the data-provider
+        // platform — platform deps in the same shape the REST host
+        // passes (etradeOptionsScreen.ts) — and presents callerTier
+        // "premium": this endpoint's x402 verification (above) IS
+        // the entitlement evidence, so an operator-tiered premium
+        // optionsChains route serves this path while refusing
+        // freemium surfaces, and premium scans are captured and
+        // run-linked like every other routed scan. The service
+        // bootstraps the platform itself when deps are supplied, as
+        // on the REST path. Without handles the service is
+        // constructed exactly as before (no deps, nothing captured).
+        const platformDeps = ctx.sql && ctx.blobStorage
+          ? { sql: ctx.sql, blobStorage: ctx.blobStorage, env: ctx.env }
+          : undefined;
+        const service = new UnifiedOptionsService(ctx.env, userLogin, reqEnvLocal, ctx.getOrm(), undefined, undefined, undefined, platformDeps, "premium");
+        const serviceResponse = await service.execute({
+          action: "screen",
+          channel: "webhook",
+          filter,
+          symbols: filter.underlyingSymbols,
+          limit: filter.limit,
+        });
+        const result = serviceResponse.data;
         const failed = result.status === "error";
         // Issue #307/#308: store the canonical options-scan report copy
         // (one row per generation) so scans are searchable via AI Search.
@@ -135,7 +275,7 @@ export async function handlePremiumRoutes(
 
   // Paid Trading Service: Autonomous Equity Research Report ($0.10 USDC)
   if (path.includes("/premium/market-research") && (request.method === "GET" || request.method === "POST")) {
-    const paymentService = new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId);
+    const paymentService = premiumPaymentService(ctx, sessionId, request);
     const tier = TRADING_PAID_SERVICES.MARKET_RESEARCH;
 
     return paymentService.handleGatedEndpoint(
@@ -185,7 +325,7 @@ export async function handlePremiumRoutes(
 
   // Paid Trading Service: Real-Time Quantitative Anomaly Signals ($0.02 USDC)
   if (path.includes("/premium/stock-signals") && (request.method === "GET" || request.method === "POST")) {
-    const paymentService = new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId);
+    const paymentService = premiumPaymentService(ctx, sessionId, request);
     const tier = TRADING_PAID_SERVICES.STOCK_SIGNALS;
 
     return paymentService.handleGatedEndpoint(
@@ -202,19 +342,81 @@ export async function handlePremiumRoutes(
           const sym = url.searchParams.get("symbols") || url.searchParams.get("symbol");
           if (sym) symbols = sym.split(",").map(s => s.trim().toUpperCase());
         }
+        symbols = symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean);
 
-        const screener = new YFinanceMarketScreener();
-        const screen = await screener.screenMarkets({ search: symbols.join(",") });
-        const signals = screen.stocks.map(stock => ({
-          symbol: stock.symbol,
-          price: stock.price,
-          changePercent: stock.changePercent,
-          rsi: stock.rsi,
-          volume: stock.volume,
-          signalType: (stock.rsi && stock.rsi < 35) ? "OVERSOLD_BOUNCE" : (stock.rsi && stock.rsi > 70) ? "OVERBOUGHT_MOMENTUM" : "TREND_CONTINUATION",
-          confidence: 0.88,
-          timestamp: new Date().toISOString(),
-        }));
+        // Issue #1007 (consolidation S3): the paid signals execute
+        // through the ONE stock pipeline — ScreenerAgent with the
+        // Yahoo data-source adapter as provider — instead of the
+        // retired second FOSS engine. The requested symbols
+        // are the run's explicit universe (membership only; prices come
+        // from live Yahoo quotes via the adapter). The run stores a
+        // canonical report in the REST idiom, like every other stock
+        // screen. Identity follows the #183 rule used by the options
+        // scan above: session login when present, else the verified
+        // payer scope.
+        const userLogin = request.headers.get("x-user-login") || payerScopeId(receipt.payer);
+        const listings: NasdaqStockListing[] = symbols.map((symbol) => {
+          const curated = getCuratedStockBySymbol(symbol);
+          return {
+            symbol,
+            companyName: curated?.companyName || symbol,
+            exchange: curated?.exchange || "nasdaq",
+            change: 0,
+            changePercent: 0,
+            sector: curated?.sector,
+          };
+        });
+        const agent = ctx.getScreenerAgent(userLogin);
+        let result;
+        try {
+          result = await agent.runScreen({
+            trigger: "manual",
+            provider: "yahoo",
+            symbols: listings,
+            maxSymbols: listings.length,
+            maxItems: listings.length,
+            filters: {},
+            userLogin,
+          });
+        } catch (screenErr) {
+          const error = screenErr instanceof Error ? screenErr.message : String(screenErr);
+          if (error.includes("already running")) {
+            return { success: false, service: tier.name, receipt, error: "Screen already running; retry shortly.", retryable: true };
+          }
+          throw screenErr;
+        }
+        await ctx.persistScreenerReportCanonical({ ...result, userLogin });
+        if (!result.success) {
+          // Honest failure (the options-scan idiom above): Yahoo
+          // unavailable fails the fulfillment visibly — no signals are
+          // fabricated from another provider or from static data.
+          return {
+            success: false,
+            service: tier.name,
+            receipt,
+            error: result.error || "Yahoo Finance unavailable; no stock signals could be produced.",
+          };
+        }
+        // Signals are the pipeline's screened rows for the requested
+        // symbols (allStocks rows that survived screening; with the
+        // empty filter here that is every quoted symbol).
+        // `confidence` is pipeline-derived — the screening indicator
+        // composite (indicators.screenScore, 0–100) normalized to
+        // 0–1. The hard-coded constant this replaces is gone.
+        // NOTE (response-shape change, disclosed): the old engine's
+        // per-signal `volume` field is not carried on the pipeline's
+        // scanned-stock shape, so it is dropped rather than fabricated.
+        const signals = result.allStocks
+          .filter((stock) => stock.signal !== "unknown")
+          .map((stock) => ({
+            symbol: stock.symbol,
+            price: stock.lastPrice,
+            changePercent: stock.changePercent,
+            rsi: stock.rsi14 ?? undefined,
+            signalType: (stock.rsi14 != null && stock.rsi14 < 35) ? "OVERSOLD_BOUNCE" : (stock.rsi14 != null && stock.rsi14 > 70) ? "OVERBOUGHT_MOMENTUM" : "TREND_CONTINUATION",
+            confidence: Number((stock.indicators.screenScore / 100).toFixed(2)),
+            timestamp: result.timestamp,
+          }));
 
         return {
           success: true,

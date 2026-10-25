@@ -145,6 +145,30 @@ export class MockSqlStorage implements SqlStorage {
       return [];
     }
 
+    // DROP TABLE [IF EXISTS] name (Issue #686: the legacy-session
+    // lift drops cf_ai_chat_agent_messages on a clean import; real
+    // SQLite removes the table and its rows)
+    const dropMatch = q.match(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(\w+)/i);
+    if (dropMatch) {
+      this.tables.delete(dropMatch[1]);
+      this.schema.delete(dropMatch[1]);
+      return [];
+    }
+
+    // SELECT name FROM sqlite_master WHERE type = 'table' AND
+    // name = 'x' (Issue #686: table-existence probes — answered from
+    // the mock's schema/table maps, like real SQLite's catalog)
+    if (/FROM\s+sqlite_master/i.test(q)) {
+      const nameArg =
+        typeof args[0] === "string"
+          ? args[0]
+          : q.match(/name\s*=\s*'([^']+)'/i)?.[1];
+      if (nameArg && (this.tables.has(nameArg) || this.schema.has(nameArg))) {
+        return [{ name: nameArg }];
+      }
+      return [];
+    }
+
     // PRAGMA table_info(tableName)
     const pragmaMatch = q.match(/PRAGMA\s+table_info\((\w+)\)/i);
     if (pragmaMatch) {
@@ -229,14 +253,48 @@ export class MockSqlStorage implements SqlStorage {
     }
 
     // INSERT INTO table (cols) VALUES (placeholders)
-    const insertMatch = q.match(/INSERT\s+(?:OR\s+IGNORE\s+)?INTO\s+(\w+)\s*\((.*?)\)\s*VALUES\s*\((.*?)\)/i);
+    // Issue #887: OR REPLACE is matched too — several services upsert
+    // with INSERT OR REPLACE (strategy reviews, strategy weights);
+    // real SQLite replaces the conflicting row, the mock must as well.
+    const insertMatch = q.match(/INSERT\s+(?:OR\s+(IGNORE|REPLACE)\s+)?INTO\s+(\w+)\s*\((.*?)\)\s*VALUES\s*\((.*?)\)/i);
     if (insertMatch) {
-      const tbl = insertMatch[1];
-      const cols = insertMatch[2].split(",").map((c) => c.trim());
+      const tbl = insertMatch[2];
+      const cols = insertMatch[3].split(",").map((c) => c.trim());
       const record: Record<string, any> = {};
 
+      // Issue #669: value tokens may mix placeholders with literals
+      // (e.g. VALUES (?, ?, 'queued', ?)) — a literal occupies its
+      // column without consuming a bound argument, exactly like real
+      // SQLite. Split on commas outside single quotes.
+      const valueTokens: string[] = [];
+      {
+        let current = "";
+        let inQuote = false;
+        for (const ch of insertMatch[4]) {
+          if (ch === "'") inQuote = !inQuote;
+          if (ch === "," && !inQuote) {
+            valueTokens.push(current);
+            current = "";
+          } else {
+            current += ch;
+          }
+        }
+        valueTokens.push(current);
+      }
+      let argIdx = 0;
       for (let i = 0; i < cols.length; i++) {
-        record[cols[i]] = args[i];
+        const token = (valueTokens[i] ?? "?").trim();
+        if (token === "?") {
+          record[cols[i]] = args[argIdx++];
+        } else if (token.startsWith("'") && token.endsWith("'")) {
+          record[cols[i]] = token.slice(1, -1).replace(/''/g, "'");
+        } else if (token.toUpperCase() === "NULL") {
+          record[cols[i]] = null;
+        } else if (!Number.isNaN(Number(token))) {
+          record[cols[i]] = Number(token);
+        } else {
+          record[cols[i]] = args[argIdx++];
+        }
       }
 
       let existing = this.tables.get(tbl);
@@ -248,7 +306,10 @@ export class MockSqlStorage implements SqlStorage {
       const idCol = cols[0];
       const existsIndex = existing.findIndex((r) => r[idCol] === record[idCol]);
       if (existsIndex >= 0) {
-        // IGNORE
+        if ((insertMatch[1] || "").toUpperCase() === "REPLACE") {
+          existing[existsIndex] = record;
+        }
+        // else IGNORE: keep the existing row
       } else {
         existing.push(record);
       }
@@ -256,7 +317,7 @@ export class MockSqlStorage implements SqlStorage {
     }
 
     // UPDATE table SET col = ?, ... WHERE id = ?
-    const updateMatch = q.match(/UPDATE\s+(\w+)\s+SET\s+(.*?)\s+WHERE\s+(.*?)$/i);
+    const updateMatch = q.match(/UPDATE\s+(\w+)\s+SET\s+(.*?)\s+WHERE\s+(.*?)$/is);
     if (updateMatch) {
       const tbl = updateMatch[1];
       const setPart = updateMatch[2];
@@ -275,6 +336,15 @@ export class MockSqlStorage implements SqlStorage {
         } else if (expr.includes("+")) {
           // e.g. impressions = impressions + 1
           updates.push({ col, val: null, isExpr: expr });
+        } else if (expr.startsWith("'") && expr.endsWith("'")) {
+          // Issue #669: literal SET assignments (e.g. status = 'running'
+          // in the async-job claim UPDATE) — real SQLite applies them
+          // without consuming a bound argument.
+          updates.push({ col, val: expr.slice(1, -1).replace(/''/g, "'") });
+        } else if (expr.toUpperCase() === "NULL") {
+          updates.push({ col, val: null });
+        } else if (!Number.isNaN(Number(expr))) {
+          updates.push({ col, val: Number(expr) });
         }
       }
 
@@ -323,49 +393,104 @@ export class MockSqlStorage implements SqlStorage {
     let argIdx = 0;
 
     for (const cond of conditions) {
-      const eqMatch = cond.match(/(\w+)\s*=\s*\?/);
-      if (eqMatch) {
-        const col = eqMatch[1];
-        const val = args[argIdx++];
-        if (row[col] != val) return false;
-        continue;
-      }
-
-      const likeMatch = cond.match(/lower\((\w+)\)\s+LIKE\s+\?/i);
-      if (likeMatch) {
-        const col = likeMatch[1];
-        const pattern = String(args[argIdx++] || "").toLowerCase().replace(/%/g, "");
-        const cell = String(row[col] || "").toLowerCase();
-        if (!cell.includes(pattern)) return false;
-        continue;
-      }
-
-      // Issue #255: comparison operators behave like real SQLite so
-      // retention-style range predicates (e.g. created_at < ?) are testable.
-      // ISO-8601 timestamps compare lexicographically, matching TEXT semantics.
-      const cmpMatch = cond.match(/(\w+)\s*(<=|>=|<|>)\s*\?/);
-      if (cmpMatch) {
-        const col = cmpMatch[1];
-        const op = cmpMatch[2];
-        const val = args[argIdx++];
-        const cell = row[col];
-        // Numeric when both sides are numbers; otherwise codepoint order,
-        // matching SQLite BINARY collation for TEXT (ISO-8601 timestamps).
-        let cmp: number;
-        if (typeof cell === "number" && typeof val === "number") {
-          cmp = cell - val;
-        } else {
-          const a = String(cell ?? "");
-          const b = String(val ?? "");
-          cmp = a < b ? -1 : a > b ? 1 : 0;
+      // OR group, e.g. "(LOWER(title) LIKE ? OR LOWER(summary) LIKE ?)":
+      // any branch may match; the matching branch consumes its args.
+      if (/\sOR\s/i.test(cond)) {
+        const branches = cond.split(/\sOR\s/i);
+        let matched = false;
+        let consumed = 0;
+        for (const branch of branches) {
+          const r = this.matchesCondition(row, branch, args.slice(argIdx));
+          if (r.matched) {
+            matched = true;
+            consumed = r.consumed;
+            break;
+          }
         }
-        if (op === "<" && !(cmp < 0)) return false;
-        if (op === ">" && !(cmp > 0)) return false;
-        if (op === "<=" && !(cmp <= 0)) return false;
-        if (op === ">=" && !(cmp >= 0)) return false;
+        if (!matched) return false;
+        argIdx += consumed;
         continue;
       }
+      const r = this.matchesCondition(row, cond, args.slice(argIdx));
+      if (!r.matched) return false;
+      argIdx += r.consumed;
     }
     return true;
+  }
+
+  /** Evaluate one AND-condition; reports whether it matched and how many args it consumed. */
+  private matchesCondition(
+    row: Record<string, any>,
+    cond: string,
+    args: unknown[]
+  ): { matched: boolean; consumed: number } {
+    let consumed = 0;
+    // IS NULL / IS NOT NULL (no args consumed).
+    const nullMatch = cond.match(/(\w+)\s+IS\s+(NOT\s+)?NULL/i);
+    if (nullMatch) {
+      const col = nullMatch[1];
+      const negated = !!nullMatch[2];
+      const isNull = row[col] === null || row[col] === undefined;
+      return { matched: negated ? !isNull : isNull, consumed: 0 };
+    }
+    const eqMatch = cond.match(/(\w+)\s*=\s*\?/);
+    if (eqMatch) {
+      const col = eqMatch[1];
+      const val = args[consumed++];
+      if (row[col] != val) return { matched: false, consumed: 0 };
+      return { matched: true, consumed };
+    }
+
+    // Issue #887: equality against a single-quoted literal, as several
+    // services interpolate (e.g. learnings' domain = 'x', strategy
+    // reviews' decision = 'pending'). Without this branch such
+    // conditions fell through to the lenient fallback and matched
+    // every row; real SQLite compares the literal.
+    const litMatch = cond.match(/(\w+)\s*=\s*'((?:[^']|'')*)'/);
+    if (litMatch) {
+      const col = litMatch[1];
+      const val = litMatch[2].replace(/''/g, "'");
+      if (row[col] != val) return { matched: false, consumed: 0 };
+      return { matched: true, consumed };
+    }
+
+    const likeMatch = cond.match(/lower\((\w+)\)\s+LIKE\s+\?/i);
+    if (likeMatch) {
+      const col = likeMatch[1];
+      const pattern = String(args[consumed++] || "")
+        .toLowerCase()
+        .replace(/%/g, "");
+      const cell = String(row[col] || "").toLowerCase();
+      if (!cell.includes(pattern)) return { matched: false, consumed: 0 };
+      return { matched: true, consumed };
+    }
+
+    // Issue #255: comparison operators behave like real SQLite so
+    // retention-style range predicates (e.g. created_at < ?) are testable.
+    // ISO-8601 timestamps compare lexicographically, matching TEXT semantics.
+    const cmpMatch = cond.match(/(\w+)\s*(<=|>=|<|>)\s*\?/);
+    if (cmpMatch) {
+      const col = cmpMatch[1];
+      const op = cmpMatch[2];
+      const val = args[consumed++];
+      const cell = row[col];
+      // Numeric when both sides are numbers; otherwise codepoint order,
+      // matching SQLite BINARY collation for TEXT (ISO-8601 timestamps).
+      let cmp: number;
+      if (typeof cell === "number" && typeof val === "number") {
+        cmp = cell - val;
+      } else {
+        const a = String(cell ?? "");
+        const b = String(val ?? "");
+        cmp = a < b ? -1 : a > b ? 1 : 0;
+      }
+      if (op === "<" && !(cmp < 0)) return { matched: false, consumed: 0 };
+      if (op === ">" && !(cmp > 0)) return { matched: false, consumed: 0 };
+      if (op === "<=" && !(cmp <= 0)) return { matched: false, consumed: 0 };
+      if (op === ">=" && !(cmp >= 0)) return { matched: false, consumed: 0 };
+      return { matched: true, consumed };
+    }
+    // Unrecognized condition: preserve the old lenient behavior.
+    return { matched: true, consumed: 0 };
   }
 }

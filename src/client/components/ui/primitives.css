@@ -1,0 +1,521 @@
+/*
+ * UI primitives stylesheet (#492) — styles for src/client/components/ui/.
+ *
+ * Rules here belong to the shared primitives ONLY. Every value comes from
+ * the semantic token layer in tokens.css: no raw colors (the #476 zero
+ * gate covers this file), so every primitive follows dark / light /
+ * system / high-contrast by construction. Imported once from main.tsx
+ * after styles.css. Accessibility notes (docs/agents/ux-architecture.md
+ * section 13): focus is always visible via --shadow-focus-ring +
+ * border-focus, targets meet the size scale below, and motion honors
+ * prefers-reduced-motion.
+ */
+
+/* ---------- SegmentedControl ---------- */
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--color-muted);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+}
+
+.segmented-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.segmented-control.size-sm .segmented-btn { font-size: 0.72rem; padding: 0.28rem 0.55rem; min-height: 28px; }
+.segmented-control.size-md .segmented-btn { font-size: 0.8rem; padding: 0.4rem 0.75rem; min-height: 34px; }
+.segmented-control.size-lg .segmented-btn { font-size: 0.88rem; padding: 0.55rem 1rem; min-height: 40px; }
+
+.segmented-btn:hover:not(:disabled) { color: var(--color-text-primary); background: var(--color-surface-hover); }
+
+.segmented-btn.selected {
+  background: var(--color-card-elevated);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-medium);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmented-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.segmented-btn:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.segmented-badge {
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.14rem 0.34rem;
+  border-radius: 999px;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+/* ---------- PillGroup ---------- */
+.pill-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: transparent;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.pill-group.size-sm .pill-btn { font-size: 0.7rem; padding: 0.24rem 0.55rem; min-height: 26px; }
+.pill-group.size-md .pill-btn { font-size: 0.78rem; padding: 0.38rem 0.8rem; min-height: 32px; }
+
+.pill-btn:hover:not(:disabled) { color: var(--color-text-primary); background: var(--color-muted); }
+.pill-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.pill-btn:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+/* Selected tone per variant — subtle bg + strong text + family border. */
+.pill-group.variant-default .pill-btn.selected,
+.pill-group.variant-cyan .pill-btn.selected {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border-color: var(--color-accent-border);
+}
+.pill-group.variant-emerald .pill-btn.selected {
+  background: var(--color-success-subtle);
+  color: var(--color-success-text);
+  border-color: var(--color-success-border);
+}
+.pill-group.variant-amber .pill-btn.selected {
+  background: var(--color-warning-subtle);
+  color: var(--color-warning-text);
+  border-color: var(--color-warning-border);
+}
+.pill-group.variant-purple .pill-btn.selected {
+  background: var(--color-purple-subtle);
+  color: var(--color-purple-text);
+  border-color: var(--color-purple-border);
+}
+
+
+/* ---------- Badge ---------- */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.ui-badge.size-xs { font-size: 0.58rem; padding: 0.05rem 0.35rem; }
+.ui-badge.size-sm { font-size: 0.66rem; padding: 0.1rem 0.45rem; }
+.ui-badge.size-md { font-size: 0.72rem; padding: 0.2rem 0.6rem; }
+
+.ui-badge.uppercase { text-transform: uppercase; letter-spacing: 0.04em; }
+
+.ui-badge .ui-badge-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; flex: none; }
+
+.ui-badge.tone-neutral { background: var(--color-muted); color: var(--color-text-secondary); border-color: var(--color-border-subtle); }
+.ui-badge.tone-accent { background: var(--color-accent-subtle); color: var(--color-accent); border-color: var(--color-accent-border); }
+.ui-badge.tone-success { background: var(--color-success-subtle); color: var(--color-success-text); border-color: var(--color-success-border); }
+.ui-badge.tone-warning { background: var(--color-warning-subtle); color: var(--color-warning-text); border-color: var(--color-warning-border); }
+.ui-badge.tone-danger { background: var(--color-danger-subtle); color: var(--color-danger-text); border-color: var(--color-danger-border); }
+.ui-badge.tone-info { background: var(--color-info-subtle); color: var(--color-info-text); border-color: var(--color-accent-border); }
+.ui-badge.tone-purple { background: var(--color-purple-subtle); color: var(--color-purple-text); border-color: var(--color-purple-border); }
+.ui-badge.tone-trade { background: var(--color-trade-subtle); color: var(--color-trade); border-color: var(--color-warning-border); }
+
+
+/* ---------- Button ---------- */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ui-btn.size-sm { font-size: 0.75rem; padding: 0.32rem 0.65rem; min-height: 30px; }
+.ui-btn.size-md { font-size: 0.85rem; padding: 0.5rem 1rem; min-height: 38px; }
+.ui-btn.size-lg { font-size: 0.95rem; padding: 0.65rem 1.3rem; min-height: 44px; }
+
+.ui-btn.variant-primary { background: var(--color-primary); color: var(--color-primary-foreground); }
+.ui-btn.variant-primary:hover:not(:disabled) { background: var(--color-primary-hover); }
+
+.ui-btn.variant-accent { background: var(--color-accent); color: var(--color-accent-contrast); border-color: var(--color-accent); }
+.ui-btn.variant-accent:hover:not(:disabled) { filter: brightness(1.1); }
+
+.ui-btn.variant-warning { background: var(--color-warning); color: var(--color-warning-foreground); border-color: var(--color-warning); }
+.ui-btn.variant-warning:hover:not(:disabled) { filter: brightness(1.05); }
+
+/* Subtle tone (#628): tinted background + tone text/border, for dense
+   table actions and toolbar chips (the old .btn-table-action family). */
+.ui-btn.tone-subtle.variant-primary { background: var(--color-primary-alpha); color: var(--color-primary); border-color: var(--color-primary-border); }
+.ui-btn.tone-subtle.variant-accent { background: var(--color-accent-subtle); color: var(--color-accent); border-color: var(--color-border-focus); }
+.ui-btn.tone-subtle.variant-trade { background: var(--color-trade-subtle); color: var(--color-trade); border-color: var(--color-trade); }
+.ui-btn.tone-subtle.variant-danger { background: var(--color-danger-subtle); color: var(--color-danger); border-color: var(--color-danger); }
+.ui-btn.tone-subtle.variant-warning { background: var(--color-warning-subtle); color: var(--color-warning); border-color: var(--color-warning); }
+.ui-btn.tone-subtle.variant-secondary { background: var(--color-surface); color: var(--color-text-secondary); border-color: var(--color-border-subtle); }
+.ui-btn.tone-subtle:hover:not(:disabled) { filter: brightness(1.05); }
+
+.ui-btn.variant-secondary {
+  background: var(--color-card-elevated);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-medium);
+}
+.ui-btn.variant-secondary:hover:not(:disabled) { background: var(--color-surface-hover); border-color: var(--color-border-strong); }
+
+.ui-btn.variant-ghost { background: transparent; color: var(--color-text-secondary); }
+.ui-btn.variant-ghost:hover:not(:disabled) { background: var(--color-muted); color: var(--color-text-primary); }
+
+.ui-btn.variant-danger { background: var(--color-danger); color: var(--color-danger-foreground); }
+.ui-btn.variant-danger:hover:not(:disabled) { background: var(--color-danger-text); }
+
+.ui-btn.variant-trade { background: var(--color-trade); color: var(--color-primary-foreground); }
+.ui-btn.variant-trade:hover:not(:disabled) { background: var(--color-trade-deep); }
+
+.ui-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ui-btn:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.ui-btn .ui-btn-spinner {
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: ui-spin 0.7s linear infinite;
+  flex: none;
+}
+
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+
+
+/* ---------- Spinner ---------- */
+.ui-spinner {
+  display: inline-block;
+  border-radius: 50%;
+  border-style: solid;
+  border-color: var(--color-border-medium);
+  border-top-color: var(--color-accent);
+  animation: ui-spin 0.8s linear infinite;
+  flex: none;
+}
+
+.ui-spinner.size-sm { width: 14px; height: 14px; border-width: 2px; }
+.ui-spinner.size-md { width: 20px; height: 20px; border-width: 2px; }
+.ui-spinner.size-lg { width: 36px; height: 36px; border-width: 3px; }
+
+/* ---------- EmptyState ---------- */
+.ui-empty {
+  text-align: center;
+  padding: 2.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.ui-empty.framed {
+  padding: 3rem 1.5rem;
+  background: var(--color-muted);
+  border: 1px dashed var(--color-border-subtle);
+  border-radius: 8px;
+}
+
+.ui-empty-icon { font-size: 2.2rem; margin-bottom: 0.65rem; }
+
+.ui-empty-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 0.35rem 0;
+}
+
+.ui-empty-text {
+  font-size: 0.82rem;
+  color: var(--color-text-dim);
+  max-width: 480px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+.ui-empty .ui-btn, .ui-empty .ui-empty-action { margin-top: 1rem; }
+
+
+/* ---------- Card ---------- */
+.ui-card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+.ui-card.elevated { background: var(--color-card-elevated); box-shadow: var(--shadow-md); }
+
+.ui-card.pad-none { padding: 0; }
+.ui-card.pad-sm { padding: 0.75rem; }
+.ui-card.pad-md { padding: 1.25rem; }
+.ui-card.pad-lg { padding: 1.75rem; }
+
+/* ---------- Notice ---------- */
+.ui-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  border: 1px solid transparent;
+}
+
+.ui-notice.variant-box { border-radius: 10px; padding: 0.7rem 0.9rem; }
+.ui-notice.variant-strip { border-left: none; border-right: none; border-radius: 0; padding: 0.5rem 1rem; }
+.ui-notice.density-compact { font-size: 0.74rem; }
+
+.ui-notice-icon { flex: none; }
+.ui-notice-body { flex: 1; }
+.ui-notice-title { margin-right: 0.35rem; }
+
+.ui-notice-dismiss {
+  flex: none;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0.15rem 0.25rem;
+  border-radius: 4px;
+}
+.ui-notice-dismiss:focus-visible { outline: none; box-shadow: var(--shadow-focus-ring); }
+
+.ui-notice.tone-neutral { background: var(--color-muted); color: var(--color-text-secondary); border-color: var(--color-border-subtle); }
+.ui-notice.tone-accent { background: var(--color-accent-subtle); color: var(--color-accent); border-color: var(--color-accent-border); }
+.ui-notice.tone-success { background: var(--color-success-subtle); color: var(--color-success-text); border-color: var(--color-success-border); }
+.ui-notice.tone-warning { background: var(--color-warning-subtle); color: var(--color-warning-text); border-color: var(--color-warning-border); }
+.ui-notice.tone-danger { background: var(--color-danger-subtle); color: var(--color-danger-text); border-color: var(--color-danger-border); }
+.ui-notice.tone-info { background: var(--color-info-subtle); color: var(--color-info-text); border-color: var(--color-accent-border); }
+
+
+/* ---------- Tabs ---------- */
+.ui-tabs {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.ui-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ui-tabs.size-sm .ui-tab { font-size: 0.8rem; padding: 0.55rem 0; }
+.ui-tabs.size-md .ui-tab { font-size: 0.92rem; padding: 0.85rem 0; }
+
+.ui-tab:hover:not(:disabled) { color: var(--color-text-primary); }
+
+.ui-tab.selected {
+  color: var(--color-accent);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+.ui-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.ui-tab:focus-visible {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: var(--shadow-focus-ring);
+}
+.ui-tab.selected:focus-visible { box-shadow: var(--shadow-focus-ring), inset 0 -2px 0 var(--color-accent); }
+
+.ui-tab-badge {
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.14rem 0.34rem;
+  border-radius: 999px;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+
+/* ---------- Form fields (TextInput / Select) ---------- */
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.ui-field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.ui-field-msg { font-size: 0.74rem; color: var(--color-text-dim); }
+.ui-field-msg.error { color: var(--color-danger-text); }
+
+.ui-input, .ui-select {
+  background: var(--color-input);
+  border: 1px solid var(--color-border-medium);
+  color: var(--color-input-foreground);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ui-input.size-sm, .ui-select.size-sm { padding: 0.34rem 0.6rem; font-size: 0.8rem; }
+.ui-input.size-md, .ui-select.size-md { padding: 0.5rem 0.75rem; }
+
+.ui-input::placeholder { color: var(--color-text-dim); }
+
+.ui-input:focus, .ui-select:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.ui-input.invalid, .ui-select.invalid { border-color: var(--color-danger); }
+.ui-input.invalid:focus, .ui-select.invalid:focus { border-color: var(--color-danger); box-shadow: var(--shadow-focus-ring); }
+
+.ui-input:disabled, .ui-select:disabled { opacity: 0.55; cursor: not-allowed; }
+
+
+/* ---------- Modal ---------- */
+/* Chrome (backdrop, dialog surface, header, close button) comes from the
+   Universal Modal System classes in tokens.css; only sizing + body/footer
+   layout live here. */
+.ui-modal { width: calc(100% - 2rem); max-height: 90vh; }
+.ui-modal.size-sm { max-width: 420px; }
+.ui-modal.size-md { max-width: 560px; }
+.ui-modal.size-lg { max-width: 720px; }
+.ui-modal.size-xl { max-width: 920px; }
+
+.ui-modal:focus { outline: none; }
+
+.ui-modal-title { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-primary); }
+div.ui-modal-title { font-size: inherit; font-weight: inherit; }
+
+.ui-modal-body { padding: 1.25rem 1.5rem; overflow-y: auto; }
+
+/* Footer nodes own their chrome (Modal renders the footer bare as the
+   dialog's last region); this helper is the standard action-bar look. */
+.ui-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+}
+
+
+/* ---------- Table ---------- */
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.82rem;
+}
+
+.ui-table-caption {
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  padding: 0.5rem 0;
+}
+
+.ui-table th {
+  padding: 0.65rem 0.85rem;
+  background: var(--color-muted);
+  color: var(--color-text-dim);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ui-table td {
+  padding: 0.65rem 0.85rem;
+  border-top: 1px solid var(--color-border-subtle);
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.ui-table tbody tr:hover { background: var(--color-surface-hover); }
+
+.ui-table .align-center { text-align: center; }
+.ui-table .align-right { text-align: right; }
+
+/* ---------- Skeleton ---------- */
+.ui-skeleton {
+  display: block;
+  background: var(--color-muted);
+  border-radius: 6px;
+  animation: ui-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.ui-skeleton.variant-text { height: 0.8rem; width: 100%; }
+.ui-skeleton.variant-block { height: 6rem; width: 100%; }
+.ui-skeleton.variant-circle { border-radius: 999px; width: 2.5rem; height: 2.5rem; }
+
+.ui-skeleton-lines { display: flex; flex-direction: column; gap: 0.5rem; }
+
+@keyframes ui-skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented-btn, .pill-btn, .ui-btn, .ui-tab, .ui-input, .ui-select { transition: none; }
+  .ui-btn .ui-btn-spinner { animation-duration: 1.6s; }
+  .ui-spinner { animation-duration: 1.6s; }
+  .ui-skeleton { animation: none; }
+}

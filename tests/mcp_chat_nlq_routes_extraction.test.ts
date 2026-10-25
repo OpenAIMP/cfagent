@@ -54,10 +54,11 @@ const baseCtx = (overrides: Partial<McpChatNlqRouteContext> = {}): McpChatNlqRou
       typeof m === "object" && m !== null && "content" in (m as any)
         ? String((m as any).content)
         : "",
-    getMessages: () => [],
-    setMessages: vi.fn(),
+    // Issue #686: the Think session's async read; the adapter no
+    // longer writes conversation messages (the turn driver owns
+    // session appends, beforeTurn owns the user mas_messages record).
+    getMessages: async () => [],
     recordMessage: vi.fn(),
-    persistMessages: vi.fn(async () => {}),
     runAgenticChatTurn: vi.fn(async () => ({
       result: { text: Promise.resolve("assistant reply") },
       route: { agent: "trading", confidence: 0.9, reason: "r", needsConfirmation: false },
@@ -164,15 +165,15 @@ describe("handleMcpChatNlqRoutes behavior", () => {
     expect(((await res!.json()) as any).error).toContain("non-empty array");
   });
 
-  it("POST /api/chat runs the single-owner chat turn and merges conversation state", async () => {
-    const setMessages = vi.fn();
-    const persistMessages = vi.fn(async () => {});
+  it("POST /api/chat runs the single-owner chat turn with history context", async () => {
+    const getMessages = vi.fn(async () => []);
+    const recordMessage = vi.fn();
     const runTurn = vi.fn(async () => ({
       result: { text: Promise.resolve("assistant reply") },
       route: { agent: "trading", confidence: 0.9, reason: "r", needsConfirmation: false },
     }));
     const audit = vi.fn();
-    const ctx = baseCtx({ setMessages, persistMessages, runAgenticChatTurn: runTurn, audit });
+    const ctx = baseCtx({ getMessages, recordMessage, runAgenticChatTurn: runTurn, audit });
     const url = new URL("https://agent.internal/api/chat");
     const path = "/api/chat";
     const res = await handleMcpChatNlqRoutes(
@@ -195,9 +196,14 @@ describe("handleMcpChatNlqRoutes behavior", () => {
     // No x-user-login header: chatUserLogin falls back to the session id.
     expect(args.userLogin).toBe("sess");
     expect(args.isAutoOptionsResearchRequest).toBe(false);
-    // Conversation state is merged and persisted.
-    expect(setMessages).toHaveBeenCalled();
-    expect(persistMessages).toHaveBeenCalled();
+    // Issue #686: history was read for the judge's recent-turns
+    // context (existing history + the current message, as the
+    // pre-cutover merge produced), and the adapter wrote NO
+    // conversation state and NO user record — session appends are
+    // the turn driver's, the user record is beforeTurn's.
+    expect(getMessages).toHaveBeenCalled();
+    expect(args.recentTurns).toEqual([{ role: "user", content: "hi there" }]);
+    expect(recordMessage).not.toHaveBeenCalledWith("user", expect.anything(), expect.anything());
     expect(audit).toHaveBeenCalledWith("chat.http_turn", "orchestrator", expect.anything());
   });
 

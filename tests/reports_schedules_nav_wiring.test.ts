@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const chatTypesSrc = readFileSync(join(here, "..", "src", "client", "chat", "types.ts"), "utf8").replace(/\r\n/g, "\n");
 const chatSrc = readFileSync(join(here, "..", "src", "client", "Chat.tsx"), "utf8").replace(/\r\n/g, "\n");
 const hubSrc = readFileSync(
   join(here, "..", "src", "client", "ETradeTradingHub.tsx"),
@@ -32,14 +33,14 @@ describe("reports/schedules nav wiring (#388)", () => {
   it.each(["reports", "schedules"])(
     "%s is a trading tab (hub container not hidden)",
     (tab) => {
-      expect(tradingTabsBlock(chatSrc)).toContain(`"${tab}"`);
+      expect(tradingTabsBlock(chatTypesSrc)).toContain(`"${tab}"`);
     },
   );
 
   it.each(["reports", "schedules"])(
     "mapTabToTradingSubTab maps %s to itself",
     (tab) => {
-      expect(chatSrc).toContain(`case "${tab}":\n      return "${tab}";`);
+      expect(chatTypesSrc).toContain(`case "${tab}":\n      return "${tab}";`);
     },
   );
 

@@ -47,7 +47,7 @@ describe("theme preference foundations", () => {
 
   it("validates saved values and defaults to system", () => {
     for (const value of [null, undefined, "invalid", "", 1]) expect(normalizeTheme(value)).toBe("system");
-    for (const value of ["light", "dark", "system"] as const) expect(normalizeTheme(value)).toBe(value);
+    for (const value of ["light", "dark", "system", "high-contrast"] as const) expect(normalizeTheme(value)).toBe(value);
     store.set(THEME_STORAGE_KEY, "invalid");
     expect(getStoredTheme()).toBe("system");
   });
@@ -58,6 +58,7 @@ describe("theme preference foundations", () => {
     expect(getEffectiveTheme("light")).toBe("light");
     dark = false;
     expect(getEffectiveTheme("system")).toBe("light");
+    expect(getEffectiveTheme("high-contrast")).toBe("high-contrast");
   });
 
   it("separates application from persistence", () => {

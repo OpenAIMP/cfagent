@@ -8,9 +8,14 @@
  * - Persistent scheduled task reminders with SQLite auditing.
  */
 
-import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from "../types";
+import type { Env, ScheduledTaskResult, StageChainConfig, TradeRecord, ScreenedStockItem } from "../types";
 import { DatabaseORM } from "../orm";
+import { codedMessage } from "../errors/errorAspects";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
+import {
+  guardScheduledETradeAuth,
+  type AuthEpisodeStore,
+} from "./etradeAuthPreflight";
 import { DynamicMarketScreener } from "../trading";
 import {
   type ScannedStock,
@@ -19,14 +24,32 @@ import {
 import { ETradeService } from "./etrade";
 import {
   UnifiedOptionsService,
+  OptionsAgentPipeline,
+  validateStrategyRequest,
+  validateNoViewRequest,
+  NO_VIEW_EXPECTED_IV_DIRECTION,
+  deriveDiscoveryRequest,
+  toProfileRef,
+  MAX_SAVED_REQUESTS_PER_RUN,
+  type NoViewStrategyRequest,
   type OptionThesis,
   type OptionStrategyType,
+  type StrategyRequest,
 } from "../trading";
+import { getOpportunityScannerConfig } from "../config/etapiConfig";
+import { tagOpportunitiesWithDirection, ETradeSlackTradingService } from "../trading";
 import type { ScanRunStore } from "../trading";
+import type { ETradeCaptureDeps } from "../trading";
+import type {
+  DiscoveryConstraintSet,
+  DiscoveryRunStatus,
+  DiscoveryRunStore,
+  DiscoverySymbolOutcome,
+  StrategyProfileStore,
+} from "../trading";
 import { DynamicOptionsScreener } from "../trading";
 import { OptionsDataAgent } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
-import { generateOptionsPdf, optionsPdfFileName } from "../trading";
 import type { IvHistoryStore } from "../trading";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
 import { getCuratedStockUniverse } from "../config/curatedStockUniverse";
@@ -38,8 +61,12 @@ import {
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "./tradingWebhooks";
 import { ScreenerEventBus } from "../events/screenerEvents";
+import { screenerOutcomeFromEvent } from "./screenerFollowups";
+import { recordJobOutcome } from "./jobOutcomes";
+import { storeReportStage } from "./unifiedReportPipeline";
 import { registerScreenerPublishers } from "../events/screenerPublishers";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
+import { getEventCalendarCoverage, getSymbolEventCalendar } from "./eventCalendar";
 
 export interface AutonomousOptionsAnalysisOptions {
   symbols?: string[];
@@ -58,6 +85,50 @@ export interface AutonomousOptionsAnalysisOptions {
   environment?: string;
   trigger?: "manual" | "scheduled";
   userLogin?: string;
+  /** Consolidation C4 (#1329): per-record stage-chain config — in
+   *  chain mode the run bridges fully (bridge deliver jobs carry the
+   *  adopted PDF; direct Slack/email delivery is suppressed so the
+   *  artifact is delivered exactly once). Absent ⇒ direct path. */
+  stageChain?: StageChainConfig;
+}
+
+export interface AutonomousStrategyDiscoveryOptions {
+  /** Complete saved StrategyRequests, captured from the discovery
+   *  panel and re-run verbatim (issue #126 decision — the system
+   *  never derives a target or invents a view for a schedule). */
+  requests?: StrategyRequest[];
+  /** Input model discriminator (issue #533). Absent or "saved-request"
+   *  is the #126 model above; "profile-derived" arms the fields
+   *  below instead; "no-view" (issue #534) arms constraintSets —
+   *  the service branches on it. The three shapes are mutually
+   *  exclusive: a payload mixing them fails pre-execution. */
+  inputModel?: "saved-request" | "profile-derived" | "no-view";
+  /** Profile-derived model: the explicit symbol set (exactly one of
+   *  symbols / watchlistName). */
+  symbols?: string[];
+  /** Profile-derived model: a watchlist name resolved at fire time
+   *  against the schedule owner's stored watchlists. */
+  watchlistName?: string;
+  /** Profile-derived model: the Strategy Profile id, resolved at
+   *  fire time under the schedule owner's identity. */
+  profileId?: string;
+  /** No-view model (issue #534): constraint sets — one symbol each,
+   *  constraints only. No thesis, target, or IV direction exists on
+   *  the type; validateNoViewRequest rejects smuggled view fields. */
+  constraintSets?: NoViewStrategyRequest[];
+  environment?: string;
+  trigger?: "manual" | "scheduled";
+  userLogin?: string;
+  /** The arming schedule's id, when the caller knows it (recorded as
+   *  run provenance; the SDK callback path supplies none). */
+  scheduleId?: string;
+  /** Consolidation C4 (#1329): per-record stage-chain config — a
+   *  completed discovery run bridges generate + serve (canonical
+   *  report adoption); delivery stays on the run's direct path
+   *  (deliverViaChain=false). Absent ⇒ unbridged. Failed runs do not
+   *  bridge: their existing failure-notice path is channel-divergent
+   *  from the bridge's, and suppressing it would risk a lost notice. */
+  stageChain?: StageChainConfig;
 }
 
 /**
@@ -85,8 +156,53 @@ export class ScheduledTasksService {
     private orm?: DatabaseORM,
     private userLogin: string = "default_trader",
     private scanRunStore?: ScanRunStore,
-    private ivHistoryStore?: IvHistoryStore
+    private ivHistoryStore?: IvHistoryStore,
+    private discoveryRunStore?: DiscoveryRunStore,
+    private strategyProfileStore?: StrategyProfileStore,
+    /** Issue #1123 S5b: the follow-up bridge. When the host wires it,
+     *  screener events join the tracked job pipeline instead of the
+     *  private event bus (stock chains fully; options bridge fully in
+     *  chain mode — C4 #1329 — and record-only otherwise, because
+     *  unchained options delivery stays on the #223 direct path). */
+    private followupScheduler?: (
+      outcome: import("./screenerFollowups").ScreenerRunOutcome,
+      userLogin: string,
+      chainReport: boolean,
+    ) => Promise<void>,
+    /** Issue #1157 (E2): data-provider platform deps for the
+     *  scheduled options path, supplied by the orchestrator-side
+     *  constructors that own a Durable Object storage handle (the
+     *  same storage the injected scanRunStore is built over).
+     *  Forwarded to UnifiedOptionsService; absent, scheduled scans
+     *  run exactly as before (raw client, no capture). */
+    private platformDeps?: ETradeCaptureDeps,
+    /** Issue #1355: async-job submission port for sharded chains.
+     *  Wired by the orchestrator to submitAsyncJob; absent, a
+     *  sharded run fails honestly instead of running unsharded
+     *  under a sharded label. */
+    private shardSubmit?: (
+      spec: import("../types").AsyncJobSubmission
+    ) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>
   ) {}
+
+  /**
+   * Issue #781: build the E*TRADE service for the scheduled options
+   * flows (discovery variants, IV collection). The injected ORM is
+   * forwarded as-is; these flows use the service's REST client, and
+   * the ORM reaches only its trading platform, whose contract is
+   * explicitly optional with every access guarded — so without an
+   * ORM, platform persistence is honestly absent. The former stub
+   * fallback (an ORM whose exec returns an empty array for every
+   * query) made the platform believe persistence existed while
+   * discarding every write. When no ORM is present, construct
+   * env-first: ETradeService's orm-first overload would otherwise
+   * drop the env argument.
+   */
+  private createETradeService(userLogin: string, environment?: string): ETradeService {
+    return this.orm
+      ? new ETradeService(this.orm, this.env, userLogin, environment)
+      : new ETradeService(this.env, undefined, userLogin, environment);
+  }
 
   /**
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
@@ -96,6 +212,33 @@ export class ScheduledTasksService {
       userLogin === "default_trader" ? "default" : `screener:${userLogin}`
     );
     return (this.env as any).SCREENER_AGENT.get(id);
+  }
+
+  /**
+   * Issue #1333: discovery outcomes into the job-outcome sink.
+   * Guarded on platformDeps.sql and never throwing — a sink failure
+   * must not fail the discovery run.
+   */
+  private recordDiscoveryOutcome(input: {
+    id: string;
+    trigger: "manual" | "scheduled";
+    status: "completed" | "failed" | "partial";
+    scanned?: number;
+    matched?: number;
+    codedError?: string;
+    createdAt?: string;
+  }): void {
+    try {
+      const sql = this.platformDeps?.sql;
+      if (!sql) return;
+      recordJobOutcome(sql, {
+        kind: "discovery",
+        origin: "discovery",
+        ...input,
+      });
+    } catch (err) {
+      console.warn("[ScheduledTasksService] discovery outcome record failed:", err instanceof Error ? err.message : String(err));
+    }
   }
 
   /**
@@ -118,6 +261,43 @@ export class ScheduledTasksService {
   }
 
   /**
+   * Issue #1174 (#1173 S1): the scheduled-run auth guard. Delegates
+   * the policy to etradeAuthPreflight (verify → renew → block) with
+   * this host's seams: the episode dedup store rides platformDeps'
+   * blob storage (the host DO storage, when the host supplied it) and
+   * the alert/record path is the follow-up bridge plus a direct Slack
+   * alert inside the guard. Never throws.
+   */
+  private async guardScheduledAuth(
+    userLogin: string,
+    environment: string | undefined,
+    kind: "stock" | "options",
+    label: string
+  ): Promise<{ blocked: true; error: string } | { blocked: false }> {
+    const blob = this.platformDeps?.blobStorage as unknown as
+      | AuthEpisodeStore
+      | undefined;
+    const store =
+      blob && typeof blob.get === "function" && typeof blob.put === "function"
+        ? blob
+        : undefined;
+    const res = await guardScheduledETradeAuth({
+      env: this.env,
+      userLogin,
+      environment,
+      store,
+      bridge: this.followupScheduler,
+      kind,
+      label,
+    });
+    if (res.blocked) {
+      this.audit("etrade.auth_blocked", { userLogin, kind, alerted: res.alerted });
+      return { blocked: true, error: res.error };
+    }
+    return { blocked: false };
+  }
+
+  /**
    * Issue #210: publish a screener event to the bus, registering the
    * Slack/email/webhook subscribers on first use. Never throws.
    */
@@ -126,6 +306,23 @@ export class ScheduledTasksService {
     event: import("../events/screenerEvents").ScreenerEvent
   ): Promise<void> {
     try {
+      // Issue #1123 S5b: the tracked pipeline is the preferred sink —
+      // the run is recorded as a main job and chained (report →
+      // deliveries → notifications) exactly like an interactive
+      // screen. The bus remains for hosts that don't wire the bridge.
+      if (this.followupScheduler) {
+        // Consolidation C4 (#1329): a chained event bridges fully —
+        // options in chain mode, and any screener event carrying a
+        // stage-chain config. Unchained options events stay
+        // record-only (chainReport=false); their delivery stays on
+        // the #223 direct path.
+        await this.followupScheduler(
+          screenerOutcomeFromEvent(event),
+          this.userLogin,
+          Boolean((event as { stageChain?: unknown }).stageChain) || event.type.startsWith("screener."),
+        );
+        return;
+      }
       if (!this.screenerBus) {
         this.screenerBus = new ScreenerEventBus();
         registerScreenerPublishers(this.screenerBus, {
@@ -220,6 +417,130 @@ export class ScheduledTasksService {
    * Runs an autonomous market screen via ScreenerAgent (#261).
    * One agent owns all screening; E*TRADE-only data with honest failure.
    */
+  /**
+   * Issue #1355: scheduled stock screen as sharded jobs. This
+   * branch does NOT run the screen — it submits the chain's first
+   * shard (feed.nasdaq) through the orchestrator's async-job
+   * submission port, and the executor's completion hooks advance
+   * the chain (nasdaq → etrade → yahoo → assemble → pdf/xlsx/csv
+   * → store → serve → deliver). The monolithic path below is
+   * untouched when the flag is absent; off runs keep today's
+   * behaviour exactly.
+   *
+   * Composition supersedes the single-provider option here: the
+   * feed shards fetch nasdaq (universe) + etrade (quotes) + yahoo
+   * (gap-fill quotes for symbols etrade missed + history
+   * technicals), and assemble merges them — the same dataset the
+   * monolithic path screens, with per-element provenance.
+   *
+   * No screener.completed event is published at submission: the
+   * run has no outcome yet, and publishing one would make the
+   * follow-up bridge record a second main job + a second report
+   * chain (double delivery). The chain IS the record — its
+   * completion announces via the tracked pipeline's delivered
+   * notifications, and its store shards write the mas_reports
+   * rows. The caller (scheduledCallbacks) records last_runs with
+   * the chain id and skips the canonical-row write, which the
+   * store shards own.
+   *
+   * Requires the shard-submit port (wired by the orchestrator to
+   * submitAsyncJob). Without it the run fails honestly instead of
+   * running unsharded under a sharded label.
+   */
+  private async autonomousMarketScreenSharded(
+    options: {
+      sector?: string;
+      universe?: string;
+      maxItems?: number;
+      userLogin?: string;
+      environment?: "TEST" | "PROD";
+      trigger?: "manual" | "scheduled";
+      emailTo?: string;
+      slackChannel?: string;
+      webhookUrl?: string;
+      pushToSlack?: boolean;
+      filters?: import("../types").StockScreenerFilter;
+      stageChain?: import("../types").StageChainConfig;
+    },
+    userLogin: string,
+    timestamp: string
+  ): Promise<ReturnType<ScheduledTasksService["autonomousMarketScreen"]>> {
+    const universe = (options.universe as any) || "TECH";
+    const sector = options.sector || options.filters?.sector || "ALL";
+    if (!this.shardSubmit) {
+      return {
+        success: false,
+        taskType: "market_screen",
+        error: "Sharded runs require the async-job submission port; run unsharded or configure the host.",
+        timestamp,
+      } as any;
+    }
+    try {
+      const { planFeedStart } = await import("./shardJobs");
+      const channels = [
+        ...(options.emailTo ? ["email"] : []),
+        ...(options.pushToSlack !== false ? ["slack"] : []),
+        ...(options.webhookUrl ? ["webhook"] : []),
+      ] as import("../types").AsyncJobChannel[];
+      const chainId = crypto.randomUUID();
+      const submitted = await this.shardSubmit(
+        planFeedStart({
+          chainId,
+          universe,
+          userLogin,
+          environment: options.environment,
+          trigger: options.trigger || "scheduled",
+          maxItems: options.maxItems,
+          timestamp,
+          channels,
+          emailTo: options.emailTo,
+          slackChannel: options.slackChannel,
+          webhookUrl: options.webhookUrl,
+          stageChain: options.stageChain,
+        })
+      );
+      this.audit("screener.sharded_chain_submitted", {
+        sector,
+        universe,
+        chainId,
+        jobId: submitted.jobId,
+      });
+      return {
+        success: true,
+        taskType: "market_screen",
+        data: {
+          totalScanned: 0,
+          matchedCount: 0,
+          opportunities: [],
+          allStocks: [],
+          sector,
+          universe,
+          provider: "sharded",
+          sharded: true,
+          chainId,
+          notifications: {
+            slack: options.pushToSlack !== false,
+            email: Boolean(options.emailTo),
+            webhook: Boolean(options.webhookUrl),
+          },
+        },
+        timestamp,
+      } as any;
+    } catch (err: any) {
+      this.audit("screener.screen_failed", {
+        sector: sector || "ALL",
+        error: err.message,
+        sharded: true,
+      });
+      return {
+        success: false,
+        taskType: "market_screen",
+        error: err.message || "Market screener execution error",
+        timestamp,
+      } as any;
+    }
+  }
+
   async autonomousMarketScreen(options: {
     sector?: string;
     universe?: string;
@@ -227,6 +548,23 @@ export class ScheduledTasksService {
     userLogin?: string;
     environment?: "TEST" | "PROD";
     trigger?: "manual" | "scheduled";
+    emailTo?: string;
+    slackChannel?: string;
+    webhookUrl?: string;
+    pushToSlack?: boolean;
+    filters?: import("../types").StockScreenerFilter;
+    /** Issue #1007: data provider (default "etrade"); "yahoo" runs the
+     *  same pipeline over the Yahoo data-source adapter. */
+    provider?: import("../trading").StockScreenProvider;
+    /** Consolidation C3 (#1277): stage-chain config from the schedule
+     *  payload — carried onto the run's events so the follow-up
+     *  bridge stamps the run's stage jobs. */
+    stageChain?: import("../types").StageChainConfig;
+    /** Issue #1355: run this scheduled screen as sharded jobs
+     *  (feed → generate → store → serve → deliver) instead of the
+     *  monolithic runScreen path. Absent/false keeps today's
+     *  behaviour exactly. */
+    sharded?: boolean;
   } = {}): Promise<ScheduledTaskResult<{
     totalScanned: number;
     matchedCount: number;
@@ -234,8 +572,21 @@ export class ScheduledTasksService {
     allStocks: ScannedStock[];
     sector?: string;
     universe?: string;
+    /** Issue #1007: provider that produced the run. */
+    provider?: string;
     expectedCount?: number;
     pdfKey?: string;
+    xlsxKey?: string;
+    csvKey?: string;
+    /** Issue #1355: true when this result came from the sharded path. */
+    sharded?: boolean;
+    /** Issue #1355: the submitted chain's id (sharded runs only). */
+    chainId?: string;
+    notifications?: {
+      slack?: boolean;
+      email?: boolean;
+      webhook?: boolean;
+    };
   }>> {
     const timestamp = new Date().toISOString();
 
@@ -243,6 +594,29 @@ export class ScheduledTasksService {
       const userLogin = options.userLogin || this.userLogin;
       if (!userLogin) {
         throw new Error("No authenticated E*TRADE account is associated with this scheduled screen. Open the schedules panel while signed in and run it again.");
+      }
+      // Issue #1174 (#1173 S1): pre-flight the broker token for
+      // E*TRADE-provider runs. An expired, unrenewable token blocks
+      // the run up front — recorded with the remedy, one alert per
+      // expiry episode — instead of failing inside quote acquisition
+      // every hour (the 2026-10-23 overnight incident). Yahoo runs
+      // never touch the broker (#1007) and skip the guard.
+      if ((options.provider ?? "etrade") === "etrade") {
+        const guard = await this.guardScheduledAuth(
+          userLogin,
+          options.environment,
+          "stock",
+          `${options.universe || "NASDAQ100"} stock screen`
+        );
+        if (guard.blocked) {
+          return { success: false, taskType: "market_screen", error: guard.error, timestamp };
+        }
+      }
+      // Issue #1355: sharded execution. The monolithic path below is
+      // untouched when the flag is absent — off runs keep today's
+      // behaviour exactly.
+      if (options.sharded) {
+        return this.autonomousMarketScreenSharded(options, userLogin, timestamp);
       }
       // Issue #261/#270: delegate screening to ScreenerAgent (E*TRADE-only).
       // Issue #421: pass the sector through unset when none was chosen —
@@ -252,8 +626,12 @@ export class ScheduledTasksService {
         sector: options.sector,
         universe: (options.universe as any) || "TECH",
         maxSymbols: options.maxItems,
+        filters: options.filters,
         userLogin,
         environment: options.environment,
+        // Issue #1007: provider rides through to the pipeline run;
+        // absent keeps the E*TRADE default, byte-identical in shape.
+        ...(options.provider ? { provider: options.provider } : {}),
       });
 
       if (result.skippedDuplicate) {
@@ -292,11 +670,25 @@ export class ScheduledTasksService {
         trigger: options.trigger || "scheduled",
         expectedCount: result.expectedCount,
         pdfKey: result.pdfKey,
+        pdfStatus: result.pdfStatus,
+        pdfError: result.pdfError,
+        xlsxKey: result.xlsxKey,
+        xlsxStatus: result.xlsxStatus,
+        xlsxError: result.xlsxError,
+        csvKey: result.csvKey,
+        csvStatus: result.csvStatus,
+        csvError: result.csvError,
         deliveryId: `${options.trigger || "scheduled"}:${result.universe}:${timestamp.slice(0, 16)}`,
         sector: result.sector || options.sector || "ALL",
         totalScanned: result.totalScanned,
         matchedCount: result.matchedCount,
         opportunities: result.opportunities,
+        filterSummary: result.filterSummary,
+        stageChain: options.stageChain,
+        emailTo: options.emailTo,
+        slackChannel: options.slackChannel,
+        webhookUrl: options.webhookUrl,
+        rejections: result.rejections,
         ...(result.partial
           ? {
               partial: {
@@ -319,8 +711,15 @@ export class ScheduledTasksService {
           allStocks: result.allStocks,
           sector: result.sector,
           universe: result.universe,
+          provider: result.provider,
           expectedCount: result.expectedCount,
           pdfKey: result.pdfKey,
+          csvKey: result.csvKey,
+          notifications: {
+            slack: options.pushToSlack !== false,
+            email: Boolean(options.emailTo),
+            webhook: Boolean(options.webhookUrl),
+          },
         },
         timestamp,
       };
@@ -357,12 +756,195 @@ export class ScheduledTasksService {
         deliveryId: `${options.trigger || "scheduled"}:${options.universe || "TECH"}:${timestamp.slice(0, 16)}`,
         sector: options.sector || "ALL",
         error: err.message || "Market screener execution error",
+        stageChain: options.stageChain,
+        emailTo: options.emailTo,
+        slackChannel: options.slackChannel,
+        webhookUrl: options.webhookUrl,
       });
 
       return {
         success: false,
         taskType: "market_screen",
         error: err.message || "Market screener execution error",
+        timestamp,
+      };
+    }
+  }
+
+  /**
+   * Consolidation C1 (issue #1201, epic #1151 R1): runs a goal-driven
+   * screen (Phase 1 scenario + Phase 3 semantics through the Phase 0
+   * registry) via ScreenerAgent — the same one-agent-owns-screening
+   * delegation as autonomousMarketScreen. Canonical recording
+   * (mas_reports + screening activity log) and optional Phase 6
+   * channel delivery happen inside executeGoalScreenRun; the run is
+   * ledger-idempotent on its minute slot, so a duplicate scheduled
+   * delivery reports skipped, exactly like the market screen. Failure
+   * contract mirrors autonomousMarketScreen (issue #112): audit +
+   * session message + a failure result, never a silent vanish.
+   */
+  async autonomousGoalScreen(options: {
+    goalKind?: string;
+    direction?: string;
+    scenarioId?: string;
+    symbols?: string[];
+    assetClasses?: ("stocks" | "options")[];
+    userLogin?: string;
+    environment?: "TEST" | "PROD";
+    trigger?: "manual" | "scheduled";
+    emailTo?: string;
+    slackChannel?: string;
+    pushToSlack?: boolean;
+    /** Consolidation C4 (#1329): per-record stage-chain config — a
+     *  completed goal screen bridges generate + serve (canonical
+     *  report adoption); delivery stays on the run's direct path
+     *  (deliverViaChain=false, Phase 6 HITL delivery unchanged).
+     *  Absent ⇒ unbridged. */
+    stageChain?: StageChainConfig;
+  } = {}): Promise<ScheduledTaskResult<{
+    taskId: string;
+    status?: string;
+    hits?: number;
+    goalKind?: string;
+  }>> {
+    const timestamp = new Date().toISOString();
+    try {
+      const userLogin = options.userLogin || this.userLogin;
+      if (!userLogin) {
+        throw new Error("No authenticated account is associated with this scheduled goal screen. Open the schedules panel while signed in and run it again.");
+      }
+      if (!this.orm) {
+        throw new Error("Goal-screen schedules require the ORM-backed schedule service.");
+      }
+      const { GOAL_KINDS, buildScenario } = await import("./goalScenarioEngine");
+      const runtime = await import("./screeningRuntime");
+      let scenario: ReturnType<typeof buildScenario>;
+      let scenarioSource: "built" | "stored";
+      if (options.scenarioId) {
+        const store = await import("./goalScenarioStore");
+        store.ensureGoalScenarioTables(this.orm as any);
+        const record = store.getScenario(this.orm as any, userLogin, options.scenarioId);
+        if (!record) {
+          throw new Error(`Stored scenario '${options.scenarioId}' was not found for this account.`);
+        }
+        const goal = store.getGoal(this.orm as any, userLogin, record.goalId);
+        if (!goal) {
+          throw new Error(`The goal owning scenario '${options.scenarioId}' was not found for this account.`);
+        }
+        scenario = runtime.scenarioFromStoredRecord(goal, record);
+        scenarioSource = "stored";
+      } else {
+        if (!options.goalKind || !(GOAL_KINDS as readonly string[]).includes(options.goalKind)) {
+          throw new Error(`goalKind must be one of: ${GOAL_KINDS.join(", ")}.`);
+        }
+        const outlooks = ["bullish", "bearish", "volatile", "range_bound", "unknown"];
+        if (options.direction !== undefined && !outlooks.includes(options.direction)) {
+          throw new Error(`direction must be one of: ${outlooks.join(", ")}.`);
+        }
+        scenario = buildScenario({
+          goalKind: options.goalKind as (typeof GOAL_KINDS)[number],
+          portfolioRef: { kind: "hypothetical" },
+          ...(options.direction
+            ? { direction: options.direction as ReturnType<typeof buildScenario>["direction"] }
+            : {}),
+        });
+        scenarioSource = "built";
+      }
+      const trigger = options.trigger || "scheduled";
+      const idempotencyKey =
+        trigger === "scheduled"
+          ? `goal-screen:scheduled:${userLogin}:${scenario.goalKind}:${timestamp.slice(0, 16)}`
+          : `goal-screen:manual:${userLogin}:${scenario.goalKind}:${timestamp}`;
+      const deliver: ("slack" | "email" | "webhook" | "voice")[] = [
+        ...(options.emailTo ? ["email" as const] : []),
+        ...(options.pushToSlack || options.slackChannel ? ["slack" as const] : []),
+      ];
+      const out = await runtime.executeGoalScreenRun({
+        agent: this.getScreenerAgent(userLogin),
+        orm: this.orm,
+        env: this.env,
+        userLogin,
+        scenario,
+        scenarioSource,
+        trigger,
+        idempotencyKey,
+        environment: options.environment,
+        assetClasses: options.assetClasses,
+        symbols: options.symbols,
+        ...(deliver.length > 0 ? { deliver } : {}),
+        ...(options.emailTo ? { emailTo: options.emailTo } : {}),
+      });
+      if (!out.executed) {
+        return { success: true, taskType: "goal_screen", skipped: true, timestamp } as any;
+      }
+      this.audit("goal_screen.run_completed", {
+        goalKind: out.result?.goalKind,
+        status: out.result?.status,
+        hits: out.result?.counts.hits,
+        taskId: out.taskId,
+      });
+      if (out.result?.status === "failed") {
+        throw new Error("Goal-driven screen failed on every requested asset class.");
+      }
+      // Consolidation C4 (#1329): chain identity + serve stage for a
+      // completed goal screen. Delivery is NOT chained — the run's
+      // direct Phase 6 delivery (incl. its HITL posture) stays
+      // untouched, and a bridge failure never fails the run.
+      if (options.stageChain && this.followupScheduler) {
+        try {
+          await this.followupScheduler(
+            {
+              kind: "goal",
+              trigger,
+              success: true,
+              thesis: `Goal screen — ${out.result?.goalKind ?? "goal"}`,
+              pdfKeys: [],
+              canonicalReportId: out.canonicalReportId,
+              deliverViaChain: false,
+              stageChain: options.stageChain,
+            },
+            userLogin,
+            true,
+          );
+        } catch (bridgeErr) {
+          console.warn("[ScheduledTasksService] Goal bridge failed (canonical row kept):", bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr));
+        }
+      }
+      return {
+        success: true,
+        taskType: "goal_screen",
+        timestamp,
+        data: {
+          taskId: out.taskId,
+          status: out.result?.status,
+          hits: out.result?.counts.hits,
+          goalKind: out.result?.goalKind,
+        },
+      };
+    } catch (err: any) {
+      this.audit("goal_screen.run_failed", {
+        goalKind: options.goalKind,
+        scenarioId: options.scenarioId,
+        error: err.message,
+      });
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `⚠️ Scheduled Goal Screen failed: ${err.message || "Goal screen execution error"}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: false,
+        taskType: "goal_screen",
+        error: err.message || "Goal screen execution error",
         timestamp,
       };
     }
@@ -568,6 +1150,25 @@ export class ScheduledTasksService {
       if (!userLogin) {
         throw new Error("No authenticated E*TRADE account is associated with this options screen. Sign in and run it again.");
       }
+      // Issue #1174 (#1173 S1): same auth pre-flight as the stock
+      // screen — options scans die on the same midnight-ET token
+      // cliff; block up front with one alert per episode instead.
+      {
+        const guard = await this.guardScheduledAuth(
+          userLogin,
+          options.environment,
+          "options",
+          "options screen"
+        );
+        if (guard.blocked) {
+          // Issue #1358: a blocked run is a failure, not a quiet
+          // return — throw so the catch below runs the full failure
+          // path (audit + session message + Slack notice + bus
+          // event). The episode alert itself stays deduped inside
+          // the guard; the per-run notice here is never deduped.
+          throw new Error(guard.error);
+        }
+      }
       if (options.trigger === "scheduled") {
         const jobKey = `options:${options.universe || (options.symbols || []).join(",")}:${targetThesis}:${options.maxItems ?? "all"}`;
         const claimed = await this.getScreenerAgent(userLogin).claimScheduledExecution(jobKey, options.environment);
@@ -597,8 +1198,16 @@ export class ScheduledTasksService {
         userLogin,
         options.environment,
         this.orm,
-        this.scanRunStore
+        this.scanRunStore,
+        undefined,
+        undefined,
+        this.platformDeps
       );
+
+      // Issue #16: fetch the event calendar for the scan's names so
+      // the run judges event risk per name and reports coverage. The
+      // service never throws; uncovered names stay unverified.
+      const scanCalendarCoverage = await getEventCalendarCoverage(symbols);
 
       const response = await unifiedService.execute({
         action: "opportunities",
@@ -610,31 +1219,148 @@ export class ScheduledTasksService {
         channel: "ui",
         userLogin,
         overrideEnv: options.environment,
+        // Issue #738: pass the symbol count so the scanner doesn't truncate to 20.
+        maxSymbols: symbols.length,
+        eventCalendarBySymbol: Object.fromEntries(scanCalendarCoverage.bySymbol),
       });
       if (!response.success) throw new Error(response.summary || "Scheduled options scan failed");
       const scanData = response.data as any;
       const scannedCount = Number(scanData?.scanned ?? 0);
       const coverageErrors = Number(scanData?.coverage?.errors ?? 0);
       const truncatedCount = Number(scanData?.truncatedSymbols ?? scanData?.coverage?.truncated ?? 0);
-      if (scannedCount !== symbols.length || coverageErrors > 0 || truncatedCount > 0) {
+      // Issue #916: Don't fail the entire run on partial chain failures.
+      // Log the coverage gaps but continue with what we have. Only throw
+      // if we have coverage data AND nothing was evaluated (total failure).
+      // If coverage is missing (e.g. test mocks), don't throw — the old
+      // code only threw on coverageErrors > 0.
+      const hasCoverage = scanData?.coverage != null;
+      const evaluatedCount = Number(scanData?.coverage?.evaluated ?? 0);
+      if (hasCoverage && evaluatedCount === 0) {
+        // Issue #915 (Mubasher): name the dominant skip reason alongside
+        // the counts — counts alone left failing runs undiagnosable.
+        // Issue #1290: the scanner now stamps that ranking on the
+        // result (partial.topSkipReason); consume the stamp when
+        // present and keep the local ranking only as the fallback for
+        // hand-built results (e.g. test mocks) that carry no stamp.
+        const skippedList: Array<{ reason?: unknown }> = Array.isArray(scanData?.skipped) ? scanData.skipped : [];
+        const stampedReason =
+          typeof scanData?.partial?.topSkipReason === "string" && scanData.partial.topSkipReason &&
+          typeof scanData?.partial?.topSkipCount === "number" && scanData.partial.topSkipCount > 0
+            ? (scanData.partial.topSkipReason as string)
+            : null;
+        let topReason: string | null = stampedReason;
+        let topCount = stampedReason
+          ? Number(scanData.partial.topSkipCount)
+          : 0;
+        if (!topReason) {
+          const reasonCounts = new Map<string, number>();
+          for (const entry of skippedList) {
+            const reason = typeof entry?.reason === "string" && entry.reason ? entry.reason : "Unknown";
+            reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+          }
+          for (const [reason, count] of reasonCounts) {
+            if (count > topCount) {
+              topReason = reason;
+              topCount = count;
+            }
+          }
+        }
+        const reasonSuffix = topReason
+          ? ` Top skip reason: "${topReason}" (${topCount} of ${skippedList.length} failed symbols).`
+          : "";
         throw new Error(
-          `Incomplete options universe: ${scannedCount} of ${symbols.length} underlyings scanned, ` +
-          `${coverageErrors} quote/chain failures, ${truncatedCount} truncated. No partial report published.`
+          codedMessage(
+            "SCREEN_003",
+            `Incomplete options universe: ${scannedCount} of ${symbols.length} underlyings scanned, ` +
+            `${coverageErrors} quote/chain failures, ${truncatedCount} truncated.${reasonSuffix} No partial report published.`,
+          )
+        );
+      }
+      if (coverageErrors > 0 || truncatedCount > 0) {
+        console.warn(
+          `[ScheduledTasks] [SCREEN_002] Partial options coverage: ${scannedCount} of ${symbols.length} scanned, ` +
+          `${coverageErrors} quote/chain failures, ${truncatedCount} truncated. Publishing partial report.`
         );
       }
 
+      // Issue #275: tag each opportunity with its strategy's direction
+      // tags (the catalog theses) before the PDF, the canonical report
+      // and the channel payloads are built from this data — every
+      // published copy carries the tags.
+      if (Array.isArray(scanData?.opportunities)) {
+        scanData.opportunities = tagOpportunitiesWithDirection(scanData.opportunities);
+      }
+
       const notifications: { slack?: boolean; email?: boolean; webhook?: boolean } = {};
+      let optionsPdfKey: string | undefined;
       let optionsPdf: Uint8Array | undefined;
       let optionsPdfFile: string | undefined;
-      let optionsPdfKey: string | undefined;
+      // Issue #1195 (#1173 R3b): options XLSX, twin of the PDF vars.
+      let optionsXlsxKey: string | undefined;
+      let optionsXlsx: Uint8Array | undefined;
+      let optionsXlsxFile: string | undefined;
+      let optionsCsvKey: string | undefined;
+      let optionsCsv: Uint8Array | undefined;
+      let optionsCsvFile: string | undefined;
+      // Issue #914: Use the unified report pipeline (delegates to
+      // ReportAssetAgent per #680, single owner for PDF generation).
       try {
-        optionsPdf = await generateOptionsPdf(response.data);
-        optionsPdfFile = optionsPdfFileName(response.data);
-        let binary = "";
-        for (let i = 0; i < optionsPdf.length; i += 8192) binary += String.fromCharCode(...optionsPdf.subarray(i, i + 8192));
-        optionsPdfKey = await this.getScreenerAgent(userLogin).storeOptionsPdf(btoa(binary), optionsPdfFile);
+        const { runReportPipeline } = await import("./unifiedReportPipeline");
+        const pipelineResult = await runReportPipeline(
+          this.env as any,
+          null as any, // Storage handled by ReportAssetAgent internally
+          {
+            type: "options",
+            trigger: "scheduled",
+            result: response.data,
+            userLogin,
+            title: `Options scanner — ${targetThesis} (${timestamp.slice(0, 10)})`,
+            summary: response.summary,
+            timestamp,
+          }
+        );
+        if (pipelineResult.pdfStatus === "generated") {
+          optionsPdfKey = pipelineResult.pdfKey;
+          // Fetch the bytes for Slack delivery
+          const screenerAgent = this.getScreenerAgent(userLogin);
+          const pdfData = await (screenerAgent as any).getPdfByKey(optionsPdfKey);
+          if (pdfData) {
+            optionsPdf = pdfData.bytes;
+            optionsPdfFile = pdfData.fileName;
+          }
+        } else {
+          // Issue #1023 (S4): NO direct-generator fallback — the unified
+          // pipeline is the only PDF path (#914/#680). The run publishes
+          // without a PDF: optionsPdfKey stays undefined, so no reportUrl
+          // is fabricated, and the failure is visible here in the log.
+          console.warn("[ScheduledTasksService] Options PDF generation via pipeline failed:", pipelineResult.pdfError);
+        }
       } catch (pdfErr) {
         console.warn("[ScheduledTasksService] Options PDF generation/storage failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
+      }
+      // Issue #1195 (#1173 R3b): generate + store the options XLSX
+      // (own failure domain; recorded, never fatal).
+      try {
+        const screenerAgent = this.getScreenerAgent(userLogin);
+        const stored = await (screenerAgent as any).generateAndStoreOptionsXlsx(response.data);
+        optionsXlsxKey = stored.key;
+        optionsXlsxFile = stored.fileName;
+        const data = await (screenerAgent as any).getOptionsXlsxByKey(stored.key);
+        if (data) optionsXlsx = data.bytes;
+      } catch (xlsxErr) {
+        console.warn("[ScheduledTasksService] Options XLSX generation/storage failed:", xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr));
+      }
+      // Issue #1346: generate + store the options CSV (own failure
+      // domain; recorded, never fatal).
+      try {
+        const screenerAgent = this.getScreenerAgent(userLogin);
+        const stored = await (screenerAgent as any).generateAndStoreOptionsCsv(response.data);
+        optionsCsvKey = stored.key;
+        optionsCsvFile = stored.fileName;
+        const data = await (screenerAgent as any).getOptionsCsvByKey(stored.key);
+        if (data) optionsCsv = data.bytes;
+      } catch (csvErr) {
+        console.warn("[ScheduledTasksService] Options CSV generation/storage failed:", csvErr instanceof Error ? csvErr.message : String(csvErr));
       }
       const reportUrl = optionsPdfKey
         ? `${this.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`
@@ -658,18 +1384,31 @@ export class ScheduledTasksService {
           withTrades: response.data?.withTrades ?? 0,
           opportunities: response.data?.opportunities ?? [],
           pdfKey: optionsPdfKey,
+          xlsxKey: optionsXlsxKey,
+          csvKey: optionsCsvKey,
+          csvUrl: optionsCsvKey
+            ? `/api/options/report.csv?key=${encodeURIComponent(optionsCsvKey)}`
+            : undefined,
           reportUrl,
           report: typeof response.toWebhook === "function" ? response.toWebhook() : response.data,
         },
         createdAt: timestamp,
       });
 
+      // Consolidation C4 (#1329): chain mode suppresses the direct
+      // Slack/email/webhook delivery below — the bridge's deliver jobs
+      // carry the adopted PDF instead, so the artifact is delivered
+      // exactly once. Audit + session message stay (they are the run's
+      // record, not delivery channels).
+      const chainMode = Boolean(options.stageChain);
+
       // One A2A file operation creates one Slack notification with the
       // summary attached, avoiding the old text-plus-file duplicate pair.
-      if (shouldNotifySlack) {
+      if (shouldNotifySlack && !chainMode) {
         const slackChannel = options.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL || (this.env as any).SLACK_CHANNEL;
         const slackPayload = response.toSlack();
         const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
+        const matchCount = response.data?.matchedCount || response.data?.opportunities?.length || 0;
         try {
           const delivery = await deliverScreenerToSlackA2A(this.env, {
             text,
@@ -678,8 +1417,18 @@ export class ScheduledTasksService {
               bytes: optionsPdf,
               fileName: optionsPdfFile,
               title: `Options Scanner Report — ${targetThesis} ${timestamp.slice(0, 10)}`,
-              comment: `📄 Options scan PDF — ${response.data.matchedCount || 0} contracts matched${reportUrl ? `\n${reportUrl}` : ""}\n\n${text}`,
+              comment: `📄 Options scan PDF — ${matchCount} matches${reportUrl ? `\n${reportUrl}` : ""}\n\n${text}`,
             } } : {}),
+            ...(optionsXlsx && optionsXlsxFile ? { files: [{
+              bytes: optionsXlsx,
+              fileName: optionsXlsxFile,
+              title: optionsXlsxFile,
+            }] } : {}),
+            ...(optionsCsv && optionsCsvFile ? { files: [{
+              bytes: optionsCsv,
+              fileName: optionsCsvFile,
+              title: optionsCsvFile,
+            }] } : {}),
           });
           notifications.slack = delivery.ok;
           if (!delivery.ok) console.warn("[ScheduledTasksService] Slack A2A PDF delivery failed:", delivery.error);
@@ -691,27 +1440,36 @@ export class ScheduledTasksService {
         }
       }
 
-      // 2. Push Email if recipient is specified
+      // 2. Push Email if recipient is specified or environment configured
       // Issue #303: Try cfpay via A2A first, fall back to local.
-      if (options.emailTo) {
+      const targetEmail = options.emailTo || (this.env as any).OPTIONS_EMAIL_TO || (this.env as any).SCREENER_EMAIL_TO;
+      if (targetEmail && !chainMode) {
         const cfpay = getCfpayConfig(this.env);
         let emailOk = false;
         if (cfpay) {
           try {
             const subject = `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`;
             const body = `${response.toEmailText()}${reportUrl ? `\n\nPDF report: ${reportUrl}` : ""}`;
-            let r;
-            if (optionsPdf && optionsPdfFile) {
+            // Issue #1195: attach PDF + XLSX when the run produced them.
+            const toB64 = (bytes: Uint8Array) => {
               let binary = "";
-              for (let i = 0; i < optionsPdf.length; i += 8192) binary += String.fromCharCode(...optionsPdf.subarray(i, i + 8192));
+              for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+              return btoa(binary);
+            };
+            const cfpayAttachments = [
+              ...(optionsPdf && optionsPdfFile ? [{ filename: optionsPdfFile, contentB64: toB64(optionsPdf), contentType: "application/pdf" }] : []),
+              ...(optionsXlsx && optionsXlsxFile ? [{ filename: optionsXlsxFile, contentB64: toB64(optionsXlsx), contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }] : []),
+            ];
+            let r;
+            if (cfpayAttachments.length > 0) {
               r = await cfpaySendEmailWithAttachments(cfpay, {
-                to: options.emailTo,
+                to: targetEmail,
                 subject,
                 body,
-                attachments: [{ filename: optionsPdfFile, contentB64: btoa(binary), contentType: "application/pdf" }],
+                attachments: cfpayAttachments,
               });
             } else {
-              r = await cfpaySendEmail(cfpay, options.emailTo, subject, body);
+              r = await cfpaySendEmail(cfpay, targetEmail, subject, body);
             }
             emailOk = r.ok;
             if (!r.ok) {
@@ -725,15 +1483,23 @@ export class ScheduledTasksService {
           try {
             const emailService = new ETradeEmailTradingService(this.env, this.orm, this.userLogin);
             notifications.email = await emailService.sendOutboundEmail(
-              options.emailTo,
+              targetEmail,
               `📊 E*TRADE Scheduled Options Intelligence [${targetThesis.toUpperCase()}] - ${symbols.join(", ")}`,
               response.toEmailHtml(),
               `${response.toEmailText()}${reportUrl ? `\n\nPDF report: ${reportUrl}` : ""}`,
-              optionsPdf && optionsPdfFile ? {
-                fileName: optionsPdfFile,
-                contentType: "application/pdf",
-                contentBase64: (() => { let b = ""; for (let i = 0; i < optionsPdf!.length; i += 8192) b += String.fromCharCode(...optionsPdf!.subarray(i, i + 8192)); return btoa(b); })(),
-              } : undefined
+              // Issue #1195: PDF + XLSX attachments (array form, #1191).
+              (() => {
+                const toB64 = (bytes: Uint8Array) => {
+                  let b = "";
+                  for (let i = 0; i < bytes.length; i += 8192) b += String.fromCharCode(...bytes.subarray(i, i + 8192));
+                  return btoa(b);
+                };
+                const list = [
+                  ...(optionsPdf && optionsPdfFile ? [{ fileName: optionsPdfFile, contentType: "application/pdf", contentBase64: toB64(optionsPdf) }] : []),
+                  ...(optionsXlsx && optionsXlsxFile ? [{ fileName: optionsXlsxFile, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", contentBase64: toB64(optionsXlsx) }] : []),
+                ];
+                return list.length > 0 ? list : undefined;
+              })()
             );
           } catch (emailErr) {
             console.warn("[ScheduledTasksService] Email notification error:", emailErr);
@@ -746,7 +1512,7 @@ export class ScheduledTasksService {
 
       // 3. Push Webhook if target URL is specified or default configured
       const targetWebhookUrl = options.webhookUrl || this.env.OUTBOUND_WEBHOOK_URL;
-      if (targetWebhookUrl) {
+      if (targetWebhookUrl && !chainMode) {
         try {
           const webhookService = new ETradeWebhookService(this.orm, this.env, this.userLogin);
           const webhookPayload = { ...response.toWebhook(), reportUrl };
@@ -791,6 +1557,33 @@ export class ScheduledTasksService {
         }
       }
 
+      // Issue #223: put the run on the screener event bus, mirroring the
+      // stock screen (#210). In chain mode (#1329) the event carries
+      // the PDF key + stage-chain config so the bridge can plan the
+      // serve/deliver stages; unchained, delivery stays on the direct
+      // A2A path and the event is the lifecycle record subscribers
+      // consume.
+      await this.publishScreenerEvent({
+        type: "options.completed",
+        timestamp,
+        trigger: options.trigger || "scheduled",
+        universe: options.universe,
+        thesis: targetThesis,
+        totalScanned: response.data?.scanned ?? symbols.length,
+        withTrades: response.data?.withTrades ?? 0,
+        symbols,
+        summary: response.summary,
+        reportUrl,
+        pdfKey: optionsPdfKey,
+        pdfStatus: optionsPdfKey ? "generated" : undefined,
+        stageChain: options.stageChain,
+        opportunities: (response.data?.opportunities || []).slice(0, 10).map((row: any) => ({
+          symbol: row.symbol,
+          strategy: row.pick?.best?.candidate?.type,
+          directionTags: row.directionTags,
+        })),
+      });
+
       return {
         success: true,
         taskType: "options_analysis" as any,
@@ -821,7 +1614,7 @@ export class ScheduledTasksService {
             id: crypto.randomUUID(),
             sessionId: this.userLogin,
             role: "assistant",
-            content: `⚠️ Scheduled Options Intelligence failed for ${symbols.join(", ")}: ${err.message || "Scheduled options analysis failed"}`,
+            content: `⚠️ Scheduled Options Intelligence failed for ${symbols.join(", ") || options.universe || "NASDAQ100"}: ${err.message || "Scheduled options analysis failed"}`,
             agent: "orchestrator",
             createdAt: timestamp,
           });
@@ -830,7 +1623,10 @@ export class ScheduledTasksService {
         }
       }
 
-      if (shouldNotifySlack) {
+      // Consolidation C4 (#1329): in chain mode the bridge's failure
+      // notifications cover the failure, so the direct notice is
+      // suppressed (same exactly-once rule as the success path).
+      if (shouldNotifySlack && !options.stageChain) {
         const failure = await deliverScreenerToSlackA2A(this.env, {
           channel: options.slackChannel,
           text: `⚠️ Scheduled Options Screen FAILED — ${options.universe || symbols.join(", ") || "NASDAQ100"} (${targetThesis})\nError: ${err.message || "Scheduled options analysis failed"}\n_Time: ${timestamp}_`,
@@ -838,11 +1634,1222 @@ export class ScheduledTasksService {
         if (!failure.ok) console.warn("[ScheduledTasksService] Slack A2A failure notification failed:", failure.error);
       }
 
+      // Issue #223: the failure joins the bus too, mirroring screener.failed.
+      await this.publishScreenerEvent({
+        type: "options.failed",
+        timestamp,
+        trigger: options.trigger || "scheduled",
+        universe: options.universe,
+        thesis: targetThesis,
+        error: err.message || "Scheduled options analysis failed",
+        stageChain: options.stageChain,
+      });
+
       return {
         success: false,
         taskType: "options_analysis" as any,
         error: err.message || "Scheduled options analysis failed",
         timestamp,
+      };
+    }
+  }
+
+  /**
+   * Scheduled strategy discovery (issue #126, PR-E): re-runs SAVED
+   * StrategyRequests — captured whole from the discovery panel — against
+   * live chains through the same OptionsAgentPipeline the interactive
+   * route uses, and persists one run record per execution
+   * (SqlDiscoveryRunStore) with per-symbol outcomes.
+   *
+   * The input model is deliberate (user decision on #126): the payload
+   * carries complete requests and this task re-runs them verbatim. It
+   * never derives a target price, a thesis, or any other part of a view
+   * the user did not configure.
+   *
+   * Honesty contract (mirrors the scanner's, per #112): a failure to
+   * resolve the owner/environment, a missing store, or an invalid
+   * payload fails the task with audit + session message and persists
+   * NOTHING. Once execution starts, exactly one run record is
+   * persisted: "completed" when every request produced a result,
+   * "partial" when some did and some failed (the failures are named on
+   * the record), and "failed" when none did — an all-failed run takes
+   * the failure path (audit + session message + { success: false })
+   * and its record exists for diagnosis, never as a success.
+   */
+
+  /**
+   * Issue #424: strategy-discovery failures were audit + session-message
+   * only — silent in Slack/webhook terms, unlike every sibling scheduled
+   * job (market screen failures fan out via the bus publishers; options
+   * analysis failures send a Slack A2A notice). Mirror that fan-out here:
+   * Slack (cfpay A2A when configured, else the bot-token service) plus the
+   * outbound webhook, each best-effort. When no channel is configured at
+   * all, audit the skip so the silence is at least on the record.
+   */
+  private async notifyStrategyDiscoveryFailure(args: {
+    error: string;
+    symbols: string[];
+    trigger?: string;
+    inputModel?: string;
+  }): Promise<void> {
+    const text =
+      `⚠️ Scheduled Strategy Discovery FAILED — ${args.symbols.join(", ") || "no symbols"}\n` +
+      `Error: ${args.error}\n_Time: ${new Date().toISOString()}_`;
+    let attempted = false;
+    try {
+      if (getCfpayConfig(this.env)) {
+        attempted = true;
+        const result = await deliverScreenerToSlackA2A(this.env, { text });
+        if (!result.ok) {
+          console.warn("[ScheduledTasksService] Discovery failure Slack A2A failed:", result.error);
+        }
+      } else if (this.env.SLACK_BOT_TOKEN || this.env.SLACK_WEBHOOK_URL) {
+        attempted = true;
+        const slack = new ETradeSlackTradingService(this.env, this.orm, this.userLogin);
+        await slack.postSlackMessage({ text } as any);
+      }
+    } catch (err) {
+      console.warn(
+        "[ScheduledTasksService] Discovery failure Slack notify failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+    const webhookUrl = this.env.OUTBOUND_WEBHOOK_URL;
+    if (webhookUrl) {
+      attempted = true;
+      try {
+        const webhook = new ETradeWebhookService(this.orm, this.env, this.userLogin);
+        await webhook.dispatchOutboundWebhook(
+          "options.strategy_discovery_failed",
+          {
+            error: args.error,
+            symbols: args.symbols,
+            trigger: args.trigger || "scheduled",
+            ...(args.inputModel ? { inputModel: args.inputModel } : {}),
+          },
+          webhookUrl
+        );
+      } catch (err) {
+        console.warn(
+          "[ScheduledTasksService] Discovery failure webhook notify failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+    if (!attempted) {
+      this.audit("options.strategy_discovery_notify_skipped", {
+        error: args.error,
+        symbols: args.symbols,
+        ...(args.inputModel ? { inputModel: args.inputModel } : {}),
+        reason: "no notification channel configured",
+      });
+    }
+  }
+
+  async autonomousStrategyDiscovery(
+    options: AutonomousStrategyDiscoveryOptions = {}
+  ): Promise<ScheduledTaskResult<{
+    runId: string;
+    status: DiscoveryRunStatus;
+    requestCount: number;
+    completedCount: number;
+    failedCount: number;
+    symbols: string[];
+    failures: Array<{ symbol: string; error: string }>;
+    abstained?: Array<{ symbol: string; reason: string }>;
+  }>> {
+    const timestamp = new Date().toISOString();
+    // Issue #534: the no-view input model has its own validation +
+    // ranking flow. A payload carrying constraintSets under any other
+    // (or no) discriminator routes here too, so the shape is judged
+    // — and rejected as mixed — instead of being silently ignored by
+    // a sibling model.
+    if (options.inputModel === "no-view" || options.constraintSets !== undefined) {
+      return this.autonomousStrategyDiscoveryNoView(options, timestamp);
+    }
+    // Issue #533: the profile-derived input model has its own
+    // resolution + derivation flow; the saved-request path below is
+    // untouched for every other payload.
+    if (options.inputModel === "profile-derived") {
+      return this.autonomousStrategyDiscoveryDerived(options, timestamp);
+    }
+    const requests = options.requests ?? [];
+    const symbols = requests.map((r) => (typeof r?.symbol === "string" ? r.symbol.toUpperCase().trim() : "?"));
+
+    const fail = async (error: string, runId?: string, status?: DiscoveryRunStatus, failures: Array<{ symbol: string; error: string }> = []) => {
+      this.audit("options.strategy_discovery_failed", {
+        symbols,
+        trigger: options.trigger || "scheduled",
+        ...(runId ? { runId } : {}),
+        error,
+      });
+      // Issue #1333: discovery outcomes into the job-outcome sink.
+      this.recordDiscoveryOutcome({
+        id: runId ?? `discovery:${timestamp}:${symbols.join(",")}`,
+        trigger: options.trigger || "scheduled",
+        status: "failed",
+        scanned: requests.length,
+        matched: 0,
+        codedError: error,
+        createdAt: timestamp,
+      });
+      await this.notifyStrategyDiscoveryFailure({ error, symbols, trigger: options.trigger });
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `⚠️ Scheduled Strategy Discovery failed for ${symbols.join(", ") || "no saved requests"}: ${error}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: false,
+        taskType: "strategy_discovery" as any,
+        error,
+        ...(runId
+          ? {
+              data: {
+                runId,
+                status: status as DiscoveryRunStatus,
+                requestCount: requests.length,
+                completedCount: requests.length - failures.length,
+                failedCount: failures.length,
+                symbols,
+                failures,
+              },
+            }
+          : {}),
+        timestamp,
+      } as ScheduledTaskResult<{
+        runId: string;
+        status: DiscoveryRunStatus;
+        requestCount: number;
+        completedCount: number;
+        failedCount: number;
+        symbols: string[];
+        failures: Array<{ symbol: string; error: string }>;
+        abstained?: Array<{ symbol: string; reason: string }>;
+      }>;
+    };
+
+    try {
+      const userLogin = options.userLogin || this.userLogin;
+      if (!userLogin) {
+        return await fail("No authenticated E*TRADE account is associated with this scheduled discovery. Open the schedules panel while signed in and run it again.");
+      }
+      if (!this.discoveryRunStore) {
+        return await fail("Discovery run store not configured for this service instance");
+      }
+      if (!Array.isArray(requests) || requests.length === 0) {
+        return await fail("Scheduled discovery requires at least one saved strategy request; none was supplied. Capture a view in the discovery panel and schedule it — no view is invented for a schedule.");
+      }
+      if (requests.length > MAX_SAVED_REQUESTS_PER_RUN) {
+        return await fail(`Scheduled discovery is capped at ${MAX_SAVED_REQUESTS_PER_RUN} saved requests per run; ${requests.length} were supplied.`);
+      }
+      for (let i = 0; i < requests.length; i++) {
+        const validationError = validateStrategyRequest(requests[i]);
+        if (validationError) {
+          return await fail(`Saved discovery request ${i + 1} of ${requests.length} (${symbols[i]}) is invalid: ${validationError}`);
+        }
+      }
+
+      // One client/pipeline for the whole execution — the same
+      // construction the interactive strategies route uses, under the
+      // schedule owner's identity and environment (#447/#461).
+      const etrade = this.createETradeService(userLogin, options.environment);
+      const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
+
+      const outcomes: DiscoverySymbolOutcome[] = [];
+      for (const request of requests) {
+        outcomes.push(await this.runDiscoveryRequest(pipeline, etrade, request));
+      }
+
+      const failures = outcomes
+        .filter((o) => o.status === "failed")
+        .map((o) => ({ symbol: o.symbol, error: o.error || "unknown failure" }));
+      const status: DiscoveryRunStatus =
+        failures.length === 0 ? "completed" : failures.length === outcomes.length ? "failed" : "partial";
+
+      const run = await this.discoveryRunStore.save({
+        createdAt: timestamp,
+        trigger: options.trigger === "manual" ? "manual-trigger" : "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+        userLogin,
+        inputModel: "saved-request",
+        requests,
+        outcomes,
+        status,
+      });
+
+      await this.persistDiscoveryCanonicalAndBridge({
+        run,
+        summary: `Strategy discovery (saved-request) ${status}: ${requests.length - failures.length} of ${requests.length} requests produced results.`,
+        symbols,
+        options,
+        timestamp,
+      });
+
+      if (status === "failed") {
+        return await fail(
+          `Every saved discovery request failed (${failures.map((f) => `${f.symbol}: ${f.error}`).join("; ")})`,
+          run.id,
+          status,
+          failures
+        );
+      }
+
+      this.audit("options.strategy_discovery_completed", {
+        runId: run.id,
+        status,
+        symbols,
+        requestCount: requests.length,
+        completedCount: requests.length - failures.length,
+        failedCount: failures.length,
+        trigger: options.trigger || "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+      // Issue #1333: discovery outcomes into the job-outcome sink.
+      this.recordDiscoveryOutcome({
+        id: run.id,
+        trigger: options.trigger || "scheduled",
+        status: status === "completed" ? "completed" : "partial",
+        scanned: requests.length,
+        matched: requests.length - failures.length,
+        codedError: failures.length > 0 ? failures.map((f) => `${f.symbol}: ${f.error}`).join("; ") : undefined,
+        createdAt: timestamp,
+      });
+
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content:
+              status === "completed"
+                ? `🔭 Scheduled Strategy Discovery completed for ${symbols.join(", ")}: all ${requests.length} saved requests produced results.`
+                : `🔭 Scheduled Strategy Discovery partially completed for ${symbols.join(", ")}: ${requests.length - failures.length} of ${requests.length} requests produced results; failed: ${failures.map((f) => `${f.symbol} (${f.error})`).join("; ")}.`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+
+      return {
+        success: true,
+        taskType: "strategy_discovery" as any,
+        data: {
+          runId: run.id,
+          status,
+          requestCount: requests.length,
+          completedCount: requests.length - failures.length,
+          failedCount: failures.length,
+          symbols,
+          failures,
+        },
+        timestamp,
+      };
+    } catch (err: any) {
+      return await fail(err?.message || "Scheduled strategy discovery failed");
+    }
+  }
+
+  /**
+   * Consolidation C4 (#1329): persist the canonical mas_reports row
+   * for a discovery run and, when the run carries stageChain, bridge
+   * it (generate + serve stages; delivery stays on the run's direct
+   * path via deliverViaChain=false). Called right after the detail
+   * save, before the status is judged — so even a failed run gains
+   * its canonical row (the detail prune can never erase it from
+   * GET /api/runs). Failed runs do NOT bridge: their failure-notice
+   * path is channel-divergent from the bridge's, and suppressing it
+   * would risk a lost notice. A bridge failure never fails the run
+   * itself — it is logged, and the canonical row is the record.
+   */
+  private async persistDiscoveryCanonicalAndBridge(args: {
+    run: { id: string; status: DiscoveryRunStatus; inputModel: string };
+    summary: string;
+    symbols: string[];
+    options: AutonomousStrategyDiscoveryOptions;
+    timestamp: string;
+  }): Promise<string | undefined> {
+    let reportId: string | undefined;
+    if (this.orm) {
+      const stored = await storeReportStage(this.orm, {
+        runId: `discovery:${args.run.id}`,
+        generationId: `discovery:${args.run.id}`,
+        title: `Strategy discovery — ${args.run.inputModel}`,
+        source: "discovery",
+        summary: args.summary,
+        body: {
+          discoveryRunId: args.run.id,
+          status: args.run.status,
+          inputModel: args.run.inputModel,
+          symbols: args.symbols,
+          trigger: args.options.trigger || "scheduled",
+        },
+        createdAt: args.timestamp,
+      });
+      reportId = stored?.reportId;
+    }
+    if (args.run.status !== "failed" && args.options.stageChain && this.followupScheduler) {
+      try {
+        await this.followupScheduler(
+          {
+            kind: "discovery",
+            trigger: args.options.trigger || "scheduled",
+            success: true,
+            thesis: `Strategy discovery (${args.run.inputModel}) — ${args.symbols.join(", ")}`,
+            pdfKeys: [],
+            canonicalReportId: reportId,
+            deliverViaChain: false,
+            stageChain: args.options.stageChain,
+          },
+          this.userLogin,
+          true,
+        );
+      } catch (bridgeErr) {
+        console.warn("[ScheduledTasksService] Discovery bridge failed (canonical row kept):", bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr));
+      }
+    }
+    return reportId;
+  }
+
+  /**
+   * Runs ONE constructed discovery request through the pipeline and
+   * shapes its outcome. Shared verbatim by the saved-request path
+   * (issue #126) and the profile-derived path (issue #533) — the two
+   * input models differ in where requests come from, never in how a
+   * request is executed or judged.
+   */
+  private async runDiscoveryRequest(
+    pipeline: OptionsAgentPipeline,
+    etrade: ETradeService,
+    request: StrategyRequest
+  ): Promise<DiscoverySymbolOutcome> {
+    const symbol = request.symbol.toUpperCase().trim();
+    try {
+      const result = await pipeline.run(request);
+      const snapshot = result.snapshot;
+      // A snapshot that never loaded its chain is a failure, not
+      // an empty success: the screen records why (validation
+      // error, per-symbol fetch errors, or the client's recorded
+      // upstream cause). Zero contracts with NO failure signal is
+      // a genuine no-candidates outcome and completes honestly.
+      const fetchReasons = (snapshot.screen.fetchErrors ?? [])
+        .filter((e) => e.symbol === symbol)
+        .map((e) => e.reason);
+      let failure: string | undefined;
+      if (snapshot.validationError) {
+        failure = snapshot.validationError;
+      } else if (snapshot.contracts.length === 0 && fetchReasons.length > 0) {
+        failure = fetchReasons.join("; ");
+      } else if (snapshot.contracts.length === 0) {
+        failure = etrade.getLastError() || undefined;
+      }
+      if (failure) {
+        return { symbol, status: "failed", request, error: failure };
+      }
+      return {
+        symbol,
+        status: "completed",
+        request,
+        ranked: result.ranked,
+        riskReports: result.riskReports,
+        screenedOut: result.screenedOut.slice(0, 50),
+        excluded: result.strategies.excluded,
+        bestTrade: result.bestTrade,
+        snapshot: {
+          dataSource: snapshot.dataSource,
+          screen: snapshot.screen,
+          ...(snapshot.validationError ? { validationError: snapshot.validationError } : {}),
+        },
+      };
+    } catch (err: any) {
+      return {
+        symbol,
+        status: "failed",
+        request,
+        error: err?.message || "Strategy discovery pipeline failed",
+      };
+    }
+  }
+
+  /**
+   * Issue #533 (D4): resolves a watchlist NAME to its symbols from
+   * the owner's stored watchlists — no E*TRADE round-trip, so
+   * watchlist edits between arming and firing are honoured. The name
+   * match is trimmed and case-insensitive. Returns null when no
+   * stored watchlist matches (or the ORM is unavailable); the caller
+   * fails honestly and persists nothing.
+   */
+  private resolveWatchlistSymbols(name: string, userLogin: string): string[] | null {
+    if (!this.orm?.watchlists) return null;
+    try {
+      const rows = this.orm.watchlists.findMany({ where: { userLogin } }) as Array<{
+        name?: string;
+        symbolsJson?: string | null;
+      }>;
+      const key = name.trim().toLowerCase();
+      const match = rows.find(
+        (row) => typeof row?.name === "string" && row.name.trim().toLowerCase() === key
+      );
+      if (!match) return null;
+      const seen = new Set<string>();
+      const symbols: string[] = [];
+      for (const raw of flattenWatchlistSymbols([match])) {
+        const symbol = typeof raw === "string" ? raw.toUpperCase().trim() : "";
+        if (symbol && !seen.has(symbol)) {
+          seen.add(symbol);
+          symbols.push(symbol);
+        }
+      }
+      return symbols;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The profile-derived discovery fire (issue #533). The schedule
+   * armed a symbol set (explicit, or a watchlist name resolved at
+   * fire time) plus a Strategy Profile id; the profile is resolved
+   * NOW, so edits and deletions since arming are honoured as honest
+   * outcomes. Each symbol's target is derived from its own live
+   * chain under the profile (see derivation module), the constructed
+   * request runs through the unchanged pipeline, and the run persists
+   * stamped "profile-derived" with the profile reference and the full
+   * derivation per symbol. A symbol that cannot be derived honestly
+   * ABSTAINS — reason on the record, no request, no target — and an
+   * all-abstained fire persists as a FAILED run on the #112 failure
+   * path. Resolution failures before execution (identity, stores,
+   * profile, symbol set) persist NOTHING, the saved-path precedent.
+   */
+  private async autonomousStrategyDiscoveryDerived(
+    options: AutonomousStrategyDiscoveryOptions,
+    timestamp: string
+  ): Promise<ScheduledTaskResult<{
+    runId: string;
+    status: DiscoveryRunStatus;
+    requestCount: number;
+    completedCount: number;
+    failedCount: number;
+    symbols: string[];
+    failures: Array<{ symbol: string; error: string }>;
+    abstained?: Array<{ symbol: string; reason: string }>;
+  }>> {
+    let attemptedSymbols: string[] = Array.isArray(options.symbols)
+      ? options.symbols
+          .map((s) => (typeof s === "string" ? s.toUpperCase().trim() : ""))
+          .filter((s) => s.length > 0)
+      : [];
+
+    const fail = async (
+      error: string,
+      runId?: string,
+      status?: DiscoveryRunStatus,
+      failures: Array<{ symbol: string; error: string }> = [],
+      abstentions: Array<{ symbol: string; reason: string }> = [],
+      constructedCount = 0
+    ) => {
+      this.audit("options.strategy_discovery_failed", {
+        symbols: attemptedSymbols,
+        inputModel: "profile-derived",
+        trigger: options.trigger || "scheduled",
+        ...(runId ? { runId } : {}),
+        ...(abstentions.length > 0 ? { abstained: abstentions } : {}),
+        error,
+      });
+      // Issue #1333: profile-derived discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: runId ?? `discovery:profile-derived:${attemptedSymbols.join(",")}`,
+        trigger: options.trigger || "scheduled",
+        status: "failed",
+        scanned: constructedCount,
+        matched: 0,
+        codedError: error,
+      });
+      await this.notifyStrategyDiscoveryFailure({ error, symbols: attemptedSymbols, trigger: options.trigger, inputModel: "profile-derived" });
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `⚠️ Scheduled Strategy Discovery failed for ${attemptedSymbols.join(", ") || "no symbols"}: ${error}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: false,
+        taskType: "strategy_discovery" as any,
+        error,
+        ...(runId ? {
+          data: {
+            runId,
+            status: status ?? "failed",
+            requestCount: constructedCount,
+            completedCount: constructedCount - failures.length,
+            failedCount: failures.length,
+            symbols: attemptedSymbols,
+            failures,
+            abstained: abstentions,
+          },
+        } : {}),
+        timestamp,
+      } as ScheduledTaskResult<{
+        runId: string;
+        status: DiscoveryRunStatus;
+        requestCount: number;
+        completedCount: number;
+        failedCount: number;
+        symbols: string[];
+        failures: Array<{ symbol: string; error: string }>;
+        abstained?: Array<{ symbol: string; reason: string }>;
+      }>;
+    };
+
+    try {
+      const userLogin = options.userLogin || this.userLogin;
+      if (!userLogin) {
+        return await fail(
+          "No authenticated E*TRADE account is associated with this scheduled discovery. Open the schedules panel while signed in and run it again."
+        );
+      }
+      if (!this.discoveryRunStore) {
+        return await fail("Discovery run store not configured for this service instance");
+      }
+      if (!this.strategyProfileStore) {
+        return await fail("Strategy profile store not configured for this service instance");
+      }
+      const profileId = typeof options.profileId === "string" ? options.profileId.trim() : "";
+      if (!profileId) {
+        return await fail(
+          "Profile-derived discovery requires a profileId; none was supplied. The schedule must name the Strategy Profile its targets are derived under."
+        );
+      }
+      const profile = await this.strategyProfileStore.get(userLogin, profileId);
+      if (!profile) {
+        // Deleted (or never existed) since arming: an honest failure
+        // naming the profile — never a silently substituted view.
+        return await fail(
+          `Strategy profile ${profileId} was not found for this account. It may have been deleted after the schedule was armed; no run was recorded.`
+        );
+      }
+
+      const hasSymbols = options.symbols !== undefined;
+      const hasWatchlist = options.watchlistName !== undefined;
+      if (hasSymbols === hasWatchlist) {
+        return await fail(
+          "Profile-derived discovery requires exactly one symbol source: payload.symbols or payload.watchlistName."
+        );
+      }
+      let symbols: string[];
+      if (hasSymbols) {
+        if (!Array.isArray(options.symbols)) {
+          return await fail("Profile-derived discovery requires exactly one symbol source: payload.symbols or payload.watchlistName.");
+        }
+        const seen = new Set<string>();
+        symbols = [];
+        for (const raw of options.symbols) {
+          const symbol = typeof raw === "string" ? raw.toUpperCase().trim() : "";
+          if (symbol && !seen.has(symbol)) {
+            seen.add(symbol);
+            symbols.push(symbol);
+          }
+        }
+      } else {
+        const name = typeof options.watchlistName === "string" ? options.watchlistName : "";
+        const resolved = name.trim() ? this.resolveWatchlistSymbols(name, userLogin) : null;
+        if (!resolved) {
+          return await fail(
+            `Watchlist "${options.watchlistName}" was not found among this account's stored watchlists; no run was recorded.`
+          );
+        }
+        symbols = resolved;
+      }
+      attemptedSymbols = symbols;
+      if (symbols.length === 0) {
+        return await fail(
+          "Profile-derived discovery resolved to no symbols; there is nothing to derive. No run was recorded."
+        );
+      }
+      if (symbols.length > MAX_SAVED_REQUESTS_PER_RUN) {
+        return await fail(
+          `Scheduled discovery is capped at ${MAX_SAVED_REQUESTS_PER_RUN} symbols per run; ${symbols.length} were resolved.`
+        );
+      }
+
+      // One client/pipeline for the whole execution — the saved
+      // path's construction, under the schedule owner's identity and
+      // environment (#447/#461, #672).
+      const etrade = this.createETradeService(userLogin, options.environment);
+      const pipeline = new OptionsAgentPipeline(
+        new DynamicOptionsScreener(etrade.client)
+      );
+      const emMultiples = getOpportunityScannerConfig().targetEmMultiples;
+
+      const outcomes: DiscoverySymbolOutcome[] = [];
+      const constructed: StrategyRequest[] = [];
+      for (const symbol of symbols) {
+        let derivationSnapshot: Awaited<ReturnType<typeof pipeline.data.loadSnapshot>>;
+        try {
+          derivationSnapshot = await pipeline.data.loadSnapshot({
+            symbol,
+            minDte: profile.minDte,
+            maxDte: profile.maxDte,
+          });
+        } catch (err: any) {
+          // The derivation input itself failed to load: an
+          // abstention (the symbol was never derived), not a
+          // pipeline failure.
+          outcomes.push({
+            symbol,
+            status: "abstained",
+            error: err?.message || "Chain snapshot failed to load",
+          });
+          continue;
+        }
+        const derived = deriveDiscoveryRequest({
+          symbol,
+          snapshot: derivationSnapshot,
+          profile,
+          emMultiples,
+          now: new Date(timestamp),
+        });
+        if (!derived.derived) {
+          outcomes.push({
+            symbol,
+            status: "abstained",
+            error: derived.reason,
+            ...(derived.derivation ? { derivation: derived.derivation } : {}),
+          });
+          continue;
+        }
+        constructed.push(derived.request);
+        // Issue #16: attach this name's event calendar before the
+        // pipeline runs — the persisted run record carries it on the
+        // request, so the run's calendar facts stay auditable. The
+        // service never throws; uncovered keeps event risk unverified.
+        derived.request.eventCalendar = await getSymbolEventCalendar(symbol);
+        const outcome = await this.runDiscoveryRequest(pipeline, etrade, derived.request);
+        outcomes.push({ ...outcome, derivation: derived.derivation });
+      }
+
+      const failures = outcomes
+        .filter((o) => o.status === "failed")
+        .map((o) => ({ symbol: o.symbol, error: o.error || "unknown failure" }));
+      const abstentions = outcomes
+        .filter((o) => o.status === "abstained")
+        .map((o) => ({ symbol: o.symbol, reason: o.error || "abstained" }));
+      const completedCount = outcomes.filter((o) => o.status === "completed").length;
+      const status: DiscoveryRunStatus =
+        outcomes.length > 0 && completedCount === outcomes.length
+          ? "completed"
+          : completedCount === 0
+            ? "failed"
+            : "partial";
+
+      const profileRef = toProfileRef(profile);
+      // The run is persisted BEFORE the status is judged — an
+      // all-abstained/failed fire's record is exactly what makes the
+      // honesty inspectable (and the run id joins the failure data).
+      const run = await this.discoveryRunStore.save({
+        createdAt: timestamp,
+        trigger: options.trigger === "manual" ? "manual-trigger" : "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+        userLogin,
+        inputModel: "profile-derived",
+        profileRef,
+        requests: constructed,
+        outcomes,
+        status,
+      });
+
+      await this.persistDiscoveryCanonicalAndBridge({
+        run,
+        summary: `Strategy discovery (profile-derived) ${status}: ${completedCount} of ${constructed.length} derived requests produced results.`,
+        symbols,
+        options,
+        timestamp,
+      });
+
+      if (status === "failed") {
+        const parts = [
+          ...failures.map((f) => `${f.symbol}: ${f.error}`),
+          ...abstentions.map((a) => `${a.symbol}: abstained (${a.reason})`),
+        ];
+        return await fail(
+          `No derived discovery request produced a result (${parts.join("; ")})`,
+          run.id,
+          status,
+          failures,
+          abstentions,
+          constructed.length
+        );
+      }
+
+      this.audit("options.strategy_discovery_completed", {
+        runId: run.id,
+        status,
+        symbols,
+        inputModel: "profile-derived",
+        profileRef,
+        requestCount: constructed.length,
+        // Issue #16: how many of the run's names carried live calendar
+        // coverage (the per-name facts ride on the persisted requests).
+        eventCalendarCoverage: {
+          covered: constructed.filter((r) => r.eventCalendar?.covered).length,
+          total: symbols.length,
+        },
+        completedCount,
+        failedCount: failures.length,
+        abstained: abstentions,
+        trigger: options.trigger || "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+      // Issue #1333: profile-derived discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: run.id,
+        trigger: options.trigger || "scheduled",
+        status,
+        scanned: constructed.length,
+        matched: completedCount,
+        codedError: failures.length > 0 ? failures.map((f) => `${f.symbol}: ${f.error}`).join("; ") : undefined,
+        createdAt: timestamp,
+      });
+
+      if (this.orm?.messages) {
+        try {
+          const failureNote = failures.length > 0
+            ? `; failed: ${failures.map((f) => `${f.symbol} (${f.error})`).join("; ")}`
+            : "";
+          const abstainNote = abstentions.length > 0
+            ? `; abstained: ${abstentions.map((a) => `${a.symbol} (${a.reason})`).join("; ")}`
+            : "";
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content:
+              status === "completed"
+                ? `🔭 Scheduled Strategy Discovery (profile-derived) completed for ${symbols.join(", ")}: all ${constructed.length} derived requests produced results.`
+                : `🔭 Scheduled Strategy Discovery (profile-derived) partially completed for ${symbols.join(", ")}: ${completedCount} of ${constructed.length} derived requests produced results${failureNote}${abstainNote}.`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: true,
+        taskType: "strategy_discovery" as any,
+        data: {
+          runId: run.id,
+          status,
+          requestCount: constructed.length,
+          completedCount,
+          failedCount: failures.length,
+          symbols: attemptedSymbols,
+          failures,
+          abstained: abstentions,
+        },
+        timestamp,
+      };
+    } catch (err: any) {
+      return await fail(err?.message || "Scheduled strategy discovery failed");
+    }
+  }
+
+  /**
+   * The no-view discovery fire (issue #534). The schedule armed
+   * constraint sets — a symbol plus constraints per set, with NO
+   * thesis and NO target anywhere — and each symbol's live chain is
+   * ranked once by the target-free score model (no-view-v1). Nothing
+   * in this path constructs, derives, or defaults a StrategyRequest:
+   * the question is "which structures does this symbol's chain
+   * support best under these constraints", and where the honest
+   * answer is "none" the symbol ABSTAINS — a completed outcome with
+   * the gate reasons recorded and a no_trade pick — rather than
+   * failing or crowning a best-of-garbage. Status semantics mirror
+   * the sibling models with the plan's one deliberate difference:
+   * all-failed takes the #112 failure path, an all-abstained fire is
+   * a COMPLETED run (an honest "nothing qualifies"), and any other
+   * mix is partial. Shape/validation failures before execution
+   * (identity, store, mixed or empty payload, an invalid or
+   * view-smuggling constraint set) persist NOTHING.
+   */
+  private async autonomousStrategyDiscoveryNoView(
+    options: AutonomousStrategyDiscoveryOptions,
+    timestamp: string
+  ): Promise<ScheduledTaskResult<{
+    runId: string;
+    status: DiscoveryRunStatus;
+    requestCount: number;
+    completedCount: number;
+    failedCount: number;
+    symbols: string[];
+    failures: Array<{ symbol: string; error: string }>;
+    abstained?: Array<{ symbol: string; reason: string }>;
+  }>> {
+    const constraintSets = Array.isArray(options.constraintSets) ? options.constraintSets : [];
+    const symbols = constraintSets.map((s) =>
+      typeof s?.symbol === "string" ? s.symbol.toUpperCase().trim() : "?"
+    );
+
+    const fail = async (
+      error: string,
+      runId?: string,
+      status?: DiscoveryRunStatus,
+      failures: Array<{ symbol: string; error: string }> = [],
+      abstentions: Array<{ symbol: string; reason: string }> = []
+    ) => {
+      this.audit("options.strategy_discovery_failed", {
+        symbols,
+        inputModel: "no-view",
+        trigger: options.trigger || "scheduled",
+        ...(runId ? { runId } : {}),
+        ...(abstentions.length > 0 ? { abstained: abstentions } : {}),
+        error,
+      });
+      // Issue #1333: no-view discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: runId ?? `discovery:no-view:${symbols.join(",")}`,
+        trigger: options.trigger || "scheduled",
+        status: "failed",
+        scanned: symbols.length,
+        matched: 0,
+        codedError: error,
+      });
+      await this.notifyStrategyDiscoveryFailure({ error, symbols, trigger: options.trigger, inputModel: "no-view" });
+      if (this.orm?.messages) {
+        try {
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content: `⚠️ Scheduled Strategy Discovery (no-view) failed for ${symbols.join(", ") || "no constraint sets"}: ${error}`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: false,
+        taskType: "strategy_discovery" as any,
+        error,
+        ...(runId ? {
+          data: {
+            runId,
+            status: status ?? "failed",
+            requestCount: constraintSets.length,
+            completedCount: constraintSets.length - failures.length - abstentions.length,
+            failedCount: failures.length,
+            symbols,
+            failures,
+            abstained: abstentions,
+          },
+        } : {}),
+        timestamp,
+      } as ScheduledTaskResult<{
+        runId: string;
+        status: DiscoveryRunStatus;
+        requestCount: number;
+        completedCount: number;
+        failedCount: number;
+        symbols: string[];
+        failures: Array<{ symbol: string; error: string }>;
+        abstained?: Array<{ symbol: string; reason: string }>;
+      }>;
+    };
+
+    try {
+      const userLogin = options.userLogin || this.userLogin;
+      if (!userLogin) {
+        return await fail(
+          "No authenticated E*TRADE account is associated with this scheduled discovery. Open the schedules panel while signed in and run it again."
+        );
+      }
+      if (!this.discoveryRunStore) {
+        return await fail("Discovery run store not configured for this service instance");
+      }
+      if (options.inputModel !== "no-view") {
+        return await fail(
+          `No-view constraint sets require inputModel "no-view"; this payload carries ${options.inputModel ? `"${options.inputModel}"` : "no inputModel"}. The discovery input models are mutually exclusive — no run was recorded.`
+        );
+      }
+      if (
+        options.requests !== undefined ||
+        options.symbols !== undefined ||
+        options.watchlistName !== undefined ||
+        options.profileId !== undefined
+      ) {
+        return await fail(
+          "No-view discovery payloads carry constraintSets only — requests, symbols, watchlistName and profileId belong to the other discovery input models. Mixed payload shapes are rejected, never partially honoured; no run was recorded."
+        );
+      }
+      if (!Array.isArray(options.constraintSets) || options.constraintSets.length === 0) {
+        return await fail(
+          "No-view discovery requires at least one constraint set in payload.constraintSets; none was supplied. A constraint set names a symbol and its constraints only — no view is invented for a schedule."
+        );
+      }
+      if (options.constraintSets.length > MAX_SAVED_REQUESTS_PER_RUN) {
+        return await fail(
+          `Scheduled discovery is capped at ${MAX_SAVED_REQUESTS_PER_RUN} symbols per run; ${options.constraintSets.length} constraint sets were supplied.`
+        );
+      }
+      // Every set is validated BEFORE any chain loads: an invalid
+      // set — including one smuggling a thesis/target past the type
+      // (validateNoViewRequest rejects view fields outright) — fails
+      // the whole payload pre-execution, the saved-path precedent.
+      for (let i = 0; i < options.constraintSets.length; i++) {
+        const validationError = validateNoViewRequest(
+          options.constraintSets[i] as Parameters<typeof validateNoViewRequest>[0]
+        );
+        if (validationError) {
+          return await fail(
+            `No-view constraint set ${i + 1} of ${options.constraintSets.length} (${symbols[i]}) is invalid: ${validationError}`
+          );
+        }
+      }
+
+      // One client/pipeline for the whole execution — the saved
+      // path's construction, under the schedule owner's identity and
+      // environment (#447/#461).
+      const etrade = this.createETradeService(userLogin, options.environment);
+      const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
+
+      const outcomes: DiscoverySymbolOutcome[] = [];
+      for (const constraintSet of options.constraintSets) {
+        outcomes.push(await this.runNoViewDiscoveryRequest(pipeline, etrade, constraintSet));
+      }
+
+      const failures = outcomes
+        .filter((o) => o.status === "failed")
+        .map((o) => ({ symbol: o.symbol, error: o.error || "unknown failure" }));
+      const abstentions = outcomes
+        .filter((o) => o.abstained === true)
+        .map((o) => ({
+          symbol: o.symbol,
+          reason:
+            o.excluded && o.excluded.length > 0
+              ? o.excluded.map((e) => `${e.reason} (${e.count})`).join("; ")
+              : "No structure cleared the stated constraints",
+        }));
+      const completedCount = outcomes.filter(
+        (o) => o.status === "completed" && o.abstained !== true
+      ).length;
+      const status: DiscoveryRunStatus =
+        failures.length === outcomes.length
+          ? "failed"
+          : completedCount === outcomes.length
+            ? "completed"
+            : completedCount === 0 && failures.length === 0
+              ? "completed"
+              : "partial";
+
+      // The run is persisted BEFORE the status is judged — an
+      // all-failed fire's record is exactly what makes the failure
+      // diagnosable (and the run id joins the failure data).
+      const run = await this.discoveryRunStore.save({
+        createdAt: timestamp,
+        trigger: options.trigger === "manual" ? "manual-trigger" : "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+        userLogin,
+        inputModel: "no-view",
+        requests: [],
+        constraintSets: outcomes.flatMap((o) => (o.constraintSet ? [o.constraintSet] : [])),
+        outcomes,
+        status,
+      });
+
+      await this.persistDiscoveryCanonicalAndBridge({
+        run,
+        summary: `Strategy discovery (no-view) ${status}: ${completedCount} of ${constraintSets.length} constraint sets produced ranked structures.`,
+        symbols,
+        options,
+        timestamp,
+      });
+
+      if (status === "failed") {
+        const parts = [
+          ...failures.map((f) => `${f.symbol}: ${f.error}`),
+          ...abstentions.map((a) => `${a.symbol}: abstained (${a.reason})`),
+        ];
+        return await fail(
+          `No no-view discovery symbol produced a result (${parts.join("; ")})`,
+          run.id,
+          status,
+          failures,
+          abstentions
+        );
+      }
+
+      this.audit("options.strategy_discovery_completed", {
+        runId: run.id,
+        status,
+        symbols,
+        inputModel: "no-view",
+        requestCount: constraintSets.length,
+        completedCount,
+        failedCount: failures.length,
+        abstained: abstentions,
+        trigger: options.trigger || "scheduled",
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+      // Issue #1333: no-view discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: run.id,
+        trigger: options.trigger || "scheduled",
+        status,
+        scanned: constraintSets.length,
+        matched: completedCount,
+        codedError: failures.length > 0 ? failures.map((f) => `${f.symbol}: ${f.error}`).join("; ") : undefined,
+        createdAt: timestamp,
+      });
+
+      if (this.orm?.messages) {
+        try {
+          const failureNote = failures.length > 0
+            ? `; failed: ${failures.map((f) => `${f.symbol} (${f.error})`).join("; ")}`
+            : "";
+          const abstainNote = abstentions.length > 0
+            ? `; abstained: ${abstentions.map((a) => `${a.symbol} (${a.reason})`).join("; ")}`
+            : "";
+          this.orm.messages.create({
+            id: crypto.randomUUID(),
+            sessionId: this.userLogin,
+            role: "assistant",
+            content:
+              status === "completed" && abstentions.length === 0
+                ? `🔭 Scheduled Strategy Discovery (no-view) completed for ${symbols.join(", ")}: all ${constraintSets.length} constraint sets produced ranked structures under their constraints. No view was supplied, derived, or assumed.`
+                : status === "completed"
+                  ? `🔭 Scheduled Strategy Discovery (no-view) completed for ${symbols.join(", ")}: no structure qualified under the stated constraints — every symbol abstained${abstainNote}. No pick was manufactured.`
+                  : `🔭 Scheduled Strategy Discovery (no-view) partially completed for ${symbols.join(", ")}: ${completedCount} of ${constraintSets.length} constraint sets produced ranked structures${failureNote}${abstainNote}.`,
+            agent: "orchestrator",
+            createdAt: timestamp,
+          });
+        } catch {
+          // Non-critical message record error
+        }
+      }
+      return {
+        success: true,
+        taskType: "strategy_discovery" as any,
+        data: {
+          runId: run.id,
+          status,
+          requestCount: constraintSets.length,
+          completedCount,
+          failedCount: failures.length,
+          symbols,
+          failures,
+          abstained: abstentions,
+        },
+        timestamp,
+      };
+    } catch (err: any) {
+      return await fail(err?.message || "Scheduled strategy discovery failed");
+    }
+  }
+
+  /**
+   * Runs ONE no-view constraint set (issue #534) and shapes its
+   * outcome: the symbol's snapshot loads through the same data agent
+   * the sibling models use, chain failure is judged exactly as in
+   * runDiscoveryRequest, and qualifying structures are ranked by the
+   * target-free model. A loaded chain with zero qualifying
+   * structures is a completed ABSTENTION — flagged, gate reasons in
+   * `excluded`, empty ranked set, no_trade pick — never a failure
+   * and never a manufactured pick.
+   */
+  private async runNoViewDiscoveryRequest(
+    pipeline: OptionsAgentPipeline,
+    etrade: ETradeService,
+    constraintSet: NoViewStrategyRequest
+  ): Promise<DiscoverySymbolOutcome> {
+    const symbol = constraintSet.symbol.toUpperCase().trim();
+    const record: DiscoveryConstraintSet = {
+      source: "no-view",
+      request: constraintSet,
+      expectedIvDirection: NO_VIEW_EXPECTED_IV_DIRECTION,
+    };
+    try {
+      const snapshot = await pipeline.data.loadSnapshot(constraintSet);
+      // A snapshot that never loaded its chain is a failure, not an
+      // abstention: the screen records why (validation error,
+      // per-symbol fetch errors, or the client's recorded upstream
+      // cause). Zero contracts with NO failure signal means the
+      // chain loaded empty — the gates then abstain honestly below.
+      const fetchReasons = (snapshot.screen.fetchErrors ?? [])
+        .filter((e) => e.symbol === symbol)
+        .map((e) => e.reason);
+      let failure: string | undefined;
+      if (snapshot.validationError) {
+        failure = snapshot.validationError;
+      } else if (snapshot.contracts.length === 0 && fetchReasons.length > 0) {
+        failure = fetchReasons.join("; ");
+      } else if (snapshot.contracts.length === 0) {
+        failure = etrade.getLastError() || undefined;
+      }
+      if (failure) {
+        return { symbol, status: "failed", constraintSet: record, error: failure };
+      }
+      const strategies = pipeline.risk.buildNoViewStrategies(snapshot.contracts, constraintSet);
+      const ranked = pipeline.recommender.rankNoView(
+        strategies.candidates,
+        constraintSet,
+        constraintSet.riskProfile ?? "balanced"
+      );
+      const limit = constraintSet.candidateLimit ?? ranked.length;
+      const bestTrade = pipeline.recommender.pickBestNoViewTrade(strategies.candidates, constraintSet);
+      const snapshotBlock = {
+        dataSource: snapshot.dataSource,
+        screen: snapshot.screen,
+        ...(snapshot.validationError ? { validationError: snapshot.validationError } : {}),
+      };
+      if (strategies.candidates.length === 0) {
+        return {
+          symbol,
+          status: "completed",
+          abstained: true,
+          constraintSet: record,
+          rankedNoView: [],
+          excluded: strategies.excluded,
+          bestNoViewTrade: bestTrade,
+          snapshot: snapshotBlock,
+        };
+      }
+      return {
+        symbol,
+        status: "completed",
+        constraintSet: record,
+        rankedNoView: ranked.slice(0, limit),
+        excluded: strategies.excluded,
+        bestNoViewTrade: bestTrade,
+        snapshot: snapshotBlock,
+      };
+    } catch (err: any) {
+      return {
+        symbol,
+        status: "failed",
+        constraintSet: record,
+        error: err?.message || "Strategy discovery pipeline failed",
       };
     }
   }
@@ -879,12 +2886,7 @@ export class ScheduledTasksService {
       // The same E*TRADE client construction the unified options
       // service uses, so collection reads chains under the same
       // identity/environment as every other options path.
-      const etrade = new ETradeService(
-        this.orm || new DatabaseORM({ exec: () => [] }),
-        this.env,
-        this.userLogin,
-        options.environment
-      );
+      const etrade = this.createETradeService(this.userLogin, options.environment);
       const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
 
       const fetchChain = async (symbol: string) => {

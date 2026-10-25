@@ -1,0 +1,737 @@
+/**
+ * Issue #1140 (epic #1096 Phase 5) — strategy weights v2: the RSI
+ * loop's weight policy, hardened from the #754 v1 job.
+ *
+ * What changes vs v1 (strategyWeights.ts, which stays live and
+ * untouched):
+ *  - REGIME-CONDITIONED: evidence is sliced per (strategy, regime)
+ *    using the Phase 1 regime classes (RegimeAssessment:
+ *    bull / bear / chop / high_vol / unknown). A strategy is never
+ *    moved by evidence from a regime it did not trade in.
+ *  - AFTER-COST, RISK-ADJUSTED: the scored quantity is the win rate
+ *    of P&L AFTER the researchEconomics cost assumptions
+ *    (fee + slippage per contract, from researchConfig), and a
+ *    positive win-rate excess with a non-positive average after-cost
+ *    R multiple can never propose an increase. Raw win rate alone
+ *    moves nothing.
+ *  - DECAY: each proposal's step is scaled by 0.5^(age/half-life) of
+ *    its newest evidence, and an idle weight decays back toward the
+ *    default — stale evidence stops steering the bank.
+ *  - VERSIONED: every applied change writes an append-only version
+ *    record (strategy, regime, before — null when no row existed,
+ *    #760 exact-restore semantics — after, signal evidence, actor),
+ *    so outcomes (outcomeTracking.ts) can cite the exact weights
+ *    version that was live. Applications go through the #755
+ *    applyAdaptation seam (budget + audit; kill switch halts).
+ *
+ * The v1 envelope is reused verbatim (WEIGHTS_V2_DEFAULTS reads
+ * STRATEGY_WEIGHT_BOUNDS) — there is no second bounds regime. Per
+ * the #17 guardrail, no production ranking path reads v2 weights
+ * until a reviewed change wires a consumer; promotion of a v2
+ * change into live state is the champion/challenger gate's job
+ * (championChallenger.ts), not this module's.
+ */
+
+import {
+  STRATEGY_WEIGHT_BOUNDS,
+  WEIGHT_ADAPTATION_ACTOR,
+} from "./strategyWeights";
+import { applyAdaptation, isAdaptationHalted } from "./adaptationAudit";
+import type { RegimeAssessment } from "./researchPipeline";
+import type { CostAssumptions } from "./researchEconomics";
+
+export type WeightsV2Regime = RegimeAssessment["regime"];
+
+export const WEIGHTS_V2_DEFAULTS = {
+  min: STRATEGY_WEIGHT_BOUNDS.min,
+  max: STRATEGY_WEIGHT_BOUNDS.max,
+  maxStep: STRATEGY_WEIGHT_BOUNDS.maxStep,
+  deadband: STRATEGY_WEIGHT_BOUNDS.deadband,
+  minSample: STRATEGY_WEIGHT_BOUNDS.minSample,
+  defaultWeight: STRATEGY_WEIGHT_BOUNDS.defaultWeight,
+  halfLifeDays: 90,
+} as const;
+
+export const WEIGHTS_V2_ACTOR = "strategy-weight-v2-job";
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const round4 = (v: number) => Math.round(v * 10000) / 10000;
+const DAY_MS = 86_400_000;
+
+export function weightsV2Key(strategy: string, regime: string): string {
+  return `${strategy}|${regime}`;
+}
+
+/** Weight decay toward the default as evidence ages (pure). */
+export function decayedWeight(
+  current: number,
+  ageDays: number,
+  halfLifeDays: number = WEIGHTS_V2_DEFAULTS.halfLifeDays
+): number {
+  if (!Number.isFinite(ageDays) || ageDays <= 0) return current;
+  const factor = Math.pow(0.5, ageDays / halfLifeDays);
+  return WEIGHTS_V2_DEFAULTS.defaultWeight +
+    (current - WEIGHTS_V2_DEFAULTS.defaultWeight) * factor;
+}
+
+function decayFactor(ageDays: number, halfLifeDays: number): number {
+  if (!Number.isFinite(ageDays)) return 0;
+  if (ageDays <= 0) return 1;
+  return Math.pow(0.5, ageDays / halfLifeDays);
+}
+
+/* ------------------------------------------------------------------ */
+/* Evidence slices                                                     */
+/* ------------------------------------------------------------------ */
+
+export interface WeightsV2IdeaInput {
+  structure: string;
+  regime: WeightsV2Regime;
+  /**
+   * Contracts per structure unit (sum of |quantity| over the idea's
+   * legs, derived by the caller from the stored idea record).
+   * null = unknown — the idea is then EXCLUDED from after-cost
+   * scoring (counted as unpriced), never assigned an assumed cost.
+   */
+  contractsPerUnit: number | null;
+  evaluation: {
+    pnlEstimatePerUnit: number | null;
+    rMultiple: number | null;
+    evaluatedAt: string;
+  } | null;
+}
+
+export interface WeightsV2Slice {
+  strategy: string;
+  regime: WeightsV2Regime;
+  published: number;
+  /** Ideas with a P&L estimate AND a known contract count. */
+  evaluated: number;
+  /** Ideas with a P&L estimate but an unknown contract count. */
+  unpriced: number;
+  winRateAfterCost: number | null;
+  avgPnlAfterCost: number | null;
+  avgRAfterCost: number | null;
+  latestEvaluatedAt: string | null;
+}
+
+/**
+ * After-cost P&L per unit. pnlEstimatePerUnit is per share-unit, so a
+ * per-contract fee/slippage is divided by 100 (one contract = 100
+ * shares). The after-cost R reuses the pre-cost R's implied max-loss
+ * scale (pnl / rMultiple), so risk units are unchanged — only the
+ * numerator moves by the costs.
+ */
+export function afterCost(
+  pnlPerUnit: number,
+  rMultiple: number | null,
+  contractsPerUnit: number,
+  costs: Pick<CostAssumptions, "feePerContract" | "slippagePerContract">
+): { pnlAfterCost: number; rAfterCost: number | null } {
+  const costPerUnit =
+    ((costs.feePerContract + costs.slippagePerContract) * contractsPerUnit) / 100;
+  const pnlAfterCost = pnlPerUnit - costPerUnit;
+  let rAfterCost: number | null = null;
+  if (rMultiple !== null && pnlPerUnit !== 0) {
+    const impliedMaxLoss = pnlPerUnit / rMultiple;
+    if (impliedMaxLoss > 0) rAfterCost = pnlAfterCost / impliedMaxLoss;
+  }
+  return { pnlAfterCost, rAfterCost };
+}
+
+export function buildWeightsV2Slices(
+  ideas: WeightsV2IdeaInput[],
+  costs: Pick<CostAssumptions, "feePerContract" | "slippagePerContract">
+): WeightsV2Slice[] {
+  const byKey = new Map<
+    string,
+    {
+      strategy: string;
+      regime: WeightsV2Regime;
+      published: number;
+      evaluated: number;
+      unpriced: number;
+      wins: number;
+      pnlSum: number;
+      rSum: number;
+      rCount: number;
+      latestEvaluatedAt: string | null;
+    }
+  >();
+  for (const idea of ideas) {
+    const key = weightsV2Key(idea.structure, idea.regime);
+    let slice = byKey.get(key);
+    if (!slice) {
+      slice = {
+        strategy: idea.structure,
+        regime: idea.regime,
+        published: 0,
+        evaluated: 0,
+        unpriced: 0,
+        wins: 0,
+        pnlSum: 0,
+        rSum: 0,
+        rCount: 0,
+        latestEvaluatedAt: null,
+      };
+      byKey.set(key, slice);
+    }
+    slice.published++;
+    const evaluation = idea.evaluation;
+    if (!evaluation || typeof evaluation.pnlEstimatePerUnit !== "number") continue;
+    if (idea.contractsPerUnit === null || idea.contractsPerUnit <= 0) {
+      slice.unpriced++;
+      continue;
+    }
+    const { pnlAfterCost, rAfterCost } = afterCost(
+      evaluation.pnlEstimatePerUnit,
+      evaluation.rMultiple,
+      idea.contractsPerUnit,
+      costs
+    );
+    slice.evaluated++;
+    if (pnlAfterCost > 0) slice.wins++;
+    slice.pnlSum += pnlAfterCost;
+    if (rAfterCost !== null) {
+      slice.rSum += rAfterCost;
+      slice.rCount++;
+    }
+    if (
+      slice.latestEvaluatedAt === null ||
+      evaluation.evaluatedAt > slice.latestEvaluatedAt
+    ) {
+      slice.latestEvaluatedAt = evaluation.evaluatedAt;
+    }
+  }
+  return [...byKey.values()]
+    .sort((a, b) =>
+      a.strategy === b.strategy
+        ? a.regime < b.regime
+          ? -1
+          : 1
+        : a.strategy < b.strategy
+          ? -1
+          : 1
+    )
+    .map((s) => ({
+      strategy: s.strategy,
+      regime: s.regime,
+      published: s.published,
+      evaluated: s.evaluated,
+      unpriced: s.unpriced,
+      winRateAfterCost: s.evaluated > 0 ? s.wins / s.evaluated : null,
+      avgPnlAfterCost: s.evaluated > 0 ? s.pnlSum / s.evaluated : null,
+      avgRAfterCost: s.rCount > 0 ? s.rSum / s.rCount : null,
+      latestEvaluatedAt: s.latestEvaluatedAt,
+    }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Policy (pure)                                                       */
+/* ------------------------------------------------------------------ */
+
+export interface WeightV2Proposal {
+  strategy: string;
+  regime: WeightsV2Regime;
+  current: number;
+  proposed: number;
+  delta: number;
+  evaluated: number;
+  winRateAfterCost: number;
+  overallWinRateAfterCost: number;
+  avgRAfterCost: number | null;
+  latestEvaluatedAt: string | null;
+  evidenceAgeDays: number;
+  decayFactor: number;
+}
+
+export function proposeWeightAdjustmentsV2(
+  slices: WeightsV2Slice[],
+  weights: Record<string, number>,
+  opts: {
+    now: Date;
+    caps?: Record<string, number>;
+    halfLifeDays?: number;
+  }
+): WeightV2Proposal[] {
+  const halfLife = opts.halfLifeDays ?? WEIGHTS_V2_DEFAULTS.halfLifeDays;
+  // Regime baselines: after-cost win rate over ALL evaluated ideas in
+  // the regime — a strategy is judged against its own regime only.
+  const baselines = new Map<string, { wins: number; evaluated: number }>();
+  for (const s of slices) {
+    if (s.winRateAfterCost === null || s.evaluated === 0) continue;
+    const b = baselines.get(s.regime) ?? { wins: 0, evaluated: 0 };
+    b.wins += s.winRateAfterCost * s.evaluated;
+    b.evaluated += s.evaluated;
+    baselines.set(s.regime, b);
+  }
+
+  const proposals: WeightV2Proposal[] = [];
+  for (const slice of slices) {
+    if (slice.evaluated < WEIGHTS_V2_DEFAULTS.minSample) continue;
+    if (slice.winRateAfterCost === null) continue;
+    const baseline = baselines.get(slice.regime);
+    if (!baseline || baseline.evaluated === 0) continue;
+    const overall = baseline.wins / baseline.evaluated;
+
+    const ageDays = slice.latestEvaluatedAt
+      ? Math.max(0, (opts.now.getTime() - Date.parse(slice.latestEvaluatedAt)) / DAY_MS)
+      : Number.POSITIVE_INFINITY;
+    const factor = decayFactor(ageDays, halfLife);
+    const current =
+      weights[weightsV2Key(slice.strategy, slice.regime)] ??
+      WEIGHTS_V2_DEFAULTS.defaultWeight;
+    const cap = opts.caps?.[slice.strategy] ?? WEIGHTS_V2_DEFAULTS.max;
+
+    let signal = slice.winRateAfterCost - overall;
+    let step = clamp(signal, -WEIGHTS_V2_DEFAULTS.maxStep, WEIGHTS_V2_DEFAULTS.maxStep);
+    // Risk adjustment: without a positive average after-cost R, a
+    // win-rate excess may only ever argue for a DECREASE (or nothing).
+    if (slice.avgRAfterCost === null || slice.avgRAfterCost <= 0) {
+      step = Math.min(step, 0);
+    }
+    step = step * factor;
+
+    let proposed: number;
+    if (Math.abs(step) < WEIGHTS_V2_DEFAULTS.deadband) {
+      // No live signal — but a non-default weight resting on decayed
+      // evidence still drifts home toward the default.
+      if (factor >= 1 || current === WEIGHTS_V2_DEFAULTS.defaultWeight) continue;
+      const target = decayedWeight(current, ageDays, halfLife);
+      const move = clamp(
+        target - current,
+        -WEIGHTS_V2_DEFAULTS.maxStep,
+        WEIGHTS_V2_DEFAULTS.maxStep
+      );
+      if (Math.abs(move) < WEIGHTS_V2_DEFAULTS.deadband) continue;
+      proposed = round4(clamp(current + move, WEIGHTS_V2_DEFAULTS.min, cap));
+      signal = 0;
+    } else {
+      proposed = round4(clamp(current + step, WEIGHTS_V2_DEFAULTS.min, cap));
+    }
+    if (proposed === current) continue;
+    proposals.push({
+      strategy: slice.strategy,
+      regime: slice.regime,
+      current,
+      proposed,
+      delta: round4(proposed - current),
+      evaluated: slice.evaluated,
+      winRateAfterCost: slice.winRateAfterCost,
+      overallWinRateAfterCost: overall,
+      avgRAfterCost: slice.avgRAfterCost,
+      latestEvaluatedAt: slice.latestEvaluatedAt,
+      evidenceAgeDays: Number.isFinite(ageDays) ? Math.round(ageDays) : -1,
+      decayFactor: round4(factor),
+    });
+  }
+  return proposals;
+}
+
+/* ------------------------------------------------------------------ */
+/* Versioned store                                                     */
+/* ------------------------------------------------------------------ */
+
+export function ensureWeightsV2Tables(sql: any): void {
+  sql.exec(
+    `CREATE TABLE IF NOT EXISTS mas_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`
+  );
+  sql.exec(`CREATE TABLE IF NOT EXISTS mas_strategy_weights_v2 (
+    strategy TEXT NOT NULL,
+    regime TEXT NOT NULL,
+    weight REAL NOT NULL,
+    version INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (strategy, regime)
+  )`);
+  sql.exec(`CREATE TABLE IF NOT EXISTS mas_strategy_weight_versions (
+    id TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    strategy TEXT NOT NULL,
+    regime TEXT NOT NULL,
+    before_weight REAL,
+    after_weight REAL NOT NULL,
+    signal REAL,
+    evaluated INTEGER NOT NULL DEFAULT 0,
+    win_rate_after_cost REAL,
+    avg_r_after_cost REAL,
+    actor TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`);
+}
+
+export interface WeightVersionRecord {
+  version: number;
+  strategy: string;
+  regime: string;
+  /** Null when no weight row existed before this change (#760 semantics). */
+  before: number | null;
+  after: number;
+  signal: number | null;
+  evaluated: number;
+  winRateAfterCost: number | null;
+  avgRAfterCost: number | null;
+  actor: string;
+  rationale: string;
+  createdAt: string;
+}
+
+export function currentWeightsVersion(sql: any): number {
+  ensureWeightsV2Tables(sql);
+  const rows = Array.from(
+    sql.exec(`SELECT version FROM mas_strategy_weight_versions`)
+  ) as any[];
+  return rows.reduce((m, r) => Math.max(m, Number(r.version) || 0), 0);
+}
+
+export function listWeightVersionRecords(
+  sql: any,
+  limit = 200
+): WeightVersionRecord[] {
+  ensureWeightsV2Tables(sql);
+  const rows = Array.from(
+    sql.exec(
+      `SELECT * FROM mas_strategy_weight_versions ORDER BY version ASC LIMIT ?`,
+      limit
+    )
+  ) as any[];
+  return rows.map((r) => ({
+    version: Number(r.version),
+    strategy: String(r.strategy),
+    regime: String(r.regime),
+    before: r.before_weight === null || r.before_weight === undefined ? null : Number(r.before_weight),
+    after: Number(r.after_weight),
+    signal: r.signal === null || r.signal === undefined ? null : Number(r.signal),
+    evaluated: Number(r.evaluated) || 0,
+    winRateAfterCost:
+      r.win_rate_after_cost === null || r.win_rate_after_cost === undefined
+        ? null
+        : Number(r.win_rate_after_cost),
+    avgRAfterCost:
+      r.avg_r_after_cost === null || r.avg_r_after_cost === undefined
+        ? null
+        : Number(r.avg_r_after_cost),
+    actor: String(r.actor),
+    rationale: String(r.rationale),
+    createdAt: String(r.created_at),
+  }));
+}
+
+export function getStrategyWeightsV2(sql: any): Record<string, number> {
+  ensureWeightsV2Tables(sql);
+  const rows = Array.from(
+    sql.exec(`SELECT strategy, regime, weight FROM mas_strategy_weights_v2`)
+  ) as any[];
+  const out: Record<string, number> = {};
+  for (const r of rows) out[weightsV2Key(String(r.strategy), String(r.regime))] = Number(r.weight);
+  return out;
+}
+
+/**
+ * Consolidation C5 (#1361, #1257): the per-regime read. The v2 store
+ * is keyed strategy|regime; consumers that run under one regime (the
+ * reselection tick loops regimes) need plain strategy keys for that
+ * regime alone — no other regime's value may leak into the read.
+ */
+export function getStrategyWeightsV2ForRegime(sql: any, regime: string): Record<string, number> {
+  ensureWeightsV2Tables(sql);
+  const rows = Array.from(
+    sql.exec(`SELECT strategy, weight FROM mas_strategy_weights_v2 WHERE regime = ?`, regime)
+  ) as any[];
+  const out: Record<string, number> = {};
+  for (const r of rows) out[String(r.strategy)] = Number(r.weight);
+  return out;
+}
+
+/**
+ * Consolidation C5 (#1361, #1257): the regime-blind aggregate for
+ * legacy-shaped consumers (the GET weights evaluation, the candidate
+ * replay) that key weights by strategy alone. The collapse rule is
+ * the mean across the strategy's regimes — documented here, not
+ * hidden in a caller: a regime-blind consumer cannot attribute a
+ * strategy to one regime, so it reads the average, never a silently
+ * picked regime's value.
+ */
+export function getStrategyWeightsV2Collapsed(sql: any): Record<string, number> {
+  ensureWeightsV2Tables(sql);
+  const rows = Array.from(
+    sql.exec(`SELECT strategy, weight FROM mas_strategy_weights_v2`)
+  ) as any[];
+  const sums = new Map<string, { total: number; count: number }>();
+  for (const r of rows) {
+    const key = String(r.strategy);
+    const acc = sums.get(key) ?? { total: 0, count: 0 };
+    acc.total += Number(r.weight);
+    acc.count += 1;
+    sums.set(key, acc);
+  }
+  const out: Record<string, number> = {};
+  for (const [key, acc] of sums) out[key] = acc.total / acc.count;
+  return out;
+}
+
+function weightRowExists(sql: any, strategy: string, regime: string): boolean {
+  const rows = Array.from(
+    sql.exec(
+      `SELECT weight FROM mas_strategy_weights_v2 WHERE strategy = ? AND regime = ?`,
+      strategy,
+      regime
+    )
+  ) as any[];
+  return rows.length > 0;
+}
+
+function writeWeightRow(
+  sql: any,
+  strategy: string,
+  regime: string,
+  weight: number | null,
+  version: number,
+  now: Date
+): void {
+  // DELETE+INSERT idiom (MockSqlStorage parity, as in strategyWeights).
+  sql.exec(
+    `DELETE FROM mas_strategy_weights_v2 WHERE strategy = ? AND regime = ?`,
+    strategy,
+    regime
+  );
+  if (weight !== null) {
+    sql.exec(
+      `INSERT INTO mas_strategy_weights_v2 (strategy, regime, weight, version, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      strategy,
+      regime,
+      weight,
+      version,
+      now.toISOString()
+    );
+  }
+}
+
+function writeVersionRecord(
+  sql: any,
+  rec: {
+    version: number;
+    strategy: string;
+    regime: string;
+    before: number | null;
+    after: number;
+    signal: number | null;
+    evaluated: number;
+    winRateAfterCost: number | null;
+    avgRAfterCost: number | null;
+    actor: string;
+    rationale: string;
+  },
+  now: Date
+): void {
+  sql.exec(
+    `INSERT INTO mas_strategy_weight_versions (id, version, strategy, regime, before_weight, after_weight, signal, evaluated, win_rate_after_cost, avg_r_after_cost, actor, rationale, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `wv-${rec.version}-${rec.strategy}-${rec.regime}`,
+    rec.version,
+    rec.strategy,
+    rec.regime,
+    rec.before,
+    rec.after,
+    rec.signal,
+    rec.evaluated,
+    rec.winRateAfterCost,
+    rec.avgRAfterCost,
+    rec.actor,
+    rec.rationale,
+    now.toISOString()
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Application (through the #755 seam)                                 */
+/* ------------------------------------------------------------------ */
+
+export interface WeightsV2AdjustmentResult {
+  halted?: boolean;
+  considered: number;
+  adjusted: Array<{
+    strategy: string;
+    regime: string;
+    before: number | null;
+    after: number;
+    version: number;
+  }>;
+  blocked: Array<{ strategy: string; regime: string; reason: string }>;
+}
+
+/**
+ * One application path for explicit target weights (the promotion
+ * gate's apply step, and rollback's restore step). Each change goes
+ * through applyAdaptation with budgets NOT enforced (human-gated,
+ * the #760 pattern) but fully audited; the kill switch is checked by
+ * the caller before the seam and again here. `weight: null` deletes
+ * the row — restoring "no row existed" exactly.
+ */
+export function applyWeightsV2Targets(
+  sql: any,
+  targets: Array<{
+    strategy: string;
+    regime: string;
+    weight: number | null;
+    signal?: number | null;
+    evaluated?: number;
+    winRateAfterCost?: number | null;
+    avgRAfterCost?: number | null;
+  }>,
+  opts: { actor: string; rationale: string; now: Date }
+): { halted?: boolean; applied: WeightsV2AdjustmentResult["adjusted"] } {
+  ensureWeightsV2Tables(sql);
+  if (isAdaptationHalted(sql)) return { halted: true, applied: [] };
+  const applied: WeightsV2AdjustmentResult["adjusted"] = [];
+  for (const t of targets) {
+    const existed = weightRowExists(sql, t.strategy, t.regime);
+    const before = existed
+      ? (getStrategyWeightsV2(sql)[weightsV2Key(t.strategy, t.regime)] ?? null)
+      : null;
+    const effectiveAfter = t.weight ?? WEIGHTS_V2_DEFAULTS.defaultWeight;
+    const out = applyAdaptation(
+      sql,
+      {
+        actor: opts.actor,
+        subject: `strategy-weight-v2:${t.strategy}:${t.regime}`,
+        parameter: "weight",
+        before: before === null ? "none" : String(before),
+        after: t.weight === null ? "none" : String(t.weight),
+        delta: round4(effectiveAfter - (before ?? WEIGHTS_V2_DEFAULTS.defaultWeight)),
+        rationale: opts.rationale,
+        dataWindow: `weights v2 as of ${opts.now.toISOString().slice(0, 10)}`,
+      },
+      () => {
+        const version = currentWeightsVersion(sql) + 1;
+        writeWeightRow(sql, t.strategy, t.regime, t.weight, version, opts.now);
+        writeVersionRecord(
+          sql,
+          {
+            version,
+            strategy: t.strategy,
+            regime: t.regime,
+            before,
+            after: effectiveAfter,
+            signal: t.signal ?? null,
+            evaluated: t.evaluated ?? 0,
+            winRateAfterCost: t.winRateAfterCost ?? null,
+            avgRAfterCost: t.avgRAfterCost ?? null,
+            actor: opts.actor,
+            rationale: opts.rationale,
+          },
+          opts.now
+        );
+        applied.push({
+          strategy: t.strategy,
+          regime: t.regime,
+          before,
+          after: effectiveAfter,
+          version,
+        });
+      },
+      opts.now,
+      { enforceBudgets: false }
+    );
+    if (!out.applied) {
+      // Seam refused (should not happen with budgets off, short of a
+      // throw in apply) — surface by omission; callers compare counts.
+      continue;
+    }
+  }
+  return { applied };
+}
+
+/**
+ * The v2 adjustment job: propose from slices and apply through the
+ * seam WITH budget enforcement (it is an autonomous loop, like the
+ * #754 job). Halted outright by the adaptation kill switch.
+ */
+export function runWeightsV2Adjustment(
+  sql: any,
+  slices: WeightsV2Slice[],
+  opts: {
+    now: Date;
+    actor?: string;
+    caps?: Record<string, number>;
+    halfLifeDays?: number;
+  }
+): WeightsV2AdjustmentResult {
+  ensureWeightsV2Tables(sql);
+  const base: WeightsV2AdjustmentResult = {
+    considered: slices.length,
+    adjusted: [],
+    blocked: [],
+  };
+  if (isAdaptationHalted(sql)) return { ...base, halted: true };
+
+  const actor = opts.actor ?? WEIGHTS_V2_ACTOR;
+  const weights = getStrategyWeightsV2(sql);
+  const proposals = proposeWeightAdjustmentsV2(slices, weights, {
+    now: opts.now,
+    caps: opts.caps,
+    halfLifeDays: opts.halfLifeDays,
+  });
+  for (const p of proposals) {
+    const existed = weightRowExists(sql, p.strategy, p.regime);
+    const before = existed ? p.current : null;
+    const out = applyAdaptation(
+      sql,
+      {
+        actor,
+        subject: `strategy-weight-v2:${p.strategy}:${p.regime}`,
+        parameter: "weight",
+        before: before === null ? "none" : String(before),
+        after: String(p.proposed),
+        delta: p.delta,
+        rationale:
+          `regime ${p.regime}: after-cost win rate ${p.winRateAfterCost.toFixed(2)} vs regime baseline ` +
+          `${p.overallWinRateAfterCost.toFixed(2)} over ${p.evaluated} evaluated ideas; avg after-cost R ` +
+          `${p.avgRAfterCost === null ? "n/a" : p.avgRAfterCost.toFixed(3)}; evidence age ${p.evidenceAgeDays}d, ` +
+          `decay ${p.decayFactor}; bounded step ${p.delta >= 0 ? "+" : ""}${p.delta.toFixed(2)} ` +
+          `within [${WEIGHTS_V2_DEFAULTS.min}, ${WEIGHTS_V2_DEFAULTS.max}]`,
+        dataWindow: `evidence through ${p.latestEvaluatedAt ?? "unknown"}`,
+      },
+      () => {
+        const version = currentWeightsVersion(sql) + 1;
+        writeWeightRow(sql, p.strategy, p.regime, p.proposed, version, opts.now);
+        writeVersionRecord(
+          sql,
+          {
+            version,
+            strategy: p.strategy,
+            regime: p.regime,
+            before,
+            after: p.proposed,
+            signal: round4(p.winRateAfterCost - p.overallWinRateAfterCost),
+            evaluated: p.evaluated,
+            winRateAfterCost: p.winRateAfterCost,
+            avgRAfterCost: p.avgRAfterCost,
+            actor,
+            rationale: `v2 proposal: after-cost, regime-conditioned, decay ${p.decayFactor}`,
+          },
+          opts.now
+        );
+        base.adjusted.push({
+          strategy: p.strategy,
+          regime: p.regime,
+          before,
+          after: p.proposed,
+          version,
+        });
+      },
+      opts.now
+    );
+    if (!out.applied) {
+      base.blocked.push({
+        strategy: p.strategy,
+        regime: p.regime,
+        reason: out.reason ?? "budget",
+      });
+    }
+  }
+  return base;
+}
+
+export { WEIGHT_ADAPTATION_ACTOR };

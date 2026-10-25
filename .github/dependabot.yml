@@ -1,0 +1,32 @@
+# Dependabot — dependency update + security update automation.
+#
+# Issue #765 (RSI-InfoSec plan #764, P1 DevSecOps): dependabot PRs used to
+# arrive ad hoc from repo settings (#31, #49, #50) with no grouping, cadence,
+# or labeling policy. This file makes them predictable: npm updates weekly
+# with minor/patch grouped into a single PR, GitHub Actions updates monthly.
+# Security updates are enabled by Dependabot independently of this file and
+# arrive as their own PRs; every PR — update or security — goes through the
+# standard gitops merge gate (green checks + named-failure rule), never
+# auto-merge.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:30"
+      timezone: "America/New_York"
+    labels:
+      - "dependencies"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"

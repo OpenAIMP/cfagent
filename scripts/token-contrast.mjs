@@ -13,8 +13,9 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const css = readFileSync(join(ROOT, "src", "client", "tokens.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
 function extractBlock(selectorRe) {
@@ -39,6 +40,7 @@ function extractBlock(selectorRe) {
 const themes = {
   dark: extractBlock(/\[data-theme="dark"\]/),
   light: extractBlock(/\[data-theme="light"\]/),
+  "high-contrast": extractBlock(/\[data-theme="high-contrast"\]/),
 };
 
 function resolve(vars, name, seen = new Set()) {

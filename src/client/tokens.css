@@ -3,10 +3,10 @@
  *
  * Layers:
  * 1. Primitives (:root): palette-independent foundation values
- *    (typography, radius, spacing) + the legacy alias shims (deprecated).
+ *    (typography, radius, spacing, brand constants).
  * 2. Semantic theme maps: a theme is a TOKEN MAP, nothing more.
- *    - Dark map: `:root, [data-theme="dark"], ...` — also the default.
- *    - Light map: `[data-theme="light"], ...` — a complete map over the
+ *    - Dark map: `:root, [data-theme="dark"]` — also the default.
+ *    - Light map: `[data-theme="light"]` — a complete map over the
  *      SAME semantic roles.
  *    `system` is a resolution rule in theme.ts (OS preference + live
  *    listener), not a third map.
@@ -29,6 +29,11 @@
   /* ==========================================================================
      1. PRIMITIVES — SCALES & FOUNDATIONS
      ========================================================================== */
+
+  /* Brand System Foundations — Single Source of Truth (Issue #1297) */
+  --brand-name: "NextGenTP";
+  --brand-tagline: "Autonomous Multi-Agent Options & Equity Trading Platform";
+  --brand-badge: "PRO";
 
   /* Typography Families — Enforced Universal Single Font (Inter) */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -104,37 +109,169 @@
   --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  /* Legacy aliases — DEPRECATED shims (Phase 6, #476 removes them).
-     Do not add new usages; consume the --color-* semantic tokens. */
-  --bg-base: var(--color-surface);
-  --bg-surface: var(--color-surface-raised);
-  --bg-card: var(--color-card);
-  --bg-card-solid: var(--color-card);
-  --bg-card-hover: var(--color-card-hover);
-  --bg-card-elevated: var(--color-card-elevated);
-  --bg-subtle: var(--color-surface-sunken);
-  --bg-input: var(--color-input);
-  --bg-muted: var(--color-muted);
-  --bg-tag: var(--color-tag);
+  /* Elevation Shadows & Surface Glass Tokens */
+  --shadow-e1: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-e2: 0 4px 14px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.24);
+  --shadow-e3: 0 12px 32px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.24);
+  --backdrop-blur-sm: blur(4px);
+  --backdrop-blur-md: blur(8px);
+  --backdrop-blur-lg: blur(16px);
+  --font-numeric: 'Inter', -apple-system, BlinkMacSystemFont, monospace;
 
-  --border-subtle: var(--color-border-subtle);
-  --border-medium: var(--color-border-medium);
-  --border-focus: var(--color-border-focus);
+  /* Legacy aliases removed in Phase 6 (#476): all usages rewritten to the --color-* semantic tokens. */
+}
 
-  --text-main: var(--color-text-primary);
-  --text-secondary: var(--color-text-secondary);
-  --text-muted: var(--color-text-muted);
-  --text-dim: var(--color-text-dim);
-  --text-inverse: var(--color-text-inverse);
+/* ==========================================================================
+   3. SEMANTIC TOKENS — HIGH-CONTRAST THEME (#475)
+   A theme is a token map, nothing more: this complete map over the same
+   roles is the ONLY change needed to add the theme. Pure-black surfaces,
+   white text, gold focus, and bright status hues — every text/background
+   pair audited by scripts/token-contrast.mjs.
+   ========================================================================== */
 
-  --accent-primary: var(--color-primary);
-  --accent-cyan: var(--color-accent);
-  --accent-emerald: var(--color-success);
-  --accent-amber: var(--color-warning);
-  --accent-rose: var(--color-danger);
-  --accent-purple: #7c3aed;
-  --accent-orange: #ea580c;
-  --accent-gradient: linear-gradient(135deg, var(--color-primary) 0%, var(--color-accent) 100%);
+[data-theme="high-contrast"] {
+  --color-surface: #000000;
+  --color-surface-foreground: #ffffff;
+  --color-surface-raised: #0d0d0d;
+  --color-surface-raised-foreground: #ffffff;
+  --color-surface-sunken: #000000;
+  --color-surface-sunken-foreground: #ffffff;
+  --color-surface-hover: rgba(255, 255, 255, 0.14);
+  --color-surface-active: rgba(0, 208, 255, 0.3);
+  --color-card: #0a0a0a;
+  --color-card-foreground: #ffffff;
+  --color-card-border: rgba(255, 255, 255, 0.45);
+  --color-card-hover: rgba(255, 255, 255, 0.1);
+  --color-card-elevated: #171717;
+  --color-input: #000000;
+  --color-input-foreground: #ffffff;
+  --color-input-border: rgba(255, 255, 255, 0.6);
+  --color-input-focus-border: #ffd700;
+  --color-muted: rgba(255, 255, 255, 0.14);
+  --color-muted-foreground: #d6d6d6;
+  --color-tag: rgba(255, 255, 255, 0.16);
+  --color-tag-foreground: #ffffff;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #e8e8e8;
+  --color-text-muted: #cccccc;
+  --color-text-dim: #ababab;
+  --color-text-inverse: #000000;
+  --color-border-subtle: rgba(255, 255, 255, 0.4);
+  --color-border-medium: rgba(255, 255, 255, 0.65);
+  --color-border-strong: #ffffff;
+  --color-border-focus: #ffd700;
+  --color-overlay: rgba(0, 0, 0, 0.92);
+  --color-primary: #00e065;
+  --color-primary-alpha: rgba(129, 140, 248, 0.35);
+  --color-primary-foreground: #000000;
+  --color-accent: #00d0ff;
+  --color-accent-contrast: #000000;
+  --color-accent-subtle: rgba(0, 208, 255, 0.25);
+  --color-success: #00e065;
+  --color-success-foreground: #000000;
+  --color-success-subtle: rgba(0, 224, 101, 0.22);
+  --color-primary-hover: #00c853;
+  --color-success-hover: #00c853;
+  --color-danger: #ff4d4d;
+  --color-danger-foreground: #000000;
+  --color-danger-subtle: rgba(255, 77, 77, 0.22);
+  --color-warning: #ffd60a;
+  --color-warning-foreground: #000000;
+  --color-warning-subtle: rgba(255, 214, 10, 0.2);
+  --color-info: #33bbff;
+  --color-info-foreground: #000000;
+  --color-info-subtle: rgba(51, 187, 255, 0.22);
+  --color-primary-border: rgba(129, 140, 248, 0.65);
+  --color-purple-subtle: rgba(215, 109, 255, 0.22);
+  --color-purple-border: rgba(215, 109, 255, 0.6);
+  --color-accent-border: rgba(0, 208, 255, 0.65);
+  --color-success-border: rgba(0, 224, 101, 0.6);
+  --color-danger-border: rgba(255, 77, 77, 0.6);
+  --color-warning-border: rgba(255, 214, 10, 0.55);
+  --gradient-app: radial-gradient(circle at 50% 0%, #1a1a1a 0%, #000000 65%);
+  --gradient-primary: linear-gradient(135deg, #00e065 0%, #00c853 100%);
+  --gradient-accent: linear-gradient(135deg, #00d0ff 0%, #0091ea 100%);
+  --gradient-trade: linear-gradient(135deg, #ff9100 0%, #ff6d00 100%);
+  --gradient-trade-hover: linear-gradient(135deg, #ffab40 0%, #ff9100 100%);
+  --gradient-user: linear-gradient(135deg, #b388ff 0%, #8c9eff 100%);
+  --gradient-ai: linear-gradient(135deg, #818cf8 0%, #00d0ff 100%);
+  --gradient-llm: linear-gradient(135deg, rgba(129, 140, 248, 0.45) 0%, rgba(215, 109, 255, 0.45) 100%);
+  --gradient-flow-bullish: linear-gradient(90deg, rgba(0, 224, 101, 0.95) 0%, rgba(0, 200, 83, 0.75) 60%, rgba(0, 224, 101, 0.2) 100%);
+  --gradient-flow-bearish: linear-gradient(270deg, rgba(255, 77, 77, 0.95) 0%, rgba(213, 0, 50, 0.75) 60%, rgba(255, 77, 77, 0.2) 100%);
+  --color-trade-subtle: rgba(255, 145, 0, 0.22);
+  --color-trade: #ff9100;
+  --color-trade-deep: #ff6d00;
+  --shadow-focus-ring: 0 0 0 3px rgba(255, 215, 0, 0.55);
+  --shadow-inner: inset 0 2px 6px rgba(0, 0, 0, 0.9);
+  --shadow-sidebar: 2px 0 12px rgba(0, 0, 0, 0.9);
+  --shadow-drawer: 0 20px 50px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --shadow-popover: 0 20px 48px rgba(0, 0, 0, 0.98), 0 0 0 1px rgba(255, 255, 255, 0.55);
+  --text-shadow-on-gradient: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --text-shadow-popover: 0 1px 2px rgba(0, 0, 0, 0.9);
+  --gradient-surface: linear-gradient(135deg, #171717 0%, #000000 100%);
+  --color-on-gradient: #000000;
+  --color-success-text: #4dff88;
+  --color-danger-text: #ff8a80;
+  --color-warning-text: #ffd60a;
+  --color-indigo-text: #b3c0ff;
+  --color-purple-text: #e39dff;
+  --color-info-text: #66ccff;
+  --color-purple: #d76dff;
+  --color-purple-foreground: #000000;
+  --color-orange: #ff9100;
+  --color-sentiment-all: #00d0ff;
+  --color-sentiment-all-subtle: rgba(0, 208, 255, 0.22);
+  --color-sentiment-all-border: rgba(0, 208, 255, 0.6);
+  --color-sentiment-very-bearish: #ff4d4d;
+  --color-sentiment-very-bearish-subtle: rgba(255, 77, 77, 0.24);
+  --color-sentiment-very-bearish-border: rgba(255, 77, 77, 0.6);
+  --color-sentiment-bearish: #ff8a80;
+  --color-sentiment-bearish-subtle: rgba(255, 138, 128, 0.22);
+  --color-sentiment-bearish-border: rgba(255, 138, 128, 0.55);
+  --color-sentiment-neutral: #e8e8e8;
+  --color-sentiment-neutral-subtle: rgba(255, 255, 255, 0.18);
+  --color-sentiment-neutral-border: rgba(255, 255, 255, 0.5);
+  --color-sentiment-directional: #e39dff;
+  --color-sentiment-directional-subtle: rgba(215, 109, 255, 0.22);
+  --color-sentiment-directional-border: rgba(215, 109, 255, 0.55);
+  --color-sentiment-bullish: #4dff88;
+  --color-sentiment-bullish-subtle: rgba(0, 224, 101, 0.22);
+  --color-sentiment-bullish-border: rgba(0, 224, 101, 0.55);
+  --color-sentiment-very-bullish: #00e065;
+  --color-sentiment-very-bullish-subtle: rgba(0, 224, 101, 0.26);
+  --color-sentiment-very-bullish-border: rgba(0, 224, 101, 0.6);
+  --color-bullish: var(--color-sentiment-bullish);
+  --color-bearish: var(--color-sentiment-bearish);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.9);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.9);
+  --shadow-lg: 0 10px 28px rgba(0, 0, 0, 0.95);
+  --shadow-card: 0 4px 18px rgba(0, 0, 0, 0.9);
+  --shadow-glow-primary: 0 4px 14px rgba(0, 224, 101, 0.5);
+  --shadow-glow-accent: 0 0 10px rgba(0, 208, 255, 0.45);
+  --shadow-glow-indigo: 0 4px 14px rgba(129, 140, 248, 0.5);
+  --shadow-glow-trade: 0 2px 8px rgba(255, 145, 0, 0.5);
+  --shadow-glow-warning: 0 0 6px rgba(255, 214, 10, 0.8);
+  --shadow-glow-danger: 0 0 8px rgba(255, 77, 77, 0.7);
+  --shadow-glow-purple: 0 0 6px rgba(215, 109, 255, 0.8);
+  --modal-backdrop-bg: rgba(0, 0, 0, 0.92);
+  --glow-shadow: 0 0 24px rgba(0, 224, 101, 0.35);
+  --scrollbar-track: rgba(255, 255, 255, 0.06);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.45);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.7);
+
+  /* Financial Gain / Loss & Elevated Glass Tokens */
+  --color-gain: #00e065;
+  --color-gain-foreground: #000000;
+  --color-gain-subtle: rgba(0, 224, 101, 0.22);
+  --color-gain-border: rgba(0, 224, 101, 0.6);
+  --color-loss: #ff4d4d;
+  --color-loss-foreground: #000000;
+  --color-loss-subtle: rgba(255, 77, 77, 0.22);
+  --color-loss-border: rgba(255, 77, 77, 0.6);
+  --color-surface-glass: #0a0a0a;
+  --color-surface-glass-border: rgba(255, 255, 255, 0.45);
+  --color-night: #000000;
+  --color-night-border: rgba(255, 255, 255, 0.5);
 }
 
 
@@ -198,9 +335,7 @@
 }
 
 :root,
-[data-theme="dark"],
-body.theme-dark,
-.dark {
+[data-theme="dark"] {
   /* Surfaces & Backgrounds (with explicit paired foregrounds) */
   --color-surface: #060913;
   --color-surface-foreground: #f8fafc;
@@ -255,6 +390,7 @@ body.theme-dark,
   --color-success: #10b981;
   --color-success-foreground: #04241c;
   --color-success-subtle: rgba(16, 185, 129, 0.14);
+  --color-primary-hover: #059669;
   --color-success-hover: #059669;
 
   --color-danger: #f43f5e;
@@ -311,6 +447,7 @@ body.theme-dark,
   --color-info-text: #7dd3fc;
 
   --color-purple: #a855f7;
+  --color-purple-foreground: #060913;
   --color-orange: #f97316;
 
   /* Market Sentiment Roles (Canonical Token Architecture - Dark Theme) */
@@ -364,15 +501,27 @@ body.theme-dark,
   --scrollbar-track: rgba(12, 18, 34, 0.5);
   --scrollbar-thumb: rgba(255, 255, 255, 0.16);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+
+  /* Financial Gain / Loss & Elevated Glass Tokens */
+  --color-gain: #10b981;
+  --color-gain-foreground: #04241c;
+  --color-gain-subtle: rgba(16, 185, 129, 0.12);
+  --color-gain-border: rgba(16, 185, 129, 0.28);
+  --color-loss: #f43f5e;
+  --color-loss-foreground: #2e0a10;
+  --color-loss-subtle: rgba(244, 63, 94, 0.12);
+  --color-loss-border: rgba(244, 63, 94, 0.28);
+  --color-surface-glass: rgba(15, 23, 42, 0.82);
+  --color-surface-glass-border: rgba(255, 255, 255, 0.08);
+  --color-night: #060913;
+  --color-night-border: rgba(255, 255, 255, 0.08);
 }
 
 /* ==========================================================================
    2. SEMANTIC TOKENS — LIGHT THEME (EXPLICIT RESOLUTION)
    ========================================================================== */
 
-[data-theme="light"],
-body.theme-light,
-.light {
+[data-theme="light"] {
   /* Surfaces & Backgrounds (with explicit paired foregrounds) */
   --color-surface: #f8fafc;
   --color-surface-foreground: #0f172a;
@@ -427,6 +576,7 @@ body.theme-light,
   --color-success: #15803d;
   --color-success-foreground: #ffffff;
   --color-success-subtle: rgba(21, 128, 61, 0.12);
+  --color-primary-hover: #166534;
   --color-success-hover: #166534;
 
   --color-danger: #dc2626;
@@ -483,6 +633,7 @@ body.theme-light,
   --color-info-text: #0369a1;
 
   --color-purple: #7c3aed;
+  --color-purple-foreground: #ffffff;
   --color-orange: #ea580c;
 
   /* Market Sentiment Roles (Canonical Token Architecture - Light Theme) */
@@ -536,6 +687,20 @@ body.theme-light,
   --scrollbar-track: #f1f5f9;
   --scrollbar-thumb: #cbd5e1;
   --scrollbar-thumb-hover: #94a3b8;
+
+  /* Financial Gain / Loss & Elevated Glass Tokens */
+  --color-gain: #15803d;
+  --color-gain-foreground: #ffffff;
+  --color-gain-subtle: rgba(21, 128, 61, 0.09);
+  --color-gain-border: rgba(21, 128, 61, 0.22);
+  --color-loss: #dc2626;
+  --color-loss-foreground: #ffffff;
+  --color-loss-subtle: rgba(220, 38, 38, 0.09);
+  --color-loss-border: rgba(220, 38, 38, 0.22);
+  --color-surface-glass: rgba(255, 255, 255, 0.88);
+  --color-surface-glass-border: rgba(0, 0, 0, 0.08);
+  --color-night: #0b1120;
+  --color-night-border: rgba(255, 255, 255, 0.1);
 }
 /* Strict universal single font enforcement across all HTML elements, inputs, buttons, headings, tables, and text */
 *,
@@ -746,7 +911,6 @@ pre code,
 .dual-feed-card,
 .workflows-cat-chip,
 .workflows-search-input,
-.dual-card-refresh-btn,
 .pill-badge,
 pre,
 code:not(.did-pill code) {
@@ -804,64 +968,6 @@ code:not(.did-pill code) {
   color: var(--color-text-muted);
   font-size: var(--font-size-body-sm, 0.85rem);
   line-height: 1.45;
-}
-
-/* Universal Button Utilities */
-.btn-refresh,
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1-5, 0.35rem);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-medium);
-  color: var(--color-text-secondary);
-  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-  border-radius: var(--radius-sm, 6px);
-  font-size: var(--font-size-body-sm, 0.82rem);
-  font-weight: var(--font-weight-semibold, 600);
-  cursor: pointer;
-  transition: all var(--transition-fast, 120ms) ease;
-  white-space: nowrap;
-}
-
-.btn-refresh:hover:not(:disabled),
-.btn-secondary:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-focus);
-}
-
-.btn-refresh:disabled,
-.btn-secondary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1-5, 0.35rem);
-  background: var(--color-accent);
-  border: 1px solid var(--color-accent);
-  color: var(--color-accent-contrast, #ffffff);
-  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-  border-radius: var(--radius-sm, 6px);
-  font-size: var(--font-size-body-sm, 0.82rem);
-  font-weight: var(--font-weight-bold, 700);
-  cursor: pointer;
-  transition: all var(--transition-fast, 120ms) ease;
-  white-space: nowrap;
-}
-
-.btn-primary:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* Filter Preset Pills */
@@ -935,50 +1041,6 @@ code:not(.did-pill code) {
   color: var(--color-text-secondary);
 }
 
-/* Table Inline Actions */
-.btn-table-action {
-  padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
-  font-size: var(--font-size-caption, 0.75rem);
-  border-radius: var(--radius-xs, 4px);
-  cursor: pointer;
-  font-weight: var(--font-weight-semibold, 600);
-  transition: all var(--transition-fast, 120ms) ease;
-  white-space: nowrap;
-}
-
-.btn-table-action.primary {
-  background: var(--color-accent-subtle);
-  color: var(--color-accent);
-  border: 1px solid var(--color-border-focus);
-}
-
-.btn-table-action.secondary {
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border-subtle);
-}
-
-.btn-table-action.success {
-  background: var(--color-success-subtle);
-  color: var(--color-success);
-  border: 1px solid var(--color-success);
-}
-
-.btn-table-action.warning {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning);
-  border: 1px solid var(--color-warning);
-}
-
-.btn-table-action.warning.active {
-  background: var(--color-warning);
-  color: var(--color-warning-foreground, #000000);
-}
-
-.btn-table-action:hover:not(:disabled) {
-  filter: brightness(1.15);
-  transform: translateY(-1px);
-}
 
 /* ==========================================================================
    5. UNIVERSAL MODAL SYSTEM (CANONICAL TOKEN ARCHITECTURE)

@@ -49,9 +49,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         style={{
           margin: "12px 0",
           padding: "12px 14px",
-          border: "1px solid #e5484d",
+          border: "1px solid var(--color-danger)",
           borderRadius: 10,
-          background: "rgba(229,72,77,0.08)",
+          background: "var(--color-danger-subtle)",
           color: "inherit",
           fontSize: 13,
         }}
@@ -85,7 +85,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             marginTop: 10,
             padding: "5px 12px",
             borderRadius: 8,
-            border: "1px solid #e5484d",
+            border: "1px solid var(--color-danger)",
             background: "transparent",
             color: "inherit",
             cursor: "pointer",

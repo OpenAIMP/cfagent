@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
+import { makeFakeSessionStore } from "./fake-session-store";
 
 // The orchestrator extends AIChatAgent from @cloudflare/ai-chat, whose real
 // module graph pulls in `cloudflare:` protocol imports the node test loader
@@ -59,13 +60,17 @@ describe("POST /api/schedules/create (#111)", () => {
     } as any;
     const agent: any = Object.create(OrchestratorAgent.prototype);
     agent.ctx = ctx;
+    // #604: tokens live in the SessionStore DO (ns "etrade"), not KV.
+    const { namespace: sessionStoreNs, seed: seedSession } =
+      makeFakeSessionStore();
+    seedSession(
+      "etrade",
+      `etrade:token:TEST:${authenticatedLogin}`,
+      storedTestTokens
+    );
     agent.env = {
       APP_ENV: "TEST",
-      KV: {
-        get: async (key: string) => key === `etrade:token:TEST:${authenticatedLogin}` ? storedTestTokens : null,
-        put: async () => undefined,
-        delete: async () => undefined,
-      },
+      SESSION_STORE: sessionStoreNs,
     } as any;
     agent.schedule = async (when: any, callback: string, payload: any, options: any) => {
       scheduleCalls.push([when, callback, payload, options]);
@@ -94,9 +99,17 @@ describe("POST /api/schedules/create (#111)", () => {
     scheduleEveryCalls = [];
   });
 
-  it("exposes only the stock and options screen callbacks", () => {
+  it("exposes only the stock screen, options screen, discovery, and goal-screen callbacks", () => {
+    // Issue #126 (PR-E) deliberately grew this allow-list by one:
+    // autonomousStrategyDiscovery (scheduled re-runs of saved strategy
+    // requests) is user-creatable through the same route. The pin's
+    // purpose — no internal-only callback is creatable — is unchanged.
+    // Consolidation C1 (#1201, epic #1151) deliberately grew it by one
+    // more: autonomousGoalScreen (scheduled Phase 1 goal/scenario
+    // screens through the unified stack) is user-creatable through the
+    // same route, with its payload validated by buildSchedulePayload.
     expect([...CREATABLE_SCHEDULE_CALLBACKS].sort()).toEqual(
-      ["autonomousMarketScreen", "autonomousOptionsAnalysis"].sort()
+      ["autonomousGoalScreen", "autonomousMarketScreen", "autonomousOptionsAnalysis", "autonomousStrategyDiscovery"].sort()
     );
     // Internal-only callbacks are armed by the agent itself, never via the route.
     expect(CREATABLE_SCHEDULE_CALLBACKS as readonly string[]).not.toContain("executeAsyncJob");

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Notice, Modal } from "./ui";
 
 export interface PartnerDeal {
   id: string;
@@ -24,33 +25,33 @@ export interface PartnerDealsModalProps {
 const DEFAULT_PARTNER_DEALS: PartnerDeal[] = [
   {
     id: "ad_workers_ai",
-    title: "Cloudflare Workers AI",
-    tagline: "Run state-of-the-art models (GLM-4.7, Llama 3.3) on serverless GPUs with zero cold starts.",
-    sponsor: "Cloudflare",
+    title: "Neural Strategy Accelerators",
+    tagline: "Deploy state-of-the-art models (GLM-4.7, Llama 3.3) on dedicated high-throughput inference nodes with zero cold starts.",
+    sponsor: "Enterprise Neural Compute",
     badge: "FLAGSHIP PARTNER",
-    url: "https://developers.cloudflare.com/workers-ai/",
-    ctaText: "Deploy in 60s →",
+    url: "https://agent.openaimp.com/docs",
+    ctaText: "Explore Models →",
     accentColor: "var(--color-warning)",
-    category: "AI & Serverless",
+    category: "AI & Intelligence",
   },
   {
     id: "ad_ai_search",
-    title: "Cloudflare AI Search",
-    tagline: "Build enterprise RAG pipelines with native auto-chunking, Vectorize indexes, and real-time semantic retrieval.",
-    sponsor: "Cloudflare AI",
+    title: "Enterprise Vector Knowledge Engine",
+    tagline: "Build institutional knowledge pipelines with native auto-chunking, dense embeddings, and real-time semantic retrieval.",
+    sponsor: "Enterprise Intelligence Network",
     badge: "FEATURED TOOL",
-    url: "https://developers.cloudflare.com/ai-search/",
+    url: "https://agent.openaimp.com/docs",
     ctaText: "Explore Docs →",
     accentColor: "var(--color-accent)",
-    category: "AI & Serverless",
+    category: "AI & Intelligence",
   },
   {
     id: "ad_durable_objects",
-    title: "Durable Objects SQLite",
-    tagline: "Strongly consistent transactional databases running natively at the edge for stateful AI agents.",
-    sponsor: "Cloudflare Platform",
+    title: "Distributed Transactional Ledger",
+    tagline: "Strongly consistent transactional state machine with write-ahead logging for mission-critical trading agents.",
+    sponsor: "Enterprise State Architecture",
     badge: "INFRASTRUCTURE",
-    url: "https://developers.cloudflare.com/durable-objects/",
+    url: "https://agent.openaimp.com/docs",
     ctaText: "Learn More →",
     accentColor: "var(--color-sentiment-directional)",
     category: "Infrastructure",
@@ -89,8 +90,6 @@ export function PartnerDealsModal({
 }: PartnerDealsModalProps) {
   const [filterCategory, setFilterCategory] = useState<string>("All");
 
-  if (!isOpen) return null;
-
   // Merge runtime ads with defaults to present comprehensive external deals showcase
   const combinedDeals: PartnerDeal[] = [
     ...ads.map((a) => ({
@@ -113,33 +112,35 @@ export function PartnerDealsModal({
     : combinedDeals.filter((d) => d.category === filterCategory);
 
   return (
-    <div className="partner-deals-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="partner-deals-modal-card" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="partner-deals-header">
-          <div className="partner-deals-title-area">
-            <span className="partner-deals-icon">⭐</span>
-            <div>
-              <h3 className="partner-deals-title">Partner Deals &amp; Developer Ecosystem</h3>
-              <p className="partner-deals-subtitle">
-                Externalized partner offers, sponsored developer credits, and tooling integrations.
-              </p>
-            </div>
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      size="none"
+      panelClassName="partner-deals-modal-card"
+  footer={
+    <div className="partner-deals-footer">
+      <span className="deals-counter">Showing {filteredDeals.length} partner offer{filteredDeals.length === 1 ? "" : "s"}</span>
+      <button type="button" className="partner-deals-dismiss-btn" onClick={onClose}>
+        Back to Workspace
+      </button>
+    </div>
+  }
+      title={
+        <div className="partner-deals-title-area">
+          <span className="partner-deals-icon">⭐</span>
+          <div>
+            <h3 className="partner-deals-title">Partner Deals &amp; Developer Ecosystem</h3>
+            <p className="partner-deals-subtitle">
+              Externalized partner offers, sponsored developer credits, and tooling integrations.
+            </p>
           </div>
-          <button
-            type="button"
-            className="partner-deals-close-btn"
-            onClick={onClose}
-            aria-label="Close partner deals modal"
-          >
-            ✕
-          </button>
         </div>
-
+      }
+    >
         {/* Notice explaining clean UI guarantee */}
-        <div className="partner-deals-notice">
-          🛡️ <strong>Clean Workspace Guarantee:</strong> Ads and promotional banners have been externalized from all trading tabs. You can browse offers here on-demand without cluttering your workspace.
-        </div>
+        <Notice tone="success" variant="strip" density="compact" icon="🛡️" title="Clean Workspace Guarantee:">
+          Ads and promotional banners have been externalized from all trading tabs. You can browse offers here on-demand without cluttering your workspace.
+        </Notice>
 
         {/* Category Filters */}
         <div className="partner-deals-category-bar">
@@ -227,14 +228,6 @@ export function PartnerDealsModal({
           </div>
         )}
 
-        {/* Footer */}
-        <div className="partner-deals-footer">
-          <span className="deals-counter">Showing {filteredDeals.length} partner offer{filteredDeals.length === 1 ? "" : "s"}</span>
-          <button type="button" className="partner-deals-dismiss-btn" onClick={onClose}>
-            Back to Workspace
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -7,7 +7,7 @@
  * approval.
  */
 
-import type { StrategyCandidate, StrategyRequest } from "./strategyEngine";
+import type { NoViewStrategyCandidate, NoViewStrategyRequest, StrategyCandidate, StrategyRequest } from "./strategyEngine";
 
 export type RiskProfile = "conservative" | "balanced" | "aggressive";
 
@@ -25,6 +25,32 @@ export interface RankedStrategy {
   compositeScore: number;
   components: RankingComponents;
 }
+
+/** A ranked no-view candidate (issue #534): the candidate carries no
+ *  target fields, and its rewardRisk component is structure-defined. */
+export interface RankedNoViewStrategy {
+  candidate: NoViewStrategyCandidate;
+  rank: number;
+  compositeScore: number;
+  components: RankingComponents;
+}
+
+/**
+ * The no-view best-pick (issue #534). The type itself carries the
+ * honesty contract: status can never be "recommended" (there is no user
+ * view for a recommendation to rest on) and confidence can never be
+ * HIGH (capped at MEDIUM however clean the data is).
+ */
+export type BestNoViewTradePick = Omit<BestTradePick, "best" | "alternatives" | "status" | "confidence"> & {
+  status: "research_only" | "no_trade";
+  confidence: "MEDIUM" | "LOW";
+  best?: RankedNoViewStrategy;
+  alternatives: RankedNoViewStrategy[];
+};
+
+/** Pinned verbatim by issue #534's honesty rules: the framing every
+ *  no-view pick carries, so no surface can present it as a recommendation. */
+export const NO_VIEW_PICK_RATIONALE = "No user view was supplied; this is the best-supported structure under the stated constraints, not a recommendation.";
 
 export interface BestTradePick {
   status: "recommended" | "research_only" | "no_trade";
@@ -124,6 +150,108 @@ export class RecommendationAgent {
       confidence,
       best,
       alternatives: [runnerUp, ...rest].filter((r): r is RankedStrategy => Boolean(r)).slice(0, alternativesCount),
+      tradePlan: c.legs.map((leg) => ({
+        action: leg.side,
+        quantity: leg.quantity,
+        contract: leg.symbol,
+        optionType: leg.optionType,
+        strike: leg.strike,
+        expiration: leg.expirationDate,
+        limitPrice: leg.entryPrice,
+      })),
+      rationale,
+      blockers,
+      humanApprovalRequired: true,
+      disclaimer,
+    };
+  }
+
+  /**
+   * Re-rank no-view candidates (issue #534): the viewed composite with
+   * its one target-derived component — rewardRisk — recomputed from the
+   * structure-defined ratio. Unbounded profit (structureRewardRisk
+   * null) is the strongest possible ratio, so it takes the clamped
+   * maximum; the ratio itself is never recorded as Infinity.
+   */
+  rankNoView(
+    candidates: NoViewStrategyCandidate[],
+    request: Pick<NoViewStrategyRequest, "maxPlannedLoss" | "minRewardRisk">,
+    profile: RiskProfile = "balanced"
+  ): RankedNoViewStrategy[] {
+    const weights = PROFILE_WEIGHTS[profile];
+    const scored = candidates.map((candidate) => {
+      const components: RankingComponents = {
+        engineScore: candidate.score,
+        probability: clamp(candidate.modelImpliedProbabilityOfProfit * 100),
+        rewardRisk: candidate.structureRewardRisk === null
+          ? 100
+          : clamp((candidate.structureRewardRisk / Math.max(request.minRewardRisk, 0.5)) * 50),
+        capitalSafety: clamp(100 - (candidate.maxLoss / request.maxPlannedLoss) * 100),
+        liquidity: clamp(candidate.liquidityScore),
+      };
+      const compositeScore = (Object.keys(weights) as Array<keyof RankingComponents>)
+        .reduce((sum, key) => sum + components[key] * weights[key], 0);
+      return { candidate, components, compositeScore: Number(compositeScore.toFixed(2)) };
+    });
+    scored.sort((a, b) => b.compositeScore - a.compositeScore || a.candidate.id.localeCompare(b.candidate.id));
+    return scored.map((item, index) => ({ ...item, rank: index + 1 }));
+  }
+
+  /**
+   * The no-view best-pick (issue #534): never "recommended" and never
+   * HIGH confidence — with no user view there is nothing for a
+   * recommendation to rest on. When nothing qualifies, the pick is an
+   * abstention (no_trade), never a manufactured best-of-garbage.
+   */
+  pickBestNoViewTrade(
+    candidates: NoViewStrategyCandidate[],
+    request: Pick<NoViewStrategyRequest, "maxPlannedLoss" | "minRewardRisk" | "symbol" | "riskProfile">,
+    profile: RiskProfile = request.riskProfile ?? "balanced",
+    alternativesCount = 3
+  ): BestNoViewTradePick {
+    const disclaimer = "Research output only; not personalized advice or an order. Verify live quotes and event risk, and approve any order manually.";
+    const ranked = this.rankNoView(candidates, request, profile);
+    if (ranked.length === 0) {
+      return {
+        status: "no_trade",
+        riskProfile: profile,
+        confidence: "LOW",
+        alternatives: [],
+        rationale: [`No user view was supplied and no ${request.symbol.toUpperCase()} structure cleared the stated constraints (max planned loss, structure reward/risk, probability-of-profit floor); the mode abstains rather than manufacturing a pick.`],
+        blockers: ["No qualifying candidates"],
+        humanApprovalRequired: true,
+        disclaimer,
+      };
+    }
+
+    const [best, runnerUp, ...rest] = ranked;
+    const c = best.candidate;
+    const blockers: string[] = [];
+    if (c.dataFreshness !== "FRESH") blockers.push(`Quote data is ${c.dataFreshness}; refresh quotes before considering this trade.`);
+    if (c.maxProfitUnbounded === false && c.maxProfit !== null && c.maxProfit <= 0) blockers.push("No positive maximum profit after fees.");
+    if (c.modelImpliedProbabilityOfProfit < 0.2) blockers.push("Model-implied probability of profit is below 20%.");
+
+    const margin = runnerUp ? best.compositeScore - runnerUp.compositeScore : best.compositeScore;
+    // Capped at MEDIUM by construction (issue #534): the viewed picker's
+    // HIGH tier is unreachable without a user view, however clean the
+    // data and however wide the margin.
+    const confidence: BestNoViewTradePick["confidence"] =
+      c.dataFreshness !== "FRESH" || blockers.length > 0 ? "LOW" : "MEDIUM";
+
+    const rationale = [
+      NO_VIEW_PICK_RATIONALE,
+      `${c.label} ranks #1 for a ${profile} profile with no-view composite score ${best.compositeScore}/100 (score model no-view-v1; not comparable to viewed scores).`,
+      `Max loss $${c.maxLoss.toFixed(2)} (${((c.maxLoss / request.maxPlannedLoss) * 100).toFixed(0)}% of your $${request.maxPlannedLoss} cap); ${c.maxProfitUnbounded ? "profit unbounded, so structure reward/risk is not finite" : `max profit $${(c.maxProfit ?? 0).toFixed(2)}; structure reward/risk ${(c.structureRewardRisk ?? 0).toFixed(2)}x max loss`}; model-implied POP ${(c.modelImpliedProbabilityOfProfit * 100).toFixed(1)}%.`,
+      `Breakeven${c.breakevens.length === 1 ? "" : "s"}: ${c.breakevens.map((b) => `$${b}`).join(", ") || "n/a"}; liquidity ${c.liquidityScore}/100.`,
+    ];
+    if (runnerUp) rationale.push(`Beats runner-up ${runnerUp.candidate.label} by ${margin.toFixed(1)} points.`);
+
+    return {
+      status: "research_only",
+      riskProfile: profile,
+      confidence,
+      best,
+      alternatives: [runnerUp, ...rest].filter((r): r is RankedNoViewStrategy => Boolean(r)).slice(0, alternativesCount),
       tradePlan: c.legs.map((leg) => ({
         action: leg.side,
         quantity: leg.quantity,

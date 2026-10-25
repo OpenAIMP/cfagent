@@ -12,7 +12,7 @@ Each job has a UUID, capability name, status (`queued`, `running`, `completed`, 
 
 ### Immediate-sync exceptions
 
-The Worker forwarder (`src/server.ts`) never marks these paths `x-async-eligible`, and the Orchestrator refuses to queue them (`isImmediateEndpoint` in `src/agents/orchestrator.ts`): `clear`, `reset`, `memory`, `audit`, `chat`, `chat-activity`, `screener/report.pdf`, `etrade/screen`, `etrade/options/profiles`, `etrade/options/scans`, `etrade/options/strategy`. They execute inline and return their final response synchronously.
+The Worker forwarder (`src/server.ts`) never marks these paths `x-async-eligible`, and the Orchestrator refuses to queue them (`isImmediateEndpoint` in `src/agents/orchestrator.ts`): `clear`, `reset`, `memory`, `audit`, `chat`, `chat-activity`, `screener`, `etrade`, `broker`, `trading`, `options`. They execute inline and return their final response synchronously.
 
 In particular, `POST /api/chat` (issue #312/#320) is synchronous by design: it runs one agentic chat turn on the canonical chat pipeline and returns `{ reply, route: { agent, confidence, reason, needsConfirmation }, model, streaming: false }` as the HTTP 200 body — it never returns `202`, and no polling is required. True streaming stays available over the agent WebSocket chat.
 - The browser's `apiFetch` adapter polls the job endpoint and reconstructs the original API response, preserving existing forms and consumers. If polling times out, the job continues and remains available in the Async Tasks panel.
