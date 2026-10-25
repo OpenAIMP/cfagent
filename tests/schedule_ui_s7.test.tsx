@@ -388,9 +388,11 @@ interface Rec { url: string; method: string; body: any }
 let recorded: Rec[] = [];
 let container: HTMLDivElement;
 let root: Root;
+let auditEvents: any[] = [];
 
 function installFetch() {
   recorded = [];
+  auditEvents = [];
   vi.stubGlobal("fetch", async (input: any, init?: any) => {
     const url = typeof input === "string" ? input : input.url;
     const method = String(init?.method || "GET").toUpperCase();
@@ -399,7 +401,7 @@ function installFetch() {
     if (url.includes("/api/schedules") && method === "GET") {
       return { ok: true, status: 200, json: async () => ({ count: ALL.length, creatableCallbacks: ["autonomousMarketScreen", "autonomousOptionsAnalysis", "autonomousStrategyDiscovery"], schedules: ALL }) };
     }
-    if (url.startsWith("/api/audit")) return { ok: true, status: 200, json: async () => ({ events: [] }) };
+    if (url.startsWith("/api/audit")) return { ok: true, status: 200, json: async () => ({ events: auditEvents }) };
     if (url === "/api/options/latest") return { ok: true, status: 200, json: async () => ({ runs: [] }) };
     if (url.includes("/api/etrade/options/profiles")) return { ok: true, status: 200, json: async () => ({ count: 0, profiles: [] }) };
     return { ok: true, status: 200, json: async () => ({ success: true }) };
@@ -468,6 +470,46 @@ describe("S7 survivor — the one schedule UI renders the union", () => {
     // Folded-in sections.
     expect(text).toContain("Latest Autonomous Options Runs");
     expect(text).toContain("Execution History & Audit Trail");
+  });
+
+  it("shows stock and options executions with run metadata and explicit empty values", async () => {
+    auditEvents = [
+      {
+        id: "stock-run-event",
+        type: "screener.run_completed",
+        created_at: "2026-10-25T17:00:00.000Z",
+        payload: {
+          runId: "stock-run-123", screenType: "stock", runType: "manual",
+          symbols: ["NVDA", "AAPL"], opportunityCount: 2,
+          notifications: { slack: true, email: false, webhook: false },
+        },
+      },
+      {
+        id: "options-run-event",
+        type: "options.scheduled_analysis_failed",
+        created_at: "2026-10-25T17:01:00.000Z",
+        payload: { runId: "options-run-456", screenType: "options", runType: "manual", symbols: ["NVDA"], error: "cancelled" },
+      },
+      {
+        id: "schedule-event",
+        type: "schedule.cancelled",
+        created_at: "2026-10-25T17:02:00.000Z",
+        payload: { scheduleId: "schedule-789", callback: "autonomousOptionsAnalysis" },
+      },
+    ];
+    await renderPanel();
+    const audit = [...container.querySelectorAll("section")].find((section) => section.textContent?.includes("Execution History & Audit Trail"));
+    expect(audit?.textContent).toContain("Run ID");
+    expect(audit?.textContent).toContain("Screen Type");
+    expect(audit?.textContent).toContain("Run Type");
+    expect(audit?.textContent).toContain("stock-run-123");
+    expect(audit?.textContent).toContain("options-run-456");
+    expect(audit?.textContent).toContain("Stock");
+    expect(audit?.textContent).toContain("Options");
+    expect(audit?.textContent).toContain("Manual");
+    expect(audit?.textContent).toContain("Scheduled");
+    const cells = [...(audit?.querySelectorAll("tbody td") ?? [])];
+    expect(cells.every((cell) => cell.textContent?.trim())).toBe(true);
   });
 
   it("a paused screening schedule shows the badge, Resume, and a disabled Trigger", async () => {

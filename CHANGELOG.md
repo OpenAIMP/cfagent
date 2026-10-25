@@ -19,6 +19,8 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **Screen execution audit history (#1542):** the schedule audit view now includes stock screen runs, displays run ID, screen type, and manual/scheduled trigger, and renders explicit unavailable markers for missing symbols, setup counts, or delivery-channel data. Stock and options run audit events now include these metadata fields. #CTO-mbshr
+
 ### Fixed
 
 - **Scheduled stock report artifacts (#1209):** preserve PDF, XLSX, and CSV keys plus generation statuses/errors through scheduled run records, and carry CSV into the follow-up delivery pipeline so report availability is visible in UI and file delivery channels.

@@ -260,6 +260,12 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
 
       // Verify audit event in mas_events if opportunities detected
       const events = orm.events.findMany({ where: { type: "screener.opportunities_detected" } });
+      const runEvent = orm.events.findMany({ where: { type: "screener.run_completed" } })[0];
+      expect(runEvent.payload).toMatchObject({
+        screenType: "stock",
+        runType: "scheduled",
+        runId: expect.stringMatching(/^screener:/),
+      });
       if (res.data?.opportunities && res.data.opportunities.length > 0) {
         expect(events.length).toBeGreaterThan(0);
       }
@@ -403,6 +409,7 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       const res = await service.autonomousOptionsAnalysis({
         symbols: ["AAPL", "MSFT"],
         thesis: "bullish",
+        trigger: "manual",
         pushToSlack: false,
       });
 
@@ -413,6 +420,14 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       // A partial/auth-failed run must never become a completed report.
       const auditEvents = orm.events.findMany({ where: { type: "options.scheduled_analysis_failed" } });
       expect(auditEvents.length).toBe(1);
+      const failurePayload = typeof auditEvents[0].payload === "string"
+        ? JSON.parse(auditEvents[0].payload)
+        : auditEvents[0].payload;
+      expect(failurePayload).toMatchObject({
+        screenType: "options",
+        runType: "manual",
+        runId: expect.stringMatching(/^options_scanner:/),
+      });
       expect(orm.events.findMany({ where: { type: "options.scheduled_analysis_completed" } })).toHaveLength(0);
 
       // The failure remains visible to the user.
