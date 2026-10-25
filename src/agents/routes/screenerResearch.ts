@@ -9,6 +9,8 @@
  *   GET         /screener/latest                    (issue #212/#261)
  *   GET         /screener/report.pdf                (issue #269)
  *   POST        /screener/report/regenerate         (issue #1278, #1173 R5)
+ *   GET         /screener/report.xlsx               (issue #953)
+ *   GET         /screener/report.csv                (issue #1346)
  *   GET         /options/report.pdf                 (issue #361)
  *   POST        /research/run                       (issue #319, manual)
  *   POST        /research/scheduled-tick            (issue #319/#354, daily)
