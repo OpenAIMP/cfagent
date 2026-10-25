@@ -7,6 +7,7 @@ import {
   synthesizeSchedule as synthesizeChainSchedule,
   type SynthesizedSchedule,
 } from "../agentic/jobSynthesis";
+import { killSynthesizedInList } from "../agentic/chainGovernance";
 import {
   DEFAULT_SCHEDULES,
   isDue,
@@ -515,6 +516,23 @@ export class ScheduledAgent extends Agent<Env> {
   ): Promise<SynthesizedSchedule> {
     const records = await this.getSynthesized();
     const updated = approveSynthesizedInList(records, id);
+    await this.saveSynthesized(updated);
+    return updated.find((r) => r.id === id)!;
+  }
+
+  /**
+   * Kill one synthesized record (pending/approved → killed). Phase 6
+   * (#1468): killed is terminal and the record never fires
+   * (`shouldFireSynthesized` fires ONLY approved records); killing
+   * removes nothing, so killed schedules stay enumerable via
+   * `listSynthesizedSchedules` and auditable. Unknown ids throw;
+   * re-killing is a no-op.
+   */
+  async killSynthesizedSchedule(
+    id: string,
+  ): Promise<SynthesizedSchedule> {
+    const records = await this.getSynthesized();
+    const updated = killSynthesizedInList(records, id);
     await this.saveSynthesized(updated);
     return updated.find((r) => r.id === id)!;
   }
