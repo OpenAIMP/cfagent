@@ -33,6 +33,7 @@ export const SCREENING_FLAG_KEYS = {
   channelsEnabled: "screening.channelsEnabled",
   nlqFitDiscovery: "screening.nlqFitDiscovery",
   weightsV2Ranking: "screening.weightsV2Ranking",
+  portfolioContext: "screening.portfolioContext",
   scheduledPaused: "screening.scheduledPaused",
 } as const;
 
@@ -158,6 +159,16 @@ export function isScreeningChannelsEnabled(read: ScreeningSettingRead): boolean 
  */
 export function isWeightsV2RankingEnabled(read: ScreeningSettingRead): boolean {
   return readBool(read, SCREENING_FLAG_KEYS.weightsV2Ranking, false);
+}
+
+/**
+ * Portfolio context may demote concentration-flagged names in a
+ * ranking (issue #17, opt-in). Default OFF (the #17 reviewed-config
+ * posture); read failure = OFF. The modifier never filters and never
+ * rescores — flagged names rank below unflagged ones, nothing more.
+ */
+export function isPortfolioContextEnabled(read: ScreeningSettingRead): boolean {
+  return readBool(read, SCREENING_FLAG_KEYS.portfolioContext, false);
 }
 
 /**
