@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Create short-lived GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.AUTO_UPDATE_APP_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_UPDATE_APP_PRIVATE_KEY }}
@@ -22,7 +22,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Update Open PRs with main
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
