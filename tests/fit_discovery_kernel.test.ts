@@ -5,13 +5,12 @@
  * (RecommendationService.discoverForName, gate evidence from the same
  * provider session) and maps back to DiscoveryModeResult via
  * kernelDiscoveryMapping. Strategy direction (strategy_to_names)
- * DELIBERATELY stays on the direct discovery path: the kernel's
- * falsify stage demotes every fit (rankings carry no falsification
- * evidence) from qualified/watchlist to unverified, which would
- * change NLQ fit tiers — the test "evidence:" below pins that
- * behavior. Switching the strategy direction needs a fit-tier design
- * decision (rankings are not falsifiable structures), not a forced
- * mapping; it is reported as the #1256 remainder, not silently done.
+ * runs through the kernel facade too (RecommendationService
+ * .discoverNamesForStrategy, #1256): the discovery itself attaches
+ * genuine falsification evidence to each ranked fit (gate verdict +
+ * live chain/quote session + fit components), so falsify keeps
+ * qualified/watchlist tiers honestly; evidence-less fits still
+ * demote, per the invariant (see the falsification block below).
  *
  * Order divergence, enumerated (not silent): the discovery orders
  * name candidates by tier, then scenario WORST desc, then mean desc;
@@ -34,6 +33,7 @@ import type { ChainSnapshot, ProviderChainLeg, ResearchDataProvider } from "../s
 import {
   RecommendationService,
   ScenarioGridRank,
+  PerNameBestFit,
   type KernelCandidate,
 } from "../src/services/recommendationKernel";
 
@@ -147,7 +147,11 @@ describe("NLQ fit through the kernel (#1256)", () => {
     expect(kernelOrder.map((c) => c.id)).toEqual(["b", "a"]);
   });
 
-  it("strategy direction stays on the direct discovery path, byte-identical", async () => {
+  it("strategy direction routes through the kernel, tier-identical to direct discovery", async () => {
+    // SUPERSEDES the old byte-identical pin: the runner now runs the
+    // kernel path, so the result carries falsificationEvidence and
+    // the kernel order (tier, fitScore) — tiers and candidate set
+    // match direct discovery; byte-identity does not hold by design.
     const provider = makeProvider({ AAA: makeChain("AAA") });
     const oldOut = await runDiscoveryMode({ provider }, RESEARCH_CONFIG_DEFAULTS, STRATEGY_REQUEST);
     const newOut = await createFitDiscoveryRunner({ provider, userLogin: "test" }).run(STRATEGY_REQUEST);
@@ -155,27 +159,169 @@ describe("NLQ fit through the kernel (#1256)", () => {
     if (oldOut.direction !== "strategy_to_names" || !newOut.result || newOut.result.direction !== "strategy_to_names") {
       throw new Error("direction mismatch in fixture");
     }
-    expect(newOut.result.result).toEqual(oldOut.result);
+    const oldTiers = new Map(oldOut.result.ranked.map((f) => [f.symbol, f.status]));
+    const newTiers = new Map(newOut.result.result.ranked.map((f) => [f.symbol, f.status]));
+    expect([...newTiers.entries()].sort()).toEqual([...oldTiers.entries()].sort());
+    expect(newOut.result.result.rejected).toEqual(oldOut.result.rejected);
+    for (const fit of newOut.result.result.ranked) {
+      expect(typeof fit.falsificationEvidence).toBe("string");
+    }
   });
 
-  it("evidence: the kernel falsify stage demotes fits, so the strategy direction cannot switch tiers-intact", async () => {
+  // NOTE: the old "evidence:" pin (kernel falsify demotes every fit)
+  // is superseded by the falsification block below: evidenced fits
+  // keep their tiers, and the control test "evidence-less fits still
+  // demote" pins the invariant for fits without evidence.
+});
+
+describe("NLQ fit falsification (#1256)", () => {
+  it("evidence builder names the evaluated record, never a constant", async () => {
+    const { buildFitFalsificationEvidence } = await import("../src/services/researchDiscovery");
+    const base = {
+      symbol: "AAA",
+      structure: "iron_condor",
+      status: "qualified" as const,
+      gateReasons: [] as string[],
+      chainAsOf: NOW,
+      chainProvenance: "live" as const,
+      quoteSource: "fixture:quote",
+      components: { liquidity: 0.9, ivFit: 0.8, termStructureFit: 0.7, earningsDistance: 1, correlation: 0.6, trackRecord: null },
+      missingComponents: ["trackRecord"] as const,
+      fitScore: 0.82,
+    };
+    const a = buildFitFalsificationEvidence(base);
+    const b = buildFitFalsificationEvidence({ ...base, components: { ...base.components, ivFit: 0.4 }, fitScore: 0.71 });
+    const c = buildFitFalsificationEvidence({ ...base, symbol: "BBB", chainAsOf: NOW + 60_000 });
+    expect(a).toContain("AAA");
+    expect(a).toContain("iron_condor");
+    expect(a).toContain("qualified");
+    expect(a).toContain("falsificationPresent");
+    expect(a).not.toEqual(b);
+    expect(a).not.toEqual(c);
+  });
+
+  it("strategy direction routes through the kernel facade (discoverNamesForStrategy)", async () => {
+    const provider = makeProvider({ AAA: makeChain("AAA") });
+    const spy = vi.spyOn(RecommendationService.prototype, "discoverNamesForStrategy");
+    try {
+      const outcome = await createFitDiscoveryRunner({ provider, userLogin: "test" }).run(STRATEGY_REQUEST);
+      expect(outcome.ok).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("strategy direction: evidenced fits keep their tiers through the kernel", async () => {
     const provider = makeProvider({ AAA: makeChain("AAA") });
     const oldOut = await runDiscoveryMode({ provider }, RESEARCH_CONFIG_DEFAULTS, STRATEGY_REQUEST);
     if (oldOut.direction !== "strategy_to_names") throw new Error("direction mismatch in fixture");
     const qualified = oldOut.result.ranked.filter((f) => f.status === "qualified");
     expect(qualified.length).toBeGreaterThan(0);
+    // Every ranked fit must carry genuine evidence from its own
+    // evaluated record — the discovery gate + fit components.
+    for (const fit of oldOut.result.ranked) {
+      expect(typeof fit.falsificationEvidence).toBe("string");
+      expect(fit.falsificationEvidence).toContain(fit.symbol);
+    }
     const kernelOut = await new RecommendationService().discoverNamesForStrategy({
       discoverNamesForStrategy: async () => oldOut.result,
       structure: "iron_condor",
       outlook: "range_bound",
       symbols: ["AAA"],
     });
-    // Fits carry no falsification evidence, so falsify demotes them to
-    // unverified — a tier change the NLQ answer must not absorb
-    // silently. Until fit-tier semantics are decided, the strategy
-    // direction stays direct.
+    const byId = new Map(kernelOut.candidates.map((c) => [c.id, c.status]));
+    for (const fit of oldOut.result.ranked) {
+      expect(byId.get(`fit:${fit.symbol}:${fit.structure}`)).toBe(fit.status);
+    }
+  });
+
+  it("strategy direction: evidence-less fits still demote (invariant preserved)", async () => {
+    const provider = makeProvider({ AAA: makeChain("AAA") });
+    const oldOut = await runDiscoveryMode({ provider }, RESEARCH_CONFIG_DEFAULTS, STRATEGY_REQUEST);
+    if (oldOut.direction !== "strategy_to_names") throw new Error("direction mismatch in fixture");
+    const stripped = {
+      ...oldOut.result,
+      ranked: oldOut.result.ranked.map((f) => ({ ...f, falsificationEvidence: undefined })),
+    };
+    const kernelOut = await new RecommendationService().discoverNamesForStrategy({
+      discoverNamesForStrategy: async () => stripped,
+      structure: "iron_condor",
+      outlook: "range_bound",
+      symbols: ["AAA"],
+    });
+    const qualified = oldOut.result.ranked.filter((f) => f.status === "qualified");
+    expect(qualified.length).toBeGreaterThan(0);
     const demoted = kernelOut.candidates.filter((c) => c.status === "unverified");
     expect(demoted.length).toBe(qualified.length);
+  });
+
+  it("null-economics fits stay unverified even with evidence (economics leg of the invariant)", async () => {
+    // Kernel-level case: the real strategy path rejects null-economics
+    // symbols before fit-scoring, so this combination cannot arise
+    // from discovery — but the invariant must hold regardless: falsify
+    // requires BOTH economics and evidence to keep a tier.
+    const result = {
+      structure: "iron_condor",
+      ranked: [
+        {
+          symbol: "AAA",
+          structure: "iron_condor",
+          status: "qualified" as const,
+          provenance: "live" as const,
+          fitScore: 0.9,
+          components: { liquidity: 0.9, ivFit: 0.8, termStructureFit: 0.7, earningsDistance: 1, correlation: 0.6, trackRecord: 0.5 },
+          missingComponents: [] as string[],
+          economics: null,
+          falsificationEvidence: "fit falsification (researchDiscovery: gateComposedCandidate falsificationPresent): AAA iron_condor gated qualified",
+        },
+      ],
+      rejected: [],
+      limitations: [],
+    };
+    const kernelOut = await new RecommendationService().discoverNamesForStrategy({
+      discoverNamesForStrategy: async () => result as never,
+      structure: "iron_condor",
+      outlook: "range_bound",
+      symbols: ["AAA"],
+    });
+    expect(kernelOut.candidates).toHaveLength(1);
+    expect(kernelOut.candidates[0].status).toBe("unverified");
+  });
+
+  it("kernel order (tier, fitScore) wins on a tier/score disagreement", () => {
+    // Hand-built disagreement: a watchlist fit with the higher
+    // fitScore vs a qualified fit with the lower one. Discovery
+    // orders fitScore-first (watchlist first); the kernel's
+    // PerNameBestFit orders tier-first (qualified first). The kernel
+    // order wins after the rewire — pinned, not silent.
+    const mk = (symbol: string, status: "qualified" | "watchlist", fitScore: number): KernelCandidate =>
+      ({
+        id: `fit:${symbol}:iron_condor`,
+        symbol,
+        structure: "iron_condor",
+        label: `${symbol} fit`,
+        legs: [],
+        economics: { structure: "iron_condor", legs: [], netDebit: 0, netCredit: 1, maxLoss: 100, maxGain: 50, breakevens: [], derivationNotes: [] },
+        status,
+        provenance: "quant",
+        chainProvenance: "live",
+        definedRisk: false,
+        marginEstimate: null,
+        assignmentRisk: false,
+        gateReasons: [],
+        limitations: [],
+        rationale: "",
+        builderId: "name-fit",
+        fitScore,
+        falsificationEvidence: "test evidence",
+      }) as KernelCandidate;
+    const watch = mk("AAA", "watchlist", 0.95);
+    const qual = mk("BBB", "qualified", 0.6);
+    const discoveryOrder = [watch, qual].sort((x, y) => (y.fitScore ?? 0) - (x.fitScore ?? 0) || x.symbol.localeCompare(y.symbol));
+    expect(discoveryOrder.map((c) => c.symbol)).toEqual(["AAA", "BBB"]);
+    const kernelOrder = new PerNameBestFit().rank([watch, qual], {});
+    expect(kernelOrder.map((c) => c.symbol)).toEqual(["BBB", "AAA"]);
   });
 });
 
