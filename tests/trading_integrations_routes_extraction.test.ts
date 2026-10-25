@@ -32,20 +32,14 @@ import {
   ETradeSlackTradingService,
   ETradeVoiceTradingService,
 } from "../src/trading";
-// SlackAgent / BrowserAgent pull in the agents SDK (cloudflare: protocol),
-// which cannot load under plain node ESM — the same reason the other
-// extraction suites never import agent classes directly. Mock the two agent
-// modules (vi.mock is hoisted, so the real modules never load); the route
-// module's own `../browserAgent` / `../slackAgent` specifiers resolve to the
-// same files and get the mocks.
-vi.mock("../src/agents/slackAgent", () => ({
-  SlackAgent: class MockSlackAgent {
-    constructor(..._args: unknown[]) {}
-    async handleSlashCommand(_formData: FormData): Promise<Response> {
-      return new Response("mock-slash-command");
-    }
-  },
-}));
+// BrowserAgent pulls in the agents SDK (cloudflare: protocol), which
+// cannot load under plain node ESM — the same reason the other
+// extraction suites never import agent classes directly. Mock the agent
+// module (vi.mock is hoisted, so the real module never loads); the route
+// module's own `../browserAgent` specifier resolves to the same file and
+// gets the mock. (Issue #1262 Phase 2: the route no longer constructs
+// SlackAgent at all — commands go through ETradeSlackTradingService —
+// so no SlackAgent mock is needed here.)
 vi.mock("../src/agents/browserAgent", () => ({
   BrowserAgent: class MockBrowserAgent {
     constructor(..._args: unknown[]) {}
@@ -57,7 +51,6 @@ vi.mock("../src/agents/browserAgent", () => ({
     }
   },
 }));
-import { SlackAgent } from "../src/agents/slackAgent";
 import { BrowserAgent } from "../src/agents/browserAgent";
 
 const src = (rel: string) => readFileSync(`src/${rel}`, "utf8");
@@ -71,6 +64,9 @@ const baseCtx = (
     audit: vi.fn(),
     agentCtx: {} as any,
     nlqSchedulingPort: () => ({}) as any,
+    // Issue #1262 Phase 4: the route builds the channel NLQ dep set
+    // from DO storage SQL for every channel service construction.
+    getStorageSql: () => ({ exec: () => [] }) as any,
     ...overrides,
   }) as TradingIntegrationsRouteContext;
 
@@ -242,9 +238,9 @@ describe("handleTradingIntegrationsRoutes behavior", () => {
     });
   });
 
-  it("POST /trading/slack/command delegates to SlackAgent.handleSlashCommand with form data", async () => {
-    const handleSlashCommand = vi
-      .spyOn(SlackAgent.prototype, "handleSlashCommand")
+  it("POST /trading/slack/command delegates to the single slack service with form data (Phase 2 dedup)", async () => {
+    const processSlackCommand = vi
+      .spyOn(ETradeSlackTradingService.prototype, "processSlackCommand")
       .mockResolvedValue(new Response("ok"));
     const ctx = baseCtx();
     const form = new FormData();
@@ -258,8 +254,8 @@ describe("handleTradingIntegrationsRoutes behavior", () => {
       ctx
     );
     expect(res).not.toBeNull();
-    expect(handleSlashCommand).toHaveBeenCalledTimes(1);
-    const formData = handleSlashCommand.mock.calls[0][0] as FormData;
+    expect(processSlackCommand).toHaveBeenCalledTimes(1);
+    const formData = processSlackCommand.mock.calls[0][0] as FormData;
     expect(formData.get("text")).toBe("/quote AAPL");
   });
 
@@ -326,6 +322,31 @@ describe("handleTradingIntegrationsRoutes behavior", () => {
     expect(getWelcomeGreeting).toHaveBeenCalledTimes(1);
     const body = (await res!.json()) as any;
     expect(body.greeting).toBe("hello trader");
+  });
+
+  it("POST /trading/email/approve-link dispatches the signed-link execution and audits (Phase 5)", async () => {
+    const executeSignedApprovalLink = vi
+      .spyOn(ETradeEmailTradingService.prototype, "executeSignedApprovalLink")
+      .mockResolvedValue({ success: true, orderId: "ord_link_1", status: "executed", message: "ok", execId: "et_1" } as any);
+    const audit = vi.fn();
+    const ctx = baseCtx({ audit });
+    const res = await handleTradingIntegrationsRoutes(
+      req("POST", "/api/trading/email/approve-link", { token: "tok.abc" }),
+      urlOf("/api/trading/email/approve-link"),
+      "/api/trading/email/approve-link",
+      "sess-link",
+      ctx
+    );
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(200);
+    expect(executeSignedApprovalLink).toHaveBeenCalledTimes(1);
+    expect(executeSignedApprovalLink.mock.calls[0][0]).toBe("tok.abc");
+    expect(audit).toHaveBeenCalledWith("trading.email_approve_link", "trading", {
+      orderId: "ord_link_1",
+      status: "executed",
+    });
+    const body = (await res!.json()) as any;
+    expect(body.success).toBe(true);
   });
 
   it("service failures keep the original 500 contract", async () => {

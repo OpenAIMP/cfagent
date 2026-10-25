@@ -1,0 +1,41 @@
+name: Auto Update Open PRs
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-prs:
+    name: Update open PRs with main
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - name: Update Open PRs with main
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              base: 'main',
+            });
+
+            for (const pr of prs) {
+              if (pr.draft) continue;
+
+              try {
+                console.log(`Updating PR #${pr.number} (${pr.head.ref})...`);
+                await github.rest.pulls.updateBranch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                });
+                console.log(`Successfully requested branch update for PR #${pr.number}`);
+              } catch (error) {
+                console.error(`Failed to update PR #${pr.number}: ${error.message}`);
+              }
+            }
