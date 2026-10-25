@@ -14,7 +14,7 @@ jobs:
       contents: write
     steps:
       - name: Update Open PRs with main
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const prs = await github.paginate(github.rest.pulls.list, {
