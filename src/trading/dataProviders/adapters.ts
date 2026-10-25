@@ -64,7 +64,7 @@
  */
 
 import { ETradeService } from "../../services/etrade";
-import { YahooFinanceProvider } from "../../services/fossResearch";
+import { AlpacaMarketDataProvider, YahooFinanceProvider } from "../../services/fossResearch";
 import { PublicMcpClient } from "../../services/publicMcp";
 import {
   PublicDataError,
@@ -811,6 +811,49 @@ export async function verifyYahooDataProvider(
   return {
     ok: true,
     summary: `Yahoo adapter status configured; conformance passed for ${report.checks
+      .map((c) => c.capability)
+      .join(", ")}.`,
+  };
+}
+
+/**
+ * Issue #1385: the Alpaca lifecycle verifier, mirroring
+ * verifyYahooDataProvider — configuration from the FOSS provider's
+ * own isConfigured (key AND secret required — NOT
+ * configured-by-construction, unlike nasdaq's public feed), then
+ * the conformance kit over the adapter. The provider is injectable
+ * for tests; production constructs the real AlpacaMarketDataProvider
+ * from env. A failed conformance fails verification (never a
+ * silent pass).
+ */
+export async function verifyAlpacaDataProvider(
+  env?: Env,
+  options?: {
+    provider?: IFossMarketDataProvider;
+    outcomeRecorder?: FetchOutcomeRecorder;
+  }
+): Promise<{ ok: boolean; summary: string }> {
+  const adapter = createAlpacaDataProvider(
+    options?.provider ?? new AlpacaMarketDataProvider(env),
+    env,
+    { outcomeRecorder: options?.outcomeRecorder }
+  );
+  if (!adapter.isConfigured(env)) {
+    return {
+      ok: false,
+      summary: "Alpaca provider reports not configured.",
+    };
+  }
+  const report = await runDataProviderConformance(adapter);
+  if (!report.ok) {
+    const failures = report.checks
+      .flatMap((c) => c.failures.map((f) => `${c.capability}: ${f}`))
+      .join("; ");
+    return { ok: false, summary: `Alpaca adapter conformance failed — ${failures}` };
+  }
+  return {
+    ok: true,
+    summary: `Alpaca adapter status configured; conformance passed for ${report.checks
       .map((c) => c.capability)
       .join(", ")}.`,
   };
