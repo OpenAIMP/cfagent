@@ -149,6 +149,10 @@
     // them to "0") and redeploying — no code change.
     "SOCIAL_POSTING_ENABLED": "1",
     "SOCIAL_LIVE_PUBLISHING": "1",
+    // Issue #1489: scope autonomous publishing to Threads only during
+    // Threads-first rollout. Without this, config defaults to "threads,x",
+    // attempting to publish to X where X_ACCESS_TOKEN is not configured.
+    "SOCIAL_AUTONOMOUS_CHANNELS": "threads",
     // Issue #1475 (sub-issue of #1344), service identity for unattended
     // work (runbook docs/architecture/security/service-identity.md):
     // the login scheduled goals and ledger forwards run under. Plain
