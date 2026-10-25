@@ -339,6 +339,15 @@ async function generateAssembleOptions(
       failed.push({ symbol, reason: latest?.error || `Option chain shard ended with status ${latest?.status ?? "missing"}` });
     }
   }
+  // The collation helper needs a successful shard as the source of the
+  // request/config snapshot. If every acquisition failed, fail cleanly
+  // before collation instead of dereferencing a missing first result.
+  if (results.length === 0) {
+    const topFailure = failed[0];
+    throw new Error(
+      `Options chain shards produced no evaluable symbols.${topFailure ? ` ${topFailure.symbol}: ${topFailure.reason}` : ""}`
+    );
+  }
   const { collateOpportunityScanShards } = await import("../trading");
   const assembled = collateOpportunityScanShards(symbols, results, failed, new Date(chain.timestamp));
   if (assembled.coverage.evaluated === 0) {
