@@ -112,6 +112,8 @@ export interface SchedulesRouteContext {
     userLogin: string,
     chainReport?: boolean,
   ) => Promise<void>;
+  /** Issue #1574: submit an opt-in options shard chain on existing async-job rails. */
+  submitShardJob?: (spec: import("../../types").AsyncJobSubmission) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>;
   /** Scheduled market screen (owner: OrchestratorAgent.autonomousMarketScreen - was `this.autonomousMarketScreen`). */
   autonomousMarketScreen(payload?: {
     sector?: string;
@@ -603,7 +605,7 @@ export async function handleSchedulesRoutes(
         const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD"
           ? rawEnvironment
           : context?.environment;
-        const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin, new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env });
+        const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin, new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env }, ctx.submitShardJob);
         // Issue #959: validate through the shared schedule builder.
         const { userLogin: _bodyLogin, environment: _bodyEnv, ...triggerCriteria } = body ?? {};
         const built = buildSchedulePayload("autonomousOptionsAnalysis", triggerCriteria, { userLogin: userLogin || undefined, environment, trigger: "manual" }, { applyCreationDefaults: false });

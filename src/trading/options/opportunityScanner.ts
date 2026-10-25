@@ -536,6 +536,95 @@ export function optionsPartialQualification(
   };
 }
 
+/** Collate independently scanned symbol shards into the same scan shape
+ *  as a monolithic run. Global ranking, fit counts and coverage are
+ *  recomputed here, after every shard has reached a terminal state. */
+export function collateOpportunityScanShards(
+  symbols: string[],
+  results: OpportunityScanResult[],
+  failed: Array<{ symbol: string; reason: string }> = [],
+  now = new Date()
+): OpportunityScanResult {
+  const unique = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
+  const first = results[0];
+  const matrix = results.flatMap((result) => result.matrix);
+  for (const item of failed) {
+    matrix.push({
+      symbol: item.symbol,
+      verdict: "skipped",
+      skipReason: item.reason,
+      targetPrice: null,
+      targetSource: null,
+      targetEmUnits: null,
+      cells: [],
+      gateBucket: null,
+      gateReasons: [],
+    });
+  }
+  const skipped = [...results.flatMap((result) => result.skipped), ...failed];
+  const allOpportunities = results.flatMap((result) => result.opportunities)
+    .sort((a, b) => b.score - a.score || a.symbol.localeCompare(b.symbol));
+  const mode = first?.mode ?? "per_name_best";
+  const gate = { fit: 0, borderline: 0, noFit: 0 };
+  for (const row of matrix) {
+    if (row.gateBucket === "fit") gate.fit++;
+    else if (row.gateBucket === "borderline") gate.borderline++;
+    else if (row.gateBucket === "no_fit") gate.noFit++;
+  }
+  const eventCovered = results.reduce((sum, result) => sum + result.coverage.eventCalendar.covered, 0);
+  const evaluated = matrix.filter((row) => row.verdict !== "skipped").length;
+  const coverage: ScanCoverage = {
+    considered: unique.length,
+    scanned: Math.min(unique.length, matrix.length),
+    truncated: Math.max(0, unique.length - matrix.length),
+    evaluated,
+    errors: matrix.length - evaluated,
+    withTrades: allOpportunities.length,
+    eventCalendar: {
+      covered: Math.min(unique.length, eventCovered),
+      total: unique.length,
+      coveragePct: unique.length ? Math.round((Math.min(unique.length, eventCovered) / unique.length) * 1000) / 10 : 0,
+    },
+  };
+  const assumptions = [...new Set(results.flatMap((result) => result.assumptions)
+    .filter((line) => !line.startsWith("Earnings/dividend calendar coverage:")))];
+  if (results.some((result) => result.assumptions.some((line) => line.startsWith("Earnings/dividend calendar coverage:")))) {
+    assumptions.push(
+      `Earnings/dividend calendar coverage: ${coverage.eventCalendar.covered} of ${coverage.eventCalendar.total} names (${coverage.eventCalendar.coveragePct}%). Names without coverage were judged with event risk unverified.`,
+    );
+  }
+  const fitsAll = mode === "strategy_fit" ? matrix.filter((row) => row.gateBucket === "fit") : [];
+  const gateParams = first?.gateParams ?? baseOppConfig.fitGate;
+  const result: OpportunityScanResult = {
+    scanned: coverage.scanned,
+    withTrades: allOpportunities.length,
+    opportunities: allOpportunities.slice(0, 10),
+    skipped,
+    truncatedSymbols: coverage.truncated,
+    assumptions,
+    matrix,
+    typeRollup: rollupScanTypes(matrix),
+    mode,
+    fits: fitsAll,
+    fitsTotal: fitsAll.length,
+    gate,
+    borderline: matrix.filter((row) => row.gateBucket === "borderline"),
+    gateParams,
+    profileRef: first?.profileRef ?? null,
+    generatedAt: now.toISOString(),
+    modelVersion: first?.modelVersion ?? SCAN_MODEL_VERSION,
+    requestSnapshot: first!.requestSnapshot,
+    configSnapshot: first?.configSnapshot ?? {
+      maxScanSymbols: baseOppConfig.maxScanSymbols,
+      targetFactors: { ...baseOppConfig.targetFactors },
+      targetEmMultiples: { ...baseOppConfig.targetEmMultiples },
+    },
+    coverage,
+  };
+  result.partial = optionsPartialQualification(coverage, skipped);
+  return result;
+}
+
 const TARGET_FACTOR: Record<StrategyRequest["thesis"], number> = baseOppConfig.targetFactors;
 const TARGET_EM_MULTIPLE: Record<StrategyRequest["thesis"], number> = baseOppConfig.targetEmMultiples;
 

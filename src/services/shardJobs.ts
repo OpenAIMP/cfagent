@@ -143,6 +143,31 @@ export function planFeedStart(chain: ShardChainContext): AsyncJobSubmission {
   );
 }
 
+/** Option chain acquisition has no cross-symbol data dependency: each
+ *  underlying is an independently retryable feed shard. Jobs are
+ *  staggered across invocations so each E*TRADE fan-out gets a fresh
+ *  Worker subrequest budget. */
+export function planOptionsFeedShards(
+  chain: ShardChainContext,
+  nowIso: string
+): AsyncJobSubmission[] {
+  const symbols = [...new Set((chain.options?.symbols ?? []).map((s) => s.trim().toUpperCase()).filter(Boolean))];
+  const stagger = chain.staggerMs ?? 0;
+  const { eventCalendarBySymbol, ...sharedOptions } = chain.options ?? { symbols: [], thesis: "bullish", targetDate: nowIso, riskProfile: "balanced" as const };
+  const sharedChain = { ...chain, options: sharedOptions };
+  return symbols.map((symbol, index) =>
+    shardSpec(
+      sharedChain,
+      "feed",
+      symbol,
+      undefined,
+      `Options chain — ${symbol}`,
+      stagger > 0 ? staggerRunAt(nowIso, index, stagger) : undefined,
+      eventCalendarBySymbol?.[symbol] !== undefined ? { eventCalendar: eventCalendarBySymbol[symbol] } : undefined
+    )
+  );
+}
+
 /** Next feed shard after `completedKey` (dependency order), or
  *  null when the feed stage's shards are all submitted. */
 export function planNextFeedShard(
@@ -246,11 +271,7 @@ export function planServeJob(
   const assemble = rows.find(
     (r) => r.stage === "generate" && r.shardKey === "assemble" && r.status === "completed"
   );
-  const dataset = (assemble?.result ?? {}) as {
-    totalScanned?: number;
-    matchedCount?: number;
-    opportunities?: unknown[];
-  };
+  const dataset = (assemble?.result ?? {}) as Record<string, any>;
   const delaySeconds = chain.stageChain?.serveDelaySeconds;
   const runAt =
     delaySeconds !== undefined
@@ -260,7 +281,7 @@ export function planServeJob(
     capability: "followup.report",
     payload: {
       outcome: {
-        kind: "stock",
+        kind: chain.screenType === "options" ? "options" : "stock",
         trigger: chain.trigger ?? "scheduled",
         success: true,
         pdfKeys: byFormat.get("pdf") ? [byFormat.get("pdf")!.key] : [],
@@ -270,12 +291,25 @@ export function planServeJob(
         csvKey: byFormat.get("csv")?.key,
         csvStatus: byFormat.get("csv") ? "generated" : "failed",
         universe: chain.universe,
-        totalScanned: dataset.totalScanned,
-        matchedCount: dataset.matchedCount,
+        thesis: chain.options?.thesis,
+        totalScanned: chain.screenType === "options" ? (dataset.scanned as number | undefined) : dataset.totalScanned,
+        matchedCount: chain.screenType === "options" ? (dataset.withTrades as number | undefined) : dataset.matchedCount,
+        summary: chain.screenType === "options"
+          ? `Options screen — ${chain.options?.thesis ?? "bullish"}: ${String(dataset.withTrades ?? 0)} actionable setups; evaluated ${String((dataset.coverage as any)?.evaluated ?? 0)} of ${String((dataset.coverage as any)?.considered ?? 0)} underlyings.`
+          : undefined,
+        reportUrl: byFormat.get("pdf")
+          ? `${chain.reportBaseUrl ?? "https://agent.openaimp.com"}/api/options/report.pdf?key=${encodeURIComponent(byFormat.get("pdf")!.key)}`
+          : undefined,
+        opportunities: Array.isArray(dataset.opportunities) ? dataset.opportunities.slice(0, 10).map((row: any) => ({
+          symbol: row.symbol,
+          signal: row.pick?.best?.candidate?.type,
+        })) : undefined,
         emailTo: chain.emailTo,
         slackChannel: chain.slackChannel,
         webhookUrl: chain.webhookUrl,
-        deliveryId: `${chain.trigger ?? "scheduled"}:${chain.universe}:${chain.timestamp.slice(0, 16)}`,
+        deliveryId: chain.screenType === "options"
+          ? `${chain.trigger ?? "scheduled"}:options:${chain.chainId}`
+          : `${chain.trigger ?? "scheduled"}:${chain.universe}:${chain.timestamp.slice(0, 16)}`,
         stageChain: chain.stageChain,
       },
       userLogin: chain.userLogin,
@@ -390,6 +424,18 @@ export function planShardAdvance(input: {
 }): AsyncJobSubmission[] {
   const { chain, rows, completedStage, completedKey, rootJobId, nowIso } = input;
   if (completedStage === "feed") {
+    if (chain.screenType === "options") {
+      const symbols = [...new Set((chain.options?.symbols ?? []).map((s) => s.trim().toUpperCase()).filter(Boolean))];
+      const allTerminal = symbols.length > 0 && symbols.every((symbol) => {
+        const attempts = rows
+          .filter((r) => r.stage === "feed" && r.shardKey === symbol)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        const latest = attempts[attempts.length - 1];
+        return latest?.status === "completed" || latest?.status === "failed";
+      });
+      if (!allTerminal || nextStageSubmitted(rows, "generate")) return [];
+      return [planAssembleShard(chain, rootJobId)];
+    }
     if (stageHasFailure(rows, "feed", FEED_SHARD_KEYS)) return [];
     const next = planNextFeedShard(chain, completedKey, rootJobId);
     if (next) {

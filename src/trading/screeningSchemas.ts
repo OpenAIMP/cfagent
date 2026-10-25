@@ -692,6 +692,9 @@ export const optionsAnalysisScheduleCriteriaSchema = z.strictObject({
   targetDate: z.string().optional(),
   allowedStrategies: z.array(z.string()).optional(),
   riskProfile: riskProfileSchema.optional(),
+  // Issue #1574: opt into durable per-symbol option-chain shards.
+  // Absent/false preserves the established monolithic path.
+  sharded: z.boolean().optional(),
   ...deliveryFields,
   ...stageChainFields,
   ...triggerField,

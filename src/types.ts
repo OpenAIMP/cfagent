@@ -1780,9 +1780,21 @@ export interface ShardChainContext {
   emailTo?: string;
   slackChannel?: string;
   webhookUrl?: string;
+  reportBaseUrl?: string;
   stageChain?: StageChainConfig;
   /** Spacing between shard starts inside a stage (ms). 0 = start together. */
   staggerMs?: number;
+  /** Screen family for chains sharing the shard execution framework. */
+  screenType?: "stock" | "options";
+  /** Option screen inputs and immutable symbol-level inputs captured at submission. */
+  options?: {
+    symbols: string[];
+    thesis: string;
+    targetDate: string;
+    riskProfile: "conservative" | "balanced" | "aggressive";
+    allowedStrategies?: string[];
+    eventCalendarBySymbol?: Record<string, unknown>;
+  };
 }
 
 /** Issue #1123: optional graph fields on a job submission. */

@@ -102,6 +102,8 @@ export interface AutonomousOptionsAnalysisOptions {
    *  adopted PDF; direct Slack/email delivery is suppressed so the
    *  artifact is delivered exactly once). Absent ⇒ direct path. */
   stageChain?: StageChainConfig;
+  /** Execute each underlying as a paced durable shard, then collate once. */
+  sharded?: boolean;
 }
 
 export interface AutonomousStrategyDiscoveryOptions {
@@ -1284,6 +1286,8 @@ export class ScheduledTasksService {
     };
     opportunities?: any[];
     reportUrl?: string;
+    sharded?: boolean;
+    chainId?: string;
   }>> {
     const timestamp = new Date().toISOString();
     let symbols: string[] = [];
@@ -1355,6 +1359,65 @@ export class ScheduledTasksService {
       // Issue #16: fetch the event calendar for the scan's names so
       // the run judges event risk per name and reports coverage. The
       // service never throws; uncovered names stay unverified.
+      if (options.sharded) {
+        if (!this.shardSubmit) {
+          throw new Error("Sharded options runs require the async-job submission port; configure the host or run the scan directly.");
+        }
+        const { planOptionsFeedShards } = await import("./shardJobs");
+        const chainId = crypto.randomUUID();
+        const chain: import("../types").ShardChainContext = {
+          chainId,
+          screenType: "options",
+          universe: effectiveUniverse || "symbols",
+          userLogin,
+          environment: options.environment as "TEST" | "PROD" | undefined,
+          trigger: options.trigger || "scheduled",
+          maxItems: symbols.length,
+          timestamp,
+          channels: [
+            ...(options.emailTo ? ["email" as const] : []),
+            ...(shouldNotifySlack ? ["slack" as const] : []),
+            ...((options.webhookUrl || this.env.OUTBOUND_WEBHOOK_URL) ? ["webhook" as const] : []),
+          ],
+          emailTo: options.emailTo || (this.env as any).OPTIONS_EMAIL_TO || (this.env as any).SCREENER_EMAIL_TO,
+          slackChannel: options.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL || (this.env as any).SLACK_CHANNEL,
+          webhookUrl: options.webhookUrl || this.env.OUTBOUND_WEBHOOK_URL,
+          reportBaseUrl: this.env.APP_BASE_URL || "https://agent.openaimp.com",
+          stageChain: options.stageChain,
+          // A one-second not-before interval spaces independent Worker
+          // invocations. Each invocation receives its own chain-fetch budget.
+          staggerMs: 1_000,
+          options: {
+            symbols,
+            thesis: targetThesis,
+            targetDate: options.targetDate || new Date(Date.parse(timestamp) + 30 * 86400000).toISOString().slice(0, 10),
+            riskProfile: options.riskProfile || "balanced",
+            allowedStrategies: options.allowedStrategies,
+          },
+        };
+        // The per-symbol job owns its event-calendar request too; do not
+        // fan out 100 calendar lookups in this scheduling invocation.
+        const specs = planOptionsFeedShards(chain, timestamp);
+        const submitted: string[] = [];
+        for (const spec of specs) submitted.push((await this.shardSubmit(spec)).jobId);
+        this.audit("options.sharded_chain_submitted", { chainId, universe: chain.universe, symbols: symbols.length, jobs: submitted.length });
+        return {
+          success: true,
+          taskType: "options_analysis" as any,
+          data: {
+            totalScanned: 0,
+            withTrades: 0,
+            symbols,
+            summary: `Options scan queued as ${symbols.length} paced symbol jobs; results will be collated after completion.`,
+            notifications: {},
+            opportunities: [],
+            sharded: true,
+            chainId,
+          },
+          timestamp,
+        } as any;
+      }
+
       const scanCalendarCoverage = await getEventCalendarCoverage(symbols);
 
       const response = await unifiedService.execute({

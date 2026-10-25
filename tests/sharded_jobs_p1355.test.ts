@@ -38,6 +38,7 @@ import {
   planNextFeedShard,
   planServeJob,
   planShardAdvance,
+  planOptionsFeedShards,
   planStoreShards,
   SHARD_RETRY_BUCKET,
   shardProvenanceIds,
@@ -46,7 +47,8 @@ import {
   type ShardRow,
 } from "../src/services/shardJobs";
 import { executeShardJob } from "../src/services/shardExecutors";
-import { marketScreenScheduleCriteriaSchema } from "../src/trading/screeningSchemas";
+import { collateOpportunityScanShards } from "../src/trading/options/opportunityScanner";
+import { marketScreenScheduleCriteriaSchema, optionsAnalysisScheduleCriteriaSchema } from "../src/trading/screeningSchemas";
 import {
   runSummaryFromReport,
   runSummaryFromScreenerRun,
@@ -281,6 +283,45 @@ describe("Retry-After override on withRetry (issue #1355)", () => {
 });
 
 describe("shard planner + completeness gate on mas_async_jobs rows (issue #1355)", () => {
+  it("plans paced per-symbol option feed shards", () => {
+    const specs = planOptionsFeedShards(chain({
+      screenType: "options",
+      options: { symbols: ["AAPL", "MSFT", "NVDA"] },
+      staggerMs: 1_000,
+    }), "2026-10-24T12:00:00.000Z");
+    expect(specs.map((spec) => (spec.payload as any).shard.key)).toEqual(["AAPL", "MSFT", "NVDA"]);
+    expect(specs.map((spec) => spec.runAt)).toEqual([
+      "2026-10-24T12:00:00.000Z",
+      "2026-10-24T12:00:01.000Z",
+      "2026-10-24T12:00:02.000Z",
+    ]);
+    expect(specs.every((spec) => spec.stage === "feed")).toBe(true);
+  });
+
+  it("plans options assembly only after every symbol is terminal", () => {
+    const optionsChain = chain({
+      screenType: "options",
+      options: { symbols: ["AAPL", "MSFT"] },
+    });
+    const first = planShardAdvance({
+      chain: optionsChain,
+      rows: [row({ jobId: "aapl", shardKey: "AAPL" })],
+      completedStage: "feed",
+      completedKey: "AAPL",
+      rootJobId: "aapl",
+      nowIso: "2026-10-24T12:00:00.000Z",
+    });
+    expect(first).toEqual([]);
+    const ready = planShardAdvance({
+      chain: optionsChain,
+      rows: [row({ jobId: "aapl", shardKey: "AAPL" }), row({ jobId: "msft", shardKey: "MSFT", status: "failed", error: "timeout" })],
+      completedStage: "feed",
+      completedKey: "AAPL",
+      rootJobId: "aapl",
+      nowIso: "2026-10-24T12:00:00.000Z",
+    });
+    expect((ready[0]?.payload as any)?.shard).toEqual({ stage: "generate", key: "assemble" });
+  });
   it("the chain starts with the nasdaq feed shard (chain root, no parent)", () => {
     const spec = planFeedStart(chain()) as any;
     expect(spec.capability).toBe("shard.execute");
@@ -562,6 +603,49 @@ describe("shard planner + completeness gate on mas_async_jobs rows (issue #1355)
   });
 });
 
+describe("options shard collation", () => {
+  it("reranks successful symbol results and records exhausted shards as partial coverage", () => {
+    const make = (symbol: string, score: number) => ({
+      symbol,
+      score,
+      pick: { best: { candidate: { type: "call" } } },
+      gateBucket: "borderline",
+      gateReasons: [],
+    });
+    const scan = (symbol: string, score: number): any => ({
+      scanned: 1,
+      withTrades: 1,
+      opportunities: [make(symbol, score)],
+      skipped: [],
+      truncatedSymbols: 0,
+      assumptions: [],
+      matrix: [{ symbol, verdict: "pass", targetPrice: 10, targetSource: "thesis", targetEmUnits: null, cells: [], gateBucket: "borderline", gateReasons: [] }],
+      typeRollup: [],
+      mode: "per_name_best",
+      fits: [],
+      fitsTotal: 0,
+      gate: { fit: 0, borderline: 1, noFit: 0 },
+      borderline: [],
+      gateParams: {},
+      profileRef: null,
+      generatedAt: "2026-10-24T12:00:00.000Z",
+      modelVersion: "1.2.0",
+      requestSnapshot: { template: {}, mode: "per_name_best", riskProfile: "balanced", profile: null },
+      configSnapshot: {},
+      coverage: { considered: 1, scanned: 1, truncated: 0, evaluated: 1, errors: 0, withTrades: 1, eventCalendar: { covered: 1, total: 1, coveragePct: 100 } },
+    });
+    const result = collateOpportunityScanShards(
+      ["AAPL", "MSFT", "NVDA"],
+      [scan("AAPL", 50), scan("MSFT", 80)],
+      [{ symbol: "NVDA", reason: "rate limit" }],
+      new Date("2026-10-24T12:01:00.000Z")
+    );
+    expect(result.opportunities.map((item) => item.symbol)).toEqual(["MSFT", "AAPL"]);
+    expect(result.coverage).toMatchObject({ considered: 3, scanned: 3, evaluated: 2, errors: 1, withTrades: 2 });
+    expect(result.partial).toMatchObject({ evaluatedCount: 2, consideredCount: 3, coverageErrors: 1, topSkipReason: "rate limit" });
+  });
+});
+
 describe("assemble gate enforced at execution (issue #1355 job2.1)", () => {
   it("a retried assemble with a failed feed shard throws naming the blocker", async () => {
     const sql = {
@@ -590,6 +674,11 @@ describe("assemble gate enforced at execution (issue #1355 job2.1)", () => {
 });
 
 describe("schedule schema + RunSummary surfacing (issues #1355, #1346)", () => {
+  it("keeps options sharding an explicit schedule opt-in", () => {
+    expect(optionsAnalysisScheduleCriteriaSchema.safeParse({ universe: "NASDAQ100", sharded: true }).success).toBe(true);
+    expect(optionsAnalysisScheduleCriteriaSchema.safeParse({ universe: "NASDAQ100" }).success).toBe(true);
+    expect(optionsAnalysisScheduleCriteriaSchema.safeParse({ universe: "NASDAQ100", sharded: "yes" }).success).toBe(false);
+  });
   it("the market-screen schedule schema accepts sharded and stays strict", () => {
     expect(marketScreenScheduleCriteriaSchema.safeParse({ sharded: true }).success).toBe(true);
     expect(marketScreenScheduleCriteriaSchema.safeParse({ sharded: true, bogus: 1 }).success).toBe(false);

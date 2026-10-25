@@ -226,6 +226,7 @@ async function generateAssemble(
   deps: ShardExecutorDeps,
   chain: ShardChainContext
 ): Promise<Record<string, unknown>> {
+  if (chain.screenType === "options") return generateAssembleOptions(deps, chain);
   // Completeness gate, enforced at execution too (not only at
   // planning): a manually retried assemble must still refuse a
   // partial feed, naming every blocker.
@@ -276,6 +277,88 @@ async function generateAssemble(
   };
 }
 
+async function executeOptionsSymbol(
+  deps: ShardExecutorDeps,
+  chain: ShardChainContext,
+  symbol: string,
+  inputs: Record<string, unknown> = {}
+): Promise<unknown> {
+  const request = chain.options;
+  if (!request) throw new Error("Options shard is missing its scan request.");
+  const service = deps.createETradeService(chain.userLogin, chain.environment);
+  const { UnifiedOptionsService } = await import("../trading");
+  const eventCalendar = inputs.eventCalendar ?? await (await import("./eventCalendar")).getSymbolEventCalendar(symbol);
+  const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
+  return withRetry(async () => {
+    const result = await UnifiedOptionsService.scanOpportunities(
+      service.client as any,
+      [symbol],
+      {
+        thesis: request.thesis as any,
+        targetDate: request.targetDate,
+        expectedIvDirection: "unchanged",
+        maxPlannedLoss: 1000,
+        minRewardRisk: 1.5,
+        allowedStrategies: request.allowedStrategies?.length ? request.allowedStrategies as any : ["all"],
+      },
+      {
+        riskProfile: request.riskProfile,
+        maxSymbols: 1,
+        eventCalendarBySymbol: eventCalendar
+          ? { [symbol]: eventCalendar as any }
+          : undefined,
+        now: new Date(chain.timestamp),
+      }
+    );
+    // The scanner converts chain-fetch exceptions into skipped rows.
+    // Re-throw those here so the shard's acquisition retry bucket can
+    // retry this one underlying independently.
+    if (result.matrix[0]?.verdict === "skipped") {
+      throw new Error(result.matrix[0].skipReason || `Option chain unavailable for ${symbol}`);
+    }
+    return result;
+  }, policy, { label: `shard.feed.options.${symbol}` });
+}
+
+async function generateAssembleOptions(
+  deps: ShardExecutorDeps,
+  chain: ShardChainContext
+): Promise<Record<string, unknown>> {
+  const symbols = [...new Set((chain.options?.symbols ?? []).map((s) => s.trim().toUpperCase()).filter(Boolean))];
+  const rows = chainRows(deps, chain.chainId);
+  const results: any[] = [];
+  const failed: Array<{ symbol: string; reason: string }> = [];
+  for (const symbol of symbols) {
+    const attempts = rows.filter((row) => row.stage === "feed" && row.shardKey === symbol)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const latest = attempts[attempts.length - 1];
+    const completed = [...attempts].reverse().find((row) => row.status === "completed");
+    if (completed?.result && (latest?.status === "completed" || latest?.status === "failed")) {
+      results.push(completed.result);
+    } else {
+      failed.push({ symbol, reason: latest?.error || `Option chain shard ended with status ${latest?.status ?? "missing"}` });
+    }
+  }
+  const { collateOpportunityScanShards } = await import("../trading");
+  const assembled = collateOpportunityScanShards(symbols, results, failed, new Date(chain.timestamp));
+  if (assembled.coverage.evaluated === 0) {
+    const top = assembled.partial?.topSkipReason;
+    throw new Error(`Options chain shards produced no evaluable symbols.${top ? ` Top skip reason: ${top}` : ""}`);
+  }
+  const { recordOptionsRun } = await import("../agents/optionsRuns");
+  await recordOptionsRun(deps.storage, {
+    timestamp: chain.timestamp,
+    success: true,
+    trigger: chain.trigger ?? "scheduled",
+    thesis: chain.options?.thesis ?? "bullish",
+    symbols,
+    withTrades: assembled.withTrades,
+    summary: `Options screen — ${chain.options?.thesis ?? "bullish"}: ${assembled.withTrades} actionable setups; evaluated ${assembled.coverage.evaluated} of ${assembled.coverage.considered} underlyings.`,
+    opportunities: assembled.opportunities,
+  });
+  return assembled as unknown as Record<string, unknown>;
+}
+
 async function generatePdf(
   deps: ShardExecutorDeps,
   chain: ShardChainContext
@@ -283,7 +366,7 @@ async function generatePdf(
   const dataset = siblingResult(deps, chain.chainId, "generate", "assemble");
   if (!dataset) throw new Error("Generate shard pdf blocked: assemble shard has no completed result.");
   const { runReportPipeline } = await import("./unifiedReportPipeline");
-  const { screenerPdfFileName } = await import("../trading");
+  const { screenerPdfFileName, optionsPdfFileName } = await import("../trading");
   // PDF generation is owned by ReportAssetAgent (#680/#914): this
   // shard delegates to runReportPipeline, it never calls the
   // generator directly.
@@ -291,19 +374,27 @@ async function generatePdf(
     deps.env as { REPORTS_BUCKET?: unknown; REPORT_ASSET_AGENT?: unknown },
     deps.storage as any,
     {
-      type: "screener",
+      type: chain.screenType === "options" ? "options" : "screener",
       trigger: chain.trigger ?? "scheduled",
       result: dataset,
       userLogin: chain.userLogin,
-      title: `Market screen — ${chain.universe}`,
-      summary: `Scanned ${dataset.totalScanned} symbols, ${dataset.matchedCount} matched.`,
+      title: chain.screenType === "options"
+        ? `Options scanner — ${chain.options?.thesis ?? "bullish"} (${chain.timestamp.slice(0, 10)})`
+        : `Market screen — ${chain.universe}`,
+      summary: chain.screenType === "options"
+        ? `Evaluated ${(dataset.coverage as any)?.evaluated ?? dataset.scanned ?? 0} of ${(dataset.coverage as any)?.considered ?? dataset.scanned ?? 0} underlyings; ${dataset.withTrades ?? 0} actionable setups.`
+        : `Scanned ${dataset.totalScanned} symbols, ${dataset.matchedCount} matched.`,
       timestamp: chain.timestamp,
     }
   );
   if (out.pdfStatus !== "generated" || !out.pdfKey) {
     throw new Error(out.pdfError || "PDF generation failed in the report pipeline.");
   }
-  return { format: "pdf", key: out.pdfKey, fileName: screenerPdfFileName(dataset) };
+  return {
+    format: "pdf",
+    key: out.pdfKey,
+    fileName: chain.screenType === "options" ? optionsPdfFileName(dataset as any) : screenerPdfFileName(dataset),
+  };
 }
 
 async function generateTabular(
@@ -316,14 +407,26 @@ async function generateTabular(
     throw new Error(`Generate shard ${format} blocked: assemble shard has no completed result.`);
   }
   const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.generate];
-  const prefix = format === "xlsx" ? "screener:xlsx:" : "screener:csv:";
+  const prefix = chain.screenType === "options"
+    ? (format === "xlsx" ? "options:xlsx:" : "options:csv:")
+    : (format === "xlsx" ? "screener:xlsx:" : "screener:csv:");
   const key = `${prefix}${crypto.randomUUID().slice(0, 8)}`;
   const { putReportPdf } = await import("./reportBlobStore");
   const { fileName, bytes } = await withRetry(
     async () => {
       if (format === "xlsx") {
+        if (chain.screenType === "options") {
+          const { generateOptionsXlsx, optionsXlsxFileName, adaptOpportunityScanToOptionScreenResult } = await import("../trading");
+          const adapted = adaptOpportunityScanToOptionScreenResult(dataset as any);
+          return { fileName: optionsXlsxFileName(adapted), bytes: generateOptionsXlsx(adapted) };
+        }
         const { generateScreenerXlsx, screenerXlsxFileName } = await import("../trading");
         return { fileName: screenerXlsxFileName(dataset), bytes: generateScreenerXlsx(dataset) };
+      }
+      if (chain.screenType === "options") {
+        const { generateOptionsCsv, optionsCsvFileName, adaptOpportunityScanToOptionScreenResult } = await import("../trading");
+        const adapted = adaptOpportunityScanToOptionScreenResult(dataset as any);
+        return { fileName: optionsCsvFileName(adapted), bytes: new TextEncoder().encode(generateOptionsCsv(adapted)) };
       }
       const { generateScreenerCsv, screenerCsvFileName } = await import("../trading");
       return {
@@ -369,12 +472,16 @@ async function storeFormat(
   if (!stored) throw new Error(`Store shard ${format} blocked: blob ${key} is not readable.`);
   const provenance = shardProvenanceIds(chainRows(deps, chain.chainId));
   const row = deps.orm.storeCanonicalReport({
-    runId: `screener:${chain.chainId}`,
-    generationId: `screener:${chain.chainId}:${format}`,
-    title: `Market screen — ${chain.universe} (${format})`,
-    source: "screener",
-    summary: `Sharded screen: ${chain.universe}, ${format} report, ${provenance.length} shards.`,
-    body: { format, key, fileName, universe: chain.universe, chainId: chain.chainId, shardIds: provenance },
+    runId: `${chain.screenType === "options" ? "options" : "screener"}:${chain.chainId}`,
+    generationId: `${chain.screenType === "options" ? "options" : "screener"}:${chain.chainId}:${format}`,
+    title: chain.screenType === "options"
+      ? `Options scanner — ${chain.options?.thesis ?? "bullish"} (${format})`
+      : `Market screen — ${chain.universe} (${format})`,
+    source: chain.screenType === "options" ? "options_scanner" : "screener",
+    summary: chain.screenType === "options"
+      ? `Sharded options screen: ${chain.options?.thesis ?? "bullish"}, ${format} report, ${provenance.length} shards.`
+      : `Sharded screen: ${chain.universe}, ${format} report, ${provenance.length} shards.`,
+    body: { format, key, fileName, universe: chain.universe, thesis: chain.options?.thesis, chainId: chain.chainId, shardIds: provenance },
     createdAt: chain.timestamp,
   });
   return { format, key, reportId: row?.reportId ?? `screener:${chain.chainId}:${format}` };
@@ -390,6 +497,9 @@ export async function executeShardJob(
   payload: ShardPayload
 ): Promise<unknown> {
   const { shard, chain } = payload;
+  if (shard.stage === "feed" && chain.screenType === "options") {
+    return executeOptionsSymbol(deps, chain, shard.key, payload.inputs);
+  }
   if (shard.stage === "feed" && shard.key === "nasdaq") return feedNasdaq(deps, chain);
   if (shard.stage === "feed" && shard.key === "etrade") return feedEtrade(deps, chain);
   if (shard.stage === "feed" && shard.key === "yahoo") return feedYahoo(deps, chain);
