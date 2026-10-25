@@ -12,7 +12,6 @@ jobs:
     permissions:
       pull-requests: write
       contents: write
-      actions: write
     steps:
       - name: Update Open PRs with main
         uses: actions/github-script@v7
@@ -46,19 +45,6 @@ jobs:
                   pull_number: pr.number,
                 });
                 console.log(`Successfully requested branch update for PR #${pr.number}`);
-
-                try {
-                  console.log(`Triggering CI workflow dispatch for PR #${pr.number} (${pr.head.ref})...`);
-                  await github.rest.actions.createWorkflowDispatch({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    workflow_id: 'ci.yml',
-                    ref: pr.head.ref,
-                  });
-                  console.log(`Successfully dispatched CI workflow for PR #${pr.number}`);
-                } catch (dispatchError) {
-                  console.error(`Failed to trigger CI dispatch for PR #${pr.number}: ${dispatchError.message}`);
-                }
               } catch (error) {
                 console.error(`Failed to update PR #${pr.number}: ${error.message}`);
               }
