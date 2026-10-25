@@ -649,7 +649,7 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
         limit: 10,
       };
 
-      const result = await executeNLQQueryAsync(orm, "session_trader", plan, mockEnv);
+      const result = await executeNLQQueryAsync(orm, "session_trader", plan, mockEnv, "session_trader");
       expect(result.domain).toBe("agentic_payments");
       expect(result.summary).toContain("Paid Options Screener ($0.05 USDC)");
       expect(result.rows.length).toBeGreaterThan(0);

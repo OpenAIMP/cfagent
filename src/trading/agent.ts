@@ -20,10 +20,14 @@ export class TradingMicroAgent {
 
   constructor(
     private env: Env,
-    private orm?: DatabaseORM,
-    private userLogin: string = "default_trader",
+    private orm: DatabaseORM | undefined,
+    private userLogin: string,
     platformId: "etrade" | "alpaca" | "foss" | "sandbox" = "etrade"
   ) {
+    // Issue #1185: an explicit login is required — no default identity.
+    if (!userLogin) {
+      throw new Error("TradingAgent facade requires an explicit userLogin (issue #1185: no default identity).");
+    }
     this.platform = TradingPlatformRegistry.getPlatform(platformId, env, orm, userLogin);
     this.screener = new DynamicMarketScreener();
   }
