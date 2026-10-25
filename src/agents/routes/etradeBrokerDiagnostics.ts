@@ -12,6 +12,7 @@
  * original inline block returned.
  */
 
+import { unauthenticatedResponse } from "./routeIdentity";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { getValidTokens } from "../../security/etradeOAuth";
 import { ETradeRestClient } from "../../trading";
@@ -19,7 +20,8 @@ import type { EtradeBrokerRouteContext } from "./etradeBroker";
 
 export async function handleEtradeDiagnostics(request: Request, sessionId: string, ctx: EtradeBrokerRouteContext, requestedEnv: "TEST" | "PROD" | undefined): Promise<Response> {
   try {
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const envConfig = resolveEnvironmentConfig(ctx.env, requestedEnv);
     const valid = await getValidTokens(ctx.env, userLogin, requestedEnv);
     const client = new ETradeRestClient(ctx.env, userLogin, requestedEnv);
