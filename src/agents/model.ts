@@ -11,7 +11,8 @@ export { getAiConfig, getAvailableAiModels, type AiModelDefinition, type AiConfi
  * Replaces deprecated @cf/meta/llama-3.1-8b-instruct (deprecated 2026-05-30).
  */
 export const DEFAULT_AI_MODEL = "@cf/zai-org/glm-4.7-flash";
-export const FALLBACK_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+// #930: failover-model constant removed — it was exported but consumed by no
+// LLM call path, so it advertised a failover that did not exist.
 
 /**
  * Resolves the appropriate model ID dynamically based on task key, explicit override,

@@ -885,7 +885,7 @@ export interface ETradePositionLot {
 }
 
 export interface ETradeBrokerStatus {
-  broker: "etrade";
+  broker: "etrade" | "alpaca";
   name: string;
   configured: boolean;
   mode: "live_oauth" | "sandbox_api" | "mcp_remote" | "simulated_engine";
@@ -916,7 +916,7 @@ export interface ETradeBrokerStatus {
  * but it is the object's production time — `provenance` (and `note`, when
  * present) states what the data actually is.
  */
-export type FossDataProvenance = "live" | "static" | "generated";
+export type FossDataProvenance = "live" | "cached" | "static" | "generated";
 
 export interface FossQuote {
   symbol: string;
@@ -925,6 +925,10 @@ export interface FossQuote {
   provenance: FossDataProvenance;
   /** Human-readable origin note; set whenever provenance is not "live". */
   note?: string;
+  /** #930: set only on cache hits — the values are as old as cacheAgeMs, not fresh. */
+  fromCache?: boolean;
+  /** #930: milliseconds since the original live fetch, on cache hits only. */
+  cacheAgeMs?: number;
   companyName?: string;
   name?: string;
   price: number;
