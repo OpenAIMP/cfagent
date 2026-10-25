@@ -124,3 +124,79 @@ export function applyPortfolioContextRanking<T extends { symbol: string }>(
   }
   return { ranked: [...unflagged, ...flagged], demoted };
 }
+
+/**
+ * The marker a run carries so a modified ranking is never presented
+ * as raw. `applied` means the modifier RAN (flags computed from a
+ * connected book) — even when `demoted` is empty. Every non-applied
+ * case names its reason; the caller never has to guess whether the
+ * modifier ran, was skipped, or failed.
+ */
+export interface PortfolioContextMarker {
+  applied: boolean;
+  demoted?: string[];
+  reason?: string;
+  accountId?: string;
+  notes?: string[];
+}
+
+export type PortfolioContextSnapshot =
+  | {
+      ok: true;
+      accountId: string;
+      positions: PortfolioPositionInput[];
+    }
+  | { ok: false; reason: string };
+
+/**
+ * Testable seam for the run hook: a ranked list plus a positions
+ * snapshot (or a fetch failure) in, a possibly-reordered list plus
+ * its marker out. The "unconnected" account is not a book — its
+ * session/paper positions must never rank a live run.
+ */
+export function applyPortfolioContextToOpportunities<
+  T extends { symbol: string },
+>(
+  ranked: T[],
+  snapshot: PortfolioContextSnapshot
+): { ranked: T[]; marker: PortfolioContextMarker } {
+  if (!snapshot.ok) {
+    return { ranked, marker: { applied: false, reason: snapshot.reason } };
+  }
+  if (snapshot.accountId === "unconnected") {
+    return {
+      ranked,
+      marker: {
+        applied: false,
+        reason: "account-unconnected",
+        accountId: snapshot.accountId,
+      },
+    };
+  }
+  if (snapshot.positions.length === 0) {
+    return {
+      ranked,
+      marker: {
+        applied: false,
+        reason: "no-positions",
+        accountId: snapshot.accountId,
+      },
+    };
+  }
+  const flags = buildPortfolioFlags(snapshot.positions);
+  const { ranked: reordered, demoted } = applyPortfolioContextRanking(
+    ranked,
+    flags
+  );
+  return {
+    ranked: reordered,
+    marker: {
+      applied: true,
+      demoted,
+      accountId: snapshot.accountId,
+      notes: demoted.flatMap((s) =>
+        (flags.get(s.toUpperCase()) ?? []).map((f) => f.message)
+      ),
+    },
+  };
+}
