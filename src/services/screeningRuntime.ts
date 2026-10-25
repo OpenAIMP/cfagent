@@ -48,11 +48,11 @@ import type {
 import {
   createDefaultScreeningRegistry,
   DynamicMarketScreener,
-  fetchYahooDailyHistory,
   type DynamicOptionsScreener,
   type IMarketScreener,
   type ScreeningProviderAssetClass,
   type ScreeningProviderRegistry,
+  type YahooHistoryDeps,
 } from "../trading";
 import {
   runGoalDrivenScreenWithLedger,
@@ -341,8 +341,18 @@ export async function executeGoalScreenRun(input: {
 /* Backtest-on-screen                                                  */
 /* ------------------------------------------------------------------ */
 
-async function fetchLivePriceBars(symbol: string): Promise<PriceBar[] | null> {
-  const bars = await fetchYahooDailyHistory(symbol);
+/**
+ * Issue #1331: live price bars through the platform history deps.
+ * Without deps there is no fallback to the deleted direct fetch —
+ * null, so the engine excludes the symbol with its reason (the
+ * documented contract), never with synthesized bars.
+ */
+async function fetchLivePriceBars(
+  symbol: string,
+  historyDeps?: YahooHistoryDeps
+): Promise<PriceBar[] | null> {
+  if (!historyDeps) return null;
+  const bars = await historyDeps.fetchBars(symbol);
   if (!bars) return null;
   return bars.map((b) => ({ date: b.date, close: b.close }));
 }
@@ -357,11 +367,15 @@ async function fetchLivePriceBars(symbol: string): Promise<PriceBar[] | null> {
 export async function executeScreenBacktest(input: {
   symbols: string[];
   fetchPrices?: (symbol: string) => Promise<PriceBar[] | null>;
+  /** Issue #1331: platform history deps, bound by the caller (the
+   * backtest route binds route-resolved + outcome-tracked). */
+  historyDeps?: YahooHistoryDeps;
   folds?: number;
   holdingBars?: number;
   capital?: number;
 }): Promise<BacktestResult> {
-  const fetchPrices = input.fetchPrices ?? fetchLivePriceBars;
+  const fetchPrices =
+    input.fetchPrices ?? ((symbol: string) => fetchLivePriceBars(symbol, input.historyDeps));
   const prices: Record<string, PriceBar[]> = {};
   for (const symbol of input.symbols) {
     const bars = await fetchPrices(symbol);

@@ -51,6 +51,9 @@ import { RecommendationService } from "./recommendationKernel";
 import { mapKernelNameDiscovery } from "./kernelDiscoveryMapping";
 import { RESEARCH_CONFIG_DEFAULTS, type ResearchConfig } from "./researchConfig";
 import { EtradeResearchDataProvider } from "./researchProviders";
+import {
+  resolveYahooHistoryDeps,
+} from "../trading";
 import type { ResearchDataProvider } from "./researchPipeline";
 import type { Outlook } from "./researchGates";
 import {
@@ -196,10 +199,28 @@ export function createFitDiscoveryRunner(deps: {
             "Fit discovery is disabled by the screening.nlqFitDiscovery setting. Re-enable it from the screening controls to use fit phrases.",
         };
       }
+      // Issue #1331: history deps when sql is present (route-
+      // resolved, outcome-tracked; capture needs a blob handle
+      // the fit runner does not carry). Without sql the provider
+      // keeps working with honestly-null technicals — no fallback
+      // to the deleted direct fetch exists.
+      // Issue #1331 (fix): history resolution degrades to undefined
+      // deps (honestly-null technicals) instead of failing the run
+      // — the old yahooHistory contract. See
+      // resolveYahooHistoryDeps.
+      const historyDeps =
+        deps.sql && deps.env
+          ? await resolveYahooHistoryDeps({
+              sql: deps.sql,
+              env: deps.env,
+              userLogin: deps.userLogin,
+              runId: crypto.randomUUID(),
+            })
+          : undefined;
       const provider =
         deps.provider ??
         (deps.env
-          ? new EtradeResearchDataProvider(deps.env, deps.userLogin)
+          ? new EtradeResearchDataProvider(deps.env, deps.userLogin, historyDeps)
           : null);
       if (!provider) {
         return {

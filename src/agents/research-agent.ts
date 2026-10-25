@@ -38,6 +38,9 @@ import {
 } from "../services/researchPipeline";
 import { EtradeResearchDataProvider } from "../services/researchProviders";
 import {
+  resolveYahooHistoryDeps,
+} from "../trading";
+import {
   runGoalScenarioDiscovery,
   persistDiscoveredGoals,
   type DiscoveredGoalProposal,
@@ -401,7 +404,21 @@ export class ResearchAgent extends Think<Env> {
         }
         config = merged.config;
       }
-      const provider = new EtradeResearchDataProvider(this.env, userLogin);
+      // Issue #1331: history resolution degrades to undefined deps
+      // (honestly-null technicals) instead of failing the run — the
+      // old yahooHistory contract. See resolveYahooHistoryDeps.
+      const historyDeps = await resolveYahooHistoryDeps({
+        sql: this.ctx.storage.sql,
+        env: this.env,
+        userLogin,
+        blobStorage: this.ctx.storage,
+        runId: crypto.randomUUID(),
+      });
+      const provider = new EtradeResearchDataProvider(
+        this.env,
+        userLogin,
+        historyDeps
+      );
       // Issue #773: feed historical evaluation outcomes into the pipeline's Decide stage.
       let trackRecord: import("../services/researchTrackRecord").TrackRecord | undefined;
       try {
@@ -441,7 +458,21 @@ export class ResearchAgent extends Think<Env> {
     const userLogin = req.userLogin || "default";
     try {
       this.ensureTables();
-      const provider = new EtradeResearchDataProvider(this.env, userLogin);
+      // Issue #1331: history resolution degrades to undefined deps
+      // (honestly-null technicals) instead of failing the run — the
+      // old yahooHistory contract. See resolveYahooHistoryDeps.
+      const historyDeps = await resolveYahooHistoryDeps({
+        sql: this.ctx.storage.sql,
+        env: this.env,
+        userLogin,
+        blobStorage: this.ctx.storage,
+        runId: crypto.randomUUID(),
+      });
+      const provider = new EtradeResearchDataProvider(
+        this.env,
+        userLogin,
+        historyDeps
+      );
       const out = await runGoalScenarioDiscovery({
         provider,
         portfolio: req.portfolio ?? null,
@@ -562,9 +593,22 @@ export class ResearchAgent extends Think<Env> {
       detail: string;
     }> = [];
     try {
+      // Issue #1331: history resolution degrades to undefined deps
+      // (honestly-null technicals) instead of failing the quote
+      // refresh — the old yahooHistory contract. A history outage
+      // must never zero the quote flags this method exists to raise.
+      // See resolveYahooHistoryDeps.
+      const historyDeps = await resolveYahooHistoryDeps({
+        sql: this.ctx.storage.sql,
+        env: this.env,
+        userLogin: userLogin || report.userLogin || "default",
+        blobStorage: this.ctx.storage,
+        runId: crypto.randomUUID(),
+      });
       const provider = new EtradeResearchDataProvider(
         this.env,
-        userLogin || report.userLogin || "default"
+        userLogin || report.userLogin || "default",
+        historyDeps
       );
       for (const idea of (report.ideas ?? []).slice(0, 5)) {
         let quote: { price?: number | null } | null = null;
@@ -669,7 +713,21 @@ export class ResearchAgent extends Think<Env> {
         createdAt: report.createdAt,
         outlook: (idea as { outlook?: StoredIdeaRecord["outlook"] }).outlook,
       }));
-      const provider = new EtradeResearchDataProvider(this.env, userLogin || "default");
+      // Issue #1331: history resolution degrades to undefined deps
+      // (honestly-null technicals) instead of failing the run — the
+      // old yahooHistory contract. See resolveYahooHistoryDeps.
+      const historyDeps = await resolveYahooHistoryDeps({
+        sql: this.ctx.storage.sql,
+        env: this.env,
+        userLogin: userLogin || "default",
+        blobStorage: this.ctx.storage,
+        runId: crypto.randomUUID(),
+      });
+      const provider = new EtradeResearchDataProvider(
+        this.env,
+        userLogin || "default",
+        historyDeps
+      );
       const config = this.configService().load();
       const evaluation = await runResearchEvaluation(
         { provider },

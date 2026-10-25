@@ -1367,8 +1367,25 @@ export async function handleScreenerResearchRoutes(
         );
       }
       const { executeScreenBacktest } = await import("../../services/screeningRuntime");
+      // Issue #1331: backtest bars through the platform — route-
+      // resolved + outcome-tracked under a per-request run id.
+      // The route ctx carries no blob handle, so this binding
+      // writes outcome rows but no capture rows (follow-up:
+      // thread a storage handle into the route ctx).
+      const { resolveYahooHistoryDeps } = await import("../../trading");
+      // Issue #1331 (fix): resolution failure degrades to undefined
+      // deps, so fetchLivePriceBars returns null and the engine
+      // excludes the symbol with its reason — the route never 500s
+      // on a history outage. See resolveYahooHistoryDeps.
+      const historyDeps = await resolveYahooHistoryDeps({
+        sql: ctx.getOrm() as any,
+        env: ctx.env as any,
+        userLogin,
+        runId: crypto.randomUUID(),
+      });
       const result = await executeScreenBacktest({
         symbols: body.symbols as string[],
+        historyDeps,
         ...(typeof body.folds === "number" ? { folds: body.folds } : {}),
         ...(typeof body.holdingBars === "number" ? { holdingBars: body.holdingBars } : {}),
         ...(typeof body.capital === "number" ? { capital: body.capital } : {}),

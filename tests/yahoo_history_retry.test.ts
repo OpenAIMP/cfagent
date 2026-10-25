@@ -1,78 +1,63 @@
 /**
  * Issue #1184 (#1173 R2): the Yahoo history leg retries.
- *
- * Before R2, fetchYahooDailyHistory tried query1→query2 once each;
- * a throttle storm zeroed MACD/Gap for an entire run. Pins: a
- * 429-then-OK sequence now recovers through the shared acquisition
- * policy; total failure still returns honest null.
+ * Issue #1331: adapted — the deleted fetchYahooDailyHistory is
+ * gone; the same contract now lives on the platform history seam
+ * (bindYahooHistoryDeps.fetchBars). The retry level shifts from
+ * host fetches (query1→query2 per attempt) to adapter calls: the
+ * FOSS provider already tries both hosts per call, so one seam
+ * attempt covers both hosts. Pins, unchanged in intent: a
+ * throttle-then-OK sequence recovers through the shared
+ * acquisition policy; total failure still returns honest null.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchYahooDailyHistory } from "../src/trading/yahooHistory";
+import { describe, expect, it, vi } from "vitest";
+import { bindYahooHistoryDeps } from "../src/trading/platformHistory";
+import type { FossHistoricalBar } from "../src/types";
 
-function chartPayload(days = 30) {
-  const base = Math.floor(Date.parse("2026-09-01T00:00:00Z") / 1000);
-  const timestamps = Array.from({ length: days }, (_, i) => base + i * 86_400);
-  const closes = Array.from({ length: days }, (_, i) => 100 + i);
-  return {
-    chart: {
-      result: [
-        {
-          timestamp: timestamps,
-          indicators: {
-            quote: [
-              {
-                close: closes,
-                open: closes.map((c) => c - 0.5),
-                high: closes.map((c) => c + 0.5),
-                low: closes.map((c) => c - 1),
-                volume: closes.map(() => 1_000_000),
-              },
-            ],
-          },
-        },
-      ],
-    },
-  };
-}
-
-function httpResponse(status: number, payload?: unknown) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => payload ?? {},
-  };
+function liveSeries(n: number): FossHistoricalBar[] {
+  return Array.from({ length: n }, (_, i) => ({
+    provenance: "live" as const,
+    timestamp: `2026-09-${String(i + 1).padStart(2, "0")}`,
+    open: 100 + i - 0.5,
+    high: 100 + i + 0.5,
+    low: 100 + i - 1,
+    close: 100 + i,
+    volume: 1_000_000,
+  }));
 }
 
 const policy = { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 0, jitterRatio: 0 };
 const noSleep = async () => {};
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-describe("fetchYahooDailyHistory — retry under the acquisition policy", () => {
-  it("recovers when the first attempt is throttled on both hosts", async () => {
+describe("bindYahooHistoryDeps.fetchBars — retry under the acquisition policy", () => {
+  it("recovers when the first attempt is throttled", async () => {
     let calls = 0;
-    vi.stubGlobal("fetch", async () => {
-      calls++;
-      // Attempt 1: query1 429, query2 429. Attempt 2: query1 OK.
-      return calls <= 2 ? httpResponse(429) : httpResponse(200, chartPayload());
-    });
-    const bars = await fetchYahooDailyHistory("ZZRTRY1", undefined, { retryPolicy: policy, retrySleep: noSleep });
+    const provider = {
+      id: "yahoo",
+      getHistoricalBars: vi.fn(async () => {
+        calls++;
+        if (calls === 1) throw new Error("429 throttled");
+        return { providerId: "yahoo", capability: "historicalBars", result: liveSeries(30) };
+      }),
+    } as any;
+    const deps = bindYahooHistoryDeps(provider, { runId: "run-1" }, { retryPolicy: policy, retrySleep: noSleep });
+    const bars = await deps.fetchBars("ZZRTRY1");
     expect(bars).not.toBeNull();
     expect(bars!).toHaveLength(30);
-    expect(calls).toBe(3);
+    expect(calls).toBe(2);
   });
 
   it("returns honest null when every attempt fails", async () => {
     let calls = 0;
-    vi.stubGlobal("fetch", async () => {
-      calls++;
-      return httpResponse(503);
-    });
-    const bars = await fetchYahooDailyHistory("ZZRTRY2", undefined, { retryPolicy: policy, retrySleep: noSleep });
+    const provider = {
+      id: "yahoo",
+      getHistoricalBars: vi.fn(async () => {
+        calls++;
+        throw new Error("503");
+      }),
+    } as any;
+    const deps = bindYahooHistoryDeps(provider, { runId: "run-1" }, { retryPolicy: policy, retrySleep: noSleep });
+    const bars = await deps.fetchBars("ZZRTRY2");
     expect(bars).toBeNull();
-    // 2 attempts × 2 hosts.
-    expect(calls).toBe(4);
+    expect(calls).toBe(2);
   });
 });
