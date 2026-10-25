@@ -62,6 +62,7 @@
 import { useCallback, useEffect, useState } from "react";
 import "./scannerPanel.css";
 import { StrategyLibraryModal } from "./options/StrategyLibraryModal";
+import { resolveCatalogStrategyLabels } from "./options/strategyLibrary";
 import { parseSymbolList } from "./accountApi";
 import {
   createProfile,
@@ -1011,7 +1012,9 @@ function StrategyCatalogBrowser() {
       const res = await fetch("/api/trading/options/catalog");
       if (!res.ok) return;
       const data = (await res.json()) as { strategies?: CatalogStrategy[] };
-      setStrategies(data.strategies ?? []);
+      // Issue #1334: never render a label-less entry — resolve labels
+      // by id from the client library as a backstop.
+      setStrategies(resolveCatalogStrategyLabels(data.strategies ?? []));
       setLoaded(true);
     } catch {
       // Catalog unavailable — browser stays empty.
@@ -1115,7 +1118,9 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         const res = await fetch("/api/trading/options/catalog");
         if (!res.ok) return;
         const data = (await res.json()) as { strategies?: CatalogStrategy[] };
-        setStrategyCatalog(data.strategies ?? []);
+        // Issue #1334: same backstop as the browser list — the modal
+        // renders `label`, so a label-less entry must never reach it.
+        setStrategyCatalog(resolveCatalogStrategyLabels(data.strategies ?? []));
         setCatalogLoaded(true);
       } catch {
         // Catalog unavailable — multi-select stays empty.
