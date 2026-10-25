@@ -47,8 +47,11 @@ export function getCuratedStockBySymbol(symbol: string): CuratedStockSecurity | 
 }
 
 /**
- * Transforms the curated stock list into NasdaqStockListing structures for
- * DynamicMarketScreener when the remote Nasdaq API is rate-limited, blocked, or unavailable.
+ * Transforms the curated stock list into NasdaqStockListing structures
+ * for test fixtures and symbol-metadata consumers. This is NOT a
+ * fallback for fetchAllUsStockListings(): since #1554 (parent #913)
+ * that function fails explicit on a live Nasdaq failure or empty
+ * result instead of substituting this table.
  *
  * @param filterExchange Optional exchange filter ("NASDAQ" | "NYSE" | "AMEX" | "ALL")
  */
