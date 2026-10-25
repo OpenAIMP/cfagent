@@ -685,10 +685,19 @@ describe("NLQ profile selection (issue #28)", () => {
     const intent = parseOptionsStrategyIntent(
       "Find best bullish option opportunities across my Semis watchlist against my income profile",
     );
-    // No userLogin in deps: resolution falls back to "default_trader".
+    // Issue #1185: no userLogin in deps fails closed — profile resolution
+    // requires the threaded authenticated login, never a synthetic one.
+    const noLogin = await runOptionsStrategyAction(nlqFacade() as never, intent.action, intent.filters, {
+      profileStore,
+      scanRunStore: new InMemoryScanRunStore({ idFactory: () => "run-prof-nologin" }),
+    });
+    expect(noLogin.status).toBe("invalid_request");
+    expect(noLogin.summary).toMatch(/authenticated user/);
+
     const result = await runOptionsStrategyAction(nlqFacade() as never, intent.action, intent.filters, {
       profileStore,
       scanRunStore: scanStore,
+      userLogin: "default_trader",
     });
 
     expect(result.status).toBe("ranked_opportunities");
@@ -699,7 +708,9 @@ describe("NLQ profile selection (issue #28)", () => {
     expect(result.summary).toContain("types: long_call");
 
     expect(result.persisted).toBe(true);
-    const stored = await scanStore.get("run-prof-1");
+    // Issue #1185/#103: the run is owner-stamped with the threaded login —
+    // the read-back scopes to that owner.
+    const stored = await scanStore.get("run-prof-1", { userLogin: "default_trader" });
     expect(stored?.result.profileRef).toEqual({ id: created.id, name: "Income", version: 1 });
     expect(stored?.result.requestSnapshot.profile?.name).toBe("Income");
     expect(stored?.result.requestSnapshot.template.allowedStrategies).toEqual(["long_call"]);
@@ -711,6 +722,7 @@ describe("NLQ profile selection (issue #28)", () => {
     );
     const result = await runOptionsStrategyAction(nlqFacade() as never, intent.action, intent.filters, {
       profileStore: new InMemoryStrategyProfileStore(),
+      userLogin: "default_trader",
     });
     expect(result.status).toBe("invalid_request");
     expect(result.summary).toBe('No saved profile named "missing".');
@@ -734,7 +746,7 @@ describe("NLQ profile selection (issue #28)", () => {
     expect(intent.action).toBe("options_best_trade");
     expect(intent.filters.profileName).toBe("income");
 
-    const result = await runOptionsStrategyAction(nlqFacade() as never, intent.action, intent.filters, { profileStore });
+    const result = await runOptionsStrategyAction(nlqFacade() as never, intent.action, intent.filters, { profileStore, userLogin: "default_trader" });
     // A $1 planned-loss cap rejects every fixture candidate at the
     // acceptance rules: no trade survives.
     expect((result.bestTrade as { best: unknown } | undefined)?.best ?? null).toBeNull();
@@ -758,6 +770,7 @@ describe("NLQ profile selection (issue #28)", () => {
     );
     const result = await runOptionsStrategyAction(nlqFacade() as never, intent.action, intent.filters, {
       profileStore: new InMemoryStrategyProfileStore(),
+      userLogin: "default_trader",
     });
     expect(result.status).toBe("invalid_request");
     expect(result.summary).toBe('No saved profile named "missing".');

@@ -70,6 +70,16 @@ export interface Env {
   // login path), and granting tenant-admin only — never
   // platform-admin. See src/security/iaaaBootstrap.ts.
   IAAA_BOOTSTRAP_ADMINS?: string;
+  // #1185 / #1066 — explicit service identity for unattended work
+  // (worker scheduled()/queue() and session-less entry points).
+  // Optional, owner-set, and NON-secret: a login id the owner authorizes
+  // once through the normal E*TRADE linking flow, so its token is a
+  // stored per-identity token in the SessionStore with the same expiry /
+  // renewal / revocation lifecycle as any user token. When unset, blank,
+  // or not login-shaped there is NO unattended identity: background
+  // dispatch fails closed (logged skip), never a hardcoded fallback.
+  // Resolved in src/security/serviceIdentity.ts (getServiceUserLogin).
+  SERVICE_USER_LOGIN?: string;
   MAS_MAX_STEPS?: string;
   AI_MODEL?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
@@ -100,8 +110,9 @@ export interface Env {
   ET_BASE_URL?: string;
   ETRADE_CONSUMER_KEY?: string;
   ETRADE_CONSUMER_SECRET?: string;
-  ETRADE_OAUTH_TOKEN?: string;
-  ETRADE_OAUTH_TOKEN_SECRET?: string;
+  // #1185 Phase B (#1066): ETRADE_OAUTH_TOKEN(_SECRET) removed — the
+  // process-wide static pair is deleted and the vars are unread. Access
+  // tokens are per-user, stored in the SessionStore.
   ETRADE_ACCOUNT_ID_KEY?: string;
   ETRADE_ENVIRONMENT?: "sandbox" | "live";
   ETRADE_MCP_SERVER_URL?: string;

@@ -300,7 +300,7 @@ describe("Issue #122: agentic payments balance / proof / receipt honesty", () =>
         limit: 10,
       };
 
-      const result: any = await executeNLQQueryAsync(orm, "session_trader", plan, mockEnv);
+      const result: any = await executeNLQQueryAsync(orm, "session_trader", plan, mockEnv, "session_trader");
       expect(result.summary).toContain("Paid Options Screener ($0.05 USDC)");
       expect(result.summary).toContain("Payment was SIMULATED");
       expect(result.summary).toContain("no real payment was collected or verified");
