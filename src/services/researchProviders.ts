@@ -23,11 +23,12 @@
 import { fetchAllUsStockListings } from "./nasdaqListings";
 import {
   resolveUniverse,
-  fetchTechnicalsBatch,
+  fetchPlatformTechnicalsBatch,
   buildCalibratedOptionChains,
   TradingPlatformRegistry,
   fetchQuoteLiveStrict,
   type ITradingPlatform,
+  type YahooHistoryDeps,
 } from "../trading";
 import { resolveEnvironmentConfig } from "../config/environment";
 import type { Env, ETradeOptionChain } from "../types";
@@ -136,7 +137,15 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
 
   constructor(
     private readonly env: Env,
-    private readonly userLogin: string
+    private readonly userLogin: string,
+    /**
+     * Issue #1331: platform history deps, bound by the caller
+     * (research-agent binds route-resolved + capture; the fit
+     * runner binds when it has sql). Absent, technicals are
+     * honestly null — the old direct Yahoo fetch is deleted, so
+     * there is no fallback to fall back to.
+     */
+    private readonly historyDeps?: YahooHistoryDeps
   ) {
     // #291 Q2: resolved through the platform registry (was a direct
     // ETradeService construction — the T0 ledger's researchProviders
@@ -304,8 +313,9 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
   }
 
   async getTechnicals(symbol: string): Promise<Technicals | null> {
+    if (!this.historyDeps) return null;
     try {
-      const map = await fetchTechnicalsBatch([symbol]);
+      const map = await fetchPlatformTechnicalsBatch(this.historyDeps, [symbol]);
       const t = map.get(symbol);
       if (!t) return null;
       const hist = t.macdHistogram ?? 0;
@@ -342,7 +352,9 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
     try {
       const [quote, techMap] = await Promise.all([
         this.getQuote("SPY"),
-        fetchTechnicalsBatch(["SPY"]).catch(() => null),
+        this.historyDeps
+          ? fetchPlatformTechnicalsBatch(this.historyDeps, ["SPY"]).catch(() => null)
+          : Promise.resolve(null),
       ]);
       const t = techMap?.get("SPY");
       const hist = t?.macdHistogram ?? 0;

@@ -36,10 +36,12 @@ export * from "./optionsScreener";
 
 // --- boundary surface (#290): every capability external code used via deep paths ---
 // Issue #1317: the deleted Yahoo data-source module's helpers moved
-// into screenerPipeline.ts; yahooHistory stays (its runtime still
-// serves screener-agent, discoveryService, researchProviders,
-// screeningRuntime).
-export * from "./yahooHistory";
+// into screenerPipeline.ts. Issue #1331: the yahooHistory runtime
+// is deleted — its pure technicals moved into technicals.ts and its
+// consumers fetch through the platform historicalBars route via
+// platformHistory.ts.
+export * from "./technicals";
+export * from "./platformHistory";
 export * from "./universes";
 export * from "./screenerConfig";
 export * from "./screenerPipeline";

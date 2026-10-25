@@ -35,7 +35,6 @@ import {
   type OpportunityStock,
   type PartialQuoteQualification,
 } from "../trading";
-import { fetchTechnicalsBatch } from "../trading";
 import {
   UNIVERSES,
   shardableUniverses,
@@ -52,10 +51,12 @@ import {
   createNasdaqDataProvider,
   createYahooDataProvider,
   DataProviderRegistry,
+  fetchPlatformTechnicalsBatch,
   getProviderConfig,
   listCapabilityRoutes,
   listProviderConfigs,
   nasdaqUniverseProviderFromRoute,
+  resolveYahooHistoryDeps,
   transitionProvider,
   verifyNasdaqDataProvider,
   verifyYahooDataProvider,
@@ -687,6 +688,27 @@ export class ScreenerAgent extends Agent<Env> {
           userLogin,
         });
       }
+      // Issue #1331: technicals history through the platform —
+      // the historicalBars route's yahoo primary, resolved with
+      // capture + outcome tracking under the run id (shared with
+      // the quotes/etrade blocks via platformRunId). The
+      // technicals leg runs for every screen (both providers), so
+      // yahoo is verified→enabled here when the quotes block did
+      // not already enable it — the run depends on yahoo for
+      // history exactly as it always fetched it directly.
+      platformRunId ??= crypto.randomUUID();
+      // Issue #1331 (fix): resolution failure degrades to a
+      // null-fetching deps object, so the batch still runs (chunking
+      // + heartbeat beat intact) and every symbol gets honest null
+      // technicals — the screen itself never fails on history
+      // resolution. See resolveYahooHistoryDeps.
+      const platformHistoryDeps = (await resolveYahooHistoryDeps({
+        sql: this.ctx.storage.sql,
+        env: this.env,
+        userLogin,
+        blobStorage: this.ctx.storage,
+        runId: platformRunId,
+      })) ?? { fetchBars: async () => null };
       // Provider-scoped acquisition (#261, #1007). Symbols come from
       // the listings directory (membership, not market data) for both
       // providers; quotes come from the named provider or nothing.
@@ -714,11 +736,12 @@ export class ScreenerAgent extends Agent<Env> {
       // Issue #269: Yahoo history complement — real RSI/MACD/gaps.
       // E*TRADE stays the primary quote source; Yahoo fills only the
       // history-shaped hole. Per-symbol failures → honest nulls.
-      const technicalsBySymbol = await fetchTechnicalsBatch(
+      // Issue #1331: bars come through the platform history deps
+      // (bound above); the throttled beat stays the onBatch hook.
+      const technicalsBySymbol = await fetchPlatformTechnicalsBatch(
+        platformHistoryDeps,
         acquired.quotes.map((q) => q.symbol),
-        undefined,
-        undefined,
-        () => beat()
+        { onBatch: () => beat() }
       );
       // Issue #1184 (#1173 R2): record technicals coverage on the
       // result — symbols quoted vs symbols with real MACD / gap

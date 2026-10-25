@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MockSqlStorage } from "./mock-sql";
 
-import type { YahooDailyBar } from "../src/trading/yahooHistory";
+import type { YahooDailyBar } from "../src/trading/technicals";
 import {
   chainAggregatesFromContracts,
   type ChainContractLike,
