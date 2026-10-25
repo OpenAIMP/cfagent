@@ -34,8 +34,6 @@ jobs:
             });
 
             for (const pr of prs) {
-              if (pr.draft) continue;
-
               const isDependabot =
                 pr.user?.login === 'dependabot[bot]' ||
                 (pr.user?.login && pr.user.login.includes('dependabot')) ||

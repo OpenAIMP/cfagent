@@ -545,11 +545,11 @@ Issue
 → operational observation
 ```
 
-Complete the current issue’s merge and required verification before starting the next implementation issue, unless an explicit exception permits parallel work.
+Independent implementation issues may proceed in parallel on separate branches. Complete each issue’s merge and required verification before marking that issue Done; pause merges, but not unrelated implementation, if `main` is unhealthy.
 
 When required CI/CD fails:
 
-1. Stop normal feature progression.
+1. Pause merges that depend on the failed result; unrelated implementation may continue.
 2. Diagnose the failure.
 3. Repair, revert, or escalate.
 4. Verify restoration.

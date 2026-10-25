@@ -15,4 +15,4 @@ x402 and MPP services live in `src/services/agenticPayments.ts` (legacy, Cloudfl
 
 ## Delivery policy
 
-All work in this repo follows `docs/agents/gitops.md` (issue → PR → merge → post-merge verification, one issue at a time). Put your agent hashtag in every issue and PR you create (the `## Agent` field in the gitops §5/§9 templates).
+All work in this repo follows `docs/agents/gitops.md` (issues may proceed in parallel on separate branches; each issue follows issue → PR → merge → post-merge verification). Put your agent hashtag in every issue and PR you create (the `## Agent` field in the gitops §5/§9 templates).

@@ -698,7 +698,7 @@ Do not assume that naming a class `MetaAgent` or `DeepAgent` creates planning, d
 - As a release owner, I can compare an improvement candidate against a protected baseline.
 - As a tenant owner, I can stop active work and revoke future access.
 
-Apply your GitHub policy: issue → tests → PR → review → merge → verified CI/CD before starting the next issue.
+Apply your GitHub policy: independent issues may proceed in parallel on separate branches; each issue follows issue → tests → PR → review → merge → verified CI/CD before it is Done.
 
 ***
 

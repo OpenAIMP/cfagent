@@ -2,9 +2,7 @@
 
 Use this document as a repository policy, for example `docs/engineering/github-agent-policy.md`, and reference it from `AGENTS.md`.
 
-This policy establishes a **merge-first** delivery discipline: finish one issue, merge it into `main`, verify the resulting CI/CD state, and only then begin the next issue.
-
-The sequential issue policy is your chosen operating model—not a universal industry requirement. GitHub branch protection, required checks, and merge queues provide enforcement mechanisms for the integration controls described below. [docs.github](https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/defining-the-mergeability-of-pull-requests/about-protected-branches)
+This policy supports parallel issue work on separate branches. Each PR follows its own checks, merge requirements, and post-merge verification. Explicit dependencies and production activations may require ordering; unrelated work does not wait for another PR’s merge or post-merge checks.
 
 ***
 
@@ -42,9 +40,9 @@ Repository policies cannot override higher-priority security requirements, tool 
 5. Use one issue-scoped branch and one focused PR per issue. An agent may hold several issue-scoped branches at once under §20 (parallel delivery); one branch per issue is never waived.
 6. Follow test-driven development for behavior changes.
 7. Resolve required reviews, conversations, and checks before merging.
-8. Merge the current issue into `main` before starting the next issue, unless §20 parallel delivery applies (independent issue, CI-wait window).
-9. Verify post-merge CI and applicable continuous-delivery checks before the issue is Done. Under §20 this verification no longer blocks starting the next independent issue — except that a red post-merge check stops all new-issue work first (§18.2).
-10. If required CI/CD fails, stop feature work and restore a healthy state.
+8. Independent issues MAY be developed in parallel on separate branches; declare and respect explicit dependencies.
+9. Verify post-merge CI and applicable continuous-delivery checks before the merged issue is Done. This verification does not block starting or continuing unrelated work.
+10. If required CI/CD fails, stop merges that depend on the unhealthy `main` state and restore a healthy state; unrelated implementation work may continue.
 11. Never bypass checks, weaken tests, or conceal failures to make a PR appear ready.
 12. Never claim completion without links or recorded evidence.
 13. Never push directly to protected branches.
@@ -225,7 +223,7 @@ Update these fields as the issue evolves — a label, milestone, or relationship
 - Split oversized work before implementation.
 - Do not add unrelated improvements.
 - Record discovered work separately.
-- Do not begin the next issue while the current issue remains unmerged or its required pipeline is unhealthy, unless §20 parallel delivery applies (independent issue, CI-wait window).
+- Independent issues may proceed on separate branches while another issue is unmerged or its pipeline is running. Respect dependencies and do not merge onto an unhealthy `main`.
 
 If blocked, report the blocker and seek a decision. Do not quietly switch work.
 
@@ -645,7 +643,7 @@ GitHub can consider `skipped` or `neutral` statuses acceptable for required chec
 
 When a required check fails:
 
-1. Stop new feature work.
+1. Pause merging the affected PR and any PR that depends on its failing result. Unrelated feature work may continue on separate branches.
 2. Inspect the failing job and logs.
 3. Classify the failure:
    - Change-induced.
@@ -664,7 +662,7 @@ Do not repeatedly rerun a known failure until chance produces a pass.
 
 If `main` is unhealthy:
 
-- Freeze normal feature progression.
+- Pause merges to `main` until it is healthy; unrelated implementation may continue.
 - Link an incident or corrective issue.
 - Coordinate ownership.
 - Prefer a safe revert or focused repair.
@@ -682,7 +680,7 @@ A failed required deployment remains blocking; an intentional, documented approv
 
 ***
 
-## 11. Merge policy and sequential execution
+## 11. Merge policy and parallel execution
 
 ### Before merge
 
@@ -718,7 +716,7 @@ If a merge queue is required, enqueue the PR. Ensure GitHub Actions workflows ha
 5. Update local `main` using a fast-forward pull.
 6. Head-branch deletion is automatic: the repo setting "Automatically delete head branches" is ON, so GitHub deletes the head branch on merge. Do not manually delete a branch automation already removed. If auto-delete is ever turned off, fall back to deleting the completed branch only when authorized and safe.
 7. Record the completion summary.
-8. Begin the next issue only after the gate is satisfied — unless §20 parallel delivery applies, in which case the next independent issue may already be in flight and this gate closes the current issue, not the stream.
+8. Continue independent issue work without waiting for this issue’s post-merge gate. The gate determines when this issue is Done and whether additional merges can safely land.
 
 If the PR cannot merge, the issue is blocked—not finished.
 
@@ -899,7 +897,7 @@ Workflow changes are security-sensitive and require appropriate review.
 - Use separate worktrees or workspaces.
 - Do not edit another agent’s branch without coordination.
 - Keep changes issue-scoped.
-- Respect the sequential completion gate for each assigned delivery stream.
+- Keep each issue’s branch, PR, checks, and completion evidence independently traceable.
 
 Parallel issue execution is authorized by §20 when its conditions hold — no per-case exception is needed for that case. A merge queue does not itself authorize parallel feature work; §20 is the authorization, the queue (§19.5) is the combination validator. Anything outside §20 still requires an explicit exception.
 
@@ -998,7 +996,7 @@ The Risks and limitations section MUST state known test-coverage gaps for the ch
 
 ## 17. Post-merge verification discipline
 
-Merging is not completion. A PR merged without verifying the feature works in production is an unverified change. Every merged PR MUST pass the verification steps below before the next issue begins.
+Merging is not completion. A PR merged without verifying the feature works in production is an unverified change. Every merged PR MUST pass the verification steps below before its issue is marked Done; unrelated work may continue in parallel.
 
 ### 17.1. Integration over unit tests
 
@@ -1010,7 +1008,7 @@ Unit tests verify logic in isolation. They do not catch integration failures:
 
 ### 17.2. Verification checklist (per merged PR)
 
-After merging, before starting the next issue:
+For each merged issue, before marking it Done:
 
 1. **Hit the endpoint**: `curl` the new/changed endpoint through the production path. Assert HTTP 200 and non-empty response.
 2. **Check the UI**: if the change affects a UI tab, verify the tab loads data (not just renders without error).
@@ -1028,8 +1026,8 @@ After merging, before starting the next issue:
 If CI PR events are not firing (e.g. API-created PRs), the agent MAY merge after local verification (`tsc` + relevant vitest files), per standing authorization. This is a degraded mode, not the norm — and it is conditional on a mandatory compensating control, not a softer version of the gate:
 
 1. **Before merging**, run `scripts/verify-before-merge.sh` (or its checks by hand): fetch `main`, confirm the branch is rebased onto current `main`, and pass typecheck plus the full test suite on that rebased head. Local verification on a stale base does not satisfy this section — a tree that lacks another lane's merged change cannot catch a semantic conflict with it.
-2. **After merging, before starting the next issue**, verify the CI run on `main` for the merged commit (the push-triggered CI and deploy runs). The merge is not complete until that run is green or its failures are classified under §18.2.
-3. **If the post-merge run is red**, §18.2 applies immediately: restoring green is the next issue, ahead of all feature work, however small the repair. Do not merge further work on top of red `main`.
+2. Verify the CI run on `main` for the merged commit (the push-triggered CI and deploy runs) before marking the issue Done. If it is red, classify the failure under §18.2. Unrelated implementation work may continue.
+3. **If the post-merge run is red**, §18.2 applies immediately: restore green before merging further work. Unrelated feature implementation may continue while the repair proceeds.
 4. **If the post-merge run cannot be verified** (CI unavailable, runs not visible, no access), the merge stays unverified: record that fact on the PR, keep the issue open, and report the gap to the owner instead of declaring the issue done. An unverified merge is never described as verified.
 
 The 2026-10-22 incident is the reason this is mandatory: API merges on stale local trees landed on top of an already-red `main`, and the red state was only discovered when a human shared the CI run links. "Post-merge verification is more important" without a required check step did not prevent it.
@@ -1050,7 +1048,7 @@ The required PR check runs against the branch's merge with current `main`, not t
 If the post-merge run on your merge is red:
 
 1. Classify every failure per §10 and record the classification, with its evidence, on the PR and the issue. Never silently, and never by matching failure totals alone — totals can coincide while the failing tests differ.
-2. Restoring `main` to green takes precedence over starting the next issue (§10 freeze), and the remediation is its own issue → PR → merge, however small.
+2. Restoring `main` to green takes precedence over further merges. Unrelated implementation may continue; the remediation is its own issue → PR → merge, however small.
 3. A baseline failure (reproduced on the merge's first parent) is recorded and flagged to its owning workstream. "Not mine" is a classification, not a dismissal.
 
 ### 18.3 Flake discipline
@@ -1063,9 +1061,9 @@ If the post-merge run on your merge is red:
 
 Suites that alias the real runtime (framework or SDK stubs, mocked storage) verify contracts, not runtime behavior. A pull request whose behavior exists only against the real runtime MUST state in its test evidence what covers the runtime behavior — post-deploy QA, the §17 production checks, or a source-level audit of the shipped dependency — and MUST NOT claim runtime verification from stubbed tests alone.
 
-### 18.5 Merge promptly, and verify the merge
+### 18.5 Verify each merge
 
-Per §11's sequential execution: after each PR, merge it before starting the next fix, then verify the branch's merged state (zero commits ahead of `main`, or ancestry) instead of assuming it. A merge is not complete until the branch is verified in `main` and post-merge checks are green — or red and classified under §18.2. Long-lived branches are how unpinned drift accumulates (§7, the pin rule).
+After each PR merges, verify that its head is included in `main` and inspect post-merge checks. A merged issue is Done only when its checks are green or failures are classified under §18.2. Other independent work may continue while verification runs. Keep branches synchronized with `main` to avoid unpinned drift (§7, the pin rule).
 
 ## 19. Regression assurance: detection, coverage, and enforcement
 
@@ -1117,17 +1115,13 @@ Manual rebasing does not scale to concurrent lanes: two PRs can each be green on
 
 ***
 
-## 20. Parallel delivery during CI waits
+## 20. Parallel delivery
 
-CI waits are machine time, not human time. An agent that finishes a branch
-idles through two waits: PR checks on its branch, then post-merge
-CI/Deploy/CodeQL/Secret Scanning on `main`. When the next issue is
-independent of the in-flight one, that wait is wasted: the next issue needs
-no result from either check run. This section converts those waits into
-implementation time. It relaxes no gate: every merge still requires green
-checks on its own head, branch currency, and conflict-freedom (§11); every
-issue still gets post-merge verification before it is Done (§17.2); and
-§18.2 still preempts everything else.
+Parallel issue work is the default, not an exception limited to CI waits.
+Every PR still requires its own green checks, current base, and
+conflict-freedom (§11), and every merged issue gets post-merge verification
+before it is Done (§17.2). A red `main` pauses further merges, not unrelated
+implementation work (§18.2).
 
 ### What may run in parallel
 
@@ -1142,9 +1136,9 @@ issue still gets post-merge verification before it is Done (§17.2); and
 
 ### The independence test
 
-All four must hold. If any is uncertain, default to sequential — a wrong
-parallel call costs a rebase plus a full re-gate, which is more than the
-wait it saved.
+Use this test to identify dependencies and coordinate shared surfaces.
+When a dependency is uncertain, document it and coordinate the branches;
+unrelated implementation does not wait for CI or post-merge verification.
 
 1. No shared files between the in-flight branches (compare the file lists
    before starting).
@@ -1156,17 +1150,15 @@ wait it saved.
 
 ### What stays serial, always
 
-1. Merges: one rebase merge at a time; each merge only when its own checks
-   are green, its branch is current, and it is conflict-free (§11).
+1. Each merge requires its own checks to be green, its branch current, and
+   the merge conflict-free (§11). GitHub serializes updates to `main`.
 2. A single issue's own lifecycle: branch → PR → merge → post-merge
    verification → Done, in that order, for that issue. Parallelism is
    across issues, never within one issue.
 3. Production activations: flags, secrets, deploys, and any live-behavior
    flip — one at a time, verified before the next.
-4. Post-merge red (§18.2): a red post-merge check on ANY in-flight issue
-   is the agent's first job. Stop all new-issue work — including
-   implementation on parallel branches — and fix before continuing.
-   Parallelism never queues a red behind new work.
+4. Post-merge red (§18.2): pause merges until `main` is healthy. Continue
+   unrelated implementation work, but do not merge it onto a red `main`.
 5. Overlapping files at merge time: if two sibling branches turn out to
    touch the same files (main moved, scope grew), the later merge updates
    in place and re-runs the full gate after ANY tree change. Never merge
@@ -1222,24 +1214,24 @@ merge moment:
 
 ### Rule of thumb
 
-If the next issue is independent, starting it during a CI wait is the
-default, not the exception. If the next issue is dependent, waiting is
-the work: use the wait to review the in-flight diff, prepare the next
-issue's test plan, or verify post-merge results — do not start dependent
-implementation on a stale base.
+Start unrelated work without waiting for another PR's CI or post-merge
+verification. Dependent work may use an explicitly stacked branch and PR;
+document the dependency and merge order, then re-run checks against the
+current base before merging.
 
 ### Default auto-merge automation (issue #1509)
 
 The `auto-merge-trusted` workflow (`.github/workflows/auto-merge-trusted.yml`)
-is the default for PRs targeting `main`: when a non-draft PR is opened,
-updated, reopened, or marked ready, it adds the `auto-merge` label and
-enables auto-merge with the rebase strategy. No author allowlist is used
-because PR authors here share the owner's GitHub account. The PR template
+is the default for every PR targeting `main`, including drafts and PRs that
+change workflow files. It applies the `auto-merge` label to drafts and enables
+rebase auto-merge when they are marked ready for review; GitHub cannot merge a
+draft while it remains a draft. There is no author allowlist. The PR template
 remains focused on description and checklist content; the workflow applies
 the default label.
 
-- PRs touching `.github/workflows/` are excluded from automatic labeling
-  and merging; they require a human merge.
+- No file path is excluded from automatic labeling or merging. Workflow
+  changes follow the same required checks, conversation resolution, and
+  merge-queue validation as other PRs.
 - Enabling auto-merge does not bypass branch rules. GitHub merges only
   after all required checks pass, conversations are resolved, and queue
   validation passes when the merge queue is enabled. Removing the label
@@ -1258,13 +1250,15 @@ the default label.
 ### Automatic PR branch updates
 
 `.github/workflows/auto-update-prs-app.yml` updates eligible open PR branches
-when `main` changes. It uses a short-lived installation token from a GitHub App
-so the resulting `pull_request` checks can start without the approval prompt
-that can occur for pushes made with the repository `GITHUB_TOKEN`. The updater
-uses GitHub's update-branch API, which merges the current base branch into the
-PR branch; it does not perform a rebase. It does not dispatch CI workflows
-manually, avoiding duplicate runs. Drafts, Dependabot PRs, and fork PRs are
-skipped; the App is installed only on this repository.
+when `main` changes, including draft PR branches. It uses a short-lived
+installation token from a GitHub App so the resulting `pull_request` checks
+can start without the approval prompt that can occur for pushes made with the
+repository `GITHUB_TOKEN`. The updater uses GitHub's update-branch API, which
+merges the current base branch into the PR branch; it does not perform a
+rebase. It does not dispatch CI workflows manually, avoiding duplicate runs.
+Dependabot PRs are skipped by reference-only policy. Fork branches are only
+updated when the App has write access; neither condition prevents those PRs
+from being opened or considered by auto-merge.
 
 Create a GitHub App under the OpenAIMP account, grant repository permissions
 `Contents: Read and write` and `Pull requests: Read and write`, and install it
@@ -1278,9 +1272,10 @@ updater, or the run will fail.
 
 ### Default eligibility
 
-The workflow treats non-draft PRs as eligible by default, with the
-workflow-change exclusion above. Required checks provide the merge gate;
-there is no separate docs-only allowlist.
+All PRs targeting `main` are eligible regardless of draft status or changed
+file paths. Drafts are labeled while in draft and auto-merge is enabled when
+they become ready. Required checks provide the merge gate; there is no author,
+file-path, or docs-only allowlist.
 
 ### Policy Gate requirement
 
@@ -1348,12 +1343,11 @@ implement.
   ruleset's required checks. Treat the gate as active only after
   verifying the live ruleset includes it; if it is missing, report the
   enforcement gap.
-- **Gate protection.** `.github/CODEOWNERS` requires owner review
-  for `.github/workflows/*`, `docs/agents/gitops.md`, and `AGENTS.md`,
-  and the ruleset must enable "Require review from Code Owners".
-  A lane must not be able to weaken the gate in its own PR.
-  PRs touching `.github/workflows/` are never auto-merged
-  (auto-merge-trusted.yml excludes them); they need a human merge.
+- **Policy-file handling.** Workflow changes are eligible for the same
+  automatic label and auto-merge flow as all other PRs; no file-path rule
+  requires a human merge. The live `protectmain` ruleset requires zero
+  approving reviews and does not require Code Owner review. Required status
+  checks and review-thread resolution still apply uniformly.
 - **Detection backstop.** `.github/workflows/main-audit.yml`
   ("Main Audit", daily + workflow_dispatch) checks every new main
   commit for an associated merged PR and, on a direct-push commit,
@@ -1382,4 +1376,4 @@ implement.
 ***
 ## Instruction to add to `AGENTS.md`
 
-> Follow `docs/engineering/github-agent-policy.md` for all repository work. Work one issue at a time per delivery stream; §20 authorizes parallel independent streams during CI waits. Every change requires an issue and PR. Synchronize with `main`, use TDD for behavioral changes, resolve required reviews and CI/CD failures, merge the current issue into `main`, and verify post-merge health before the issue is Done. Respect all approval boundaries; if blocked, report the blocker instead of bypassing the policy.
+> Follow `docs/agents/gitops.md` for all repository work. Independent issues may proceed in parallel on separate branches; declare dependencies and use stacked PRs where useful. Every change requires an issue and PR. Synchronize with `main`, use TDD for behavioral changes, resolve required checks and CI/CD failures for each PR, and verify post-merge health before that issue is Done. Respect approval boundaries; if blocked, report the blocker instead of bypassing policy.

@@ -9,6 +9,5 @@
 # Owner: the OpenAIMP account is the repository owner; lane agents
 # work through it, so the owner entry is the account, not a lane.
 
-/.github/workflows/* @OpenAIMP
 /docs/agents/gitops.md @OpenAIMP
 /AGENTS.md @OpenAIMP

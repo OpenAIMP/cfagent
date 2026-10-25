@@ -653,7 +653,7 @@ Minimum requirements:
 
 Do not bypass a gate because improvement is “recursive.”
 
-If `main` becomes unhealthy, stop feature progression and coordinate restoration.
+If `main` becomes unhealthy, pause merges and coordinate restoration; unrelated implementation may continue on separate branches.
 
 ## 20. Change risk and promotion
 
