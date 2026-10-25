@@ -62,9 +62,11 @@ const ORCH = "agents/orchestrator.ts";
  *  onRequest + the retryAsyncJob delegating wrapper (execution in
  *  orchestrator/asyncJobs.ts) and one stageChain field on the
  *  autonomousMarketScreen wrapper — measured 2,079 lines / 96,028 B
- *  after the addition; budget keeps similar headroom. */
+ *  after the addition; budget keeps similar headroom.
+ *  Channel consolidation (#1262) adds channel wireup — measured
+ *  2,079 lines / 97,953 B; budget keeps ~350 B headroom. */
 const BUDGET_LINES = 2095;
-const BUDGET_BYTES = 96_300;
+const BUDGET_BYTES = 98_300;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;
