@@ -22,6 +22,7 @@ import {
   type ScreenerCompletedEvent,
   type ScreenerFailedEvent,
 } from "./screenerEvents";
+import { getServiceUserLogin } from "../security/serviceIdentity";
 import { ETradeSlackTradingService } from "../trading";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
@@ -77,7 +78,10 @@ export async function fetchScreenerPdf(
       console.warn("[ScreenerPublishers] No pdfKey on event — skipping PDF attachment.");
       return null;
     }
-    const agentName = deps.userLogin === "default_trader" ? "default" : `screener:${deps.userLogin}`;
+    // Issue #1185: the bare "default" instance name belongs to the
+    // configured service identity — the only login that maps to it.
+    const serviceUserLogin = getServiceUserLogin(deps.env);
+    const agentName = serviceUserLogin && deps.userLogin === serviceUserLogin ? "default" : `screener:${deps.userLogin}`;
     const agent = ns.get(ns.idFromName(agentName)) as unknown as ScreenerAgent;
     return await agent.getPdfByKey(pdfKey);
   } catch (err) {

@@ -776,7 +776,7 @@ describe("unified opportunities persistence (issue #27)", () => {
 
   it("without a store the unified scan carries no persistence fields", async () => {
     DynamicOptionsScreener.setTestChainsFixture({ MSFT: chainFor("MSFT", 500, expiryObj) });
-    const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env);
+    const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env, "test-user");
     const result = await service.execute({ action: "opportunities", symbols: ["MSFT"], targetDate: expiryDate });
     expect(result.success).toBe(true);
     const data = result.data as unknown as { scanRunId?: string; persisted?: boolean };
