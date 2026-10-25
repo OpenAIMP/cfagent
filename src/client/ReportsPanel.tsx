@@ -1,11 +1,16 @@
 /**
  * Issue #309: Reports Panel — list and search persisted screener reports.
  *
- * Displays reports from `mas_reports` (populated by scheduled runs via #278,
- * and by ScreenerAgent.persistRun via #308):
- * - Search box (keyword; semantic via Vectorize in future)
- * - List newest first: title, source, timestamp, universe/thesis
- * - Click through to R2 PDF URL (when available)
+ * Issue #1057 (consolidation S5): this panel is the single run-history
+ * UI. The list is served by GET /api/runs — the one Runs read surface
+ * merging all four run stores (mas_reports, mas_opportunity_scans,
+ * mas_discovery_runs, the ScreenerAgent feed) into the normalized
+ * RunSummary shape — so options scans and discovery runs appear here
+ * alongside canonical reports. Detail/download affordances are
+ * unchanged: canonical-backed rows open the report detail by reportId
+ * and link their stored PDF; keyword search filters the loaded runs;
+ * semantic search remains a canonical-reports feature (its endpoint +
+ * hydration path below are untouched).
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -25,13 +30,52 @@ export interface ReportItem {
   createdAt: string;
   /** Download URL of the generated PDF, when this report has one (#638). */
   reportUrl?: string;
+  /** Download URLs of the stored XLSX / CSV artifacts, when the run
+   *  recorded them (#1335: goal-screen rows record all three). */
+  xlsxUrl?: string;
+  csvUrl?: string;
+  /** Recorded PDF generation state + failure reason (#1239): when a
+   *  run has no reportUrl but records these, the card says the PDF is
+   *  unavailable (and why) instead of silently omitting the link. */
+  pdfStatus?: string | null;
+  pdfError?: string | null;
+  /** The Runs-API kind (#1057): screener | options_scanner | discovery | report. */
+  kind?: string;
+  /** The store's recorded status, when it records one (#1057). */
+  status?: string | null;
+  /** Canonical mas_reports id when this run has a canonical row —
+   *  the detail-view key (#1057). Null/absent for detail-only runs. */
+  reportId?: string | null;
+}
+
+/** Map one normalized RunSummary row (src/services/runSummaries.ts)
+ *  onto the card model. */
+function runToReportItem(r: any): ReportItem {
+  return {
+    id: String(r.id),
+    runId: String(r.runId),
+    title: String(r.title ?? ""),
+    source: String(r.source ?? r.kind ?? ""),
+    summary: String(r.summary ?? ""),
+    createdAt: String(r.createdAt ?? ""),
+    reportUrl: r.reportUrl ?? undefined,
+    xlsxUrl: r.xlsxUrl ?? undefined,
+    csvUrl: r.csvUrl ?? undefined,
+    pdfStatus: r.pdfStatus ?? null,
+    pdfError: r.pdfError ?? null,
+    kind: r.kind,
+    status: r.status ?? null,
+    reportId: r.reportId ?? null,
+  };
 }
 
 const SOURCE_LABELS: Record<string, string> = {
   screener: "📊 Stock Screener",
   options_scanner: "📈 Options Scanner",
+  discovery: "🔭 Discovery",
   iv_collection: "💹 IV Collection",
   research_report: "🔬 Research",
+  goal_screen: "🎯 Goal Screen",
 };
 
 // Badge colors travel as background/foreground token PAIRS (#677): each
@@ -40,6 +84,7 @@ const SOURCE_LABELS: Record<string, string> = {
 const SOURCE_BADGE_STYLES: Record<string, { backgroundColor: string; color: string }> = {
   screener: { backgroundColor: "var(--color-accent)", color: "var(--color-accent-contrast)" },
   options_scanner: { backgroundColor: "var(--color-purple)", color: "var(--color-purple-foreground)" },
+  discovery: { backgroundColor: "var(--color-info-subtle)", color: "var(--color-info-text)" },
   iv_collection: { backgroundColor: "var(--color-success)", color: "var(--color-success-foreground)" },
   research_report: { backgroundColor: "var(--color-warning)", color: "var(--color-warning-foreground)" },
 };
@@ -81,13 +126,28 @@ export function ReportsPanel() {
         }
         return;
       }
-      const params = new URLSearchParams();
-      if (query) params.set("q", query);
-      if (sourceFilter !== "all") params.set("source", sourceFilter);
-      const res = await fetch(`/api/reports?${params}`);
+      // Issue #1057: the list comes from the one Runs read surface.
+      // Kind chips map onto the API's kind filter; the two canonical-
+      // only sources (iv_collection, research_report) filter the
+      // merged list client-side, as does keyword search.
+      const kind =
+        sourceFilter === "screener" || sourceFilter === "options_scanner" || sourceFilter === "discovery"
+          ? sourceFilter
+          : "all";
+      const res = await fetch(`/api/runs?kind=${kind}&limit=100`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as any;
-      setReports(data.reports || []);
+      let rows: ReportItem[] = (data.runs || []).map(runToReportItem);
+      if (sourceFilter === "iv_collection" || sourceFilter === "research_report" || sourceFilter === "goal_screen") {
+        rows = rows.filter((r) => r.source === sourceFilter);
+      }
+      if (query?.trim()) {
+        const q = query.trim().toLowerCase();
+        rows = rows.filter((r) =>
+          `${r.title} ${r.summary} ${r.runId}`.toLowerCase().includes(q),
+        );
+      }
+      setReports(rows);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load reports");
     } finally {
@@ -104,7 +164,7 @@ export function ReportsPanel() {
     fetchReports(searchQuery, semanticMode);
   };
 
-  const filteredSources = ["all", "screener", "options_scanner", "iv_collection", "research_report"];
+  const filteredSources = ["all", "screener", "options_scanner", "discovery", "iv_collection", "research_report", "goal_screen"];
 
   return (
     <div className="reports-panel">
@@ -199,13 +259,14 @@ export function ReportsPanel() {
               </span>
               <span className="report-time">
                 {new Date(r.createdAt).toLocaleString()}
+                {r.status ? ` · ${r.status}` : ""}
               </span>
             </div>
             <h3 className="report-title">{r.title}</h3>
             <p className="report-summary">{r.summary}</p>
             <div className="report-actions">
-              {r.source === "research_report" && (
-                <Button variant="secondary" size="sm" onClick={() => setSelectedReportId(r.id)}>
+              {r.source === "research_report" && r.reportId && (
+                <Button variant="secondary" size="sm" onClick={() => setSelectedReportId(r.reportId as string)}>
                   View run
                 </Button>
               )}
@@ -216,6 +277,21 @@ export function ReportsPanel() {
                 <a className="report-pdf-link" href={r.reportUrl} download>
                   📄 Download PDF
                 </a>
+              )}
+              {r.xlsxUrl && (
+                <a className="report-pdf-link" href={r.xlsxUrl} download>
+                  📊 Download XLSX
+                </a>
+              )}
+              {r.csvUrl && (
+                <a className="report-pdf-link" href={r.csvUrl} download>
+                  📋 Download CSV
+                </a>
+              )}
+              {!r.reportUrl && (r.pdfStatus || r.pdfError) && (
+                <span className="report-pdf-unavailable">
+                  📄 PDF unavailable{r.pdfError ? ` — ${r.pdfError}` : ""}
+                </span>
               )}
             </div>
           </div>

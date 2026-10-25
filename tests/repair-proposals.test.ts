@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildRepairProposals,
+  generateRepairProposals,
   REPAIR_POLICY,
 } from "../src/services/repairProposals";
 import type { ETradePosition, ETradeOptionChain } from "../src/types";
@@ -159,5 +160,72 @@ describe("#355 repair proposals", () => {
     );
     expect(analysis.status).toBe("proposals");
     expect(analysis.proposals[0].units).toBe(2);
+  });
+
+  it("attaches fully-specified executableOrder with unit-ratio legs to repair proposal", () => {
+    const analysis = buildRepairProposals(
+      [position({ quantity: 200 })],
+      { XYZ: GOOD_CHAIN },
+      null as any
+    );
+    expect(analysis.status).toBe("proposals");
+    const p = analysis.proposals[0];
+    expect(p.executableOrder).toBeDefined();
+    expect(p.executableOrder?.isExecutable).toBe(true);
+    expect(p.executableOrder?.assetClass).toBe("options");
+    expect(p.executableOrder?.symbol).toBe("XYZ");
+    expect(p.executableOrder?.action).toBe("BUY");
+    expect(p.executableOrder?.quantity).toBe(2);
+    expect(p.executableOrder?.limitPrice).toBeGreaterThanOrEqual(0.01);
+    expect(p.executableOrder?.legs).toHaveLength(2);
+    expect(p.executableOrder?.legs[0]).toEqual({
+      underlyingSymbol: "XYZ",
+      securityType: "OPTN",
+      side: "BUY",
+      quantity: 1,
+      optionType: "CALL",
+      strike: 80,
+      expirationDate: "2026-11-20",
+    });
+    expect(p.executableOrder?.legs[1]).toEqual({
+      underlyingSymbol: "XYZ",
+      securityType: "OPTN",
+      side: "SELL",
+      quantity: 2,
+      optionType: "CALL",
+      strike: 90,
+      expirationDate: "2026-11-20",
+    });
+  });
+
+  it("discovers viable repair options across listed expiration dates in generateRepairProposals", async () => {
+    const now = new Date();
+    const exp1 = new Date(now.getTime() + 25 * 24 * 3600 * 1000);
+    const exp2 = new Date(now.getTime() + 35 * 24 * 3600 * 1000);
+    const mockDates = [
+      { year: exp1.getUTCFullYear(), month: exp1.getUTCMonth() + 1, day: exp1.getUTCDate() },
+      { year: exp2.getUTCFullYear(), month: exp2.getUTCMonth() + 1, day: exp2.getUTCDate() },
+    ];
+
+    const mockEtrade = {
+      getPositions: () => ({
+        positions: [position({ symbol: "XYZ", quantity: 100, pricePaid: 100, currentPrice: 80, marketPrice: 80 })],
+      }),
+      getOptionExpireDates: async () => mockDates,
+      getOptionChains: async (params: any) => {
+        // Return valid chain for the second expiration
+        if (params.expiryDay === exp2.getUTCDate()) {
+          return GOOD_CHAIN.chain;
+        }
+        return null;
+      },
+      fetchPortfolioRemote: async () => ({ account: { netAccountValue: 10000 }, positions: [] }),
+    } as any;
+
+    const analysis = await generateRepairProposals(mockEtrade);
+    expect(analysis.status).toBe("proposals");
+    expect(analysis.proposals).toHaveLength(1);
+    expect(analysis.proposals[0].symbol).toBe("XYZ");
+    expect(analysis.proposals[0].executableOrder?.isExecutable).toBe(true);
   });
 });

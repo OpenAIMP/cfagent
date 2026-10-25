@@ -1565,6 +1565,25 @@ body {
   margin-top: 0.2rem;
 }
 
+/* Issue #1123: sub-jobs nested under their main job. */
+.async-jobs-children {
+  display: grid;
+  gap: 0.25rem;
+  list-style: none;
+  margin: 0.4rem 0 0.2rem 0.75rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--color-border-subtle);
+}
+
+.async-jobs-children li {
+  padding: 0.3rem 0;
+  border-top: none;
+}
+
+.job-tag-subjobs {
+  color: var(--color-text-secondary);
+}
+
 .async-jobs-result {
   max-height: 18rem;
   overflow: auto;
@@ -8344,6 +8363,35 @@ body {
   filter: brightness(1.1);
 }
 
+.etrade-menu-msg-banner {
+  margin-top: 0.5rem;
+  padding: 0.38rem 0.6rem;
+  font-size: 0.78rem;
+  border-radius: var(--radius-xs, 4px);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-medium);
+  color: var(--color-text-primary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.38rem;
+  word-break: break-word;
+}
+
+.etrade-menu-msg-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0 0.125rem;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.etrade-menu-msg-dismiss:hover {
+  opacity: 1;
+}
+
 /* Tools Cluster — Single Horizontal Row Layout */
 .etrade-tools-cluster,
 .etrade-tools-cluster.single-row {
@@ -9661,8 +9709,8 @@ body {
    Left Sidebar Navigation Styles
    ========================================================================== */
 
-.nextgentp-sidebar,
-.algonexus-sidebar {
+.app-sidebar,
+.nextgentp-sidebar {
   width: 250px !important;
   min-width: 250px !important;
   height: 100vh !important;
@@ -9678,8 +9726,8 @@ body {
   box-sizing: border-box !important;
 }
 
-.nextgentp-sidebar.collapsed,
-.algonexus-sidebar.collapsed {
+.app-sidebar.collapsed,
+.nextgentp-sidebar.collapsed {
   width: 68px !important;
   min-width: 68px !important;
 }
@@ -10171,10 +10219,9 @@ body {
    Top Navigation Bar Layout Styles (NextGenTP)
    ========================================================================== */
 
+.app-top-header,
 .nextgentp-top-header,
-.algonexus-top-header,
-.app-header.nextgentp-top-header,
-.app-header.algonexus-top-header {
+.app-header.nextgentp-top-header {
   flex-shrink: 0 !important;
   min-height: 70px !important;
   height: auto !important;
@@ -10194,6 +10241,7 @@ body {
   box-sizing: border-box !important;
 }
 
+.app-top-nav-container,
 .nextgentp-top-nav-container {
   display: flex !important;
   flex-direction: column !important;
@@ -11789,6 +11837,184 @@ body {
   font-weight: 600;
 }
 
+/* NextGenTP Executive Performance Ribbon */
+.autopilot-executive-ribbon {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 960px) {
+  .autopilot-executive-ribbon {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 540px) {
+  .autopilot-executive-ribbon {
+    grid-template-columns: 1fr;
+  }
+}
+
+.executive-kpi-card {
+  background: var(--color-surface-glass);
+  border: 1px solid var(--color-surface-glass-border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-e1);
+  backdrop-filter: var(--backdrop-blur-md);
+  -webkit-backdrop-filter: var(--backdrop-blur-md);
+  transition: border-color var(--transition-normal), transform var(--transition-normal);
+}
+
+.executive-kpi-card:hover {
+  border-color: var(--color-border-medium);
+  transform: translateY(-1px);
+}
+
+.executive-kpi-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.executive-kpi-val {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  font-family: var(--font-numeric);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.executive-kpi-sub {
+  font-size: 0.775rem;
+  margin-top: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.executive-kpi-sub.positive {
+  color: var(--color-gain);
+  font-weight: 600;
+}
+
+.executive-kpi-sub.neutral {
+  color: var(--color-text-muted);
+}
+
+/* NextGenTP Chart Card */
+.autopilot-chart-card {
+  padding: 1.25rem 1.35rem;
+  background: var(--color-card);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-e2);
+}
+
+.chart-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.chart-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.chart-subtitle-text {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.chart-tf-selector {
+  display: flex;
+  align-items: center;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.15rem;
+  gap: 0.15rem;
+}
+
+.chart-tf-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.chart-tf-btn.active, .chart-tf-btn:hover {
+  background: var(--color-card);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-e1);
+}
+
+.autopilot-svg-chart-container {
+  width: 100%;
+  height: 220px;
+  position: relative;
+  overflow: visible;
+}
+
+.autopilot-svg-canvas {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.chart-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 0.775rem;
+  color: var(--color-text-secondary);
+  flex-wrap: wrap;
+}
+
+.chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.legend-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+}
+
+.legend-indicator.alpha {
+  background: var(--color-gain);
+  box-shadow: 0 0 6px var(--color-gain);
+}
+
+.legend-indicator.benchmark {
+  background: var(--color-text-dim);
+}
+
+.legend-indicator.gate {
+  background: var(--color-accent);
+}
+
 .autopilot-top-grid {
   display: grid;
   grid-template-columns: 380px 1fr;
@@ -13054,7 +13280,7 @@ body {
 }
 
 /* ==========================================================================
-   Omnichannel Trading Agents (Cloudflare Email & Slack)
+   Omnichannel Trading Agents (Autonomous Email & Slack Desks)
    ========================================================================== */
 .omnichannel-pane {
   margin-top: 1.5rem;

@@ -249,6 +249,11 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
     });
 
     it("passes the selected E*TRADE identity and environment to the screener", async () => {
+      // #1200: a scheduled PROD run with NO stored session is blocked by
+      // the auth pre-flight — seed a fresh session for the selected
+      // identity so this test exercises the identity/environment
+      // passthrough it pins, not the auth gate.
+      await storeAccessTokens(env, "live_account_owner", "mock_token_prod", "mock_secret_prod", "PROD");
       const service = new ScheduledTasksService(env, orm, sessionId);
       const res = await service.autonomousMarketScreen({
         universe: "SP100",
@@ -396,6 +401,24 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       // The failure remains visible to the user.
       const messages = orm.messages.findMany({ where: { sessionId } });
       expect(messages.some(m => m.content.includes("Scheduled Options Intelligence failed"))).toBe(true);
+    });
+
+    it("names the dominant skip reason in the coverage failure error (#915)", async () => {
+      const service = new ScheduledTasksService(env, orm, sessionId);
+      const res = await service.autonomousOptionsAnalysis({
+        symbols: ["AAPL", "MSFT"],
+        thesis: "bullish",
+        pushToSlack: false,
+      });
+
+      expect(res.success).toBe(false);
+      // Counts alone left the 2026-10-21 hourly failures undiagnosable
+      // from the run record; the error must carry the modal reason from
+      // the scan's skipped list (here: no stored E*TRADE session in the
+      // test env, so every symbol skips with the token-missing reason).
+      expect(res.error).toContain("Top skip reason:");
+      expect(res.error).toContain("OAuth Token Missing");
+      expect(res.error).toMatch(/\(2 of 2 failed symbols\)/);
     });
   });
 

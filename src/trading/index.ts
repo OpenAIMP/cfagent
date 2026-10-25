@@ -18,13 +18,15 @@ import { ETradeTradingPlatform } from "./etrade/platform";
 import { AlpacaTradingPlatform } from "./alpaca/platform";
 
 // Register default pluggable platforms (unchanged)
-TradingPlatformRegistry.register("etrade", (env, orm, userLogin) => new ETradeTradingPlatform(env, orm, userLogin));
+TradingPlatformRegistry.register("etrade", (env, orm, userLogin, overrideEnv) => new ETradeTradingPlatform(env, orm, userLogin, overrideEnv));
 TradingPlatformRegistry.register("alpaca", (env, orm, userLogin) => new AlpacaTradingPlatform(env, orm, userLogin));
-TradingPlatformRegistry.register("sandbox", (env, orm, userLogin) => new ETradeTradingPlatform(env, orm, userLogin));
+TradingPlatformRegistry.register("sandbox", (env, orm, userLogin, overrideEnv) => new ETradeTradingPlatform(env, orm, userLogin, overrideEnv));
 
 // --- boundary surface (pre-existing) ---
 export * from "./interfaces";
 export * from "./registry";
+export * from "./screeningProvider";
+export * from "./dataProviders";
 export * from "./screener";
 export * from "./agent";
 export * from "./etrade/client";
@@ -33,13 +35,20 @@ export * from "./alpaca/platform";
 export * from "./optionsScreener";
 
 // --- boundary surface (#290): every capability external code used via deep paths ---
-export * from "./yfinanceScreener";
+// Issue #1317: the deleted Yahoo data-source module's helpers moved
+// into screenerPipeline.ts; yahooHistory stays (its runtime still
+// serves screener-agent, discoveryService, researchProviders,
+// screeningRuntime).
 export * from "./yahooHistory";
 export * from "./universes";
 export * from "./screenerConfig";
 export * from "./screenerPipeline";
+export * from "./screeningSchemas";
 export * from "./screenerReportPdf";
+export * from "./screenerReportXlsx";
+export * from "./screenerReportCsv";
 export * from "./optionsReportPdf";
+export * from "./optionsReportXlsx";
 export * from "./setupCatalog";
 export * from "./researchReportPdf";
 export * from "./options";
@@ -52,6 +61,12 @@ export * from "./options/scanRunStore";
 export * from "./options/discoveryRunStore";
 export * from "./options/discoveryDerivation";
 export * from "./options/ivHistoryStore";
+export * from "./options/discoverySignals";
+export * from "./options/discoveryInference";
+export * from "./options/discoveryExpression";
+export * from "./options/discoverySetupStore";
+export * from "./options/discoveryAlertStore";
+export * from "./options/discoveryDelta";
 export * from "./options/ivCollector";
 export * from "./options/optionsDataAgent";
 export * from "./options/opportunityScanner";
@@ -66,9 +81,15 @@ export * from "./options/strategies/ledger";
 export * from "./email/agent";
 export * from "./slack/agent";
 export * from "./voice/agent";
+export * from "./channels/intake";
+export * from "./channels/approval";
+export * from "./channels/signedLinks";
 
 // Disambiguation (#290): MAX_SCAN_SYMBOLS exists in both ./optionsScreener
 // (screener config) and ./options/opportunityScanner (options config) with
 // different values. External code used the options value, so an explicit
 // named export — which always wins over `export *` — pins that binding.
 export { MAX_SCAN_SYMBOLS } from "./options/opportunityScanner";
+export * from "./etrade/quoteTrace";
+export * from "./quotePolicies";
+

@@ -10,6 +10,8 @@
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { ETradeService } from "../services/etrade";
+import { TradingPlatformRegistry, fetchQuoteLiveStrict } from "../trading";
+import { resolveEnvironmentConfig } from "../config/environment";
 import { getUserDid } from "../agents/did";
 
 /**
@@ -85,8 +87,13 @@ export class ETradeGetQuoteCommand implements IMcpToolCommand<{ symbol: string }
 
   async execute(input: { symbol: string }, context: McpToolContext) {
     const symbol = input.symbol.trim().toUpperCase();
-    const etrade = new ETradeService(context.orm, context.env);
-    const quote = await etrade.getQuoteAsync(symbol);
+    // #291 Q4: registry-resolved platform + the LIVE_STRICT policy — the
+    // semantics getQuoteAsync enforced (live failure propagates to the
+    // MCP framework exactly as before; no user override existed here).
+    const platform = TradingPlatformRegistry.getPlatform("etrade", context.env, context.orm, "default_trader");
+    const quote = await fetchQuoteLiveStrict(platform, symbol, {
+      isLive: resolveEnvironmentConfig(context.env).isLive,
+    });
 
     context.audit("etrade.quote_fetched", "trading", {
       symbol: quote.symbol,

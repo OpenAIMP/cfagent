@@ -25,6 +25,30 @@ put_secret() {
     summary "- \`$name\` **empty — refused**"
     return 1
   fi
+
+  local script_name="${CLOUDFLARE_SCRIPT_NAME:-ai-search-agent}"
+  local account_id="${CLOUDFLARE_ACCOUNT_ID:-}"
+  local api_token="${CLOUDFLARE_API_TOKEN:-}"
+
+  # High-speed direct Cloudflare REST API path (~200ms vs ~12s per secret via npx wrangler)
+  if [ -n "$account_id" ] && [ -n "$api_token" ] && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    local json_payload http_code
+    json_payload="$(jq -n --arg n "$name" --arg v "$payload" '{name: $n, text: $v, type: "secret_text"}')"
+    http_code="$(curl -s -w "%{http_code}" -o /dev/null -X PUT \
+      "https://api.cloudflare.com/client/v4/accounts/$account_id/workers/scripts/$script_name/secrets" \
+      -H "Authorization: Bearer $api_token" \
+      -H "Content-Type: application/json" \
+      -d "$json_payload" 2>/dev/null || echo "000")"
+
+    if [ "$http_code" = "200" ] || [ "$http_code" = "201" ]; then
+      summary "- \`$name\` pushed"
+      return 0
+    else
+      echo "put_secret direct API return status $http_code for '$name'; falling back to wrangler..." >&2
+    fi
+  fi
+
+  # Fallback path via wrangler
   while [ "$attempts" -lt "$max" ]; do
     # Bound each attempt: a hung Cloudflare API call must fail and retry, not
     # sit until the job timeout.

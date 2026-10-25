@@ -36,7 +36,8 @@ function section(start: string, end: string): string {
 describe("deploy.yml — secret sync (#590)", () => {
   it("keeps no inline wrapper: every secret step sources the shared helper", () => {
     expect(workflow).not.toContain("put_secret() {");
-    expect(workflow.match(/source scripts\/ci\/put-secret\.sh/g) ?? []).toHaveLength(3);
+    // Five steps: core, E*TRADE, gateways, Google OAuth, Threads.
+    expect(workflow.match(/source scripts\/ci\/put-secret\.sh/g) ?? []).toHaveLength(5);
   });
 
   it("runs secrets in their own non-blocking job after the code deploy", () => {
@@ -63,6 +64,20 @@ describe("deploy.yml — secret sync (#590)", () => {
     expect(workflow).toContain('optional_secret SCREENER_SLACK_CHANNEL "$S_SCREENER_SLACK_CHANNEL"');
     // The old silent-skip idiom must be gone from every call site.
     expect(workflow).not.toMatch(/if \[ -n "\$[A-Z_]+" \]; then printf/);
+  });
+});
+
+describe("deploy.yml — Threads secret sync", () => {
+  it("pushes the Threads token the social publisher reads", () => {
+    // src/agents/social/publisher.ts resolves threads' credential from
+    // THREADS_ACCESS_TOKEN. A token the Worker reads but CI never pushes is a
+    // channel that can never publish, so the push is pinned beside the read.
+    expect(workflow).toMatch(
+      /S_THREADS_ACCESS_TOKEN:\s*\$\{\{\s*secrets\.THREADS_ACCESS_TOKEN\s*\}\}/
+    );
+    expect(workflow).toMatch(
+      /optional_secret THREADS_ACCESS_TOKEN "\$S_THREADS_ACCESS_TOKEN"/
+    );
   });
 });
 

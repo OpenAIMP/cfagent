@@ -4,11 +4,11 @@ export interface Env {
   // Issue #605: R2 bucket for report PDF blobs. Optional so the #605 code is
   // safe to merge before the bucket is provisioned (falls back to DO storage).
   REPORTS_BUCKET?: R2Bucket;
-  SESSIONS: KVNamespace;
-  // Issue #329: session + credential store. KV stays bound only for the
-  // one-time legacy migration (see security/session.ts).
+  // Issue #329/#604: session + credential store — the SessionStore Durable
+  // Object. Sessions, tokens and API keys live here, not in Workers KV
+  // (legacy KV fallback removed in #604; the leftover KV bindings in
+  // wrangler.jsonc are #606).
   SESSION_STORE?: DurableObjectNamespace;
-  SESSIONS_KV_FALLBACK?: string;
   SEARCH_AGENT: DurableObjectNamespace;
   // PR #3 — x402 PaymentsAgent DO (issue #161)
   PAYMENTS_AGENT: DurableObjectNamespace;
@@ -22,8 +22,54 @@ export interface Env {
   APP_NAME: string;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
+  // #945 Google-as-plugin — Google OAuth client credentials. Optional:
+  // Google login only exists as a wired provider, and its adapter
+  // fails closed when these are absent. They are owner-set secrets
+  // (Cloudflare dashboard or `wrangler secret put`), NEVER committed
+  // to the repo or to wrangler.jsonc. Enablement (adding "google" to
+  // IAAA_ENABLED_PROVIDERS) is a separate owner step after these exist.
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
   APP_BASE_URL: string;
   SESSION_SECRET: string;
+  // #945 Wiring Phase 1 — config-gated enablement. Both optional; absence
+  // means wiring is OFF and the legacy login flow runs unchanged. Rollback
+  // is a config change only: unset IAAA_WIRING_ENABLED (or remove a
+  // provider from IAAA_ENABLED_PROVIDERS). No code change, no secret.
+  // IAAA_WIRING_ENABLED: "1" or "true" (case-insensitive) = on; anything else = off.
+  IAAA_WIRING_ENABLED?: string;
+  // Comma-separated provider ids. Default when wiring is on: "github".
+  // An id with no registered adapter is ignored, never a fallback.
+  IAAA_ENABLED_PROVIDERS?: string;
+  // #945 Wiring Phase 2b-part1 — tenant for IAAA audit attribution.
+  // Optional and owner-set. In Phase 2b-part1, when unset (or blank),
+  // the logout audit hook was DORMANT. In the GitHub end-to-end
+  // slice, the call sites resolve the tenant as IAAA_TENANT_ID when
+  // set, else the documented single-tenant default "primary" (see
+  // src/security/iaaaGithubEndToEnd.ts and
+  // docs/iaaa-github-end-to-end-defaults.md). A multi-tenant
+  // deployment must set this explicitly; "primary" is the
+  // single-tenant assumption, not a multi-tenant answer.
+  IAAA_TENANT_ID?: string;
+  // #945 GitHub end-to-end — PDP route enforcement flag. Optional;
+  // "1" or "true" (case-insensitive) = on, anything else (including
+  // absence) = off. Default OFF: with no bootstrap list set,
+  // turning it on would deny every wired session that holds no
+  // membership, including the legitimate owner. Activation = set
+  // IAAA_BOOTSTRAP_ADMINS + IAAA_TENANT_ID + this flag, redeploy;
+  // rollback = unset this flag, redeploy. No code change.
+  IAAA_PDP_ENABLED?: string;
+  // #945 Wiring Phase 2b-part2 — bootstrap admin list for membership
+  // provisioning. Optional, comma-separated. Each entry is either a
+  // bare internal user id (UUID) or a provider subject in
+  // issuer:subject form (resolved through the Slice 1 binding).
+  // When unset, blank, or empty, ZERO members are provisioned:
+  // there is no hardcoded admin, no default user, and no fallback
+  // to a GitHub login. Parsed by parseBootstrapAdmins, provisioned
+  // only from an admin-only setup path (never from a route or a
+  // login path), and granting tenant-admin only — never
+  // platform-admin. See src/security/iaaaBootstrap.ts.
+  IAAA_BOOTSTRAP_ADMINS?: string;
   MAS_MAX_STEPS?: string;
   AI_MODEL?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
@@ -108,9 +154,22 @@ export interface Env {
   // whose domain is listed are accepted. When unset, only format validation
   // applies (a warning is logged on first use). Issue #143 P0.
   EMAIL_TO_ALLOWED_DOMAINS?: string;
+  // Issue #1262 Phase 1: inbound email trading principal map. JSON object:
+  // lowercased sender address → { "login": "<cfagent login>", "tier":
+  // "read" | "preview" | "trade" }. Plain configuration (like
+  // EMAIL_TO_ALLOWED_DOMAINS), NOT a credential. Unmapped senders are
+  // refused; trade tier additionally requires a DKIM/SPF pass on the
+  // message. Parsed by parseEmailPrincipals (src/trading/channels/intake).
+  CHANNEL_EMAIL_PRINCIPALS?: string;
   // Nightly mas_messages retention window in days (issue #255, part of
   // #143). Default 90. A value <= 0 disables the retention pass entirely.
   MAS_MESSAGES_RETENTION_DAYS?: string;
+  // Nightly mas_events retention window in days (issue #786). Default
+  // 365. A value <= 0 disables only the mas_events prune.
+  MAS_EVENTS_RETENTION_DAYS?: string;
+  // Nightly mas_memory retention window in days, by updated_at (issue
+  // #786). Default 365. A value <= 0 disables only the mas_memory prune.
+  MAS_MEMORY_RETENTION_DAYS?: string;
   // Cloudflare Vectorize & AI Search
   VECTORIZE?: any;
   // Optional / backward-compatible bindings
@@ -121,6 +180,11 @@ export interface Env {
   MEMORY_AGENT?: DurableObjectNamespace;
   RESEARCH_AGENT?: DurableObjectNamespace;
   REPORT_ASSET_AGENT?: DurableObjectNamespace;
+  TRADING_AGENT?: DurableObjectNamespace;
+  /** Bearer token required on A2A dispatch POSTs (#291 A5). Unset = dispatch disabled (fail closed). */
+  A2A_API_TOKEN?: string;
+  /** Trade approval workflow binding (#291 T3b). */
+  TRADE_WORKFLOW?: Workflow;
 }
 
 export interface TransactionRecord {
@@ -148,6 +212,26 @@ export interface SessionData {
   githubAvatar: string;
   githubName: string;
   createdAt: number;
+  // #945 Wiring Phase 1 — optional extensions, added only when IAAA wiring
+  // is on. Old sessions without them keep working exactly as before.
+  // internalUserId is the stable Slice 1 identity, never derived from a
+  // login or email; providerSubject is the provider-stable subject
+  // (GitHub numeric user id), not the login.
+  internalUserId?: string;
+  providerIssuer?: string;
+  providerSubject?: string;
+  /** Login (authentication) time in ms since epoch, for step-up freshness. */
+  authTimeMs?: number;
+  /**
+   * #945 Wiring Phase 2a — last recorded activity in ms since epoch.
+   * Set at wired login and advanced by touchSession (at most once
+   * per 60s, so ±60s precision). Sessions without this field
+   * (legacy sessions, Phase 1 sessions) are exempt from idle
+   * expiry in getValidatedSession — see its header note.
+   */
+  lastActivityMs?: number;
+  /** Session record version; 1 for sessions created by the wired flow. */
+  sessionVersion?: number;
 }
 
 export type AgentName = "search" | "payments" | "tasks" | "memory" | "general" | "trading" | "research" | "browser" | "sandbox" | "think" | "webhook" | "broker_webhook" | "durable_execution";
@@ -335,17 +419,29 @@ export interface ETradeQuote {
   previousClose?: number;
   peRatio?: number;
   marketCap?: number;
-  week52High: number;
-  week52Low: number;
+  week52High?: number;
+  week52Low?: number;
   high52?: number;
   low52?: number;
   rsi?: number;
+  /** Issue #1007: MACD signal as a DATA field from a history-capable
+   *  provider (Yahoo adapter). Snapshot providers leave it unset and
+   *  the pipeline labels MACD unavailable, as before. */
+  macdSignal?: string;
   sector?: string;
   listingExchange?: string;
   source?: string;
   quoteStatus?: string;
   dateTime?: string;
   timestamp: string;
+  /** Issue #1133: the parsed wire payload this quote was normalized
+   * from — present ONLY when a caller explicitly requests the REST
+   * client's includeRawResponse hook (fetchQuoteDetailed) and the
+   * service forwards the request (getQuoteAsync / fetchQuoteRemote).
+   * Never set on the default path; the one consumer that requests it
+   * (the data-provider platform's capture, epic #1116) strips it
+   * before the quote travels further. Mirrors ETradeOptionChain.raw. */
+  raw?: Record<string, unknown>;
 }
 
 export interface StockScreenerFilter {
@@ -1103,11 +1199,15 @@ export interface InboundEmailPayload {
   text?: string;
   html?: string;
   messageId?: string;
+  // Issue #1262 Phase 1: the raw Authentication-Results header (RFC 8601)
+  // forwarded by the worker email handler; the channel intake parses
+  // DKIM/SPF pass results from it to gate the email trade tier.
+  authenticationResults?: string;
 }
 
 export interface EmailTradingResult {
   success: boolean;
-  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "error";
+  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "error" | "refusal";
   from: string;
   to: string;
   responseSubject: string;
@@ -1146,7 +1246,7 @@ export interface SlackBlockKitPayload {
 
 export interface SlackEventResult {
   handled: boolean;
-  actionType: "quote" | "screener" | "options_research" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored" | "snap";
+  actionType: "quote" | "screener" | "options_research" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored" | "snap" | "refusal" | "link";
   response?: SlackBlockKitPayload;
   orderId?: string;
   challenge?: string;
@@ -1609,12 +1709,88 @@ export interface FiberExecutionRecord {
 
 export type AsyncJobStatus = "queued" | "running" | "completed" | "failed";
 
+/** Issue #1123: job-graph classification. 'main' jobs own sub-jobs:
+ *  'report' (generate the artifact), 'delivery' (send it on a channel),
+ *  'notification' (lifecycle notice). */
+export type AsyncJobKind = "main" | "report" | "delivery" | "notification";
+
+/** Issue #1123: delivery/notification channel for sub-jobs. */
+export type AsyncJobChannel = "email" | "slack" | "webhook";
+
+/** Consolidation C3 (issue #1277, epic #1151; stage-layered
+ *  scheduling, #1236): the unified pipeline's stages. C3 schedules
+ *  generate (the run itself, recorded as the chain's main job),
+ *  serve and deliver as stage jobs; feed and store join as stage
+ *  jobs in C4, when the feed output contract and the generate→store
+ *  split land. */
+export type PipelineStage = "feed" | "generate" | "store" | "serve" | "deliver";
+
+/** Consolidation C3 (#1277): per-stage timing carried on a schedule
+ *  payload (validated by buildSchedulePayload in
+ *  src/trading/screeningSchemas.ts) and on the run outcome the
+ *  follow-up bridge consumes. Delays are whole seconds from the
+ *  predecessor stage's completion, 0..604800. */
+export interface StageChainConfig {
+  /** Delay after the run (generate) completes before serve runs. */
+  serveDelaySeconds?: number;
+  /** Delay after serve completes before the deliver stages run. */
+  deliverDelaySeconds?: number;
+}
+
+/** Issue #1355: context carried on every shard of a sharded
+ *  scheduled screen, so any stage's completion hook can plan the
+ *  next stage without re-reading the schedule. */
+export interface ShardChainContext {
+  chainId: string;
+  universe: string;
+  userLogin: string;
+  environment?: "TEST" | "PROD";
+  trigger?: "manual" | "scheduled";
+  maxItems?: number;
+  timestamp: string;
+  channels: AsyncJobChannel[];
+  emailTo?: string;
+  slackChannel?: string;
+  webhookUrl?: string;
+  stageChain?: StageChainConfig;
+  /** Spacing between shard starts inside a stage (ms). 0 = start together. */
+  staggerMs?: number;
+}
+
+/** Issue #1123: optional graph fields on a job submission. */
+export interface AsyncJobGraphFields {
+  parentJobId?: string;
+  jobKind?: AsyncJobKind;
+  channel?: AsyncJobChannel;
+  /** Overrides the capability-derived label (sub-jobs carry human names). */
+  displayName?: string;
+  /** Consolidation C3 (#1277): not-before time (ISO). The job is
+   *  armed at the remaining delay and the executor refuses to claim
+   *  it earlier — per-stage timing on the async-job substrate. */
+  runAt?: string;
+  /** Consolidation C3 (#1277): the pipeline stage this job executes,
+   *  when it belongs to a stage chain. */
+  stage?: PipelineStage;
+  /** Consolidation C3 (#1277): the stage chain this job belongs to
+   *  (links the stage rows of one run). */
+  chainId?: string;
+}
+
 export interface AsyncJobRecord {
   jobId: string;
   sessionId: string;
   capability: string;
   label: string;
   status: AsyncJobStatus;
+  /** Issue #1123: graph fields; jobKind defaults to 'main' for legacy rows. */
+  parentJobId?: string;
+  jobKind: AsyncJobKind;
+  channel?: AsyncJobChannel;
+  /** Consolidation C3 (#1277): stage identity for chained jobs. */
+  stage?: PipelineStage;
+  chainId?: string;
+  /** Consolidation C3 (#1277): the job's not-before time (ISO), when deferred. */
+  notBefore?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -1629,7 +1805,7 @@ export interface AsyncJobPayload {
 }
 
 export type AsyncJobSubmission =
-  | {
+  | ({
       capability: "http.request";
       payload: {
         pathAndQuery: string;
@@ -1637,16 +1813,16 @@ export type AsyncJobSubmission =
         headers: Record<string, string>;
         body: string;
       };
-    }
-  | {
+    } & AsyncJobGraphFields)
+  | ({
       capability: "mcp.tool";
       payload: { toolName: string; arguments: Record<string, unknown> };
-    }
-  | {
+    } & AsyncJobGraphFields)
+  | ({
       capability: "nlq.execute";
       payload: { query: string; userLogin: string };
-    }
-  | {
+    } & AsyncJobGraphFields)
+  | ({
       capability: "task.draft";
       payload: {
         title: string;
@@ -1654,7 +1830,68 @@ export type AsyncJobSubmission =
         priority?: "low" | "medium" | "high" | "urgent";
         assignee?: string;
       };
-    };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1123: screener follow-up sub-jobs (report first; the
+       *  delivery/notification capabilities arrive with S3/S4). */
+      capability: "followup.report";
+      payload: {
+        outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
+        userLogin: string;
+        /** Consolidation C3 (#1277): when this job is a chain's serve
+         *  stage, the chain config + id ride the payload so the
+         *  deliver hop planned at its completion can read its own
+         *  delay and chain identity from the completed stage's
+         *  record. */
+        stageChain?: StageChainConfig;
+        chainId?: string;
+        /** Consolidation C3 (#1277): per-stage retry marker, as on
+         *  followup.deliver. */
+        retryOf?: string;
+      };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1123 S3: one delivery of the shared report artifact on
+       *  one channel. skipReason pre-completes it as 'skipped'.
+       *  S5c: approvedConfirmationId marks a delivery released from a
+       *  #277 hold — the executor sends it without re-holding. */
+      capability: "followup.deliver";
+      payload: {
+        outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
+        userLogin: string;
+        channel: AsyncJobChannel;
+        artifacts: Array<{ key: string; fileName: string }>;
+        skipReason?: string;
+        approvedConfirmationId?: string;
+        /** Consolidation C3 (#1277): set on a per-stage retry — the
+         *  job id of the failed job this submission retries. */
+        retryOf?: string;
+      };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1123 S4: one lifecycle notification (started /
+       *  completed / failed / delivered) on one channel. */
+      capability: "followup.notify";
+      payload: {
+        event: import("./services/screenerFollowups").FollowupLifecycleEvent;
+        outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
+        userLogin: string;
+        channel: AsyncJobChannel;
+        detail?: string;
+      };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1355: one shard of a sharded scheduled screen.
+       *  `inputs` carries the previous stage's outputs the planner
+       *  embedded (e.g. store keys) — never datasets (those live in
+       *  sibling rows' result_json). */
+      capability: "shard.execute";
+      payload: {
+        shard: { stage: "feed" | "generate" | "store"; key: string };
+        chain: ShardChainContext;
+        inputs?: Record<string, unknown>;
+      };
+    } & AsyncJobGraphFields);
 
 export interface TWAPOrderConfig {
   symbol: string;

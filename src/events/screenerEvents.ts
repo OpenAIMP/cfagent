@@ -30,6 +30,20 @@ export interface ScreenerCompletedEvent {
   expectedCount?: number;
   /** Per-run PDF storage key, avoiding races through the latest-report pointer. */
   pdfKey?: string;
+  /** Issue #822: explicit PDF status. If 'failed', the publisher must NOT
+   *  fall back to a stale PDF — log the error and skip the attachment. */
+  pdfStatus?: "generated" | "failed" | "skipped";
+  pdfError?: string;
+  /** Issue #1191 (#1173 R3): per-run XLSX artifact, mirroring the PDF
+   *  triple — outcomes carry it so deliveries attach text+PDF+XLSX. */
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed" | "skipped";
+  xlsxError?: string;
+  /** Issue #1346: per-run CSV artifact, mirroring the PDF/XLSX
+   *  triple. */
+  csvKey?: string;
+  csvStatus?: "generated" | "failed" | "skipped";
+  csvError?: string;
   /** Stable delivery id used to suppress duplicate scheduled notifications. */
   deliveryId?: string;
   sector: string;
@@ -54,6 +68,18 @@ export interface ScreenerCompletedEvent {
    * 0-match screen explains itself instead of just reporting the count.
    */
   rejections?: { symbol: string; reason: string }[];
+  /** Summary of criteria applied during screening. */
+  filterSummary?: string;
+  /** Direct recipient email (enables email dispatch via cfpay A2A or local fallback). */
+  emailTo?: string;
+  /** Explicit Slack channel destination. */
+  slackChannel?: string;
+  /** Outbound webhook endpoint. */
+  webhookUrl?: string;
+  /** Consolidation C3 (#1277): the schedule record's stage-chain
+   *  config, carried so the follow-up bridge can stamp the run's
+   *  stage jobs. Absent = the fused immediate chain. */
+  stageChain?: import("../types").StageChainConfig;
 }
 
 export interface ScreenerFailedEvent {
@@ -64,6 +90,12 @@ export interface ScreenerFailedEvent {
   deliveryId?: string;
   sector: string;
   error: string;
+  emailTo?: string;
+  slackChannel?: string;
+  webhookUrl?: string;
+  /** Consolidation C3 (#1277): stage-chain config, as on the
+   *  completed event. */
+  stageChain?: import("../types").StageChainConfig;
 }
 
 /** One options opportunity as carried on the bus: a summary, not the full row. */
@@ -92,6 +124,16 @@ export interface OptionsCompletedEvent {
   summary: string;
   reportUrl?: string;
   opportunities: OptionsOpportunitySummary[];
+  /** Consolidation C4 (#1329): the run's PDF key, so a chained
+   *  options run's serve stage adopts the same artifact the direct
+   *  path delivered. Absent on runs that produced no PDF. */
+  pdfKey?: string;
+  pdfStatus?: "generated" | "failed" | "skipped";
+  pdfError?: string;
+  /** Consolidation C4 (#1329): stage-chain config when the schedule
+   *  opted in — the bridge chains (serve/deliver) instead of
+   *  recording only. Absent = the direct path (the degenerate case). */
+  stageChain?: import("../types").StageChainConfig;
 }
 
 export interface OptionsFailedEvent {
@@ -101,6 +143,9 @@ export interface OptionsFailedEvent {
   universe?: string;
   thesis: string;
   error: string;
+  /** Consolidation C4 (#1329): as on the completed event — a chained
+   *  failed run still records its generate stage + stop point. */
+  stageChain?: import("../types").StageChainConfig;
 }
 
 export type ScreenerEvent =

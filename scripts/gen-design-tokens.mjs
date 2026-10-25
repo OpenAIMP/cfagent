@@ -15,8 +15,9 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CSS_PATH = join(ROOT, "src", "client", "tokens.css");
 const TS_PATH = join(ROOT, "src", "client", "designTokens.ts");
 const BEGIN = "/* BEGIN GENERATED TOKENS — scripts/gen-design-tokens.mjs — do not edit by hand */";

@@ -133,7 +133,7 @@ describe("DatabaseORM & Repositories", () => {
   describe("Schema Introspection & Querying", () => {
     it("listTables() returns all 11 relational tables with descriptions and column types", () => {
       // 11 after the mas_reports table added for issue #278
-      // (durable scheduled-run reports for the AI Search agent).
+      // (durable scheduled-run reports for the NextGenTP agent).
       const tables = orm.listTables();
       expect(tables.length).toBe(11);
 

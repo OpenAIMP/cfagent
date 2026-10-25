@@ -27,11 +27,15 @@ export default defineConfig({
   test: {
     testTimeout: 25000,
     hookTimeout: 25000,
+    // #411: hermetic suite — block outbound fetch in tests by default;
+    // suites stub the exact responses they need.
+    setupFiles: ["./tests/netblock.setup.ts"],
     // `src/server.ts` exports Durable Object classes, so importing the Worker
     // under Node resolves `cloudflare:workers` — a scheme the ESM loader cannot
     // load. The stub only provides the base class; tests never instantiate one.
     alias: {
       "cloudflare:workers": new URL("./tests/stubs/cloudflareWorkers.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
+      "@cloudflare/think/workflows": new URL("./tests/stubs/cloudflareThinkWorkflows.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
       "@cloudflare/think": new URL("./tests/stubs/cloudflareThink.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
     },
   },

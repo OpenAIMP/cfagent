@@ -105,7 +105,7 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                     <label>Campaign / Product Title *</label>
                     <input
                       type="text"
-                      placeholder="e.g. Workers AI Vectorize Bundle"
+                      placeholder="e.g. Quantitative Market Intelligence Pro"
                       value={newAdTitle}
                       onChange={(e) => setNewAdTitle(e.target.value)}
                       required
@@ -116,7 +116,7 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                     <label>Sponsor / Brand Name *</label>
                     <input
                       type="text"
-                      placeholder="e.g. Cloudflare Platform or Acme Corp"
+                      placeholder="e.g. Institutional Capital or Acme Corp"
                       value={newAdSponsor}
                       onChange={(e) => setNewAdSponsor(e.target.value)}
                     />

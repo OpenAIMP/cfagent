@@ -31,6 +31,32 @@ export interface ResolvedEnvironment {
  *  - a full endpoint like "https://apisb.etrade.com/v1/accounts/..."
  * Always returns "https://<host>/v1"
  */
+
+/**
+ * Lower-cased hostname of a URL, or "" when it does not parse.
+ * (CodeQL js/incomplete-url-substring-sanitization, #843–#847.)
+ */
+export function urlHostname(raw: string): string {
+  try {
+    return new URL(raw.trim()).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Exact-hostname check for an E*TRADE endpoint host.
+ *
+ * Substring checks like `url.includes("api.etrade.com")` are bypassable:
+ * `https://api.etrade.com.evil.com/` and userinfo tricks such as
+ * `https://apisb.etrade.com@api.etrade.com/` (real host: api.etrade.com)
+ * defeat them. Parse the URL and compare the hostname exactly instead.
+ * Matches the host itself or a dot-anchored subdomain of it.
+ */
+export function isETradeHost(raw: string, host: string): boolean {
+  const hostname = urlHostname(raw);
+  return hostname === host || hostname.endsWith(`.${host}`);
+}
 export function resolveETradeBaseUrl(rawUrl: string): string {
   if (!rawUrl) return "https://apisb.etrade.com/v1";
   const clean = rawUrl.trim().replace(/\/$/, "");
@@ -39,7 +65,12 @@ export function resolveETradeBaseUrl(rawUrl: string): string {
     const origin = parsed.origin; // e.g. "https://apisb.etrade.com"
     return `${origin}/v1`;
   } catch {
-    if (clean.includes("api.etrade.com")) return "https://api.etrade.com/v1";
+    // `clean` is not a parseable URL — only honor it when it plainly names
+    // the live host (bare host or host+path, case-insensitive), never on a
+    // mere substring: "evil.com/?x=api.etrade.com" must NOT resolve to the
+    // live endpoint (#847).
+    const hostPart = clean.split("/")[0].split(":")[0].trim().toLowerCase().replace(/\.$/, "");
+    if (hostPart === "api.etrade.com") return "https://api.etrade.com/v1";
     return "https://apisb.etrade.com/v1";
   }
 }
@@ -83,15 +114,21 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
   let rawUrl = baseDef.etrade.baseUrl;
   const envUrl = env?.ET_BASE_URL || processEnv.ET_BASE_URL;
   if (envUrl) {
-    if (activeName === "PROD" && !envUrl.includes("apisb.etrade.com")) {
+    // Exact-hostname gating (#845, #846): a substring match let
+    // "https://evil.com/?x=apisb.etrade.com" smuggle an attacker host into
+    // TEST mode. Only the genuine sandbox host is honored there.
+    const envIsSandboxHost = isETradeHost(envUrl, "apisb.etrade.com");
+    if (activeName === "PROD" && !envIsSandboxHost) {
       rawUrl = envUrl;
-    } else if (activeName === "TEST" && envUrl.includes("apisb.etrade.com")) {
+    } else if (activeName === "TEST" && envIsSandboxHost) {
       rawUrl = envUrl;
     }
   }
 
   const baseUrl = resolveETradeBaseUrl(rawUrl);
-  const isLive = activeName === "PROD" || (baseUrl.startsWith("https://api.etrade.com") && !baseUrl.startsWith("https://apisb.etrade.com"));
+  // Exact-hostname liveness (#843, #844): "https://api.etrade.com.evil.com"
+  // starts with the live prefix but is not the live host.
+  const isLive = activeName === "PROD" || isETradeHost(baseUrl, "api.etrade.com");
 
   // OAuth credentials — strictly segregated by environment:
   const isProd = activeName === "PROD";

@@ -22,6 +22,56 @@ import type {
 } from "../types";
 import { AGENT_DIDS } from "../agents/did";
 import { SERVER_PALETTE } from "../theme/serverPalette";
+import { checkSlackWebhookRateLimit } from "./slackWebhookRateLimit";
+import { getCfpayConfig, cfpayPostToSlack } from "./cfpayA2A";
+
+// ---------------------------------------------------------------------------
+// Spec-aware HTML stripping.
+//
+// CodeQL js/bad-tag-filter (#853) and js/incomplete-multi-character-
+// sanitization (#851, #852, #850): the old chain stripped script/style
+// with regexes that required a closing tag, never removed HTML comments,
+// and cut every other tag at the first `>` via /<[^>]+>/ — all incomplete
+// per the HTML spec:
+//
+// - `<!--` opens a comment that runs to `-->` OR end of input: an
+//   unterminated comment is still a comment and must be removed.
+// - `script` / `style` element content runs to the matching close tag OR end of
+//   input: an unterminated element must still be dropped entirely,
+//   otherwise script text leaks into the extracted page text.
+// - A `>` inside a quoted attribute value does not close a tag.
+//
+// The tempered patterns below consume up to (never past) the terminator,
+// mirroring the issue 854 release-notes fix. This is text extraction for LLM /
+// user display, not an XSS sanitizer — but the stripping is complete, so no
+// markup, comment text, or script/style content survives.
+// ---------------------------------------------------------------------------
+
+/** HTML comments: `<!--` … `-->` or end of input. */
+const HTML_COMMENT_RE = /<!--(?:(?!-->)[\s\S])*?(?:-->|$)/g;
+
+/** `<script>` … `</script>` or end of input (tempered: never past the close). */
+const SCRIPT_ELEMENT_RE = /<script\b(?:(?!<\/script>)[\s\S])*(?:<\/script>|$)/gi;
+
+/** `<style>` … `</style>` or end of input (tempered). */
+const STYLE_ELEMENT_RE = /<style\b(?:(?!<\/style>)[\s\S])*(?:<\/style>|$)/gi;
+
+/**
+ * Any tag, quote-aware: a `>` inside a double- or single-quoted attribute
+ * value does not terminate the match (the old /<[^>]+>/ cut there).
+ */
+const HTML_TAG_RE = /<(?:[^>"']|"[^"]*"|'[^']*')*>/g;
+
+/** Strip HTML to plain text with whitespace collapsed. */
+export function stripHtmlToText(html: string): string {
+  return html
+    .replace(HTML_COMMENT_RE, " ")
+    .replace(SCRIPT_ELEMENT_RE, " ")
+    .replace(STYLE_ELEMENT_RE, " ")
+    .replace(HTML_TAG_RE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 export class ETradeBrowserService {
   constructor(private env?: Env) {}
@@ -92,13 +142,8 @@ export class ETradeBrowserService {
       // Extract tables
       const tables = this.extractTablesFromHtml(html);
 
-      // Clean HTML to text
-      let text = html
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+      // Clean HTML to text — spec-aware stripping (#851, #852, #853).
+      let text = stripHtmlToText(html);
 
       if (text.length > 5000) {
         text = text.slice(0, 5000) + "... [truncated]";
@@ -231,6 +276,11 @@ export class ETradeBrowserService {
     };
 
     if (webhookUrl) {
+      // Issue #411: per-destination Slack webhook rate limit (~1/sec, burst 5).
+      const rl = checkSlackWebhookRateLimit(webhookUrl);
+      if (!rl.allowed) {
+        return { success: false, url, error: `Rate limited: Slack webhook calls to this destination are capped at ~1/second; delivery skipped (retry after ${rl.retryAfterMs}ms).`, timestamp };
+      }
       try {
         const resp = await fetch(webhookUrl, {
           method: "POST",
@@ -253,6 +303,14 @@ export class ETradeBrowserService {
         });
         const verdict = await this.slackBotApiAccepted(resp);
         return { success: verdict.accepted, url, error: verdict.error, timestamp };
+      } catch (err: any) {
+        return { success: false, url, error: err.message, timestamp };
+      }
+    } else if (getCfpayConfig(this.env)) {
+      try {
+        const config = getCfpayConfig(this.env)!;
+        const res = await cfpayPostToSlack(config, payload.text, options.channel);
+        return { success: res.ok, url, error: res.error, timestamp };
       } catch (err: any) {
         return { success: false, url, error: err.message, timestamp };
       }
@@ -307,12 +365,19 @@ export class ETradeBrowserService {
 
       while ((rowMatch = rowRegex.exec(tableContent)) !== null && rows.length < 25) {
         const rowContent = rowMatch[1];
-        const cells = rowContent
-          .replace(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi, "$1 | ")
-          .replace(/<[^>]+>/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (cells) rows.push(cells);
+        // Tempered cell match (CodeQL js/incomplete-multi-character-
+        // sanitization, #850): an unterminated <td>/<th> runs to the end of
+        // the row instead of being skipped, the open tag is matched
+        // quote-aware, and the inner HTML is stripped with the spec-aware
+        // stripHtmlToText instead of the incomplete /<[^>]+>/.
+        const cellTexts: string[] = [];
+        const cellRe = /<t[hd]\b(?:[^>"']|"[^"]*"|'[^']*')*>((?:(?!<\/t[hd]>)[\s\S])*)(?:<\/t[hd]>|$)/gi;
+        let cellMatch: RegExpExecArray | null;
+        while ((cellMatch = cellRe.exec(rowContent)) !== null) {
+          const text = stripHtmlToText(cellMatch[1]);
+          if (text) cellTexts.push(text);
+        }
+        if (cellTexts.length > 0) rows.push(cellTexts.join(" | "));
       }
 
       if (rows.length > 0) tables.push(rows);
@@ -510,6 +575,11 @@ export class ETradeBrowserService {
 
     // 3. Deliver to Slack
     if (webhookUrl) {
+      // Issue #411: per-destination Slack webhook rate limit (~1/sec, burst 5).
+      const rl = checkSlackWebhookRateLimit(webhookUrl);
+      if (!rl.allowed) {
+        return { success: false, transactionId: tx.transactionId, symbol: tx.symbol, error: `Rate limited: Slack webhook calls to this destination are capped at ~1/second; delivery skipped (retry after ${rl.retryAfterMs}ms).`, timestamp };
+      }
       try {
         const resp = await fetch(webhookUrl, {
           method: "POST",
@@ -555,6 +625,28 @@ export class ETradeBrowserService {
           channel: options.channel,
           screenshotBase64,
           error: verdict.error,
+          timestamp,
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          transactionId: tx.transactionId,
+          symbol: tx.symbol,
+          error: err.message,
+          timestamp,
+        };
+      }
+    } else if (getCfpayConfig(this.env)) {
+      try {
+        const config = getCfpayConfig(this.env)!;
+        const res = await cfpayPostToSlack(config, payload.text, options.channel);
+        return {
+          success: res.ok,
+          transactionId: tx.transactionId,
+          symbol: tx.symbol,
+          channel: options.channel,
+          screenshotBase64,
+          error: res.error,
           timestamp,
         };
       } catch (err: any) {

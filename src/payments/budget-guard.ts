@@ -17,6 +17,13 @@
  * verification) to persist the spend. State is serializable so the owning
  * Durable Object can persist it across restarts; an in-memory-only guard
  * would lose daily spend and idempotency keys on eviction.
+ *
+ * Issue #896: the guard's state is no longer persisted as a blob by the
+ * PaymentsAgent. PaymentsAgent derives it from mas_transactions (the
+ * ledger of record) via BudgetGuard.restore() on every check/record —
+ * see deriveBudgetGuardState in src/payments/ledger.ts — so guard truth
+ * and ledger truth cannot diverge. serialize()/restore() remain the
+ * transport shape for that derived state.
  */
 
 export interface BudgetConfig {

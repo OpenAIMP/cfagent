@@ -1,6 +1,6 @@
 /**
  * Issue #126 (PR-C): result-set serializers for a strategy scan run
- * (src/client/scannerExport.ts). The ScannerPanel offered only a PDF
+ * (src/client/runExport.ts; originally scannerExport.ts, #1065). The ScannerPanel offered only a PDF
  * report link; these pins cover the CSV/JSON result-set exports:
  *  - the CSV columns mirror the ScanResultsView results tables in
  *    both modes (fits in strategy_fit, opportunities in
@@ -23,7 +23,7 @@ import {
   scanExportRunFromStored,
   scanResultsCsv,
   scanRunJson,
-} from "../src/client/scannerExport";
+} from "../src/client/runExport";
 import type {
   OpportunityScanResponse,
   StoredScanRun,

@@ -28,13 +28,16 @@
  * FossResearchRouteContext parameter; there are no new globals and no
  * back-references into the class. Audit events stay funneled through the
  * single-owner recordAudit() via ctx.audit (no behavior change to audit
- * semantics). The canonical-report seam (#308) is untouched - these route
- * blocks never called the store seam directly; generateResearchReport
- * carries its own persistence inside the service.
+ * semantics). Issue #1007: the screen block now stores its canonical
+ * report through the #308 seam via ctx.persistScreenerReportCanonical
+ * (the REST idiom), like the E*TRADE screen route;
+ * generateResearchReport still carries its own persistence inside the
+ * service.
  */
 
 import { FossResearchService, fossBarsSourceLabel } from "../../services/fossResearch";
-import { YFinanceMarketScreener } from "../../trading";
+import { parseStockScreenRequest } from "../../trading";
+import type { ScreenerAgent } from "../screener-agent";
 import type { AgentName, Env } from "../../types";
 
 /** The subset of OrchestratorAgent surface the foss research handlers need. */
@@ -47,6 +50,24 @@ export interface FossResearchRouteContext {
     agent: AgentName | "judge" | "nlq" | "orchestrator",
     payload: Record<string, unknown>
   ): void;
+  /** Screener agent (owner: OrchestratorAgent.getScreenerAgent) — issue #1007: the FOSS screen runs through the one pipeline via this agent, with the Yahoo data-source adapter as its provider. */
+  getScreenerAgent(userLogin?: string): ScreenerAgent;
+  /** Canonical-copy screener persistence (owner: OrchestratorAgent.persistScreenerReportCanonical) — the REST idiom the E*TRADE screen route stores through. */
+  persistScreenerReportCanonical(result: {
+    timestamp: string;
+    universe?: unknown;
+    sector?: unknown;
+    provider?: unknown;
+    success: boolean;
+    totalScanned: number;
+    matchedCount: number;
+    opportunities: unknown[];
+    allStocks: unknown[];
+    pdfKey?: string;
+    error?: string;
+    trigger?: unknown;
+    userLogin?: string;
+  }): Promise<void>;
 }
 
 /**
@@ -180,6 +201,16 @@ export async function handleFossCompareScreenRoutes(
   }
 
   // Dedicated Yahoo Finance (FOSS) Market Screener
+  // Issue #1007 (consolidation S3): this route no longer runs a second
+  // screening engine. It executes through the ONE stock pipeline via
+  // ScreenerAgent with provider "yahoo" (the Yahoo data-source adapter
+  // inside screenerPipeline.acquireUniverse), so scoring, result shape
+  // and persistence are the pipeline's — identical to the E*TRADE
+  // screen — and the run stores a canonical mas_reports report in the
+  // REST idiom (persistScreenerReportCanonical, the seam the
+  // /etrade/screen route uses), with provider provenance in the body.
+  // Yahoo unavailable → the run fails visibly (502, the REST screen
+  // idiom); no fallback to E*TRADE data, no fabricated rows.
   if ((path.endsWith("/foss/screen") || path.endsWith("/yfinance/screen")) && (request.method === "POST" || request.method === "GET")) {
     try {
       const filters = request.method === "POST" ? ((await request.json().catch(() => ({}))) as any) : {};
@@ -191,14 +222,106 @@ export async function handleFossCompareScreenRoutes(
         if (url.searchParams.get("maxPeRatio")) filters.maxPeRatio = Number(url.searchParams.get("maxPeRatio"));
         if (url.searchParams.get("gainersOnly")) filters.gainersOnly = url.searchParams.get("gainersOnly") === "true";
         if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
+        if (url.searchParams.get("universe")) filters.universe = url.searchParams.get("universe");
       }
-      const screener = new YFinanceMarketScreener();
-      const results = await screener.screenMarkets(filters);
-      ctx.audit("foss.screener.executed", "research", { filterSummary: results.filterSummary, count: results.stocks.length });
+      // Issue #959: the FOSS screen takes the same StockScreenerFilter
+      // shape as the E*TRADE screen — validate through the ONE shared
+      // stock-screen schema (the universe/minScore envelope fields are
+      // accepted and split out).
+      const parsedScreen = parseStockScreenRequest(filters);
+      if (!parsedScreen.ok) {
+        return Response.json({ error: parsedScreen.error }, { status: 400 });
+      }
+      const universe = parsedScreen.value.universe;
+      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const agent = ctx.getScreenerAgent(userLogin);
+      if (universe === "ALL") {
+        const shards = await agent.runSharded({
+          trigger: "manual",
+          provider: "yahoo",
+          filters: parsedScreen.value.filters,
+          userLogin,
+        });
+        for (const r of shards) await ctx.persistScreenerReportCanonical({ ...r, userLogin });
+        const failedShards = shards.filter((r) => !r.success);
+        ctx.audit("foss.screener.executed", "research", {
+          filterSummary: `ALL (sharded: ${shards.length} universes)`,
+          count: shards.reduce((n, r) => n + r.allStocks.length, 0),
+          provider: "yahoo",
+          success: failedShards.length < shards.length,
+        });
+        if (failedShards.length === shards.length) {
+          return Response.json({ error: failedShards[0]?.error || "Yahoo Finance unavailable" }, { status: 502 });
+        }
+        return Response.json({
+          sharded: true,
+          provider: "yahoo",
+          universes: shards.map((r) => ({
+            universe: r.universe,
+            provider: r.provider,
+            totalScanned: r.totalScanned,
+            matchedCount: r.matchedCount,
+            opportunities: r.opportunities,
+            stocks: r.allStocks,
+            results: r.allStocks,
+            discoveryMessage: r.discoveryMessage,
+            scannedAt: r.timestamp,
+            reportUrl: r.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(r.pdfKey)}` : undefined,
+            success: r.success,
+            error: r.error,
+          })),
+        });
+      }
+      let result;
+      try {
+        result = await agent.runScreen({
+          trigger: "manual",
+          provider: "yahoo",
+          filters: parsedScreen.value.filters,
+          universe: universe as any,
+          userLogin,
+        });
+      } catch (screenErr) {
+        // Issue #832 parity with /etrade/screen: "already running" is
+        // not a failure — a 429 the client can retry.
+        const error = screenErr instanceof Error ? screenErr.message : String(screenErr);
+        if (error.includes("already running")) {
+          return Response.json(
+            { error: "Screen already running", message: error, retryable: true },
+            { status: 429 }
+          );
+        }
+        throw screenErr;
+      }
+      // Issue #307/#308 + #1007: store the canonical report copy (one
+      // row per generation) so FOSS runs are visible in GET /api/reports
+      // and Reports history, with provider provenance in the body.
+      await ctx.persistScreenerReportCanonical({ ...result, userLogin });
+      ctx.audit("foss.screener.executed", "research", {
+        filterSummary: result.filterSummary,
+        count: result.allStocks.length,
+        provider: "yahoo",
+        success: result.success,
+      });
+      if (!result.success) {
+        return Response.json({ error: result.error || "Yahoo Finance unavailable" }, { status: 502 });
+      }
       return Response.json({
-        ...results,
-        results: results.stocks,
-        stocks: results.stocks,
+        universe: result.universe,
+        provider: "yahoo",
+        totalScanned: result.totalScanned,
+        matchedCount: result.matchedCount,
+        opportunities: result.opportunities,
+        stocks: result.allStocks,
+        results: result.allStocks,
+        filterApplied: parsedScreen.value.filters,
+        filterSummary: result.filterSummary,
+        discoveryMessage: result.discoveryMessage,
+        scannedAt: result.timestamp,
+        pdfKey: result.pdfKey,
+        pdfStatus: result.pdfStatus,
+        pdfError: result.pdfError,
+        reportUrl: result.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}` : undefined,
       });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to run Yahoo Finance screener" }, { status: 500 });

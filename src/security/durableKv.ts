@@ -1,4 +1,5 @@
 import type { KvLike } from "./kvResilience";
+import { recordStoreOp, type StoreOpOutcome } from "./storeMetrics";
 
 /**
  * Durable Object-backed KV replacement (issue #329 follow-up).
@@ -52,13 +53,56 @@ function timeoutSignal(): AbortSignal | undefined {
   return typeof anySignal.timeout === "function" ? anySignal.timeout(CALL_TIMEOUT_MS) : undefined;
 }
 
+/**
+ * Classify a store reply for the op-metrics record (issue #910). The store
+ * answered; whether that is an "ok" depends on the op's reply contract. A
+ * `get` that finds nothing is a "miss", not a failure — T2's failure rate
+ * must count only real failures or it cries wolf on every cold cache.
+ */
+function classifyStoreOutcome(op: string, reply: StoreReply): StoreOpOutcome {
+  if (reply.error) return "failed";
+  switch (op) {
+    case "get":
+      if (typeof reply.value === "string") return "ok";
+      return reply.value == null ? "miss" : "failed";
+    case "put":
+    case "delete":
+      return reply.ok === true ? "ok" : "failed";
+    case "consume":
+      return typeof reply.consumed === "boolean" ? "ok" : "failed";
+    case "list":
+      return Array.isArray(reply.entries) ? "ok" : "failed";
+    default:
+      return "ok";
+  }
+}
+
 function createStoreClient(
   namespace: DoNamespaceLike | null | undefined,
   namespaceName: string,
   instanceName: string
 ): (payload: Record<string, unknown>) => Promise<StoreReply | null> {
   return async (payload: Record<string, unknown>): Promise<StoreReply | null> => {
-    if (!namespace) return null;
+    // One metrics record per op, emitted on every exit path (issue #910).
+    // recordStoreOp never throws and adds no store round-trip, so the
+    // never-throws contract and every return value below are unchanged.
+    // The T1/T2 aggregation over these records is documented in
+    // docs/OBSERVABILITY.md §4.
+    const op = String(payload.op);
+    if (!namespace) {
+      recordStoreOp({
+        event: "store_op",
+        v: 1,
+        ns: namespaceName,
+        op,
+        instance: instanceName,
+        outcome: "unavailable",
+        latencyMs: 0,
+        ts: Date.now(),
+      });
+      return null;
+    }
+    const startedAt = Date.now();
     try {
       const stub = namespace.get(namespace.idFromName(instanceName));
       const response = await stub.fetch(
@@ -71,14 +115,46 @@ function createStoreClient(
       );
       if (!response.ok) {
         console.warn(`[store:${namespaceName}] ${String(payload.op)} failed: HTTP ${response.status}`);
+        recordStoreOp({
+          event: "store_op",
+          v: 1,
+          ns: namespaceName,
+          op,
+          instance: instanceName,
+          outcome: "failed",
+          latencyMs: Date.now() - startedAt,
+          httpStatus: response.status,
+          ts: Date.now(),
+        });
         return null;
       }
-      return (await response.json()) as StoreReply;
+      const reply = (await response.json()) as StoreReply;
+      recordStoreOp({
+        event: "store_op",
+        v: 1,
+        ns: namespaceName,
+        op,
+        instance: instanceName,
+        outcome: classifyStoreOutcome(op, reply),
+        latencyMs: Date.now() - startedAt,
+        ts: Date.now(),
+      });
+      return reply;
     } catch (error) {
       console.warn(
         `[store:${namespaceName}] ${String(payload.op)} failed:`,
         error instanceof Error ? error.message : String(error)
       );
+      recordStoreOp({
+        event: "store_op",
+        v: 1,
+        ns: namespaceName,
+        op,
+        instance: instanceName,
+        outcome: "failed",
+        latencyMs: Date.now() - startedAt,
+        ts: Date.now(),
+      });
       return null;
     }
   };

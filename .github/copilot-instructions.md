@@ -12,3 +12,7 @@ AI Search Agent / E*TRADE trading app (Cloudflare Worker + Durable Objects + Rea
 
 ## Payments
 x402 and MPP services live in `src/services/agenticPayments.ts` (legacy, Cloudflare `withX402`). Verified-payment logic lives in the separate `cfpay` repo.
+
+## Delivery policy
+
+All work in this repo follows `docs/agents/gitops.md` (issue → PR → merge → post-merge verification, one issue at a time). Put your agent hashtag in every issue and PR you create (the `## Agent` field in the gitops §5/§9 templates).

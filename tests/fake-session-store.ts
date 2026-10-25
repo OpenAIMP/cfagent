@@ -23,6 +23,10 @@ export interface FakeSessionStore {
 
 export function makeFakeSessionStore(): FakeSessionStore {
   const store = new Map<string, string>();
+  // Claim expiries for the consume op (the real DO tracks expires_at
+  // per row; the fake's get/put ignore TTLs, so consume keeps its own
+  // ledger — enough to mirror the single-flight semantics, #1245).
+  const claims = new Map<string, number>();
   const namespace = {
     idFromName: (name: string) => name,
     get: (_id: unknown) => ({
@@ -32,6 +36,7 @@ export function makeFakeSessionStore(): FakeSessionStore {
           ns: string;
           key: string;
           value?: string;
+          ttl?: number;
         };
         const k = `${body.ns}:${body.key}`;
         if (body.op === "get") {
@@ -43,7 +48,17 @@ export function makeFakeSessionStore(): FakeSessionStore {
         }
         if (body.op === "delete") {
           store.delete(k);
+          claims.delete(k);
           return Response.json({ ok: true });
+        }
+        if (body.op === "consume") {
+          const heldUntil = claims.get(k);
+          if (heldUntil !== undefined && heldUntil > Date.now()) {
+            return Response.json({ consumed: false });
+          }
+          claims.set(k, Date.now() + (typeof body.ttl === "number" ? body.ttl * 1000 : 0));
+          store.set(k, body.value ?? "");
+          return Response.json({ consumed: true });
         }
         return Response.json({ error: "unknown op" }, { status: 400 });
       },

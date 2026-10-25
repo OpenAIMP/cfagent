@@ -386,6 +386,11 @@
   background: var(--color-accent-subtle);
 }
 
+.report-pdf-unavailable {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
 .btn-link {
   color: var(--color-accent);
   text-decoration: none;

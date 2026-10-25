@@ -49,6 +49,9 @@ describe("Portfolio Tab Click & Render Inspection", () => {
     expect(html).toContain('<span class="summary-title">Active Positions</span>');
     expect(html).toContain("Refresh Positions");
     expect(html).toContain("Fast Order Ticket");
-    expect(html).toContain("Load Demo Holdings");
+    // #913/#921: the default render is the PROD (live) environment, where
+    // the demo-holdings seeder must NOT be offered. (Previously this pin
+    // asserted the fabricated-data affordance was present in live mode.)
+    expect(html).not.toContain("Load Demo Holdings");
   });
 });
