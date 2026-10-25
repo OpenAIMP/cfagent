@@ -503,7 +503,15 @@ export function valueAtHorizon(
   let value = 0;
   for (const leg of legs) {
     const remaining = Math.max(leg.dte / 365 - horizonYears, 1 / 365);
-    const iv = Math.max((leg.iv ?? 0.4) * (1 + ivShock), 0.01);
+    // #926: no assumed IV. A leg without chain IV is NOT repriced via
+    // Black-Scholes; it contributes its market mid (a real number, not an
+    // invented IV). Callers that need a pure IV-dependent total (scenario
+    // rows) must pre-check all legs and return unavailable instead.
+    if (leg.iv == null || leg.iv <= 0) {
+      value += leg.quantity * leg.mid;
+      continue;
+    }
+    const iv = Math.max(leg.iv * (1 + ivShock), 0.01);
     const px = blackScholesPrice({
       spot: spotHorizon,
       strike: leg.strike,
@@ -544,6 +552,12 @@ export function buildScenarioRows(
   dividendYield: number,
   costs: CostAssumptions
 ): ScenarioRow[] {
+  // #926: scenario rows are IV-dependent math. If the expected-move sigma
+  // is unavailable or any leg lacks chain IV, there are no rows — never
+  // rows built on an assumed IV.
+  if (!Number.isFinite(sigma) || sigma <= 0 || econ.legs.some((l) => l.iv == null || l.iv <= 0)) {
+    return [];
+  }
   const em = expectedMove(spot, sigma, horizonDte / 365);
   const horizonYears = Math.max(horizonDte / 365, 1 / 365);
   return SCENARIO_SPECS.map((spec) => {

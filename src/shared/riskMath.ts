@@ -11,8 +11,9 @@
  *
  *  - normalCdf / normalPdf / Black-Scholes / probability-of-profit live
  *    HERE, once. Server and client both delegate; neither keeps a copy.
- *  - The shared constants (risk-free rate, dividend yield, missing-IV
- *    fallback) live HERE, once. Config defaults import them.
+ *  - The shared constants (risk-free rate, dividend yield) live HERE,
+ *    once. Config defaults import them. There is NO missing-IV fallback
+ *    constant anywhere in this module (issue #926).
  *
  * INTENTIONAL DIFFERENCES REGISTER (the only sanctioned divergences):
  *  1. Client risk ANATOMY (riskManagementEngine) adds presentation-only
@@ -21,10 +22,11 @@
  *     subjects with no legs at all — name-based Greek heuristics and a
  *     placeholder POP. Those outputs are labeled via greeksSource /
  *     popSource so no surface can mistake them for engine numbers.
- *  2. defaultIvWhenMissing is a MODELING fallback for client-side anatomy
- *     and Builder scenarios only. The server pipeline never estimates IV:
- *     chain IV is required there. Any result built on it must be labeled
- *     "estimated".
+ *  2. There is no IV fallback anywhere (issue #926, S8). Client anatomy
+ *     and the server pipeline both require chain IV: a leg without chain
+ *     IV is excluded from IV-dependent math and counted (client
+ *     missingIvLegs, server missing-IV rejection), and IV-dependent
+ *     outputs are marked unavailable — never computed with a constant.
  *  3. The server's acceptance ledger, scoring weights, and candidate
  *     ranking are server-only policy, not math — they live in the engine
  *     and etapiConfig, and intentionally have no client counterpart.
@@ -35,8 +37,6 @@ export const RISK_MATH = {
   riskFreeRate: 0.04,
   /** Canonical continuous dividend yield assumption. */
   dividendYield: 0,
-  /** Modeling-only IV fallback — see register item 2. Never used server-side. */
-  defaultIvWhenMissing: 0.35,
 } as const;
 
 // ---------------------------------------------------------------------------

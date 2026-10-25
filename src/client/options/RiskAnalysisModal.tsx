@@ -141,10 +141,10 @@ export function RiskAnalysisModal({
 
             <div className="risk-stat-card">
               <span className="risk-stat-label">Probability of Profit (POP)</span>
-              <span className="risk-stat-value" style={{ color: anatomy.probabilityOfProfit >= 50 ? "var(--color-accent)" : "var(--color-warning)" }}>
-                {anatomy.probabilityOfProfit.toFixed(1)}%
+              <span className="risk-stat-value" style={{ color: anatomy.probabilityOfProfit != null && anatomy.probabilityOfProfit >= 50 ? "var(--color-accent)" : "var(--color-warning)" }}>
+                {anatomy.probabilityOfProfit != null ? `${anatomy.probabilityOfProfit.toFixed(1)}%` : "Unavailable — no chain IV"}
               </span>
-              <span className="risk-stat-sub">Touch Prob: ~{anatomy.probabilityOfTouch}%</span>
+              <span className="risk-stat-sub">Touch Prob: {anatomy.probabilityOfTouch != null ? `~${anatomy.probabilityOfTouch}%` : "—"}</span>
             </div>
 
             <div className="risk-stat-card">

@@ -355,7 +355,10 @@ export interface ScenarioGridResult {
 export function evaluateScenarioGrid(input: {
   economics: StructureEconomics;
   spot: number;
-  sigma: number;
+  /** #926: accepted but intentionally unused — the grid reprices from leg
+   *  IVs, so a null (no chain IV) sigma must never be replaced by a
+   *  constant here. */
+  sigma: number | null;
   shocks: ScenarioShockGrid;
   constraints: ScenarioConstraints;
   config?: ResearchConfig;

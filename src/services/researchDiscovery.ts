@@ -251,7 +251,10 @@ const STATUS_RANK: Record<IdeaStatus, number> = {
   rejected: 3,
 };
 
-function atmIv(chain: ChainSnapshot, spot: number): number {
+/** #926: nearest ATM chain IV, or null when no leg in the chain carries
+ *  IV. Never a constant: a 0.4 fallback here previously fabricated an
+ *  ivFit score (and scenario sigma) from zero chain data. */
+function atmIv(chain: ChainSnapshot, spot: number): number | null {
   let best: { dist: number; iv: number } | null = null;
   for (const expiry of chain.expiries) {
     for (const leg of expiry.legs) {
@@ -260,7 +263,7 @@ function atmIv(chain: ChainSnapshot, spot: number): number {
       if (!best || dist < best.dist) best = { dist, iv: leg.iv };
     }
   }
-  return best?.iv ?? 0.4;
+  return best?.iv ?? null;
 }
 
 function expiryAtmIv(chain: ChainSnapshot, expiry: string, spot: number): number | null {
@@ -296,7 +299,10 @@ function gateAndScore(input: {
   now: number;
   config: ResearchConfig;
   scenario: ScenarioDefinition;
-  sigma: number;
+  /** #926: ATM chain IV, or null when the chain carries none. The scenario
+   *  grid does not consume sigma (it reprices from leg IVs), so null is
+   *  inert here — it must never be replaced by an assumed constant. */
+  sigma: number | null;
   goalKind?: GoalKind;
   sources: string[];
 }): { candidate?: DiscoveryCandidate; rejected?: DiscoveryRejected } {
@@ -745,7 +751,12 @@ export async function discoverNamesForStrategy(
     const family = structureFamily(candidate.structure);
     const targetIv = TARGET_IV_BY_FAMILY[family] ?? 0.35;
     const atm = atmIv(chain, spot);
-    components.ivFit = Number(clamp01(1 - Math.abs(atm - targetIv) / targetIv).toFixed(4));
+    // #926: no chain IV means ivFit stays missing (excluded from the
+    // fitScore by the missing-components rule below) — never a score
+    // computed from an assumed 0.4.
+    components.ivFit = atm == null
+      ? null
+      : Number(clamp01(1 - Math.abs(atm - targetIv) / targetIv).toFixed(4));
 
     if (chain.expiries.length >= 2) {
       const sorted = [...chain.expiries].sort((a, b) => a.dte - b.dte);
