@@ -22,6 +22,10 @@ import type { Env } from "../types";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
+import {
+  applyPortfolioContextToOpportunities,
+  type PortfolioContextMarker,
+} from "../services/portfolioContextRanking";
 import { DynamicMarketScreener } from "../trading";
 import {
   acquireUniverse,
@@ -125,6 +129,15 @@ export interface ScreenerRunRequest {
    * in production, where the platform yahoo provider is bound here.
    */
   yahooDeps?: import("../trading").YahooScreenerDeps;
+  /**
+   * Issue #17 (opt-in, default off — the orchestrator/scheduler set
+   * this from the screening.portfolioContext flag): demote
+   * concentration-flagged opportunities below unflagged ones. A
+   * modifier only — it never filters, never rescores, and a run that
+   * cannot load a connected book runs unmodified with a marker
+   * reason instead of failing.
+   */
+  portfolioContext?: boolean;
 }
 
 export interface ScreenerRunResult {
@@ -163,6 +176,15 @@ export interface ScreenerRunResult {
   partial?: PartialQuoteQualification;
   /** Issue #728: per-symbol rejection reasons for the Slack breakdown. */
   rejections?: { symbol: string; reason: string }[];
+  /**
+   * Issue #17: portfolio-context marker — present whenever the caller
+   * asked for the modifier (portfolioContext: true). `applied` means
+   * the modifier ran against a connected book; otherwise `reason`
+   * names why the ranking is unmodified. Consumers (PDF, event,
+   * outcome) must surface this whenever they surface opportunities,
+   * so a modified ranking is never presented as raw.
+   */
+  portfolioContext?: PortfolioContextMarker;
   /**
    * Issue #1184 (#1173 R2): technicals coverage for this run — how
    * many quoted symbols the Yahoo history leg actually produced
@@ -801,7 +823,7 @@ export class ScreenerAgent extends Agent<Env> {
         technicalsBySymbol
       );
       const bySymbol = new Map(allStocks.map((s) => [s.symbol, s]));
-      const opportunities = selectStandouts(
+      let opportunities = selectStandouts(
         screenResult.stocks,
         req.maxItems ?? cfg.acquisition.defaultMaxItems
       ).map((s) => {
@@ -811,6 +833,43 @@ export class ScreenerAgent extends Agent<Env> {
           ? { ...opp, factorGrades: graded.factorGrades, technicals: graded.technicals }
           : opp;
       });
+
+      // Issue #17: portfolio context (opt-in). The modifier runs only
+      // on E*TRADE-provider runs with a broker in scope — Yahoo runs
+      // never touch the broker, so they cannot load a book. Every
+      // failure degrades to the unmodified ranking plus a marker
+      // reason; the run itself never fails for a modifier.
+      let portfolioContext: PortfolioContextMarker | undefined;
+      if (req.portfolioContext === true) {
+        if (provider !== "etrade" || !etrade) {
+          portfolioContext = { applied: false, reason: "no-broker" };
+        } else {
+          try {
+            const { account, positions } = await etrade.fetchPortfolioRemote(
+              undefined,
+              true
+            );
+            const outcome = applyPortfolioContextToOpportunities(
+              opportunities,
+              {
+                ok: true,
+                accountId: account.accountId,
+                positions: positions.map((p) => ({
+                  symbol: p.symbol,
+                  marketValue: p.marketValue,
+                })),
+              }
+            );
+            opportunities = outcome.ranked;
+            portfolioContext = outcome.marker;
+          } catch {
+            portfolioContext = {
+              applied: false,
+              reason: "positions-unavailable",
+            };
+          }
+        }
+      }
 
       const result: ScreenerRunResult = {
         timestamp,
@@ -833,6 +892,8 @@ export class ScreenerAgent extends Agent<Env> {
         ...(screenResult.ledger?.rejections?.length
           ? { rejections: screenResult.ledger.rejections }
           : {}),
+        // Issue #17: portfolio-context marker (only when requested).
+        ...(portfolioContext ? { portfolioContext } : {}),
       };
       if (taskId) result.taskId = taskId;
       // Issue #1157 (E2): stamp the platform run id (E*TRADE runs).

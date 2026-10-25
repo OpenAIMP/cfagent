@@ -464,6 +464,16 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: path === /api/iaaa/overview",
   },
   {
+    id: "governance-seed-halt",
+    method: "POST",
+    path: "/api/governance/seed-halt",
+    aliases: [],
+    kind: "http",
+    auth: "platform-admin",
+    authNote: "401 unauthenticated; 405 non-POST; 403 for unwired or non-admin sessions with no data. Runs the one-time AgentDB halt-mirror seed for the primary tenant (mirror row only, never the DO setting); a second run returns seeded:false with the same state.",
+    source: "src/server.ts branch: path === /api/governance/seed-halt",
+  },
+  {
     id: "openapi-spec",
     method: "GET",
     path: "/openapi.json",

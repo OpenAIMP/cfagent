@@ -99,6 +99,8 @@ export interface EtradeBrokerRouteContext {
   ) => Promise<void>;
   /** ORM accessor (owner: OrchestratorAgent - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
+  /** Screening-settings reader (owner: OrchestratorAgent - was `this.readSettingRaw()`). */
+  readSettingRaw(key: string): string | null;
   /** Audit writer (owner: OrchestratorAgent - was `this.audit`). */
   audit(
     type: string,

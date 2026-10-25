@@ -24,6 +24,10 @@ import {
 } from "../trading";
 import { ETradeService } from "./etrade";
 import {
+  isPortfolioContextEnabled,
+  settingReadFromSql,
+} from "./screeningFlags";
+import {
   UnifiedOptionsService,
   runPanelWithAgents,
   type PanelAgents,
@@ -621,6 +625,17 @@ export class ScheduledTasksService {
       if (!userLogin) {
         throw new Error("No authenticated E*TRADE account is associated with this scheduled screen. Open the schedules panel while signed in and run it again.");
       }
+      // Issue #17: the portfolio-context flag is read at run time
+      // (settings live in the orchestrator's storage, which this
+      // service's platformDeps.sql points at). No sql host means no
+      // settings read, which the flag contract reads as OFF — never
+      // as an error. The sharded chain below does not carry this
+      // flag yet (its ShardChainContext has no field for it), so a
+      // sharded scheduled run simply runs unmodified; the
+      // monolithic path — the default — carries it.
+      const portfolioContext = this.platformDeps?.sql
+        ? isPortfolioContextEnabled(settingReadFromSql(this.platformDeps.sql))
+        : false;
       // Issue #1174 (#1173 S1): pre-flight the broker token for
       // E*TRADE-provider runs. An expired, unrenewable token blocks
       // the run up front — recorded with the remedy, one alert per
@@ -679,6 +694,7 @@ export class ScheduledTasksService {
         filters: options.filters,
         userLogin,
         environment: options.environment,
+        portfolioContext,
         // Issue #1007: provider rides through to the pipeline run;
         // absent keeps the E*TRADE default, byte-identical in shape.
         // Issue #1527: a fallback run rides provider "yahoo" plus the
