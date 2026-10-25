@@ -1,6 +1,6 @@
 # UX Token Architecture & Primitive Conformance Exceptions Report (Exceptions 01)
 
-**Document Version:** 1.0.0
+**Document Version:** 1.1.0
 **Date:** 2026-10-25
 **Status:** Architecture Audit & Exception Tracking
 **Target Application:** NextGenTP / AI Search Agent (`ai-search-agent`)
@@ -20,7 +20,7 @@ As defined in the NextGenTP UX Token Architecture (`DESIGN.md`, `docs/plans/UX/u
 
 While Phase 6 of the UX Token Architecture plan enforced zero raw hex color literals via `tests/ux_token_coverage_ratchet.test.ts`, **a major architectural gap remains**: numerous domain panels and components render JSX using raw HTML controls (`<button>`, `<input>`, `<select>`, `<textarea>`, `<table>`, `<th>`, `<td>`, `<tr>`) or hand-rolled container boxes (`style={{ border: "...", borderRadius: "..." }}`) **without importing or using any `src/client/components/ui/` primitive**.
 
-This issue was highlighted in **Issue #1337 / #1382**, where the rebased gate caught `SocialPostingPanel.tsx` rendering interactive JSX without importing any `ui/` primitive. This report presents a comprehensive audit of all 85 TSX/JSX files in `src/client/`, identifying every non-conforming component exception across the application, analyzing the impact on dark/light/system theme consistency and WCAG AA accessibility, and setting out a prioritized remediation roadmap.
+This issue was highlighted in **Issue #1337 / #1382**, where the rebased gate caught `SocialPostingPanel.tsx` rendering interactive JSX without importing any `ui/` primitive. This report presents a comprehensive audit of all 85 TSX/JSX files in `src/client/`, identifying every non-conforming component exception across the application, analyzing the impact on dark/light/system theme consistency and WCAG AA accessibility, and setting out a prioritized remediation roadmap and automated anti-drift governance framework.
 
 ---
 
@@ -313,9 +313,48 @@ Phase 4: Automated CI Enforcement Pin (Final)
 
 ---
 
+## Automated Governance & Anti-Drift Framework
+
+To guarantee that **UX drift**, **architecture drift**, and **standards drift** do not recur as the codebase evolves, NextGenTP employs an automated, multi-layered anti-drift framework embedded directly into CI/CD workflows and developer pre-commit hooks.
+
+### 1. How to Ensure UX Drift Does Not Happen in the Future
+
+* **Automated Vitest Ratchet & Inventory Pins:**
+  - **Zero Raw Color Literal Gate:** `tests/ux_token_coverage_ratchet.test.ts` acts as a hard zero-tolerance gate that fails CI if any raw color literal (hex, rgb, hsl) is introduced outside designated token sources (`tokens.css`, `designTokens.ts`).
+  - **UI Primitives Inventory Pin:** `tests/ui_primitives_inventory.test.ts` enforces that all reusable components in `src/client/components/ui/` are exported, tested, and inventoried.
+  - **Ratcheted Primitive Usage Gate (Next Step):** Extend `tests/ui_primitives_inventory.test.ts` with a ratcheted allowlist for raw HTML controls (`<button>`, `<input>`, `<select>`, `<table>`). Any PR introducing a new raw HTML element in domain panels will fail CI automatically unless it imports from `components/ui/`.
+* **Automated Token Mirror Synchronization:**
+  - `scripts/gen-design-tokens.mjs --check` runs in `npm run check` and CI. It parses `tokens.css` and ensures `designTokens.ts` remains 100% in sync, preventing TypeScript/CSS token drift.
+* **Density & Theme Verification:**
+  - Pre-paint theme bootstrap script (`appearance-bootstrap` in `index.html`) guarantees zero-FOUC theme application.
+  - Automated Vitest tests (`tests/theme_preferences.test.ts`) assert that dark, light, system, and high-contrast modes resolve consistently across tabs and localStorage.
+
+### 2. How to Ensure Architecture Drift Does Not Happen in the Future
+
+* **Automated Structural Inventory Pins:**
+  - **Thin Router Pin (`tests/thin_router_inventory.test.ts`):** Enforces that API routes remain thin delegators to service logic and DOs rather than monoliths.
+  - **Class & Schema Inventory Pins (`tests/orchestrator_class_inventory.test.ts`, `tests/schema_single_source.test.ts`):** Pin key architectural interfaces and prevent ad-hoc schema duplication across frontend and backend boundaries.
+* **Strict Layer Separation Enforcement:**
+  - Architectural guidance (`docs/agents/ux-architecture.md`) mandates strict separation: Presentation Layer $\rightarrow$ Interaction Layer $\rightarrow$ Application API $\rightarrow$ Agent Orchestration $\rightarrow$ Persistent DO/KV Services.
+  - CI static analysis checks prevent client components from bypassing the interaction API layer or calling backend state directly.
+* **Pre-Merge Rebase & Gate Script (`scripts/verify-before-merge.sh`):**
+  - Requires developers/agents to rebase onto `origin/main` and pass all structural checks (`npm run check`) prior to merging any pull request.
+
+### 3. How to Ensure Standards Drift Does Not Happen in the Future
+
+* **Automated WCAG 2.2 AA Accessibility Audits:**
+  - Integrate `@axe-core/playwright` into the Playwright frontend verification pipeline to automatically test color contrast, ARIA roles, focus management, and touch target sizes ($24\times24\text{px}$ minimum / $44\times44\text{px}$ recommended) on every UI build.
+* **Agentic Security & OWASP Action Transparency (ASI-02 / ASI-03):**
+  - All consequential actions (trades, social posts, schedule mutations) require version-bound Approval Cards displaying exact payloads, cost exposure, and expiration timestamps.
+  - Static tests verify that backend authorization remains authoritative and that client disabling of buttons is treated purely as visual feedback, not security control.
+* **AGENTS.md & GitOps Delivery Protocol:**
+  - `AGENTS.md` and `docs/agents/gitops.md` govern agent role boundaries and delivery rules. Agents are programmatically required to execute `npm run check` and run pre-commit verification steps before submitting code.
+
+---
+
 ## Conclusion & Verification Plan
 
-This report documents all 44 exception files (28 zero-primitive exceptions + 16 partial exceptions) currently bypassing UX primitives. Remediating these components will complete NextGenTP's transition to a fully composable, WCAG 2.2 AA compliant, and density-aware design system.
+This report documents all 44 exception files (28 zero-primitive exceptions + 16 partial exceptions) currently bypassing UX primitives and sets forth the automated governance mechanisms preventing drift.
 
 ### Verification Commands
 Future refactoring PRs must verify compliance with:
