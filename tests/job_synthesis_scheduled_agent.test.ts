@@ -120,15 +120,35 @@ describe("synthesized schedules in ScheduledAgent DO storage (#1446)", () => {
     );
   });
 
-  it("one-shot synthesis via the agent carries no cron and stays pending", async () => {
+  it("killing a synthesized schedule persists, is terminal, and stays enumerable (#1468)", async () => {
     const { ctx } = makeCtx();
     const agent = new (ScheduledAgent as any)(ctx, makeEnv());
-    const chain = compileGoal("Send me yesterday's report by email", {
+    const chainA = compileGoal("Create a NASDAQ100 screen and send it to Slack", {
+      budgetCents: 5000,
+    });
+    const chainB = compileGoal("Send me yesterday's report by email", {
       budgetCents: 0,
     });
-    const record = await agent.synthesizeSchedule(chain, { id: "synth-do-oneshot" });
-    expect(record.kind).toBe("one-shot");
-    expect(record.cron).toBeNull();
-    expect(record.status).toBe("pending");
+    await agent.synthesizeSchedule(chainA, { id: "synth-do-kill-a", cron: "0 6 * * *" });
+    await agent.synthesizeSchedule(chainB, { id: "synth-do-kill-b" });
+    await agent.approveSynthesizedSchedule("synth-do-kill-a");
+    const killed = await agent.killSynthesizedSchedule("synth-do-kill-a");
+    expect(killed.status).toBe("killed");
+    // Terminal: approval of a killed record throws.
+    await expect(agent.approveSynthesizedSchedule("synth-do-kill-a")).rejects.toThrow(
+      /killed/,
+    );
+    // The other record is untouched; the killed one stays enumerable.
+    const synth = await agent.listSynthesizedSchedules();
+    expect(synth.find((r: any) => r.id === "synth-do-kill-b")?.status).toBe("pending");
+    expect(synth.filter((r: any) => r.status === "killed").map((r: any) => r.id)).toEqual([
+      "synth-do-kill-a",
+    ]);
+    // Re-kill is a no-op, unknown ids throw.
+    await agent.killSynthesizedSchedule("synth-do-kill-a");
+    expect((await agent.listSynthesizedSchedules())).toHaveLength(2);
+    await expect(agent.killSynthesizedSchedule("synth-nope")).rejects.toThrow(
+      /Unknown synthesized schedule/,
+    );
   });
 });

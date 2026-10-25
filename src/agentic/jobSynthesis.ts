@@ -78,8 +78,15 @@ import { isDue, isValidCron } from "../schedule";
 /** DO storage key for synthesized records — never the `goals` key. */
 export const SYNTHESIZED_SCHEDULES_KEY = "synthesizedSchedules";
 
-/** Lifecycle of a synthesized record: pending until a human approves. */
-export type SynthesizedStatus = "pending" | "approved";
+/**
+ * Lifecycle of a synthesized record: pending until a human approves.
+ * "killed" is the Phase 6 (#1468) terminal governance status: a killed
+ * record never fires (`shouldFireSynthesized` fires ONLY "approved"
+ * records, so no predicate change was needed) and can never be
+ * approved — see `approveSynthesizedRecord`. The Phase 3 confirmation
+ * gate itself is unchanged.
+ */
+export type SynthesizedStatus = "pending" | "approved" | "killed";
 
 /**
  * A synthesized schedule/job record, derived from a Phase 2 compiled
@@ -268,11 +275,21 @@ export function synthesizeSchedule(
  * Approve ONE synthesized record: pending → approved. Already
  * approved records are returned unchanged (idempotent, never
  * duplicated). This is the only transition to live.
+ *
+ * Phase 6 (#1468): a killed record can NEVER be approved — killed is
+ * terminal, so approving it would resurrect a chain the kill switch
+ * stopped. The throw keeps the kill terminal without touching the
+ * pending → approved gate itself.
  */
 export function approveSynthesizedRecord(
   record: SynthesizedSchedule,
   approvedAt?: string,
 ): SynthesizedSchedule {
+  if (record.status === "killed") {
+    throw new Error(
+      `Cannot approve killed synthesized schedule: ${record.id} — killed is terminal.`,
+    );
+  }
   if (record.status === "approved") return record;
   return {
     ...record,
