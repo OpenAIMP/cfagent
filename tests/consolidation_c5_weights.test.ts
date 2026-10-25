@@ -8,10 +8,13 @@
  * - Reselection on v2-for-regime weights: the informational weight on
  *   a proposal entry is the run regime's v2 value, not another
  *   regime's, and the proposal shape is unchanged.
- * - /adaptation/weights + /adaptation/weights/run behind the new
- *   screening.adaptationWeightsV2Routes flag (default OFF): flag-off
- *   responses are the v1 responses verbatim; flag-on responses carry
- *   v2 weights with weightsSource "v2" and the v2 adjustment result.
+ * - /adaptation/weights + /adaptation/weights/run + the candidate
+ *   evaluation weights read on v2 ALWAYS (#1257 flip): the
+ *   screening.adaptationWeightsV2Routes flag is retired — v1 rows
+ *   present in the store are ignored by these routes, and the legacy
+ *   flag setting is a no-op. The v1 module itself stays until the
+ *   retirement PR (stagedPromotion still reads v1 for promotion
+ *   baselines).
  */
 import { describe, it, expect, vi } from "vitest";
 import {
@@ -130,24 +133,13 @@ describe("v2 weight reads", () => {
   });
 });
 
-describe("/adaptation/weights behind the v2-routes flag", () => {
-  it("flag-off: v1 weights + v1 evaluation, no weightsSource marker", async () => {
-    const { ctx, orm } = routeCtx();
-    setStrategyWeight(orm as any, "strat-a", 1.5, NOW);
-    setStrategyWeight(orm as any, "strat-b", 1.0, NOW);
-    const { data } = await call(ctx, "GET", "/api/adaptation/weights");
-    expect(data.weights).toEqual({ "strat-a": 1.5, "strat-b": 1.0 });
-    expect(data.weightsSource).toBeUndefined();
-    // (1.5*0.6*30 + 1.0*0.4*10) / (1.5*30 + 1.0*10) = 31/55
-    expect(data.evaluation.weightedWinRate).toBeCloseTo(31 / 55, 10);
-    expect(data.evaluation.unweightedWinRate).toBe(0.5);
-  });
-
-  it("flag-on: collapsed v2 weights + regime map + weightsSource v2", async () => {
-    const { ctx, orm, sql, settings } = routeCtx();
+describe("/adaptation/weights on v2 always (#1257 flip)", () => {
+  it("v2 weights win over v1 rows with no flag set", async () => {
+    const { ctx, orm, sql } = routeCtx();
     seedV2(sql);
+    // Distractor v1 rows: the flipped routes must ignore them.
     setStrategyWeight(orm as any, "strat-a", 9.9, NOW);
-    settings.set("screening.adaptationWeightsV2Routes", "1");
+    setStrategyWeight(orm as any, "strat-b", 9.9, NOW);
     const { data } = await call(ctx, "GET", "/api/adaptation/weights");
     expect(data.weights["strat-a"]).toBeCloseTo(1.4, 10);
     expect(data.weights["strat-b"]).toBe(2.0);
@@ -158,9 +150,17 @@ describe("/adaptation/weights behind the v2-routes flag", () => {
     expect(data.evaluation.weightedWinRate).toBeCloseTo(33.2 / 62, 10);
   });
 
-  it("flag-on run: v2 adjustment result with weightsSource v2; second run in the same week skips", async () => {
-    const { ctx, settings } = routeCtx();
+  it("the legacy flag setting is ignored: same v2 response with the flag set", async () => {
+    const { ctx, sql, settings } = routeCtx();
+    seedV2(sql);
     settings.set("screening.adaptationWeightsV2Routes", "1");
+    const { data } = await call(ctx, "GET", "/api/adaptation/weights");
+    expect(data.weights["strat-a"]).toBeCloseTo(1.4, 10);
+    expect(data.weightsSource).toBe("v2");
+  });
+
+  it("run: v2 adjustment result with weightsSource v2; second run in the same week skips", async () => {
+    const { ctx } = routeCtx();
     const first = await call(ctx, "POST", "/api/adaptation/weights/run", {});
     expect(first.data.success).toBe(true);
     expect(first.data.weightsSource).toBe("v2");
@@ -173,11 +173,59 @@ describe("/adaptation/weights behind the v2-routes flag", () => {
     expect(forced.data.skipped).toBeUndefined();
   });
 
-  it("flag-off run: v1 adjustment result, no weightsSource marker", async () => {
-    const { ctx } = routeCtx();
-    const { data } = await call(ctx, "POST", "/api/adaptation/weights/run", {});
+  it("evaluate replays against collapsed v2 weights with no flag set", async () => {
+    const { ctx, orm, sql, agent } = routeCtx();
+    // v2: Fine at 1.4 (single regime → collapsed 1.4). v1 distractor: 9.9.
+    (sql as any).tables.set("mas_strategy_weights_v2", [
+      { strategy: "Fine", regime: "bull", weight: 1.4, version: 1, updated_at: NOW.toISOString() },
+    ]);
+    setStrategyWeight(orm as any, "Fine", 9.9, NOW);
+    (sql as any).tables.set("mas_improvement_candidates", [
+      {
+        id: "cand_cap",
+        target: "strategy-weight-cap:Fine",
+        change_json: JSON.stringify({ action: "raise-weight-cap", parameter: "weightCap", from: 2.0, to: 2.5, description: "Raise Fine cap." }),
+        hypothesis: "Fine wins more at a higher cap.",
+        expected_metric: "weightedWinRate",
+        expected_direction: "increase",
+        evidence_refs: "[]",
+        provenance_source: "track-record",
+        provenance_id: "Fine",
+        status: "queued",
+        supersedes_id: null,
+        created_at: NOW.toISOString(),
+        updated_at: NOW.toISOString(),
+      },
+    ]);
+    // 10 Fine ideas (6 wins) + 10 Other ideas (5 wins), all evaluated.
+    const ideas: any[] = [];
+    for (let i = 0; i < 10; i++) {
+      ideas.push({
+        runId: "run_2026-10", runCreatedAt: "2026-10-20T00:00:00.000Z", symbol: `F${i}`,
+        structure: "Fine", outlook: "bullish", thesis: "t", invalidation: "", entrySpot: 100,
+        evaluation: { evaluatedAt: "2026-10-20T00:00:00.000Z", invalidated: false, pnlEstimatePerUnit: i < 6 ? 1 : -1, rMultiple: null, evalSpot: 101, directionCorrect: i < 6, notes: [] },
+      });
+    }
+    for (let i = 0; i < 10; i++) {
+      ideas.push({
+        runId: "run_2026-10", runCreatedAt: "2026-10-20T00:00:00.000Z", symbol: `O${i}`,
+        structure: "Other", outlook: "bullish", thesis: "t", invalidation: "", entrySpot: 100,
+        evaluation: { evaluatedAt: "2026-10-20T00:00:00.000Z", invalidated: false, pnlEstimatePerUnit: i < 5 ? 1 : -1, rMultiple: null, evalSpot: 101, directionCorrect: i < 5, notes: [] },
+      });
+    }
+    (agent.getTrackRecord as any).mockResolvedValue({
+      published: 20, evaluated: 20, invalidated: 0, winRate: 0.55,
+      directionAccuracy: null, avgPnlPerUnit: null, avgRMultiple: null,
+      byStrategy: [], byPeriod: [], ideas,
+    });
+    const { data } = await call(ctx, "POST", "/api/adaptation/candidates/evaluate", { candidateId: "cand_cap" });
     expect(data.success).toBe(true);
-    expect(data.weightsSource).toBeUndefined();
-    expect(Array.isArray(data.adjusted)).toBe(true);
+    expect(data.evaluation.method).toBe("counterfactual-replay");
+    // v2 baseline: Fine at min(1.4, 2.0) = 1.4, Other at default 1.0:
+    // (1.4*6 + 1.0*5) / (1.4*10 + 1.0*10) = 13.4/24. v1 would give
+    // Fine at min(9.9, 2.0) = 2.0 → 17/30. The baseline pins the source.
+    expect(data.evaluation.baselineMetric).toBeCloseTo(13.4 / 24, 10);
+    expect(data.evaluation.candidateMetric).toBeCloseTo(20 / 35, 10);
+    expect(data.evaluation.sampleSize).toBe(20);
   });
 });

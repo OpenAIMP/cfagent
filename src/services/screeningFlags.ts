@@ -34,7 +34,6 @@ export const SCREENING_FLAG_KEYS = {
   nlqFitDiscovery: "screening.nlqFitDiscovery",
   weightsV2Ranking: "screening.weightsV2Ranking",
   scheduledPaused: "screening.scheduledPaused",
-  adaptationWeightsV2Routes: "screening.adaptationWeightsV2Routes",
 } as const;
 
 export type ScreeningSettingRead = (key: string) => string | null;
@@ -162,18 +161,6 @@ export function isWeightsV2RankingEnabled(read: ScreeningSettingRead): boolean {
 }
 
 /**
- * Consolidation C5 (#1361, #1257): /adaptation/weights, its /run job,
- * and the candidate-evaluation weights read from v2 instead of v1.
- * Default OFF; read failure = OFF. The flag-off path is the legacy
- * v1 path verbatim, so flipping is a manual rollout decision — the
- * v1 module stays until the retirement PR (stagedPromotion still
- * reads v1 for promotion baselines).
- */
-export function isAdaptationWeightsV2RoutesEnabled(read: ScreeningSettingRead): boolean {
-  return readBool(read, SCREENING_FLAG_KEYS.adaptationWeightsV2Routes, false);
-}
-
-/**
  * Scheduled autonomous screening steps are paused. Default (absent
  * key) = not paused; read failure = PAUSED (fail-closed, the
  * kill-switch idiom — a pause state that cannot be verified halts).
@@ -200,7 +187,6 @@ export function readScreeningControls(read: ScreeningSettingRead): {
   nlqFitDiscovery: boolean;
   weightsV2Ranking: boolean;
   scheduledPaused: boolean;
-  adaptationWeightsV2Routes: boolean;
 } {
   return {
     rolloutStage: getScreeningRolloutStage(read),
@@ -208,6 +194,5 @@ export function readScreeningControls(read: ScreeningSettingRead): {
     nlqFitDiscovery: isNlqFitDiscoveryEnabled(read),
     weightsV2Ranking: isWeightsV2RankingEnabled(read),
     scheduledPaused: isScreeningScheduledPaused(read),
-    adaptationWeightsV2Routes: isAdaptationWeightsV2RoutesEnabled(read),
   };
 }
