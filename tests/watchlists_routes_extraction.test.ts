@@ -229,21 +229,25 @@ describe("handleWatchlistsRoutes behavior", () => {
     expect(last.ctor[3]).toBe("PROD");
   });
 
-  it("falls back to sessionId/default_trader when no user header is present", async () => {
+  it("fails closed with 401 when no user header is present (#1185: no sessionId/default_trader fallback)", async () => {
     const ctx = baseCtx();
-    await handleWatchlistsRoutes(
+    const before = mocks.seen.length;
+    const res = await handleWatchlistsRoutes(
       req("GET", "/api/etrade/watchlists"),
       urlOf("/api/etrade/watchlists"),
       "/api/etrade/watchlists",
       "sess-9",
       ctx
     );
-    expect(mocks.seen.at(-1)!.ctor[2]).toBe("sess-9");
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(401);
+    // No E*TRADE service may be constructed under a synthetic identity.
+    expect(mocks.seen.length).toBe(before);
   });
 
   it("returns 404 for a missing watchlist id", async () => {
     const res = await handleWatchlistsRoutes(
-      req("GET", "/api/etrade/watchlist/details?id=missing"),
+      req("GET", "/api/etrade/watchlist/details?id=missing", undefined, { "x-user-login": "alice" }),
       urlOf("/api/etrade/watchlist/details?id=missing"),
       "/api/etrade/watchlist/details",
       "s",
@@ -256,7 +260,7 @@ describe("handleWatchlistsRoutes behavior", () => {
 
   it("returns 400 when the delete id is missing", async () => {
     const res = await handleWatchlistsRoutes(
-      req("POST", "/api/etrade/watchlist/delete", {}),
+      req("POST", "/api/etrade/watchlist/delete", {}, { "x-user-login": "alice" }),
       urlOf("/api/etrade/watchlist/delete"),
       "/api/etrade/watchlist/delete",
       "s",
@@ -270,7 +274,7 @@ describe("handleWatchlistsRoutes behavior", () => {
   it("normalizes create-watchlist args exactly as the inline code did", async () => {
     const ctx = baseCtx();
     const res = await handleWatchlistsRoutes(
-      req("POST", "/api/etrade/watchlist/create", { name: "  My List  ", symbols: "not-an-array" }),
+      req("POST", "/api/etrade/watchlist/create", { name: "  My List  ", symbols: "not-an-array" }, { "x-user-login": "alice" }),
       urlOf("/api/etrade/watchlist/create"),
       "/api/etrade/watchlist/create",
       "s",
@@ -285,7 +289,7 @@ describe("handleWatchlistsRoutes behavior", () => {
 
   it("defaults the create name when none is supplied", async () => {
     const res = await handleWatchlistsRoutes(
-      req("POST", "/api/etrade/watchlist/create", {}),
+      req("POST", "/api/etrade/watchlist/create", {}, { "x-user-login": "alice" }),
       urlOf("/api/etrade/watchlist/create"),
       "/api/etrade/watchlist/create",
       "s",
@@ -297,7 +301,7 @@ describe("handleWatchlistsRoutes behavior", () => {
 
   it("save-screen defaults the name and forwards symbols/items", async () => {
     const res = await handleWatchlistsRoutes(
-      req("POST", "/api/etrade/watchlist/save-screen", { symbols: ["AAPL"], items: [{ s: "AAPL" }] }),
+      req("POST", "/api/etrade/watchlist/save-screen", { symbols: ["AAPL"], items: [{ s: "AAPL" }] }, { "x-user-login": "alice" }),
       urlOf("/api/etrade/watchlist/save-screen"),
       "/api/etrade/watchlist/save-screen",
       "s",
@@ -311,7 +315,7 @@ describe("handleWatchlistsRoutes behavior", () => {
   it("returns 500 with the original message when the service throws", async () => {
     mocks.fns.getWatchlists.mockRejectedValueOnce(new Error("etrade down"));
     const res = await handleWatchlistsRoutes(
-      req("GET", "/api/etrade/watchlists"),
+      req("GET", "/api/etrade/watchlists", undefined, { "x-user-login": "alice" }),
       urlOf("/api/etrade/watchlists"),
       "/api/etrade/watchlists",
       "s",
@@ -324,7 +328,7 @@ describe("handleWatchlistsRoutes behavior", () => {
     // Non-Error throws fall back to the generic message.
     mocks.fns.getWatchlists.mockRejectedValueOnce("string-failure");
     const res2 = await handleWatchlistsRoutes(
-      req("GET", "/api/etrade/watchlists"),
+      req("GET", "/api/etrade/watchlists", undefined, { "x-user-login": "alice" }),
       urlOf("/api/etrade/watchlists"),
       "/api/etrade/watchlists",
       "s",
