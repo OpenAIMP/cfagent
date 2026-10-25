@@ -1,5 +1,12 @@
 import { Agent } from "agents";
 import type { Env } from "../types";
+import type { CompiledChain } from "../orchestrate";
+import {
+  approveSynthesizedInList,
+  SYNTHESIZED_SCHEDULES_KEY,
+  synthesizeSchedule as synthesizeChainSchedule,
+  type SynthesizedSchedule,
+} from "../agentic/jobSynthesis";
 import {
   DEFAULT_SCHEDULES,
   isDue,
@@ -448,6 +455,68 @@ export class ScheduledAgent extends Agent<Env> {
     goal.enabled = enabled;
     await this.saveGoals(goals);
     return true;
+  }
+
+  /**
+   * Issue #1446 ([AGENTIC] Phase 3): synthesized-schedule storage.
+   *
+   * Synthesized records live under the `synthesizedSchedules` DO key,
+   * NEVER under the `goals` key — `onCron`/`triggerGoal` read only
+   * `goals`, so a pending (or approved-but-unmaterialized) record
+   * structurally cannot fire through the existing paths. These
+   * methods create pending records and flip exactly one record to
+   * approved; they never create a goals-list entry, a mas_async_jobs
+   * row, or a shard job (firing/materialization is follow-up work).
+   */
+  private async getSynthesized(): Promise<SynthesizedSchedule[]> {
+    const stored =
+      await this.ctx.storage.get<SynthesizedSchedule[]>(
+        SYNTHESIZED_SCHEDULES_KEY,
+      );
+    return stored ?? [];
+  }
+
+  private async saveSynthesized(
+    records: SynthesizedSchedule[],
+  ): Promise<void> {
+    await this.ctx.storage.put(SYNTHESIZED_SCHEDULES_KEY, records);
+  }
+
+  /** List all synthesized schedule/job records (pending + approved). */
+  async listSynthesizedSchedules(): Promise<SynthesizedSchedule[]> {
+    return this.getSynthesized();
+  }
+
+  /**
+   * Synthesize a schedule/job record from a compiled chain. Always
+   * pending (see src/agentic/jobSynthesis.ts — the confirmation
+   * gate); duplicate ids are rejected.
+   */
+  async synthesizeSchedule(
+    chain: CompiledChain,
+    opts: { cron?: string | null; id?: string; timeZone?: string },
+  ): Promise<SynthesizedSchedule> {
+    const records = await this.getSynthesized();
+    const record = synthesizeChainSchedule(chain, opts);
+    if (records.some((r) => r.id === record.id)) {
+      throw new Error(`Synthesized schedule already exists: ${record.id}`);
+    }
+    records.push(record);
+    await this.saveSynthesized(records);
+    return record;
+  }
+
+  /**
+   * Approve one synthesized record (pending → approved). The ONLY
+   * transition to live; unknown ids throw; re-approving is a no-op.
+   */
+  async approveSynthesizedSchedule(
+    id: string,
+  ): Promise<SynthesizedSchedule> {
+    const records = await this.getSynthesized();
+    const updated = approveSynthesizedInList(records, id);
+    await this.saveSynthesized(updated);
+    return updated.find((r) => r.id === id)!;
   }
 
   /**
