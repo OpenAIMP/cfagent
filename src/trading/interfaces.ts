@@ -66,6 +66,23 @@ export interface PlaceOrderParams {
   strategyNetDebit?: number;
 }
 
+/**
+ * Issue #1393 — frozen snapshot of a previewed proposal's material
+ * terms, captured at approval time. When a settle caller supplies
+ * these, the platform must refuse execution if the CURRENT draft
+ * terms differ: a proposal edited after approval cannot execute
+ * under the old approval (invariant 5). The parameter is optional
+ * so existing orderId-only callers keep their current behaviour;
+ * callers that carry an approval snapshot pass it through.
+ */
+export interface ExpectedTradeTerms {
+  symbol: string;
+  action: string;
+  quantity: number;
+  price: number;
+  totalValue: number;
+}
+
 export interface ITradingPlatform {
   readonly platformId: TradingPlatformId;
   readonly name: string;
@@ -77,7 +94,7 @@ export interface ITradingPlatform {
   getPositions(accountKey?: string, includeBalance?: boolean): Promise<{ account: ETradeAccount; positions: ETradePosition[] }>;
   getPositionLots?(accountKey: string, positionId: string): Promise<ETradePositionLot[]>;
   previewOrder(params: OrderPreviewParams): Promise<ETradeOrderDraft>;
-  executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected"): ETradeOrderExecutionResult | Promise<ETradeOrderExecutionResult>;
+  executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected", expectedTerms?: ExpectedTradeTerms): ETradeOrderExecutionResult | Promise<ETradeOrderExecutionResult>;
   placeOrderRemote?(params: PlaceOrderParams): Promise<ETradeOrderExecutionResult>;
   /**
    * Options data reads (issue #291 T5b). Optional: platforms without an

@@ -9,7 +9,7 @@
 
 import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradePositionLot, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus, StockScreenerFilter, StockScreenResult, ETradeOptionChain, ETradeOptionExpireDate } from "../../types";
 import type { DatabaseORM } from "../../orm";
-import type { ITradingPlatform, OrderPreviewParams } from "../interfaces";
+import type { ExpectedTradeTerms, ITradingPlatform, OrderPreviewParams } from "../interfaces";
 import { etradeOrderKind, validateTradingOrderLegs } from "./optionOrders";
 import { ETradeRestClient } from "./client";
 import { isStubQuote } from "../quotePolicies";
@@ -462,7 +462,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     return draft;
   }
 
-  executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected"): ETradeOrderExecutionResult {
+  executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected", expectedTerms?: ExpectedTradeTerms): ETradeOrderExecutionResult {
     const now = new Date().toISOString();
 
     // 1. Strict HITL Gate: authorizer must be a verified human user DID
@@ -478,6 +478,27 @@ export class ETradeTradingPlatform implements ITradingPlatform {
 
     if (record.status !== "previewed") {
       throw new Error(`Order draft '${orderId}' cannot be executed. Current status is '${record.status}'. Only 'previewed' drafts may be executed.`);
+    }
+
+    // 2b. Issue #1393 (invariant 5): when the caller carries the
+    // approval's frozen terms, the CURRENT draft must still match
+    // them before any execution. A proposal edited after approval
+    // is refused here — before any status mutation and before any
+    // broker reference is minted — so the old approval can never
+    // settle the edited terms. Rejections are exempt: rejecting an
+    // edited draft moves no funds and needs no snapshot.
+    if (decision === "approved" && expectedTerms) {
+      const mismatch =
+        expectedTerms.symbol.toUpperCase() !== record.symbol.toUpperCase() ||
+        expectedTerms.action !== record.action ||
+        expectedTerms.quantity !== record.quantity ||
+        expectedTerms.price !== record.price ||
+        expectedTerms.totalValue !== record.totalValue;
+      if (mismatch) {
+        throw new Error(
+          `Order draft '${orderId}' terms changed since approval (expected ${expectedTerms.quantity} ${expectedTerms.symbol} @ ${expectedTerms.price}, current ${record.quantity} ${record.symbol} @ ${record.price}). Settlement refused: a fresh approval of the edited proposal is required.`,
+        );
+      }
     }
 
     const symbol = record.symbol;
