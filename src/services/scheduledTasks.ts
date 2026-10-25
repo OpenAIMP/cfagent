@@ -474,12 +474,12 @@ export class ScheduledTasksService {
     const universe = (options.universe as any) || "TECH";
     const sector = options.sector || options.filters?.sector || "ALL";
     if (!this.shardSubmit) {
-      return {
-        success: false,
-        taskType: "market_screen",
-        error: "Sharded runs require the async-job submission port; run unsharded or configure the host.",
-        timestamp,
-      } as any;
+      // Issue #1412 (mirror of #1369): a missing-port run is a
+      // failure, not a quiet return — throw so the caller's catch
+      // runs the full failure path (audit + session message +
+      // screener.failed bus event). The run still never executes
+      // unsharded under a sharded label.
+      throw new Error("Sharded runs require the async-job submission port; run unsharded or configure the host.");
     }
     try {
       const { planFeedStart } = await import("./shardJobs");
@@ -630,7 +630,12 @@ export class ScheduledTasksService {
       // untouched when the flag is absent — off runs keep today's
       // behaviour exactly.
       if (options.sharded) {
-        return this.autonomousMarketScreenSharded(options, userLogin, timestamp);
+        // Issue #1412: await (do not bare-return) so a rejection from
+        // the sharded path — e.g. the missing-port throw above — is
+        // caught by this function's catch instead of escaping to the
+        // caller. A bare `return` of a rejected promise bypasses the
+        // enclosing try/catch in an async function.
+        return await this.autonomousMarketScreenSharded(options, userLogin, timestamp);
       }
       // Issue #261/#270: delegate screening to ScreenerAgent (E*TRADE-only).
       // Issue #421: pass the sector through unset when none was chosen —
