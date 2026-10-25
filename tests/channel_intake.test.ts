@@ -77,6 +77,7 @@ import {
   type ChannelPrincipal,
 } from "../src/trading/channels/intake";
 import { ETradeEmailTradingService } from "../src/trading/email/agent";
+import { issueApprovalLink } from "../src/trading/channels/signedLinks";
 import { ETradeSlackTradingService } from "../src/trading/slack/agent";
 import type { Env, InboundEmailPayload } from "../src/types";
 
@@ -432,19 +433,39 @@ describe("channel service enforcement (#1262 Phase 1)", () => {
     expect(orm.trades.findById("ord_read_tier_approve")?.status).toBe("previewed");
   });
 
-  it("email: a trade-tier principal can approve (execution proceeds as before)", async () => {
+  it("email: a trade-tier principal approves via a signed link; a bare APPROVE is refused (Phase 5)", async () => {
     seedPreviewedTrade("ord_trade_tier_approve");
     const principal: ChannelPrincipal = {
       userLogin: "boss-login",
       authorizerDid: "did:user:email:boss@example.com",
       tier: "trade",
     };
-    const service = new ETradeEmailTradingService(baseEnv(), orm, sessionId, principal);
-    const result = await service.processInboundEmail({
+    const env = baseEnv({ CHANNEL_APPROVAL_LINK_SECRET: "test-link-secret-1262" });
+    const service = new ETradeEmailTradingService(env, orm, sessionId, principal);
+    // Bare APPROVE no longer executes, even for a trade-tier principal.
+    const refused = await service.processInboundEmail({
       from: "boss@example.com",
       to: "trade@agent.openaimp.com",
       subject: "Re: Preview",
       text: "APPROVE ord_trade_tier_approve",
+    });
+    expect(refused.success).toBe(false);
+    expect(refused.actionType).toBe("approval");
+    expect(refused.responseText).toMatch(/signed link/i);
+    expect(orm.trades.findById("ord_trade_tier_approve")?.status).toBe("previewed");
+    // The same approval with a valid signed link executes.
+    const issued = await issueApprovalLink(env, {
+      orderId: "ord_trade_tier_approve",
+      login: "boss-login",
+      address: "boss@example.com",
+      baseUrl: "https://agent.openaimp.com",
+    });
+    expect(issued).not.toBeNull();
+    const result = await service.processInboundEmail({
+      from: "boss@example.com",
+      to: "trade@agent.openaimp.com",
+      subject: "Re: Preview",
+      text: `APPROVE ord_trade_tier_approve\n${issued!.url}`,
     });
     expect(result.success).toBe(true);
     expect(result.actionType).toBe("approval");
