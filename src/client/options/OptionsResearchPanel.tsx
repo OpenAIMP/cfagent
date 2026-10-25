@@ -26,6 +26,7 @@ import { EtapiConfigModal } from "./EtapiConfigModal";
 import { AutonomousOptionsRuns } from "./AutonomousOptionsRuns";
 import { RawContractsScreener } from "./RawContractsScreener";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
+import { ThreeWayComparison, type ThreeWayComparisonData } from "./ThreeWayComparison";
 import type { RiskSubject } from "./riskManagementEngine";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import { TabHoverItem } from "../TabHoverItem";
@@ -777,6 +778,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   const [evaluations, setEvaluations] = useState<StrategyEvaluation[]>([]);
   const [result, setResult] = useState<StrategyRecommendationResult | null>(null);
   const [comparison, setComparison] = useState<ComparisonData | null>(null);
+  const [threeWay, setThreeWay] = useState<ThreeWayComparisonData | null>(null);
   const [screenMeta, setScreenMeta] = useState<any>(null);
   const [screenedContracts, setScreenedContracts] = useState<Array<Record<string, unknown>>>([]);
   const [excludedContracts, setExcludedContracts] = useState<any[]>([]);
@@ -849,7 +851,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
   }, [symbol, chainRefreshing]);
 
   const canRun = allowedStrategies.length > 0 && Boolean(symbol.trim()) && Boolean(targetPrice) && /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
-  const hasResults = Boolean(bestTrade || comparison || result || nlqResult);
+  const hasResults = Boolean(bestTrade || comparison || threeWay || result || nlqResult);
   useEffect(() => {
     onJobStateChange?.(loading ? "running" : hasResults ? "ready" : "idle");
   }, [loading, hasResults, onJobStateChange]);
@@ -891,6 +893,31 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
     });
   };
 
+  // The panel's current request, shared by the rank / best-trade /
+  // annotation-compare modes and the #1257 three-way generator
+  // comparison — one body construction, not three copies that drift.
+  const requestBody = () => ({
+    symbol: symbol.trim().toUpperCase(),
+    thesis,
+    targetPrice: Number(targetPrice),
+    targetDate,
+    expectedIvDirection,
+    maxPlannedLoss: Number(maxPlannedLoss),
+    minRewardRisk: Number(minRewardRisk),
+    minDte: Number(minDte),
+    maxDte: Number(maxDte),
+    minVolume: minVolume.trim() ? Number(minVolume) : undefined,
+    minOpenInterest: minOpenInterest.trim() ? Number(minOpenInterest) : undefined,
+    maxSpreadPct: maxSpreadPct.trim() ? Number(maxSpreadPct) : undefined,
+    maxQuoteAgeSeconds: Number(maxQuoteAgeSeconds),
+    contractLimit: Number(contractLimit),
+    candidateLimit: Number(candidateLimit),
+    maxStrikesPerSide: Number(maxStrikesPerSide),
+    maxIronCondors: Number(maxIronCondors),
+    allowedStrategies,
+    eventPolicy,
+  });
+
   const run = async (mode: "rank" | "best" | "compare") => {
     setLoading(true);
     setError("");
@@ -898,6 +925,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
     setBestTrade(null);
     setEvaluations([]);
     setComparison(null);
+    setThreeWay(null);
     setScreenedContracts([]);
     try {
       const endpoint = mode === "best"
@@ -913,25 +941,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           ...(userLogin ? { "x-user-login": userLogin } : {}),
         },
         body: JSON.stringify({
-          symbol: symbol.trim().toUpperCase(),
-          thesis,
-          targetPrice: Number(targetPrice),
-          targetDate,
-          expectedIvDirection,
-          maxPlannedLoss: Number(maxPlannedLoss),
-          minRewardRisk: Number(minRewardRisk),
-          minDte: Number(minDte),
-          maxDte: Number(maxDte),
-          minVolume: minVolume.trim() ? Number(minVolume) : undefined,
-          minOpenInterest: minOpenInterest.trim() ? Number(minOpenInterest) : undefined,
-          maxSpreadPct: maxSpreadPct.trim() ? Number(maxSpreadPct) : undefined,
-          maxQuoteAgeSeconds: Number(maxQuoteAgeSeconds),
-          contractLimit: Number(contractLimit),
-          candidateLimit: Number(candidateLimit),
-          maxStrikesPerSide: Number(maxStrikesPerSide),
-          maxIronCondors: Number(maxIronCondors),
-          allowedStrategies,
-          eventPolicy,
+          ...requestBody(),
           ...(mode === "best" || mode === "compare" ? { riskProfile, alternatives: 3 } : {}),
         }),
       });
@@ -953,6 +963,48 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       setExcludedContracts(data.contractRejections || []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Strategy research request failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // #1257 comparison surfacing: the three-way generator comparison
+  // (POST /trading/options/comparison) over the panel's current
+  // request. Distinct from run("compare") — that is the #47
+  // annotation compare (quant candidates re-ranked by the LLM);
+  // this compares three GENERATORS (llm / quant / hybrid) over one
+  // snapshot. Read-only: it renders the artifact and never feeds
+  // back into production rankings.
+  const runThreeWay = async () => {
+    setLoading(true);
+    setError("");
+    setResult(null);
+    setBestTrade(null);
+    setEvaluations([]);
+    setComparison(null);
+    setThreeWay(null);
+    setScreenedContracts([]);
+    try {
+      const response = await fetch("/api/trading/options/comparison", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-environment": activeEnv,
+          ...(userLogin ? { "x-user-login": userLogin } : {}),
+        },
+        body: JSON.stringify({ ...requestBody(), riskProfile }),
+      });
+      const data = await response.json() as any;
+      if (!response.ok) throw new Error(data.error || "Generator comparison request failed");
+      if (data.status === "no_candidates") {
+        throw new Error(data.reason || "The comparison snapshot has no screened contracts");
+      }
+      setThreeWay(data as ThreeWayComparisonData);
+      setScreenMeta(data.screen);
+      setScreenedContracts(data.contracts || []);
+      setExcludedContracts(data.contractRejections || []);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Generator comparison request failed");
     } finally {
       setLoading(false);
     }
@@ -1472,6 +1524,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           <button type="button" disabled={loading || !canRun} onClick={() => void run("compare")}>
             {loading ? "Comparing…" : "Compare Quant vs AI"}
           </button>
+          <button type="button" disabled={loading || !canRun} onClick={() => void runThreeWay()}>
+            {loading ? "Comparing…" : "Compare generators (LLM / Quant / Hybrid)"}
+          </button>
         </div>
       </form>
 
@@ -1491,6 +1546,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         </div>
       )}
       {comparison && <RecommendationComparison data={comparison} onPreview={previewTrade} />}
+      {threeWay && <ThreeWayComparison data={threeWay} activeEnv={activeEnv} userLogin={userLogin} />}
       {(result?.evaluations || evaluations).length > 0 && <EvaluationTable evaluations={result?.evaluations || evaluations} />}
       {result && (
         <div className="options-results">

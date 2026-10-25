@@ -35,4 +35,24 @@ describe("options strategy NLQ parsing", () => {
     expect(u?.filters.scope).toMatchObject({ kind: "universe", maxSymbols: 8 });
     expect(u?.filters.riskProfile).toBe("conservative");
   });
+
+  it("routes arm-named comparison questions to the three-way comparison action", () => {
+    const i = parseOptionsStrategyIntent("Compare llm vs quant strategies for NVDA bullish target $260 max loss $500");
+    expect(i?.action).toBe("options_comparison");
+    expect(i?.filters.request.symbol).toBe("NVDA");
+    const h = parseOptionsStrategyIntent("Compare the hybrid and quant iron condors for SPY range bound");
+    expect(h?.action).toBe("options_comparison");
+    expect(h?.filters.request.symbol).toBe("SPY");
+  });
+
+  it("does not claim comparison for arm-less, cross-symbol, or scoped compare questions", () => {
+    // No arm words: stays a strategies question.
+    expect(parseOptionsStrategyIntent("Compare option strategies for NVDA bullish")?.action).toBe("options_strategies");
+    // Cross-symbol compare is not a single-snapshot comparison: the
+    // symbol-list scan answers it, not the comparison action.
+    expect(parseOptionsStrategyIntent("Compare NVDA vs AMD bullish strategies")?.action).not.toBe("options_comparison");
+    // Scoped (watchlist) compare: the scan wins; comparison is
+    // single-symbol only.
+    expect(parseOptionsStrategyIntent("Compare llm vs quant strategies across my Semis watchlist")?.action).toBe("options_opportunities");
+  });
 });
