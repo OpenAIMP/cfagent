@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MockSqlStorage } from "./mock-sql";
 
-import type { YahooDailyBar } from "../src/trading/yahooHistory";
+import type { YahooDailyBar } from "../src/trading/technicals";
 import {
   chainAggregatesFromContracts,
   type ChainContractLike,
@@ -253,7 +253,7 @@ describe("hashDiscoveryConfig", () => {
 describe("unified discovery action wiring", () => {
   it("fails honestly when the discovery SQL seam is not wired", async () => {
     const { UnifiedOptionsService } = await import("../src/trading/options/unifiedOptionsService");
-    const service = new UnifiedOptionsService({} as never, "trader");
+    const service = new UnifiedOptionsService({} as never);
     const res = await service.execute({ action: "discovery", symbols: ["SPY"] });
     expect(res.success).toBe(false);
     expect(res.summary).toContain("isn't wired");
