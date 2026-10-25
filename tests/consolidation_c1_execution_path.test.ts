@@ -662,7 +662,15 @@ describe("C1 R1: screening routes (goal-screen + backtest)", () => {
         "fetch",
         vi.fn(async (input: any) => {
           const url = String(input);
-          if (url.includes("fc.yahoo.com")) {
+          // Exact-hostname check (CodeQL js/incomplete-url-substring-sanitization).
+          const isFcYahoo = (() => {
+            try {
+              return new URL(url).hostname === "fc.yahoo.com";
+            } catch {
+              return false;
+            }
+          })();
+          if (isFcYahoo) {
             return {
               ok: true,
               status: 200,
