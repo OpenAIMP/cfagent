@@ -164,14 +164,14 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
         </label>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", flexWrap: "wrap" }}>
           <button type="submit" disabled={loading || !symbol.trim() || !question.trim()}>
-            {loading ? "Analyzing chains with Workers AI…" : "Ask LLM"}
+            {loading ? "Analyzing chains with Neural Engine…" : "Ask LLM"}
           </button>
           <button
             type="button"
             className="options-eval-llm-btn"
             disabled={loading || !symbol.trim() || !question.trim()}
             onClick={() => void runAnalysis(question, true)}
-            title="Force refresh live E*TRADE chains and update persistent SQLite cache"
+            title="Force refresh live chains and update market cache"
             style={{ minHeight: "38px" }}
           >
             🔄 Refresh Chains
@@ -256,9 +256,9 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
                     fontSize: "0.72rem",
                     fontWeight: 700,
                   }}
-                  title="Accelerated from SQLite options chain cache"
+                  title="Accelerated from local options chain cache"
                 >
-                  ⚡ Stored SQLite Cache
+                  ⚡ Stored Market Cache
                 </span>
               )}
             </div>

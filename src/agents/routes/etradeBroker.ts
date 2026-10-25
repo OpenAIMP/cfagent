@@ -47,7 +47,9 @@ import {
   type SizingCandidate,
 } from "../../services/positionSizing";
 import { generateHedgeProposals, resolveSpyPutContract } from "../../services/hedgeProposals";
-import { buildRecommendationBundle } from "../../services/recommendationBundle";
+import { buildRecommendationBundle, normalizeBundleCandidates, type BundleRouteCandidateBody } from "../../services/recommendationBundle";
+import { completeBundleRoute } from "./etradeBrokerBundle";
+import type { ScreeningChannel, ScreeningChannelResult } from "../../services/screeningDelivery";
 import { buildScenario, type ScenarioConstraints, type ScenarioShockGrid } from "../../services/goalScenarioEngine";
 import type { GoalKind } from "../../services/goalScenarioStore";
 import type { FalsificationInput } from "../../services/researchFalsification";
@@ -627,10 +629,24 @@ export async function handleEtradeBrokerRoutes(
   // post-trade risk + optimizer verdict + hedge/repair + alternatives
   // incl. no-trade), built by recommendationBundle over the live book.
   // Drafts only — this endpoint never places or previews an order.
+  //
+  // Issue #1162 (Phase 6): the body also accepts `candidates[]` (the
+  // builder was always multi-candidate; the first entry is the primary
+  // the concentration assessment describes), opt-in `persist: true`
+  // (record the bundle as a paper outcome in mas_outcomes via the
+  // Phase 4 persistence seam — the ORM satisfies its SqlStorage
+  // contract), and opt-in `deliver: { channels, emailTo }` (send the
+  // bundle text over the existing Slack/email/signed-webhook
+  // transports via screeningDelivery). Both are off unless requested:
+  // the Phase 4 response shape is unchanged for existing callers.
+  // C5 (#1361): opt-in `persistReport` stores the bundle via the
+  // shared store seam (source "bundle"); completion (persist +
+  // persistReport + deliver + response) lives in etradeBrokerBundle.
   if (path.endsWith("/etrade/portfolio-risk/bundle") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as {
         candidate?: StrategyCandidate;
+        candidates?: BundleRouteCandidateBody[];
         beta?: number | null;
         falsification?: FalsificationInput;
         goalKind?: GoalKind;
@@ -640,17 +656,22 @@ export async function handleEtradeBrokerRoutes(
         riskScore?: number;
         pickStatus?: "recommended" | "research_only" | "no_trade";
         pickConfidence?: "HIGH" | "MEDIUM" | "LOW";
+        persist?: boolean;
+        persistReport?: boolean;
+        deliver?: { channels?: ScreeningChannel[]; emailTo?: string };
       };
-      if (!body.candidate?.symbol || !Array.isArray(body.candidate.legs) || body.candidate.legs.length === 0) {
-        return Response.json({ error: "candidate with symbol and legs is required" }, { status: 400 });
+      const normalized = normalizeBundleCandidates(body);
+      if (!normalized.ok) {
+        return Response.json({ error: normalized.error }, { status: 400 });
       }
+      const primary = normalized.candidates[0];
       const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const report = await computePortfolioRisk(etrade);
       const concentration = await assessPortfolioConcentration(
         report,
         (a, b) => sharedCorrelationService.estimate(a, b),
-        body.candidate.symbol,
+        primary.candidate.symbol,
       ).catch(() => null);
       const measured = (concentration?.candidateAssessment?.correlations ?? [])
         .filter((c) => c.source === "measured" && c.value !== null)
@@ -665,13 +686,13 @@ export async function handleEtradeBrokerRoutes(
         constraints: body.constraints,
       });
       const bundle = buildRecommendationBundle({
-        candidates: [{
-          candidate: body.candidate,
-          beta: body.beta ?? null,
-          riskScore: body.riskScore,
-          requestedContracts: body.requestedContracts,
-          maxMeasuredCorrelation: measured.length ? Math.max(...measured) : null,
-        }],
+        candidates: normalized.candidates.map((c, i) => ({
+          ...c,
+          // The measured-correlation evidence belongs to the primary
+          // candidate's concentration assessment; other candidates
+          // carry no measured correlation rather than borrowing it.
+          maxMeasuredCorrelation: i === 0 && measured.length ? Math.max(...measured) : null,
+        })),
         report,
         scenario,
         falsification: body.falsification,
@@ -681,7 +702,15 @@ export async function handleEtradeBrokerRoutes(
         spyPut,
         repairAnalysis,
       });
-      return Response.json(bundle);
+
+      // C5 (#1361): completion lives in etradeBrokerBundle (the #995
+      // split pattern) so this file stays under the #359 50 KB target.
+      return completeBundleRoute(ctx, {
+        bundle,
+        primarySymbol: primary.candidate.symbol,
+        body,
+        userLogin,
+      });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to build recommendation bundle" }, { status: 500 });
     }

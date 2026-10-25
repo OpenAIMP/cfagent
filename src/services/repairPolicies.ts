@@ -1,0 +1,123 @@
+/**
+ * RepairPolicy — one proposal contract for portfolio repair
+ * (issue #1361, epic #1151 slice C5; #1257 family rationalization).
+ *
+ * Repair existed at two levels with an unfactored boundary:
+ * - RatioRepair (#355): position-level proposals for underwater long
+ *   stock, computed from the book (RepairAnalysis).
+ * - CompositionRepair: structure-level repair/roll operators, handed to
+ *   the bundle as pre-computed CompositionRepairInput values.
+ * Both are now RepairPolicy implementations over the ONE RepairOption
+ * contract; the bundle consumes policies, not modules. All mappings
+ * moved verbatim from buildRecommendationBundle, so bundle output is
+ * unchanged.
+ */
+import type { RepairAnalysis } from "./repairProposals";
+import { round2 } from "./cvarOptimizer";
+
+/** One repair proposal, as the bundle presents it. */
+export interface RepairOption {
+  kind: "ratio_repair" | "composition";
+  label: string;
+  costDollars: number;
+  riskRemovedDollars: number | null;
+  /** riskRemoved − cost when risk removed is known; otherwise −cost
+   *  (cost-first among unknowns) — the basis is stated per option. */
+  rankScore: number;
+  rankBasis: string;
+  noDownsideProtection?: boolean;
+  detail: string;
+}
+
+/** A pre-computed composition repair/roll candidate (caller-supplied). */
+export interface CompositionRepairInput {
+  label: string;
+  costDollars: number;
+  /** Contractual max-loss reduction in dollars, when the composition
+   *  gate measured it; omit when unknown (ranked cost-first, flagged). */
+  riskRemovedDollars?: number;
+  detail: string;
+}
+
+export interface RepairPolicyInput {
+  repairAnalysis?: RepairAnalysis | null;
+  compositionRepairs?: CompositionRepairInput[];
+}
+
+/** A repair policy: one level of repair, one proposal contract. */
+export interface RepairPolicy {
+  readonly policyKind: RepairOption["kind"];
+  options(input: RepairPolicyInput): RepairOption[];
+}
+
+/** #355 ratio repairs: position-level proposals from the book. */
+export class RatioRepairPolicy implements RepairPolicy {
+  readonly policyKind = "ratio_repair" as const;
+
+  options(input: RepairPolicyInput): RepairOption[] {
+    return (input.repairAnalysis?.proposals ?? []).map((p) => {
+      const cost = round2(Math.max(0, p.netDebitPerUnit) * 100 * p.units);
+      return {
+        kind: "ratio_repair" as const,
+        label: `${p.symbol} 1x2 call ratio repair (breakeven → $${p.breakevenAtExpiry})`,
+        costDollars: cost,
+        riskRemovedDollars: null,
+        rankScore: -cost,
+        rankBasis:
+          "Risk removed not directly measurable for the #355 ratio repair (it states breakeven/max-recovery, no downside protection); ranked cost-first among unknowns.",
+        noDownsideProtection: p.noDownsideProtection,
+        detail: p.rationale,
+      };
+    });
+  }
+}
+
+/** Composition repairs: structure-level candidates from the caller. */
+export class CompositionRepairPolicy implements RepairPolicy {
+  readonly policyKind = "composition" as const;
+
+  options(input: RepairPolicyInput): RepairOption[] {
+    return (input.compositionRepairs ?? []).map((r) => ({
+      kind: "composition" as const,
+      label: r.label,
+      costDollars: r.costDollars,
+      riskRemovedDollars: r.riskRemovedDollars ?? null,
+      rankScore:
+        r.riskRemovedDollars !== undefined
+          ? round2(r.riskRemovedDollars - r.costDollars)
+          : -r.costDollars,
+      rankBasis:
+        r.riskRemovedDollars !== undefined
+          ? "Ranked by risk removed minus cost (composition gate measurement)."
+          : "Risk removed unknown; ranked cost-first among unknowns.",
+      detail: r.detail,
+    }));
+  }
+}
+
+/** The default policy set: both repair levels, in contract order. */
+export const DEFAULT_REPAIR_POLICIES: RepairPolicy[] = [
+  new RatioRepairPolicy(),
+  new CompositionRepairPolicy(),
+];
+
+/**
+ * Run every policy and rank the combined options (rankScore desc,
+ * label asc). Status keys on the inputs being supplied, exactly as
+ * the builder did: a supplied-but-empty analysis still counts as
+ * supplied — the absence of proposals is data, not a missing input.
+ */
+export function buildRepairOptions(
+  input: RepairPolicyInput,
+  policies: RepairPolicy[] = DEFAULT_REPAIR_POLICIES,
+): { status: "proposals" | "none_supplied"; options: RepairOption[] } {
+  const options = policies.flatMap((policy) => policy.options(input));
+  options.sort((a, b) => b.rankScore - a.rankScore || a.label.localeCompare(b.label));
+  return {
+    status:
+      input.repairAnalysis || (input.compositionRepairs?.length ?? 0) > 0
+        ? "proposals"
+        : "none_supplied",
+    options,
+  };
+}

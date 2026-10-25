@@ -50,7 +50,7 @@
  *   fresh (getSession) — see iaaaSessionActivity.ts for why the
  *   60s isolate cache cannot enforce idle timeouts.
  * - Auth audit recording exists as a seam, not a production
- *   store. handleGithubCallbackWired records a Slice 5 login
+ *   store. completeWiredLogin records a Slice 5 login
  *   success/failure event ONLY when the caller supplies an
  *   auditStore AND an auditTenantId; recording is best-effort
  *   and never changes the login outcome. (Phase 2a said there
@@ -91,28 +91,34 @@ import type { KvLike } from "./kvResilience";
 import { DEFAULT_IDLE_TIMEOUT_MS } from "./sessionPolicy";
 import {
   createMemoryIdentityBindingStore,
+  deriveInternalUserId,
+  getInternalUserId,
   resolveOrCreateBinding,
   type IdentityBinding,
   type IdentityBindingStore,
 } from "./identityBinding";
 import {
+  createMembership,
+  type Membership,
+  type MembershipStore,
+} from "./authorization";
+import { ensureTenantMember } from "./iaaaAutoProvision";
+import {
+  recordIdMigration,
+  repairStrandedPlatformAdmin,
+} from "./iaaaMigration";
+import {
   createSession,
   SESSION_TTL,
   setSessionCookie,
-  verifyState,
 } from "./session";
 import { sessionStore } from "./session";
 import { createKvMembershipStore } from "./iaaaMembershipStore";
 import {
+  parseBootstrapListWithGenesis,
   resolveIaaaTenant,
   runWiredPostLogin,
 } from "./iaaaGithubEndToEnd";
-import {
-  exchangeGithubCode,
-  fetchGithubProfile,
-  GithubAuthError,
-  type GithubUserProfile,
-} from "./githubOAuth";
 
 export const GITHUB_ISSUER = "https://github.com";
 export const IAAA_BINDING_KEY_PREFIX = "iaaa-binding:";
@@ -133,17 +139,157 @@ export type GithubBindingResult =
   | { ok: false; code: GithubBindingErrorCode; error: string };
 
 /**
+ * Stores the login-time migration needs. Production callers
+ * (completeWiredLogin) always supply these — defaulted from Env
+ * when the caller omits them — so migration runs on every wired
+ * login. Direct callers that omit them get resolution without
+ * migration: a pre-existing minted binding is returned unchanged.
+ */
+export interface MigrationDeps {
+  membershipStore: MembershipStore;
+  aliasKv: KvLike;
+}
+
+export interface MigrationResult {
+  migrated: boolean;
+  binding: IdentityBinding;
+  oldInternalUserId?: string;
+}
+
+/** True when two role-binding lists grant identically, in order. */
+function sameRoleBindings(
+  a: readonly { role: string; scope: string; workspaceId?: string; resourceId?: string; expiresAtMs?: number; grantedBy: string }[],
+  b: readonly { role: string; scope: string; workspaceId?: string; resourceId?: string; expiresAtMs?: number; grantedBy: string }[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (binding, i) =>
+      binding.role === b[i].role &&
+      binding.scope === b[i].scope &&
+      binding.workspaceId === b[i].workspaceId &&
+      binding.resourceId === b[i].resourceId &&
+      binding.expiresAtMs === b[i].expiresAtMs &&
+      binding.grantedBy === b[i].grantedBy,
+  );
+}
+
+function sameMembershipSignature(a: Membership, b: Membership): boolean {
+  return (
+    a.tenantId === b.tenantId &&
+    a.workspaceId === b.workspaceId &&
+    sameRoleBindings(a.roleBindings, b.roleBindings)
+  );
+}
+
+/**
+ * #1182 — login-time migration of one binding to its derived id.
+ *
+ * Runs inside resolveProviderBinding, BEFORE post-login bootstrap
+ * provisioning (completeWiredLogin resolves first, then runs
+ * post-login work with the migrated id — so bootstrap entries
+ * match the derived id, never the retired minted one).
+ *
+ * Semantics, in order — chosen so a failed login retries to the
+ * same end state instead of locking the user out:
+ *  1. Move memberships: for each membership under the old id,
+ *     create an equivalent under the derived id (via the
+ *     provisioning path, createMembership) unless an equivalent
+ *     already exists there — that check is what makes a retry
+ *     after a partial move converge instead of duplicating.
+ *     A genuinely-revoked membership mirrors as revoked, with
+ *     its original revocation timestamp: migration never
+ *     resurrects access. Then revoke the old memberships that
+ *     are still active (already-revoked ones keep their
+ *     timestamp as evidence).
+ *  2. Record the old→new alias in the alias layer.
+ *  3. Rewrite the binding to the derived id (linkedAt and proof
+ *     preserved) and drop the stale reverse index entry for the
+ *     old id (best-effort: a failure there leaves a stale
+ *     pointer, never a wrong grant — the migration record is
+ *     the forward pointer).
+ * A failure in steps 1–2 fails the login (BINDING_FAILED) with
+ * the minted binding untouched or retryably half-moved; the
+ * binding rewrite is the commit point, after which a re-login
+ * is a no-op. Sessions, PDP, and authorization are untouched:
+ * they consume internalUserId opaquely.
+ */
+export async function migrateBindingToDerivedId(
+  bindingStore: IdentityBindingStore,
+  deps: MigrationDeps,
+  binding: IdentityBinding,
+  nowMs: number,
+): Promise<MigrationResult> {
+  const derived = await deriveInternalUserId(
+    binding.providerIssuer,
+    binding.providerSubject,
+  );
+  if (derived === binding.internalUserId) {
+    return { migrated: false, binding };
+  }
+  const oldId = binding.internalUserId;
+  const olds = await deps.membershipStore.getMembershipsByUser(oldId);
+  const news = await deps.membershipStore.getMembershipsByUser(derived);
+  for (const old of olds) {
+    if (!news.some((n) => sameMembershipSignature(old, n))) {
+      const created = await createMembership(deps.membershipStore, {
+        internalUserId: derived,
+        tenantId: old.tenantId,
+        workspaceId: old.workspaceId,
+        roleBindings: old.roleBindings.map((b) => ({ ...b })),
+        createdBy: old.createdBy,
+        nowMs,
+      });
+      if (!created.ok) {
+        throw new Error(`membership migration failed for ${oldId}: ${created.error}`);
+      }
+      if (old.revokedAtMs !== undefined) {
+        await deps.membershipStore.put({
+          ...created.membership,
+          revokedAtMs: old.revokedAtMs,
+        });
+      }
+      news.push(created.membership);
+    }
+    if (old.revokedAtMs === undefined) {
+      await deps.membershipStore.revokeMembership(old.membershipId, nowMs);
+    }
+  }
+  const alias = await recordIdMigration(deps.aliasKv, {
+    oldInternalUserId: oldId,
+    newInternalUserId: derived,
+    nowMs,
+  });
+  if (!alias.ok) {
+    throw new Error(`id-migration alias failed for ${oldId}: ${alias.error}`);
+  }
+  const migrated: IdentityBinding = { ...binding, internalUserId: derived };
+  await bindingStore.put(migrated);
+  try {
+    await bindingStore.removeByUserAndIssuer(oldId, binding.providerIssuer);
+  } catch {
+    // Stale reverse index only; the binding and the migration
+    // record are authoritative. Never fail a login over cleanup.
+  }
+  return { migrated: true, binding: migrated, oldInternalUserId: oldId };
+}
+
+/**
  * Resolve or create the Slice 1 binding for one provider subject.
  * Provider-agnostic: the caller supplies the validated issuer and
  * the provider-stable subject (never a login or email). The profile
  * fetch that produced the subject IS the proof of control
  * (proofVerified: true). A store failure maps to BINDING_FAILED.
+ * When migration deps are supplied, a pre-existing minted binding
+ * is migrated to its derived id first (see
+ * migrateBindingToDerivedId); a migration failure also maps to
+ * BINDING_FAILED.
  */
 export async function resolveProviderBinding(
   store: IdentityBindingStore,
   issuer: string,
   subject: string,
-  nowMs: number
+  nowMs: number,
+  migration?: MigrationDeps
 ): Promise<GithubBindingResult> {
   const result = await resolveOrCreateBinding(store, {
     providerIssuer: issuer,
@@ -153,6 +299,23 @@ export async function resolveProviderBinding(
   });
   if (!result.ok) {
     return { ok: false, code: "BINDING_FAILED", error: result.error };
+  }
+  if (migration) {
+    try {
+      const migrated = await migrateBindingToDerivedId(
+        store,
+        migration,
+        result.binding,
+        nowMs,
+      );
+      return { ok: true, binding: migrated.binding };
+    } catch (err) {
+      return {
+        ok: false,
+        code: "BINDING_FAILED",
+        error: err instanceof Error ? err.message : "binding migration failed",
+      };
+    }
   }
   return { ok: true, binding: result.binding };
 }
@@ -165,7 +328,8 @@ export async function resolveProviderBinding(
 export async function resolveGithubBinding(
   store: IdentityBindingStore,
   profile: GithubProfile,
-  nowMs: number
+  nowMs: number,
+  migration?: MigrationDeps
 ): Promise<GithubBindingResult> {
   if (
     !profile ||
@@ -178,7 +342,7 @@ export async function resolveGithubBinding(
       error: "GitHub profile did not include a stable user id; login cannot be bound",
     };
   }
-  return resolveProviderBinding(store, GITHUB_ISSUER, String(profile.id), nowMs);
+  return resolveProviderBinding(store, GITHUB_ISSUER, String(profile.id), nowMs, migration);
 }
 
 /**
@@ -213,6 +377,9 @@ export function createKvBindingStore(kv: KvLike): IdentityBindingStore {
       const value = JSON.stringify(binding);
       await kv.put(byProviderKey(binding.providerIssuer, binding.providerSubject), value);
       await kv.put(byUserKey(binding.internalUserId, binding.providerIssuer), value);
+    },
+    async removeByUserAndIssuer(internalUserId, providerIssuer) {
+      await kv.delete(byUserKey(internalUserId, providerIssuer));
     },
   };
 }
@@ -336,6 +503,39 @@ export interface NormalizedLoginProfile {
   avatarUrl: string;
 }
 
+/**
+ * #1210 — does the logging-in user match a `platform:` bootstrap entry?
+ * Reuses the existing bootstrap parser (parseBootstrapListWithGenesis);
+ * it does not reimplement entry parsing. A platform: entry matches
+ * when it resolves to the logging-in user's id: a bare id compares
+ * directly, an issuer:subject entry resolves through the binding
+ * store (post-migration, so it yields the derived id). Rejected or
+ * malformed entries never match, and a plain (non-platform:) entry
+ * never counts.
+ */
+export async function isPlatformBootstrapListed(
+  bindingStore: IdentityBindingStore,
+  bootstrapRaw: string | undefined,
+  targetInternalUserId: string,
+): Promise<boolean> {
+  if (bootstrapRaw === undefined || bootstrapRaw.trim() === "") return false;
+  const parsed = parseBootstrapListWithGenesis(bootstrapRaw);
+  for (const { genesis, entry } of parsed.entries) {
+    if (!genesis) continue;
+    if (entry.kind === "internalUserId") {
+      if (entry.internalUserId === targetInternalUserId) return true;
+    } else {
+      const resolved = await getInternalUserId(
+        bindingStore,
+        entry.providerIssuer,
+        entry.providerSubject,
+      );
+      if (resolved !== null && resolved === targetInternalUserId) return true;
+    }
+  }
+  return false;
+}
+
 /** Options for the generic wired login tail (same shape as the GitHub delegate's). */
 export interface WiredLoginOptions {
   bindingStore?: IdentityBindingStore;
@@ -344,6 +544,12 @@ export interface WiredLoginOptions {
   auditTenantId?: string;
   /** End-to-end: alias recording + bootstrap-on-login. Default off. */
   postLoginEnabled?: boolean;
+  /**
+   * #1182 login-time migration stores. When omitted, they default
+   * to the env-derived SessionStore DO stores — so production
+   * logins always migrate. Tests pass explicit memory stores.
+   */
+  migration?: MigrationDeps;
 }
 
 /**
@@ -395,7 +601,22 @@ export async function completeWiredLogin(
     return errorPage("Provider profile did not include a usable login key; login cannot be bound", 400);
   }
 
-  const bindingResult = await resolveProviderBinding(store, issuer, profile.subject, nowMs);
+  // #1182: migration always runs on wired login (default stores
+  // are the SessionStore DO ones, the same store the binding and
+  // post-login work use in production). The session below carries
+  // the migrated (derived) id, and post-login bootstrap matching
+  // sees it too — migration precedes provisioning by construction.
+  const migrationDeps: MigrationDeps = options?.migration ?? {
+    membershipStore: createKvMembershipStore(sessionStore(env)),
+    aliasKv: sessionStore(env),
+  };
+  const bindingResult = await resolveProviderBinding(
+    store,
+    issuer,
+    profile.subject,
+    nowMs,
+    migrationDeps,
+  );
   if (!bindingResult.ok) {
     if (options?.auditStore && options.auditTenantId) {
       await recordWiredAuthAudit(
@@ -409,6 +630,28 @@ export async function completeWiredLogin(
       );
     }
     return errorPage(bindingResult.error, 400);
+  }
+
+  // #1210: one-time repair of the stranded Oct 22 platform-admin
+  // grant, at the same point as normal binding migration (before
+  // post-login bootstrap, so bootstrap observes the repaired state
+  // as already-admin). Best-effort: the repair never throws, and
+  // this catch is belt-and-braces — a repair failure must never
+  // change the login outcome.
+  try {
+    const platformListed = await isPlatformBootstrapListed(
+      store,
+      env.IAAA_BOOTSTRAP_ADMINS,
+      bindingResult.binding.internalUserId,
+    );
+    await repairStrandedPlatformAdmin({
+      membershipStore: migrationDeps.membershipStore,
+      isPlatformListed: platformListed,
+      targetInternalUserId: bindingResult.binding.internalUserId,
+      nowMs,
+    });
+  } catch {
+    // Repair is best-effort; login proceeds regardless.
   }
 
   const sessionData = buildExtendedSessionData(
@@ -450,6 +693,22 @@ export async function completeWiredLogin(
       // Post-login work must never fail a login.
     }
   }
+  // #1274: automatic member provisioning — best-effort, never changes
+  // the login outcome. Runs for EVERY wired login (GitHub and generic
+  // OIDC alike) in this provider-agnostic tail, AFTER bootstrap, so a
+  // bootstrap-granted tenant-admin is observed as already-member and
+  // never duplicated or downgraded. A provisioning failure is
+  // swallowed here: the session above is already created and the
+  // caller keeps whatever memberships they already hold.
+  try {
+    await ensureTenantMember(migrationDeps.membershipStore, {
+      internalUserId: bindingResult.binding.internalUserId,
+      tenantId: options?.auditTenantId ?? resolveIaaaTenant(env),
+      nowMs,
+    });
+  } catch {
+    // Auto-provisioning must never fail a login.
+  }
   // Phase 2a audit seam (best-effort; never changes the outcome).
   if (options?.auditStore && options.auditTenantId) {
     await recordWiredAuthAudit(
@@ -466,80 +725,6 @@ export async function completeWiredLogin(
     status: 302,
     headers: { Location: "/", "Set-Cookie": setSessionCookie(sessionId) },
   });
-}
-
-/**
- * Wired GitHub callback: the same upstream calls as the legacy callback
- * (state check, code exchange, profile fetch via the shared helpers),
- * then the generic wired tail. On any failure before the session
- * is created, no binding is created for a missing-id profile and no
- * session is created at all.
- *
- * `bindingStore` and `nowMs` are test seams; production callers omit
- * them and get the Kv-backed store and Date.now().
- *
- * Phase 2a audit seam: when the caller supplies BOTH `auditStore`
- * and `auditTenantId`, a Slice 5 login success event (after the
- * session is created, correlated by session id) or login failure
- * event (missing subject id / binding failure, actor "unknown",
- * correlated by a fresh UUID) is recorded best-effort. Recording
- * never changes the login outcome, and when either option is
- * absent nothing is recorded — server.ts dispatch passes neither,
- * so in production this is currently dormant. There is
- * deliberately no default tenant: login has no tenant concept
- * in this phase, and inventing one would fabricate attribution.
- */
-export async function handleGithubCallbackWired(
-  env: Env,
-  request: Request,
-  options?: {
-    bindingStore?: IdentityBindingStore;
-    nowMs?: number;
-    auditStore?: AuditStore;
-    auditTenantId?: string;
-    /** GitHub end-to-end: alias recording + bootstrap-on-login. Default off. */
-    postLoginEnabled?: boolean;
-  }
-): Promise<Response> {
-  const url = new URL(request.url);
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const error = url.searchParams.get("error");
-
-  if (error) return errorPage(`GitHub authentication was cancelled or failed: ${error}`, 400);
-  if (!code || !state) return errorPage("Missing required authorization code or state parameter", 400);
-
-  const isValidState = await verifyState(env, state);
-  if (!isValidState) {
-    return errorPage("Invalid or expired OAuth state session. Please try signing in again.", 403);
-  }
-
-  try {
-    const accessToken = await exchangeGithubCode(env, code);
-    const user: GithubUserProfile = await fetchGithubProfile(accessToken);
-
-    // Delegate to the generic wired tail. The subject normalization
-    // keeps the old fail-closed rule exactly: a missing/non-finite
-    // id becomes a blank subject, which completeWiredLogin rejects
-    // with the MISSING_SUBJECT_ID failure audit + error page, and
-    // no binding and no session are created.
-    return await completeWiredLogin(
-      env,
-      GITHUB_ISSUER,
-      {
-        subject:
-          typeof user.id === "number" && Number.isFinite(user.id) ? String(user.id) : "",
-        loginKey: user.login,
-        displayName: user.name || user.login,
-        avatarUrl: user.avatar_url,
-      },
-      options
-    );
-  } catch (err) {
-    if (err instanceof GithubAuthError) return errorPage(err.message, err.status);
-    const message = err instanceof Error ? err.message : "Unexpected OAuth authentication error";
-    return errorPage(message, 500);
-  }
 }
 
 /** Local error page (same shape as the legacy callback's error page). */

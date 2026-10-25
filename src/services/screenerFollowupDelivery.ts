@@ -34,44 +34,74 @@ export interface FollowupDeliveryInput {
   channel: AsyncJobChannel;
   userLogin: string;
   outcome: ScreenerRunOutcome;
-  artifacts: Array<{ key: string; fileName: string }>;
+  artifacts: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" | "csv" }>;
 }
+
+const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const CSV_CONTENT_TYPE = "text/csv";
 
 export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
   deliver: (input: FollowupDeliveryInput) => Promise<{ ok: boolean; error?: string; detail?: string }>;
-  notify: (input: { channel: AsyncJobChannel; userLogin: string; text: string }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
+  notify: (input: { channel: AsyncJobChannel; userLogin: string; text: string; emailTo?: string; slackChannel?: string }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
 } {
   return {
     deliver: async ({ channel, userLogin, outcome, artifacts }) => {
       const config = resolveScreenerFollowupConfig(deps.env as unknown as Record<string, unknown>);
       const text = formatFollowupDeliveryText(outcome);
       const agent = deps.getScreenerAgent(userLogin);
-      const files: Array<{ bytes: Uint8Array; fileName: string }> = [];
+      // Issue #1191 (#1173 R3): fetch bytes per artifact kind — PDF
+      // via the PDF getters, XLSX via the XLSX getters (stock since
+      // R3, options since R3b/#1195). A missing artifact is recorded in the
+      // missing list and reported in the delivery detail — the rest
+      // still sends; nothing is fabricated.
+      const files: Array<{ bytes: Uint8Array; fileName: string; contentType: string }> = [];
+      const missingArtifacts: string[] = [];
       for (const artifact of artifacts) {
-        const pdf = outcome.kind === "stock"
-          ? await agent.getPdfByKey(artifact.key)
-          : await agent.getOptionsPdfByKey(artifact.key);
-        if (pdf) files.push({ bytes: pdf.bytes, fileName: pdf.fileName });
+        const kind = artifact.kind
+          ?? (artifact.fileName.endsWith(".xlsx") ? "xlsx"
+            : artifact.fileName.endsWith(".csv") ? "csv" : "pdf");
+        const fetched = kind === "xlsx"
+          ? (outcome.kind === "stock" ? await agent.getXlsxByKey(artifact.key) : await agent.getOptionsXlsxByKey(artifact.key))
+          : kind === "csv"
+            ? (outcome.kind === "stock" ? await agent.getCsvByKey(artifact.key) : await agent.getOptionsCsvByKey(artifact.key))
+            : outcome.kind === "stock"
+              ? await agent.getPdfByKey(artifact.key)
+              : await agent.getOptionsPdfByKey(artifact.key);
+        if (fetched) {
+          files.push({
+            bytes: fetched.bytes,
+            fileName: fetched.fileName,
+            contentType: kind === "xlsx" ? XLSX_CONTENT_TYPE : kind === "csv" ? CSV_CONTENT_TYPE : "application/pdf",
+          });
+        } else {
+          missingArtifacts.push(artifact.key);
+        }
       }
+      const missingNote = missingArtifacts.length > 0
+        ? `Artifact(s) missing from storage, not attached: ${missingArtifacts.join(", ")}`
+        : undefined;
       if (channel === "slack") {
-        const [first, ...rest] = files;
-        return deliverScreenerToSlack(deps.env, {
+        const pdfFile = files.find((f) => f.contentType === "application/pdf");
+        const rest = files.filter((f) => f !== pdfFile);
+        const sent = await deliverScreenerToSlack(deps.env, {
           text,
           channel: outcome.slackChannel ?? config.channels.slack.channel,
-          ...(first ? { pdf: { bytes: first.bytes, fileName: first.fileName, title: `Screener report — ${outcome.kind} screen`, comment: text } } : {}),
+          ...(pdfFile ? { pdf: { bytes: pdfFile.bytes, fileName: pdfFile.fileName, title: `Screener report — ${outcome.kind} screen`, comment: text } } : {}),
           ...(rest.length > 0 ? { files: rest.map((f) => ({ bytes: f.bytes, fileName: f.fileName, title: f.fileName })) } : {}),
         });
+        return missingNote && sent.ok ? { ...sent, detail: missingNote } : sent;
       }
       if (channel === "email") {
         const to = outcome.emailTo ?? config.channels.email.to;
         if (!to) return { ok: false, error: "Email delivery is not configured (SCREENER_EMAIL_TO is unset)." };
-        const first = files[0];
-        let attachment: { fileName: string; contentType: string; contentBase64: string } | undefined;
-        if (first) {
+        // Issue #1191: attach EVERY artifact (text + PDF + XLSX +
+        // CSV since #1346), each with its own content type — the
+        // pre-R3 leg attached only the first file, as PDF.
+        const attachments = files.map((f) => {
           let binary = "";
-          for (let i = 0; i < first.bytes.length; i += 8192) binary += String.fromCharCode(...first.bytes.subarray(i, i + 8192));
-          attachment = { fileName: first.fileName, contentType: "application/pdf", contentBase64: btoa(binary) };
-        }
+          for (let i = 0; i < f.bytes.length; i += 8192) binary += String.fromCharCode(...f.bytes.subarray(i, i + 8192));
+          return { fileName: f.fileName, contentType: f.contentType, contentBase64: btoa(binary) };
+        });
         const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
         const email = new ETradeEmailTradingService(deps.env, deps.getOrm(), userLogin);
         await email.sendOutboundEmail(
@@ -79,9 +109,9 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
           `📊 ${outcome.kind === "stock" ? "Stock" : "Options"} Screen${scope ? ` [${scope}]` : ""} — ${outcome.matchedCount ?? "?"} matched`,
           `<pre>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`,
           text,
-          attachment,
+          attachments.length > 0 ? attachments : undefined,
         );
-        return { ok: true };
+        return { ok: true, ...(missingNote ? { detail: missingNote } : {}) };
       }
       const webhookUrl = outcome.webhookUrl ?? config.channels.webhook.url;
       if (!webhookUrl) return { ok: false, error: "Webhook delivery is not configured (SCREENER_WEBHOOK_URL is unset)." };
@@ -102,13 +132,16 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
       return { ok: true };
     },
     // Issue #1123 S4: text-only lifecycle notifications (no artifact).
-    notify: async ({ channel, userLogin, text }) => {
+    notify: async ({ channel, userLogin, text, emailTo, slackChannel }) => {
       const config = resolveScreenerFollowupConfig(deps.env as unknown as Record<string, unknown>);
       if (channel === "slack") {
-        return deliverScreenerToSlack(deps.env, { text, channel: config.channels.slack.channel });
+        // Issue #1191: per-task channel wins, mirroring deliveries.
+        return deliverScreenerToSlack(deps.env, { text, channel: slackChannel ?? config.channels.slack.channel });
       }
       if (channel === "email") {
-        const to = config.channels.email.to;
+        // Issue #1191 (#1173 R3): per-task recipient wins, mirroring
+        // the executor's allowlist check on the same address.
+        const to = emailTo ?? config.channels.email.to;
         if (!to) return { ok: false, error: "Email notification is not configured (SCREENER_EMAIL_TO is unset)." };
         const email = new ETradeEmailTradingService(deps.env, deps.getOrm(), userLogin);
         await email.sendOutboundEmail(

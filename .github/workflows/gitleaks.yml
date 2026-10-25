@@ -28,6 +28,7 @@ on:
   pull_request:
     branches:
       - main
+  merge_group:
   workflow_dispatch:
 
 concurrency:
@@ -40,7 +41,7 @@ permissions:
 jobs:
   gitleaks:
     name: Gitleaks secret scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: 📥 Checkout Repository (full history)
         uses: actions/checkout@v4

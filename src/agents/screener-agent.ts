@@ -39,14 +39,26 @@ import {
   UNIVERSES,
   shardableUniverses,
   resolveUniverse,
-  yahooDepsFromProvider,
   type StockScreenProvider,
   type UniverseId,
 } from "../trading";
 import { YahooFinanceProvider } from "../services/fossResearch";
 import {
   bindETradeScreenerDeps,
+  bindNasdaqUniverseDeps,
+  bindYahooScreenerDeps,
   bootstrapDataProviders,
+  createNasdaqDataProvider,
+  createYahooDataProvider,
+  DataProviderRegistry,
+  getProviderConfig,
+  listCapabilityRoutes,
+  listProviderConfigs,
+  nasdaqUniverseProviderFromRoute,
+  transitionProvider,
+  verifyNasdaqDataProvider,
+  verifyYahooDataProvider,
+  yahooQuoteProviderFromRoute,
 } from "../trading";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
 import {
@@ -59,6 +71,13 @@ import {
 } from "../services/screenerTaskLedger";
 import { DEFAULT_SCREENER_CONFIG } from "../trading";
 import type { StockScreenerFilter } from "../types";
+import {
+  DynamicOptionsScreener,
+  type ScreeningProviderAssetClass,
+} from "../trading";
+import type { OptionScreenerFilter } from "../types";
+import type { ScenarioDefinition } from "../services/goalScenarioEngine";
+import type { GoalDrivenScreenResult } from "../services/goalDrivenScreen";
 
 export interface ScreenerRunRequest {
   /** Who triggered the screen. */
@@ -81,14 +100,14 @@ export interface ScreenerRunRequest {
   environment?: "TEST" | "PROD";
   /**
    * Issue #1007: data provider for this run (default "etrade"). The
-   * Yahoo provider quotes through the Yahoo data-source adapter; it
-   * never touches E*TRADE and never falls back to it.
+   * Yahoo provider quotes through the platform yahoo provider
+   * (#1317); it never touches E*TRADE and never falls back to it.
    */
   provider?: StockScreenProvider;
   /**
    * Issue #1007: test seam — an injected Yahoo quote fetcher for
    * provider "yahoo" runs (mirrors the pipeline's yahooDeps). Absent
-   * in production, where YahooFinanceProvider is constructed here.
+   * in production, where the platform yahoo provider is bound here.
    */
   yahooDeps?: import("../trading").YahooScreenerDeps;
 }
@@ -121,6 +140,14 @@ export interface ScreenerRunResult {
   partial?: PartialQuoteQualification;
   /** Issue #728: per-symbol rejection reasons for the Slack breakdown. */
   rejections?: { symbol: string; reason: string }[];
+  /**
+   * Issue #1184 (#1173 R2): technicals coverage for this run — how
+   * many quoted symbols the Yahoo history leg actually produced
+   * MACD / gap values for. Recorded so a technicals outage is data
+   * (the 2026-10-23 run showed blank MACD/Gap on every row with no
+   * signal anywhere that history coverage was zero).
+   */
+  technicalsCoverage?: { symbols: number; withMacd: number; withGap: number };
   /** Per-run PDF key populated by persistRun after the PDF is stored. */
   pdfKey?: string;
   /** Issue #822: explicit PDF generation status. 'failed' means generatePdfAsset
@@ -132,6 +159,11 @@ export interface ScreenerRunResult {
   xlsxKey?: string;
   xlsxStatus?: "generated" | "failed" | "skipped";
   xlsxError?: string;
+  /** Issue #1346: per-run CSV key, populated by persistRun after
+   *  the CSV report is stored (same failure contract as XLSX). */
+  csvKey?: string;
+  csvStatus?: "generated" | "failed" | "skipped";
+  csvError?: string;
   /** Issue #816: quote pipeline trace summary for the UI. */
   quoteTrace?: {
     traceId: string;
@@ -175,11 +207,16 @@ const PDF_LATEST_KEY = "screener:latest.pdf";
 // XLSX report storage
 const XLSX_KEY_PREFIX = "screener:xlsx:";
 const XLSX_LATEST_KEY = "screener:latest.xlsx";
+const CSV_LATEST_KEY = "screener:latest.csv";
 // Issue #361: Options PDF storage (mirrors stock pattern). Since #1023
 // (single PDF path) per-run options PDFs are generated + stored by
 // ReportAssetAgent and addressed by its key; this constant remains only
 // as the read key for getLatestOptionsPdf's legacy local lookup.
 const OPTIONS_PDF_LATEST_KEY = "options:latest.pdf";
+/** Issue #1195 (#1173 R3b): options XLSX storage keys. */
+const OPTIONS_XLSX_KEY_PREFIX = "options:xlsx:";
+const OPTIONS_XLSX_LATEST_KEY = "options:latest.xlsx";
+const OPTIONS_CSV_LATEST_KEY = "options:latest.csv";
 
 export class ScreenerAgent extends Agent<Env> {
   private orm: DatabaseORM | null = null;
@@ -499,13 +536,47 @@ export class ScreenerAgent extends Agent<Env> {
 
       // Issue #270: resolve the universe to symbols (listings directory
       // = symbol membership only, not market data). E*TRADE-only quotes.
+      // Issue #1368: universe resolution acquires through the
+      // data-provider platform, mirroring the #1317 yahoo cutover:
+      // bootstrap this DO's platform store (seed + routes), verify
+      // + enable nasdaq through the lifecycle API when it is not
+      // already enabled, resolve the screenUniverse route's primary
+      // assignment to the nasdaq adapter, and bind the listings
+      // fetch over it (capture + outcome tracking ride along under
+      // the run id, minted here when no provider block has minted
+      // one yet — the etrade/yahoo blocks reuse it via ??=, so the
+      // listings capture shares the screen's run id).
       const universeDef = UNIVERSES[universe];
       let symbols = req.symbols;
       if (!symbols && universe !== "ALL") {
-        const { fetchAllUsStockListings } = await import(
-          "../services/nasdaqListings"
+        bootstrapDataProviders(this.ctx.storage.sql);
+        platformRunId ??= crypto.randomUUID();
+        const nasdaqConfig = getProviderConfig(this.ctx.storage.sql, "nasdaq");
+        if (!nasdaqConfig || nasdaqConfig.lifecycleState !== "enabled" || !nasdaqConfig.enabled) {
+          await transitionProvider(this.ctx.storage.sql, "nasdaq", "verify", userLogin, {
+            verifier: async () => verifyNasdaqDataProvider(),
+          });
+          await transitionProvider(this.ctx.storage.sql, "nasdaq", "enable", userLogin, {});
+        }
+        const nasdaqRegistry = new DataProviderRegistry();
+        const nasdaqAdapter = createNasdaqDataProvider(undefined, {
+          capture: {
+            sql: this.ctx.storage.sql,
+            blobStorage: this.ctx.storage,
+            env: this.env,
+          },
+        });
+        nasdaqRegistry.register(nasdaqAdapter);
+        const nasdaqProvider = nasdaqUniverseProviderFromRoute(
+          nasdaqRegistry,
+          listProviderConfigs(this.ctx.storage.sql),
+          listCapabilityRoutes(this.ctx.storage.sql)
         );
-        const listings = await fetchAllUsStockListings();
+        const nasdaqUniverseDeps = bindNasdaqUniverseDeps(nasdaqProvider, {
+          runId: platformRunId,
+          userLogin,
+        });
+        const listings = await nasdaqUniverseDeps.fetchListings();
         symbols = resolveUniverse(universe, listings);
       }
       const requestedMaxSymbols = req.maxSymbols ?? universeDef.defaultMaxSymbols;
@@ -530,7 +601,7 @@ export class ScreenerAgent extends Agent<Env> {
       let platformLiveDeps: ReturnType<typeof bindETradeScreenerDeps> | undefined;
       if (etrade) {
         bootstrapDataProviders(this.ctx.storage.sql);
-        platformRunId = crypto.randomUUID();
+        platformRunId ??= crypto.randomUUID();
         platformLiveDeps = bindETradeScreenerDeps(
           etrade,
           {
@@ -542,6 +613,47 @@ export class ScreenerAgent extends Agent<Env> {
           quoteTrace
         );
       }
+      // Issue #1317: Yahoo-provider runs acquire through the
+      // data-provider platform, mirroring the E2 etrade cutover:
+      // bootstrap this DO's platform store (seed + routes), verify
+      // + enable yahoo through the lifecycle API when it is not
+      // already enabled, resolve the quotes route's gap-fill
+      // assignment to the yahoo adapter, and bind the pipeline deps
+      // over it (batch via getQuotesBatch, per-symbol via getQuote
+      // — capture + outcome tracking ride along under the run id).
+      // A Yahoo-provider run never touches the broker (no
+      // ETradeService constructed) and never falls back to it. The
+      // req.yahooDeps seam stays as a test override.
+      let platformYahooDeps: ReturnType<typeof bindYahooScreenerDeps> | undefined;
+      if (provider === "yahoo" && !req.yahooDeps) {
+        bootstrapDataProviders(this.ctx.storage.sql);
+        platformRunId ??= crypto.randomUUID();
+        const yahooConfig = getProviderConfig(this.ctx.storage.sql, "yahoo");
+        if (!yahooConfig || yahooConfig.lifecycleState !== "enabled" || !yahooConfig.enabled) {
+          await transitionProvider(this.ctx.storage.sql, "yahoo", "verify", userLogin, {
+            verifier: async () => verifyYahooDataProvider(this.env),
+          });
+          await transitionProvider(this.ctx.storage.sql, "yahoo", "enable", userLogin, {});
+        }
+        const yahooRegistry = new DataProviderRegistry();
+        const yahooAdapter = createYahooDataProvider(new YahooFinanceProvider(this.env), this.env, {
+          capture: {
+            sql: this.ctx.storage.sql,
+            blobStorage: this.ctx.storage,
+            env: this.env,
+          },
+        });
+        yahooRegistry.register(yahooAdapter);
+        const yahooProvider = yahooQuoteProviderFromRoute(
+          yahooRegistry,
+          listProviderConfigs(this.ctx.storage.sql),
+          listCapabilityRoutes(this.ctx.storage.sql)
+        );
+        platformYahooDeps = bindYahooScreenerDeps(yahooProvider, {
+          runId: platformRunId,
+          userLogin,
+        });
+      }
       // Provider-scoped acquisition (#261, #1007). Symbols come from
       // the listings directory (membership, not market data) for both
       // providers; quotes come from the named provider or nothing.
@@ -552,7 +664,7 @@ export class ScreenerAgent extends Agent<Env> {
             maxSymbols: selectedSymbols.length,
             yahooDeps:
               req.yahooDeps ??
-              yahooDepsFromProvider(new YahooFinanceProvider(this.env)),
+              platformYahooDeps!,
           })
         : await acquireUniverse({
             mode: "etrade-only",
@@ -575,6 +687,15 @@ export class ScreenerAgent extends Agent<Env> {
         undefined,
         () => beat()
       );
+      // Issue #1184 (#1173 R2): record technicals coverage on the
+      // result — symbols quoted vs symbols with real MACD / gap
+      // values. Zero coverage after a throttle storm is now visible
+      // in the run record instead of silently blank columns.
+      const technicalsCoverage = {
+        symbols: acquired.quotes.length,
+        withMacd: [...technicalsBySymbol.values()].filter((t) => t.macdLine != null).length,
+        withGap: [...technicalsBySymbol.values()].filter((t) => t.gapPercent != null).length,
+      };
 
       // Issue #266: SA-style factor grades, computed percentile-relative
       // across the full scanned universe, then joined onto opportunities.
@@ -607,6 +728,7 @@ export class ScreenerAgent extends Agent<Env> {
         opportunities,
         allStocks,
         discoveryMessage: acquired.discovery.message,
+        technicalsCoverage,
         filterSummary: screenResult.filterSummary,
         ...(acquired.partial ? { partial: acquired.partial } : {}),
         // Issue #728: rejection reasons for the Slack breakdown.
@@ -700,6 +822,66 @@ export class ScreenerAgent extends Agent<Env> {
   }
 
   /** Latest run for the unified results UI. */
+  /**
+   * Consolidation C1 (issue #1201, epic #1151 R1): run a goal-driven
+   * screen (epic #1096 Phase 3 semantics) as a production citizen of
+   * this agent — the Phase 0 registry over production engines,
+   * executed under this DO's screener task ledger (the same ledger
+   * store runScreen uses). The composition lives in
+   * services/screeningRuntime.ts (runProductionGoalScreen); this
+   * method only binds the DO-owned pieces: the ledger and the
+   * E*TRADE client behind the options leg. A duplicate delivery
+   * returns the existing ledger record without re-executing.
+   */
+  async runGoalScreen(req: {
+    scenario: ScenarioDefinition;
+    trigger: "manual" | "scheduled";
+    idempotencyKey: string;
+    userLogin?: string;
+    environment?: "TEST" | "PROD";
+    assetClasses?: ScreeningProviderAssetClass[];
+    symbols?: string[];
+    baseStockFilter?: StockScreenerFilter;
+    baseOptionsFilter?: OptionScreenerFilter;
+  }): Promise<{ task: ScreenerTask; executed: boolean; result?: GoalDrivenScreenResult }> {
+    const userLogin = req.userLogin || this.userLogin();
+    const etrade = new ETradeService(
+      this.getOrm(),
+      this.env,
+      userLogin,
+      req.environment
+    );
+    const { runProductionGoalScreen } = await import("../services/screeningRuntime");
+    const out = await runProductionGoalScreen({
+      ledger: this.taskLedger(),
+      optionsScreener: new DynamicOptionsScreener(etrade.client),
+      scenario: req.scenario,
+      trigger: req.trigger,
+      idempotencyKey: req.idempotencyKey,
+      userLogin,
+      assetClasses: req.assetClasses,
+      symbols: req.symbols,
+      baseStockFilter: req.baseStockFilter,
+      baseOptionsFilter: req.baseOptionsFilter,
+    });
+    // Issue #1335: every completed goal-screen run — 0 hits included —
+    // leaves PDF + XLSX + CSV artifacts in the blob store, mirroring
+    // generateRunPdf for stock runs. Artifact failure is recorded on
+    // the result, never thrown: the run completed, the artifact did not.
+    if (out.executed && out.result) {
+      const { generateAndStoreGoalScreenArtifacts } = await import(
+        "../services/goalScreenReports"
+      );
+      const artifacts = await generateAndStoreGoalScreenArtifacts(
+        this.env,
+        this.ctx.storage as any,
+        out.result
+      );
+      Object.assign(out.result, artifacts);
+    }
+    return out;
+  }
+
   async getLatest(): Promise<ScreenerRunResult | null> {
     return (await this.ctx.storage.get<ScreenerRunResult>(LATEST_KEY)) ?? null;
   }
@@ -767,6 +949,40 @@ export class ScreenerAgent extends Agent<Env> {
   }
 
   /**
+   * Issue #1346: get a specific run's CSV report by its storage
+   * key. Prefix-validated like getGoalScreenArtifactByKey — a
+   * non-CSV key never reads another family's blob through this
+   * getter, so /api/screener/report.csv cannot serve a PDF/XLSX.
+   */
+  async getCsvByKey(csvKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { isScreenerCsvKey } = await import("../trading");
+    if (!isScreenerCsvKey(csvKey)) return null;
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, csvKey);
+  }
+
+  /** Latest report CSV — generated at run time, served by GET /api/screener/report.csv. */
+  async getLatestCsv(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, CSV_LATEST_KEY);
+  }
+
+  /**
+   * Issue #1335: one getter for all three goal-screen artifact formats.
+   * The key must be goal_screen-namespaced — this getter never serves
+   * stock/options blobs, so a goal-screen download link cannot be
+   * repurposed into an open blob read.
+   */
+  async getGoalScreenArtifactByKey(
+    key: string
+  ): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { isGoalScreenArtifactKey } = await import("../services/goalScreenReports");
+    if (!isGoalScreenArtifactKey(key)) return null;
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, key);
+  }
+
+  /**
    * Get the latest options PDF (issue #361).
    */
   async getLatestOptionsPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
@@ -788,6 +1004,84 @@ export class ScreenerAgent extends Agent<Env> {
     return await getPdfAsset(this.env, this.userLogin(), pdfKey);
   }
 
+  /**
+   * Issue #1195 (#1173 R3b): generate an options run's XLSX report
+   * and store it under a per-run key (+ the latest pointer), the
+   * options twin of the stock XLSX block in persistRun. Throws on
+   * failure — callers record xlsxStatus "failed" with the error,
+   * mirroring the stock convention.
+   */
+  async generateAndStoreOptionsXlsx(
+    result: import("../types").OptionScreenResult,
+  ): Promise<{ key: string; fileName: string }> {
+    // Issue #1278 (#1173 R5): generate+store retries under the R1 report
+    // policy, mirroring the stock XLSX block in persistRun.
+    const { withRetry } = await import("../services/resilience");
+    const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+    const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+    const key = `${OPTIONS_XLSX_KEY_PREFIX}${crypto.randomUUID().slice(0, 8)}`;
+    return withRetry(async () => {
+      const { generateOptionsXlsx, optionsXlsxFileName } = await import("../trading");
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const bytes = generateOptionsXlsx(result);
+      const fileName = optionsXlsxFileName(result);
+      await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes);
+      await putReportPdf(this.env, this.ctx.storage as any, OPTIONS_XLSX_LATEST_KEY, fileName, bytes);
+      return { key, fileName };
+    }, reportRetry, { label: "options-xlsx" });
+  }
+
+  /** Get a specific options run's XLSX report by its storage key (#1195). */
+  async getOptionsXlsxByKey(xlsxKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, xlsxKey);
+  }
+
+  /**
+   * Issue #1346: generate an options run's CSV report and store it
+   * under a per-run key (+ the latest pointer), the options twin
+   * of generateAndStoreOptionsXlsx. Throws on failure — callers
+   * record csvStatus "failed" with the error, mirroring the XLSX
+   * convention. A 0-contract run stores a headers-only CSV.
+   */
+  async generateAndStoreOptionsCsv(
+    result: import("../types").OptionScreenResult,
+  ): Promise<{ key: string; fileName: string }> {
+    const { withRetry } = await import("../services/resilience");
+    const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+    const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+    const key = `options:csv:${crypto.randomUUID().slice(0, 8)}`;
+    return withRetry(async () => {
+      const { generateOptionsCsv, optionsCsvFileName } = await import("../trading");
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const bytes = new TextEncoder().encode(generateOptionsCsv(result));
+      const fileName = optionsCsvFileName(result);
+      await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes, "text/csv");
+      await putReportPdf(this.env, this.ctx.storage as any, OPTIONS_CSV_LATEST_KEY, fileName, bytes, "text/csv");
+      return { key, fileName };
+    }, reportRetry, { label: "options-csv" });
+  }
+
+  /** Get a specific options run's CSV report by its storage key (#1346, prefix-validated). */
+  async getOptionsCsvByKey(csvKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { isOptionsCsvKey } = await import("../trading");
+    if (!isOptionsCsvKey(csvKey)) return null;
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, csvKey);
+  }
+
+  /** Get the latest options CSV report (#1346). */
+  async getLatestOptionsCsv(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, OPTIONS_CSV_LATEST_KEY);
+  }
+
+  /** Get the latest options XLSX report (#1195). */
+  async getLatestOptionsXlsx(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, OPTIONS_XLSX_LATEST_KEY);
+  }
+
   private async persistRun(result: ScreenerRunResult): Promise<void> {
     await this.ctx.storage.put(LATEST_KEY, result);
     const history =
@@ -796,11 +1090,75 @@ export class ScreenerAgent extends Agent<Env> {
       HISTORY_KEY,
       [result, ...history].slice(0, DEFAULT_SCREENER_CONFIG.acquisition.historyLimit)
     );
-    // Issue #269: generate + store the report PDF for download/delivery.
-    // Issue #297: Store with per-run key (not shared) to prevent franken-PDFs.
-    // Issue #605: blobs go to R2 when bound, else legacy DO storage.
-    // Issue #914: Use the unified report pipeline (shared by stock + options,
-    // manual + scheduled).
+    // Issue #269/#914: PDF generation + storage lives in generateRunPdf
+    // (shared with regeneration, #1278).
+    await this.generateRunPdf(result);
+
+    // XLSX Multi-tab report generation (Screened Stocks + Formulas & Methodology)
+    // Issue #1278 (#1173 R5): generate+store retries under the R1 report
+    // policy — a transient blob-store failure no longer fails the XLSX.
+    try {
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const { withRetry } = await import("../services/resilience");
+      const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+      const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+      const xlsxKey = `${XLSX_KEY_PREFIX}${crypto.randomUUID().slice(0, 8)}`;
+      await withRetry(async () => {
+        const { generateScreenerXlsx, screenerXlsxFileName } = await import("../trading");
+        const xlsxBytes = generateScreenerXlsx(result);
+        const xlsxFileName = screenerXlsxFileName(result);
+        await putReportPdf(this.env, this.ctx.storage as any, xlsxKey, xlsxFileName, xlsxBytes);
+        await putReportPdf(this.env, this.ctx.storage as any, XLSX_LATEST_KEY, xlsxFileName, xlsxBytes);
+        result.xlsxKey = xlsxKey;
+        result.xlsxStatus = "generated";
+      }, reportRetry, { label: "screener-xlsx" });
+    } catch (xlsxErr) {
+      result.xlsxStatus = "failed";
+      result.xlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
+      console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
+    }
+    // Issue #1346: CSV report generation — the XLSX block's twin.
+    // Same failure contract (recorded, never fatal, never silent);
+    // a 0-record run stores a headers-only CSV.
+    try {
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const { withRetry } = await import("../services/resilience");
+      const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+      const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+      const csvKey = `screener:csv:${crypto.randomUUID().slice(0, 8)}`;
+      await withRetry(async () => {
+        const { generateScreenerCsv, screenerCsvFileName } = await import("../trading");
+        const csvBytes = new TextEncoder().encode(generateScreenerCsv(result));
+        const csvFileName = screenerCsvFileName(result);
+        await putReportPdf(this.env, this.ctx.storage as any, csvKey, csvFileName, csvBytes, "text/csv");
+        await putReportPdf(this.env, this.ctx.storage as any, CSV_LATEST_KEY, csvFileName, csvBytes, "text/csv");
+        result.csvKey = csvKey;
+        result.csvStatus = "generated";
+      }, reportRetry, { label: "screener-csv" });
+    } catch (csvErr) {
+      result.csvStatus = "failed";
+      result.csvError = csvErr instanceof Error ? csvErr.message : String(csvErr);
+      console.error("[ScreenerAgent] CSV generation failed:", result.csvError);
+    }
+    // Issue #783: no report-store write happens here. The #732 block that
+    // persisted a second copy into this DO's own report table is removed:
+    // nothing read that copy. The canonical report copy for a run is
+    // stored exactly once by OrchestratorAgent at generation time (the
+    // store every report surface reads — Reports tab, routes, AI Search);
+    // this method keeps only the delivery cache above (latest/history in
+    // DO storage + the per-run PDFs).
+  }
+
+  /**
+   * Issue #269: generate + store the report PDF for download/delivery.
+   * Issue #297: Store with per-run key (not shared) to prevent franken-PDFs.
+   * Issue #605: blobs go to R2 when bound, else legacy DO storage.
+   * Issue #914: Use the unified report pipeline (shared by stock + options,
+   * manual + scheduled). Mutates result.pdfKey/pdfStatus/pdfError.
+   * Extracted from persistRun for #1278 so regeneration runs the exact
+   * same generation path (which itself retries per #1278 part A).
+   */
+  private async generateRunPdf(result: ScreenerRunResult): Promise<void> {
     const { runReportPipeline } = await import("../services/unifiedReportPipeline");
     const { putReportPdf, getReportPdf } = await import("../services/reportBlobStore");
     const pipelineResult = await runReportPipeline(
@@ -831,6 +1189,8 @@ export class ScreenerAgent extends Agent<Env> {
       }
       result.pdfKey = pipelineResult.pdfKey;
       result.pdfStatus = "generated";
+      // A regenerated run must not keep its previous failure on record.
+      delete result.pdfError;
     } else {
       // Issue #1023 (S4): NO direct-generator fallback — the unified
       // pipeline is the only PDF path (#914/#680). Issue #822: do NOT
@@ -840,28 +1200,44 @@ export class ScreenerAgent extends Agent<Env> {
       result.pdfError = pipelineResult.pdfError;
       console.error("[ScreenerAgent] PDF generation failed:", result.pdfError);
     }
+  }
 
-    // XLSX Multi-tab report generation (Screened Stocks + Formulas & Methodology)
-    try {
-      const { generateScreenerXlsx, screenerXlsxFileName } = await import("../trading");
-      const xlsxBytes = generateScreenerXlsx(result);
-      const xlsxFileName = screenerXlsxFileName(result);
-      const xlsxKey = `${XLSX_KEY_PREFIX}${crypto.randomUUID().slice(0, 8)}`;
-      await putReportPdf(this.env, this.ctx.storage as any, xlsxKey, xlsxFileName, xlsxBytes);
-      await putReportPdf(this.env, this.ctx.storage as any, XLSX_LATEST_KEY, xlsxFileName, xlsxBytes);
-      result.xlsxKey = xlsxKey;
-      result.xlsxStatus = "generated";
-    } catch (xlsxErr) {
-      result.xlsxStatus = "failed";
-      result.xlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
-      console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
+  /**
+   * Issue #1278 (#1173 R5): regenerate the stored latest run's PDF —
+   * the #1123-deferred recovery path for a run whose PDF failed. No
+   * re-screen: the full run result persists in this agent's storage.
+   * The outcome is written back to LATEST and the matching HISTORY
+   * entry (same timestamp), so the Runs list (F3 twin inheritance)
+   * surfaces the healed artifact.
+   */
+  async regenerateLatestReport(): Promise<{
+    pdfStatus: "generated" | "failed";
+    pdfKey?: string;
+    pdfError?: string;
+    timestamp?: string;
+  }> {
+    const latest = await this.ctx.storage.get<ScreenerRunResult>(LATEST_KEY);
+    if (!latest) {
+      const { codedMessage } = await import("../errors/errorAspects");
+      return {
+        pdfStatus: "failed",
+        pdfError: codedMessage("REPORT_003", "no stored screener run to regenerate"),
+      };
     }
-    // Issue #783: no report-store write happens here. The #732 block that
-    // persisted a second copy into this DO's own report table is removed:
-    // nothing read that copy. The canonical report copy for a run is
-    // stored exactly once by OrchestratorAgent at generation time (the
-    // store every report surface reads — Reports tab, routes, AI Search);
-    // this method keeps only the delivery cache above (latest/history in
-    // DO storage + the per-run PDFs).
+    await this.generateRunPdf(latest);
+    await this.ctx.storage.put(LATEST_KEY, latest);
+    const history =
+      (await this.ctx.storage.get<ScreenerRunResult[]>(HISTORY_KEY)) ?? [];
+    const idx = history.findIndex((r) => r.timestamp === latest.timestamp);
+    if (idx >= 0) {
+      history[idx] = latest;
+      await this.ctx.storage.put(HISTORY_KEY, history);
+    }
+    return {
+      pdfStatus: latest.pdfStatus === "generated" ? "generated" : "failed",
+      pdfKey: latest.pdfKey,
+      pdfError: latest.pdfError,
+      timestamp: latest.timestamp,
+    };
   }
 }

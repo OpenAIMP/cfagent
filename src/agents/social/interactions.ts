@@ -3,12 +3,16 @@
  *
  * The social half of POST /slack/interactions. The Worker route
  * already runs the #147 gate (gateSlackRequest: missing signing secret
- * → 503, bad signature → 401) before this module ever sees a payload,
- * so this handler trusts the gate exactly like the trading handler
- * does — and the trust model is the same: any workspace member who
- * can click the button can approve, just like the trading HITL cards.
- * The approver is recorded as slack:<userId> (stable; usernames can
- * change), following the trading authorizerDid convention.
+ * → 503, bad signature → 401) before this module ever sees a payload.
+ * Since #1262 Phase 2 the trust model differs from trading HITL
+ * cards in one respect: a social APPROVE requires a resolved
+ * principal (the clicker's Slack identity linked to a trading login
+ * via the Phase 1 link store); an unlinked clicker's approve is
+ * refused. REJECT stays open to any clicker (fail-safe). When a
+ * principal is resolved it is recorded as the approver; legacy
+ * callers without one keep the slack:<userId> convention (stable;
+ * usernames can change), following the trading authorizerDid
+ * convention.
  *
  * Routing contract (server.ts enforces it before calling here):
  * - action_id social_approve / social_reject with a value of
@@ -33,6 +37,7 @@
 
 import { parseApprovalCardValue } from "./delivery";
 import { approveAndPublish, rejectSocialDraft, type ApprovePublishDeps } from "./approvalActions";
+import type { ChannelPrincipal } from "../../trading";
 
 export interface SlackInteractionPayload {
   actions?: { action_id?: string; value?: string }[];
@@ -108,7 +113,16 @@ function outcomeBlocks(input: {
 }
 
 export async function handleSocialSlackInteraction(
-  deps: ApprovePublishDeps & { payload: SlackInteractionPayload },
+  deps: ApprovePublishDeps & {
+    payload: SlackInteractionPayload;
+    /**
+     * Issue #1262 Phase 2 (social convergence): the clicker's
+     * resolved principal from the Phase 1 link store. null = the
+     * clicker is unlinked (approve refused, reject still open);
+     * undefined = legacy callers (approver stays slack:<userId>).
+     */
+    principal?: ChannelPrincipal | null;
+  },
 ): Promise<SocialInteractionResult> {
   const parsed = parseSocialAction(deps.payload);
   if (parsed.kind === "other") {
@@ -156,6 +170,25 @@ export async function handleSocialSlackInteraction(
       }),
     };
   }
+  // Issue #1262 Phase 2: a social APPROVE requires a resolved
+  // principal — an unlinked clicker cannot publish content. REJECT
+  // stays open to any clicker below (fail-safe: rejecting only
+  // prevents publication, and a stale-card or unlinked-clicker
+  // rejection must never block a refusal).
+  if (parsed.action === "approve" && deps.principal === null) {
+    return {
+      handled: true,
+      message: `Social approval refused: your Slack user is not linked to a trading account. DM the bot \`link\` to get a connect code, confirm it while signed in to the trading app, and then try again. Nothing was published.`,
+      blocks: outcomeBlocks({
+        headline: "Approval refused — unlinked Slack user",
+        date,
+        channel,
+        approver: userId,
+        text: "This approval was not granted: the clicker's Slack user is not linked to a trading account.",
+        outcome: "No action taken. Nothing was published.",
+      }),
+    };
+  }
   if (parsed.action === "reject") {
     const rejected = await rejectSocialDraft({
       store: deps.store,
@@ -194,7 +227,7 @@ export async function handleSocialSlackInteraction(
     ...deps,
     date,
     channel,
-    approver: `slack:${userId}`,
+    approver: deps.principal?.userLogin ?? `slack:${userId}`,
   });
   if (!approved.ok) {
     return {
@@ -211,9 +244,17 @@ export async function handleSocialSlackInteraction(
     };
   }
   const result = approved.channelResult;
+  // #1171: "posted" means really-posted, including in user-facing
+  // copy. A dry-run publish reports its synthetic dry-run: id, so
+  // the message says dry-run-posted rather than claiming a post
+  // went live. The prefix check is display-only, never a gate:
+  // only DryRunPublisher mints dry-run: ids.
+  const isDryRun = result?.platformPostId?.startsWith("dry-run:");
   const publishOutcome =
     result?.outcome === "posted"
-      ? `Published (draft now posted, ${result.platformPostId ?? "no post id"}).`
+      ? isDryRun
+        ? `Dry-run recorded (draft now dry-run-posted, ${result.platformPostId}).`
+        : `Published (draft now posted, ${result.platformPostId ?? "no post id"}).`
       : result?.outcome === "error"
         ? `Approved, but publish failed: ${result.reason ?? "unknown error"}. Catch-up will retry it.`
         : "Approved; publish outcome unknown — check the ledger.";

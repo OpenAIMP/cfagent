@@ -18,6 +18,11 @@
  * - Rejected (failed) → approval refused (a rejected draft needs a
  *   fresh draft, not a second decision); re-rejection is idempotent.
  * - Approving an already-approved draft refreshes the approval record.
+ * - Dry-run-posted is NOT posted (#1171): nothing reached a
+ *   platform, so approving such a draft refreshes its approval
+ *   record and rejecting it marks it failed — both decisions are
+ *   still meaningful, and a rejected dry-run-posted draft never
+ *   live-publishes.
  * Approval never blocks autonomous channels: publish gating treats an
  * approved autonomous draft as publishable, exactly like a fresh one.
  */

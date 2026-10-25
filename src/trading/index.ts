@@ -35,7 +35,10 @@ export * from "./alpaca/platform";
 export * from "./optionsScreener";
 
 // --- boundary surface (#290): every capability external code used via deep paths ---
-export * from "./yahooDataSource";
+// Issue #1317: the deleted Yahoo data-source module's helpers moved
+// into screenerPipeline.ts; yahooHistory stays (its runtime still
+// serves screener-agent, discoveryService, researchProviders,
+// screeningRuntime).
 export * from "./yahooHistory";
 export * from "./universes";
 export * from "./screenerConfig";
@@ -43,7 +46,9 @@ export * from "./screenerPipeline";
 export * from "./screeningSchemas";
 export * from "./screenerReportPdf";
 export * from "./screenerReportXlsx";
+export * from "./screenerReportCsv";
 export * from "./optionsReportPdf";
+export * from "./optionsReportXlsx";
 export * from "./setupCatalog";
 export * from "./researchReportPdf";
 export * from "./options";
@@ -76,6 +81,9 @@ export * from "./options/strategies/ledger";
 export * from "./email/agent";
 export * from "./slack/agent";
 export * from "./voice/agent";
+export * from "./channels/intake";
+export * from "./channels/approval";
+export * from "./channels/signedLinks";
 
 // Disambiguation (#290): MAX_SCAN_SYMBOLS exists in both ./optionsScreener
 // (screener config) and ./options/opportunityScanner (options config) with

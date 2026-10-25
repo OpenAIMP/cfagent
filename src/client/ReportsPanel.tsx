@@ -30,6 +30,15 @@ export interface ReportItem {
   createdAt: string;
   /** Download URL of the generated PDF, when this report has one (#638). */
   reportUrl?: string;
+  /** Download URLs of the stored XLSX / CSV artifacts, when the run
+   *  recorded them (#1335: goal-screen rows record all three). */
+  xlsxUrl?: string;
+  csvUrl?: string;
+  /** Recorded PDF generation state + failure reason (#1239): when a
+   *  run has no reportUrl but records these, the card says the PDF is
+   *  unavailable (and why) instead of silently omitting the link. */
+  pdfStatus?: string | null;
+  pdfError?: string | null;
   /** The Runs-API kind (#1057): screener | options_scanner | discovery | report. */
   kind?: string;
   /** The store's recorded status, when it records one (#1057). */
@@ -50,6 +59,10 @@ function runToReportItem(r: any): ReportItem {
     summary: String(r.summary ?? ""),
     createdAt: String(r.createdAt ?? ""),
     reportUrl: r.reportUrl ?? undefined,
+    xlsxUrl: r.xlsxUrl ?? undefined,
+    csvUrl: r.csvUrl ?? undefined,
+    pdfStatus: r.pdfStatus ?? null,
+    pdfError: r.pdfError ?? null,
     kind: r.kind,
     status: r.status ?? null,
     reportId: r.reportId ?? null,
@@ -62,6 +75,7 @@ const SOURCE_LABELS: Record<string, string> = {
   discovery: "🔭 Discovery",
   iv_collection: "💹 IV Collection",
   research_report: "🔬 Research",
+  goal_screen: "🎯 Goal Screen",
 };
 
 // Badge colors travel as background/foreground token PAIRS (#677): each
@@ -124,7 +138,7 @@ export function ReportsPanel() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as any;
       let rows: ReportItem[] = (data.runs || []).map(runToReportItem);
-      if (sourceFilter === "iv_collection" || sourceFilter === "research_report") {
+      if (sourceFilter === "iv_collection" || sourceFilter === "research_report" || sourceFilter === "goal_screen") {
         rows = rows.filter((r) => r.source === sourceFilter);
       }
       if (query?.trim()) {
@@ -150,7 +164,7 @@ export function ReportsPanel() {
     fetchReports(searchQuery, semanticMode);
   };
 
-  const filteredSources = ["all", "screener", "options_scanner", "discovery", "iv_collection", "research_report"];
+  const filteredSources = ["all", "screener", "options_scanner", "discovery", "iv_collection", "research_report", "goal_screen"];
 
   return (
     <div className="reports-panel">
@@ -263,6 +277,21 @@ export function ReportsPanel() {
                 <a className="report-pdf-link" href={r.reportUrl} download>
                   📄 Download PDF
                 </a>
+              )}
+              {r.xlsxUrl && (
+                <a className="report-pdf-link" href={r.xlsxUrl} download>
+                  📊 Download XLSX
+                </a>
+              )}
+              {r.csvUrl && (
+                <a className="report-pdf-link" href={r.csvUrl} download>
+                  📋 Download CSV
+                </a>
+              )}
+              {!r.reportUrl && (r.pdfStatus || r.pdfError) && (
+                <span className="report-pdf-unavailable">
+                  📄 PDF unavailable{r.pdfError ? ` — ${r.pdfError}` : ""}
+                </span>
               )}
             </div>
           </div>

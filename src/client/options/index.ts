@@ -9,7 +9,7 @@ export * from "./StrategyDiscoveryPanel";
 export * from "./LlmOptionsIdeasPanel";
 export * from "./LlmStrategyEvalModal";
 export * from "./EtapiConfigModal";
-export * from "./optionsDataExporter";
+export * from "./OptionsDataDownloadDropdown";
 export * from "../runExport";
 export * from "./strategyDiscoveryEngine";
 export * from "./blackScholes";

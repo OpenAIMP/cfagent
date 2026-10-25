@@ -81,6 +81,86 @@
       "category": "data",
       "retryable": false,
       "httpStatus": 200
+    },
+    "AUTH_003": {
+      "businessMessage": "No E*TRADE session is stored for this account. Please connect your account in Settings.",
+      "category": "auth",
+      "code": "AUTH_003",
+      "httpStatus": 401,
+      "retryable": false,
+      "technicalDetail": "No E*TRADE OAuth token set exists in the SessionStore for the user in the resolved environment"
+    },
+    "SCREEN_001": {
+      "businessMessage": "The screen run failed.",
+      "category": "screen",
+      "code": "SCREEN_001",
+      "httpStatus": 500,
+      "retryable": true,
+      "technicalDetail": "Screener run completed with success=false; see the run error detail"
+    },
+    "SCREEN_002": {
+      "businessMessage": "The screen published qualified partial results \u2014 some symbols could not be evaluated.",
+      "category": "screen",
+      "code": "SCREEN_002",
+      "httpStatus": 200,
+      "retryable": true,
+      "technicalDetail": "Partial coverage: a subset of the universe evaluated; failure reasons recorded on the run"
+    },
+    "SCREEN_003": {
+      "businessMessage": "The options screen was discarded \u2014 no contracts could be evaluated.",
+      "category": "screen",
+      "code": "SCREEN_003",
+      "httpStatus": 502,
+      "retryable": true,
+      "technicalDetail": "Options scan evaluated zero contracts (chain fetch or coverage failure); run discarded by the coverage gate"
+    },
+    "REPORT_001": {
+      "businessMessage": "The PDF report could not be generated.",
+      "category": "report",
+      "code": "REPORT_001",
+      "httpStatus": 500,
+      "retryable": true,
+      "technicalDetail": "Report pipeline PDF render failed; pdfError recorded on the run"
+    },
+    "REPORT_002": {
+      "businessMessage": "The XLSX report could not be generated.",
+      "category": "report",
+      "code": "REPORT_002",
+      "httpStatus": 500,
+      "retryable": true,
+      "technicalDetail": "Report pipeline XLSX generation failed; xlsxError recorded on the run"
+    },
+    "REPORT_003": {
+      "businessMessage": "The generated report file could not be found for delivery.",
+      "category": "report",
+      "code": "REPORT_003",
+      "httpStatus": 500,
+      "retryable": true,
+      "technicalDetail": "Follow-up report job found no adoptable artifact for the run's recorded keys"
+    },
+    "DELIVER_001": {
+      "businessMessage": "The delivery recipient is not on the screener email allowlist; delivery refused.",
+      "category": "delivery",
+      "code": "DELIVER_001",
+      "httpStatus": 403,
+      "retryable": false,
+      "technicalDetail": "Effective recipient failed isEmailAllowed against SCREENER_EMAIL_ALLOWLIST / run-owner rule"
+    },
+    "DELIVER_002": {
+      "businessMessage": "Report delivery failed on this channel.",
+      "category": "delivery",
+      "code": "DELIVER_002",
+      "httpStatus": 502,
+      "retryable": true,
+      "technicalDetail": "Delivery port returned ok=false or threw; see the transport detail"
+    },
+    "DATA_001": {
+      "businessMessage": "A market-data provider was unavailable; results may be partial.",
+      "category": "data",
+      "code": "DATA_001",
+      "httpStatus": 502,
+      "retryable": true,
+      "technicalDetail": "Provider fetch failed after policy retries (e.g. Yahoo throttling/unreachable); symbols dropped as provider-unavailable"
     }
   }
 }

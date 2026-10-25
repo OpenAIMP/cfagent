@@ -12,10 +12,11 @@ import type { Env } from "../types";
 import {
   invalidateTokenCacheFor,
   readTokenCache,
+  tokenCacheEpoch,
   tokenCacheKey,
   writeTokenCache,
 } from "./etradeTokenCache";
-import { createStoreKv, listStoreEntries, type DoNamespaceLike } from "./durableKv";
+import { consumeStoreKey, createStoreKv, listStoreEntries, type DoNamespaceLike } from "./durableKv";
 import { type KvLike } from "./kvResilience";
 import { generateOAuth1Header, rfc3986 } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
@@ -473,42 +474,77 @@ export async function renewETradeAccessToken(
 
   if (!consumerKey || !consumerSecret) return null;
 
+  // Issue #1245 (#1209 F4b): renewal single-flight per user+env. The
+  // 23:00 cron, the manual renew trigger, the preflight, and on-auth
+  // renewal all enter here; two overlapping renewals would present
+  // the same stored pair upstream and race their writes. The claim
+  // rides the SessionStore DO's atomic consume op (120s TTL).
+  const lockKey = `etrade:renew-lock:${envConfig.name}:${userLogin.toLowerCase()}`;
+  const claim = await consumeStoreKey({
+    namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+    namespaceName: "etrade",
+    key: lockKey,
+    value: "1",
+    ttlSeconds: 120,
+  });
+  if (claim === "duplicate") {
+    // Another renewal is in flight. The tokens already read stay
+    // valid until midnight ET — serve this caller with them instead
+    // of a second upstream renewal.
+    return tokens;
+  }
+  if (claim === "unavailable") {
+    // Lock service unreachable: fail OPEN to the pre-#1245 behavior
+    // (renewal availability beats strict single-flight).
+    console.warn(`[renewETradeAccessToken] renewal lock unavailable for ${userLogin}; proceeding without single-flight`);
+  }
+
   const baseUrl = envConfig.etrade.baseUrl.replace(/\/v1\/?$/, "");
   const renewUrl = `${baseUrl}/oauth/renew_access_token`;
 
-  return withAspects(
-    { operationName: "renew_access_token", isLive: envConfig.isLive, targetUrl: renewUrl },
-    async () => {
-      const authHeader = await generateOAuth1Header({
-        method: "GET",
-        url: renewUrl,
-        consumerKey,
-        consumerSecret,
-        token: tokens.accessToken,
-        tokenSecret: tokens.accessTokenSecret,
-      });
+  try {
+    return await withAspects(
+      { operationName: "renew_access_token", isLive: envConfig.isLive, targetUrl: renewUrl },
+      async () => {
+        const authHeader = await generateOAuth1Header({
+          method: "GET",
+          url: renewUrl,
+          consumerKey,
+          consumerSecret,
+          token: tokens.accessToken,
+          tokenSecret: tokens.accessTokenSecret,
+        });
 
-      const res = await fetch(renewUrl, {
-        method: "GET",
-        headers: {
-          Authorization: authHeader,
-        },
-      });
+        const res = await fetch(renewUrl, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+          },
+        });
 
-      if (!res.ok) {
-        console.warn(`E*TRADE renew_access_token failed [HTTP ${res.status}] for ${userLogin}`);
-        return null;
+        if (!res.ok) {
+          console.warn(`E*TRADE renew_access_token failed [HTTP ${res.status}] for ${userLogin}`);
+          return null;
+        }
+
+        const renewedTokens: ETradeTokenSet = {
+          ...tokens,
+          storedAt: new Date().toISOString(),
+          environment: envConfig.name,
+        };
+        await storeAccessTokens(env, userLogin, renewedTokens.accessToken, renewedTokens.accessTokenSecret, overrideEnv);
+        return renewedTokens;
       }
-
-      const renewedTokens: ETradeTokenSet = {
-        ...tokens,
-        storedAt: new Date().toISOString(),
-        environment: envConfig.name,
-      };
-      await storeAccessTokens(env, userLogin, renewedTokens.accessToken, renewedTokens.accessTokenSecret, overrideEnv);
-      return renewedTokens;
+    );
+  } finally {
+    if (claim === "consumed") {
+      try {
+        await getKv(env).delete(lockKey);
+      } catch {
+        // Best-effort release; the claim expires on its TTL regardless.
+      }
     }
-  );
+  }
 }
 
 /** Renew every active account token from the Durable Object store. */
@@ -576,6 +612,11 @@ export async function getValidTokens(
   const cacheKey = tokenCacheKey(envConfig.name, userLogin);
   const cached = readTokenCache(cacheKey);
   if (cached !== undefined) return cached ?? legacyStaticToken;
+  // Issue #1218: the store read below is async — a concurrent write
+  // path (connect/renew/revoke) may invalidate while it is in flight.
+  // Capture the epoch now; the cache writes below no-op if it moved,
+  // so a stale result never resurrects after the invalidation.
+  const readEpoch = tokenCacheEpoch(cacheKey);
 
   let raw = await kv.get(scopedKey);
   let tokens: ETradeTokenSet | null = null;
@@ -601,18 +642,18 @@ export async function getValidTokens(
 
   if (!tokens) {
     if (legacyStaticToken) return legacyStaticToken;
-    writeTokenCache(cacheKey, null);
+    writeTokenCache(cacheKey, null, readEpoch);
     return null;
   }
 
   if (isTokenExpiredEt(tokens.storedAt)) {
     console.warn(`E*TRADE tokens for ${userLogin} expired at midnight ET.`);
     await revokeStoredTokens(env, userLogin, overrideEnv);
-    writeTokenCache(cacheKey, null);
+    writeTokenCache(cacheKey, null, readEpoch);
     return legacyStaticToken;
   }
 
-  writeTokenCache(cacheKey, tokens);
+  writeTokenCache(cacheKey, tokens, readEpoch);
   return tokens;
 }
 

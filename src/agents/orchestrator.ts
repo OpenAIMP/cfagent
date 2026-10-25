@@ -34,11 +34,11 @@ import { createDidAttestation, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErrorFallback";
 import { getScreenerExecutionContext, migrateLegacyScreenSchedules, removeUnownedBaselineSchedules, ensureStrategyScanSchedule, type ScheduleMaintenanceContext } from "./orchestrator/scheduleMaintenance";
-import { autoRenewETradeTokens, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
+import { autoRenewETradeTokens, autonomousGoalScreen, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
 import { nlqSchedulingPort, nlqSocialBriefPort, nlqStockScreenPort, type NlqPortsContext } from "./orchestrator/nlqPorts";
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
 import type { DoNamespaceLike } from "../security/durableKv";
-import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobGraphColumns, scheduleScreenerFollowups, type AsyncJobsContext } from "./orchestrator/asyncJobs";
+import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobGraphColumns, scheduleScreenerFollowups, retryAsyncJob, type AsyncJobsContext } from "./orchestrator/asyncJobs";
 import type { ScreenerRunOutcome } from "../services/screenerFollowups";
 import { marketDateKey, readAutopilotStateRaw, getAutopilotState, writeAutopilotState, incrementAutopilotOrdersToday, fetchBrokerBalanceSnapshot, openNotionalForSymbol, evaluateAndRecordAutopilotVerdict, type AutopilotContext } from "./orchestrator/autopilot";
 import { readSettingRaw, writeSetting, getReportDispatchHitl, setReportDispatchHitl, createReportConfirmation, getReportConfirmation, decideReportConfirmation, storeResearchReportCanonicalAsync, confirmationDeliveryMeta, deliverStoredReportEmail, deliverStoredReportWebhook, persistScreenerReportCanonical, sendReportEmail, sendReportWebhook, type ReportDispatchContext } from "./orchestrator/reportDispatch";
@@ -51,7 +51,7 @@ import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
 import { createFollowupDeliveryPort } from "../services/screenerFollowupDelivery";
 import { ScheduledTasksService, type AutonomousOptionsAnalysisOptions, type AutonomousStrategyDiscoveryOptions } from "../services/scheduledTasks";
-// Issue #278: durable scheduled-run reports for the AI Search agent.
+// Issue #278: durable scheduled-run reports for the NextGenTP agent.
 // Issue #308: the single generate→store seam + canonical report bodies.
 import {
   canonicalResearchEmailBody,
@@ -60,18 +60,19 @@ import {
 } from "../services/scheduledReports";
 // Issue #359-01: reports + HITL routes live in src/agents/routes/reports.ts;
 // routeRequest delegates to handleReportsRoutes at the original position.
-import { handleReportsRoutes } from "./routes/reports";
+import { handleReportsRoutes, makeSubmitFollowupDelivery } from "./routes/reports";
 import { handleMcpChatNlqRoutes } from "./routes/mcpChatNlq";
 import { handleSchemaRoutes } from "./routes/schema";
 import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./routes/adsRevenueReferrals";
 import { handleAuditRoutes } from "./routes/audit";
+import { handleDataProviderRoutes } from "./routes/dataProviders";
 import { handleAutopilotRoutes } from "./routes/autopilot";
 import { handleMemoryResetRoutes } from "./routes/memoryReset";
 import { handlePaymentsRoutes } from "./routes/payments";
 import { handleAgenticPaymentsRoutes } from "./routes/agenticPayments";
 // Issue #359-08: premium routes live in src/agents/routes/premium.ts;
 // routeRequest delegates to handlePremiumRoutes at the original position.
-import { handlePremiumRoutes } from "./routes/premium";
+import { handlePremiumRoutes, makePremiumRouteContext } from "./routes/premium";
 import { handleTradingIntegrationsRoutes } from "./routes/tradingIntegrations";
 import {
   handleEtradeBrokerRoutes,
@@ -82,7 +83,7 @@ import { handleWatchlistsRoutes } from "./routes/watchlists";
 import { handleAlpacaFossRoutes, handleAlpacaTradingRoutes } from "./routes/alpaca";
 import { handleFossQuoteResearchRoutes, handleFossCompareScreenRoutes } from "./routes/fossResearch";
 import { handleScreenerResearchRoutes } from "./routes/screenerResearch";
-import { handleSchedulesRoutes } from "./routes/schedules";
+import { handleSchedulesRoutes, makeRunScheduleCallback } from "./routes/schedules";
 import { TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -125,12 +126,16 @@ export const CREATABLE_SCHEDULE_CALLBACKS = [
   "autonomousOptionsAnalysis",
   "autonomousMarketScreen",
   "autonomousStrategyDiscovery",
+  // Consolidation C1 (issue #1201, epic #1151 R1): goal-driven
+  // screens are schedulable through the one schedule store.
+  "autonomousGoalScreen",
 ] as const;
 
 const ACCOUNT_SCOPED_SCHEDULE_CALLBACKS = new Set<string>([
   "autonomousOptionsAnalysis",
   "autonomousMarketScreen",
   "autonomousStrategyDiscovery",
+  "autonomousGoalScreen",
 ]);
 
 export type CreatableScheduleCallback = (typeof CREATABLE_SCHEDULE_CALLBACKS)[number];
@@ -249,9 +254,6 @@ export class OrchestratorAgent extends Think<Env> {
         getOrm: () => this.getOrm(),
         getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
       }),
-      reportDispatchHitlEnabled: () => getReportDispatchHitl(this.reportDispatchContext()),
-      createScreenerConfirmation: (payloadJson: string) =>
-        createReportConfirmation(this.reportDispatchContext(), "screener", payloadJson, null),
     };
   }
 
@@ -586,8 +588,26 @@ export class OrchestratorAgent extends Think<Env> {
     pushToSlack?: boolean;
     filters?: import("../types").StockScreenerFilter;
     provider?: import("../trading").StockScreenProvider;
+    stageChain?: import("../types").StageChainConfig;
   }): Promise<void> {
     return autonomousMarketScreen(this.scheduledCallbacksContext(), payload);
+  }
+
+  // Consolidation C1 (issue #1201): extracted to ./orchestrator/scheduledCallbacks.ts (autonomousGoalScreen);
+  async autonomousGoalScreen(payload?: {
+    goalKind?: string;
+    direction?: string;
+    scenarioId?: string;
+    symbols?: string[];
+    assetClasses?: ("stocks" | "options")[];
+    trigger?: "manual" | "scheduled";
+    userLogin?: string;
+    environment?: ETradeEnvironment;
+    emailTo?: string;
+    slackChannel?: string;
+    pushToSlack?: boolean;
+  }): Promise<void> {
+    return autonomousGoalScreen(this.scheduledCallbacksContext(), payload);
   }
 
   /**
@@ -1003,6 +1023,11 @@ export class OrchestratorAgent extends Think<Env> {
   // Issue #992: extracted to ./orchestrator/asyncJobs.ts (executeAsyncJob);
   async executeAsyncJob({ jobId }: AsyncJobPayload): Promise<void> {
     return executeAsyncJob(this.asyncJobsContext(), { jobId });
+  }
+
+  // Consolidation C3 (#1277): extracted to ./orchestrator/asyncJobs.ts (retryAsyncJob);
+  private async retryAsyncJob(jobId: string): Promise<{ jobId: string; status: "queued"; statusUrl: string }> {
+    return retryAsyncJob(this.asyncJobsContext(), jobId);
   }
 
   private sessionKey(): string {
@@ -1637,6 +1662,21 @@ export class OrchestratorAgent extends Think<Env> {
         : Response.json({ error: "Async job not found." }, { status: 404 });
     }
 
+    // Consolidation C3 (#1277): per-stage retry — resubmit a failed
+    // job (e.g. a chain's failed deliver stage) from its recorded
+    // payload; upstream stages are never re-executed.
+    const jobRetryMatch = path.match(/(?:^|\/api)\/jobs\/([0-9a-f-]{36})\/retry$/i);
+    if (jobRetryMatch && request.method === "POST") {
+      try {
+        const retried = await this.retryAsyncJob(jobRetryMatch[1]);
+        return Response.json({ success: true, ...retried });
+      } catch (err: any) {
+        const message = err?.message || "Retry failed.";
+        const status = /not found/i.test(message) ? 404 : /already retried|Only a failed/i.test(message) ? 409 : 500;
+        return Response.json({ success: false, error: message }, { status });
+      }
+    }
+
     if (/(?:^|\/api)\/chat-activity$/.test(path) && request.method === "POST") {
       return this.logChatActivity(request);
     }
@@ -1683,23 +1723,7 @@ export class OrchestratorAgent extends Think<Env> {
         this.decideReportConfirmation(id, status, decidedBy),
       createReportConfirmation: (kind, payloadJson, reportId) =>
         this.createReportConfirmation(kind, payloadJson, reportId),
-      submitFollowupDelivery: async (delivery, confirmationId) => {
-        await this.submitAsyncJob({
-          capability: "followup.deliver",
-          payload: {
-            outcome: delivery.outcome,
-            userLogin: delivery.userLogin,
-            channel: delivery.channel,
-            artifacts: delivery.artifacts,
-            approvedConfirmationId: confirmationId,
-          },
-          parentJobId: delivery.parentJobId,
-          jobKind: "delivery",
-          channel: delivery.channel,
-          displayName: delivery.displayName,
-        });
-        return true;
-      },
+      submitFollowupDelivery: makeSubmitFollowupDelivery((job) => this.submitAsyncJob(job)),
       confirmationDeliveryMeta: (row) => this.confirmationDeliveryMeta(row),
       deliverStoredReportEmail: (reportId, recipient, userLogin) =>
         this.deliverStoredReportEmail(reportId, recipient, userLogin),
@@ -1770,6 +1794,19 @@ export class OrchestratorAgent extends Think<Env> {
       recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
     });
     if (auditResponse) return auditResponse;
+
+    // Issue #1170 (E3): data-provider lifecycle routes are handled
+    // by src/agents/routes/dataProviders.ts. Invoked here (after the
+    // audit handler); a non-null return matched. The verified login
+    // (set by src/server.ts from the session, #1156) gates mutations
+    // and is the audit actor.
+    const dataProvidersResponse = await handleDataProviderRoutes(request, url, path, sessionId, {
+      env: this.env,
+      sql: this.ctx.storage.sql,
+      userLogin: request.headers.get("x-user-login") || "",
+      recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
+    });
+    if (dataProvidersResponse) return dataProvidersResponse;
 
     // Issue #359-05: autopilot control center routes (GET /autopilot,
     // POST /autopilot/state, POST /autopilot/kill-switch,
@@ -1846,12 +1883,7 @@ export class OrchestratorAgent extends Think<Env> {
     // position in the sequential matching sequence (between the Cloudflare
     // Agentic Payments block and the Environment & E*TRADE Trading APIs
     // block); a non-null return matched.
-    const premiumResponse = await handlePremiumRoutes(request, url, path, sessionId, {
-      env: this.env,
-      getOrm: () => this.getOrm(),
-      getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
-      persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
-    });
+    const premiumResponse = await handlePremiumRoutes(request, url, path, sessionId, makePremiumRouteContext(this));
     if (premiumResponse) return premiumResponse;
 
     // Issue #359-09: E*TRADE broker routes (Environment & E*TRADE Trading
@@ -1896,6 +1928,9 @@ export class OrchestratorAgent extends Think<Env> {
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       agentCtx: this.ctx,
       nlqSchedulingPort: () => this.nlqSchedulingPort(),
+      // Issue #1262 Phase 4: channel NLQ deps need DO storage SQL
+      // for the scan/profile stores and discovery runners.
+      getStorageSql: () => this.ctx.storage.sql,
     });
     if (tradingIntegrationsResponse) return tradingIntegrationsResponse;
 
@@ -1991,14 +2026,12 @@ export class OrchestratorAgent extends Think<Env> {
     // Cloudflare Agents Task Scheduling Management APIs
     // ==========================================
 
-    // Issue #359-15: screener + autonomous research routes (stock screener
-    // /screener/*, options PDF, and /research/*) are handled by
-    // src/agents/routes/screenerResearch.ts (handleScreenerResearchRoutes).
-    // Invoked at this exact position in the sequential path.endsWith
-    // matching sequence (after the FOSS compare/screen delegation, before
-    // the task schedules block); a non-null return matched. Orchestrator-
-    // owned helpers (getScreenerAgent, getResearchAgent, runResearchAndPublish,
-    // mas_settings) arrive via the context object.
+    // Issue #359-15: screener + autonomous research routes (/screener/*,
+    // options PDF, /research/*) live in src/agents/routes/screenerResearch.ts
+    // (handleScreenerResearchRoutes), invoked at this exact position in the
+    // sequential path.endsWith sequence (after the FOSS compare/screen
+    // delegation, before the task schedules block); a non-null return
+    // matched. Orchestrator-owned helpers arrive via the context object.
     const screenerResearchResponse = await handleScreenerResearchRoutes(request, url, path, sessionId, {
       getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
       getScreenerExecutionContext: () => this.getScreenerExecutionContext(),
@@ -2007,6 +2040,7 @@ export class OrchestratorAgent extends Think<Env> {
       getOrm: () => this.getOrm(),
       readSettingRaw: (key) => this.readSettingRaw(key),
       writeSetting: (key, value) => this.writeSetting(key, value),
+      env: this.env,
     });
     if (screenerResearchResponse) return screenerResearchResponse;
     // Issue #359-16: schedules task-scheduling routes (list/create/cancel/
@@ -2035,13 +2069,7 @@ export class OrchestratorAgent extends Think<Env> {
       autoRenewETradeTokens: (payload) => this.autoRenewETradeTokens(payload),
       creatableScheduleCallbacks: CREATABLE_SCHEDULE_CALLBACKS,
       accountScopedScheduleCallbacks: ACCOUNT_SCOPED_SCHEDULE_CALLBACKS,
-      runScheduleCallback: async (callback: string, payload: unknown) => {
-        const fn = (this as unknown as Record<string, unknown>)[callback];
-        if (typeof fn !== "function") {
-          throw new Error(`Schedule callback '${callback}' is not callable on the orchestrator.`);
-        }
-        await (fn as (p: unknown) => Promise<void>).call(this, payload);
-      },
+      runScheduleCallback: makeRunScheduleCallback(this),
     });
     if (schedulesResponse) return schedulesResponse;
 

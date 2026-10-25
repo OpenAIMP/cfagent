@@ -8,6 +8,9 @@
  * the FOSS compare/screen delegation and before the task schedules block):
  *   GET         /screener/latest                    (issue #212/#261)
  *   GET         /screener/report.pdf                (issue #269)
+ *   POST        /screener/report/regenerate         (issue #1278, #1173 R5)
+ *   GET         /screener/report.xlsx               (issue #953)
+ *   GET         /screener/report.csv                (issue #1346)
  *   GET         /options/report.pdf                 (issue #361)
  *   POST        /research/run                       (issue #319, manual)
  *   POST        /research/scheduled-tick            (issue #319/#354, daily)
@@ -16,6 +19,8 @@
  *   GET         /research/settings
  *   POST        /research/settings
  *   POST        /research/evaluate
+ *   GET         /screening/activity                 (issue #1162, epic #1096 Phase 6)
+ *   GET|POST    /screening/controls                 (issue #1162)
  *
  * Every handler ends with an explicit `return null` - never undefined.
  *
@@ -66,6 +71,8 @@ export interface ScreenerResearchRouteContext {
   }>;
   /** ORM accessor (owner: OrchestratorAgent.getOrm - was `this.getOrm()`); the #754 adaptation services take it as their SqlStorage (post-#887 the ORM satisfies that interface). */
   getOrm(): DatabaseORM;
+  /** Worker environment (owner: OrchestratorAgent - `this.env`); the Phase 6 tick delivery builds its channel senders from it. */
+  env: Record<string, any>;
   /** mas_settings raw read (owner: OrchestratorAgent.readSettingRaw - was `this.readSettingRaw`). */
   readSettingRaw(key: string): string | null;
   /** mas_settings write (owner: OrchestratorAgent.writeSetting - was `this.writeSetting`). */
@@ -130,6 +137,29 @@ export async function handleScreenerResearchRoutes(
       }
     }
 
+    // Issue #1278 (#1173 R5): regenerate the latest run's PDF (the
+    // recovery path for a run whose PDF generation failed). No
+    // re-screen — the ScreenerAgent re-runs the report pipeline for
+    // its stored latest run and records the outcome on it.
+    if (path.endsWith("/screener/report/regenerate") && request.method === "POST") {
+      try {
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const out = await agent.regenerateLatestReport();
+        if (!out.timestamp) {
+          return Response.json({ error: out.pdfError || "No screener run to regenerate" }, { status: 404 });
+        }
+        return Response.json({
+          pdfStatus: out.pdfStatus,
+          pdfKey: out.pdfKey,
+          pdfError: out.pdfError,
+          timestamp: out.timestamp,
+          reportUrl: out.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(out.pdfKey)}` : undefined,
+        }, { status: out.pdfStatus === "generated" ? 200 : 502 });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to regenerate report" }, { status: 500 });
+      }
+    }
+
     // Downloadable XLSX report of the screener run (multi-tab: Screened Stocks + Formulas & Methodology).
     if (path.endsWith("/screener/report.xlsx") && request.method === "GET") {
       try {
@@ -149,6 +179,120 @@ export async function handleScreenerResearchRoutes(
         });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to load XLSX report" }, { status: 500 });
+      }
+    }
+
+    // Issue #1346: downloadable CSV report of the screener run
+    // (mirrors the XLSX route; the key must be screener:csv: —
+    // enforced in the agent getter — so this route cannot serve a
+    // PDF/XLSX blob as CSV).
+    if (path.endsWith("/screener/report.csv") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const csv = key ? await agent.getCsvByKey(key) : await agent.getLatestCsv();
+        if (!csv) {
+          return Response.json({ error: "No screener CSV report available yet" }, { status: 404 });
+        }
+        return new Response(csv.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "text/csv",
+            "Content-Disposition": `attachment; filename="${csv.fileName}"`,
+            "Content-Length": String(csv.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load CSV report" }, { status: 500 });
+      }
+    }
+
+    // Issue #1335: goal-screen report artifacts (PDF + XLSX + CSV) —
+    // served from the ScreenerAgent blob store. The key must be
+    // goal_screen-namespaced (enforced again in the agent getter), so
+    // a goal-screen link cannot read stock/options blobs.
+    if (
+      (path.endsWith("/screening/goal-screen/report.pdf") ||
+        path.endsWith("/screening/goal-screen/report.xlsx") ||
+        path.endsWith("/screening/goal-screen/report.csv")) &&
+      request.method === "GET"
+    ) {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        if (!key) {
+          return Response.json({ error: "A report key is required" }, { status: 400 });
+        }
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const artifact = await agent.getGoalScreenArtifactByKey(key);
+        if (!artifact) {
+          return Response.json({ error: "No goal-screen report found for that key" }, { status: 404 });
+        }
+        // NB: do NOT branch on path.endsWith here — the thin-router
+        // inventory test extracts every such condition in this
+        // handler, and these would duplicate the route's own entries.
+        const ext = path.slice(path.lastIndexOf("."));
+        const contentType =
+          ext === ".pdf"
+            ? "application/pdf"
+            : ext === ".xlsx"
+              ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              : "text/csv";
+        return new Response(artifact.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": contentType,
+            "Content-Disposition": `attachment; filename="${artifact.fileName}"`,
+            "Content-Length": String(artifact.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load goal-screen report" }, { status: 500 });
+      }
+    }
+
+    // Issue #1195 (#1173 R3b): Options XLSX download endpoint (mirrors stock).
+    if (path.endsWith("/options/report.xlsx") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const xlsx = key ? await agent.getOptionsXlsxByKey(key) : await agent.getLatestOptionsXlsx();
+        if (!xlsx) {
+          return Response.json({ error: "No options XLSX report available yet" }, { status: 404 });
+        }
+        return new Response(xlsx.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename="${xlsx.fileName}"`,
+            "Content-Length": String(xlsx.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load XLSX report" }, { status: 500 });
+      }
+    }
+
+    // Issue #1346: Options CSV download endpoint (mirrors options
+    // XLSX; the key must be options:csv: — enforced in the agent
+    // getter).
+    if (path.endsWith("/options/report.csv") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const csv = key ? await agent.getOptionsCsvByKey(key) : await agent.getLatestOptionsCsv();
+        if (!csv) {
+          return Response.json({ error: "No options CSV report available yet" }, { status: 404 });
+        }
+        return new Response(csv.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "text/csv",
+            "Content-Disposition": `attachment; filename="${csv.fileName}"`,
+            "Content-Length": String(csv.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load CSV report" }, { status: 500 });
       }
     }
 
@@ -261,6 +405,16 @@ export async function handleScreenerResearchRoutes(
             dateKey: decision.dateKey,
           });
         }
+        // Issue #1162 (epic #1096 Phase 6): the screening pause flag is
+        // read once per tick and gates every #1096 autonomous step
+        // below (discovery, re-selection, weights-v2, tick delivery).
+        // The #319 research run and its evaluations are NOT gated —
+        // they predate the screening system and have their own
+        // controls. A settings read failure reads as paused
+        // (fail-closed, the #756 kill-switch idiom).
+        const screeningFlags = await import("../../services/screeningFlags");
+        const readScreeningSetting = (key: string) => ctx.readSettingRaw(key);
+        const screeningPaused = screeningFlags.isScreeningScheduledPaused(readScreeningSetting);
         const out = await triggerScheduledResearch(
           ctx.runResearchAndPublish,
           userLogin
@@ -286,9 +440,12 @@ export async function handleScreenerResearchRoutes(
         // discovery is advisory and never fails the tick. Portfolio
         // state is not supplied on this path, so portfolio discovery
         // triggers skip with the limitation recorded by the engine.
+        // Issue #1162: the screening pause flag skips discovery too.
         try {
           const agent = ctx.getResearchAgent(userLogin);
-          if (agent) {
+          if (agent && screeningPaused) {
+            (out as Record<string, unknown>).discoverySkipped = "screening_paused";
+          } else if (agent) {
             const disc = await agent.runDiscoveryIfDue(new Date(), { userLogin });
             (out as Record<string, unknown>).discoveryFired = disc.fired;
             if (disc.fired) {
@@ -298,6 +455,164 @@ export async function handleScreenerResearchRoutes(
           }
         } catch {
           // Discovery is advisory; the research run already succeeded.
+        }
+        // Issue #1162 (epic #1096 Phase 6): the remaining #1096
+        // autonomous steps get their production caller on this same
+        // tick (no new cron trigger — the Workers ceiling): strategy-
+        // bank re-selection (Phase 3, proposals only — promotion stays
+        // behind Phase 5's gate) and the strategy-weights v2 job
+        // (Phase 5; kill switch and budget are enforced inside the
+        // job), plus channel delivery of a fired discovery when the
+        // channels flag is on. All best-effort, recorded in the
+        // screening activity log; none of it can fail the tick.
+        try {
+          const orm = ctx.getOrm();
+          const { recordScreeningActivity } = await import("../../services/screeningActivity");
+          if (screeningPaused) {
+            (out as Record<string, unknown>).screeningPaused = true;
+            recordScreeningActivity(orm, {
+              userLogin,
+              kind: "schedule_control",
+              summary:
+                "Scheduled screening steps skipped — screening is paused (screening.scheduledPaused=on). Discovery, re-selection, weights-v2, and tick delivery did not run.",
+              actor: "scheduled-tick",
+            });
+          } else {
+            const steps: Record<string, unknown> = {};
+            const agent = ctx.getResearchAgent(userLogin);
+            const track = agent ? await agent.getTrackRecord().catch(() => null) : null;
+            const researchConfig = agent ? await agent.getResearchConfig().catch(() => null) : null;
+            if (agent && track) {
+              try {
+                const {
+                  shouldFireStrategyBankTick,
+                  STRATEGY_BANK_LAST_RUN_KEY,
+                  buildStrategyRegimeEvidence,
+                  reselectStrategyBank,
+                  recordReselectionProposal,
+                } = await import("../../services/strategyBankReselection");
+                // Consolidation C5 (#1361, #1257): reselection reads
+                // v2 weights for the run's regime (proposal-only; the
+                // informational weight field now carries the regime's
+                // v2 value). Proposal shape unchanged.
+                const { getStrategyWeightsV2ForRegime } = await import("../../services/strategyWeightsV2");
+                const sbDecision = shouldFireStrategyBankTick(
+                  new Date(),
+                  ctx.readSettingRaw(STRATEGY_BANK_LAST_RUN_KEY)
+                );
+                if (sbDecision.fire) {
+                  const evidence = buildStrategyRegimeEvidence(track.ideas);
+                  const regimes = [...new Set(evidence.map((e) => e.regime))];
+                  let proposals = 0;
+                  for (const regime of regimes) {
+                    const proposal = reselectStrategyBank({
+                      evidence,
+                      weights: getStrategyWeightsV2ForRegime(orm, regime),
+                      regime,
+                      overallWinRate: track.winRate,
+                      now: new Date(),
+                    });
+                    recordReselectionProposal(orm, userLogin, proposal);
+                    proposals++;
+                  }
+                  if (proposals > 0) {
+                    ctx.writeSetting(STRATEGY_BANK_LAST_RUN_KEY, sbDecision.dateKey);
+                  }
+                  steps.reselection = { fired: true, proposals, regimes };
+                } else {
+                  steps.reselection = { fired: false, reason: sbDecision.reason };
+                }
+              } catch (err) {
+                steps.reselection = {
+                  fired: false,
+                  error: err instanceof Error ? err.message : String(err),
+                };
+              }
+              try {
+                const { buildWeightsV2Slices, runWeightsV2Adjustment } = await import("../../services/strategyWeightsV2");
+                const { RESEARCH_CONFIG_DEFAULTS } = await import("../../services/researchConfig");
+                const costs = {
+                  feePerContract: researchConfig?.feePerContract ?? RESEARCH_CONFIG_DEFAULTS.feePerContract,
+                  slippagePerContract: researchConfig?.slippagePerContract ?? RESEARCH_CONFIG_DEFAULTS.slippagePerContract,
+                };
+                const slices = buildWeightsV2Slices(
+                  track.ideas.map((idea) => ({
+                    structure: idea.structure,
+                    regime: idea.regime,
+                    contractsPerUnit: idea.contractsPerUnit,
+                    evaluation: idea.evaluation
+                      ? {
+                          pnlEstimatePerUnit: idea.evaluation.pnlEstimatePerUnit,
+                          rMultiple: idea.evaluation.rMultiple,
+                          evaluatedAt: idea.evaluation.evaluatedAt,
+                        }
+                      : null,
+                  })),
+                  costs
+                );
+                const wres = runWeightsV2Adjustment(orm, slices, { now: new Date() });
+                steps.weightsV2 = {
+                  considered: wres.considered,
+                  adjusted: wres.adjusted.length,
+                  blocked: wres.blocked.length,
+                  halted: wres.halted ?? false,
+                };
+                recordScreeningActivity(orm, {
+                  userLogin,
+                  kind: "weights_adjustment",
+                  summary:
+                    `Weights-v2 job on the scheduled tick: ${wres.considered} slice(s) considered, ` +
+                    `${wres.adjusted.length} adjusted, ${wres.blocked.length} blocked` +
+                    `${wres.halted ? " — halted by the adaptation kill switch" : ""}.`,
+                  detail: steps.weightsV2,
+                  actor: "scheduled-tick",
+                });
+              } catch (err) {
+                steps.weightsV2 = {
+                  error: err instanceof Error ? err.message : String(err),
+                };
+              }
+              if ((out as Record<string, unknown>).discoveryFired) {
+                recordScreeningActivity(orm, {
+                  userLogin,
+                  kind: "discovery_run",
+                  summary: `Scheduled discovery run: ${(out as Record<string, unknown>).discoveryPersisted ?? 0} proposed goal(s) persisted (proposed-only; nothing activates without confirmation).`,
+                  actor: "scheduled-tick",
+                });
+                if (screeningFlags.isScreeningChannelsEnabled(readScreeningSetting)) {
+                  try {
+                    const { deliverScreeningContent, createScreeningDeliverySenders } = await import("../../services/screeningDelivery");
+                    const channels: Array<"slack" | "email" | "webhook"> = ["slack", "webhook"];
+                    const emailTo = researchConfig?.autoEmail && researchConfig?.emailTo ? researchConfig.emailTo : undefined;
+                    if (emailTo) channels.push("email");
+                    const text =
+                      `Goal/scenario discovery (scheduled): ${(out as Record<string, unknown>).discoveryPersisted ?? 0} new proposed goal(s) are waiting in the dashboard for review. ` +
+                      `Proposals never activate or trade on their own.`;
+                    await deliverScreeningContent({
+                      channels,
+                      subject: "Screening discovery: new proposed goals",
+                      text,
+                      event: "screening.discovery",
+                      data: { persisted: (out as Record<string, unknown>).discoveryPersisted ?? 0, dateKey: decision.dateKey },
+                      emailTo,
+                      senders: createScreeningDeliverySenders(ctx.env, orm, userLogin),
+                      sql: orm,
+                      userLogin,
+                      actor: "scheduled-tick",
+                    });
+                    steps.delivery = true;
+                  } catch (err) {
+                    steps.delivery = {
+                      error: err instanceof Error ? err.message : String(err),
+                    };
+                  }
+                }
+              }
+            }
+            (out as Record<string, unknown>).screeningSteps = steps;
+          }
+        } catch {
+          // Phase 6 steps are best-effort; the research run already succeeded.
         }
         ctx.writeSetting(RESEARCH_SCHEDULED_LAST_RUN_KEY, decision.dateKey);
         return Response.json(out);
@@ -345,9 +660,25 @@ export async function handleScreenerResearchRoutes(
       if (!agent) {
         return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
       }
-      const { getStrategyWeights, buildWeightPolicyEvaluation } = await import("../../services/strategyWeights");
-      const weights = getStrategyWeights(ctx.getOrm());
+      const { isAdaptationWeightsV2RoutesEnabled } = await import("../../services/screeningFlags");
+      const { buildWeightPolicyEvaluation } = await import("../../services/strategyWeights");
       const trackRecord = await agent.getTrackRecord();
+      // Consolidation C5 (#1361, #1257): flag-on reads v2 (collapsed
+      // to plain strategy keys so the hub renders unchanged, plus the
+      // full regime map for transparency); the evaluation builder is
+      // the same, fed the collapsed map. Flag-off is v1 verbatim.
+      if (isAdaptationWeightsV2RoutesEnabled((key) => ctx.readSettingRaw(key))) {
+        const { getStrategyWeightsV2, getStrategyWeightsV2Collapsed } = await import("../../services/strategyWeightsV2");
+        const weights = getStrategyWeightsV2Collapsed(ctx.getOrm());
+        return Response.json({
+          weights,
+          weightsByRegime: getStrategyWeightsV2(ctx.getOrm()),
+          weightsSource: "v2",
+          evaluation: buildWeightPolicyEvaluation(trackRecord, weights),
+        });
+      }
+      const { getStrategyWeights } = await import("../../services/strategyWeights");
+      const weights = getStrategyWeights(ctx.getOrm());
       return Response.json({ weights, evaluation: buildWeightPolicyEvaluation(trackRecord, weights) });
     }
 
@@ -363,6 +694,57 @@ export async function handleScreenerResearchRoutes(
         return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
       }
       const body = (await request.json().catch(() => null)) as { force?: boolean } | null;
+      const { isAdaptationWeightsV2RoutesEnabled } = await import("../../services/screeningFlags");
+      // Consolidation C5 (#1361, #1257): flag-on runs the v2
+      // adjustment behind the SAME fire/no-fire semantics as v1 —
+      // ISO-week guard (same settings key, so one adjustment per
+      // week regardless of engine) + kill switch inside the v2 job.
+      // The v2 result carries regime per entry; the v1-only skipped
+      // detail fields are absent on this path (documented delta —
+      // the flag-off path is byte-identical to v1).
+      if (isAdaptationWeightsV2RoutesEnabled((key) => ctx.readSettingRaw(key))) {
+        const { buildWeightsV2Slices, runWeightsV2Adjustment } = await import("../../services/strategyWeightsV2");
+        const { isoWeekKey, WEIGHTS_LAST_RUN_WEEK_KEY } = await import("../../services/strategyWeights");
+        const { RESEARCH_CONFIG_DEFAULTS } = await import("../../services/researchConfig");
+        const trackRecord = await agent.getTrackRecord();
+        const researchConfig = await agent.getResearchConfig().catch(() => null);
+        const costs = {
+          feePerContract: researchConfig?.feePerContract ?? RESEARCH_CONFIG_DEFAULTS.feePerContract,
+          slippagePerContract: researchConfig?.slippagePerContract ?? RESEARCH_CONFIG_DEFAULTS.slippagePerContract,
+        };
+        const slices = buildWeightsV2Slices(
+          trackRecord.ideas.map((idea: any) => ({
+            structure: idea.structure,
+            regime: idea.regime,
+            contractsPerUnit: idea.contractsPerUnit,
+            evaluation: idea.evaluation
+              ? {
+                  pnlEstimatePerUnit: idea.evaluation.pnlEstimatePerUnit,
+                  rMultiple: idea.evaluation.rMultiple,
+                  evaluatedAt: idea.evaluation.evaluatedAt,
+                }
+              : null,
+          })),
+          costs
+        );
+        const now = new Date();
+        if (body?.force !== true && ctx.readSettingRaw(WEIGHTS_LAST_RUN_WEEK_KEY) === isoWeekKey(now)) {
+          return Response.json({
+            success: true,
+            considered: slices.length,
+            adjusted: [],
+            blocked: [],
+            skipped: "already ran this week",
+            weightsSource: "v2",
+            timestamp: now.toISOString(),
+          });
+        }
+        const result = runWeightsV2Adjustment(ctx.getOrm(), slices, { now });
+        if (!result.halted && body?.force !== true) {
+          ctx.writeSetting(WEIGHTS_LAST_RUN_WEEK_KEY, isoWeekKey(now));
+        }
+        return Response.json({ success: true, ...result, weightsSource: "v2", timestamp: now.toISOString() });
+      }
       const { runStrategyWeightAdjustment } = await import("../../services/strategyWeights");
       const trackRecord = await agent.getTrackRecord();
       const result = runStrategyWeightAdjustment(ctx.getOrm(), trackRecord, { force: body?.force === true });
@@ -427,14 +809,24 @@ export async function handleScreenerResearchRoutes(
       }
       const { getImprovementCandidate } = await import("../../services/improvementCandidates");
       const { evaluateCandidate } = await import("../../services/candidateEvaluation");
-      const { getStrategyWeights } = await import("../../services/strategyWeights");
       const orm = ctx.getOrm();
       const candidate = getImprovementCandidate(orm, candidateId);
       if (!candidate) {
         return Response.json({ error: `candidate ${candidateId} not found.` }, { status: 404 });
       }
       const trackRecord = await agent.getTrackRecord();
-      const weights = getStrategyWeights(orm);
+      // Consolidation C5 (#1361, #1257): flag-on feeds the replay the
+      // collapsed v2 map (the replay keys by strategy alone); flag-off
+      // is v1 verbatim.
+      const { isAdaptationWeightsV2RoutesEnabled } = await import("../../services/screeningFlags");
+      let weights: Record<string, number>;
+      if (isAdaptationWeightsV2RoutesEnabled((key) => ctx.readSettingRaw(key))) {
+        const { getStrategyWeightsV2Collapsed } = await import("../../services/strategyWeightsV2");
+        weights = getStrategyWeightsV2Collapsed(orm);
+      } else {
+        const { getStrategyWeights } = await import("../../services/strategyWeights");
+        weights = getStrategyWeights(orm);
+      }
       const window =
         body?.window && typeof body.window === "object"
           ? {
@@ -452,6 +844,28 @@ export async function handleScreenerResearchRoutes(
       }
       const { listEvaluations } = await import("../../services/candidateEvaluation");
       return Response.json({ evaluations: listEvaluations(ctx.getOrm(), candidateId) });
+    }
+
+    // Consolidation C2 (issue #1246, epic #1151): the hub Review
+    // inbox's decision-evidence reads — the candidate's promotion
+    // approvals and gate verdicts, over the promotion gate's existing
+    // stores. Read-only; requesting and deciding approvals stay on
+    // the #759 endpoints below.
+    if (path.endsWith("/adaptation/candidates/approvals") && request.method === "GET") {
+      const candidateId = url.searchParams.get("candidateId") || "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId query parameter is required." }, { status: 400 });
+      }
+      const { listPromotionApprovals } = await import("../../services/promotionGate");
+      return Response.json({ approvals: listPromotionApprovals(ctx.getOrm(), candidateId) });
+    }
+    if (path.endsWith("/adaptation/candidates/verdicts") && request.method === "GET") {
+      const candidateId = url.searchParams.get("candidateId") || "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId query parameter is required." }, { status: 400 });
+      }
+      const { listGateVerdicts } = await import("../../services/promotionGate");
+      return Response.json({ verdicts: listGateVerdicts(ctx.getOrm(), candidateId) });
     }
 
     // Issue #759: promotion gate — held-out significance + human
@@ -621,6 +1035,357 @@ export async function handleScreenerResearchRoutes(
       }
       const evaluation = await agent.evaluateRun(body.runId, userLogin);
       return Response.json({ evaluation });
+    }
+
+    // Issue #1162 (epic #1096 Phase 6): the screening activity log —
+    // one tenant-scoped feed over the autonomous screening system's
+    // own records (activity entries, Phase 3 re-selection proposals,
+    // Phase 5 challenger promotions).
+    if (path.endsWith("/screening/activity") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const limitParam = Number(url.searchParams.get("limit") || 50);
+      const { buildScreeningActivityFeed } = await import("../../services/screeningActivity");
+      const feed = buildScreeningActivityFeed(ctx.getOrm(), userLogin, limitParam);
+      return Response.json({ count: feed.length, feed });
+    }
+
+    // Issue #1162: screening controls — the mas_settings flags behind
+    // the rollout (stage, channels, NLQ fit discovery, v2-ranking,
+    // scheduled pause). Reads report the effective values with their
+    // fail-safes applied; writes are validated, and every change is
+    // recorded in the activity log with the session as actor.
+    if (path.endsWith("/screening/controls") && request.method === "GET") {
+      const { readScreeningControls } = await import("../../services/screeningFlags");
+      return Response.json(readScreeningControls((key) => ctx.readSettingRaw(key)));
+    }
+    if (path.endsWith("/screening/controls") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const body = (await request.json().catch(() => null)) as {
+        rolloutStage?: string;
+        channelsEnabled?: boolean;
+        nlqFitDiscovery?: boolean;
+        weightsV2Ranking?: boolean;
+        scheduledPaused?: boolean;
+      } | null;
+      if (!body || typeof body !== "object") {
+        return Response.json({ error: "A JSON body with at least one control is required." }, { status: 400 });
+      }
+      const flags = await import("../../services/screeningFlags");
+      const { SCREENING_FLAG_KEYS, isScreeningRolloutStage, readScreeningControls } = flags;
+      if (body.rolloutStage !== undefined && !isScreeningRolloutStage(body.rolloutStage)) {
+        return Response.json(
+          { error: `rolloutStage must be one of: internal, paper, broader.` },
+          { status: 400 }
+        );
+      }
+      const changes: string[] = [];
+      // The change label derives from the flag key itself
+      // ("screening.scheduledPaused" → "scheduledPaused") so the log
+      // line can never drift from the key it describes.
+      const applyBool = (value: boolean | undefined, key: string) => {
+        if (typeof value === "boolean") {
+          ctx.writeSetting(key, value ? "on" : "off");
+          changes.push(`${key.replace(/^screening\./, "")}=${value ? "on" : "off"}`);
+        }
+      };
+      if (body.rolloutStage !== undefined) {
+        ctx.writeSetting(SCREENING_FLAG_KEYS.rolloutStage, body.rolloutStage);
+        changes.push(`rolloutStage=${body.rolloutStage}`);
+      }
+      applyBool(body.channelsEnabled, SCREENING_FLAG_KEYS.channelsEnabled);
+      applyBool(body.nlqFitDiscovery, SCREENING_FLAG_KEYS.nlqFitDiscovery);
+      applyBool(body.weightsV2Ranking, SCREENING_FLAG_KEYS.weightsV2Ranking);
+      applyBool(body.scheduledPaused, SCREENING_FLAG_KEYS.scheduledPaused);
+      if (changes.length === 0) {
+        return Response.json({ error: "No recognized control was supplied." }, { status: 400 });
+      }
+      const { recordScreeningActivity } = await import("../../services/screeningActivity");
+      recordScreeningActivity(ctx.getOrm(), {
+        userLogin,
+        kind: "schedule_control",
+        summary: `Screening controls updated: ${changes.join(", ")}.`,
+        detail: { changes },
+        actor: sessionId,
+      });
+      return Response.json({
+        success: true,
+        changes,
+        ...readScreeningControls((key) => ctx.readSettingRaw(key)),
+      });
+    }
+
+    // Consolidation C2 (issue #1246, epic #1151): the hub Review
+    // inbox's goal-proposal reads + decision, over the Phase 0
+    // goal/scenario store. Tenant-scoped exactly like the sibling
+    // routes; a decision is the store's status transition only
+    // (proposed → active on activate, proposed → archived on
+    // dismiss) — nothing else about the goal moves, and only a
+    // proposed goal can be decided (409 otherwise). The decision is
+    // recorded in the screening activity log with the session as
+    // actor.
+    if (path.endsWith("/screening/goals") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const statusParam = url.searchParams.get("status") || undefined;
+      const GOAL_STATUSES = ["proposed", "active", "paused", "completed", "archived"];
+      if (statusParam !== undefined && !GOAL_STATUSES.includes(statusParam)) {
+        return Response.json(
+          { error: `status must be one of: ${GOAL_STATUSES.join(", ")}.` },
+          { status: 400 }
+        );
+      }
+      const store = await import("../../services/goalScenarioStore");
+      const orm = ctx.getOrm() as any;
+      store.ensureGoalScenarioTables(orm);
+      const goals = store
+        .listGoals(orm, userLogin, statusParam as any)
+        .map((goal) => ({ ...goal, scenarios: store.listScenarios(orm, userLogin, goal.id) }));
+      return Response.json({ goals });
+    }
+    if (path.endsWith("/screening/goals/decide") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const body = (await request.json().catch(() => null)) as {
+        id?: string;
+        decision?: string;
+      } | null;
+      if (!body?.id || (body.decision !== "activate" && body.decision !== "dismiss")) {
+        return Response.json(
+          { error: "id and decision (activate|dismiss) are required." },
+          { status: 400 }
+        );
+      }
+      const store = await import("../../services/goalScenarioStore");
+      const orm = ctx.getOrm() as any;
+      store.ensureGoalScenarioTables(orm);
+      const goal = store.getGoal(orm, userLogin, body.id);
+      if (!goal) {
+        return Response.json({ error: `goal ${body.id} not found.` }, { status: 404 });
+      }
+      if (goal.status !== "proposed") {
+        return Response.json(
+          { error: `goal ${body.id} is ${goal.status}; only proposed goals can be decided.` },
+          { status: 409 }
+        );
+      }
+      const nextStatus = body.decision === "activate" ? "active" : "archived";
+      if (!store.updateGoalStatus(orm, userLogin, body.id, nextStatus as any)) {
+        return Response.json({ error: `goal ${body.id} could not be updated.` }, { status: 500 });
+      }
+      const { recordScreeningActivity } = await import("../../services/screeningActivity");
+      recordScreeningActivity(orm, {
+        userLogin,
+        kind: "goal_decision",
+        summary:
+          `Goal proposal '${goal.title}' ${body.decision === "activate" ? "activated" : "dismissed (archived)"} ` +
+          `from the hub Review inbox.`,
+        detail: { goalId: goal.id, decision: body.decision, from: "proposed", to: nextStatus },
+        refId: goal.id,
+        actor: sessionId,
+      });
+      return Response.json({ success: true, goal: { ...goal, status: nextStatus } });
+    }
+
+    // Consolidation C2 (issue #1246): the Review inbox's read of the
+    // Phase 3 re-selection transparency log. Read-only by design —
+    // proposals carry governance proposal_only_not_promoted; the
+    // promotion path is the champion/challenger gate, not this route.
+    if (path.endsWith("/screening/reselection-proposals") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const limitParam = Number(url.searchParams.get("limit") || 20);
+      const limit = Math.max(1, Math.min(Math.floor(limitParam) || 20, 100));
+      const { listReselectionProposals } = await import("../../services/strategyBankReselection");
+      const proposals = listReselectionProposals(ctx.getOrm(), userLogin, limit);
+      return Response.json({ proposals });
+    }
+
+    // Consolidation C2 (issue #1246): the hub Track record tab's read
+    // of the Phase 5 outcome ledger (listOutcomeTracking) — the
+    // per-recommendation outcomes with their honest quality states
+    // (pending / verified / unverified). Distinct from the #340
+    // research track record above; the two stores are not merged.
+    if (path.endsWith("/screening/outcomes") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const { listOutcomeTracking } = await import("../../services/outcomeTracking");
+      const outcomes = listOutcomeTracking(ctx.getOrm(), userLogin);
+      return Response.json({ outcomes });
+    }
+
+    // Consolidation C1 (issue #1201, epic #1151 R1): the goal-driven
+    // screen's production entry — the #1096 unified stack (Phase 0
+    // registry + Phase 3 goal-driven semantics) reachable from the
+    // hub and this route. The run executes via ScreenerAgent and is
+    // recorded on the canonical seams inside executeGoalScreenRun
+    // (mas_reports + screening activity log + optional Phase 6
+    // channel delivery). A stored scenario is resolved tenant-scoped
+    // through the Phase 0 store; otherwise the scenario is built
+    // from the goal kind (+ optional direction).
+    if (path.endsWith("/screening/goal-screen") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const body = (await request.json().catch(() => null)) as {
+        goalKind?: string;
+        direction?: string;
+        scenarioId?: string;
+        symbols?: string[];
+        assetClasses?: string[];
+        environment?: string;
+        deliver?: string[];
+        emailTo?: string;
+      } | null;
+      if (!body || typeof body !== "object") {
+        return Response.json({ error: "A JSON body with goalKind or scenarioId is required." }, { status: 400 });
+      }
+      const { GOAL_KINDS, buildScenario } = await import("../../services/goalScenarioEngine");
+      const runtime = await import("../../services/screeningRuntime");
+      const orm = ctx.getOrm();
+      let scenario: ReturnType<typeof buildScenario>;
+      let scenarioSource: "built" | "stored";
+      if (body.scenarioId) {
+        const store = await import("../../services/goalScenarioStore");
+        store.ensureGoalScenarioTables(orm as any);
+        const record = store.getScenario(orm as any, userLogin, body.scenarioId);
+        if (!record) {
+          return Response.json(
+            { error: `Stored scenario '${body.scenarioId}' was not found for this account.` },
+            { status: 404 }
+          );
+        }
+        const goal = store.getGoal(orm as any, userLogin, record.goalId);
+        if (!goal) {
+          return Response.json(
+            { error: `The goal owning scenario '${body.scenarioId}' was not found for this account.` },
+            { status: 404 }
+          );
+        }
+        scenario = runtime.scenarioFromStoredRecord(goal, record);
+        scenarioSource = "stored";
+      } else {
+        if (!body.goalKind || !(GOAL_KINDS as readonly string[]).includes(body.goalKind)) {
+          return Response.json(
+            { error: `goalKind must be one of: ${GOAL_KINDS.join(", ")}.` },
+            { status: 400 }
+          );
+        }
+        const outlooks = ["bullish", "bearish", "volatile", "range_bound", "unknown"];
+        if (body.direction !== undefined && !outlooks.includes(body.direction)) {
+          return Response.json(
+            { error: `direction must be one of: ${outlooks.join(", ")}.` },
+            { status: 400 }
+          );
+        }
+        scenario = buildScenario({
+          goalKind: body.goalKind as (typeof GOAL_KINDS)[number],
+          portfolioRef: { kind: "hypothetical" },
+          ...(body.direction
+            ? { direction: body.direction as ReturnType<typeof buildScenario>["direction"] }
+            : {}),
+        });
+        scenarioSource = "built";
+      }
+      if (
+        body.symbols !== undefined &&
+        (!Array.isArray(body.symbols) ||
+          body.symbols.some((s) => typeof s !== "string" || !/^[A-Z0-9./-]{1,16}$/i.test(s)))
+      ) {
+        return Response.json({ error: "symbols must be an array of valid ticker strings." }, { status: 400 });
+      }
+      if (
+        body.assetClasses !== undefined &&
+        (!Array.isArray(body.assetClasses) ||
+          body.assetClasses.some((c) => c !== "stocks" && c !== "options"))
+      ) {
+        return Response.json(
+          { error: "assetClasses must be a subset of [\"stocks\", \"options\"]." },
+          { status: 400 }
+        );
+      }
+      const channels = ["slack", "email", "webhook", "voice"];
+      if (
+        body.deliver !== undefined &&
+        (!Array.isArray(body.deliver) || body.deliver.some((c) => !channels.includes(c)))
+      ) {
+        return Response.json(
+          { error: `deliver must be a subset of: ${channels.join(", ")}.` },
+          { status: 400 }
+        );
+      }
+      const out = await runtime.executeGoalScreenRun({
+        agent: ctx.getScreenerAgent(userLogin),
+        orm,
+        env: ctx.env,
+        userLogin,
+        scenario,
+        scenarioSource,
+        trigger: "manual",
+        idempotencyKey: `goal-screen:manual:${userLogin}:${scenario.goalKind}:${new Date().toISOString()}`,
+        ...(body.environment === "TEST" || body.environment === "PROD"
+          ? { environment: body.environment }
+          : {}),
+        ...(body.assetClasses
+          ? { assetClasses: body.assetClasses as ("stocks" | "options")[] }
+          : {}),
+        ...(body.symbols ? { symbols: body.symbols } : {}),
+        ...(body.deliver ? { deliver: body.deliver as ("slack" | "email" | "webhook" | "voice")[] } : {}),
+        ...(body.emailTo ? { emailTo: body.emailTo } : {}),
+        actor: sessionId,
+      });
+      const payload = {
+        success: true,
+        executed: out.executed,
+        taskId: out.taskId,
+        taskStatus: out.taskStatus,
+        scenarioSource,
+        ...(out.result ? { result: out.result } : {}),
+        ...(out.delivery ? { delivery: out.delivery } : {}),
+      };
+      // A run that failed on every requested asset class is a failed
+      // screen: the REST screen idiom answers 502, with the labeled
+      // result in the body — never a bare error, never a fake success.
+      return Response.json(payload, { status: out.result?.status === "failed" ? 502 : 200 });
+    }
+
+    // Consolidation C1 (issue #1201, epic #1151 R1): backtest-on-
+    // screen's production entry — walk-forward over live Yahoo daily
+    // history (services/screeningRuntime.executeScreenBacktest). A
+    // symbol without fetchable history is excluded by the engine
+    // with its reason; nothing is fabricated.
+    if (path.endsWith("/screening/backtest") && request.method === "POST") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const body = (await request.json().catch(() => null)) as {
+        symbols?: unknown;
+        folds?: number;
+        holdingBars?: number;
+        capital?: number;
+      } | null;
+      if (!body || typeof body !== "object" || !Array.isArray(body.symbols) || body.symbols.length === 0) {
+        return Response.json(
+          { error: "symbols must be a non-empty array of ticker strings." },
+          { status: 400 }
+        );
+      }
+      if (body.symbols.some((s) => typeof s !== "string" || !/^[A-Z0-9./-]{1,16}$/i.test(s))) {
+        return Response.json(
+          { error: "symbols must be an array of valid ticker strings." },
+          { status: 400 }
+        );
+      }
+      const { executeScreenBacktest } = await import("../../services/screeningRuntime");
+      const result = await executeScreenBacktest({
+        symbols: body.symbols as string[],
+        ...(typeof body.folds === "number" ? { folds: body.folds } : {}),
+        ...(typeof body.holdingBars === "number" ? { holdingBars: body.holdingBars } : {}),
+        ...(typeof body.capital === "number" ? { capital: body.capital } : {}),
+      });
+      const { recordScreeningActivity } = await import("../../services/screeningActivity");
+      recordScreeningActivity(ctx.getOrm() as any, {
+        userLogin,
+        kind: "screen_run",
+        summary:
+          `Backtest-on-screen — ${(body.symbols as string[]).length} symbol(s), ` +
+          `${result.aggregate.totalTrades} trade(s), net $${result.aggregate.totalNetPnl} ` +
+          `(provenance ${result.provenance}).`,
+        detail: { symbols: body.symbols, aggregate: result.aggregate, provenance: result.provenance },
+        actor: sessionId,
+      });
+      return Response.json({ success: true, ...result });
     }
   return null;
 }

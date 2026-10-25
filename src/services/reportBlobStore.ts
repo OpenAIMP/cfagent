@@ -63,6 +63,11 @@ export function r2KeyForStorageKey(key: string): string {
   if (key.startsWith("options:")) {
     return `options/${key.slice("options:".length).replaceAll(":", "/")}`;
   }
+  // Issue #1335: goal-screen artifacts live under goals/, mirroring
+  // the stocks/ + options/ families above.
+  if (key.startsWith("goal_screen:")) {
+    return `goals/${key.slice("goal_screen:".length).replaceAll(":", "/")}`;
+  }
   return key;
 }
 
@@ -71,13 +76,14 @@ export async function putReportPdf(
   storage: BlobStorage,
   key: string,
   fileName: string,
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  contentType = "application/pdf"
 ): Promise<void> {
   const bucket = env.REPORTS_BUCKET;
   if (bucket) {
     const r2Key = r2KeyForStorageKey(key);
     await bucket.put(r2Key, bytes, {
-      httpMetadata: { contentType: "application/pdf" },
+      httpMetadata: { contentType },
       customMetadata: { fileName },
     });
     const meta: ReportPdfMeta = {

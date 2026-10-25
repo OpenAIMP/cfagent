@@ -9,6 +9,8 @@
  * the LATEST evaluation wins (evaluations are append-only snapshots).
  */
 
+export type TrackRecordRegime = "bull" | "bear" | "chop" | "high_vol" | "unknown";
+
 export interface TrackRecordIdea {
   runId: string;
   runCreatedAt: string;
@@ -18,6 +20,20 @@ export interface TrackRecordIdea {
   thesis: string;
   invalidation: string;
   entrySpot: number | null;
+  /**
+   * The regime the producing run recorded in its report (Phase 6 join
+   * for the Phase 5 evidence builders, which require the regime to be
+   * joined by the caller, never guessed). "unknown" when the run
+   * recorded no valid regime.
+   */
+  regime: TrackRecordRegime;
+  /**
+   * Contracts per structure unit, summed from the published legs'
+   * |quantity|. null when the idea record carries no legs — the
+   * Phase 5 after-cost scoring then counts the idea as unpriced
+   * instead of assuming a contract count.
+   */
+  contractsPerUnit: number | null;
   /** Latest evaluation for this idea, or null when never evaluated. */
   evaluation: {
     evaluatedAt: string;
@@ -57,6 +73,39 @@ interface ReportLike {
   runId?: unknown;
   createdAt?: unknown;
   ideas?: unknown;
+  regime?: unknown;
+}
+
+const TRACK_RECORD_REGIMES: ReadonlySet<string> = new Set([
+  "bull",
+  "bear",
+  "chop",
+  "high_vol",
+  "unknown",
+]);
+
+/** The regime a run recorded on its report; anything else is "unknown" — never inferred from the outlook. */
+function reportRegime(raw: unknown): TrackRecordRegime {
+  const value =
+    typeof raw === "string"
+      ? raw
+      : isObj(raw) && typeof raw.regime === "string"
+        ? raw.regime
+        : "";
+  return (TRACK_RECORD_REGIMES.has(value) ? value : "unknown") as TrackRecordRegime;
+}
+
+/** Sum of |quantity| over an idea's published legs; null when no legs were recorded. */
+function contractsPerUnitOf(rawIdea: Record<string, any>): number | null {
+  if (!Array.isArray(rawIdea.legs) || rawIdea.legs.length === 0) return null;
+  let total = 0;
+  for (const leg of rawIdea.legs) {
+    if (!isObj(leg) || typeof leg.quantity !== "number" || !Number.isFinite(leg.quantity)) {
+      return null;
+    }
+    total += Math.abs(leg.quantity);
+  }
+  return total > 0 ? total : null;
 }
 
 interface EvaluationLike {
@@ -142,6 +191,7 @@ export function buildTrackRecord(
     const runId = str(report.runId);
     if (!runId || !Array.isArray(report.ideas)) continue;
     const runCreatedAt = str(report.createdAt);
+    const regime = reportRegime(report.regime);
     const latest = latestByRun.get(runId);
     for (const rawIdea of report.ideas as any[]) {
       if (!isObj(rawIdea)) continue;
@@ -180,6 +230,8 @@ export function buildTrackRecord(
         thesis: str(rawIdea.thesis),
         invalidation: str(rawIdea.invalidation),
         entrySpot: num(rawIdea.entrySpot),
+        regime,
+        contractsPerUnit: contractsPerUnitOf(rawIdea),
         evaluation,
       });
     }

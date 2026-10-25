@@ -428,6 +428,49 @@ export function getStrategyWeightsV2(sql: any): Record<string, number> {
   return out;
 }
 
+/**
+ * Consolidation C5 (#1361, #1257): the per-regime read. The v2 store
+ * is keyed strategy|regime; consumers that run under one regime (the
+ * reselection tick loops regimes) need plain strategy keys for that
+ * regime alone — no other regime's value may leak into the read.
+ */
+export function getStrategyWeightsV2ForRegime(sql: any, regime: string): Record<string, number> {
+  ensureWeightsV2Tables(sql);
+  const rows = Array.from(
+    sql.exec(`SELECT strategy, weight FROM mas_strategy_weights_v2 WHERE regime = ?`, regime)
+  ) as any[];
+  const out: Record<string, number> = {};
+  for (const r of rows) out[String(r.strategy)] = Number(r.weight);
+  return out;
+}
+
+/**
+ * Consolidation C5 (#1361, #1257): the regime-blind aggregate for
+ * legacy-shaped consumers (the GET weights evaluation, the candidate
+ * replay) that key weights by strategy alone. The collapse rule is
+ * the mean across the strategy's regimes — documented here, not
+ * hidden in a caller: a regime-blind consumer cannot attribute a
+ * strategy to one regime, so it reads the average, never a silently
+ * picked regime's value.
+ */
+export function getStrategyWeightsV2Collapsed(sql: any): Record<string, number> {
+  ensureWeightsV2Tables(sql);
+  const rows = Array.from(
+    sql.exec(`SELECT strategy, weight FROM mas_strategy_weights_v2`)
+  ) as any[];
+  const sums = new Map<string, { total: number; count: number }>();
+  for (const r of rows) {
+    const key = String(r.strategy);
+    const acc = sums.get(key) ?? { total: 0, count: 0 };
+    acc.total += Number(r.weight);
+    acc.count += 1;
+    sums.set(key, acc);
+  }
+  const out: Record<string, number> = {};
+  for (const [key, acc] of sums) out[key] = acc.total / acc.count;
+  return out;
+}
+
 function weightRowExists(sql: any, strategy: string, regime: string): boolean {
   const rows = Array.from(
     sql.exec(

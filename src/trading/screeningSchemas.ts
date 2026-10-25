@@ -253,6 +253,9 @@ export interface OptionsScreenRequest {
   /** Label-only envelope field the route's Slack summary falls back to;
    *  never forwarded into the engine filter. */
   universe?: string;
+  /** Per-request email recipient for the manual route (#1336);
+   *  never forwarded into the engine filter. */
+  emailTo?: string;
 }
 
 const optionsScreenRequestSchema = z.strictObject({
@@ -260,12 +263,15 @@ const optionsScreenRequestSchema = z.strictObject({
   pushToSlack: z.boolean().optional(),
   slackChannel: z.string().optional(),
   universe: z.string().optional(),
+  // Issue #1336: per-request email recipient for the manual route;
+  // env fallback (OPTIONS_EMAIL_TO / SCREENER_EMAIL_TO) applies when absent.
+  emailTo: z.string().optional(),
 });
 
 export function parseOptionsScreenRequest(input: unknown): ScreeningValidationResult<OptionsScreenRequest> {
   const parsed = parseWith("options screen request", optionsScreenRequestSchema, input);
   if (!parsed.ok) return parsed;
-  const { pushToSlack, slackChannel, universe, ...filter } = parsed.value as Record<string, unknown>;
+  const { pushToSlack, slackChannel, universe, emailTo, ...filter } = parsed.value as Record<string, unknown>;
   return {
     ok: true,
     value: {
@@ -273,6 +279,7 @@ export function parseOptionsScreenRequest(input: unknown): ScreeningValidationRe
       ...(pushToSlack !== undefined ? { pushToSlack: pushToSlack as boolean } : {}),
       ...(slackChannel !== undefined ? { slackChannel: slackChannel as string } : {}),
       ...(universe !== undefined ? { universe: universe as string } : {}),
+      ...(emailTo !== undefined ? { emailTo: emailTo as string } : {}),
     },
   };
 }
@@ -579,13 +586,18 @@ export function parseScanRequestTemplate(input: unknown): ScreeningValidationRes
 }
 
 /* ------------------------------------------------------------------ */
-/* Schedule payloads — the three screening callbacks                   */
+/* Schedule payloads — the screening callbacks                         */
 /* ------------------------------------------------------------------ */
 
 export const SCREENING_SCHEDULE_CALLBACKS = [
   "autonomousMarketScreen",
   "autonomousOptionsAnalysis",
   "autonomousStrategyDiscovery",
+  // Consolidation C1 (issue #1201, epic #1151 R1): the goal-driven
+  // screen joins the schedule store as a first-class callback, so a
+  // Phase 1 goal/scenario screen can be run from a schedule through
+  // the one scheduling capability.
+  "autonomousGoalScreen",
 ] as const;
 export type ScreeningScheduleCallback = (typeof SCREENING_SCHEDULE_CALLBACKS)[number];
 
@@ -605,6 +617,42 @@ const deliveryFields = {
   webhookUrl: z.string().optional(),
 };
 
+/**
+ * Consolidation C3 (issue #1277, epic #1151; stage-layered
+ * scheduling, #1236): per-stage timing for a scheduled run's stage
+ * chain. When a market-screen schedule carries `stageChain`, the
+ * run's follow-up bridge records the run as the chain's `generate`
+ * stage and schedules the `serve` (report adoption) and `deliver`
+ * (per-channel delivery) stages as stage jobs on the async-job
+ * substrate, each delayed by its own offset from its predecessor's
+ * completion. Absent = the fused immediate chain (the degenerate
+ * case). Delays are whole seconds, 0..604800 (7 days).
+ *
+ * Only the market-screen criteria carried the field in C3: its runs
+ * rode the #1123 follow-up bridge end-to-end. Consolidation C4
+ * (#1329) extends it to the options, discovery, and goal criteria:
+ * options chains fully in chain mode (bridge delivery replaces the
+ * direct path); discovery/goal chains carry chain identity + the
+ * serve stage, with delivery staying on the run's direct path (see
+ * screenerFollowups deliverViaChain) — their deliver-stage chaining
+ * is #1236 remainder for C5's delivery convergence.
+ *
+ * The config type itself lives in src/types.ts (with PipelineStage)
+ * and is re-exported here, where its validation lives.
+ */
+export type { StageChainConfig } from "../types";
+
+const stageDelaySecondsSchema = z.number().int().min(0).max(604_800);
+
+const stageChainFields = {
+  stageChain: z
+    .strictObject({
+      serveDelaySeconds: stageDelaySecondsSchema.optional(),
+      deliverDelaySeconds: stageDelaySecondsSchema.optional(),
+    })
+    .optional(),
+};
+
 /** `trigger` is part of the services' options types and the manager's
  *  payloads carry it; it is accepted as criteria and always overwritten
  *  by the identity stamp at assembly. */
@@ -620,7 +668,12 @@ export const marketScreenScheduleCriteriaSchema = z.strictObject({
   // (the Yahoo data-source adapter inside the one pipeline). Absent =
   // the E*TRADE default every existing schedule already runs under.
   provider: z.enum(["etrade", "yahoo"]).optional(),
+  // Issue #1355: a scheduled stock screen may opt into sharded
+  // execution (feed → generate → store → serve → deliver as
+  // async-job shards). Absent/false keeps the monolithic path.
+  sharded: z.boolean().optional(),
   ...deliveryFields,
+  ...stageChainFields,
   ...triggerField,
 });
 
@@ -632,6 +685,7 @@ export const optionsAnalysisScheduleCriteriaSchema = z.strictObject({
   allowedStrategies: z.array(z.string()).optional(),
   riskProfile: riskProfileSchema.optional(),
   ...deliveryFields,
+  ...stageChainFields,
   ...triggerField,
 });
 
@@ -649,6 +703,43 @@ export const strategyDiscoveryScheduleCriteriaSchema = z.strictObject({
   profileId: z.unknown().optional(),
   constraintSets: z.unknown().optional(),
   scheduleId: z.unknown().optional(),
+  ...stageChainFields,
+  ...triggerField,
+});
+
+/**
+ * The goal kinds a goal-screen schedule may name (consolidation C1,
+ * issue #1201). The canonical list lives with the goal/scenario
+ * engine (src/services/goalScenarioEngine.ts GOAL_KINDS); src/trading
+ * cannot import src/services (the #290 boundary), so the list is
+ * mirrored here and a drift pin
+ * (tests/consolidation_c1_execution_path.test.ts) fails the suite if
+ * the two ever disagree — the Phase 1 taxonomy-mirror idiom.
+ */
+export const SCREENING_GOAL_KINDS = [
+  "income",
+  "directional",
+  "volatility_event",
+  "hedge_protect",
+  "repair",
+  "deconcentrate",
+  "iv_harvest",
+  "capital_efficient_leverage",
+  "cash_secured_entry",
+] as const;
+
+/** Goal-screen criteria: a goal kind (validated as explicit code
+ *  below, like the discovery input models, so the error names the
+ *  field) or a stored scenario id, plus optional direction / symbols
+ *  / asset classes and the shared delivery fields. */
+export const goalScreenScheduleCriteriaSchema = z.strictObject({
+  goalKind: z.string().optional(),
+  direction: z.enum(["bullish", "bearish", "volatile", "range_bound", "unknown"]).optional(),
+  scenarioId: z.string().optional(),
+  symbols: z.array(z.string()).optional(),
+  assetClasses: z.array(z.enum(["stocks", "options"])).optional(),
+  ...deliveryFields,
+  ...stageChainFields,
   ...triggerField,
 });
 
@@ -816,7 +907,9 @@ export function buildSchedulePayload(
       ? marketScreenScheduleCriteriaSchema
       : callback === "autonomousOptionsAnalysis"
         ? optionsAnalysisScheduleCriteriaSchema
-        : strategyDiscoveryScheduleCriteriaSchema;
+        : callback === "autonomousGoalScreen"
+          ? goalScreenScheduleCriteriaSchema
+          : strategyDiscoveryScheduleCriteriaSchema;
   const shapeResult = shape.safeParse(criteriaSansMaxItems);
   if (!shapeResult.success) {
     return { ok: false, error: formatIssues("schedule payload", shapeResult.error) };
@@ -827,6 +920,26 @@ export function buildSchedulePayload(
   if (callback === "autonomousStrategyDiscovery") {
     const discoveryError = validateDiscoveryCriteria(validated);
     if (discoveryError !== null) return { ok: false, error: discoveryError };
+  }
+
+  // Goal-screen rules (C1): a schedule names a goal kind or a stored
+  // scenario — never neither — and the kind must be a real goal kind
+  // (the drift-pinned SCREENING_GOAL_KINDS list).
+  if (callback === "autonomousGoalScreen") {
+    const goalKind = validated.goalKind as string | undefined;
+    const scenarioId = validated.scenarioId as string | undefined;
+    if (goalKind !== undefined && !(SCREENING_GOAL_KINDS as readonly string[]).includes(goalKind)) {
+      return {
+        ok: false,
+        error: `goalKind must be one of: ${SCREENING_GOAL_KINDS.join(", ")}.`,
+      };
+    }
+    if (goalKind === undefined && scenarioId === undefined) {
+      return {
+        ok: false,
+        error: "goalKind is required when scenarioId is not supplied.",
+      };
+    }
   }
 
   // maxItems range (the create route's rule: whole number 0..10000;
@@ -855,7 +968,11 @@ export function buildSchedulePayload(
       ? UNIVERSES[effectiveUniverse as keyof typeof UNIVERSES].defaultMaxSymbols
       : callback === "autonomousMarketScreen"
         ? undefined
-        : symbols?.length || 0;
+        : callback === "autonomousGoalScreen"
+          ? // C1: maxItems has no meaning for a goal screen (the
+            // scenario's constraints size the run) — stamp none.
+            undefined
+          : symbols?.length || 0;
   const maxItems = (rawMaxItems as number | undefined) ?? defaultMaxItems;
 
   const payload: Record<string, unknown> = {
@@ -875,7 +992,7 @@ export function buildSchedulePayload(
 
 /** The kind filter of GET /api/runs — the one Runs read surface over
  *  the four run stores. "all" is the unfiltered merge. */
-export const runsListKindSchema = z.enum(["screener", "options_scanner", "discovery", "all"]);
+export const runsListKindSchema = z.enum(["screener", "options_scanner", "discovery", "goal", "all"]);
 export type RunsListKind = z.infer<typeof runsListKindSchema>;
 
 /** Validate the `kind` query parameter of GET /api/runs in the S1
@@ -886,6 +1003,6 @@ export function parseRunsListKind(input: unknown): ScreeningValidationResult<Run
   if (result.success) return { ok: true, value: result.data };
   return {
     ok: false,
-    error: `Invalid runs list query: kind: must be one of "screener", "options_scanner", "discovery", "all".`,
+    error: `Invalid runs list query: kind: must be one of "screener", "options_scanner", "discovery", "goal", "all".`,
   };
 }

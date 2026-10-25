@@ -5,38 +5,68 @@
  * is one factory call, not a new module: createOidcProvider turns
  * endpoint + env + field-mapping options into a LoginProvider that
  * plugs into the registry (providers.ts) and the generic wired tail
- * (iaaaLogin.ts completeWiredLogin). Google is the worked example;
- * Auth0 or another OIDC provider registers the same way.
+ * (iaaaLogin.ts completeWiredLogin). Google is the worked OIDC
+ * example; GitHub registers through the same factory since #1254
+ * PR-A, with its genuine deltas expressed as options (below).
  *
  * What the factory owns (per provider instance):
  * - startLogin: redirect to the provider's authorization endpoint
  *   with client_id, redirect_uri, response_type=code, scope, and a
  *   server-side state (createState from ./session). The redirect
  *   URI is ${APP_BASE_URL || "https://agent.openaimp.com"}/auth/callback/<providerId>.
- *   A missing client id OR client secret at start time fails with
- *   an error page — never a redirect to a flow that cannot complete.
+ *   A provider
+ *   with the credentials gate on (the default) fails start with an
+ *   error page when its client id/secret env is missing — never a
+ *   redirect to a flow that cannot complete.
  * - handleCallback: state verification, code exchange at the token
- *   endpoint (form-encoded, client_id + client_secret from env),
+ *   endpoint THROUGH the shared oauth2 core
+ *   (exchangeAuthorizationCodeConfidential in ./oauth2Core —
+ *   client_secret_post, form-encoded responses tolerated),
  *   userinfo fetch with the fresh access token, validation, and
  *   normalization to the generic profile shape. Secrets are sent
  *   only in the token request body; nothing here logs a secret,
  *   a token, or a code.
  *
- * Fail-closed validation (before the generic tail runs, so no
- * binding and no session are created on failure):
+ * Fail-closed validation:
  * - provider error parameter, missing code/state, or bad state →
  *   error page (400/403), no upstream call on a bad state.
- * - token endpoint failure or a missing access token → error page.
- * - userinfo failure, a missing/blank subject, a missing/blank
- *   login-key field, or (when requireEmailVerified) a missing or
- *   unverified email → error page. The email is NEVER identity:
- *   it is only the adapter-supplied legacy login key; true identity
- *   is the Slice 1 (issuer, subject) binding in the generic tail.
+ * - token endpoint failure or a missing access token → error page
+ *   (upstream status preserved as 502; an HTTP-200 error payload
+ *   is a 400 carrying the provider's error description).
+ * - a missing/unverified email when requireEmailVerified is set →
+ *   error page, here in the factory (the tail has no such rule).
+ * - a missing/blank subject or login-key field is NOT re-decided
+ *   here: the profile is handed to the generic wired tail, whose
+ *   fail-closed rules (including the MISSING_SUBJECT_ID failure
+ *   audit) own those cases identically for every adapter. The
+ *   email is NEVER identity: it is only the adapter-supplied
+ *   legacy login key; true identity is the Slice 1 (issuer,
+ *   subject) binding in the generic tail.
+ *
+ * GitHub deltas (#1254 PR-A), each an option, none speculative:
+ * - protocol "oauth2" (profile fetch, no ID token);
+ * - avatarField "avatar_url" (Google: "picture");
+ * - userinfoAccept "application/vnd.github+json" (Google: the
+ *   "application/json" default) — #1265: the factory's userinfo
+ *   fetch also sends a User-Agent ("ai-search-agent", the legacy
+ *   flow's value) for every provider, because GitHub's API 403s
+ *   requests without one; PR-A initially sent neither header and
+ *   wired GitHub login failed at the profile step in production;
+ * - subjectField "id" (numeric, coerced by the normalizer),
+ *   loginKeyField "login", no email-verified gate;
+ * - includeResponseType false — GitHub's authorize request never
+ *   carried response_type, and its redirect bytes are pinned;
+ * - requireConfiguredCredentials false — GitHub's credentials are
+ *   required core Env config and its legacy start never gated on
+ *   them; the exchange still fails closed upstream.
+ * (#1254 PR-B deleted the redirectPathOverride option with its
+ * only consumer, PR-A's legacy-callback bridge.)
  */
 import type { Env } from "../types";
 import type { LoginCallbackOptions, LoginProvider } from "./providers";
 import { completeWiredLogin, type NormalizedLoginProfile } from "./iaaaLogin";
 import { createState, verifyState } from "./session";
+import { exchangeAuthorizationCodeConfidential, OAuth2Error } from "./oauth2Core";
 
 /** Error carrying the HTTP status the callback should answer with. */
 export class OidcAuthError extends Error {
@@ -60,12 +90,32 @@ export interface OidcProviderOptions {
   /** Env key holding the OAuth client secret (never committed, never logged). */
   clientSecretEnv: string;
   scope: string;
+  /** Registry protocol tag. Default "oidc"; "oauth2" for profile-fetch providers (GitHub). */
+  protocol?: "oidc" | "oauth2";
   /** Userinfo field carrying the stable subject. Default "sub". */
   subjectField?: string;
   /** Userinfo field carrying the legacy login key (e.g. "email"). */
   loginKeyField: string;
+  /** Userinfo field carrying the avatar URL. Default "picture"; GitHub uses "avatar_url". */
+  avatarField?: string;
+  /**
+   * Accept header sent on the userinfo request. Default
+   * "application/json"; GitHub registers
+   * "application/vnd.github+json" — the versioned media type its
+   * legacy flow sent (#1265).
+   */
+  userinfoAccept?: string;
   /** When true, the userinfo email_verified flag must be true. */
   requireEmailVerified?: boolean;
+  /** When false, the authorize request omits response_type (GitHub's legacy shape). Default true. */
+  includeResponseType?: boolean;
+  /**
+   * When true (default), start and callback fail closed with a
+   * "not configured" page when the client id/secret env is missing.
+   * GitHub sets false: its credentials are required core Env config
+   * and its legacy flow never gated on them.
+   */
+  requireConfiguredCredentials?: boolean;
 }
 
 function readEnvString(env: Env, key: string): string | undefined {
@@ -73,9 +123,9 @@ function readEnvString(env: Env, key: string): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
-function redirectUri(env: Env, providerId: string): string {
+function redirectUri(env: Env, options: OidcProviderOptions): string {
   const base = env.APP_BASE_URL || "https://agent.openaimp.com";
-  return `${base}/auth/callback/${providerId}`;
+  return `${base}/auth/callback/${options.providerId}`;
 }
 
 function errorPage(message: string, status = 400): Response {
@@ -94,17 +144,24 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Which fail-closed rule a normalization failure came from. */
+export type NormalizeFailureKind = "profile" | "subject" | "loginKey" | "emailVerified";
+
 /**
  * Normalize a raw userinfo document to the generic profile shape.
- * Returns an error message on the first fail-closed violation, so
- * the caller never reaches the wired tail with an unproven profile.
+ * Returns an error message (and the rule that produced it) on the
+ * first fail-closed violation, so the caller never reaches the
+ * wired tail with an unproven profile.
  */
 export function normalizeUserinfo(
   raw: unknown,
-  options: Pick<OidcProviderOptions, "subjectField" | "loginKeyField" | "requireEmailVerified">
-): { ok: true; profile: NormalizedLoginProfile } | { ok: false; error: string } {
+  options: Pick<
+    OidcProviderOptions,
+    "subjectField" | "loginKeyField" | "requireEmailVerified" | "avatarField"
+  >
+): { ok: true; profile: NormalizedLoginProfile } | { ok: false; error: string; kind: NormalizeFailureKind } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: "Provider userinfo was not a usable profile document" };
+    return { ok: false, error: "Provider userinfo was not a usable profile document", kind: "profile" };
   }
   const doc = raw as Record<string, unknown>;
   const subjectField = options.subjectField ?? "sub";
@@ -116,21 +173,21 @@ export function normalizeUserinfo(
         ? String(subjectRaw)
         : "";
   if (subject.trim() === "") {
-    return { ok: false, error: "Provider profile did not include a stable subject id; login cannot be bound" };
+    return { ok: false, error: "Provider profile did not include a stable subject id; login cannot be bound", kind: "subject" };
   }
   const loginKeyRaw = doc[options.loginKeyField];
   const loginKey = typeof loginKeyRaw === "string" ? loginKeyRaw : "";
   if (loginKey.trim() === "") {
-    return { ok: false, error: "Provider profile did not include a usable login key; login cannot be bound" };
+    return { ok: false, error: "Provider profile did not include a usable login key; login cannot be bound", kind: "loginKey" };
   }
   if (options.requireEmailVerified) {
     const verified = doc["email_verified"];
     if (verified !== true && verified !== "true") {
-      return { ok: false, error: "Provider email is not verified; login cannot be bound" };
+      return { ok: false, error: "Provider email is not verified; login cannot be bound", kind: "emailVerified" };
     }
   }
   const nameRaw = doc["name"];
-  const pictureRaw = doc["picture"];
+  const pictureRaw = doc[options.avatarField ?? "picture"];
   return {
     ok: true,
     profile: {
@@ -142,27 +199,63 @@ export function normalizeUserinfo(
   };
 }
 
+/**
+ * Best-effort profile extraction for the delegation path: when
+ * normalization fails on the subject or login key, the generic
+ * wired tail re-decides the failure (its rules, its audit). The
+ * extracted fields carry whatever the document actually held, so
+ * the tail sees a valid subject alongside a blank login key (and
+ * vice versa) exactly as the provider sent them.
+ */
+function extractPartialProfile(
+  raw: unknown,
+  options: OidcProviderOptions
+): NormalizedLoginProfile {
+  const doc =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const subjectRaw = doc[options.subjectField ?? "sub"];
+  const subject =
+    typeof subjectRaw === "string"
+      ? subjectRaw
+      : typeof subjectRaw === "number" && Number.isFinite(subjectRaw)
+        ? String(subjectRaw)
+        : "";
+  const loginKeyRaw = doc[options.loginKeyField];
+  const loginKey = typeof loginKeyRaw === "string" ? loginKeyRaw : "";
+  const avatarRaw = doc[options.avatarField ?? "picture"];
+  return {
+    subject,
+    loginKey,
+    displayName: loginKey,
+    avatarUrl: typeof avatarRaw === "string" ? avatarRaw : "",
+  };
+}
+
 /** Build a LoginProvider from OIDC/OAuth2 authorization-code options. */
 export function createOidcProvider(options: OidcProviderOptions): LoginProvider {
   const subjectField = options.subjectField ?? "sub";
+  const credentialsGate = options.requireConfiguredCredentials ?? true;
 
   async function startLogin(env: Env): Promise<Response> {
     const clientId = readEnvString(env, options.clientIdEnv);
     const clientSecret = readEnvString(env, options.clientSecretEnv);
-    if (!clientId || !clientSecret) {
+    if (credentialsGate && (!clientId || !clientSecret)) {
       return errorPage(
         `${options.displayName} login is not configured (missing OAuth client credentials)`,
         500
       );
     }
     const state = await createState(env);
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri(env, options.providerId),
-      response_type: "code",
-      scope: options.scope,
-      state,
-    });
+    const params = new URLSearchParams();
+    // With the credentials gate off (GitHub), a missing client id
+    // serializes exactly as the legacy flow serialized it.
+    params.set("client_id", String(clientId));
+    params.set("redirect_uri", redirectUri(env, options));
+    if (options.includeResponseType ?? true) params.set("response_type", "code");
+    params.set("scope", options.scope);
+    params.set("state", state);
     return new Response(null, {
       status: 302,
       headers: { Location: `${options.authorizationEndpoint}?${params}` },
@@ -190,65 +283,92 @@ export function createOidcProvider(options: OidcProviderOptions): LoginProvider 
       return errorPage("Invalid or expired OAuth state session. Please try signing in again.", 403);
     }
 
+    const tailOptions = {
+      auditStore: callbackOptions?.auditStore,
+      auditTenantId: callbackOptions?.auditTenantId,
+      postLoginEnabled: callbackOptions?.postLoginEnabled,
+    };
+
     try {
       const clientId = readEnvString(env, options.clientIdEnv);
       const clientSecret = readEnvString(env, options.clientSecretEnv);
-      if (!clientId || !clientSecret) {
+      if (credentialsGate && (!clientId || !clientSecret)) {
         return errorPage(
           `${options.displayName} login is not configured (missing OAuth client credentials)`,
           500
         );
       }
-      const tokenResp = await fetch(options.tokenEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
+      let accessToken: string;
+      try {
+        const tokenSet = await exchangeAuthorizationCodeConfidential({
+          tokenEndpoint: options.tokenEndpoint,
           code,
-          client_id: clientId,
-          client_secret: clientSecret,
-          redirect_uri: redirectUri(env, options.providerId),
-          grant_type: "authorization_code",
-        }).toString(),
+          redirectUri: redirectUri(env, options),
+          clientId: clientId ?? "",
+          clientSecret,
+        });
+        accessToken = tokenSet.accessToken;
+      } catch (err) {
+        if (err instanceof OAuth2Error) {
+          if (err.status !== undefined) {
+            throw new OidcAuthError(
+              `Token exchange failed with upstream status ${err.status}`,
+              502
+            );
+          }
+          throw new OidcAuthError(
+            err.errorDescription ||
+              err.errorCode ||
+              `${options.displayName} did not grant an access token`,
+            400
+          );
+        }
+        throw err;
+      }
+      const profileResp = await fetch(options.userinfoEndpoint, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: options.userinfoAccept ?? "application/json",
+          // GitHub's API rejects requests with no User-Agent (403),
+          // so every factory provider sends one (#1265). The value
+          // is the legacy GitHub flow's, kept for continuity; it is
+          // inert for providers that don't require it.
+          "User-Agent": "ai-search-agent",
+        },
       });
-      if (!tokenResp.ok) {
+      if (!profileResp.ok) {
         throw new OidcAuthError(
-          `Token exchange failed with upstream status ${tokenResp.status}`,
+          `Failed to fetch user profile from ${options.displayName}`,
           502
         );
       }
-      const tokenData = (await tokenResp.json()) as {
-        access_token?: string;
-        error?: string;
-        error_description?: string;
-      };
-      if (!tokenData.access_token) {
-        throw new OidcAuthError(
-          tokenData.error_description || tokenData.error || "Provider did not grant an access token",
-          400
-        );
-      }
-      const profileResp = await fetch(options.userinfoEndpoint, {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
-      });
-      if (!profileResp.ok) {
-        throw new OidcAuthError("Failed to fetch user profile from provider", 502);
-      }
-      const normalized = normalizeUserinfo(await profileResp.json(), {
+      const rawProfile: unknown = await profileResp.json();
+      const normalized = normalizeUserinfo(rawProfile, {
         subjectField,
         loginKeyField: options.loginKeyField,
         requireEmailVerified: options.requireEmailVerified,
+        avatarField: options.avatarField,
       });
       if (!normalized.ok) {
-        return errorPage(normalized.error, 400);
+        if (normalized.kind === "emailVerified") {
+          return errorPage(normalized.error, 400);
+        }
+        // Subject / login-key / unusable-document failures are the
+        // generic wired tail's fail-closed rules (including the
+        // MISSING_SUBJECT_ID failure audit recording). Delegate
+        // with the extracted fields so the tail decides — and
+        // audits — identically for every adapter.
+        return await completeWiredLogin(
+          env,
+          options.issuer,
+          extractPartialProfile(rawProfile, options),
+          tailOptions
+        );
       }
       // The userinfo fetch with the fresh access token IS the proof
       // of control; the generic tail binds (issuer, subject) and
       // creates the session. Nothing is persisted before this call.
-      return await completeWiredLogin(env, options.issuer, normalized.profile, {
-        auditStore: callbackOptions?.auditStore,
-        auditTenantId: callbackOptions?.auditTenantId,
-        postLoginEnabled: callbackOptions?.postLoginEnabled,
-      });
+      return await completeWiredLogin(env, options.issuer, normalized.profile, tailOptions);
     } catch (err) {
       if (err instanceof OidcAuthError) return errorPage(err.message, err.status);
       const message = err instanceof Error ? err.message : "Unexpected OAuth authentication error";
@@ -258,7 +378,7 @@ export function createOidcProvider(options: OidcProviderOptions): LoginProvider 
 
   return {
     providerId: options.providerId,
-    protocol: "oidc",
+    protocol: options.protocol ?? "oidc",
     issuer: options.issuer,
     displayName: options.displayName,
     startLogin,

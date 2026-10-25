@@ -18,11 +18,24 @@ import {
   SqlScanRunStore,
   SqlStrategyProfileStore,
   buildCalibratedOptionChains,
+  createOptionsScreeningProvider,
+  OPTIONS_SCREENING_PROVIDER_ID,
   parseOptionsScreenRequest,
 } from "../../trading";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
 import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
+import { recordJobOutcome } from "../../services/jobOutcomes";
+import {
+  cfpaySendEmail,
+  cfpaySendEmailWithAttachments,
+  getCfpayConfig,
+} from "../../services/cfpayA2A";
+import {
+  resolveOptionsRunEmailRecipient,
+  sendOptionsRunEmail,
+} from "../../services/optionsRunEmail";
+import { ETradeEmailTradingService } from "../../trading";
 import { getEventCalendarCoverage, toEventCalendarInfo } from "../../services/eventCalendar";
 import type { EtradeOptionsRouteContext } from "./etradeOptions";
 
@@ -36,12 +49,24 @@ export async function executeOptionsScreen(args: {
   screenPushToSlack: OptionsScreenValue["pushToSlack"];
   screenSlackChannel: OptionsScreenValue["slackChannel"];
   screenUniverseLabel: OptionsScreenValue["universe"];
+  screenEmailTo: OptionsScreenValue["emailTo"];
   /** Issue #1123: when the screen runs as a tracked job, the follow-up
    *  pipeline owns delivery — skip the inline Slack delivery. */
   deferDelivery?: boolean;
 }): Promise<Response> {
-  const { ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, deferDelivery } = args;
-  let result = await screener.screenOptions(screenFilter);
+  const { ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, screenEmailTo, deferDelivery } = args;
+  // Consolidation C1 (issue #1201, epic #1151 R1): the manual options
+  // screen executes through the Phase 0 ScreeningProvider (the
+  // registry's options provider wrapping this same screener) — the
+  // unified stack is the production path here, not a parallel one.
+  // Same engine, same result object; the provider only stamps its
+  // provenance id. The demo-fallback logic below is untouched.
+  const provider = createOptionsScreeningProvider(OPTIONS_SCREENING_PROVIDER_ID, screener);
+  const screened = await provider.screen({ assetClass: "options", filter: screenFilter });
+  if (screened.assetClass !== "options") {
+    throw new Error("Options screening provider returned a non-options result.");
+  }
+  let result = screened.result;
 
   // Demo-mode fallback (issue #65): generated chains may substitute for an
   // empty live screen ONLY in dev/demo deployments with the gate enabled,
@@ -109,12 +134,65 @@ export async function executeOptionsScreen(args: {
     console.warn("[Orchestrator] Manual options contract PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
   }
 
+  // Issue #1195 (#1173 R3b): options XLSX — its own failure domain,
+  // mirroring the stock persistRun convention (failures recorded,
+  // never fatal, never silent).
+  let optionsXlsxKey: string | undefined;
+  let optionsXlsxStatus: "generated" | "failed" | undefined;
+  let optionsXlsxError: string | undefined;
+  let optionsXlsxBytes: Uint8Array | undefined;
+  let optionsXlsxFileName: string | undefined;
+  try {
+    const agent = ctx.getScreenerAgent(userLogin);
+    const stored = await agent.generateAndStoreOptionsXlsx(result);
+    optionsXlsxKey = stored.key;
+    optionsXlsxFileName = stored.fileName;
+    optionsXlsxStatus = "generated";
+    const data = await agent.getOptionsXlsxByKey(stored.key);
+    if (data) optionsXlsxBytes = data.bytes;
+  } catch (xlsxErr) {
+    optionsXlsxStatus = "failed";
+    optionsXlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
+    console.warn("[Orchestrator] Manual options XLSX generation failed:", optionsXlsxError);
+  }
+  const optionsXlsxUrl = optionsXlsxKey
+    ? `/api/options/report.xlsx?key=${encodeURIComponent(optionsXlsxKey)}`
+    : undefined;
+
+  // Issue #1346: options CSV — its own failure domain, mirroring
+  // the XLSX block (failures recorded, never fatal, never silent).
+  let optionsCsvKey: string | undefined;
+  let optionsCsvStatus: "generated" | "failed" | undefined;
+  let optionsCsvError: string | undefined;
+  let optionsCsvBytes: Uint8Array | undefined;
+  let optionsCsvFileName: string | undefined;
+  try {
+    const agent = ctx.getScreenerAgent(userLogin);
+    const stored = await agent.generateAndStoreOptionsCsv(result);
+    optionsCsvKey = stored.key;
+    optionsCsvFileName = stored.fileName;
+    optionsCsvStatus = "generated";
+    const data = await agent.getOptionsCsvByKey(stored.key);
+    if (data) optionsCsvBytes = data.bytes;
+  } catch (csvErr) {
+    optionsCsvStatus = "failed";
+    optionsCsvError = csvErr instanceof Error ? csvErr.message : String(csvErr);
+    console.warn("[Orchestrator] Manual options CSV generation failed:", optionsCsvError);
+  }
+  const optionsCsvUrl = optionsCsvKey
+    ? `/api/options/report.csv?key=${encodeURIComponent(optionsCsvKey)}`
+    : undefined;
+
   // Deliver over A2A to Slack channel unless caller explicitly opted out
   // (or the tracked follow-up pipeline owns delivery — issue #1123).
   // S5a: when the host provides the follow-up bridge, the run is
   // recorded + chained through the pipeline instead of delivering
   // inline; the A2A block remains the fallback for hosts without it.
   const shouldNotifySlack = screenPushToSlack !== false && !deferDelivery;
+  // Issue #1333: delivery states for the inline outcome record below
+  // (the bridged path records through the job-tree hook instead).
+  let slackState: string | undefined;
+  let emailState: string | undefined;
   if (shouldNotifySlack && ctx.scheduleScreenerFollowups) {
     await ctx.scheduleScreenerFollowups(
       screenerOutcomeFromRunResult("options", {
@@ -124,6 +202,12 @@ export async function executeOptionsScreen(args: {
         matchedCount: result.matchedCount,
         pdfKey: optionsPdfKey,
         pdfStatus: optionsPdfKey ? "generated" : undefined,
+        xlsxKey: optionsXlsxKey,
+        xlsxStatus: optionsXlsxStatus,
+        xlsxError: optionsXlsxError,
+        csvKey: optionsCsvKey,
+        csvStatus: optionsCsvStatus,
+        csvError: optionsCsvError,
         summary: `${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.`,
       }),
       userLogin,
@@ -143,10 +227,54 @@ export async function executeOptionsScreen(args: {
             comment: `📄 Options contract screener PDF\n\n${summary}`,
           },
         } : {}),
+        ...(optionsXlsxBytes && optionsXlsxFileName ? {
+          files: [{ bytes: optionsXlsxBytes, fileName: optionsXlsxFileName, title: optionsXlsxFileName }],
+        } : {}),
+        ...(optionsCsvBytes && optionsCsvFileName ? {
+          files: [{ bytes: optionsCsvBytes, fileName: optionsCsvFileName, title: optionsCsvFileName }],
+        } : {}),
       });
+      slackState = sent.ok ? "sent" : "failed";
       if (!sent.ok) console.warn("[Orchestrator] Slack A2A options contract PDF delivery failed:", sent.error);
     } catch (slackErr) {
       console.warn("[Orchestrator] Slack A2A options delivery error:", slackErr instanceof Error ? slackErr.message : String(slackErr));
+    }
+  }
+
+  // Issue #1336: manual options email — the one delivery cell the
+  // manual route lacked. Only the inline path sends here: when the
+  // follow-up pipeline owns delivery (bridge present, or a tracked
+  // job context via deferDelivery), the bridge plans the email
+  // instead — sending here too would double-deliver. Best-effort:
+  // failures warn, never fail the run (same idiom as inline Slack).
+  if (!deferDelivery && !ctx.scheduleScreenerFollowups) {
+    const emailTo = resolveOptionsRunEmailRecipient(screenEmailTo, ctx.env as unknown as Record<string, unknown>);
+    if (emailTo) {
+      const symbolsLabel = (screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings";
+      const emailSummary = `📊 Options Contract Screen — ${symbolsLabel}\n${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.\n${result.filterSummary || ""}`;
+      try {
+        const emailService = new ETradeEmailTradingService(ctx.env as any, ctx.getOrm(), userLogin);
+        const sent = await sendOptionsRunEmail(
+          {
+            cfpay: getCfpayConfig(ctx.env),
+            sendCfpay: (config, a) => cfpaySendEmail(config, a.to, a.subject, a.body),
+            sendCfpayWithAttachments: (config, a) => cfpaySendEmailWithAttachments(config, a),
+            sendLocal: (to, subject, html, text, attachments) => emailService.sendOutboundEmail(to, subject, html, text, attachments),
+          },
+          {
+            to: emailTo,
+            subject: `📊 Options Contract Screen — ${symbolsLabel} — ${new Date().toISOString().slice(0, 10)}`,
+            textBody: `${emailSummary}${optionsReportUrl ? `\n\nPDF report: ${optionsReportUrl}` : ""}`,
+            htmlBody: `${emailSummary.replace(/\n/g, "<br/>")}${optionsReportUrl ? `<br/><br/>PDF report: ${optionsReportUrl}` : ""}`,
+            ...(pdfBytes && fileName ? { pdf: { bytes: pdfBytes, fileName } } : {}),
+            ...(optionsXlsxBytes && optionsXlsxFileName ? { xlsx: { bytes: optionsXlsxBytes, fileName: optionsXlsxFileName } } : {}),
+          },
+        );
+        emailState = sent.sent ? "sent" : "failed";
+        if (!sent.sent) console.warn("[Orchestrator] Manual options email delivery failed for", emailTo);
+      } catch (emailErr) {
+        console.warn("[Orchestrator] Manual options email error:", emailErr instanceof Error ? emailErr.message : String(emailErr));
+      }
     }
   }
 
@@ -158,11 +286,40 @@ export async function executeOptionsScreen(args: {
     title: `Options contract screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}`,
     source: "options_scanner",
     summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
-    body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl },
+    body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl, csvKey: optionsCsvKey, csvUrl: optionsCsvUrl },
     createdAt: generatedAt,
   });
 
-  return Response.json({ ...result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl });
+  // Issue #1333: the inline manual-options outcome — recorded here
+  // ONLY when the bridge did not take the run (bridged runs record
+  // through the job-tree hook; recording both would double the feed).
+  // Never throws: a sink failure must not fail the run.
+  if (!(shouldNotifySlack && ctx.scheduleScreenerFollowups)) {
+    try {
+      recordJobOutcome(ctx.ensureTables(), {
+        id: `options-manual:${generationId}`,
+        kind: "options",
+        trigger: "manual",
+        status: "completed",
+        scanned: result.totalUnderlyingsScanned,
+        matched: result.matchedCount,
+        reportUrl: optionsReportUrl,
+        pdfKey: optionsPdfKey,
+        xlsxKey: optionsXlsxKey,
+        csvKey: optionsCsvKey,
+        deliveryStates: {
+          ...(slackState ? { slack: slackState } : {}),
+          ...(emailState ? { email: emailState } : {}),
+        },
+        origin: "manual-options-inline",
+        createdAt: generatedAt,
+      });
+    } catch (outcomeErr) {
+      console.warn("[Orchestrator] Manual options outcome record failed:", outcomeErr instanceof Error ? outcomeErr.message : String(outcomeErr));
+    }
+  }
+
+  return Response.json({ ...result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl, csvKey: optionsCsvKey, csvUrl: optionsCsvUrl });
 }
 
 export async function executeUnifiedOptions(args: {
@@ -197,6 +354,15 @@ export async function executeUnifiedOptions(args: {
   let pdfKey: string | undefined;
   let scannerPdfBytes: Uint8Array | undefined;
   let scannerPdfFileName: string | undefined;
+  // Issue #1195 (#1173 R3b): options XLSX for this flow.
+  let scannerXlsxKey: string | undefined;
+  let scannerXlsxBytes: Uint8Array | undefined;
+  let scannerXlsxFileName: string | undefined;
+  let scannerXlsxUrl: string | undefined;
+  let scannerCsvKey: string | undefined;
+  let scannerCsvBytes: Uint8Array | undefined;
+  let scannerCsvFileName: string | undefined;
+  let scannerCsvUrl: string | undefined;
 
   if (reqData.action === "opportunities" && result.success) {
     const timestamp = new Date().toISOString();
@@ -235,6 +401,33 @@ export async function executeUnifiedOptions(args: {
       console.warn("[Orchestrator] Manual options PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
     }
 
+    // Issue #1195 (#1173 R3b): XLSX from the same result payload.
+    try {
+      const agent = ctx.getScreenerAgent(userLogin);
+      const stored = await agent.generateAndStoreOptionsXlsx(result.data);
+      scannerXlsxKey = stored.key;
+      scannerXlsxFileName = stored.fileName;
+      scannerXlsxUrl = `/api/options/report.xlsx?key=${encodeURIComponent(stored.key)}`;
+      const data = await agent.getOptionsXlsxByKey(stored.key);
+      if (data) scannerXlsxBytes = data.bytes;
+    } catch (xlsxErr) {
+      console.warn("[Orchestrator] Manual options XLSX generation failed:", xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr));
+    }
+
+    // Issue #1346: CSV from the same result payload (own failure
+    // domain; recorded in the log, never fatal).
+    try {
+      const agent = ctx.getScreenerAgent(userLogin);
+      const stored = await agent.generateAndStoreOptionsCsv(result.data);
+      scannerCsvKey = stored.key;
+      scannerCsvFileName = stored.fileName;
+      scannerCsvUrl = `/api/options/report.csv?key=${encodeURIComponent(stored.key)}`;
+      const data = await agent.getOptionsCsvByKey(stored.key);
+      if (data) scannerCsvBytes = data.bytes;
+    } catch (csvErr) {
+      console.warn("[Orchestrator] Manual options CSV generation failed:", csvErr instanceof Error ? csvErr.message : String(csvErr));
+    }
+
     const shouldNotifySlack = reqData.pushToSlack !== false && reqData.pushToSlack !== "false";
     if (shouldNotifySlack) {
       const slackChannel = reqData.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
@@ -253,6 +446,12 @@ export async function executeUnifiedOptions(args: {
               comment: `📄 Manual options scan PDF — ${matchCount} matches\n\n${text}`,
             },
           } : {}),
+          ...(scannerXlsxBytes && scannerXlsxFileName ? {
+            files: [{ bytes: scannerXlsxBytes, fileName: scannerXlsxFileName, title: scannerXlsxFileName }],
+          } : {}),
+          ...(scannerCsvBytes && scannerCsvFileName ? {
+            files: [{ bytes: scannerCsvBytes, fileName: scannerCsvFileName, title: scannerCsvFileName }],
+          } : {}),
         });
         if (!sent.ok) console.warn("[Orchestrator] Slack A2A PDF delivery (manual options) failed:", sent.error);
       } catch (slackErr) {
@@ -268,7 +467,7 @@ export async function executeUnifiedOptions(args: {
       title: `Options scanner — ${reqData.thesis || "mixed"} (${generatedAt.slice(0, 10)})`,
       source: "options_scanner",
       summary: result.summary,
-      body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, reportUrl },
+      body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, reportUrl, xlsxKey: scannerXlsxKey, xlsxUrl: scannerXlsxUrl, csvKey: scannerCsvKey, csvUrl: scannerCsvUrl },
       createdAt: generatedAt,
     });
   } else if (!result.success && reqData.pushToSlack !== false && reqData.pushToSlack !== "false") {
@@ -290,10 +489,10 @@ export async function executeUnifiedOptions(args: {
     return Response.json(result.toVoice());
   }
   if (channel === "webhook") {
-    return Response.json({ ...result.toWebhook(), reportUrl });
+    return Response.json({ ...result.toWebhook(), reportUrl, xlsxUrl: scannerXlsxUrl, csvUrl: scannerCsvUrl });
   }
   if (channel === "mcp") {
     return Response.json(result.toMcp());
   }
-  return Response.json({ ...result.toUi(), reportUrl });
+  return Response.json({ ...result.toUi(), reportUrl, xlsxUrl: scannerXlsxUrl });
 }

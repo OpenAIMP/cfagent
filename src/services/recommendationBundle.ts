@@ -48,8 +48,13 @@ import {
 } from "./portfolioRisk";
 import { sizeCandidateAgainstPortfolio, SIZING_POLICY, type SizingResult } from "./positionSizing";
 import type { ConcentrationReport } from "./portfolioConcentration";
-import { buildHedgeProposals, type HedgeAnalysis, type SpyPutContract } from "./hedgeProposals";
+import { SPY_DELTA_HEDGE_POLICY, type HedgeAnalysis, type SpyPutContract } from "./hedgeProposals";
+import { buildRepairOptions } from "./repairPolicies";
+import type { CompositionRepairInput, RepairOption } from "./repairPolicies";
 import type { RepairAnalysis } from "./repairProposals";
+
+/** Re-exported: the repair proposal contract lives in repairPolicies. */
+export type { CompositionRepairInput, RepairOption } from "./repairPolicies";
 import {
   composedStructureEconomics,
   type ResearchLeg,
@@ -64,11 +69,20 @@ import {
   type Premortem,
 } from "./researchFalsification";
 import { recordOutcome, type OutcomeRecord } from "./goalScenarioStore";
+import { storeReportStage } from "./unifiedReportPipeline";
+import {
+  buildOptimizerAlternatives,
+  computeScenarioStats,
+  decideOptimizerVerdict,
+  rankOptimizerCandidates,
+  round2,
+  shouldTrade,
+  type OptimizerCandidate,
+  type OptimizerCandidateStats,
+} from "./cvarOptimizer";
 
 export const BUNDLE_DISCLAIMER =
   "Research output only; not personalized advice or an order. Verify live quotes and event risk, and approve any order manually.";
-
-const round2 = (n: number): number => Number(n.toFixed(2));
 
 /* ------------------------------------------------------------------ */
 /* Inputs                                                              */
@@ -83,15 +97,6 @@ export interface BundleCandidateInput {
   requestedContracts?: number;
   /** Max measured correlation to held positions (#35), when known. */
   maxMeasuredCorrelation?: number | null;
-}
-
-export interface CompositionRepairInput {
-  label: string;
-  costDollars: number;
-  /** Contractual max-loss reduction in dollars, when the composition
-   *  gate measured it; omit when unknown (ranked cost-first, flagged). */
-  riskRemovedDollars?: number;
-  detail: string;
 }
 
 export interface RecommendationBundleInput {
@@ -158,19 +163,6 @@ export interface HedgeOption {
   costPerDollarRiskRemoved: number | null;
   postHedgeBetaWeightedDeltaDollars: number;
   rationale: string;
-}
-
-export interface RepairOption {
-  kind: "ratio_repair" | "composition";
-  label: string;
-  costDollars: number;
-  riskRemovedDollars: number | null;
-  /** riskRemoved − cost when risk removed is known; otherwise −cost
-   *  (cost-first among unknowns) — the basis is stated per option. */
-  rankScore: number;
-  rankBasis: string;
-  noDownsideProtection?: boolean;
-  detail: string;
 }
 
 export interface BundleAlternative {
@@ -269,22 +261,16 @@ interface EvaluatedCandidate {
   economicsStatus: "Verified" | "Unverified";
   sizing: SizingResult;
   grid: ScenarioGridResult;
-  stats: { expectedPnl: number; cvarPnl: number; worstPnl: number; probabilityOfProfit: number; score: number };
+  stats: OptimizerCandidateStats;
 }
 
-function scenarioStats(grid: ScenarioGridResult): EvaluatedCandidate["stats"] {
-  const pnls = grid.cells.map((c) => c.pnlTotal).sort((a, b) => a - b);
-  const n = pnls.length;
-  const expected = n ? pnls.reduce((s, v) => s + v, 0) / n : 0;
-  const tailCount = Math.max(1, Math.ceil(n * 0.25));
-  const cvar = n ? pnls.slice(0, tailCount).reduce((s, v) => s + v, 0) / tailCount : 0;
-  const pop = n ? pnls.filter((v) => v > 0).length / n : 0;
+/** Optimizer view of an evaluated candidate (id/label/stats/sizing). */
+function toOptimizerCandidate(e: EvaluatedCandidate): OptimizerCandidate {
   return {
-    expectedPnl: round2(expected),
-    cvarPnl: round2(cvar),
-    worstPnl: n ? pnls[0] : 0,
-    probabilityOfProfit: Number(pop.toFixed(3)),
-    score: round2(expected + 0.5 * Math.min(0, cvar)),
+    id: e.input.candidate.id,
+    label: e.input.candidate.label,
+    stats: e.stats,
+    sizing: e.sizing,
   };
 }
 
@@ -336,7 +322,7 @@ function evaluateCandidate(
     economicsStatus: hasStockLeg ? "Unverified" : "Verified",
     sizing,
     grid,
-    stats: scenarioStats(grid),
+    stats: computeScenarioStats(grid.cells),
   };
 }
 
@@ -366,9 +352,14 @@ export function buildRecommendationBundle(input: RecommendationBundleInput): Rec
   const limitations: string[] = [];
   const blockers: string[] = [...(input.pickBlockers ?? [])];
 
-  const evaluated = input.candidates.map((c) => evaluateCandidate(c, report, input.scenario));
-  evaluated.sort((a, b) => b.stats.score - a.stats.score || a.input.candidate.id.localeCompare(b.input.candidate.id));
+  const evaluatedUnsorted = input.candidates.map((c) => evaluateCandidate(c, report, input.scenario));
+  // Ranking lives in CvarOptimizer; the builder only maps ranked
+  // optimizer views back to the evaluated candidates (assembly plumbing).
+  const rankedView = rankOptimizerCandidates(evaluatedUnsorted.map(toOptimizerCandidate));
+  const byId = new Map(evaluatedUnsorted.map((e) => [e.input.candidate.id, e]));
+  const evaluated = rankedView.map((r) => byId.get(r.id)!);
   const primary = evaluated[0] ?? null;
+  const primaryView = rankedView[0] ?? null;
 
   /* Falsification + qualification (PLAN §1.1: required evidence). */
   let falsification: Falsification | null = null;
@@ -394,16 +385,8 @@ export function buildRecommendationBundle(input: RecommendationBundleInput): Rec
   if (qualification === "Qualified") qualificationReasons.push("Falsification record present with contradicting evidence and no warnings.");
 
   /* Decision: the optimizer must BEAT no-trade (score 0) at a sized count. */
-  const noTradeAlternative: BundleAlternative = {
-    kind: "no_trade",
-    label: "No trade",
-    expectedPnl: 0,
-    cvarPnl: 0,
-    score: 0,
-    note: "Portfolio unchanged: no new premium, Greeks, or max loss; scenario outcome is the current book's own outcome.",
-  };
   let decision: RecommendationBundle["decision"] = "no_trade";
-  if (primary && primary.sizing.recommendedContracts > 0 && primary.stats.score > 0) {
+  if (shouldTrade(primaryView)) {
     decision = "trade";
   } else if (primary) {
     blockers.push(
@@ -458,9 +441,13 @@ export function buildRecommendationBundle(input: RecommendationBundleInput): Rec
     } else {
       limitations.push("No concentration/correlation assessment supplied for the primary candidate; correlation impact is unassessed, not assumed zero.");
     }
-    if (breaches.length > 0) verdict = "worsens";
-    else if (primary.stats.score > 0 && Math.abs(postTradeTotals.betaWeightedDeltaDollars ?? postTradeTotals.deltaDollars) <= Math.abs(report.totals.betaWeightedDeltaDollars ?? report.totals.deltaDollars)) verdict = "improves";
-    else verdict = primary.stats.score > 0 ? "neutral" : "worsens";
+    verdict = decideOptimizerVerdict({
+      primary: primaryView,
+      decision,
+      postTradeTotals,
+      reportTotals: report.totals,
+      breaches,
+    });
   } else if (primary) {
     evidence.push(`Primary candidate scenario score ${primary.stats.score} at sized count ${primary.sizing.recommendedContracts}; no-trade scores 0 and wins.`);
   }
@@ -471,7 +458,7 @@ export function buildRecommendationBundle(input: RecommendationBundleInput): Rec
   const hedgeNeeded = primary !== null && breaches.length > 0;
   if (hedgeNeeded && desiredPostTotals) {
     const postReport: PortfolioRiskReport = { ...report, totals: desiredPostTotals };
-    const analysis = buildHedgeProposals(postReport, input.spyPut ?? null);
+    const analysis = SPY_DELTA_HEDGE_POLICY.build(postReport, input.spyPut ?? null);
     if (analysis.status === "proposals") {
       const pre = Math.abs(analysis.preHedge.betaWeightedDeltaDollars ?? 0);
       const options: HedgeOption[] = analysis.proposals.map((p) => {
@@ -493,53 +480,20 @@ export function buildRecommendationBundle(input: RecommendationBundleInput): Rec
     }
   }
 
-  /* Repair plan: #355 proposals + composition repairs, ranked. */
-  const repairOptions: RepairOption[] = [];
-  for (const p of input.repairAnalysis?.proposals ?? []) {
-    const cost = round2(Math.max(0, p.netDebitPerUnit) * 100 * p.units);
-    repairOptions.push({
-      kind: "ratio_repair",
-      label: `${p.symbol} 1x2 call ratio repair (breakeven → $${p.breakevenAtExpiry})`,
-      costDollars: cost,
-      riskRemovedDollars: null,
-      rankScore: -cost,
-      rankBasis: "Risk removed not directly measurable for the #355 ratio repair (it states breakeven/max-recovery, no downside protection); ranked cost-first among unknowns.",
-      noDownsideProtection: p.noDownsideProtection,
-      detail: p.rationale,
-    });
-  }
-  for (const r of input.compositionRepairs ?? []) {
-    repairOptions.push({
-      kind: "composition",
-      label: r.label,
-      costDollars: r.costDollars,
-      riskRemovedDollars: r.riskRemovedDollars ?? null,
-      rankScore: r.riskRemovedDollars !== undefined ? round2(r.riskRemovedDollars - r.costDollars) : -r.costDollars,
-      rankBasis: r.riskRemovedDollars !== undefined ? "Ranked by risk removed minus cost (composition gate measurement)." : "Risk removed unknown; ranked cost-first among unknowns.",
-      detail: r.detail,
-    });
-  }
-  repairOptions.sort((a, b) => b.rankScore - a.rankScore || a.label.localeCompare(b.label));
-  const repairs: RecommendationBundle["repairs"] = {
-    status: input.repairAnalysis || (input.compositionRepairs?.length ?? 0) > 0 ? "proposals" : "none_supplied",
-    options: repairOptions,
-  };
+  /* Repair plan: RepairPolicy implementations over one proposal
+   * contract (#1257) — the bundle consumes policies, not modules. */
+  const repairs: RecommendationBundle["repairs"] = buildRepairOptions({
+    repairAnalysis: input.repairAnalysis,
+    compositionRepairs: input.compositionRepairs,
+  });
   if (repairs.status === "none_supplied") {
     limitations.push("No repair analysis or composition repair candidates supplied; no repair plan is fabricated.");
   }
 
-  /* Alternatives: other candidates, optimizer-ranked, + no-trade. */
-  const alternatives: BundleAlternative[] = evaluated.slice(1).map((e) => ({
-    kind: "candidate" as const,
-    candidateId: e.input.candidate.id,
-    label: e.input.candidate.label,
-    expectedPnl: e.stats.expectedPnl,
-    cvarPnl: e.stats.cvarPnl,
-    score: e.stats.score,
-    note: `Sized to ${e.sizing.recommendedContracts} contract(s) by ${e.sizing.bindingConstraint}; scenario score ${e.stats.score} vs primary ${primary?.stats.score ?? 0}.`,
-  }));
-  alternatives.push(noTradeAlternative);
-  alternatives.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
+  /* Alternatives: other candidates, optimizer-ranked, + no-trade.
+   * Copied out of the optimizer's shared constant so a caller mutating
+   * a returned bundle can never mutate shared module state. */
+  const alternatives: BundleAlternative[] = buildOptimizerAlternatives(rankedView, primaryView).map((a) => ({ ...a }));
 
   /* Status + confidence: the pick's caps are ceilings, never floors. */
   let status: RecommendationBundle["status"] =
@@ -630,6 +584,75 @@ export function buildRecommendationBundle(input: RecommendationBundleInput): Rec
 }
 
 /* ------------------------------------------------------------------ */
+/* Route body normalization (Phase 6)                                  */
+/* ------------------------------------------------------------------ */
+
+/** One candidate entry as accepted by POST /api/etrade/portfolio-risk/bundle. */
+export interface BundleRouteCandidateBody {
+  candidate: StrategyCandidate;
+  beta?: number | null;
+  riskScore?: number;
+  requestedContracts?: number;
+}
+
+/**
+ * Normalize a bundle-route body to the candidate list the builder
+ * consumes (issue #1162: the route originally accepted a single
+ * `candidate`; `candidates[]` is the multi-candidate form, with the
+ * first entry as the primary the concentration assessment describes).
+ * Validation is total and happens before any broker call: a body with
+ * no candidate carrying a symbol and at least one leg is an explicit
+ * error, never a silently empty bundle.
+ */
+export function normalizeBundleCandidates(body: {
+  candidate?: StrategyCandidate;
+  candidates?: BundleRouteCandidateBody[];
+  beta?: number | null;
+  riskScore?: number;
+  requestedContracts?: number;
+}): { ok: true; candidates: BundleCandidateInput[] } | { ok: false; error: string } {
+  const raw: BundleRouteCandidateBody[] = Array.isArray(body.candidates)
+    ? body.candidates
+    : body.candidate
+      ? [
+          {
+            candidate: body.candidate,
+            beta: body.beta,
+            riskScore: body.riskScore,
+            requestedContracts: body.requestedContracts,
+          },
+        ]
+      : [];
+  if (raw.length === 0) {
+    return {
+      ok: false,
+      error: "candidate with symbol and legs is required (or a non-empty candidates array)",
+    };
+  }
+  const candidates: BundleCandidateInput[] = [];
+  for (const [i, entry] of raw.entries()) {
+    const candidate = entry?.candidate;
+    if (
+      !candidate?.symbol ||
+      !Array.isArray(candidate.legs) ||
+      candidate.legs.length === 0
+    ) {
+      return {
+        ok: false,
+        error: `candidates[${i}] must carry a candidate with symbol and legs`,
+      };
+    }
+    candidates.push({
+      candidate,
+      beta: entry.beta ?? null,
+      riskScore: entry.riskScore,
+      requestedContracts: entry.requestedContracts,
+    });
+  }
+  return { ok: true, candidates };
+}
+
+/* ------------------------------------------------------------------ */
 /* Persistence + report seam                                           */
 /* ------------------------------------------------------------------ */
 
@@ -673,6 +696,46 @@ export function persistRecommendationBundle(
  * (mas_reports #308 stored reports embed this summary; the PDF/XLSX
  * generators consume report summaries, they are not forked here).
  */
+/**
+ * Consolidation C5 (#1361): the bundle's canonical mas_reports row,
+ * built for the shared storeReportStage seam. The row carries the
+ * full bundle as its body and the plain-text bundle summary (which
+ * the module header already documents as the summary mas_reports rows
+ * embed) as its summary; the bundle id is both run id and generation
+ * id, so re-storing the same bundle dedupes instead of duplicating.
+ * Served in Reports under source "bundle" (kind "report" fallthrough).
+ */
+export function buildBundleCanonicalReportInput(
+  bundle: RecommendationBundle,
+  primarySymbol: string,
+): import("./unifiedReportPipeline").CanonicalReportInput {
+  return {
+    runId: bundle.id,
+    generationId: bundle.id,
+    title: `Recommendation Bundle — ${primarySymbol} (${bundle.decision}, ${bundle.qualification})`,
+    source: "bundle",
+    summary: formatRecommendationBundleReport(bundle),
+    body: bundle,
+    createdAt: bundle.asOf,
+  };
+}
+
+/**
+ * Consolidation C5 (#1361): one-line canonical persistence for the
+ * bundle route — the shared store seam over the canonical input
+ * above. The store stage never throws; a null result (no ORM, or a
+ * storage failure) is the caller's to report verbatim. Kept here
+ * (not in the route) so the route file stays under the #359 50 KB
+ * target pinned by tests/etrade_routes_resplit_995.test.ts.
+ */
+export function persistBundleReport(
+  orm: Parameters<typeof storeReportStage>[0],
+  bundle: RecommendationBundle,
+  primarySymbol: string,
+): { reportId: string; created: boolean } | null {
+  return storeReportStage(orm, buildBundleCanonicalReportInput(bundle, primarySymbol));
+}
+
 export function formatRecommendationBundleReport(bundle: RecommendationBundle): string {
   const lines: string[] = [
     `Recommendation Bundle — ${bundle.trade?.label ?? "No trade"} (${bundle.id})`,

@@ -17,9 +17,24 @@
  * audited by the executor into mas_events.
  */
 
-import type { AsyncJobChannel, AsyncJobSubmission } from "../types";
+import type { AsyncJobChannel, AsyncJobSubmission, StageChainConfig } from "../types";
 
-export type ScreenerKind = "stock" | "options";
+/** Consolidation C4 (#1329): discovery + goal runs join the bridge, so
+ *  the outcome kind covers them too. kindLabel (below) names each. */
+export type ScreenerKind = "stock" | "options" | "discovery" | "goal";
+
+export function screenerKindLabel(kind: ScreenerKind): string {
+  switch (kind) {
+    case "stock":
+      return "Stock";
+    case "options":
+      return "Options";
+    case "discovery":
+      return "Discovery";
+    case "goal":
+      return "Goal";
+  }
+}
 
 /** One standout opportunity, as carried for delivery content (S3). */
 export interface ScreenerOutcomeOpportunity {
@@ -40,6 +55,17 @@ export interface ScreenerRunOutcome {
   pdfKeys: string[];
   pdfStatus?: "generated" | "failed" | "skipped";
   pdfError?: string;
+  /** Issue #1191 (#1173 R3): the run's XLSX artifact, carried so
+   *  deliveries attach text + PDF + XLSX (the pre-R3 outcome dropped
+   *  it, which is why XLSX never reached email/Slack). */
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed" | "skipped";
+  xlsxError?: string;
+  /** Issue #1346: the run's CSV artifact, carried so the serve
+   *  stage adopts it and deliveries attach text + PDF + XLSX + CSV. */
+  csvKey?: string;
+  csvStatus?: "generated" | "failed" | "skipped";
+  csvError?: string;
   reportUrl?: string;
   matchedCount?: number;
   totalScanned?: number;
@@ -56,6 +82,21 @@ export interface ScreenerRunOutcome {
   webhookUrl?: string;
   /** Stable per-run delivery id (dedupe for notifications/deliveries). */
   deliveryId?: string;
+  /** Consolidation C3 (#1277): the schedule record's stage-chain
+   *  config, when the run opted into stage-layered scheduling. The
+   *  bridge stamps the chain's stage jobs from it; absent = the
+   *  fused immediate chain (the degenerate case). */
+  stageChain?: StageChainConfig;
+  /** Consolidation C4 (#1329): the canonical mas_reports row this run
+   *  published (discovery/goal runs, whose artifact is the canonical
+   *  row rather than a PDF). The serve stage verifies this row. */
+  canonicalReportId?: string;
+  /** Consolidation C4 (#1329): false when the run's delivery stays on
+   *  its direct path and the chain must NOT plan deliveries (discovery
+   *  chains and goal chains in C4 — the chain covers generate + serve;
+   *  deliver-stage chaining for those callbacks is #1236 remainder for
+   *  C5's delivery convergence). Absent/true = the chain delivers. */
+  deliverViaChain?: boolean;
   error?: string;
 }
 
@@ -149,7 +190,7 @@ export type FollowupDeliverySubmission = Extract<
 /** The report sub-job's result, as consumed by the delivery planner. */
 export interface FollowupReportResult {
   status: "ready" | "skipped" | string;
-  artifacts?: Array<{ key: string; fileName: string }>;
+  artifacts?: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" | "csv" }>;
   reason?: string;
 }
 
@@ -173,15 +214,59 @@ export function followupChannelLabel(channel: AsyncJobChannel): string {
  * reason so the tree shows them completing as 'skipped' instead of
  * silently vanishing — and nothing is sent.
  */
+/**
+ * Issue #1228 (#1209 F2): the channels a run's deliver jobs will be
+ * planned on — a channel counts when configured via env OR named by a
+ * per-task override on the outcome (scheduled tasks, S5b), the same
+ * precedence the legacy publishers applied. Shared by the delivery
+ * planner and the lifecycle planner (which suppresses the text-only
+ * 'completed' notify on exactly these channels: the delivery message
+ * IS the completion message there).
+ */
+export function plannedDeliveryChannels(
+  outcome: ScreenerRunOutcome,
+  config: ScreenerFollowupConfig,
+): AsyncJobChannel[] {
+  if (!config.enabled) return [];
+  const channels: AsyncJobChannel[] = [];
+  for (const channel of CHANNEL_ORDER) {
+    const override = channel === "email"
+      ? outcome.emailTo
+      : channel === "slack"
+        ? outcome.slackChannel
+        : outcome.webhookUrl;
+    if (config.channels[channel].configured || override) channels.push(channel);
+  }
+  return channels;
+}
+
+/** Consolidation C3 (#1277): chain context for one planning hop —
+ *  the chain the stage jobs belong to and the predecessor's
+ *  completion time the stage's delay counts from. */
+export interface StageChainPlanContext {
+  chainId: string;
+  nowIso?: string;
+}
+
+function stageRunAt(chain: StageChainPlanContext, delaySeconds: number | undefined): string {
+  const base = chain.nowIso ? Date.parse(chain.nowIso) : Date.now();
+  const from = Number.isFinite(base) ? base : Date.now();
+  return new Date(from + Math.max(0, delaySeconds ?? 0) * 1000).toISOString();
+}
+
 export function planDeliveryFollowups(
   outcome: ScreenerRunOutcome,
   config: ScreenerFollowupConfig,
   reportResult: FollowupReportResult,
   mainJobId: string,
   userLogin: string,
+  chain?: StageChainPlanContext,
 ): FollowupDeliverySubmission[] {
   if (!config.enabled) return [];
-  const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
+  // Consolidation C4 (#1329): a run whose delivery stays on its direct
+  // path plans no chain deliveries — the chain covers generate + serve.
+  if (outcome.deliverViaChain === false) return [];
+  const kindLabel = screenerKindLabel(outcome.kind);
   const artifacts = reportResult.artifacts ?? [];
   const skipReason = reportResult.status === "skipped"
     ? reportResult.reason || "Report was skipped."
@@ -189,16 +274,7 @@ export function planDeliveryFollowups(
       ? "Report produced no artifact to deliver."
       : undefined;
   const specs: FollowupDeliverySubmission[] = [];
-  for (const channel of CHANNEL_ORDER) {
-    // A channel is deliverable when configured via env OR named by a
-    // per-task override on the outcome (scheduled tasks, S5b) — the
-    // same precedence the legacy publishers applied.
-    const override = channel === "email"
-      ? outcome.emailTo
-      : channel === "slack"
-        ? outcome.slackChannel
-        : outcome.webhookUrl;
-    if (!config.channels[channel].configured && !override) continue;
+  for (const channel of plannedDeliveryChannels(outcome, config)) {
     specs.push({
       capability: "followup.deliver",
       payload: { outcome, userLogin, channel, artifacts, skipReason },
@@ -206,6 +282,16 @@ export function planDeliveryFollowups(
       jobKind: "delivery",
       channel,
       displayName: `Deliver by ${CHANNEL_LABEL[channel]} — ${kindLabel} screen`,
+      // Consolidation C3 (#1277): in chain mode the delivery is the
+      // chain's deliver stage, deferred by its own delay. Without a
+      // chain context the spec is byte-identical to the legacy one.
+      ...(chain && outcome.stageChain
+        ? {
+            stage: "deliver" as const,
+            chainId: chain.chainId,
+            runAt: stageRunAt(chain, outcome.stageChain.deliverDelaySeconds),
+          }
+        : {}),
     });
   }
   return specs;
@@ -241,11 +327,24 @@ export function planLifecycleNotifications(
   mainJobId: string,
   userLogin: string,
   detail?: string,
+  options?: { suppressChannels?: readonly AsyncJobChannel[] },
 ): FollowupNotifySubmission[] {
   if (!config.enabled) return [];
   const specs: FollowupNotifySubmission[] = [];
   for (const channel of NOTIFICATION_CHANNELS) {
-    if (!config.channels[channel].configured) continue;
+    // Issue #1228 (#1209 F2): on 'completed', channels that will
+    // receive a deliver job get NO text-only notify — the delivery
+    // message (text + artifacts, or the held / undeliverable notice
+    // the deliver executor sends) is the completion message there.
+    // Callers pass plannedDeliveryChannels(...) only when the report
+    // chain will actually run for the run.
+    if (event === "completed" && options?.suppressChannels?.includes(channel)) continue;
+    // Issue #1191 (#1173 R3): a per-task override destination counts
+    // for notifications too (mirroring the delivery planner) — a
+    // scheduled task that names its own Slack channel / email
+    // recipient hears about failures there, not only via env config.
+    const override = channel === "email" ? outcome.emailTo : outcome.slackChannel;
+    if (!config.channels[channel].configured && !override) continue;
     specs.push({
       capability: "followup.notify",
       payload: { event, outcome, userLogin, channel, detail },
@@ -264,7 +363,7 @@ export function formatLifecycleNotification(
   outcome: ScreenerRunOutcome,
   detail?: string,
 ): string {
-  const kindLabel = outcome.kind === "stock" ? "Stock screen" : "Options screen";
+  const kindLabel = `${screenerKindLabel(outcome.kind)} screen`;
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
   const scopeText = scope ? ` — ${scope}` : "";
   switch (event) {
@@ -273,15 +372,53 @@ export function formatLifecycleNotification(
     case "completed":
       return `✅ Screen completed\n${formatFollowupDeliveryText(outcome)}`;
     case "failed":
-      return `❌ ${kindLabel}${scopeText} failed${outcome.error ? `\nError: ${outcome.error}` : ""}`;
+      // Issue #1252 (#1173 R4): run failures carry the catalog code
+      // (SCREEN_001) in the notification, as in the job record.
+      return `❌ [SCREEN_001] ${kindLabel}${scopeText} failed${outcome.error ? `\nError: ${outcome.error}` : ""}`;
     case "delivered":
       return `📬 Report delivered${detail ? ` ${detail}` : ""} — ${kindLabel}${scopeText}${outcome.reportUrl ? `\n📄 Report: ${outcome.reportUrl}` : ""}`;
   }
 }
 
+/**
+ * Issue #1191 (#1173 R3): the announcement sent when the #277 gate
+ * holds a delivery — before R3 a held delivery was silent, which is
+ * how completed runs on 2026-10-23 produced no message of any kind.
+ */
+export function formatHeldNotification(
+  outcome: ScreenerRunOutcome,
+  options?: { expiresAtIso?: string },
+): string {
+  const kindLabel = `${screenerKindLabel(outcome.kind)} screen`;
+  const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
+  const lines = [
+    `⏸️ ${kindLabel}${scope ? ` — ${scope}` : ""} completed — delivery held for approval`,
+    "",
+    formatFollowupDeliveryText(outcome),
+    ...(outcome.reportUrl ? ["", `📄 Report: ${outcome.reportUrl}`] : []),
+    "",
+    "The report (text + PDF + XLSX) is ready but the report-dispatch confirmation gate (#277) is on. Approve it in the Reports panel's pending-review list to send." +
+      (options?.expiresAtIso
+        ? ` The held delivery expires ${options.expiresAtIso} — approve before then or it is discarded unsent.`
+        : ""),
+  ];
+  return lines.join("\n");
+}
+
+/**
+ * Issue #1228 (#1209 F2): the message a deliver job sends when the
+ * report produced nothing deliverable — the completion text plus the
+ * reason, so a channel whose 'completed' notify was suppressed in
+ * favor of the delivery still hears the outcome (with why no report
+ * is attached) instead of going silent.
+ */
+export function formatUndeliverableNotification(outcome: ScreenerRunOutcome, reason: string): string {
+  return `✅ Screen completed\n${formatFollowupDeliveryText(outcome)}\n⚠️ No report is attached: ${reason}`;
+}
+
 /** Delivery/notification text for a run outcome (S3; reused by S4). */
 export function formatFollowupDeliveryText(outcome: ScreenerRunOutcome): string {
-  const kindLabel = outcome.kind === "stock" ? "Stock screen" : "Options screen";
+  const kindLabel = `${screenerKindLabel(outcome.kind)} screen`;
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
   const lines: string[] = [
     `📊 ${kindLabel}${scope ? ` — ${scope}` : ""}`,
@@ -321,6 +458,9 @@ export function screenerOutcomeFromEvent(
         pdfKeys: event.pdfKey ? [event.pdfKey] : [],
         pdfStatus: event.pdfStatus,
         pdfError: event.pdfError,
+        xlsxKey: event.xlsxKey,
+        xlsxStatus: event.xlsxStatus,
+        xlsxError: event.xlsxError,
         reportUrl: event.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(event.pdfKey)}` : undefined,
         matchedCount: event.matchedCount,
         totalScanned: event.totalScanned,
@@ -330,6 +470,7 @@ export function screenerOutcomeFromEvent(
         slackChannel: event.slackChannel,
         webhookUrl: event.webhookUrl,
         deliveryId: event.deliveryId,
+        stageChain: event.stageChain,
       };
     case "screener.failed":
       return {
@@ -342,6 +483,7 @@ export function screenerOutcomeFromEvent(
         slackChannel: event.slackChannel,
         webhookUrl: event.webhookUrl,
         deliveryId: event.deliveryId,
+        stageChain: event.stageChain,
         error: event.error,
       };
     case "options.completed":
@@ -349,11 +491,18 @@ export function screenerOutcomeFromEvent(
         kind: "options",
         trigger,
         success: true,
-        pdfKeys: [],
+        // Consolidation C4 (#1329): the options run's PDF key rides
+        // the event now, so a chained options run's serve stage can
+        // adopt the same artifact its direct path used to deliver —
+        // and the chain, not the direct path, delivers in chain mode.
+        pdfKeys: event.pdfKey ? [event.pdfKey] : [],
+        pdfStatus: event.pdfStatus,
+        pdfError: event.pdfError,
         reportUrl: event.reportUrl,
         totalScanned: event.totalScanned,
         thesis: event.thesis,
         summary: event.summary,
+        stageChain: event.stageChain,
       };
     case "options.failed":
       return {
@@ -363,6 +512,7 @@ export function screenerOutcomeFromEvent(
         pdfKeys: [],
         thesis: event.thesis,
         error: event.error,
+        stageChain: event.stageChain,
       };
   }
 }
@@ -396,6 +546,16 @@ export function screenerOutcomeFromRunResult(
         ? "generated"
         : undefined,
     pdfError: typeof result.pdfError === "string" ? result.pdfError : undefined,
+    xlsxKey: typeof result.xlsxKey === "string" ? result.xlsxKey : undefined,
+    xlsxStatus: result.xlsxStatus === "generated" || result.xlsxStatus === "failed" || result.xlsxStatus === "skipped"
+      ? result.xlsxStatus
+      : undefined,
+    xlsxError: typeof result.xlsxError === "string" ? result.xlsxError : undefined,
+    csvKey: typeof result.csvKey === "string" ? result.csvKey : undefined,
+    csvStatus: result.csvStatus === "generated" || result.csvStatus === "failed" || result.csvStatus === "skipped"
+      ? result.csvStatus
+      : undefined,
+    csvError: typeof result.csvError === "string" ? result.csvError : undefined,
     reportUrl,
     matchedCount: asNumber(result.matchedCount),
     totalScanned: asNumber(result.totalScanned) ?? asNumber(result.totalUnderlyingsScanned),
@@ -418,19 +578,62 @@ export function planInitialFollowups(
   config: ScreenerFollowupConfig,
   mainJobId: string,
   userLogin: string,
+  chain?: StageChainPlanContext,
 ): FollowupReportSubmission[] {
   if (!config.enabled || !config.reportEnabled || !outcome.success) return [];
-  const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
+  const kindLabel = screenerKindLabel(outcome.kind);
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
+  // Consolidation C3 (#1277): in chain mode the report job is the
+  // chain's serve stage — deferred by its own delay, with the chain
+  // config riding its payload so the deliver hop planned at its
+  // completion reads its delay from the completed stage's record.
+  // Without a chain context the spec is byte-identical to the
+  // legacy one (the degenerate case).
+  const chained = chain && outcome.stageChain ? chain : undefined;
   return [
     {
       capability: "followup.report",
-      payload: { outcome, userLogin },
+      payload: {
+        outcome,
+        userLogin,
+        ...(chained
+          ? { stageChain: outcome.stageChain, chainId: chained.chainId }
+          : {}),
+      },
       parentJobId: mainJobId,
       jobKind: "report",
       displayName: `Generate report — ${kindLabel} screen${scope ? ` (${scope})` : ""}`,
+      ...(chained
+        ? {
+            stage: "serve" as const,
+            chainId: chained.chainId,
+            runAt: stageRunAt(chained, outcome.stageChain?.serveDelaySeconds),
+          }
+        : {}),
     },
   ];
+}
+
+/**
+ * Consolidation C4 (#1329): the chain context of a staged http.request
+ * job — a job submitted as a chain's generate stage (stage +
+ * chain_id on the row) whose payload carries the stageChain config.
+ * Undefined unless all three are present: an unstaged job, or a staged
+ * job without a config, plans the legacy immediate chain. The executor
+ * completion hook resolves this and hands the context to the planners;
+ * only recognized screener completions yield an outcome to plan from,
+ * so a generic http job gains chain identity + generate-stage status
+ * while serve/deliver planning for arbitrary routes remains #1236
+ * remainder (no outcome adapter exists for them).
+ */
+export function resolveHttpJobChain(
+  job: { stage?: string | null; chainId?: string | null },
+  payload: { stageChain?: StageChainConfig },
+): { chainId: string; stageChain: StageChainConfig } | undefined {
+  if (job.stage !== "generate") return undefined;
+  if (typeof job.chainId !== "string" || !job.chainId) return undefined;
+  if (!payload.stageChain || typeof payload.stageChain !== "object") return undefined;
+  return { chainId: job.chainId, stageChain: payload.stageChain };
 }
 
 /** Path recognition for screener main-jobs among http.request jobs. */
@@ -528,6 +731,11 @@ export function screenerOutcomeFromHttpJob(
           ? "generated"
           : undefined,
       pdfError: typeof body.pdfError === "string" ? body.pdfError : undefined,
+      xlsxKey: typeof body.xlsxKey === "string" ? body.xlsxKey : undefined,
+      xlsxStatus: body.xlsxStatus === "generated" || body.xlsxStatus === "failed" || body.xlsxStatus === "skipped"
+        ? body.xlsxStatus
+        : undefined,
+      xlsxError: typeof body.xlsxError === "string" ? body.xlsxError : undefined,
       matchedCount: asNumber(body.matchedCount),
       totalScanned: asNumber(body.totalScanned),
       universe: typeof body.universe === "string" ? body.universe : undefined,

@@ -154,6 +154,13 @@ export interface Env {
   // whose domain is listed are accepted. When unset, only format validation
   // applies (a warning is logged on first use). Issue #143 P0.
   EMAIL_TO_ALLOWED_DOMAINS?: string;
+  // Issue #1262 Phase 1: inbound email trading principal map. JSON object:
+  // lowercased sender address → { "login": "<cfagent login>", "tier":
+  // "read" | "preview" | "trade" }. Plain configuration (like
+  // EMAIL_TO_ALLOWED_DOMAINS), NOT a credential. Unmapped senders are
+  // refused; trade tier additionally requires a DKIM/SPF pass on the
+  // message. Parsed by parseEmailPrincipals (src/trading/channels/intake).
+  CHANNEL_EMAIL_PRINCIPALS?: string;
   // Nightly mas_messages retention window in days (issue #255, part of
   // #143). Default 90. A value <= 0 disables the retention pass entirely.
   MAS_MESSAGES_RETENTION_DAYS?: string;
@@ -1192,11 +1199,15 @@ export interface InboundEmailPayload {
   text?: string;
   html?: string;
   messageId?: string;
+  // Issue #1262 Phase 1: the raw Authentication-Results header (RFC 8601)
+  // forwarded by the worker email handler; the channel intake parses
+  // DKIM/SPF pass results from it to gate the email trade tier.
+  authenticationResults?: string;
 }
 
 export interface EmailTradingResult {
   success: boolean;
-  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "error";
+  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "error" | "refusal";
   from: string;
   to: string;
   responseSubject: string;
@@ -1235,7 +1246,7 @@ export interface SlackBlockKitPayload {
 
 export interface SlackEventResult {
   handled: boolean;
-  actionType: "quote" | "screener" | "options_research" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored" | "snap";
+  actionType: "quote" | "screener" | "options_research" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored" | "snap" | "refusal" | "link";
   response?: SlackBlockKitPayload;
   orderId?: string;
   challenge?: string;
@@ -1706,6 +1717,46 @@ export type AsyncJobKind = "main" | "report" | "delivery" | "notification";
 /** Issue #1123: delivery/notification channel for sub-jobs. */
 export type AsyncJobChannel = "email" | "slack" | "webhook";
 
+/** Consolidation C3 (issue #1277, epic #1151; stage-layered
+ *  scheduling, #1236): the unified pipeline's stages. C3 schedules
+ *  generate (the run itself, recorded as the chain's main job),
+ *  serve and deliver as stage jobs; feed and store join as stage
+ *  jobs in C4, when the feed output contract and the generate→store
+ *  split land. */
+export type PipelineStage = "feed" | "generate" | "store" | "serve" | "deliver";
+
+/** Consolidation C3 (#1277): per-stage timing carried on a schedule
+ *  payload (validated by buildSchedulePayload in
+ *  src/trading/screeningSchemas.ts) and on the run outcome the
+ *  follow-up bridge consumes. Delays are whole seconds from the
+ *  predecessor stage's completion, 0..604800. */
+export interface StageChainConfig {
+  /** Delay after the run (generate) completes before serve runs. */
+  serveDelaySeconds?: number;
+  /** Delay after serve completes before the deliver stages run. */
+  deliverDelaySeconds?: number;
+}
+
+/** Issue #1355: context carried on every shard of a sharded
+ *  scheduled screen, so any stage's completion hook can plan the
+ *  next stage without re-reading the schedule. */
+export interface ShardChainContext {
+  chainId: string;
+  universe: string;
+  userLogin: string;
+  environment?: "TEST" | "PROD";
+  trigger?: "manual" | "scheduled";
+  maxItems?: number;
+  timestamp: string;
+  channels: AsyncJobChannel[];
+  emailTo?: string;
+  slackChannel?: string;
+  webhookUrl?: string;
+  stageChain?: StageChainConfig;
+  /** Spacing between shard starts inside a stage (ms). 0 = start together. */
+  staggerMs?: number;
+}
+
 /** Issue #1123: optional graph fields on a job submission. */
 export interface AsyncJobGraphFields {
   parentJobId?: string;
@@ -1713,6 +1764,16 @@ export interface AsyncJobGraphFields {
   channel?: AsyncJobChannel;
   /** Overrides the capability-derived label (sub-jobs carry human names). */
   displayName?: string;
+  /** Consolidation C3 (#1277): not-before time (ISO). The job is
+   *  armed at the remaining delay and the executor refuses to claim
+   *  it earlier — per-stage timing on the async-job substrate. */
+  runAt?: string;
+  /** Consolidation C3 (#1277): the pipeline stage this job executes,
+   *  when it belongs to a stage chain. */
+  stage?: PipelineStage;
+  /** Consolidation C3 (#1277): the stage chain this job belongs to
+   *  (links the stage rows of one run). */
+  chainId?: string;
 }
 
 export interface AsyncJobRecord {
@@ -1725,6 +1786,11 @@ export interface AsyncJobRecord {
   parentJobId?: string;
   jobKind: AsyncJobKind;
   channel?: AsyncJobChannel;
+  /** Consolidation C3 (#1277): stage identity for chained jobs. */
+  stage?: PipelineStage;
+  chainId?: string;
+  /** Consolidation C3 (#1277): the job's not-before time (ISO), when deferred. */
+  notBefore?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -1772,6 +1838,16 @@ export type AsyncJobSubmission =
       payload: {
         outcome: import("./services/screenerFollowups").ScreenerRunOutcome;
         userLogin: string;
+        /** Consolidation C3 (#1277): when this job is a chain's serve
+         *  stage, the chain config + id ride the payload so the
+         *  deliver hop planned at its completion can read its own
+         *  delay and chain identity from the completed stage's
+         *  record. */
+        stageChain?: StageChainConfig;
+        chainId?: string;
+        /** Consolidation C3 (#1277): per-stage retry marker, as on
+         *  followup.deliver. */
+        retryOf?: string;
       };
     } & AsyncJobGraphFields)
   | ({
@@ -1787,6 +1863,9 @@ export type AsyncJobSubmission =
         artifacts: Array<{ key: string; fileName: string }>;
         skipReason?: string;
         approvedConfirmationId?: string;
+        /** Consolidation C3 (#1277): set on a per-stage retry — the
+         *  job id of the failed job this submission retries. */
+        retryOf?: string;
       };
     } & AsyncJobGraphFields)
   | ({
@@ -1799,6 +1878,18 @@ export type AsyncJobSubmission =
         userLogin: string;
         channel: AsyncJobChannel;
         detail?: string;
+      };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Issue #1355: one shard of a sharded scheduled screen.
+       *  `inputs` carries the previous stage's outputs the planner
+       *  embedded (e.g. store keys) — never datasets (those live in
+       *  sibling rows' result_json). */
+      capability: "shard.execute";
+      payload: {
+        shard: { stage: "feed" | "generate" | "store"; key: string };
+        chain: ShardChainContext;
+        inputs?: Record<string, unknown>;
       };
     } & AsyncJobGraphFields);
 

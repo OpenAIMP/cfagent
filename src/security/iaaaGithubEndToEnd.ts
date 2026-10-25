@@ -26,6 +26,12 @@
  * genesis has happened in the tenant. The window is tracked by a
  * single Kv marker key (see platformGenesisMarkerKey); once the
  * marker exists, later platform: entries grant tenant-admin only.
+ * One-time repair (#1208): if the stored marker's grantedTo is the
+ * retired Oct 22 activation id and the logging-in user matches a
+ * platform: entry without already holding platform-admin, the marker
+ * is deleted before the genesis decision, so the genesis path grants
+ * and re-sets it; after that the reset conditions can never hold
+ * again. All other markers are untouched.
  * Genesis grants carry createdBy/grantedBy "system:bootstrap-genesis";
  * ordinary bootstrap grants carry "system:bootstrap". The marker is
  * check-then-set, not transactional — two concurrent genesis logins
@@ -84,6 +90,20 @@ export const IAAA_PLATFORM_GENESIS_KEY_PREFIX = "iaaa-bootstrap:platform-genesis
 export function platformGenesisMarkerKey(tenantId: string): string {
   return `${IAAA_PLATFORM_GENESIS_KEY_PREFIX}${tenantId}`;
 }
+
+/**
+ * #1208 one-time repair: the minted internal id of the Oct 22
+ * activation identity, retired by #1182 derivation and replaced in
+ * wrangler.jsonc by #1196. Its platform-admin genesis grant is
+ * stranded: no current login carries this id, so the marker it set
+ * blocks every later platform: grant. The reset below deletes a
+ * marker ONLY when its grantedTo is exactly this id (and the
+ * logging-in user matches a platform: entry without already
+ * holding platform-admin); after the re-grant the marker points
+ * at the logging-in id, so the reset can never fire again.
+ */
+export const RETIRED_OCT22_GENESIS_ID =
+  "00fbb0ba-9e4b-43ec-a7d6-df2a1dfc5d6c";
 
 /**
  * Tenant resolution for end-to-end call sites: IAAA_TENANT_ID when
@@ -228,6 +248,27 @@ async function resolveEntryUserId(
   );
 }
 
+/**
+ * #1208: true iff a stored genesis marker is the stranded Oct 22
+ * marker — parses as a JSON object whose grantedTo is exactly the
+ * retired Oct 22 activation id. Unparsable or malformed markers
+ * return false, so they take the genesis-closed path, never a
+ * delete.
+ */
+function isStrandedOct22Marker(marker: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(marker);
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      (parsed as { grantedTo?: unknown }).grantedTo ===
+        RETIRED_OCT22_GENESIS_ID
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function holdsPlatformAdmin(
   store: MembershipStore,
   internalUserId: string,
@@ -295,7 +336,17 @@ export async function runWiredPostLogin(
           bootstrapStatus = "already-admin";
         } else {
           const markerKey = platformGenesisMarkerKey(input.tenantId);
-          const marker = await deps.kv.get(markerKey);
+          let marker = await deps.kv.get(markerKey);
+          // #1208 one-time repair: if the marker is the stranded
+          // Oct 22 marker, delete it so the existing genesis path
+          // below grants platform-admin and re-sets the marker to
+          // the logging-in user. A delete failure propagates to
+          // the outer catch (bootstrap status "error"); the login
+          // itself is unaffected. All other markers are untouched.
+          if (marker !== null && isStrandedOct22Marker(marker)) {
+            await deps.kv.delete(markerKey);
+            marker = null;
+          }
           if (marker === null) {
             const created = await createMembership(deps.membershipStore, {
               internalUserId: input.internalUserId,

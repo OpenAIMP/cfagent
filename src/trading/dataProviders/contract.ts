@@ -25,8 +25,9 @@
  * shapes. Adapters return the wrapped implementations' results
  * UNCHANGED (parity pinned, the #1103 adapter method) — consolidation
  * here names the shapes under one contract; it does not convert between
- * them. `news` has a contract shape but no declaring adapter yet in
- * this slice (it arrives with the public integration, a later slice).
+ * them. `news` has a contract shape but no declaring adapter yet:
+ * the public integration (#1247) declares quotes + optionsChains
+ * only, so news remains contract-only.
  *
  * Composition + provenance (owner correction, comment 6358714200 on
  * #1116): screening does not pick one winning provider — it COMPOSES
@@ -88,6 +89,21 @@ export const DATA_PROVIDER_CAPABILITIES = [
   "news",
 ] as const;
 export type DataProviderCapability = (typeof DATA_PROVIDER_CAPABILITIES)[number];
+
+/**
+ * Offering tiers (E5, issue #1202). A capability ROUTE carries the
+ * minimum tier a caller must present to be served through it
+ * (CapabilityRouteRecord.minTier); entry points present the tier of
+ * the surface they serve — the in-app surfaces are freemium, the
+ * x402 premium API is premium. "freemium" is the default everywhere:
+ * an untiered route serves every caller, exactly as before E5.
+ */
+export const TIERS = ["freemium", "premium"] as const;
+export type Tier = (typeof TIERS)[number];
+
+export function isTier(value: unknown): value is Tier {
+  return value === "freemium" || value === "premium";
+}
 
 /** quotes — the two existing normalized quote shapes (see header). */
 export type QuoteResult = ETradeQuote | FossQuote;
@@ -191,12 +207,17 @@ export interface DataProvider {
    * implements it only if it declares batch-capable quotes. The
    * result is the provider's normalized quotes, in request order
    * per sub-batch, with no raw payload attached — raw wire responses
-   * live in the capture store, one record per sub-batch.
+   * live in the capture store, one record per sub-batch. Issue
+   * #1317: the element type is QuoteResult (the union), not
+   * ETradeQuote alone — the FOSS adapters' batch returns FossQuote
+   * rows, and narrowing the contract to E*TRADE's shape would force
+   * the yahoo binding to convert (breaking P1 parity) or to drop
+   * batching (repeating the #1184 throttle incident).
    */
   getQuotesBatch?(
     symbols: string[],
     runContext?: DataRunContext
-  ): Promise<DataResult<ETradeQuote[]>>;
+  ): Promise<DataResult<QuoteResult[]>>;
   getOptionsChain?(
     request: OptionsChainRequest,
     runContext?: DataRunContext

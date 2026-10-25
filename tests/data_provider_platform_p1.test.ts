@@ -525,7 +525,12 @@ describe("data provider registry (issue #1118)", () => {
     expect((caught as Error).message).toMatch(/news/);
   });
 
-  it("public never resolves in this slice — registered state gates it, and no adapter exists", () => {
+  // Premise updated by #1247 (disclosed): a production Public adapter
+  // now EXISTS and is registered by the platform surfaces — the
+  // protective assertion is unchanged: public still cannot resolve
+  // while its lifecycle state is not "enabled". (This test-local
+  // registry registers no public adapter, exactly as before.)
+  it("public never resolves while not enabled — the registered lifecycle state gates it", () => {
     const sql = seededStore();
     const registry = registryWithRealAdapters();
     // Every real provider enabled; public still cannot resolve anything.

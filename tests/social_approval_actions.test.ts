@@ -87,7 +87,7 @@ describe("approveAndPublish", () => {
     const res = await approveAndPublish({ ...deps, date: DATE, channel: "facebook", approver: "slack:U1" });
     expect(res.ok).toBe(true);
     if (!res.ok) throw new Error("expected ok");
-    expect(res.draft.status).toBe("posted");
+    expect(res.draft.status).toBe("dry-run-posted");
     expect(res.draft.approval).toEqual({ approver: "slack:U1", approvedAtMs: NOW });
     expect(res.channelResult?.outcome).toBe("posted");
     expect(res.channelResult?.platformPostId).toBe("dry-run:draft-1");
@@ -189,7 +189,7 @@ describe("handleSocialSlackInteraction", () => {
     expect(joined).toContain("<@U1>");
     expect(joined).toContain("Morning brief: markets up.");
     const stored = await deps.store.getDraft(DATE, "facebook");
-    expect(stored?.status).toBe("posted");
+    expect(stored?.status).toBe("dry-run-posted");
   });
 
   it("reject returns rejection blocks and publishes nothing", async () => {
@@ -236,5 +236,49 @@ describe("handleSocialSlackInteraction", () => {
       payload: payload("etrade_approve_order", "ORD_1"),
     });
     expect(res.handled).toBe(false);
+  });
+
+  // Issue #1262 Phase 2 (social convergence): a social APPROVE
+  // requires a resolved principal; REJECT stays open (fail-safe).
+  it("approve by an unlinked clicker (null principal) is refused and changes nothing", async () => {
+    const { store, approvals, deps } = await pendingDraft();
+    const res = await handleSocialSlackInteraction({
+      ...deps,
+      principal: null,
+      payload: payload("social_approve", "2026-10-26|facebook|draft-1"),
+    });
+    expect(res.handled).toBe(true);
+    expect(res.message).toMatch(/not linked/i);
+    expect((await store.getDraft(DATE, "facebook"))?.status).toBe("draft");
+    expect(await approvals.listPending(DATE)).toHaveLength(1);
+  });
+
+  it("approve with a resolved principal publishes and stamps the login as approver", async () => {
+    const { deps } = await pendingDraft();
+    const res = await handleSocialSlackInteraction({
+      ...deps,
+      principal: { userLogin: "approver-login", authorizerDid: "did:user:slack:U1", tier: "trade" },
+      payload: payload("social_approve", "2026-10-26|facebook|draft-1"),
+    });
+    expect(res.handled).toBe(true);
+    expect(res.message).toContain("APPROVED");
+    // The replacement blocks still name the clicker (<@U1>); the
+    // login stamp lives in the draft record's approval entry.
+    const stored = await deps.store.getDraft(DATE, "facebook");
+    expect(stored?.status).toBe("dry-run-posted");
+    expect((stored as any)?.approval?.approver).toBe("approver-login");
+  });
+
+  it("reject by an unlinked clicker (null principal) still rejects (fail-safe open)", async () => {
+    const { deps, sink } = await pendingDraft();
+    const res = await handleSocialSlackInteraction({
+      ...deps,
+      principal: null,
+      payload: payload("social_reject", "2026-10-26|facebook|draft-1"),
+    });
+    expect(res.handled).toBe(true);
+    expect(res.message).toContain("REJECTED");
+    expect(sink.records).toHaveLength(0);
+    expect((await deps.store.getDraft(DATE, "facebook"))?.status).toBe("failed");
   });
 });

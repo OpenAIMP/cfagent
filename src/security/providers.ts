@@ -36,18 +36,17 @@
  *   flow keep working: the wired session fields are optional and the
  *   legacy fields are unchanged (see iaaaLogin.ts).
  *
- * Registered providers: "github" (OAuth2 + profile fetch, wired
- * callback in iaaaLogin.ts, legacy login start in githubOAuth.ts —
- * the redirect is identical wired or not) and "google" (the worked
- * plugin example: one createOidcProvider call in this module, no
- * other file changed to register it). No PDP, delegation, or audit
- * wiring lives here. To onboard another provider, see
- * docs/iaaa-provider-onboarding.md.
+ * Registered providers: "github" and "google", both declarative
+ * createOidcProvider calls in this module (#1254 rationalized
+ * GitHub onto the factory; its deltas are options, not code).
+ * #1254 PR-B deleted the wiring-off legacy GitHub flow and the
+ * exact /auth/login + /auth/callback routes: every provider,
+ * GitHub included, is served only by the generic registry routes.
+ * No PDP, delegation, or audit wiring lives here. To onboard
+ * another provider, see docs/iaaa-provider-onboarding.md.
  */
 import type { Env } from "../types";
 import type { AuditStore } from "./iaaaAudit";
-import { handleLogin } from "./githubOAuth";
-import { handleGithubCallbackWired } from "./iaaaLogin";
 import { createOidcProvider } from "./oidcProvider";
 
 /**
@@ -111,14 +110,35 @@ export function createProviderRegistry(): ProviderRegistry {
 /** The production registry, shipped with GitHub and Google registered. */
 export const defaultRegistry: ProviderRegistry = (() => {
   const registry = new ProviderRegistry();
-  registry.registerProvider({
-    providerId: "github",
-    protocol: "oauth2",
-    issuer: "https://github.com",
-    displayName: "GitHub",
-    startLogin: handleLogin,
-    handleCallback: handleGithubCallbackWired,
-  });
+  // GitHub, rationalized onto the factory in #1254: the same
+  // declarative shape as Google, with GitHub's genuine deltas as
+  // options — OAuth2 + profile fetch (no ID token), numeric `id`
+  // subject, `login` login key, `avatar_url` avatar, its versioned
+  // userinfo Accept (#1265), no response_type on the authorize
+  // request, no credentials gate (its credentials are required
+  // core Env config), and the generic /auth/callback/github
+  // redirect (PR-B removed PR-A's legacy-path override together
+  // with the legacy routes and flow).
+  registry.registerProvider(
+    createOidcProvider({
+      providerId: "github",
+      issuer: "https://github.com",
+      displayName: "GitHub",
+      protocol: "oauth2",
+      authorizationEndpoint: "https://github.com/login/oauth/authorize",
+      tokenEndpoint: "https://github.com/login/oauth/access_token",
+      userinfoEndpoint: "https://api.github.com/user",
+      clientIdEnv: "GITHUB_CLIENT_ID",
+      clientSecretEnv: "GITHUB_CLIENT_SECRET",
+      scope: "read:user",
+      subjectField: "id",
+      loginKeyField: "login",
+      avatarField: "avatar_url",
+      userinfoAccept: "application/vnd.github+json",
+      includeResponseType: false,
+      requireConfiguredCredentials: false,
+    })
+  );
   // Google, the worked plugin example: one factory call, no other
   // file changed to register it. True identity is Slice 1
   // (https://accounts.google.com, sub); the verified email is only
@@ -150,6 +170,31 @@ export const defaultRegistry: ProviderRegistry = (() => {
 /** Registry-backed lookups against the default registry. */
 export function getProvider(providerId: string): LoginProvider | null {
   return defaultRegistry.getProvider(providerId);
+}
+
+/**
+ * Issue #1274 — issuer → provider display lookup, registry-backed.
+ * The session carries providerIssuer (set at wired login from the
+ * binding, never from user input); this resolves it to the registered
+ * adapter's id + display name for /api/me. Unknown issuers return
+ * null — the caller omits the provider field rather than guessing.
+ * A future provider needs only a registry entry to display.
+ */
+export function getProviderByIssuer(
+  issuer: unknown,
+): Pick<LoginProvider, "providerId" | "displayName" | "issuer"> | null {
+  if (typeof issuer !== "string" || issuer.trim() === "") return null;
+  for (const id of defaultRegistry.listProviders()) {
+    const provider = defaultRegistry.getProvider(id);
+    if (provider && provider.issuer === issuer) {
+      return {
+        providerId: provider.providerId,
+        displayName: provider.displayName ?? provider.providerId,
+        issuer: provider.issuer,
+      };
+    }
+  }
+  return null;
 }
 
 export function listProviders(): string[] {

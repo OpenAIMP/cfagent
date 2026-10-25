@@ -31,6 +31,7 @@ import {
   type DataRunContext,
   type ETradeCaptureDeps,
   type OptionsChainRequest,
+  type Tier,
 } from "../dataProviders";
 import { DynamicOptionsScreener } from "../optionsScreener";
 import {
@@ -293,6 +294,14 @@ export class UnifiedOptionsService {
    *  captured. */
   private platformDeps?: ETradeCaptureDeps;
 
+  /** The entitlement tier this service instance presents to route
+   *  resolution (E5, issue #1202). Defaults to "freemium": every
+   *  in-app host (REST screen, scheduled scans, NLQ, MCP) is a
+   *  freemium surface, so an operator-tiered premium route refuses
+   *  them with DataProviderTierError instead of serving. A host
+   *  serving a premium surface passes "premium" explicitly. */
+  private callerTier: Tier;
+
   constructor(
     private env: Env,
     private userLogin: string = "default_trader",
@@ -301,7 +310,8 @@ export class UnifiedOptionsService {
     scanRunStore?: ScanRunStore,
     profileStore?: StrategyProfileStore,
     discoverySql?: { exec(query: string, ...params: unknown[]): Iterable<unknown> },
-    platformDeps?: ETradeCaptureDeps
+    platformDeps?: ETradeCaptureDeps,
+    callerTier: Tier = "freemium"
   ) {
     this.config = getEtapiConfig(env, overrideEnv);
     this.orm = orm;
@@ -309,6 +319,7 @@ export class UnifiedOptionsService {
     this.profileStore = profileStore;
     this.discoverySql = discoverySql;
     this.platformDeps = platformDeps;
+    this.callerTier = callerTier;
   }
 
   /**
@@ -513,7 +524,8 @@ export class UnifiedOptionsService {
         const assignment = registry.resolveRoute(
           "optionsChains",
           listProviderConfigs(this.platformDeps.sql),
-          listCapabilityRoutes(this.platformDeps.sql)
+          listCapabilityRoutes(this.platformDeps.sql),
+          this.callerTier
         );
         engineClient = createPlatformOptionsClient(etrade.client, assignment.primary, {
           runId: platformRunId,
@@ -761,9 +773,16 @@ export class UnifiedOptionsService {
           // Issue #24: both modes append the fit-gate bucket counts; in
           // strategy-fit mode fitsTotal is already the GATED fit count.
           const gateSegment = ` Gate: ${scanResult.gate.fit} fit, ${scanResult.gate.borderline} borderline, ${scanResult.gate.noFit} no fit.`;
+          // Issue #1290 (#1173 R6): a partial scan says so in the
+          // summary every surface renders (Slack/email/canonical) —
+          // pre-R6 the qualification existed only as a console warning
+          // in the scheduled flow.
+          const partialSegment = scanResult.partial
+            ? ` Partial coverage — qualified partial results: evaluated ${scanResult.partial.evaluatedCount} of ${scanResult.partial.consideredCount} underlyings (${scanResult.partial.coverageErrors} failures, ${scanResult.partial.truncatedCount} truncated).`
+            : "";
           summary = scanResult.mode === "strategy_fit"
-            ? `Opportunity scan across ${scanResult.scanned} symbols (mode: strategy fit): ${scanResult.fitsTotal} of ${scanResult.scanned} names fit.${gateSegment}`
-            : `Opportunity scan across ${scanResult.scanned} symbols: found ${scanResult.withTrades} actionable trade setups. (mode: per-name best)${gateSegment}`;
+            ? `Opportunity scan across ${scanResult.scanned} symbols (mode: strategy fit): ${scanResult.fitsTotal} of ${scanResult.scanned} names fit.${gateSegment}${partialSegment}`
+            : `Opportunity scan across ${scanResult.scanned} symbols: found ${scanResult.withTrades} actionable trade setups. (mode: per-name best)${gateSegment}${partialSegment}`;
           break;
         }
 

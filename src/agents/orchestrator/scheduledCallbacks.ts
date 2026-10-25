@@ -72,6 +72,21 @@ export async function autoRenewETradeTokens(ctx: ScheduledCallbacksContext, payl
   const res = await service.autoRenewETradeTokens(user, environment);
   if (!res.success) {
     console.warn("[OrchestratorAgent] autoRenewETradeTokens error:", res.error);
+    // Issue #1174 (#1173 S1): a failed renewal is tonight's outage
+    // warning — raise the deduplicated reconnect alert NOW (shared
+    // episode flag with the run-time guard) instead of leaving it as
+    // a log line nobody reads until six runs have failed.
+    const { etradeAuthEpisodeKey, fireAuthEpisodeAlertOnce } = await import("../../services/etradeAuthPreflight");
+    const { deliverScreenerToSlackA2A } = await import("../../services/screenerSlackDelivery");
+    await fireAuthEpisodeAlertOnce(
+      ctx.agentCtx.storage as any,
+      etradeAuthEpisodeKey(user, Date.now()),
+      async () => {
+        await deliverScreenerToSlackA2A(ctx.env, {
+          text: "⚠️ E*TRADE connection expired — automatic token renewal failed. Reconnect your account in Settings to keep scheduled runs working. Runs stay blocked (quietly) until you reconnect.",
+        });
+      }
+    );
   }
 }
 
@@ -94,6 +109,13 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
   filters?: import("../../types").StockScreenerFilter;
   /** Issue #1007: data provider for the scheduled run (default "etrade"). */
   provider?: import("../../trading").StockScreenProvider;
+  /** Consolidation C3 (#1277): stage-chain config from the schedule
+   *  payload, forwarded to the service so the run's stage jobs are
+   *  stamped at the follow-up bridge. */
+  stageChain?: import("../../types").StageChainConfig;
+  /** Issue #1355: run this scheduled screen as sharded jobs
+   *  (validated by marketScreenScheduleCriteriaSchema). */
+  sharded?: boolean;
 }): Promise<void> {
   try {
     await ctx.waitUntilStable({ timeout: 30_000 });
@@ -134,7 +156,11 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
     const orm = ctx.getOrm();
     // Scheduled callbacks have no authenticated HTTP headers. Use the
     // identity and environment saved from the user's schedules requests.
-    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
+    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env },
+      // Issue #1355: shard submission rides the agent's private
+      // submitAsyncJob via the same (ctx.self as any) escape hatch
+      // this file already uses for broadcast/keepAliveWhile.
+      (spec) => (ctx.self as any).submitAsyncJob(spec));
     const res = await service.autonomousMarketScreen({ ...payload, userLogin, environment, trigger });
     if ((res as any).skipped) return;
     // Issue #212: persist the run for the "last results" UX endpoint.
@@ -157,13 +183,22 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
         // per-symbol data table. Already shaped by the shared pipeline.
         allStocks: res.data?.allStocks || [],
         pdfKey: res.data?.pdfKey,
+        csvKey: res.data?.csvKey,
+        // Issue #1355: a queued sharded chain has no outcome yet —
+        // last_runs records the chain id, and the canonical row is
+        // skipped (the chain's store shards write the per-format
+        // rows when they run).
+        queued: res.data?.sharded ? true : undefined,
+        chainId: res.data?.chainId,
         error: res.success ? undefined : res.error,
       };
       await ctx.agentCtx.storage.put(key, [run, ...existing].slice(0, 20));
       // Issue #278: persist the scheduled run's report durably
-      // (mas_reports) so the AI Search agent can surface it later.
+      // (mas_reports) so the NextGenTP agent can surface it later.
       // Issue #308: through the single generate→store seam — one
       // canonical row per generation (generationId = run id).
+      // Skipped for queued sharded chains (see above).
+      if (!res.data?.sharded) {
       orm.storeCanonicalReport({
         runId: `screener:${res.timestamp}`,
         generationId: `screener:${res.timestamp}`,
@@ -181,6 +216,7 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
         },
         createdAt: res.timestamp,
       });
+      }
     } catch {
       // Non-critical: persistence failure must not break the screen.
     }
@@ -230,6 +266,92 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
     await (ctx.self as any).keepAliveWhile(runScreen);
   } else {
     await runScreen();
+  }
+}
+
+/**
+ * Cloudflare Agents Scheduled Callback: Goal-Driven Screen
+ * (consolidation C1, issue #1201, epic #1151 R1). Runs the schedule
+ * payload's goal/scenario screen through the Phase 0 registry +
+ * Phase 3 semantics via ScheduledTasksService.autonomousGoalScreen.
+ * Mirrors the autonomousMarketScreen wrapper: saved execution
+ * context wins for identity/environment, unowned scheduled fires are
+ * skipped, and results AND failures are broadcast (issue #112) — the
+ * service itself audits, records the canonical report + activity
+ * entry, and delivers over the Phase 6 channels when the payload
+ * asks. Deliberately no throw: see the failure contract on
+ * ScheduledTasksService.
+ */
+export async function autonomousGoalScreen(ctx: ScheduledCallbacksContext, payload?: {
+  goalKind?: string;
+  direction?: string;
+  scenarioId?: string;
+  symbols?: string[];
+  assetClasses?: ("stocks" | "options")[];
+  trigger?: "manual" | "scheduled";
+  userLogin?: string;
+  environment?: ETradeEnvironment;
+  emailTo?: string;
+  slackChannel?: string;
+  pushToSlack?: boolean;
+  /** Consolidation C4 (#1329): stage-chain config from the schedule
+   *  payload, forwarded to the service (spread into the service call
+   *  below) so a completed goal screen bridges generate + serve. */
+  stageChain?: import("../../types").StageChainConfig;
+}): Promise<void> {
+  try {
+    await ctx.waitUntilStable({ timeout: 30_000 });
+  } catch {
+    // Continue if timeout or unhandled
+  }
+  const runGoalScreen = async () => {
+    const trigger = payload?.trigger || "scheduled";
+    const savedContext = await ctx.getScreenerExecutionContext();
+    const userLogin = savedContext?.userLogin || payload?.userLogin;
+    const environment = savedContext?.environment || payload?.environment;
+    if (trigger === "scheduled" && !userLogin) {
+      await ctx.removeUnownedBaselineSchedules();
+      console.warn("[OrchestratorAgent] Skipping unowned scheduled goal screen.");
+      return;
+    }
+    const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env });
+    const res = await service.autonomousGoalScreen({ ...payload, userLogin, environment, trigger });
+    if ((res as any).skipped) return;
+    if (typeof (ctx.self as any).broadcast === "function") {
+      try {
+        (ctx.self as any).broadcast(
+          JSON.stringify(
+            res.success
+              ? {
+                  type: "goal_screen_alert",
+                  title: "Autonomous Goal Screen",
+                  success: true,
+                  goalKind: res.data?.goalKind || payload?.goalKind,
+                  status: res.data?.status,
+                  hits: res.data?.hits,
+                  taskId: res.data?.taskId,
+                  timestamp: res.timestamp,
+                }
+              : {
+                  type: "goal_screen_alert",
+                  title: "Autonomous Goal Screen Failed",
+                  success: false,
+                  goalKind: payload?.goalKind,
+                  error: res.error,
+                  timestamp: res.timestamp,
+                }
+          )
+        );
+      } catch {
+        // Non-critical broadcast error
+      }
+    }
+  };
+
+  if (typeof (ctx.self as any).keepAliveWhile === "function") {
+    await (ctx.self as any).keepAliveWhile(runGoalScreen);
+  } else {
+    await runGoalScreen();
   }
 }
 

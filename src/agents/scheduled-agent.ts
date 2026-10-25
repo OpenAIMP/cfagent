@@ -10,6 +10,11 @@ import {
 } from "../schedule";
 import { createSocialStoresFromNamespace } from "./social/durableStores";
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
+import {
+  createSocialPipelineStoresFromNamespace,
+  runSocialDailyPipeline,
+  SOCIAL_DAILY_PIPELINE_ID,
+} from "./social/pipeline";
 import { executeSocialGoal, priorDates } from "./social/goalExecutor";
 import {
   deliverPendingApprovals,
@@ -21,6 +26,7 @@ import {
   type DryRunSink,
   type SocialTransport,
 } from "./social/publisher";
+import { createFetchSocialTransport } from "./social/liveTransport";
 import type { DoNamespaceLike } from "../security/durableKv";
 
 // ScheduledAgent: autonomous trigger for goal-driven agent work.
@@ -64,6 +70,8 @@ export interface ScheduledAgentCronOpts {
   socialDryRunSink?: DryRunSink;
   /** #1077 Phase 5b slice 3: injected Slack poster for approval-card delivery (tests). Production uses fetch. */
   socialSlackPost?: SlackPostFn;
+  /** Force evaluation of a specific goal regardless of cron/enabled state (manual trigger). */
+  forceGoalId?: string;
 }
 
 export class ScheduledAgent extends Agent<Env> {
@@ -95,10 +103,32 @@ export class ScheduledAgent extends Agent<Env> {
   /**
    * Cron entrypoint, invoked by the Workers runtime on each
    * triggers.crons tick. Evaluates due goals and dispatches work.
-   * The optional overrides exist for tests (brief/transport/sink);
-   * production calls onCron(env) with defaults.
+   *
+   * Issue #1391: production calls onCron() with 0 arguments across the
+   * Durable Object RPC boundary; the agent reads this.env directly.
+   * Passing the Worker Env across the DO RPC boundary throws DataCloneError
+   * because binding objects cannot be serialized.
+   *
+   * For backwards compatibility with unit tests, onCron accepts either
+   * onCron(), onCron(opts), or onCron(env, opts).
    */
-  async onCron(env: Env, opts?: ScheduledAgentCronOpts): Promise<ScheduleTick> {
+  async onCron(
+    envOrOpts?: Env | ScheduledAgentCronOpts,
+    maybeOpts?: ScheduledAgentCronOpts,
+  ): Promise<ScheduleTick> {
+    let env: Env = this.env;
+    let opts: ScheduledAgentCronOpts | undefined = maybeOpts;
+
+    if (envOrOpts) {
+      if (
+        typeof envOrOpts === "object" &&
+        ("PAYMENTS_AGENT" in envOrOpts || "SESSION_STORE" in envOrOpts)
+      ) {
+        env = envOrOpts as Env;
+      } else if (!opts) {
+        opts = envOrOpts as ScheduledAgentCronOpts;
+      }
+    }
     const now = new Date();
     const tick: ScheduleTick = {
       timestamp: now.toISOString(),
@@ -111,10 +141,11 @@ export class ScheduledAgent extends Agent<Env> {
     const goals = await this.getGoals();
 
     for (const goal of goals) {
-      if (!goal.enabled) continue;
+      const isForced = opts?.forceGoalId === goal.id;
+      if (!goal.enabled && !isForced) continue;
       tick.goalsEvaluated++;
 
-      if (!isDue(goal.cron, goal.lastRun, now, goal.timeZone)) continue;
+      if (!isForced && !isDue(goal.cron, goal.lastRun, now, goal.timeZone)) continue;
 
       try {
         const paymentsId = env.PAYMENTS_AGENT.idFromName("default");
@@ -135,10 +166,76 @@ export class ScheduledAgent extends Agent<Env> {
           continue;
         }
 
+        const rawEnv = env as unknown as Record<string, string | undefined>;
+        if (goal.operation.startsWith("pipeline:")) {
+          // #1224: a goal whose operation names a pipeline runs
+          // ordered stages back-to-back in ONE firing through the
+          // pipeline executor, not the single-operation path. The
+          // budget check above already ran exactly once for this
+          // goal; the pipeline adds no second check, and the one
+          // tick entry for this onCron call records the outcome
+          // below. Manual triggerGoal runs the same branch (it
+          // calls onCron), so cron and manual firings behave
+          // identically. Unknown pipeline ids fail closed: the
+          // goal stays due, no orchestrator job is created.
+          const stores = createSocialPipelineStoresFromNamespace(
+            (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+          );
+          if (!stores) {
+            tick.errors.push(`${goal.id}: SESSION_STORE binding unavailable, goal left due`);
+            tick.jobsSkipped++;
+            continue;
+          }
+          if (goal.operation !== SOCIAL_DAILY_PIPELINE_ID) {
+            tick.errors.push(`${goal.id}: unknown pipeline: ${goal.operation}`);
+            tick.jobsSkipped++;
+            continue;
+          }
+          const pipelineResult = await runSocialDailyPipeline({
+            env: {
+              SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
+              SOCIAL_AUTONOMOUS_CHANNELS: rawEnv.SOCIAL_AUTONOMOUS_CHANNELS,
+              SOCIAL_APPROVAL_CHANNELS: rawEnv.SOCIAL_APPROVAL_CHANNELS,
+              SOCIAL_LIVE_PUBLISHING: rawEnv.SOCIAL_LIVE_PUBLISHING,
+            },
+            tokens: {
+              X_ACCESS_TOKEN: rawEnv.X_ACCESS_TOKEN,
+              THREADS_ACCESS_TOKEN: rawEnv.THREADS_ACCESS_TOKEN,
+              FACEBOOK_PAGE_ACCESS_TOKEN: rawEnv.FACEBOOK_PAGE_ACCESS_TOKEN,
+              INSTAGRAM_ACCESS_TOKEN: rawEnv.INSTAGRAM_ACCESS_TOKEN,
+              LINKEDIN_ACCESS_TOKEN: rawEnv.LINKEDIN_ACCESS_TOKEN,
+              LINKEDIN_AUTHOR_URN: rawEnv.LINKEDIN_AUTHOR_URN,
+            },
+            store: stores.store,
+            approvals: stores.approvals,
+            briefStore: stores.briefStore,
+            ledger: stores.ledger,
+            nowMs: now.getTime(),
+            timeZone: goal.timeZone,
+            transport: opts?.socialTransport ?? createFetchSocialTransport(),
+            dryRunSink: opts?.socialDryRunSink ?? createMemoryDryRunSink(),
+            slackPost: opts?.socialSlackPost,
+            slackEnv: rawEnv,
+          });
+          for (const e of pipelineResult.errors) {
+            tick.errors.push(`${goal.id}: ${e}`);
+          }
+          if (pipelineResult.status === "completed") {
+            goal.lastRun = now.toISOString();
+            tick.jobsCreated++;
+          } else {
+            // Skipped (e.g. noBrief) or failed: lastRun untouched,
+            // the goal stays due and retries on the next tick. A
+            // failed run resumes at the first incomplete stage via
+            // the pipeline ledger; a skipped run starts fresh.
+            tick.jobsSkipped++;
+          }
+          continue;
+        }
+
         if (goal.operation === "social.publish") {
           // #1077 Phase 5b slice 1: executed directly, never through
           // createJob (there is no orchestrator job for posting).
-          const rawEnv = env as unknown as Record<string, string | undefined>;
           const stores = createSocialStoresFromNamespace(
             (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
           );
@@ -183,7 +280,7 @@ export class ScheduledAgent extends Agent<Env> {
             briefProvider: opts?.socialBriefProvider ?? (() => storedBrief),
             nowMs: now.getTime(),
             timeZone: goal.timeZone,
-            transport: opts?.socialTransport,
+            transport: opts?.socialTransport ?? createFetchSocialTransport(),
             dryRunSink: opts?.socialDryRunSink ?? createMemoryDryRunSink(),
           });
           if (!result.fired) {
@@ -349,8 +446,17 @@ export class ScheduledAgent extends Agent<Env> {
     return true;
   }
 
-  /** Manually trigger evaluation of a single goal. */
-  async triggerGoal(id: string, env: Env): Promise<ScheduleTick> {
+  /**
+   * Manually trigger evaluation of a single goal.
+   *
+   * Issue #1391:
+   * 1. env is optional over the DO RPC boundary; if omitted, reads this.env.
+   * 2. Evaluates the goal even if it is currently disabled (e.g. daily-social-post
+   *    shipped disabled by default). It temporarily enables the goal in storage
+   *    for this firing, and restores its original enabled state afterwards so
+   *    that the daily recurring schedule remains disabled.
+   */
+  async triggerGoal(id: string, env?: Env): Promise<ScheduleTick> {
     const goals = await this.getGoals();
     const goal = goals.find((g: ScheduledGoal) => g.id === id);
     if (!goal) {
@@ -363,12 +469,19 @@ export class ScheduledAgent extends Agent<Env> {
       };
     }
     const origLastRun = goal.lastRun;
-    goal.lastRun = undefined;
-    await this.saveGoals(goals);
-    const tick = await this.onCron(env);
+    const targetEnv =
+      env && typeof env === "object" && ("PAYMENTS_AGENT" in env || "SESSION_STORE" in env)
+        ? env
+        : this.env;
+
+    const tick = await this.onCron(targetEnv, { forceGoalId: id });
     if (tick.jobsCreated === 0 && tick.errors.length === 0) {
-      goal.lastRun = origLastRun;
-      await this.saveGoals(goals);
+      const currentGoals = await this.getGoals();
+      const currentGoal = currentGoals.find((g: ScheduledGoal) => g.id === id);
+      if (currentGoal) {
+        currentGoal.lastRun = origLastRun;
+        await this.saveGoals(currentGoals);
+      }
     }
     return tick;
   }

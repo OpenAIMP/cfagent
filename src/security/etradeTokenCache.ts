@@ -53,7 +53,28 @@ export function readTokenCache(key: string): CachedTokenSet | null | undefined {
   return entry.tokens;
 }
 
-export function writeTokenCache(key: string, tokens: CachedTokenSet | null): void {
+/**
+ * Per-login invalidation epochs (issue #1218). A reader whose store
+ * read is in flight across a concurrent invalidation (connect / renew /
+ * revoke all invalidate after writing) must not repopulate the cache
+ * with its stale result when it lands — that resurrects a null for the
+ * negative TTL or, worse, revoked tokens for the positive TTL. Readers
+ * capture tokenCacheEpoch(key) when their read begins and pass it to
+ * writeTokenCache; a moved epoch drops the write.
+ */
+const loginEpochs = new Map<string, number>();
+
+function loginOfKey(key: string): string {
+  const i = key.indexOf(":");
+  return (i >= 0 ? key.slice(i + 1) : key).toLowerCase();
+}
+
+export function tokenCacheEpoch(key: string): number {
+  return loginEpochs.get(loginOfKey(key)) ?? 0;
+}
+
+export function writeTokenCache(key: string, tokens: CachedTokenSet | null, epoch?: number): void {
+  if (epoch !== undefined && epoch !== tokenCacheEpoch(key)) return;
   if (cache.size >= MAX_ENTRIES && !cache.has(key)) {
     // Map preserves insertion order, so the first key is the oldest write.
     const oldest = cache.keys().next();
@@ -71,7 +92,11 @@ export function writeTokenCache(key: string, tokens: CachedTokenSet | null): voi
  * the other two serving a revoked token.
  */
 export function invalidateTokenCacheFor(userLogin: string): void {
-  const suffix = `:${userLogin.toLowerCase()}`;
+  // Bump the epoch even when nothing is cached: an in-flight reader
+  // holds no entry yet, and its landing write must still be dropped.
+  const login = userLogin.toLowerCase();
+  loginEpochs.set(login, (loginEpochs.get(login) ?? 0) + 1);
+  const suffix = `:${login}`;
   for (const key of [...cache.keys()]) {
     if (key.endsWith(suffix)) cache.delete(key);
   }
@@ -80,4 +105,5 @@ export function invalidateTokenCacheFor(userLogin: string): void {
 /** Test seam: the cache is module-level and must be resettable per test. */
 export function __resetTokenCache(): void {
   cache.clear();
+  loginEpochs.clear();
 }

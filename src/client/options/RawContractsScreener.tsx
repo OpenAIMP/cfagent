@@ -2,7 +2,7 @@ import { useState } from "react";
 import { apiFetch as fetch } from "../apiFetch";
 import type { ScreenedOptionContractItem } from "../../types";
 import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "../x402Pay";
-import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
+import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";

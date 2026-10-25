@@ -14,9 +14,11 @@ import { toLeg } from "../../trading/options/strategies/legs";
 import type { ScreenedOptionContractItem } from "../../types";
 import type { StrategyEvaluation } from "../../trading/options/strategies/types";
 import { ResearchReportActions } from "../ResearchReportActions";
+import { stageBundleCandidate } from "../portfolioRiskApi";
 import { defaultRegistry } from "../../trading/options/strategies/catalog";
 import { StrategyDiscoveryPanel } from "./StrategyDiscoveryPanel";
 import { DiscoveryRunsPanel } from "./DiscoveryRunsPanel";
+import { ScreeningActivityPanel } from "./ScreeningActivityPanel";
 import { UniversalChart } from "../components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
 import { LlmOptionsIdeasPanel } from "./LlmOptionsIdeasPanel";
@@ -28,7 +30,7 @@ import type { RiskSubject } from "./riskManagementEngine";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import { TabHoverItem } from "../TabHoverItem";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "../components/CapabilityNavBar";
-import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
+import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
 import "./strategyDiscovery.css";
 import "./optionsResearch.css";
 
@@ -38,6 +40,10 @@ interface OptionsResearchPanelProps {
   onPreviewTrade?: (ctx: TradeOrderContext) => void;
   onJobStateChange?: (state: "idle" | "running" | "ready") => void;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
+  /** C2 (consolidation #1151, issue #1246): switch to the hub's
+   *  Schedules tab — the in-hub successor to this panel's schedules
+   *  mode "moved" note. Absent when the panel is hosted elsewhere. */
+  onOpenSchedules?: () => void;
 }
 
 export type { TradeOrderContext } from "../trading/tradeOrderContext";
@@ -215,11 +221,13 @@ function BestTradeCard({
   onPreview,
   onEvaluateLlm,
   onRiskAnalysis,
+  onSendToBundle,
 }: {
   pick: BestTradeData;
   onPreview?: PreviewTrade;
   onEvaluateLlm?: (strategy: StrategyToEvaluate) => void;
   onRiskAnalysis?: (subject: RiskSubject) => void;
+  onSendToBundle?: (candidate: StrategyCandidate) => void;
 }) {
   return (
     <section className={`options-best-trade options-best-trade-${pick.status}`} role="region" aria-label="Best trade">
@@ -233,9 +241,9 @@ function BestTradeCard({
               type="button"
               className="options-eval-llm-btn"
               onClick={() => onEvaluateLlm(candidateToEval(pick.best!.candidate))}
-              title="Evaluate this top trade recommendation with Workers AI LLM against complete option chains"
+              title="Evaluate this top trade recommendation with neural strategy AI against complete option chains"
             >
-              🧠 Evaluate with LLM
+              🧠 Evaluate with AI
             </button>
           )}
           {pick.best && onRiskAnalysis && (
@@ -246,6 +254,11 @@ function BestTradeCard({
             >
               🛡️ Risk Analysis
             </Button>
+          )}
+          {pick.best && onSendToBundle && (
+            <button type="button" onClick={() => onSendToBundle(pick.best!.candidate)} title="Stage this candidate for the bundle builder (Portfolio & Risk panel)">
+              📦 Send to bundle builder
+            </button>
           )}
         </div>
       </header>
@@ -265,7 +278,7 @@ function BestTradeCard({
           </table>
         </div>
       )}
-      {pick.best && <StrategyCard candidate={pick.best.candidate} onPreview={onPreview} onEvaluateLlm={onEvaluateLlm} onRiskAnalysis={onRiskAnalysis} />}
+      {pick.best && <StrategyCard candidate={pick.best.candidate} onPreview={onPreview} onEvaluateLlm={onEvaluateLlm} onRiskAnalysis={onRiskAnalysis} onSendToBundle={onSendToBundle} />}
       {pick.alternatives.length > 0 && (
         <details className="options-excluded">
           <summary>{pick.alternatives.length} runner-up trades</summary>
@@ -287,9 +300,9 @@ function BestTradeCard({
                             e.stopPropagation();
                             onEvaluateLlm(candidateToEval(alt.candidate));
                           }}
-                          title="Evaluate runner-up trade with LLM"
+                          title="Evaluate runner-up trade with AI"
                         >
-                          🧠 LLM
+                          🧠 AI
                         </button>
                       )}
                       {onRiskAnalysis && (
@@ -327,8 +340,8 @@ function RecommendationComparison({ data, onPreview }: { data: ComparisonData; o
   return (
     <section className="options-comparison" aria-label="Quant and LLM recommendation comparison">
       <header className="options-results-header">
-        <h2>Quant vs. LLM ranking</h2>
-        <span>{data.llm.model || "Configured Workers AI model"} · {data.quant.candidateCount} shared candidates</span>
+        <h2>Quant vs. AI ranking</h2>
+        <span>{data.llm.model || "Neural Strategy Model"} · {data.quant.candidateCount} shared candidates</span>
       </header>
       <LlmInputPanel input={data.llmInput} />
       {data.quantStrategyPool && data.quantStrategyPool.length > 0 && (
@@ -338,13 +351,13 @@ function RecommendationComparison({ data, onPreview }: { data: ComparisonData; o
         </details>
       )}
       <p className="options-comparison-note">
-        Both rank the same quant-generated, risk-screened trades from the same option-chain snapshot. The LLM score is a subjective assessment, not a pricing model or forecast.
+        Both rank the same quant-generated, risk-screened trades from the same option-chain snapshot. The AI score is an analytical assessment, not a pricing model or forecast.
       </p>
       {data.llm.status === "error" && <div className="options-error" role="alert">Quant results are available, but the LLM ranking failed: {data.llm.error}</div>}
       {data.quant.ranked.length === 0 ? <p>No quant candidates passed the request constraints.</p> : (
         <div className="options-table-scroll">
           <table className="options-comparison-table">
-            <thead><tr><th>Strategy</th><th>Trade (legs)</th><th>Quant rank</th><th>Quant score</th><th>LLM rank</th><th>LLM score</th><th>LLM rationale</th><th>LLM risks</th></tr></thead>
+            <thead><tr><th>Strategy</th><th>Trade (legs)</th><th>Quant rank</th><th>Quant score</th><th>AI rank</th><th>AI score</th><th>AI rationale</th><th>AI risks</th></tr></thead>
             <tbody>{data.quant.ranked.map((item) => {
               const judgment = llmById.get(item.candidate.id);
               return (
@@ -553,11 +566,13 @@ function StrategyCard({
   onPreview,
   onEvaluateLlm,
   onRiskAnalysis,
+  onSendToBundle,
 }: {
   candidate: StrategyCandidate;
   onPreview?: PreviewTrade;
   onEvaluateLlm?: (strategy: StrategyToEvaluate) => void;
   onRiskAnalysis?: (subject: RiskSubject) => void;
+  onSendToBundle?: (candidate: StrategyCandidate) => void;
 }) {
   const chain = useContext(ChainContext);
   const [legs, setLegs] = useState<StrategyLeg[]>(suggested.legs);
@@ -622,9 +637,9 @@ function StrategyCard({
               type="button"
               className="options-eval-llm-btn"
               onClick={() => onEvaluateLlm(candidateToEval(candidate))}
-              title="Evaluate this strategy with Workers AI LLM against raw and normalized options chains"
+              title="Evaluate this strategy with neural strategy AI against raw and normalized options chains"
             >
-              🧠 Evaluate with LLM
+              🧠 Evaluate with AI
             </button>
           )}
           {onRiskAnalysis && (
@@ -635,6 +650,11 @@ function StrategyCard({
             >
               🛡️ Risk Analysis
             </Button>
+          )}
+          {onSendToBundle && (
+            <button type="button" onClick={() => onSendToBundle(candidate)} title="Stage this candidate for the bundle builder (Portfolio & Risk panel)">
+              📦 Send to bundle builder
+            </button>
           )}
           {chain && (
             <button type="button" disabled={chain.refreshing} onClick={() => void chain.refresh()}>
@@ -729,7 +749,7 @@ type NlqResultView = {
 
 export type ResearchMode = "discovery" | "contracts" | "custom" | "nlq" | "llm-ideas" | "schedules";
 
-export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt }: OptionsResearchPanelProps) {
+export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJobStateChange, onSendPrompt, onOpenSchedules }: OptionsResearchPanelProps) {
   const [researchMode, setResearchMode] = useState<ResearchMode>("discovery");
   const [evaluatingStrategy, setEvaluatingStrategy] = useState<StrategyToEvaluate | null>(null);
   const handleEvaluateLlm = (strategy: StrategyToEvaluate) => setEvaluatingStrategy(strategy);
@@ -841,6 +861,16 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       Number(screenedContracts.find((c) => typeof c.underlyingPrice === "number")?.underlyingPrice) || undefined,
     ))
     : undefined;
+
+  // Consolidation C5 (#1361): from-results flow — stage a ranked or
+  // best-trade candidate for the bundle builder (Portfolio & Risk
+  // panel consumes it on mount). Staging never navigates away; the
+  // banner names the staged candidate and where it went.
+  const [stagedBundle, setStagedBundle] = useState<{ id: string; label: string } | null>(null);
+  const sendToBundle = (candidate: StrategyCandidate) => {
+    stageBundleCandidate(candidate);
+    setStagedBundle({ id: candidate.id, label: candidate.label });
+  };
 
   const loadExample = (example: string) => {
     setNlqQuery(example);
@@ -1049,12 +1079,12 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           },
           {
             id: "llm-ideas",
-            label: "LLM Idea Experiment & Exporter",
+            label: "AI Strategy Ideas & Exporter",
             icon: "🧪",
             tooltip: {
-              eyebrow: "INDEPENDENT RAW-DATA LLM EXPERIMENT",
-              title: "LLM Options Idea Experiment",
-              description: "Divides chains into near/mid/long-term expiration cohorts for multi-stage LLM evaluation against raw market data.",
+              eyebrow: "INDEPENDENT RAW-DATA AI ANALYSIS",
+              title: "AI Options Strategy Experiment",
+              description: "Divides chains into near/mid/long-term expiration cohorts for multi-stage AI evaluation against raw market data.",
             },
           },
           {
@@ -1066,7 +1096,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             tooltip: {
               eyebrow: "DURABLE TIMERS & AUTONOMOUS DISPATCH",
               title: "Scheduled Screening & Schedulers",
-              description: "Create and monitor autonomous scheduled options scans powered by Cloudflare Durable Timers with Slack & Email notifications.",
+              description: "Create and monitor autonomous scheduled options scans with persistent background timers and Slack & Email notifications.",
             },
           },
         ]}
@@ -1084,24 +1114,34 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
 
       {researchMode === "schedules" && (
         <>
-          {/* S7 (consolidation #958): schedule management moved to the
-              one schedule UI — the hub's Schedules tab hosts the
-              screening section (this manager's successor) over the
-              one schedule store. This mode keeps only the redirect
-              and the autonomous-runs record below it. */}
+          {/* S7 (consolidation #958) made schedule management live in
+              the one schedule UI; C2 (consolidation #1151, #1246)
+              hosts it as this hub's own Schedules tab, so the note is
+              now an in-hub switch, not a pointer elsewhere. This mode
+              keeps the autonomous-runs record below it. */}
           <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
-            <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>⏰ Schedule Management Moved to the Schedules Tab</h4>
+            <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>⏰ Schedule Management Lives in the Schedules Tab</h4>
             <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
-              Every screening schedule — stock screens, options analysis, and strategy discovery in all three input models (saved views, profile-derived, no-view) — is now created and managed in one place: the <strong>Schedules</strong> tab, alongside the system and queued jobs that share the same schedule store.
+              Every screening schedule — stock screens, options analysis, and strategy discovery in all three input models (saved views, profile-derived, no-view) — is created and managed in one place: this hub's <strong>Schedules</strong> tab, alongside the system and queued jobs that share the same schedule store.
             </p>
-            <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
-              Nothing was retired: the create/edit forms, run-now triggers, latest runs, and audit trail all live on that surface now.
+            <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
+              Nothing was retired: the create/edit forms, run-now triggers, latest runs, and audit trail all live on that tab.
             </p>
+            {onOpenSchedules && (
+              <button type="button" onClick={onOpenSchedules} style={{ padding: "0.45rem 0.9rem", fontWeight: 600 }}>
+                Open the Schedules tab
+              </button>
+            )}
           </div>
           {/* Issue #223: the persisted autonomous runs (hourly scheduled
               scans + manual runs) — the record of what the scheduler
               actually produced. */}
           <AutonomousOptionsRuns />
+          {/* Issue #1162 (epic #1096 Phase 6): the autonomous screening
+              system's activity log + pause control — discovery runs,
+              re-selections, promotions, and deliveries from the
+              screening activity feed, next to the other run records. */}
+          <ScreeningActivityPanel userLogin={userLogin} />
         </>
       )}
 
@@ -1213,9 +1253,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
                     legsText: nlqQuery,
                   });
                 }}
-                title="Evaluate this NLQ screening question against live option chains with Workers AI LLM"
+                title="Evaluate this NLQ screening question against live option chains with neural AI"
               >
-                🧠 Evaluate NLQ with LLM
+                🧠 Evaluate NLQ with AI
               </button>
               <OptionsDataDownloadDropdown
                 symbol={symbol.trim() || (nlqResult.rows?.[0]?.symbol as string) || "NVDA"}
@@ -1243,7 +1283,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
                 boxSizing: "border-box",
               }}
             >
-              <span>🧠 <strong>LLM Validated:</strong></span>
+              <span>🧠 <strong>AI Validated:</strong></span>
               <span style={{ color: "var(--color-text-secondary)" }}>{nlqResult.llmValidation.interpretation}</span>
               {nlqResult.llmValidation.corrected && (
                 <span style={{ color: "var(--color-success)", fontSize: "0.75rem", fontWeight: 700, marginLeft: "auto" }}>✓ Intent Protected</span>
@@ -1256,6 +1296,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               onPreview={previewTrade}
               onEvaluateLlm={handleEvaluateLlm}
               onRiskAnalysis={setRiskSubject}
+              onSendToBundle={sendToBundle}
             />
           )}
           {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
@@ -1429,7 +1470,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             {loading ? "Evaluating…" : "Pick best trade"}
           </button>
           <button type="button" disabled={loading || !canRun} onClick={() => void run("compare")}>
-            {loading ? "Comparing…" : "Compare Quant vs LLM"}
+            {loading ? "Comparing…" : "Compare Quant vs AI"}
           </button>
         </div>
       </form>
@@ -1441,7 +1482,13 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           onPreview={previewTrade}
           onEvaluateLlm={handleEvaluateLlm}
           onRiskAnalysis={setRiskSubject}
+          onSendToBundle={sendToBundle}
         />
+      )}
+      {stagedBundle && (
+        <div className="options-assumptions" role="status">
+          Staged for the bundle builder: {stagedBundle.label} — open Portfolio &amp; Risk to build its bundle.
+        </div>
       )}
       {comparison && <RecommendationComparison data={comparison} onPreview={previewTrade} />}
       {(result?.evaluations || evaluations).length > 0 && <EvaluationTable evaluations={result?.evaluations || evaluations} />}
@@ -1469,6 +1516,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               onPreview={previewTrade}
               onEvaluateLlm={handleEvaluateLlm}
               onRiskAnalysis={setRiskSubject}
+              onSendToBundle={sendToBundle}
             />
           ))}
           {result.excluded.length > 0 && (
@@ -1512,7 +1560,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         ]}
       />
 
-      {/* Holistic Workers AI LLM Strategy Evaluation & Options Data Export Modal */}
+      {/* Holistic Neural Strategy LLM Evaluation & Options Data Export Modal */}
       <LlmStrategyEvalModal
         isOpen={Boolean(evaluatingStrategy)}
         onClose={() => setEvaluatingStrategy(null)}

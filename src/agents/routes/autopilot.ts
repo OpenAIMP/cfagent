@@ -32,6 +32,7 @@ import {
   type PolicyVerdict,
   type PolicyVerdictAttestation,
 } from "../../services/riskPolicyEngine";
+import { listJobOutcomes } from "../../services/jobOutcomes";
 
 /** Shape of the server-owned autopilot run state (see getAutopilotState). */
 export interface AutopilotState {
@@ -99,6 +100,20 @@ export async function handleAutopilotRoutes(
       return Response.json({ ...state, engine: "riskPolicyEngine", recentVerdicts });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to read autopilot state" }, { status: 500 });
+    }
+  }
+
+  // Issue #1333: the job-outcome sink as Autopilot Control's job
+  // feed — every bridged/bus/manual/discovery outcome, newest first,
+  // labeled by origin (kind + trigger + status + coded error).
+  if (path.endsWith("/autopilot/jobs") && request.method === "GET") {
+    try {
+      const limitRaw = Number(url.searchParams.get("limit") ?? 50);
+      const limit = Number.isFinite(limitRaw) ? Math.min(200, Math.max(1, Math.floor(limitRaw))) : 50;
+      const jobs = listJobOutcomes(ctx.ensureTables(), limit);
+      return Response.json({ jobs, count: jobs.length });
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : "Failed to read job outcomes" }, { status: 500 });
     }
   }
 

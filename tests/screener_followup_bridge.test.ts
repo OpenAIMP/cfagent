@@ -167,7 +167,7 @@ const bridgedOutcome: ScreenerRunOutcome = {
 };
 
 describe("recordScreenerRunMainJob (the bridge)", () => {
-  it("records a completed main job and chains report + completed notifications under it", async () => {
+  it("records a completed main job and chains report + deliveries (delivery IS the completion message, #1228)", async () => {
     const sql = new StatefulAsyncSql();
     const ctx = makeCtx(sql);
     const mainJobId = await recordScreenerRunMainJob(ctx, bridgedOutcome, "alice");
@@ -179,9 +179,10 @@ describe("recordScreenerRunMainJob (the bridge)", () => {
 
     const reportRow = sql.rows.find((r) => r.capability === "followup.report");
     expect(reportRow?.parent_job_id).toBe(mainJobId);
+    // Issue #1228 (#1209 F2): both channels carry deliver jobs, so no
+    // separate text-only 'completed' notify jobs are planned.
     const notes = sql.rows.filter((r) => r.capability === "followup.notify");
-    expect(notes.map((n) => n.channel)).toEqual(["slack", "email"]);
-    expect(notes[0].parent_job_id).toBe(mainJobId);
+    expect(notes).toEqual([]);
 
     // The chain continues identically to a job-run screen.
     await executeAsyncJob(ctx, { jobId: String(reportRow?.job_id) });

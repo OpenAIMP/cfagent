@@ -42,7 +42,7 @@ import { UniversalChart } from "../components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";
-import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
+import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 import { StrategyLibraryModal, type StrategyInfo } from "./StrategyLibraryModal";
@@ -2107,8 +2107,8 @@ export function StrategyDiscoveryPanel({
                           })),
                         });
                       }}
-                      title={`Evaluate ${strat.name} with AI / LLM`}
-                      aria-label={`Evaluate ${strat.name} with LLM`}
+                      title={`Evaluate ${strat.name} with AI Engine`}
+                      aria-label={`Evaluate ${strat.name} with AI`}
                     >
                       <span className="strat-icon">🧠</span>
                       <span className="strat-icon-tooltip">AI Eval</span>
@@ -2262,7 +2262,7 @@ export function StrategyDiscoveryPanel({
                   });
                 }}
               >
-                🧠 Evaluate with LLM
+                🧠 Evaluate with AI
               </button>
               <button
                 type="button"
@@ -3688,7 +3688,7 @@ export function StrategyDiscoveryPanel({
         </div>
       )}
 
-      {/* Workers AI LLM Strategy Evaluation & Options Data Export Modal */}
+      {/* Neural Strategy LLM Evaluation & Options Data Export Modal */}
       <LlmStrategyEvalModal
         isOpen={Boolean(evaluatingStrategy)}
         onClose={() => setEvaluatingStrategy(null)}

@@ -43,7 +43,7 @@ describe("executeSocialGoal", () => {
     expect(byChannel.get("threads")?.outcome).toBe("posted");
     expect(byChannel.get("facebook")?.outcome).toBe("skipped");
     expect(byChannel.get("facebook")?.reason).toMatch(/awaiting approval/);
-    expect(d.store.getDraft("2026-10-26", "x")?.status).toBe("posted");
+    expect(d.store.getDraft("2026-10-26", "x")?.status).toBe("dry-run-posted");
     expect(d.store.getDraft("2026-10-26", "facebook")?.status).toBe("draft");
     expect(d.approvals.listPending("2026-10-26").map((p) => p.channel)).toContain("facebook");
     expect(d.sink.records.map((r) => r.channel).sort()).toEqual(["threads", "x"]);
@@ -91,7 +91,7 @@ describe("executeSocialGoal", () => {
     if (!second.fired) return;
     const fb = second.publish.results.find((r) => r.channel === "facebook");
     expect(fb?.outcome).toBe("posted");
-    expect(d.store.getDraft("2026-10-26", "facebook")?.status).toBe("posted");
+    expect(d.store.getDraft("2026-10-26", "facebook")?.status).toBe("dry-run-posted");
     // Already-posted autonomous drafts are skipped, never republished.
     expect(second.publish.results.find((r) => r.channel === "x")?.outcome).toBe("skipped");
   });

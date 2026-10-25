@@ -24,6 +24,10 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
    */
   function makeSessionStore() {
     const store = new Map<string, string>();
+    // Consume-claim expiries (#1245): the real DO tracks expires_at
+    // per row; this fake's get/put ignore TTLs, so consume keeps a
+    // side ledger, mirroring tests/fake-session-store.ts.
+    const claims = new Map<string, number>();
     return {
       idFromName: (name: string) => name,
       get: (_id: unknown) => ({
@@ -32,6 +36,7 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
             op: string;
             key: string;
             value?: string;
+            ttl?: number;
           };
           if (body.op === "get") {
             return Response.json({ value: store.get(body.key) ?? null });
@@ -42,7 +47,17 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
           }
           if (body.op === "delete") {
             store.delete(body.key);
+            claims.delete(body.key);
             return Response.json({ ok: true });
+          }
+          if (body.op === "consume") {
+            const heldUntil = claims.get(body.key);
+            if (heldUntil !== undefined && heldUntil > Date.now()) {
+              return Response.json({ consumed: false });
+            }
+            claims.set(body.key, Date.now() + (typeof body.ttl === "number" ? body.ttl * 1000 : 0));
+            store.set(body.key, body.value ?? "");
+            return Response.json({ consumed: true });
           }
           return Response.json({ error: "unknown op" }, { status: 400 });
         },
@@ -164,6 +179,85 @@ describe("E*TRADE OAuth 1.0a Full Token Lifecycle & Account Discovery", () => {
 
       expect(renewed).not.toBeNull();
       expect(renewed?.accessToken).toBe("token_to_renew");
+    });
+
+    it("#1245: overlapping renewals single-flight — one upstream call, the concurrent caller keeps its valid tokens", async () => {
+      await storeAccessTokens(env, userLogin, "token_to_renew", "secret_to_renew");
+      let releaseUpstream!: () => void;
+      const upstreamGate = new Promise<void>((resolve) => { releaseUpstream = resolve; });
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+        await upstreamGate;
+        return new Response("Access Token has been renewed", { status: 200 });
+      });
+
+      const first = renewETradeAccessToken(env, userLogin);
+      // Let the first caller get all the way to the (gated) upstream call.
+      await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      const second = await renewETradeAccessToken(env, userLogin);
+      // The second caller lost the claim: it returns the still-valid
+      // stored tokens WITHOUT a second upstream renewal.
+      expect(second?.accessToken).toBe("token_to_renew");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      releaseUpstream();
+      const renewed = await first;
+      expect(renewed?.accessToken).toBe("token_to_renew");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      // The claim was released on completion: a later renewal renews.
+      // (Restore first: stacked spies on an already-spied fetch would
+      // double-count through the chain.)
+      vi.restoreAllMocks();
+      const fetchSpy2 = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("Access Token has been renewed", { status: 200 })
+      );
+      const again = await renewETradeAccessToken(env, userLogin);
+      expect(again).not.toBeNull();
+      expect(fetchSpy2).toHaveBeenCalledTimes(1);
+    });
+
+    it("#1245: a held claim from another door serves the stored tokens without an upstream call", async () => {
+      await storeAccessTokens(env, userLogin, "token_to_renew", "secret_to_renew");
+      // Pre-claim the renewal lock, as a concurrent cron renewal would.
+      const stub = (env.SESSION_STORE as unknown as { get: (id: unknown) => { fetch: (r: Request) => Promise<Response> } })
+        .get("kv");
+      const claim = await stub.fetch(new Request("https://store/", {
+        method: "POST",
+        body: JSON.stringify({ op: "consume", ns: "etrade", key: "etrade:renew-lock:TEST:trader_alice", value: "1", ttl: 120 }),
+      }));
+      expect((await claim.json() as { consumed?: boolean }).consumed).toBe(true);
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      const result = await renewETradeAccessToken(env, userLogin);
+      expect(result?.accessToken).toBe("token_to_renew");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("#1245: lock service error fails OPEN — renewal proceeds as before", async () => {
+      await storeAccessTokens(env, userLogin, "token_to_renew", "secret_to_renew");
+      const base = env.SESSION_STORE as unknown as { idFromName: (n: string) => unknown; get: (id: unknown) => { fetch: (r: Request) => Promise<Response> } };
+      env = {
+        ...env,
+        SESSION_STORE: {
+          idFromName: base.idFromName,
+          get: (id: unknown) => {
+            const inner = base.get(id);
+            return {
+              fetch: async (req: Request) => {
+                const peek = req.clone();
+                const body = (await peek.json()) as { op?: string };
+                if (body.op === "consume") return Response.json({ error: "no consume here" }, { status: 400 });
+                return inner.fetch(req);
+              },
+            };
+          },
+        } as unknown as Env["SESSION_STORE"],
+      } as Env;
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("Access Token has been renewed", { status: 200 })
+      );
+      const renewed = await renewETradeAccessToken(env, userLogin);
+      expect(renewed).not.toBeNull();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
   });
 

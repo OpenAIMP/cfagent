@@ -19,10 +19,12 @@
  *     tokens.css dark-theme values, and no other entry equals any
  *     dark --color-* token value (the hand-mirror cannot drift
  *     silently in either direction — the #677 pattern).
- *  4. Golden renders: the OAuth login page, OAuth error page, the
- *     browser placeholder SVG, a transaction receipt SVG, and an email
+ *  4. Golden renders: the OAuth login page, the browser
+ *     placeholder SVG, a transaction receipt SVG, and an email
  *     container render are byte-identical to their pre-migration
- *     output. The only tolerated difference is the CSS named colour
+ *     output. (The fifth golden, the legacy OAuth error page, was
+ *     removed in #1254 PR-B with the page itself.) The only
+ *     tolerated difference is the CSS named colour
  *     `white` rendering as its exact equivalent #ffffff (the
  *     --color-on-gradient token value) where the palette replaced the
  *     keyword; both sides are normalised for that one equivalence.
@@ -31,7 +33,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SERVER_PALETTE, SERVER_PALETTE_TOKEN_SOURCES } from "../src/theme/serverPalette";
-import { renderLoginPage, handleOAuthCallback } from "../src/security/githubOAuth";
+import { renderLoginPage } from "../src/security/githubOAuth";
 import { ETradeBrowserService } from "../src/services/browserAgent";
 import { ETradeEmailTradingService } from "../src/trading/email/agent";
 import { DatabaseORM } from "../src/orm";
@@ -183,7 +185,7 @@ const LOGIN_GOLDEN = `<!DOCTYPE html>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-      background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, #0b0f19 60%, #030712 100%);
+      background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, #060913 55%, #030712 100%);
       color: #f3f4f6;
       display: flex;
       align-items: center;
@@ -193,68 +195,66 @@ const LOGIN_GOLDEN = `<!DOCTYPE html>
     }
     .card {
       background: rgba(17, 24, 39, 0.75);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 20px;
-      padding: 3rem 2.5rem;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px;
+      padding: 3rem 2.25rem;
       text-align: center;
-      max-width: 440px;
+      max-width: 420px;
       width: 100%;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(99, 102, 241, 0.15);
-      animation: fadeIn 0.5s ease-out;
+      box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.6), 0 0 45px -5px rgba(99, 102, 241, 0.15);
+      position: relative;
+      overflow: hidden;
+      animation: fadeIn 0.4s ease-out;
     }
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(12px); }
       to { opacity: 1; transform: translateY(0); }
     }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 15%;
+      right: 15%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, #38bdf8, #818cf8, transparent);
+    }
     .logo-badge {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 64px;
-      height: 64px;
+      width: 56px;
+      height: 56px;
       background: linear-gradient(135deg, #6366f1, #06b6d4);
       border-radius: 16px;
-      font-size: 2rem;
       margin-bottom: 1.5rem;
-      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.35);
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.35), 0 0 20px rgba(99, 102, 241, 0.15);
     }
     h1 {
-      font-size: 1.75rem;
+      font-size: 1.55rem;
       font-weight: 700;
-      letter-spacing: -0.02em;
+      letter-spacing: -0.025em;
       margin-bottom: 0.5rem;
-      background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
+      color: #f8fafc;
+    }
+    .brand-gradient {
+      background: linear-gradient(135deg, #ffffff 40%, #38bdf8 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
-    p {
+    .subtitle {
       color: #94a3b8;
-      font-size: 0.95rem;
-      line-height: 1.6;
-      margin-bottom: 2.25rem;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      margin-bottom: 2rem;
     }
-    .features {
+    .btn-stack {
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
-      margin-bottom: 2.25rem;
-      text-align: left;
-      background: rgba(255, 255, 255, 0.03);
-      padding: 1rem 1.25rem;
-      border-radius: 12px;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      font-size: 0.85rem;
-      color: #cbd5e1;
-    }
-    .feature-item {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .feature-item span {
-      color: #38bdf8;
+      gap: 0.85rem;
+      margin-bottom: 2rem;
     }
     .btn {
       display: inline-flex;
@@ -264,95 +264,102 @@ const LOGIN_GOLDEN = `<!DOCTYPE html>
       background: #ffffff;
       color: #0f172a;
       text-decoration: none;
-      padding: 0.85rem 1.75rem;
-      border-radius: 12px;
-      font-size: 1rem;
+      padding: 0.9rem 1.5rem;
+      border-radius: 14px;
+      font-size: 0.95rem;
       font-weight: 600;
       width: 100%;
-      transition: all 0.2s ease;
-      box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 4px 14px rgba(255, 255, 255, 0.15), 0 0 24px rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      position: relative;
     }
     .btn:hover {
       background: #f1f5f9;
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px rgba(255, 255, 255, 0.15), 0 0 32px rgba(99, 102, 241, 0.15);
+    }
+    .btn:active {
+      transform: translateY(0);
     }
     .btn svg {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       fill: #0f172a;
+      flex-shrink: 0;
+    }
+    .btn-arrow {
+      margin-left: auto;
+      opacity: 0.6;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+      font-size: 1.15rem;
+      line-height: 1;
+    }
+    .btn:hover .btn-arrow {
+      opacity: 1;
+      transform: translateX(3px);
+    }
+    .card-footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      align-items: center;
+    }
+    .security-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.775rem;
+      color: #94a3b8;
+    }
+    .security-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 8px #22c55e;
+    }
+    .back-link {
+      color: #38bdf8;
+      font-size: 0.825rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+    .back-link:hover {
+      color: #f8fafc;
     }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="logo-badge">🤖</div>
-    <h1>Test App</h1>
-    <p>Sign in with your GitHub account to research and trade with human-approved, audit-logged workflows.</p>
-    
-    <div class="features">
-      <div class="feature-item"><span>✦</span> trading-platform order preview with human approval</div>
-      <div class="feature-item"><span>✦</span> Options strategy screening &amp; best-trade ranking</div>
-      <div class="feature-item"><span>✦</span> Quant vs LLM recommendation comparison</div>
-      <div class="feature-item"><span>✦</span> Signed, audited trade drafts &amp; ledger</div>
+    <div class="logo-badge">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5"></polygon>
+        <line x1="12" y1="22" x2="12" y2="15.5"></line>
+        <polyline points="22 8.5 12 15.5 2 8.5"></polyline>
+      </svg>
+    </div>
+    <h1>Sign in to <span class="brand-gradient">Test App</span></h1>
+    <p class="subtitle">Sign in with your GitHub account to access your trading workspace.</p>
+
+    <div class="btn-stack">
+      <a href="/auth/login" class="btn btn-github">
+        <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span>Sign in with GitHub</span>
+        <span class="btn-arrow" aria-hidden="true">&rarr;</span>
+      </a>
     </div>
 
-    <a href="/auth/login" class="btn">
-      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      Sign in with GitHub
-    </a>
-    <a href="/" style="display:block;margin-top:1rem;color:#38bdf8;font-size:.85rem;text-decoration:none">&larr; What can this platform do?</a>
-  </div>
-</body>
-</html>`;
-
-const ERROR_GOLDEN = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authentication Error</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0f172a;
-      color: #f8fafc;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 1.5rem;
-    }
-    .card {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 16px;
-      padding: 2.5rem;
-      max-width: 420px;
-      width: 100%;
-      text-align: center;
-    }
-    .icon { font-size: 2.5rem; margin-bottom: 1rem; }
-    h1 { font-size: 1.4rem; margin-bottom: 0.5rem; color: #f87171; }
-    p { color: #94a3b8; font-size: 0.95rem; line-height: 1.5; margin-bottom: 1.5rem; word-break: break-word; }
-    a {
-      display: inline-block;
-      background: #3b82f6;
-      color: white;
-      text-decoration: none;
-      padding: 0.65rem 1.25rem;
-      border-radius: 8px;
-      font-weight: 500;
-    }
-    a:hover { background: #2563eb; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">⚠️</div>
-    <h1>Authentication Error</h1>
-    <p>GitHub authentication was cancelled or failed: access_denied</p>
-    <a href="/">← Return to Sign In</a>
+    <div class="card-footer">
+      <div class="security-note">
+        <span class="security-dot" aria-hidden="true"></span>
+        <span>Protected by W3C Agent DIDs &amp; deterministic risk gates</span>
+      </div>
+      <a href="/" class="back-link">&larr; Back to Test App Home</a>
+    </div>
   </div>
 </body>
 </html>`;
@@ -421,7 +428,7 @@ const EMAIL_GOLDEN = `<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Order Approval Failed</title>
+  <title>Order Approval Refused</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #f8fafc;">
   <div style="max-width: 620px; margin: 0 auto; background-color: #0f172a; border-radius: 10px; border: 1px solid #1e293b; overflow: hidden; margin-top: 20px; margin-bottom: 20px;">
@@ -429,23 +436,17 @@ const EMAIL_GOLDEN = `<!DOCTYPE html>
     <div style="background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%); padding: 24px; border-bottom: 1px solid #1e293b;">
       <div style="display: flex; align-items: center; justify-content: space-between;">
         <div>
-          <span style="background: #3b82f6; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; letter-spacing: 0.05em; text-transform: uppercase;">
+          <span style="background: #3b82f6; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; letter-spacing: 0.05em; text-transform: uppercase;">
             E*TRADE AGENTIC HUB
           </span>
-          <h1 style="color: #ffffff; font-size: 20px; margin: 8px 0 0 0; font-weight: 700;">Order Approval Failed</h1>
+          <h1 style="color: #ffffff; font-size: 20px; margin: 8px 0 0 0; font-weight: 700;">Order Approval Refused</h1>
         </div>
       </div>
     </div>
 
     <!-- Body Content -->
     <div style="padding: 24px;">
-      
-        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-          <h3 style="color: #ef4444; margin-top: 0;">❌ Approval Not Processed</h3>
-          <p style="color: #cbd5e1; margin-bottom: 0;">No pending order preview found awaiting approval. Orders may have already been executed or cancelled.</p>
-        </div>
-        <p style="color: #94a3b8; font-size: 13px;">To draft a new trade, email commands like: <code>Buy 10 NVDA limit 125.00</code>.</p>
-        
+      <p style="color: #cbd5e1;">Approval refused: a bare APPROVE reply no longer executes an order. Approve from the signed link in the order-preview email (click it, or reply quoting it). Email approvals require a mapped trade-tier sender (CHANNEL_EMAIL_PRINCIPALS).</p>
     </div>
 
     <!-- Security & Provenance Footer -->
@@ -469,10 +470,11 @@ describe("server palette — golden renders are unchanged (#678)", () => {
     expect(renderLoginPage({ APP_NAME: "Test App" } as any)).toBe(LOGIN_GOLDEN);
   });
 
-  it("OAuth error page renders identically (modulo white -> #ffffff)", async () => {
-    const res = await handleOAuthCallback({} as any, new Request("https://x.test/auth/callback?error=access_denied"));
-    expect(whiteKeyword(await res.text())).toBe(whiteKeyword(ERROR_GOLDEN));
-  });
+  // #1254 PR-B: the OAuth error-page golden was removed with its
+  // subject — the legacy styled error page and the
+  // handleOAuthCallback that rendered it are deleted; login
+  // errors are the factory's minimal pages now (pinned byte
+  // for byte in the #1254 characterization suite).
 
   it("browser placeholder SVG renders byte-identically", () => {
     const svc = new ETradeBrowserService({} as any);
@@ -503,8 +505,11 @@ describe("server palette — golden renders are unchanged (#678)", () => {
     // Issue #781 wiring: processInboundEmail now requires an injected ORM
     // (it used to run against a stub and fabricate this same failure
     // render from an empty ledger). A real in-memory ORM keeps the
-    // approval lookup honest — no pending preview exists either way, so
-    // the golden render is unchanged.
+    // approval lookup honest. Issue #1262 Phase 5: a bare APPROVE no
+    // longer reaches the "no pending preview" render — it is refused
+    // by the signed-link gate — so the golden below is the refusal
+    // render (container title "Order Approval Refused"), regenerated
+    // from the service's actual output.
     const goldenOrm = new DatabaseORM(new MockSqlStorage());
     goldenOrm.initializeSchema("palette_golden");
     const svc = new ETradeEmailTradingService({} as any, goldenOrm);

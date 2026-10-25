@@ -95,10 +95,29 @@
  */
 
 import type { DatabaseORM } from "../orm";
-// Issue #278: durable scheduled-run reports for the AI Search agent.
+// Issue #278: durable scheduled-run reports for the NextGenTP agent.
 
 /** Default retention window, days — matches the 90d the UI advertises. */
 export const STORAGE_RETENTION_DEFAULT_DAYS = 90;
+
+/**
+ * Consolidation C4 (issue #1329, epic #1151) — the ONE recorded
+ * retention contract for run stores, replacing the prose-only
+ * divergence (R6). The alignment rule behind it: a run kind's detail
+ * row is never its sole record — every kind stores a canonical
+ * mas_reports row (discovery gained one in C4), so a detail prune
+ * can never erase a run from GET /api/runs entirely; the canonical
+ * row (KEEP) is what the Runs surface serves. Detail windows:
+ * mas_opportunity_scans / mas_discovery_runs prune at source, 365d +
+ * hard row caps on save; mas_async_jobs terminal rows prune at
+ * submit, 30d + 500-row terminal cap per session.
+ */
+export const RUN_STORE_RETENTION_CONTRACT = {
+  mas_reports: "keep",
+  mas_opportunity_scans: "365d+caps",
+  mas_discovery_runs: "365d+caps",
+  mas_async_jobs: "30d+500cap",
+} as const;
 
 /** Issue #786: default mas_events window — 365d, matching the run stores. */
 export const MAS_EVENTS_RETENTION_DEFAULT_DAYS = 365;
@@ -407,7 +426,7 @@ export function runStorageRetention(
   );
 
   // Issue #278: persist the scheduled run's summary as a durable report
-  // (mas_reports) so the AI Search agent can surface it later.
+  // (mas_reports) so the NextGenTP agent can surface it later.
   // Issue #308: through the single generate→store seam — one canonical
   // row per generation (generationId = run id).
   try {

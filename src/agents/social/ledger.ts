@@ -105,6 +105,23 @@ export interface AsyncSocialLedger {
   ): Promise<SocialDraft>;
 }
 
+const SOCIAL_DRAFT_STATUSES: readonly string[] = [
+  "draft",
+  "approved",
+  "posted",
+  "failed",
+  // #1171: a dry-run publish records this, never "posted".
+  "dry-run-posted",
+];
+
+/**
+ * Shape guard for stored drafts (durable stores treat a value that
+ * fails it as ABSENT, never as a minted draft). Besides the identity
+ * fields it enforces the status union: a stored draft with an
+ * unknown status string is corrupt, not publishable. All statuses
+ * ever written by createDraft / approveDraft / rejectDraft /
+ * publishDueDrafts are in the union, so legitimate records pass.
+ */
 export function isSocialDraft(value: unknown): value is SocialDraft {
   return (
     typeof value === "object" &&
@@ -112,7 +129,8 @@ export function isSocialDraft(value: unknown): value is SocialDraft {
     typeof (value as SocialDraft).id === "string" &&
     typeof (value as SocialDraft).date === "string" &&
     typeof (value as SocialDraft).channel === "string" &&
-    typeof (value as SocialDraft).text === "string"
+    typeof (value as SocialDraft).text === "string" &&
+    SOCIAL_DRAFT_STATUSES.includes((value as SocialDraft).status)
   );
 }
 

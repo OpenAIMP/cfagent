@@ -30,7 +30,15 @@ export const CHANNEL_LIMITS: Record<SocialChannel, number> = {
   linkedin: 3000,
 };
 
-export type SocialDraftStatus = "draft" | "approved" | "posted" | "failed";
+/**
+ * Draft lifecycle statuses. "posted" means REALLY posted: a live
+ * publish reached a platform and recorded its post id (see
+ * platformPostId below). A dry-run publish never sets "posted" — it
+ * sets "dry-run-posted", so flipping SOCIAL_LIVE_PUBLISHING on
+ * mid-day still live-publishes that day's drafts instead of
+ * skipping them as already-posted (issue #1171).
+ */
+export type SocialDraftStatus = "draft" | "approved" | "posted" | "failed" | "dry-run-posted";
 
 export interface SocialApprovalRecord {
   approver: string;
@@ -46,6 +54,14 @@ export interface SocialDraft {
   status: SocialDraftStatus;
   /** Present only once an approval-list draft has been approved (Phase 5). */
   approval?: SocialApprovalRecord;
+  /**
+   * The platform's post id, recorded ONLY by a live publish (#1171).
+   * A dry-run publish never sets this: the synthetic dry-run id
+   * travels in the publish result and the sink record only. A draft
+   * with status "posted" always carries this id; a draft without it
+   * was never live-posted, whatever its status says.
+   */
+  platformPostId?: string;
   createdAtMs: number;
   /** Pre-truncation length; equals text.length when not truncated. */
   originalLength: number;

@@ -124,7 +124,7 @@ describe("publishDueDrafts gating", () => {
     const entry = res.results.find((r) => r.channel === "facebook");
     expect(entry?.outcome).toBe("posted");
     expect(entry?.platformPostId).toBe("dry-run:draft-facebook");
-    expect(store.getDraft(DATE, "facebook")?.status).toBe("posted");
+    expect(store.getDraft(DATE, "facebook")?.status).toBe("dry-run-posted");
     expect(sink.records).toHaveLength(1);
     expect(approvals.listPending(DATE)).toEqual([]);
   });
