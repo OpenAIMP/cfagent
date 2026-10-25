@@ -148,7 +148,12 @@ describe("Issue #119 — flow item provenance", () => {
 });
 
 describe("Issue #119 — /api/options/flows route envelopes disclose provenance", () => {
-  it("GET /live returns per-item provenance and an envelope provenance summary", async () => {
+  // Issue #925 pin update (same PR, not a deletion): this test previously
+  // asserted the forbidden behaviour — that an unknown ticker yields the
+  // generated sample universe. Under #925 the PROD failure path returns
+  // empty + an explicit unavailable state instead, so the pin now asserts
+  // exactly that, keeping the envelope provenance assertions.
+  it("GET /live with all sources failing returns empty + dataUnavailable, never generated samples (issue #925)", async () => {
     const res = await worker.fetch(
       new Request("https://agent.test/api/options/flows/live?tickers=ZZZUNKNOWN"),
       {} as any
@@ -156,7 +161,9 @@ describe("Issue #119 — /api/options/flows route envelopes disclose provenance"
     expect(res.status).toBe(200);
     const body: any = await res.json();
     expect(Array.isArray(body.flows)).toBe(true);
-    expect(body.flows.length).toBeGreaterThan(0);
+    expect(body.flows).toEqual([]);
+    expect(body.dataUnavailable).toBe(true);
+    expect(typeof body.unavailableReason).toBe("string");
     for (const item of body.flows) {
       expect(PROVENANCE_VOCABULARY).toContain(item.provenance);
     }

@@ -2053,9 +2053,17 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const marketCaps = marketCapsParam ? (marketCapsParam.split(",").map((c) => c.trim()).filter(Boolean) as MarketCapCategory[]) : undefined;
       const assetTypesParam = url.searchParams.get("assetTypes");
       const assetTypes = assetTypesParam ? (assetTypesParam.split(",").map((c) => c.trim()).filter(Boolean) as AssetClassCategory[]) : undefined;
+      // Issue #925: the generated sample universe is demo-regime only —
+      // it takes an explicit dataMode=demo request on top of the #65 demo
+      // gate; a live request never receives generated items as fallback.
+      const dataMode = url.searchParams.get("dataMode") === "demo" ? "demo" : "live";
+      // Issue #925: when no chain data is available, the envelope says so
+      // explicitly instead of silently carrying substitute numbers.
+      const flowDataUnavailableReason =
+        "No live option-chain data is available; generated sample data is not served outside demo mode.";
 
       if (sub === "live" || sub === "historical") {
-        const flows = await getDynamicLiveFlowItems(env, { tickers, minPremium: minPrem, marketCaps, assetTypes });
+        const flows = await getDynamicLiveFlowItems(env, { tickers, minPremium: minPrem, marketCaps, assetTypes }, { dataMode });
         return Response.json({
           success: true,
           count: flows.length,
@@ -2064,6 +2072,9 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           // Issue #119: there is no trade tape — disclose the modelled
           // basis of every item at the envelope level too.
           provenance: summarizeFlowProvenance(flows),
+          ...(flows.length === 0
+            ? { dataUnavailable: true, unavailableReason: flowDataUnavailableReason }
+            : {}),
           ...(sub === "historical"
             ? {
               note: "No historical options trade tape is available in this product; this returns the current modelled flow estimates, not archived prints.",
@@ -2109,10 +2120,13 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         });
       }
       if (sub === "summary") {
-        const summary = await getDynamicFlowSummary(env, { tickers, minPremium: minPrem, marketCaps, assetTypes });
+        const summary = await getDynamicFlowSummary(env, { tickers, minPremium: minPrem, marketCaps, assetTypes }, { dataMode });
         return Response.json({
           success: true,
           summary,
+          ...(summary.totalTrades === 0
+            ? { dataUnavailable: true, unavailableReason: flowDataUnavailableReason }
+            : {}),
           isDynamic: true,
         });
       }

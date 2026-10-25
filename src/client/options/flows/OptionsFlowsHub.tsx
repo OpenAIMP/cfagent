@@ -654,7 +654,7 @@ export function OptionsFlowsHub({
                           </span>
                           <span className={`flow-prov-badge prov-${item.provenance}`} title={FLOW_PROVENANCE_NOTICE}>
                             {item.provenance === "chain-derived"
-                              ? "chain-derived"
+                              ? "modelled · chain-derived"
                               : item.provenance === "generated"
                                 ? "🧪 generated"
                                 : "static sample"}
