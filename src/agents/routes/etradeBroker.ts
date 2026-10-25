@@ -9,7 +9,7 @@
  *    the block), broker status, diagnostics, accounts, equity screener,
  *    quote, order preview/execute (with the autopilot policy envelope,
  *    expiration scheduling, and pre-trade Slack approval ticket), positions,
- *    portfolio-risk (aggregate / evaluate / correlation / size), think
+ *    portfolio-risk (aggregate / evaluate / correlation / size / bundle), think
  *    evaluation, hedge analysis, and orders listing / remote fetch / cancel.
  * 2. The broker account-activity block: transactions list + details, alerts
  *    inbox + details + delete, and product lookup. It was non-contiguous
@@ -39,24 +39,41 @@ import {
   type CandidateGreekContribution,
 } from "../../services/portfolioRisk";
 import { ETradeThinkHarness } from "../../services/thinkHarness";
+import { parseStockScreenRequest, TradingPlatformRegistry, fetchQuoteLiveStrict } from "../../trading";
+import { resolveEnvironmentConfig } from "../../config/environment";
 import { assessPortfolioConcentration } from "../../services/portfolioConcentration";
 import {
   sizeCandidateAgainstPortfolio,
   type SizingCandidate,
 } from "../../services/positionSizing";
-import { generateHedgeProposals } from "../../services/hedgeProposals";
+import { generateHedgeProposals, resolveSpyPutContract } from "../../services/hedgeProposals";
+import { buildRecommendationBundle, normalizeBundleCandidates, type BundleRouteCandidateBody } from "../../services/recommendationBundle";
+import { completeBundleRoute } from "./etradeBrokerBundle";
+import type { ScreeningChannel, ScreeningChannelResult } from "../../services/screeningDelivery";
+import { buildScenario, type ScenarioConstraints, type ScenarioShockGrid } from "../../services/goalScenarioEngine";
+import type { GoalKind } from "../../services/goalScenarioStore";
+import type { FalsificationInput } from "../../services/researchFalsification";
+import type { StrategyCandidate } from "../../trading";
 import { sharedCorrelationService } from "../../services/correlationService";
 import { ETradeService } from "../../services/etrade";
-import { resolveEnvironmentConfig } from "../../config/environment";
-import { getValidTokens } from "../../security/etradeOAuth";
-import { ETradeRestClient, ETradeSlackTradingService } from "../../trading";
-import { ETradeBrowserService } from "../../services/browserAgent";
 import { publishScreenerCompleted, publishScreenerFailed } from "../../events/screenerPublishers";
 import type { ScreenerRunResult } from "../screener-agent";
 import { getUserDid } from "../did";
 import type { AgentName, Env } from "../../types";
 import type { DatabaseORM } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
+import { handleEtradeDiagnostics } from "./etradeBrokerDiagnostics";
+import { executeEtradeScreen } from "./etradeBrokerScreen";
+import {
+  completeEtradeOrderPreview,
+  completeEtradeOrderExecution,
+} from "./etradeBrokerOrders";
+import {
+  handleTradingSetupCatalog,
+  handleLearningsList,
+  handleLearningsCreate,
+  handleReflectionRun,
+} from "./etradeBrokerLearning";
 import type {
   OrderIntent,
   PolicyVerdict,
@@ -68,6 +85,18 @@ import type { Schedule } from "agents";
 export interface EtradeBrokerRouteContext {
   /** Worker environment (owner: OrchestratorAgent - was `this.env`). */
   env: Env;
+  /** Issue #1123: set when this request is executed as an async job —
+   *  follow-ups then belong to the tracked pipeline, and inline
+   *  publishers must defer (no double delivery). */
+  asyncJobId?: string;
+  /** Issue #1123 S5a: bridge a synchronously-completed screen into
+   *  the tracked follow-up pipeline (main-job record + report +
+   *  deliveries + notifications). Preferred over the inline
+   *  publishers whenever the host provides it. */
+  scheduleScreenerFollowups?: (
+    outcome: import("../../services/screenerFollowups").ScreenerRunOutcome,
+    userLogin: string,
+  ) => Promise<void>;
   /** ORM accessor (owner: OrchestratorAgent - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
   /** Audit writer (owner: OrchestratorAgent - was `this.audit`). */
@@ -90,7 +119,8 @@ export interface EtradeBrokerRouteContext {
     allStocks: unknown[];
     error?: string;
     trigger?: unknown;
-  }): void;
+    userLogin?: string;
+  }): Promise<void>;
   /** Autopilot policy evaluation (owner: OrchestratorAgent - was `this.evaluateAndRecordAutopilotVerdict`). */
   evaluateAndRecordAutopilotVerdict(params: {
     userLogin: string;
@@ -110,7 +140,7 @@ export interface EtradeBrokerRouteContext {
   cancelSchedule(id: string): Promise<boolean>;
 }
 
-async function publishManualScreenerRun(
+export async function publishManualScreenerRun(
   env: Env,
   orm: DatabaseORM,
   userLogin: string,
@@ -136,6 +166,8 @@ async function publishManualScreenerRun(
     trigger: "manual",
     expectedCount: result.expectedCount,
     pdfKey: result.pdfKey,
+    pdfStatus: result.pdfStatus,
+    pdfError: result.pdfError,
     deliveryId: `manual:${result.timestamp}:${result.universe}`,
     sector: result.sector,
     totalScanned: result.totalScanned,
@@ -218,55 +250,7 @@ export async function handleEtradeBrokerRoutes(
 
   // Real E*TRADE REST API Diagnostics
   if (path.endsWith("/etrade/diagnostics") && request.method === "GET") {
-    try {
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-      const envConfig = resolveEnvironmentConfig(ctx.env, requestedEnv);
-      const valid = await getValidTokens(ctx.env, userLogin, requestedEnv);
-      const client = new ETradeRestClient(ctx.env, userLogin, requestedEnv);
-
-      let accounts: any[] = [];
-      let balance: any = null;
-      let lastError: string | null = null;
-
-      if (valid) {
-        accounts = await client.fetchAccounts();
-        lastError = client.getLastError() || null;
-        if (accounts.length > 0) {
-          const key = accounts[0].accountKey || accounts[0].accountId;
-          balance = await client.fetchBalance(key);
-        }
-      } else {
-        lastError = client.getLastError() || `No active OAuth session in [${envConfig.name}] mode. Click 'Connect E*TRADE Account'.`;
-      }
-
-      return Response.json({
-        status: accounts.length > 0 ? "healthy" : (valid ? "upstream_error" : "auth_required"),
-        environment: envConfig.name,
-        isLive: envConfig.isLive,
-        apiUrl: envConfig.etrade.baseUrl,
-        userLogin,
-        credentials: {
-          apiKeyConfigured: Boolean(envConfig.etrade.apiKey),
-          apiKeyMasked: envConfig.etrade.apiKey ? `${envConfig.etrade.apiKey.slice(0, 4)}...${envConfig.etrade.apiKey.slice(-4)}` : "MISSING",
-          apiSecretConfigured: Boolean(envConfig.etrade.apiSecret),
-        },
-        oauthToken: {
-          present: Boolean(valid),
-          storedAt: valid?.storedAt || null,
-          environment: valid?.environment || envConfig.name,
-          validUntilMidnightEt: "E*TRADE access tokens expire at midnight US Eastern Time",
-        },
-        upstreamAccounts: {
-          count: accounts.length,
-          accounts,
-        },
-        upstreamBalance: balance,
-        lastError,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (err: any) {
-      return Response.json({ error: err.message || "Failed to run diagnostics" }, { status: 500 });
-    }
+    return handleEtradeDiagnostics(request, sessionId, ctx, requestedEnv);
   }
 
   // Broker Accounts List (Real E*TRADE REST / OAuth 1.0a)
@@ -311,90 +295,17 @@ export async function handleEtradeBrokerRoutes(
       // Issue #270: universe selection; "ALL" auto-shards into parallel runs.
       // Issue #289: default to NASDAQ100 (deterministic top-100) instead of
       // TECH (fuzzy keyword match with unpredictable symbol count).
-      const universe = (filters.universe as string) || "NASDAQ100";
+      // Issue #959: the body (POST) or assembled params (GET) validate
+      // through the ONE shared stock-screen schema — a mis-shaped
+      // filter is a 400 naming the field, never a silent engine run.
+      const parsedScreen = parseStockScreenRequest(filters);
+      if (!parsedScreen.ok) {
+        return Response.json({ error: parsedScreen.error }, { status: 400 });
+      }
+      const universe = parsedScreen.value.universe;
+      const validatedFilters = parsedScreen.value.filters;
       const agent = ctx.getScreenerAgent(userLogin);
-      if (universe === "ALL") {
-        const shards = await agent.runSharded({ trigger: "manual", filters, userLogin, environment: requestedEnv });
-        const orm = ctx.getOrm();
-        for (const shard of shards) {
-          await publishManualScreenerRun(ctx.env, orm, userLogin, shard);
-        }
-        const failed = shards.filter((r) => !r.success);
-        if (failed.length === shards.length) {
-          return Response.json({ error: failed[0]?.error || "E*TRADE unavailable" }, { status: 502 });
-        }
-        ctx.audit("etrade.screened", "trading", {
-          filterSummary: `ALL (sharded: ${shards.length} universes)`,
-          count: shards.reduce((n, r) => n + r.allStocks.length, 0),
-          success: true,
-        });
-        // Issue #307/#308: store each shard's canonical report copy
-        // (one row per generation) so manual screens are searchable.
-        for (const r of shards) ctx.persistScreenerReportCanonical(r);
-        return Response.json({
-          sharded: true,
-          universes: shards.map((r) => ({
-            universe: r.universe,
-            totalScanned: r.totalScanned,
-            matchedCount: r.matchedCount,
-            opportunities: r.opportunities,
-            stocks: r.allStocks,
-            discoveryMessage: r.discoveryMessage,
-            scannedAt: r.timestamp,
-            reportUrl: r.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(r.pdfKey)}` : undefined,
-            success: r.success,
-            error: r.error,
-          })),
-        });
-      }
-      // Issue #424: if runScreen throws (instead of returning a failed
-      // result), publish the failure notification before propagating.
-      let result;
-      try {
-        result = await agent.runScreen({
-          trigger: "manual",
-          filters,
-          universe: universe as any,
-          userLogin,
-          // The screener runs in its own Durable Object, so it cannot infer the
-          // environment selected on this orchestrator request. Carry the same
-          // authenticated account context into the shared manual/scheduled
-          // screening pipeline.
-          environment: requestedEnv,
-        });
-      } catch (screenErr) {
-        const error = screenErr instanceof Error ? screenErr.message : String(screenErr);
-        await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, {
-          success: false,
-          error,
-          timestamp: new Date().toISOString(),
-          universe: universe as any,
-        } as any);
-        throw screenErr;
-      }
-      ctx.audit("etrade.screened", "trading", {
-        filterSummary: result.discoveryMessage,
-        count: result.allStocks.length,
-        success: result.success,
-      });
-      // Issue #307/#308: store the canonical report copy (one row per
-      // generation) so manual screens are searchable like scheduled ones.
-      ctx.persistScreenerReportCanonical(result);
-      await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, result);
-      if (!result.success) {
-        return Response.json({ error: result.error || "E*TRADE unavailable" }, { status: 502 });
-      }
-      return Response.json({
-        universe: result.universe,
-        totalScanned: result.totalScanned,
-        matchedCount: result.matchedCount,
-        opportunities: result.opportunities,
-        stocks: result.allStocks,
-        discoveryMessage: result.discoveryMessage,
-        scannedAt: result.timestamp,
-        pdfKey: result.pdfKey,
-        reportUrl: result.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}` : undefined,
-      });
+      return await executeEtradeScreen({ ctx, sessionId, requestedEnv, userLogin, agent, universe, validatedFilters });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to screen equities" }, { status: 500 });
     }
@@ -406,8 +317,13 @@ export async function handleEtradeBrokerRoutes(
       const rawSym = url.searchParams.get("symbol") || "NVDA";
       const symbol = rawSym.toUpperCase().trim() || "NVDA";
       const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
-      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
-      const quote = await etrade.fetchQuoteRemote(symbol);
+      // #291 Q3: registry-resolved platform + the LIVE_STRICT policy —
+      // the exact semantics fetchQuoteRemote enforced here (live failure
+      // throws into the 500 below; sandbox uses the platform chain).
+      const platform = TradingPlatformRegistry.getPlatform("etrade", ctx.env, ctx.getOrm(), userLogin, requestedEnv);
+      const quote = await fetchQuoteLiveStrict(platform, symbol, {
+        isLive: resolveEnvironmentConfig(ctx.env, requestedEnv).isLive,
+      });
       return Response.json(quote, {
         headers: {
           "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -465,94 +381,7 @@ export async function handleEtradeBrokerRoutes(
         strategyNetDebit: body.strategyNetDebit !== undefined ? Number(body.strategyNetDebit) : undefined,
       });
 
-      ctx.audit("etrade.order_previewed", "trading", {
-        orderId: preview.orderId,
-        symbol: preview.symbol,
-        orderAction: preview.orderAction,
-        quantity: preview.quantity,
-        estimatedTotal: preview.estimatedTotal,
-        proposerDid: preview.proposerDid,
-      });
-
-      // Autopilot policy envelope (autopilot Phase 1). Evaluated server-side
-      // and recorded with a signed verdict. Paused ⇒ advisory (the human
-      // authorizer still decides); running ⇒ hard gate, re-checked at execute.
-      try {
-        const evaluated = await ctx.evaluateAndRecordAutopilotVerdict({
-          userLogin,
-          requestedEnv,
-          sessionId,
-          draftId: preview.orderId,
-          intent: {
-            symbol: preview.symbol,
-            action: preview.orderAction,
-            quantity: preview.quantity,
-            orderType: preview.orderType,
-            estimatedPrice: typeof preview.estimatedPrice === "number" ? preview.estimatedPrice : null,
-            estimatedTotal: typeof preview.estimatedTotal === "number" ? preview.estimatedTotal : null,
-          },
-        });
-        (preview as any).policyVerdict = evaluated.verdict;
-        if (!evaluated.verdict.executionAllowed) {
-          return Response.json(
-            {
-              error: `Autopilot policy blocked this order: ${evaluated.verdict.detail}`,
-              bindingRule: evaluated.verdict.bindingRule,
-              policyVerdict: evaluated.verdict,
-            },
-            { status: 409 }
-          );
-        }
-      } catch (policyErr) {
-        console.warn("[OrchestratorAgent] Autopilot policy evaluation failed at preview:", policyErr);
-        ctx.audit("autopilot.policy_check_failed", "trading", {
-          stage: "preview",
-          orderId: preview.orderId,
-          error: policyErr instanceof Error ? policyErr.message : String(policyErr),
-        });
-        if (ctx.getAutopilotState().running) {
-          return Response.json(
-            { error: "Autopilot policy check could not be completed; refusing to preview while autopilot is running." },
-            { status: 503 }
-          );
-        }
-      }
-
-      // Schedule a 15-minute expiration timer (900 seconds) for this draft
-      try {
-        const expSchedule = await ctx.schedule(900, "expireStaleOrderDraft", { orderId: preview.orderId, userLogin });
-        if (expSchedule?.id) {
-          preview.expirationScheduleId = expSchedule.id;
-          preview.expiresAt = new Date(Date.now() + 900 * 1000).toISOString();
-          ctx.getOrm().trades?.update(preview.orderId, {
-            expirationScheduleId: expSchedule.id,
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      } catch (schedErr) {
-        console.warn("[OrchestratorAgent] Note: could not schedule expiration timer:", schedErr);
-      }
-
-      // Dispatch Pre-Trade Approval Ticket Block Kit card to Slack (Strict HITL Gate)
-      try {
-        const slackService = new ETradeSlackTradingService(ctx.env, ctx.getOrm(), sessionId);
-        await slackService.sendPreTradeApprovalTicket({
-          orderId: preview.orderId,
-          symbol: preview.symbol,
-          action: preview.orderAction as any,
-          quantity: preview.quantity,
-          orderType: preview.orderType as any,
-          limitPrice: preview.limitPrice,
-          estimatedPrice: preview.estimatedPrice,
-          estimatedTotal: preview.estimatedTotal,
-          proposerDid: preview.proposerDid,
-          expiresAt: preview.expiresAt,
-        });
-      } catch (slackErr) {
-        console.warn("[OrchestratorAgent] Note: could not dispatch Slack pre-trade ticket:", slackErr);
-      }
-
-      return Response.json(preview);
+      return await completeEtradeOrderPreview({ ctx, sessionId, preview, userLogin, requestedEnv });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to preview trade order" }, { status: 500 });
     }
@@ -696,82 +525,7 @@ export async function handleEtradeBrokerRoutes(
       }
 
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
-      let result: any;
-
-      if (ctx.env.ETRADE_CONSUMER_KEY || ctx.env.ETRADE_MCP_SERVER_URL || ctx.env.ET_API_KEY) {
-        result = await etrade.placeOrderRemote({
-          orderId,
-          symbol,
-          action,
-          quantity,
-          orderType,
-          limitPrice,
-          previewId: body.previewId && String(body.previewId).trim() !== ""
-            ? String(body.previewId).trim()
-            : existingRecord?.orderRef && String(existingRecord.orderRef).trim() !== ""
-            ? String(existingRecord.orderRef).trim()
-            : undefined,
-          optionLegs: strategyOrder?.optionLegs,
-          strategyNetDebit: strategyOrder?.strategyNetDebit,
-          userLogin,
-        });
-        if (result.success && ctx.getOrm().trades) {
-          ctx.getOrm().trades.update(orderId, {
-            status: "executed",
-            orderRef: result.executionId,
-            authorizerDid: userDid,
-            updatedAt: new Date().toISOString(),
-          });
-          ctx.incrementAutopilotOrdersToday();
-        }
-      } else {
-        result = etrade.executeOrder(orderId, userDid, decision);
-      }
-
-      // Cancel the scheduled expiration timer since the order has been executed
-      if (existingRecord.expirationScheduleId) {
-        try {
-          await ctx.cancelSchedule(existingRecord.expirationScheduleId);
-        } catch {
-          // Ignore cancel error if already triggered
-        }
-      }
-
-      ctx.audit("etrade.order_executed", "trading", {
-        orderId,
-        decision,
-        authorizerDid: userDid,
-        status: result.status,
-        executionId: result.executionId,
-        policyVerdictId: executionVerdict?.verdictId ?? null,
-      });
-
-      // Automatically dispatch official transaction snap to Slack via ETradeBrowserService
-      if (result.status === "executed" || result.success) {
-        try {
-          const browserService = new ETradeBrowserService(ctx.env);
-          await browserService.sendTransactionSnapToSlack({
-            transactionId: orderId,
-            symbol,
-            action,
-            quantity,
-            price: existingRecord.price || (typeof limitPrice === "number" ? limitPrice : 0),
-            orderType,
-            status: "EXECUTED",
-            totalValue: existingRecord.totalValue || (quantity * (existingRecord.price || 0)),
-            environment: (ctx.env.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
-            timestamp: new Date().toISOString(),
-            // This route is the HITL authorize/execute gate: execution
-            // here means the session user submitted decision "approved"
-            // for this draft (issue #120).
-            humanApproved: decision === "approved",
-          });
-        } catch (snapErr) {
-          console.warn("[OrchestratorAgent] Note: could not send transaction snap to Slack:", snapErr);
-        }
-      }
-
-      return Response.json(result);
+      return await completeEtradeOrderExecution({ ctx, sessionId, body, orderId, decision, userLogin, userDid, existingRecord, symbol, action, quantity, orderType, limitPrice, strategyOrder, executionVerdict, etrade });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to execute trade order" }, { status: 500 });
     }
@@ -867,6 +621,98 @@ export async function handleEtradeBrokerRoutes(
       return Response.json(sizeCandidateAgainstPortfolio(report, body.candidate));
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to size candidate" }, { status: 500 });
+    }
+  }
+
+  // Recommendation Bundle — Best Trade v2 (issue #1135, Phase 4 of epic
+  // #1096): a strategy candidate becomes a bundle (trade + falsification +
+  // post-trade risk + optimizer verdict + hedge/repair + alternatives
+  // incl. no-trade), built by recommendationBundle over the live book.
+  // Drafts only — this endpoint never places or previews an order.
+  //
+  // Issue #1162 (Phase 6): the body also accepts `candidates[]` (the
+  // builder was always multi-candidate; the first entry is the primary
+  // the concentration assessment describes), opt-in `persist: true`
+  // (record the bundle as a paper outcome in mas_outcomes via the
+  // Phase 4 persistence seam — the ORM satisfies its SqlStorage
+  // contract), and opt-in `deliver: { channels, emailTo }` (send the
+  // bundle text over the existing Slack/email/signed-webhook
+  // transports via screeningDelivery). Both are off unless requested:
+  // the Phase 4 response shape is unchanged for existing callers.
+  // C5 (#1361): opt-in `persistReport` stores the bundle via the
+  // shared store seam (source "bundle"); completion (persist +
+  // persistReport + deliver + response) lives in etradeBrokerBundle.
+  if (path.endsWith("/etrade/portfolio-risk/bundle") && request.method === "POST") {
+    try {
+      const body = (await request.json().catch(() => ({}))) as {
+        candidate?: StrategyCandidate;
+        candidates?: BundleRouteCandidateBody[];
+        beta?: number | null;
+        falsification?: FalsificationInput;
+        goalKind?: GoalKind;
+        shocks?: ScenarioShockGrid;
+        constraints?: ScenarioConstraints;
+        requestedContracts?: number;
+        riskScore?: number;
+        pickStatus?: "recommended" | "research_only" | "no_trade";
+        pickConfidence?: "HIGH" | "MEDIUM" | "LOW";
+        persist?: boolean;
+        persistReport?: boolean;
+        deliver?: { channels?: ScreeningChannel[]; emailTo?: string };
+      };
+      const normalized = normalizeBundleCandidates(body);
+      if (!normalized.ok) {
+        return Response.json({ error: normalized.error }, { status: 400 });
+      }
+      const primary = normalized.candidates[0];
+      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      const report = await computePortfolioRisk(etrade);
+      const concentration = await assessPortfolioConcentration(
+        report,
+        (a, b) => sharedCorrelationService.estimate(a, b),
+        primary.candidate.symbol,
+      ).catch(() => null);
+      const measured = (concentration?.candidateAssessment?.correlations ?? [])
+        .filter((c) => c.source === "measured" && c.value !== null)
+        .map((c) => c.value as number);
+      const { generateRepairProposals } = await import("../../services/repairProposals");
+      const repairAnalysis = await generateRepairProposals(etrade).catch(() => null);
+      const spyPut = await resolveSpyPutContract(etrade).catch(() => null);
+      const scenario = buildScenario({
+        goalKind: body.goalKind ?? "directional",
+        portfolioRef: { kind: "real" },
+        shocks: body.shocks,
+        constraints: body.constraints,
+      });
+      const bundle = buildRecommendationBundle({
+        candidates: normalized.candidates.map((c, i) => ({
+          ...c,
+          // The measured-correlation evidence belongs to the primary
+          // candidate's concentration assessment; other candidates
+          // carry no measured correlation rather than borrowing it.
+          maxMeasuredCorrelation: i === 0 && measured.length ? Math.max(...measured) : null,
+        })),
+        report,
+        scenario,
+        falsification: body.falsification,
+        pickStatus: body.pickStatus,
+        pickConfidence: body.pickConfidence,
+        concentration,
+        spyPut,
+        repairAnalysis,
+      });
+
+      // C5 (#1361): completion lives in etradeBrokerBundle (the #995
+      // split pattern) so this file stays under the #359 50 KB target.
+      return completeBundleRoute(ctx, {
+        bundle,
+        primarySymbol: primary.candidate.symbol,
+        body,
+        userLogin,
+      });
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : "Failed to build recommendation bundle" }, { status: 500 });
     }
   }
 
@@ -1134,57 +980,21 @@ export async function handleEtradeBrokerActivityRoutes(
 
   // Issue #650: setup catalog browser endpoint.
   if (path.endsWith("/trading/setup-catalog") && request.method === "GET") {
-    try {
-      const { listSetups } = await import("../../trading");
-      return Response.json({ setups: listSetups() });
-    } catch (err) {
-      return Response.json({ error: err instanceof Error ? err.message : "Failed to load catalog" }, { status: 500 });
-    }
+    return handleTradingSetupCatalog();
   }
 
   // Issue #706: learning store endpoints.
-  if (path.endsWith("/learnings") && request.method === "GET") {    try {
-      const { getActiveLearnings, getLearningHistory } = await import("../../services/learnings");
-      const domain = url.searchParams.get("domain") || undefined;
-      const history = url.searchParams.get("history") === "true";
-      const learnings = history
-        ? getLearningHistory(ctx.getOrm(), domain)
-        : getActiveLearnings(ctx.getOrm(), domain);
-      return Response.json({ learnings });
-    } catch (err) {
-      return Response.json({ error: err instanceof Error ? err.message : "Failed to list learnings" }, { status: 500 });
-    }
+  if (path.endsWith("/learnings") && request.method === "GET") {
+    return handleLearningsList(request, url, ctx);
   }
   if (path.endsWith("/learnings") && request.method === "POST") {
-    try {
-      const { recordLearning } = await import("../../services/learnings");
-      const body = (await request.json().catch(() => ({}))) as any;
-      if (!body.domain || !body.observation) {
-        return Response.json({ error: "domain and observation required" }, { status: 400 });
-      }
-      const id = recordLearning(ctx.getOrm(), {
-        domain: body.domain,
-        observation: body.observation,
-        evidenceRefs: body.evidenceRefs,
-        confidence: body.confidence,
-        source: "human",
-      });
-      return Response.json({ id, success: true });
-    } catch (err) {
-      return Response.json({ error: err instanceof Error ? err.message : "Failed to record learning" }, { status: 500 });
-    }
+    return handleLearningsCreate(request, ctx);
   }
 
   // Issue #705: reflection job trigger. The weekly guard lives in
   // runReflection (Sunday-only, idempotent per week).
   if (path.endsWith("/reflection/run") && request.method === "POST") {
-    try {
-      const { runReflection } = await import("../../services/reflection");
-      const result = runReflection(ctx.getOrm(), new Date());
-      return Response.json({ success: true, ...result, timestamp: new Date().toISOString() });
-    } catch (err) {
-      return Response.json({ error: err instanceof Error ? err.message : "Reflection failed" }, { status: 500 });
-    }
+    return handleReflectionRun(ctx);
   }
 
   return null;

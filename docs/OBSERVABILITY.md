@@ -80,6 +80,84 @@ hidden), so the request budget holds ~17 concurrently open tabs. A regression
 here — a new 4 s poller, a missing `visibilityState` gate — is the most likely
 cause of a quota alert, and it shows up as request volume, not KV volume.
 
+## 4. SessionStore data-plane records (issue #910) — evaluating the #789 sharding triggers
+
+Every op against the SessionStore Durable Object emits exactly one
+structured record from the client funnel in `src/security/durableKv.ts`
+(sink: `src/security/storeMetrics.ts`). The record is a bare JSON
+`console.log` line, so Workers Logs (§1, `head_sampling_rate: 1` — nothing
+is sampled away) lifts the fields out of the message and no free-text
+parsing is needed:
+
+```json
+{"event":"store_op","v":1,"ns":"sessions","op":"get","instance":"kv","outcome":"ok","latencyMs":3,"ts":1760000000000}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `ns` | Bucket: `sessions`, `etrade`, `api_keys`, `payments` |
+| `op` | `get` / `put` / `delete` / `consume` / `list` |
+| `instance` | DO instance addressed (`kv` — the single instance #789 is about) |
+| `outcome` | `ok` (store answered per contract) · `miss` (`get` found nothing — **not** a failure) · `failed` (non-200 incl. platform *overloaded*, exception, or the 2,000 ms client timeout; `httpStatus` is present for the non-200 case) · `unavailable` (no `SESSION_STORE` binding, op never attempted) |
+| `latencyMs` | Client-observed round-trip latency (0 when `unavailable`) |
+
+Emission is best-effort and cannot fail the op it observes (the sink is
+isolated; pinned by `tests/store_op_metrics.test.ts`), and it adds no store
+round-trip. Records are client-side by design: a server-side counter inside
+the DO could never see the timeouts and overload rejections that trigger T2
+exists to catch, because those requests never land.
+
+**Evaluating the #789 triggers.** Export the matching records (Workers
+Logs → filter on the structured field `event` = `store_op`, or a Logpush
+job on the same field) as newline-delimited JSON, then:
+
+T2 — failures >0.1% of ops in 24 h (per bucket/op, and overall):
+
+```bash
+# per bucket/op failure rate over the exported window
+jq -s 'group_by([.ns, .op]) | map({
+  ns: .[0].ns, op: .[0].op, ops: length,
+  failed: (map(select(.outcome == "failed" or .outcome == "unavailable")) | length)
+} | . + {failure_rate: (.failed / .ops)})' store_ops.ndjson
+
+# T2 fires when this overall 24 h rate exceeds 0.001
+jq -s '{ops: length,
+        failed: (map(select(.outcome == "failed" or .outcome == "unavailable")) | length)}
+       | . + {failure_rate: (.failed / .ops)}' store_ops.ndjson
+```
+
+T1 — >250 ops/s sustained, or >500 ops/s averaged over an hour, on the
+`kv` instance:
+
+```bash
+# per-minute rate: T1 (sustained) fires on any run of >=5 consecutive
+# minutes each above 250 ops/s
+jq -s 'map(select(.instance == "kv")) | group_by(.ts / 60000 | floor)
+       | map({minute_epoch: ((.[0].ts / 60000 | floor) * 60),
+              ops: length, ops_per_sec: (length / 60)})
+       | map(select(.ops_per_sec > 250))' store_ops.ndjson
+
+# per-hour rate: T1 fires on any hour above 500 ops/s
+jq -s 'map(select(.instance == "kv")) | group_by(.ts / 3600000 | floor)
+       | map({hour_epoch: ((.[0].ts / 3600000 | floor) * 3600),
+              ops: length, ops_per_sec: (length / 3600)})
+       | map(select(.ops_per_sec > 500))' store_ops.ndjson
+```
+
+Latency sanity (a rising p95 at flat volume is the early-warning shape of
+a store under pressure, before either trigger fires):
+
+```bash
+jq -s 'group_by([.ns, .op]) | map({ns: .[0].ns, op: .[0].op, n: length,
+  p95_latency_ms: (map(.latencyMs) | sort | .[((length * 0.95 | floor) - 1)])})' store_ops.ndjson
+```
+
+Volume note: one line per op (~130 bytes). At the #789-measured load
+(≪5 ops/s) this is noise-level; if the store ever approaches T1 rates the
+lines themselves become the evidence, and in-isolate aggregation behind
+the same sink seam is the documented next step — the record shape above is
+the contract either way.
+
 ## Retention honesty (issue #257)
 
 UI copy must advertise only enforced retention. What is actually enforced:

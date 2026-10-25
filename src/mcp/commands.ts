@@ -16,6 +16,7 @@ import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import type { SupportedGateway } from "../services/payments";
 import { AGENT_DIDS, createDidAttestation, getUserDid } from "../agents/did";
 import { executeNaturalLanguageQuery } from "../agents/nlq";
+import { registerDraftOwner } from "../payments/draftOwners";
 import {
   ETradeMarketScanCommand,
   ETradeGetQuoteCommand,
@@ -267,6 +268,11 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
       createdAt: now,
       updatedAt: now,
     });
+
+    // Issue #932: record this instance as the draft's owner so a gateway
+    // settlement webhook (received by the shared system_webhook_receiver
+    // instance) can be routed back here.
+    await registerDraftOwner(context.env, draftId, context.sessionId);
 
     context.audit("payment.awaiting_confirmation", "payments", {
       draftId,

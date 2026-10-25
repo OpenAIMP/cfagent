@@ -119,7 +119,7 @@ describe("resolveScheduleUpdate (#273)", () => {
     expect(r).toEqual({
       ok: true,
       timing: { type: "interval", intervalSeconds: 900 },
-      payload: { symbols: ["MSFT"] },
+      payload: { symbols: ["MSFT"], trigger: "scheduled" },
     });
   });
 

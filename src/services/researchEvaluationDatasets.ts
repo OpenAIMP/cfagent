@@ -8,6 +8,8 @@
  */
 import manifestV1 from "../../evaluations/datasets/v1/manifest.json";
 import casesV1 from "../../evaluations/datasets/v1/cases.json";
+import manifestV2 from "../../evaluations/datasets/v2/manifest.json";
+import casesV2 from "../../evaluations/datasets/v2/cases.json";
 import type { StoredIdeaRecord } from "./researchPipeline";
 
 export interface EvaluationDatasetManifest {
@@ -37,6 +39,10 @@ export interface EvaluationDataset {
 
 const REGISTRY: Record<string, { manifest: unknown; cases: unknown }> = {
   v1: { manifest: manifestV1, cases: casesV1 },
+  // v2 (#1140, epic #1096 Phase 5): frozen champion/challenger sets
+  // across regimes and strategy families, ordered for walk-forward
+  // folds (selection first, holdout last).
+  v2: { manifest: manifestV2, cases: casesV2 },
 };
 
 function isManifest(m: unknown): m is EvaluationDatasetManifest {

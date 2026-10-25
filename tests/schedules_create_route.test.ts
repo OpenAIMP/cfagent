@@ -99,13 +99,17 @@ describe("POST /api/schedules/create (#111)", () => {
     scheduleEveryCalls = [];
   });
 
-  it("exposes only the stock screen, options screen, and discovery callbacks", () => {
+  it("exposes only the stock screen, options screen, discovery, and goal-screen callbacks", () => {
     // Issue #126 (PR-E) deliberately grew this allow-list by one:
     // autonomousStrategyDiscovery (scheduled re-runs of saved strategy
     // requests) is user-creatable through the same route. The pin's
     // purpose — no internal-only callback is creatable — is unchanged.
+    // Consolidation C1 (#1201, epic #1151) deliberately grew it by one
+    // more: autonomousGoalScreen (scheduled Phase 1 goal/scenario
+    // screens through the unified stack) is user-creatable through the
+    // same route, with its payload validated by buildSchedulePayload.
     expect([...CREATABLE_SCHEDULE_CALLBACKS].sort()).toEqual(
-      ["autonomousMarketScreen", "autonomousOptionsAnalysis", "autonomousStrategyDiscovery"].sort()
+      ["autonomousGoalScreen", "autonomousMarketScreen", "autonomousOptionsAnalysis", "autonomousStrategyDiscovery"].sort()
     );
     // Internal-only callbacks are armed by the agent itself, never via the route.
     expect(CREATABLE_SCHEDULE_CALLBACKS as readonly string[]).not.toContain("executeAsyncJob");

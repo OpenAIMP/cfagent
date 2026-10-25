@@ -94,7 +94,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                 <div className="social-buttons-grid">
                   <a
                     href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
-                      `Build autonomous AI agents with Cloudflare Workers AI & SQLite on Multi-Agent Studio: ${personalReferralUrl}`
+                      `Build autonomous AI trading and intelligence agents on NextGenTP: ${personalReferralUrl}`
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -117,7 +117,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   <a
                     href={`https://reddit.com/submit?url=${encodeURIComponent(
                       personalReferralUrl
-                    )}&title=${encodeURIComponent("Multi-Agent Studio: Autonomous AI Agents with Workers AI & SQLite")}`}
+                    )}&title=${encodeURIComponent("NextGenTP: Autonomous Multi-Agent Trading & Intelligence Platform")}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="social-btn reddit"
@@ -158,7 +158,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   </a>
                   <a
                     href={`https://www.threads.net/intent/post?text=${encodeURIComponent(
-                      `Autonomous AI Agents on Cloudflare Workers AI: ${personalReferralUrl}`
+                      `Autonomous Multi-Agent Trading Platform: ${personalReferralUrl}`
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -169,7 +169,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   </a>
                   <a
                     href={`https://bsky.app/intent/compose?text=${encodeURIComponent(
-                      `Check out Multi-Agent Studio for edge AI agents: ${personalReferralUrl}`
+                      `Check out NextGenTP for multi-agent trading: ${personalReferralUrl}`
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -181,7 +181,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   <a
                     href={`https://news.ycombinator.com/submitlink?u=${encodeURIComponent(
                       personalReferralUrl
-                    )}&t=${encodeURIComponent("Multi-Agent Studio: Edge AI agents on Cloudflare Workers")}`}
+                    )}&t=${encodeURIComponent("NextGenTP: Institutional Multi-Agent Trading System")}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="social-btn hackernews"
@@ -192,7 +192,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   <a
                     href={`https://pinterest.com/pin/create/button/?url=${encodeURIComponent(
                       personalReferralUrl
-                    )}&description=${encodeURIComponent("Autonomous AI Agents on Cloudflare Workers")}`}
+                    )}&description=${encodeURIComponent("Autonomous Multi-Agent Trading & Strategy Execution")}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="social-btn pinterest"
@@ -264,7 +264,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                     <label>Link Title / Service *</label>
                     <input
                       type="text"
-                      placeholder="e.g. Cloudflare Workers AI Pro, Cursor AI, Supabase"
+                      placeholder="e.g. Market Data Pro, Cursor AI, Supabase"
                       value={newRefTitle}
                       onChange={(e) => setNewRefTitle(e.target.value)}
                       required
@@ -535,11 +535,11 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   </div>
                   <span className="join-arrow">↗</span>
                 </a>
-                <a href="https://reddit.com/r/Cloudflare" target="_blank" rel="noopener noreferrer" className="platform-card reddit">
+                <a href="https://reddit.com/r/algotrading" target="_blank" rel="noopener noreferrer" className="platform-card reddit">
                   <span className="platform-icon">👽</span>
                   <div className="platform-info">
                     <strong>Reddit</strong>
-                    <span>r/Cloudflare & r/LocalLLaMA discussions</span>
+                    <span>r/algotrading & r/LocalLLaMA discussions</span>
                   </div>
                   <span className="join-arrow">↗</span>
                 </a>

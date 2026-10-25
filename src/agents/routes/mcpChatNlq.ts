@@ -45,10 +45,12 @@ import {
   MCP_SERVER_INFO,
   MCP_TOOLS,
 } from "../../mcp";
-import { executeNaturalLanguageQuery, type NLQSchedulingPort } from "../nlq";
+import { executeNaturalLanguageQuery, type NLQSchedulingPort, type NLQSocialBriefPort } from "../nlq";
 import { resolveAiModelName } from "../model";
 import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
+import { createDiscoveryService } from "../../services/discoveryService";
+import { createFitDiscoveryRunner } from "../../services/fitDiscoveryRunner";
 
 /** The subset of OrchestratorAgent surface the MCP/chat/NLQ handlers need. */
 export interface McpChatNlqRouteContext {
@@ -89,6 +91,14 @@ export interface McpChatNlqRouteContext {
   }>;
   buildChatErrorFallback(err: unknown, userText: string, userLogin: string): Promise<string>;
   nlqSchedulingPort(): NLQSchedulingPort;
+  /**
+   * #1077 Phase 5b slice 2: optional — test/older contexts omit it and
+   * the /nlq route then passes no social port (executor fails
+   * honestly). Production orchestrator contexts bind it from
+   * SESSION_STORE; the route still withholds it from
+   * webhook-originated requests (see below).
+   */
+  nlqSocialBriefPort?(): NLQSocialBriefPort | null;
 }
 
 /**
@@ -238,6 +248,20 @@ export async function handleMcpChatNlqRoutes(
       const contextHeader = request.headers.get("x-nlq-context") || body.context;
       const userDid = getUserDid(sessionId);
       const orm = ctx.getOrm();
+      // #1077 Phase 5b slice 2: the social brief port is bound ONLY
+      // for trusted chat requests. Webhook-originated NLQ (the
+      // server's NLQ webhook forwards here with x-nlq-source:
+      // webhook) never gets it: webhook bodies are untrusted
+      // external content, and a brief is a public-post input —
+      // autonomous channels would publish it with no human approval.
+      // Withholding the port makes the executor fail honestly; the
+      // header can only REMOVE the port (a forged "webhook" value
+      // on a direct call disables intake for that caller), never
+      // grant it.
+      const socialBriefPort =
+        request.headers.get("x-nlq-source") === "webhook"
+          ? undefined
+          : (ctx.nlqSocialBriefPort?.() ?? undefined);
       const { plan, result } = await executeNaturalLanguageQuery(
         orm,
         sessionId,
@@ -245,7 +269,7 @@ export async function handleMcpChatNlqRoutes(
         ctx.env,
         userLogin,
         userDid,
-        { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort() }
+        { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), socialBriefPort, discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql() }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql: ctx.getStorageSql() }) }
       );
       ctx.audit("nlq.executed", "nlq", {
         query,

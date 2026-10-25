@@ -7,7 +7,7 @@ import {
   type OptionsIdeasReportExport,
   type RawOptionsIdeasExport,
   type RetrievedOptionsDataExport,
-} from "./optionsIdeasExport";
+} from "../runExport";
 import type { TradeOrderContext, TradeOrderLeg } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 
@@ -197,7 +197,7 @@ export function LlmStrategyEvalModal({
         {/* Modal Header */}
         <div className="llm-eval-modal-header">
           <div className="llm-eval-title-group">
-            <span className="llm-eval-badge">🧠 Workers AI LLM Evaluation</span>
+            <span className="llm-eval-badge">🧠 Neural Strategy Evaluation</span>
             <h3>{strategy.strategyName} on {strategy.symbol}</h3>
             {strategy.legsText && <span className="llm-eval-legs-subtitle">{strategy.legsText}</span>}
           </div>
@@ -266,7 +266,7 @@ export function LlmStrategyEvalModal({
                 className="llm-eval-submit-btn"
                 disabled={loading || !question.trim()}
               >
-                {loading ? "Analyzing strategy with Workers AI…" : "🚀 Run LLM Evaluation"}
+                {loading ? "Analyzing strategy with Neural Engine…" : "🚀 Run LLM Evaluation"}
               </button>
               <button
                 type="button"
@@ -307,7 +307,7 @@ export function LlmStrategyEvalModal({
             <div className="llm-eval-results-container">
               {/* Coverage & Model Meta */}
               <div className="llm-eval-meta-bar">
-                <span>Model: <strong>{result.llm.model || "Workers AI Llama 3.3"}</strong></span>
+                <span>Model: <strong>{result.llm.model || "Neural Llama 3.3"}</strong></span>
                 <span>•</span>
                 <span>{result.dataCoverage.expirationCount} Expirations</span>
                 <span>•</span>
@@ -327,7 +327,7 @@ export function LlmStrategyEvalModal({
                       marginLeft: "auto",
                     }}
                   >
-                    ⚡ Stored SQLite Cache
+                    ⚡ Stored Market Cache
                   </span>
                 )}
               </div>

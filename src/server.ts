@@ -1,6 +1,39 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
 import { getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
-import { getSessionCached } from "./security/sessionCache";
+import { getSessionCached, invalidateSessionCache } from "./security/sessionCache";
+import { getSession, sessionStore, updateSession } from "./security/session";
+import type { DoNamespaceLike } from "./security/durableKv";
+import { zonedDateParts } from "./schedule";
+import {
+  SOCIAL_BRIEF_MAX_CHARS,
+  createSocialBriefStoreFromNamespace,
+  isBriefDate,
+} from "./agents/social/briefStore";
+import { createSocialStoresFromNamespace } from "./agents/social/durableStores";
+import {
+  KNOWN_SOCIAL_CHANNELS,
+  parseSocialConfig,
+} from "./agents/social/config";
+import { createMemoryDryRunSink } from "./agents/social/publisher";
+import { approveAndPublish, rejectSocialDraft } from "./agents/social/approvalActions";
+import {
+  handleSocialSlackInteraction,
+  parseSocialAction,
+} from "./agents/social/interactions";
+import { checkAllTokenHealth } from "./agents/social/tokenHealth";
+import { validateAndTouchWiredSession } from "./security/iaaaEnforcement";
+import { requiresStepUpForMint } from "./security/iaaaGates";
+import { createWiredAuditStore } from "./security/iaaaAuditStore";
+import { createKvMembershipStore, grantMembership } from "./security/iaaaMembershipStore";
+import { canGrantRole } from "./security/authorization";
+import { createAccessRequestStore } from "./security/iaaaAccessRequests";
+import { buildAdminOverview } from "./security/iaaaAdminOverview";
+import { buildOpenApiSpec, SWAGGER_UI_HTML } from "./security/openapiSpec";
+import {
+  checkRoutePermission,
+  resolveIaaaTenant,
+  shouldEnforcePdp,
+} from "./security/iaaaGithubEndToEnd";
 import {
   bearerKeyFromRequest,
   listApiKeys,
@@ -10,7 +43,15 @@ import {
 } from "./security/apiKeys";
 import { serveStaticAsset } from "./security/staticAssets";
 import { withErrorBoundary } from "./security/workerErrorBoundary";
-import { handleLogin, handleOAuthCallback, handleLogout, renderLoginPage } from "./oauth";
+import { handleLogout, renderLoginPage } from "./oauth";
+import {
+  disabledLoginResponse,
+  enabledProviders,
+  getProvider,
+  getProviderByIssuer,
+  isWiringEnabled,
+  resolveLoginProvider,
+} from "./security/providers";
 import { renderLandingPage } from "./landing";
 import { SERVER_PALETTE } from "./theme/serverPalette";
 import { routeAgentRequest } from "agents";
@@ -24,10 +65,25 @@ import {
   getValidTokens,
   renewAllStoredETradeTokens,
 } from "./services/etradeOAuth";
+import {
+  PublicClientRejectedError,
+  completePublicOAuth,
+  connectPublicPersonalToken,
+  disconnectPublic,
+  getPublicConnectionStatus,
+  publicClientMetadataDocument,
+  startPublicOAuth,
+} from "./security/publicOAuth";
 import { ETradeRestClient } from "./trading";
 import { resolveEnvironmentConfig } from "./config/environment";
 import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./trading";
-import { ETradeSlackTradingService } from "./trading";
+import { ETradeSlackTradingService, confirmSlackLink } from "./trading";
+import {
+  INBOUND_EMAIL_ORCHESTRATOR_INSTANCE,
+  resolvePrincipal,
+  slackPrincipalLinkStoreFromEnv,
+  verifyApprovalLinkForPrincipal,
+} from "./trading";
 import { gateSlackRequest } from "./security/webhookSecurity";
 import { checkRateLimit } from "./security/rateLimiter";
 import {
@@ -35,7 +91,7 @@ import {
   sharedMemoryReplayStore,
   validateEmailRecipient,
 } from "./security/webhookReplay";
-import { handleVoiceWebSocketConnection, ETradeVoiceTradingService } from "./trading";
+import { handleVoiceWebSocketConnection, ETradeVoiceTradingService, createOrchestratorVoiceTurnForwarder } from "./trading";
 import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
 import { handleMarketQuotesWebSocket, handleMarketQuotesHttp } from "./services/marketStream";
@@ -68,6 +124,8 @@ export { ScreenerAgent } from "./agents/screener-agent";
 // Issue #319 — wrangler requires every bound DO class to be exported from
 // the entrypoint, otherwise `wrangler deploy` fails.
 export { ResearchAgent } from "./agents/research-agent";
+export { TradingAgent } from "./agents/trading-agent";
+export { TradingTradeWorkflow } from "./agents/trading-trade-workflow";
 export { ReportAssetAgent } from "./agents/report-asset-agent";
 export { SessionStore } from "./security/sessionStore";
 
@@ -209,7 +267,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
     // Issue #329: static assets never need a session, but `run_worker_first`
     // routes them through this handler anyway — so serve them from the ASSETS
-    // binding before `requireAuth` can spend a SESSIONS KV read on them.
+    // binding before `requireAuth` can spend a session-store read on them.
     const staticAsset = await serveStaticAsset(request, path, env);
     if (staticAsset) return staticAsset;
 
@@ -236,6 +294,24 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       }
       return null;
     };
+
+    // Issue #1247: Public.com Client ID Metadata Document — the
+    // OAuth client_id for the Public resource provider IS this URL
+    // (no RFC 7591 registration exists; see src/security/publicOAuth.ts).
+    // Served ahead of the A2A well-known branch, which would otherwise
+    // claim every /.well-known/* path. Public by design: the
+    // authorization server fetches it unauthenticated.
+    if (path === "/.well-known/oauth-client-id-metadata-document") {
+      const origin = new URL(request.url).origin;
+      return new Response(JSON.stringify(publicClientMetadataDocument(origin)), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, max-age=300",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
+    }
 
     // PR #2 — A2A routing (issue #160): agent discovery + JSON-RPC dispatch
     if (path.startsWith("/a2a/") || path.startsWith("/.well-known/")) {
@@ -271,12 +347,72 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (agentResponse) return agentResponse;
 
     // --- Authentication endpoints ---
-    if (path === "/auth/login") return handleLogin(env);
+    // #945 provider registry dispatch, completed by #1254 PR-B:
+    // the generic /auth/login/<id> + /auth/callback/<id> family
+    // below is the ONLY login routing — the GitHub-only exact
+    // /auth/login + /auth/callback branches and the wiring-off
+    // legacy flow are deleted. A disabled/unregistered provider
+    // gets a 403, never a fallback. Logout is unchanged.
     if (path === "/login" && request.method === "GET") {
-      return new Response(renderLoginPage(env), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      // #945 Google-as-plugin — composable login page: when wiring
+      // is on, the page renders one button per enabled, registered
+      // provider (computed here and passed in — githubOAuth.ts must
+      // not import providers.ts, which would create an import
+      // cycle). When nothing is enabled (wiring off, or no
+      // registered provider in the list), no argument is passed and
+      // the page is exactly the legacy GitHub-only page.
+      const enabled = enabledProviders(env)
+        .map((id) => getProvider(id))
+        .filter((p): p is NonNullable<typeof p> => p !== null)
+        .map((p) => ({ id: p.providerId, displayName: p.displayName ?? p.providerId }));
+      return new Response(renderLoginPage(env, enabled.length > 0 ? enabled : undefined), {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
     }
-    if (path === "/auth/callback") return handleOAuthCallback(env, request);
-    if (path === "/auth/logout") return handleLogout(env, request);
+    // #945 Google-as-plugin — generic provider routes: the only
+    // login routing since #1254 PR-B deleted the exact GitHub-only
+    // branches. A provider id segment dispatches through the
+    // registry (wired-callback options: audit store, resolved
+    // tenant, post-login enabled). Wiring OFF is a 403 — no legacy
+    // flow exists for any provider — and an unknown or unlisted id
+    // is a 403, never a fallback to another provider.
+    const loginProviderMatch = path.match(/^\/auth\/login\/([^/]+)$/);
+    if (loginProviderMatch) {
+      if (!isWiringEnabled(env)) return disabledLoginResponse("wiring-disabled");
+      const { provider, disabledReason } = resolveLoginProvider(env, loginProviderMatch[1]);
+      if (!provider || disabledReason) {
+        return disabledLoginResponse(disabledReason ?? "provider-not-registered");
+      }
+      return provider.startLogin(env);
+    }
+    const callbackProviderMatch = path.match(/^\/auth\/callback\/([^/]+)$/);
+    if (callbackProviderMatch) {
+      if (!isWiringEnabled(env)) return disabledLoginResponse("wiring-disabled");
+      const { provider, disabledReason } = resolveLoginProvider(env, callbackProviderMatch[1]);
+      if (!provider || disabledReason) {
+        return disabledLoginResponse(disabledReason ?? "provider-not-registered");
+      }
+      return provider.handleCallback(env, request, {
+        auditStore: createWiredAuditStore(env),
+        auditTenantId: resolveIaaaTenant(env),
+        postLoginEnabled: true,
+      });
+    }
+    if (path === "/auth/logout") {
+      // #945 GitHub end-to-end logout audit hook: when wiring is
+      // ON, supply the audit seam with the resolved tenant
+      // (IAAA_TENANT_ID else the documented default "primary"), so
+      // the hook is no longer dormant when the env var is unset.
+      // handleLogout records BEFORE deleteSession, best-effort.
+      if (isWiringEnabled(env)) {
+        return handleLogout(env, request, {
+          wiringEnabled: true,
+          auditStore: createWiredAuditStore(env),
+          tenantId: resolveIaaaTenant(env),
+        });
+      }
+      return handleLogout(env, request);
+    }
 
     // --- E*TRADE OAuth 1.0a 3-Legged Lifecycle Endpoints ---
     const reqEnv = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase() || undefined;
@@ -284,6 +420,22 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (path === "/auth/etrade/start" || path === "/api/etrade/oauth/start") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
+      // #945 GitHub end-to-end PDP gate: when IAAA_PDP_ENABLED is on
+      // and the session is wired, starting an integration connection
+      // requires integration:connect in the resolved tenant.
+      // Flag OFF or a legacy session takes the pre-change path.
+      if (shouldEnforcePdp(env, session)) {
+        const allowed = await checkRoutePermission(
+          createKvMembershipStore(sessionStore(env)),
+          session,
+          resolveIaaaTenant(env),
+          "integration:connect",
+          Date.now(),
+        );
+        if (!allowed) {
+          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+        }
+      }
       const callbackParam = url.searchParams.get("callback");
       const callbackUrl = callbackParam || "oob";
       try {
@@ -372,6 +524,21 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (path === "/api/etrade/oauth/verifier" && request.method === "POST") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
+      // #945 GitHub end-to-end PDP gate: completing the integration
+      // connection (verifier exchange, which stores broker tokens)
+      // requires integration:connect, same rule as the start route.
+      if (shouldEnforcePdp(env, session)) {
+        const allowed = await checkRoutePermission(
+          createKvMembershipStore(sessionStore(env)),
+          session,
+          resolveIaaaTenant(env),
+          "integration:connect",
+          Date.now(),
+        );
+        if (!allowed) {
+          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+        }
+      }
       const body = (await request.json().catch(() => ({}))) as any;
       const verifier = (body.verifier || "").trim();
       if (!verifier) return Response.json({ error: "Verifier PIN is required" }, { status: 400 });
@@ -402,6 +569,115 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       if (!session) return new Response("Unauthorized", { status: 401 });
       const result = await revokeRemoteAccessToken(env, session.githubLogin, reqEnv);
       return Response.json(result);
+    }
+
+    // --- Public.com OAuth 2.1 Resource-Provider Lifecycle (issue #1247) ---
+    // Public is a RESOURCE provider in the E*TRADE shape: tokens are
+    // data-API credentials bound to the signed-in user, held in the
+    // SessionStore (src/security/publicOAuth.ts), and never create a
+    // login session. The pasted personal access token is the alternate
+    // credential and stores through the same token-set record.
+    if (path === "/auth/public/start") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      // Same #945 PDP gate as the E*TRADE start route.
+      if (shouldEnforcePdp(env, session)) {
+        const allowed = await checkRoutePermission(
+          createKvMembershipStore(sessionStore(env)),
+          session,
+          resolveIaaaTenant(env),
+          "integration:connect",
+          Date.now(),
+        );
+        if (!allowed) {
+          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+        }
+      }
+      try {
+        const origin = new URL(request.url).origin;
+        const { authorizeUrl } = await startPublicOAuth(env, session.githubLogin, origin);
+        return Response.redirect(authorizeUrl, 302);
+      } catch (err: any) {
+        if (err instanceof PublicClientRejectedError) {
+          return new Response(err.message, { status: 502 });
+        }
+        return new Response(
+          "Could not start the Public.com sign-in: " + (err?.message || String(err)) +
+            "\n\nYou can still connect with a personal access token (POST /api/public/connect).",
+          { status: 502 }
+        );
+      }
+    }
+
+    if (path === "/auth/public/callback") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.redirect("/?error=unauthorized", 302);
+      const errorParam = url.searchParams.get("error");
+      if (errorParam) {
+        const detail = url.searchParams.get("error_description") || errorParam;
+        return Response.redirect(`/?tab=settings&public_error=${encodeURIComponent(detail)}`, 302);
+      }
+      const code = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      if (!code || !state) {
+        return Response.redirect("/?tab=settings&public_error=missing_code_or_state", 302);
+      }
+      try {
+        // The state is verified inside (session.ts primitives), and the
+        // pending flow must belong to THIS session's login.
+        const result = await completePublicOAuth(env, state, code, session.githubLogin);
+        return Response.redirect(`/?tab=settings&public_connected=${result.toolCount}`, 302);
+      } catch (err: any) {
+        return Response.redirect(
+          `/?tab=settings&public_error=${encodeURIComponent(err?.message || "exchange_failed")}`,
+          302
+        );
+      }
+    }
+
+    if (path === "/api/public/status") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ connected: false });
+      return Response.json(await getPublicConnectionStatus(env, session.githubLogin));
+    }
+
+    if (path === "/api/public/connect" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      // Same #945 PDP gate as the E*TRADE verifier route (this stores
+      // a broker credential).
+      if (shouldEnforcePdp(env, session)) {
+        const allowed = await checkRoutePermission(
+          createKvMembershipStore(sessionStore(env)),
+          session,
+          resolveIaaaTenant(env),
+          "integration:connect",
+          Date.now(),
+        );
+        if (!allowed) {
+          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+        }
+      }
+      const body = (await request.json().catch(() => null)) as { token?: string } | null;
+      const token = (body?.token || "").trim();
+      if (!token) return Response.json({ error: "A personal access token is required." }, { status: 400 });
+      try {
+        // Verified against the MCP server before it is stored.
+        const result = await connectPublicPersonalToken(env, session.githubLogin, token);
+        return Response.json({ ok: true, toolCount: result.toolCount, tools: result.tools });
+      } catch (err: any) {
+        return Response.json(
+          { error: "Public.com rejected that token: " + (err?.message || String(err)) },
+          { status: 502 }
+        );
+      }
+    }
+
+    if (path === "/api/public/disconnect" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      await disconnectPublic(env, session.githubLogin);
+      return Response.json({ ok: true });
     }
 
     // --- Factor 14 Telemetry: Health & Observability Endpoint ---
@@ -483,7 +759,14 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     }
 
     // Issue #159 — ScheduledAgent dashboard API.
+    // Issue #1156: session-gated, like the social brief/approval routes
+    // below — unauthenticated → 401. Any signed-in user may use the
+    // dashboard; no admin gate is invented here. The gate sits before
+    // the DO stub so an unauthenticated call never reaches the
+    // ScheduledAgent.
     if (path.startsWith("/api/schedule/")) {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
       const schedId = (env as any).SCHEDULED_AGENT.idFromName("default");
       const sched = (env as any).SCHEDULED_AGENT.get(schedId) as unknown as {
         listGoals(): Promise<unknown[]>;
@@ -491,7 +774,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         addGoal(goal: Record<string, unknown>): Promise<unknown>;
         removeGoal(id: string): Promise<boolean>;
         setGoalEnabled(id: string, enabled: boolean): Promise<boolean>;
-        triggerGoal(id: string, env: unknown): Promise<unknown>;
+        triggerGoal(id: string): Promise<unknown>;
       };
 
       if (path === "/api/schedule/goals" && request.method === "GET") {
@@ -524,7 +807,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           if (!updated) return Response.json({ error: "Goal not found." }, { status: 404 });
           return Response.json({ ok: true });
         }
-        const tick = await sched.triggerGoal(id, env);
+        const tick = await sched.triggerGoal(id);
         return Response.json({ ok: true, tick });
       }
       const deleteMatch = path.match(/^\/api\/schedule\/goals\/([^/]+)$/);
@@ -536,18 +819,449 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return Response.json({ error: "Unknown schedule endpoint." }, { status: 404 });
     }
 
+    // #1077 Phase 5b slice 2 — social brief provisioning (human path).
+    // Placed before the generic /api/ forwarder. Session-gated,
+    // like /api/schedule/* above (gated since #1156):
+    // unauthenticated → 401.
+    // Any signed-in user may provision; gating provisioning to
+    // admins is a later item (the IAAA admin panel could own it).
+    // Overwrite semantics: the most recent provision wins for the
+    // date. A stored brief is content for the social goal only — it
+    // is never auto-posted by this route.
+    if (path === "/api/social/brief") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      const briefStore = createSocialBriefStoreFromNamespace(
+        (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+      );
+      if (!briefStore) {
+        return Response.json({ error: "Social brief store unavailable." }, { status: 500 });
+      }
+      if (request.method === "GET") {
+        const rawDate = new URL(request.url).searchParams.get("date");
+        const date = rawDate ?? zonedDateParts(Date.now(), "America/New_York").date;
+        if (!isBriefDate(date)) {
+          return Response.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
+        }
+        try {
+          const brief = await briefStore.getBrief(date);
+          return Response.json({ ok: true, date, brief });
+        } catch {
+          return Response.json({ error: "Social brief store unavailable." }, { status: 500 });
+        }
+      }
+      if (request.method === "POST") {
+        const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!body) return Response.json({ error: "JSON body required." }, { status: 400 });
+        const text = body.text;
+        if (typeof text !== "string" || !text.trim()) {
+          return Response.json({ error: "text must be a non-empty string." }, { status: 400 });
+        }
+        if (text.length > SOCIAL_BRIEF_MAX_CHARS) {
+          return Response.json(
+            { error: `text must be ${SOCIAL_BRIEF_MAX_CHARS} characters or fewer.` },
+            { status: 413 },
+          );
+        }
+        const rawDate =
+          body.date === undefined ? undefined : typeof body.date === "string" ? body.date : null;
+        if (rawDate === null) {
+          return Response.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
+        }
+        const date = rawDate ?? zonedDateParts(Date.now(), "America/New_York").date;
+        if (!isBriefDate(date)) {
+          return Response.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
+        }
+        try {
+          await briefStore.putBrief(date, text);
+        } catch {
+          return Response.json({ error: "Social brief store unavailable." }, { status: 500 });
+        }
+        return Response.json({ ok: true, date });
+      }
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+
+    // #1077 Phase 5b slice 3 — social approval routes (human path).
+    // Placed before the generic /api/ forwarder, next to the brief
+    // routes. Session-gated (401 unauthenticated), like the brief
+    // routes — never an unauthenticated approve endpoint. Any
+    // signed-in user may decide; the workspace trust model is the
+    // same as the Slack cards (any workspace member with access).
+    // POST /api/social/approval {date, channel, action} approves
+    // (publishes promptly through the existing path) or rejects
+    // (publishes nothing, record retained). Missing draft → 404;
+    // already posted/rejected for the requested decision → 409.
+    // GET /api/social/approvals lists pending approvals for a date
+    // with draft text, so a reviewer can decide without Slack.
+    if (path === "/api/social/approval" || path === "/api/social/approvals") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      const stores = createSocialStoresFromNamespace(
+        (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+      );
+      if (!stores) {
+        return Response.json({ error: "Social stores unavailable." }, { status: 500 });
+      }
+      if (path === "/api/social/approvals") {
+        if (request.method !== "GET") {
+          return Response.json({ error: "Method not allowed" }, { status: 405 });
+        }
+        const rawDate = new URL(request.url).searchParams.get("date");
+        const date = rawDate ?? zonedDateParts(Date.now(), "America/New_York").date;
+        if (!isBriefDate(date)) {
+          return Response.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
+        }
+        try {
+          const pending = await stores.approvals.listPending(date);
+          const approvals: unknown[] = [];
+          for (const record of pending) {
+            const draft = await stores.ledger.getDraft(date, record.channel);
+            if (!draft) continue;
+            approvals.push({
+              date,
+              channel: record.channel,
+              draftId: record.draftId,
+              requestedAtMs: record.requestedAtMs,
+              text: draft.text,
+              status: draft.status,
+            });
+          }
+          return Response.json({ ok: true, date, approvals });
+        } catch {
+          return Response.json({ error: "Social stores unavailable." }, { status: 500 });
+        }
+      }
+      if (request.method !== "POST") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+      const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!body) return Response.json({ error: "JSON body required." }, { status: 400 });
+      const date = body.date;
+      const channel = body.channel;
+      const action = body.action;
+      if (
+        typeof date !== "string" ||
+        !isBriefDate(date) ||
+        typeof channel !== "string" ||
+        !(KNOWN_SOCIAL_CHANNELS as readonly string[]).includes(channel) ||
+        (action !== "approve" && action !== "reject")
+      ) {
+        return Response.json(
+          { error: "date must be YYYY-MM-DD, channel must be a known social channel, action must be approve or reject." },
+          { status: 400 },
+        );
+      }
+      const draft = await stores.ledger.getDraft(date, channel);
+      if (!draft) {
+        return Response.json({ error: `no draft for ${channel} on ${date}` }, { status: 404 });
+      }
+      if (draft.status === "posted" || draft.status === "failed") {
+        return Response.json(
+          { error: `draft for ${channel} on ${date} is already ${draft.status}` },
+          { status: 409 },
+        );
+      }
+      const rawEnv = env as unknown as Record<string, string | undefined>;
+      const socialEnv = {
+        SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
+        SOCIAL_AUTONOMOUS_CHANNELS: rawEnv.SOCIAL_AUTONOMOUS_CHANNELS,
+        SOCIAL_APPROVAL_CHANNELS: rawEnv.SOCIAL_APPROVAL_CHANNELS,
+        SOCIAL_LIVE_PUBLISHING: rawEnv.SOCIAL_LIVE_PUBLISHING,
+      };
+      if (action === "reject") {
+        const rejected = await rejectSocialDraft({
+          store: stores.ledger,
+          approvals: stores.approvals,
+          date,
+          channel,
+        });
+        if (!rejected.ok) {
+          return Response.json({ error: rejected.error }, { status: 409 });
+        }
+        return Response.json({ ok: true, rejected: true, date, channel });
+      }
+      if (!parseSocialConfig(socialEnv).postingEnabled) {
+        return Response.json({ error: "social posting is not enabled" }, { status: 409 });
+      }
+      const approver = session.internalUserId ?? session.githubLogin ?? "session-user";
+      const approved = await approveAndPublish({
+        env: socialEnv,
+        tokens: {
+          X_ACCESS_TOKEN: rawEnv.X_ACCESS_TOKEN,
+          THREADS_ACCESS_TOKEN: rawEnv.THREADS_ACCESS_TOKEN,
+          FACEBOOK_PAGE_ACCESS_TOKEN: rawEnv.FACEBOOK_PAGE_ACCESS_TOKEN,
+          INSTAGRAM_ACCESS_TOKEN: rawEnv.INSTAGRAM_ACCESS_TOKEN,
+          LINKEDIN_ACCESS_TOKEN: rawEnv.LINKEDIN_ACCESS_TOKEN,
+          LINKEDIN_AUTHOR_URN: rawEnv.LINKEDIN_AUTHOR_URN,
+        },
+        store: stores.ledger,
+        approvals: stores.approvals,
+        transport: undefined,
+        dryRunSink: createMemoryDryRunSink(),
+        nowMs: Date.now(),
+        date,
+        channel,
+        approver,
+      });
+      if (!approved.ok) {
+        return Response.json({ error: approved.error }, { status: 409 });
+      }
+      return Response.json({
+        ok: true,
+        approved: true,
+        date,
+        channel,
+        publish: approved.channelResult,
+      });
+    }
+
+    // #1077 token-health slice (#1160) — token presence + validity probe.
+    // Session-gated (401 unauthenticated), like the brief/approval
+    // routes. Any signed-in user may query; no admin gate invented.
+    // GET only; 405 other methods. The response is status only:
+    // configured/unconfigured + valid/invalid/unknown per channel,
+    // never a token value. No live transport is wired in this slice,
+    // so validity is unknown by design until activation wiring passes
+    // one — never assumed valid. The goal executor does NOT call this.
+    if (path === "/api/social/token-health") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      if (request.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+      const rawEnv = env as unknown as Record<string, string | undefined>;
+      const channels = await checkAllTokenHealth({
+        X_ACCESS_TOKEN: rawEnv.X_ACCESS_TOKEN,
+        THREADS_ACCESS_TOKEN: rawEnv.THREADS_ACCESS_TOKEN,
+        FACEBOOK_PAGE_ACCESS_TOKEN: rawEnv.FACEBOOK_PAGE_ACCESS_TOKEN,
+        INSTAGRAM_ACCESS_TOKEN: rawEnv.INSTAGRAM_ACCESS_TOKEN,
+        LINKEDIN_ACCESS_TOKEN: rawEnv.LINKEDIN_ACCESS_TOKEN,
+        LINKEDIN_AUTHOR_URN: rawEnv.LINKEDIN_AUTHOR_URN,
+      });
+      return Response.json({ ok: true, channels });
+    }
+
     // --- User Profile API ---
     if (path === "/api/me") {
       const session = await requireAuth(request, env);
       if (!session) {
         return Response.json({ authenticated: false });
       }
+      // #1274: login-provider display. Derived from the session's own
+      // providerIssuer (set at wired login from the binding, never
+      // from user input) via the provider registry — so a future
+      // provider displays with only a registry entry. Legacy sessions
+      // carry no internalUserId/providerIssuer, and unknown issuers
+      // resolve to null, so the key is absent in both cases.
+      const provider = session.internalUserId
+        ? getProviderByIssuer(session.providerIssuer)
+        : null;
       return Response.json({
         authenticated: true,
         login: session.githubLogin,
         name: session.githubName,
         avatar: session.githubAvatar,
+        // #945 activation enabler (user-authorized): the caller's OWN
+        // stable internal id, present only on wired sessions (legacy
+        // sessions carry no internalUserId, so the key is absent for
+        // them). requireAuth guarantees this is the caller's own
+        // session; the id is an identifier, not a credential, and
+        // knowing it grants nothing without a login as that user
+        // plus the owner-controlled bootstrap env list. It lets the
+        // owner read the exact bootstrap value after a wired login
+        // instead of looking up their GitHub numeric subject.
+        ...(session.internalUserId
+          ? { internalUserId: session.internalUserId }
+          : {}),
+        ...(provider
+          ? {
+              provider: {
+                id: provider.providerId,
+                name: provider.displayName,
+                issuer: provider.issuer,
+              },
+            }
+          : {}),
       });
+    }
+
+    // --- IAAA Admin overview (issue #945, IAAA-UI v1: READ-ONLY) ---
+    // GET /api/iaaa/overview: the caller's own memberships, the
+    // tenant's platform-genesis status, and recent tenant audit
+    // events. Gating is fail-closed and server-side (see
+    // iaaaAdminOverview.ts): unauthenticated → 401; legacy session
+    // (no internalUserId) or wired non-admin → 403 with NO data;
+    // only a live platform-admin membership returns 200. This route
+    // performs no store write of any kind, and a corrupt store read
+    // answers 500 with a generic error and no partial data.
+    if (path === "/api/iaaa/overview") {
+      const session = await requireAuth(request, env);
+      if (!session) {
+        return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      }
+      if (request.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+      if (!session.internalUserId) {
+        return Response.json({ error: "Forbidden: IAAA admin access requires a wired session." }, { status: 403 });
+      }
+      try {
+        const overview = await buildAdminOverview(
+          {
+            membershipStore: createKvMembershipStore(sessionStore(env)),
+            auditStore: createWiredAuditStore(env),
+            kv: sessionStore(env),
+            tenantId: resolveIaaaTenant(env),
+            nowMs: Date.now(),
+          },
+          { callerInternalUserId: session.internalUserId },
+        );
+        if (!overview.allowed) {
+          return Response.json({ error: "Forbidden: IAAA admin access requires platform-admin membership." }, { status: 403 });
+        }
+        return Response.json(overview);
+      } catch {
+        return Response.json({ error: "IAAA admin overview unavailable." }, { status: 500 });
+      }
+    }
+
+    // --- Access requests (issue #1274): request access + admin decide.
+    // A signed-in member asks for tenant-admin; an admin approves or
+    // denies. Requests NEVER auto-grant: approval calls grantMembership
+    // (with its canGrantRole enforcement), and the approval is
+    // idempotent — a requester who already holds tenant-admin is
+    // marked approved without a duplicate grant. Gating is fail-closed:
+    // 401 unauthenticated; 403 legacy sessions, callers with no active
+    // membership in the tenant (create), and callers who cannot grant
+    // the requested role (list/decide). Only tenant-admin may be
+    // requested in this cut; platform-admin requests are 400.
+    if (
+      path === "/api/iaaa/access-request" ||
+      path === "/api/iaaa/access-requests" ||
+      path === "/api/iaaa/access-request/decision"
+    ) {
+      const session = await requireAuth(request, env);
+      if (!session) {
+        return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      }
+      if (!session.internalUserId) {
+        return Response.json({ error: "Forbidden: access requests require a wired session." }, { status: 403 });
+      }
+      const tenantId = resolveIaaaTenant(env);
+      const membershipStore = createKvMembershipStore(sessionStore(env));
+      const requestStore = createAccessRequestStore(sessionStore(env));
+      const nowMs = Date.now();
+      const callerHasActiveMembership = async (): Promise<boolean> => {
+        const memberships = await membershipStore.getMembershipsByUser(session.internalUserId as string);
+        return memberships.some(
+          (m) =>
+            m.tenantId === tenantId &&
+            m.revokedAtMs === undefined &&
+            m.roleBindings.some((b) => b.expiresAtMs === undefined || b.expiresAtMs > nowMs),
+        );
+      };
+      try {
+        if (path === "/api/iaaa/access-request") {
+          if (request.method !== "POST") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          if (!(await callerHasActiveMembership())) {
+            return Response.json({ error: "Forbidden: access requests require an active membership." }, { status: 403 });
+          }
+          const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+          const requestedRole = typeof body?.requestedRole === "string" ? body.requestedRole : "";
+          const created = await requestStore.create({
+            requesterInternalUserId: session.internalUserId,
+            requestedRole,
+            tenantId,
+            nowMs,
+          });
+          if (!created.ok && created.code === "INVALID_ROLE") {
+            return Response.json({ error: "Only tenant-admin may be requested." }, { status: 400 });
+          }
+          if (!created.ok && created.code === "ALREADY_PENDING") {
+            return Response.json({ error: "A pending request for this role already exists.", request: created.request }, { status: 409 });
+          }
+          if (!created.ok) {
+            return Response.json({ error: "Access request could not be created." }, { status: 400 });
+          }
+          return Response.json({ ok: true, request: created.request }, { status: 201 });
+        }
+        if (path === "/api/iaaa/access-requests") {
+          if (request.method !== "GET") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          const grantCheck = await canGrantRole(membershipStore, {
+            granterInternalUserId: session.internalUserId,
+            targetTenantId: tenantId,
+            targetScope: "tenant",
+            targetRole: "tenant-admin",
+            nowMs,
+          });
+          if (grantCheck.decision === "deny") {
+            return Response.json({ error: "Forbidden: listing access requests requires tenant-admin." }, { status: 403 });
+          }
+          return Response.json({ ok: true, requests: await requestStore.list() });
+        }
+        // POST /api/iaaa/access-request/decision
+        if (request.method !== "POST") {
+          return Response.json({ error: "Method not allowed" }, { status: 405 });
+        }
+        const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+        const requestId = typeof body?.requestId === "string" ? body.requestId : "";
+        const decision = body?.decision === "approve" || body?.decision === "deny" ? body.decision : "";
+        if (requestId === "" || decision === "") {
+          return Response.json({ error: "requestId and decision (approve|deny) are required." }, { status: 400 });
+        }
+        const existing = await requestStore.get(requestId);
+        if (!existing) {
+          return Response.json({ error: "Access request not found." }, { status: 404 });
+        }
+        const grantCheck = await canGrantRole(membershipStore, {
+          granterInternalUserId: session.internalUserId,
+          targetTenantId: tenantId,
+          targetScope: "tenant",
+          targetRole: existing.requestedRole,
+          nowMs,
+        });
+        if (grantCheck.decision === "deny") {
+          return Response.json({ error: "Forbidden: deciding access requests requires tenant-admin." }, { status: 403 });
+        }
+        if (existing.status !== "pending") {
+          return Response.json({ error: "Access request is no longer pending.", request: existing }, { status: 409 });
+        }
+        if (decision === "approve") {
+          const targetMemberships = await membershipStore.getMembershipsByUser(existing.requesterInternalUserId);
+          const alreadyAdmin = targetMemberships.some(
+            (m) =>
+              m.tenantId === tenantId &&
+              m.revokedAtMs === undefined &&
+              m.roleBindings.some(
+                (b) => b.role === "tenant-admin" && (b.expiresAtMs === undefined || b.expiresAtMs > nowMs),
+              ),
+          );
+          if (!alreadyAdmin) {
+            const granted = await grantMembership(membershipStore, {
+              granterInternalUserId: session.internalUserId,
+              internalUserId: existing.requesterInternalUserId,
+              tenantId,
+              roleBindings: [{ role: existing.requestedRole, scope: "tenant", grantedBy: session.internalUserId }],
+              nowMs,
+            });
+            if (!granted.ok) {
+              return Response.json({ error: "Forbidden: grant denied." }, { status: 403 });
+            }
+          }
+        }
+        const decided = await requestStore.decide(requestId, decision === "approve" ? "approved" : "denied", session.internalUserId, nowMs);
+        if (!decided.ok) {
+          return Response.json({ error: "Access request is no longer pending." }, { status: 409 });
+        }
+        return Response.json({ ok: true, request: decided.request });
+      } catch {
+        return Response.json({ error: "Access requests unavailable." }, { status: 500 });
+      }
     }
 
     // --- API Keys (issue #180): per-user keys for the MCP transport ---
@@ -566,6 +1280,20 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         return Response.json({ keys: await listApiKeys(env, login) });
       }
       if (request.method === "POST") {
+        // #945 Phase 2b-part1 step-up pilot: minting a credential
+        // is a sensitive action. Wiring ON + stale authentication
+        // (including every legacy session, which has no authTimeMs)
+        // fails closed with 403 and mints nothing; the user
+        // re-authenticates and retries. Listing and revoking keys
+        // are deliberately NOT gated: revocation especially must
+        // never be blocked by staleness.
+        // #945 GitHub end-to-end: minting is NOT additionally PDP
+        // gated — no Slice 3 permission maps to credential minting
+        // (there is no credential:issue permission), so step-up
+        // remains the sole gate here. See the defaults doc.
+        if (requiresStepUpForMint(session, isWiringEnabled(env), Date.now())) {
+          return Response.json({ error: "Step-up authentication required: please sign in again and retry." }, { status: 403 });
+        }
         const body = (await request.json().catch(() => ({}))) as { label?: unknown };
         const label = typeof body.label === "string" ? body.label : "";
         const minted = await mintApiKey(env, login, label);
@@ -786,6 +1514,54 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
     }
 
+    // --- Omnichannel Trading Agent: Signed Email Approval Link Click ---
+    // Issue #1262 Phase 5: a link click is NOT session-authenticated —
+    // the signed token is the authorization (HMAC + expiry + login
+    // binding, #149 pattern). The worker verifies the token's shape
+    // fast (fail-closed HTML page, no DO round-trip for junk), then
+    // forwards to the Orchestrator DO /trading/email/approve-link,
+    // which verifies again (signature + expiry + principal-map
+    // re-check) and executes through the shared engine. The DO
+    // instance is the inbound-email instance constant (imported, not
+    // copied — its value is #1289's scope; a rebase onto post-#1289
+    // main picks up the new value automatically).
+    if (path === "/api/trading/email/approve" && request.method === "GET") {
+      const escapeHtml = (s: string) =>
+        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const renderPage = (title: string, body: string) =>
+        new Response(
+          `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head>` +
+            `<body style="font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px">` +
+            `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p></body></html>`,
+          { headers: { "Content-Type": "text/html; charset=utf-8" } }
+        );
+      const token = url.searchParams.get("token") || "";
+      const fastCheck = await verifyApprovalLinkForPrincipal(env, token, undefined);
+      if (!fastCheck.ok) {
+        return renderPage("Approval link invalid", fastCheck.error);
+      }
+      const id = env.SEARCH_AGENT.idFromName(INBOUND_EMAIL_ORCHESTRATOR_INSTANCE);
+      const targetUrl = new URL("/trading/email/approve-link", "https://agent.internal");
+      const forwardRes = await env.SEARCH_AGENT.get(id).fetch(
+        new Request(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        })
+      );
+      const result = (await forwardRes.json().catch(() => ({}))) as any;
+      if (result.success) {
+        return renderPage(
+          "Order executed",
+          `Order ${result.orderId ?? ""} executed on E*TRADE${result.execId ? ` (reference ${result.execId})` : ""}.`
+        );
+      }
+      return renderPage(
+        "Approval not completed",
+        result.message || "The approval link could not be completed. The order was not executed."
+      );
+    }
+
     // --- Omnichannel Trading Agent: Slack Test Simulator ---
     if (path === "/api/trading/slack/test" && request.method === "POST") {
       const session = await requireAuth(request, env);
@@ -796,6 +1572,33 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", userLogin);
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
+    }
+
+    // --- Omnichannel Trading Agent: Slack Principal Link Confirm ---
+    // Issue #1262 Phase 1: a signed-in user confirms the connect code
+    // the bot issued in a Slack DM (`link`). The code names the Slack
+    // user (team_id + user_id); the SESSION names the account — the
+    // binding written is slack user → session.githubLogin at tier
+    // "trade". Self-binding only: no request field can name the login.
+    if (path === "/api/trading/slack/link" && request.method === "POST") {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as any;
+      const result = await confirmSlackLink(
+        env,
+        typeof body.code === "string" ? body.code : "",
+        session.githubLogin
+      );
+      if (!result.ok) {
+        return Response.json({ ok: false, error: result.error }, { status: 400 });
+      }
+      return Response.json({
+        ok: true,
+        teamId: result.teamId,
+        slackUserId: result.userId,
+        login: result.login,
+        tier: result.tier,
+      });
     }
 
     // --- Omnichannel Trading Agent: Voice Trading Turn Simulator & API ---
@@ -862,7 +1665,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if ((path === "/voice/trade" || path === "/api/trading/voice/ws") && request.headers.get("Upgrade") === "websocket") {
       // Issue #154: the voice-trading session requires an app session,
       // checked BEFORE the WebSocket is accepted. Previously a null
-      // session proceeded under a shared "voice_trader" identity, so an
+      // session proceeded under a shared synthetic voice identity, so an
       // unauthenticated caller could open a voice trading session.
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
@@ -873,7 +1676,15 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
       const userLogin = session.githubLogin;
 
-      handleVoiceWebSocketConnection(serverWs, env, undefined, userLogin).catch(console.warn);
+      // Issue #815: the worker isolate has no ORM (an ORM wraps a
+      // specific Durable Object's storage.sql), so voice turns are
+      // forwarded per-turn to the session user's orchestrator DO, whose
+      // POST /trading/voice/turn route runs the voice service against
+      // the DO's real ORM. The forwarder keys the DO instance by, and
+      // sets the identity header from, the verified session login above
+      // — never from caller input.
+      const forwardVoiceTurn = createOrchestratorVoiceTurnForwarder(env, userLogin);
+      handleVoiceWebSocketConnection(serverWs, env, undefined, userLogin, forwardVoiceTurn).catch(console.warn);
 
       return new Response(null, { status: 101, webSocket: clientWs });
     }
@@ -1018,6 +1829,74 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         payload = JSON.parse(payloadRaw);
       } catch {
         return new Response("Invalid payload JSON", { status: 400 });
+      }
+
+      // #1077 Phase 5b slice 3: social approval cards are answered
+      // here, AFTER the #147 gate above and BEFORE the trading
+      // forward. A social action_id (social_approve/social_reject)
+      // never reaches trading; any other action_id falls through to
+      // trading exactly as before. The handler verifies the card's
+      // draftId against the pending record, so a stale card cannot
+      // approve a rebuilt draft. Production passes no live transport
+      // (the Phase 5a gap): live publish-on-approve fails honestly
+      // here exactly as the goal path does; dry-run works end to end.
+      const socialParsed = parseSocialAction(payload);
+      if (socialParsed.kind !== "other") {
+        const socialStores = createSocialStoresFromNamespace(
+          (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+        );
+        if (!socialStores) {
+          return new Response("Social stores unavailable", { status: 500 });
+        }
+        const rawEnv = env as unknown as Record<string, string | undefined>;
+        // Issue #1262 Phase 2 (social convergence): a social APPROVE
+        // requires a resolved principal — the clicker's Slack identity
+        // linked to a trading login (Phase 1 link store). Unlinked
+        // clickers get a refusal with a link hint; REJECT stays open
+        // to any clicker (fail-safe: rejecting only prevents
+        // publication). The handler stamps the resolved login as the
+        // approver when one exists, else the legacy slack:<userId>.
+        const clickerPrincipal = await resolvePrincipal(
+          env,
+          {
+            channel: "slack",
+            channelUserId: payload.user?.id ?? "",
+            channelScopeId: payload.team?.id ?? "",
+            text: "",
+          },
+          { slackLinks: slackPrincipalLinkStoreFromEnv(env) }
+        );
+        const outcome = await handleSocialSlackInteraction({
+          payload,
+          principal: clickerPrincipal,
+          env: {
+            SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
+            SOCIAL_AUTONOMOUS_CHANNELS: rawEnv.SOCIAL_AUTONOMOUS_CHANNELS,
+            SOCIAL_APPROVAL_CHANNELS: rawEnv.SOCIAL_APPROVAL_CHANNELS,
+            SOCIAL_LIVE_PUBLISHING: rawEnv.SOCIAL_LIVE_PUBLISHING,
+          },
+          tokens: {
+            X_ACCESS_TOKEN: rawEnv.X_ACCESS_TOKEN,
+            THREADS_ACCESS_TOKEN: rawEnv.THREADS_ACCESS_TOKEN,
+            FACEBOOK_PAGE_ACCESS_TOKEN: rawEnv.FACEBOOK_PAGE_ACCESS_TOKEN,
+            INSTAGRAM_ACCESS_TOKEN: rawEnv.INSTAGRAM_ACCESS_TOKEN,
+            LINKEDIN_ACCESS_TOKEN: rawEnv.LINKEDIN_ACCESS_TOKEN,
+            LINKEDIN_AUTHOR_URN: rawEnv.LINKEDIN_AUTHOR_URN,
+          },
+          store: socialStores.ledger,
+          approvals: socialStores.approvals,
+          transport: undefined,
+          dryRunSink: createMemoryDryRunSink(),
+          nowMs: Date.now(),
+        });
+        if (outcome.handled) {
+          return Response.json({
+            response_type: "in_channel",
+            replace_original: true,
+            text: outcome.message,
+            blocks: outcome.blocks,
+          });
+        }
       }
 
       const teamId = payload.team?.id || "default_workspace";
@@ -1195,6 +2074,30 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       }
     }
 
+    // --- OpenAPI + Swagger spike (issue #1024 Phase 1) ---
+    // GET /openapi.json serves the generated spec; GET /api/docs serves
+    // the Swagger UI page against it. PROVISIONAL gating: both routes
+    // require an authenticated session (unauthenticated → 401). The
+    // #1024 design decision on docs exposure is still open; this
+    // session gate is the safe spike default, not the final decision.
+    // Placed before the generic /api/ forwarder so /api/docs is not
+    // forwarded to the DO.
+    if (path === "/openapi.json" || path === "/api/docs") {
+      const session = await requireAuth(request, env);
+      if (!session) {
+        return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      }
+      if (request.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+      if (path === "/openapi.json") {
+        return Response.json(buildOpenApiSpec());
+      }
+      return new Response(SWAGGER_UI_HTML, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    }
+
     // --- Forwarded Durable Object APIs (NLQ, Audit, Memory, Clear, Referrals, Ads, Payments) ---
     if (path.startsWith("/api/")) {
       const session = await requireAuth(request, env);
@@ -1206,7 +2109,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", session.githubLogin);
-      const isImmediateSync = /^\/(?:clear|reset|memory|audit|chat)(?:\/|\?|$)/i.test(subPath);
+      const isImmediateSync = /^\/(?:clear|reset|memory|audit|chat|etrade|broker|trading|screener|options)(?:\/|\?|$)/i.test(subPath);
       if (!isImmediateSync) {
         forwardReq.headers.set("x-async-eligible", "1");
       }
@@ -1333,9 +2236,9 @@ export default {
     if (event?.cron === "*/30 * * * *") {
       const schedId = env.SCHEDULED_AGENT.idFromName("default");
       const schedAgent = env.SCHEDULED_AGENT.get(schedId) as unknown as {
-        onCron(env: unknown): Promise<unknown>;
+        onCron(): Promise<unknown>;
       };
-      const tickPromise = schedAgent.onCron(env);
+      const tickPromise = schedAgent.onCron();
       if (ctx?.waitUntil) ctx.waitUntil(tickPromise);
       else await tickPromise;
       // Issue #354 — the daily options-research run (after market close)
@@ -1365,6 +2268,23 @@ export default {
       );
       if (ctx?.waitUntil) ctx.waitUntil(reflectionPromise);
       else await reflectionPromise;
+      // Issue #754 — the weekly strategy-weight adjustment rides this
+      // tick (same Workers Free ceiling constraint as #354/#705).
+      // Fire/no-fire is decided inside the job (ISO-week guard +
+      // adaptation kill switch in mas_settings), so this dispatch is
+      // unconditional; skips are cheap and explicit in the job result.
+      const weightsPromise = agent.fetch(
+        new Request("https://agent.internal/adaptation/weights/run", {
+          method: "POST",
+          headers: { "x-user-login": userLogin },
+        })
+      );
+      if (ctx?.waitUntil) ctx.waitUntil(weightsPromise);
+      else await weightsPromise;
+      // Issue #1077 Phase 5b slice 1: the parallel social tick is gone.
+      // Social posting is now a ScheduledAgent goal ("daily-social-post",
+      // disabled by default) evaluated by the onCron call at the top of
+      // this branch — no second scheduler, no second fire check.
       return;
     }
     // Renew all account-scoped Durable Object tokens before midnight ET.
@@ -1421,8 +2341,30 @@ export default {
 async function requireAuth(request: Request, env: Env): Promise<SessionData | null> {
   const sessionId = getSessionId(request);
   // Issue #329: a value that isn't a UUID cannot name a session, so reject it
-  // before the cache and before KV — junk cookies cost a regex, not a read.
+  // before the cache and before the session store — junk cookies cost a
+  // regex, not a read.
   if (!isSessionIdFormat(sessionId)) return null;
-  return await getSessionCached(env, sessionId);
+  const cached = await getSessionCached(env, sessionId);
+  // #945 Phase 2b-part1: when wiring is ON, a session that already
+  // carries an internalUserId (a wired session) is validated through
+  // the wired path — fresh read, absolute + idle expiry, touch +
+  // persist + cache invalidation (see iaaaEnforcement.ts). Every
+  // other case returns the cached session exactly as before:
+  // wiring OFF is the original single line, and non-wired sessions
+  // under wiring ON stay on the legacy cached path, idle-exempt.
+  if (isWiringEnabled(env) && cached?.internalUserId) {
+    const result = await validateAndTouchWiredSession(
+      {
+        freshRead: (id) => getSession(env, id),
+        persist: (id, data, nowMs) => updateSession(env, id, data, nowMs),
+        invalidate: (id) => invalidateSessionCache(id),
+      },
+      cached,
+      sessionId,
+      Date.now(),
+    );
+    if (result.wired) return result.session;
+  }
+  return cached;
 }
 

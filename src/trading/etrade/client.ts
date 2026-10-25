@@ -104,7 +104,7 @@ export class ETradeRestClient {
           tokenSecret = stored.accessTokenSecret;
         }
       } catch {
-        // Ignore KV error
+        // Ignore token-store error
       }
     }
 
@@ -146,8 +146,14 @@ export class ETradeRestClient {
    * symbols failed (everything landed in "other"). The error is now a
    * local of this call; nothing crosses calls, so user, session and run
    * scoping stay intact under concurrency.
+   *
+   * Issue #1133: `options.includeRawResponse` mirrors getOptionChains'
+   * hook of the same name — when set, the returned quote carries the
+   * parsed wire payload (the res.json() object normalization consumed)
+   * as `raw` (ETradeQuote.raw). When unset — every existing caller —
+   * the result is exactly as before: no `raw` field is attached.
    */
-  async fetchQuoteDetailed(symbol: string): Promise<ETradeQuoteResult> {
+  async fetchQuoteDetailed(symbol: string, options?: { includeRawResponse?: boolean }): Promise<ETradeQuoteResult> {
     const sym = symbol.toUpperCase().trim();
     const fail = (error: string): ETradeQuoteResult => ({ quote: null, error });
     const envConfig = this.getEnvConfig();
@@ -169,7 +175,7 @@ export class ETradeRestClient {
           tokenSecret = stored.accessTokenSecret;
         }
       } catch {
-        // Ignore KV error
+        // Ignore token-store error
       }
     }
 
@@ -252,10 +258,10 @@ export class ETradeRestClient {
 
       const returnedSym = String(quoteItem?.Product?.symbol || quoteData?.symbol || "").toUpperCase().trim();
       const rawCompanyName = String(quoteData?.companyName || "").trim();
+      // Issue #808: present E*TRADE data as-is. Do not reject quotes with zero/negative
+      // prices — at 1am the market is closed and live fields are zero. The caller
+      // decides how to handle zero prices, not the quote fetcher.
       const price = Number(quoteData.lastTrade || quoteData.price || quoteData.close || quoteData.previousClose || quoteData.bid || 0);
-      if (price <= 0) {
-        return fail(`E*TRADE quote response for ${sym} contained no positive trade or bid price.`);
-      }
 
       // Detect and reject E*TRADE Sandbox's mock stub (which statically returns GOOG / GOOGLE INC CL A / 577.51 for any ticker)
       const isGoogleStub =
@@ -312,6 +318,9 @@ export class ETradeRestClient {
         dateTime,
         source: `E*TRADE REST API [${envConfig.name} / ${envConfig.label}]`,
         timestamp: dateTime,
+        // Issue #1133: the opt-in raw hook — `data` here is the parsed
+        // wire payload normalization consumed (post any .json retry).
+        ...(options?.includeRawResponse ? { raw: data } : {}),
       };
       return { quote, error: null };
     } catch (err) {
@@ -326,7 +335,7 @@ export class ETradeRestClient {
   /**
    * Fetches batch of quotes for multiple tickers in a single authenticated E*TRADE API request
    */
-  async fetchQuotes(symbols: string[], options?: { overrideSymbolCount?: boolean }): Promise<ETradeQuote[]> {
+  async fetchQuotes(symbols: string[], options?: { overrideSymbolCount?: boolean; trace?: import("./quoteTrace").QuoteTrace; onWireResponse?: (symbols: string[], payload: unknown) => void }): Promise<ETradeQuote[]> {
     this.lastError = undefined;
     if (!symbols.length) return [];
     const envConfig = this.getEnvConfig();
@@ -334,6 +343,10 @@ export class ETradeRestClient {
       this.lastError = "E*TRADE consumer credentials are not configured for live quote requests.";
       return [];
     }
+    // Issue #812: structured trace for observability.
+    const { QuoteTrace } = await import("./quoteTrace");
+    const trace = options?.trace || new QuoteTrace();
+    trace.setNasdaqSymbols(symbols);
 
     let token = "";
     let tokenSecret = "";
@@ -345,7 +358,7 @@ export class ETradeRestClient {
           tokenSecret = stored.accessTokenSecret;
         }
       } catch {
-        // Ignore KV error
+        // Ignore token-store error
       }
     }
 
@@ -358,7 +371,9 @@ export class ETradeRestClient {
     if (!cleanSyms.length) return [];
 
     const uniqueSyms = Array.from(new Set(cleanSyms));
-    const batchSize = 50;
+    // Issue #802: batch size 10, sequential. A 50-symbol batch that fails
+    // kills 50 symbols; a 10-symbol batch that fails kills 10.
+    const batchSize = 10;
     const batches: string[][] = [];
     for (let i = 0; i < uniqueSyms.length; i += batchSize) {
       batches.push(uniqueSyms.slice(i, i + batchSize));
@@ -406,6 +421,20 @@ export class ETradeRestClient {
         }
 
         const data = (await res.json().catch(() => ({}))) as any;
+        // Issue #1157 (E2): opt-in wire hook — the parsed sub-batch
+        // payload, handed to the caller BEFORE normalization below
+        // discards everything but the mapped quote fields. The data-
+        // provider platform's batch capture (adapters.ts) records one
+        // capture per sub-batch from this. Not supplied (every existing
+        // caller), nothing changes; a throwing hook never breaks the
+        // fetch (capture must never fail the retrieval it observes).
+        if (options?.onWireResponse) {
+          try {
+            options.onWireResponse(batchSyms, data);
+          } catch (hookErr) {
+            console.warn("[ETradeClient] fetchQuotes onWireResponse hook failed:", hookErr);
+          }
+        }
         const rawQuoteData = data?.QuoteResponse?.QuoteData;
         if (rawQuoteData == null) {
           batchFailed = true;
@@ -456,7 +485,9 @@ export class ETradeRestClient {
             };
           })
           .filter((q: ETradeQuote) => {
-            if (!q.symbol || q.lastPrice <= 0) return false;
+            // Issue #808: do not filter on price. Present data as-is; the caller
+            // decides how to handle zero prices (e.g. market closed at 1am).
+            if (!q.symbol) return false;
             if (!batchSyms.includes(q.symbol)) return false;
             if ((q.companyName.toUpperCase().includes("GOOGLE INC") || q.lastPrice === 577.51) && q.symbol !== "GOOG" && q.symbol !== "GOOGL") {
               return false;
@@ -475,7 +506,51 @@ export class ETradeRestClient {
       }
     };
 
-    const results = await Promise.all(batches.map((b) => fetchBatch(b)));
+    const results: ETradeQuote[][] = [];
+    // Issue #802: sequential loop, not Promise.all. 10 requests in flight
+    // at once risks E*TRADE rate limiting; sequential with a small gap is safer.
+    // Issue #812: trace each batch.
+    for (let bi = 0; bi < batches.length; bi++) {
+      const b = batches[bi];
+      const handle = trace.startBatch(bi, batches.length, b);
+      try {
+        const batchQuotes = await fetchBatch(b);
+        handle.addQuotes(batchQuotes.length);
+        // Track which symbols didn't get quotes.
+        const receivedSyms = new Set(batchQuotes.map((q) => q.symbol));
+        for (const s of b) {
+          if (!receivedSyms.has(s)) {
+            const { category, detail } = QuoteTrace.categorizeError(
+              this.lastError || "No quote returned for symbol"
+            );
+            handle.addFailure(s, category, detail);
+          }
+        }
+        results.push(batchQuotes);
+      } catch (err) {
+        // Issue #812: never swallow — capture with context.
+        const { category, detail } = QuoteTrace.categorizeError(err);
+        handle.setError(detail);
+        for (const s of b) handle.addFailure(s, category, detail);
+        results.push([]);
+        console.error(JSON.stringify({
+          traceId: trace.traceId,
+          component: "quote-pipeline",
+          event: "batch_exception",
+          batchIndex: bi,
+          symbols: b,
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack?.slice(0, 500) : undefined,
+          timestamp: new Date().toISOString(),
+        }));
+      } finally {
+        handle.complete();
+      }
+      // 100ms gap between batches to stay under rate limits.
+      if (bi < batches.length - 1) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
     const quotes = results.flat();
 
     // Retry missing symbols in smaller chunks. A batch can fail entirely
@@ -502,6 +577,8 @@ export class ETradeRestClient {
     }
 
     if (!batchFailed) this.lastError = undefined;
+    // Issue #812: log the complete trace.
+    trace.complete();
     return quotes;
   }
 
@@ -3013,6 +3090,11 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.handleUpstreamAuthError(res.status, "user/watchlist", errorText);
+        // Issue #826: use BusinessError for 404 — UI gets business message, logs get technical detail.
+        if (res.status === 404) {
+          const { BusinessError } = await import("../../errors/errorAspects");
+          throw new BusinessError("WATCHLIST_001", { httpStatus: 404, errorText: errorText.slice(0, 200) });
+        }
         this.lastError = `E*TRADE watchlist request failed [HTTP ${res.status}]: ${errorText.slice(0, 160) || res.statusText}`;
         return [];
       }
@@ -3041,6 +3123,15 @@ export class ETradeRestClient {
         };
       });
     } catch (err) {
+      // Issue #826: BusinessError passes through (already has business message).
+      // Technical errors get logged, UI gets generic message.
+      const { BusinessError } = await import("../../errors/errorAspects");
+      if (err instanceof BusinessError) {
+        // Log technical detail, but don't set lastError to technical message.
+        // The caller should use err.toJSON() for the UI.
+        console.warn(`[ETradeClient] getWatchlists business error [${err.code}]:`, err.entry.technicalDetail);
+        throw err;
+      }
       console.warn("[ETradeClient] getWatchlists error:", err);
       this.lastError = `E*TRADE watchlist request failed: ${err instanceof Error ? err.message : String(err)}`;
       return [];

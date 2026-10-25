@@ -253,10 +253,13 @@ export class MockSqlStorage implements SqlStorage {
     }
 
     // INSERT INTO table (cols) VALUES (placeholders)
-    const insertMatch = q.match(/INSERT\s+(?:OR\s+IGNORE\s+)?INTO\s+(\w+)\s*\((.*?)\)\s*VALUES\s*\((.*?)\)/i);
+    // Issue #887: OR REPLACE is matched too — several services upsert
+    // with INSERT OR REPLACE (strategy reviews, strategy weights);
+    // real SQLite replaces the conflicting row, the mock must as well.
+    const insertMatch = q.match(/INSERT\s+(?:OR\s+(IGNORE|REPLACE)\s+)?INTO\s+(\w+)\s*\((.*?)\)\s*VALUES\s*\((.*?)\)/i);
     if (insertMatch) {
-      const tbl = insertMatch[1];
-      const cols = insertMatch[2].split(",").map((c) => c.trim());
+      const tbl = insertMatch[2];
+      const cols = insertMatch[3].split(",").map((c) => c.trim());
       const record: Record<string, any> = {};
 
       // Issue #669: value tokens may mix placeholders with literals
@@ -267,7 +270,7 @@ export class MockSqlStorage implements SqlStorage {
       {
         let current = "";
         let inQuote = false;
-        for (const ch of insertMatch[3]) {
+        for (const ch of insertMatch[4]) {
           if (ch === "'") inQuote = !inQuote;
           if (ch === "," && !inQuote) {
             valueTokens.push(current);
@@ -303,7 +306,10 @@ export class MockSqlStorage implements SqlStorage {
       const idCol = cols[0];
       const existsIndex = existing.findIndex((r) => r[idCol] === record[idCol]);
       if (existsIndex >= 0) {
-        // IGNORE
+        if ((insertMatch[1] || "").toUpperCase() === "REPLACE") {
+          existing[existsIndex] = record;
+        }
+        // else IGNORE: keep the existing row
       } else {
         existing.push(record);
       }
@@ -431,6 +437,19 @@ export class MockSqlStorage implements SqlStorage {
     if (eqMatch) {
       const col = eqMatch[1];
       const val = args[consumed++];
+      if (row[col] != val) return { matched: false, consumed: 0 };
+      return { matched: true, consumed };
+    }
+
+    // Issue #887: equality against a single-quoted literal, as several
+    // services interpolate (e.g. learnings' domain = 'x', strategy
+    // reviews' decision = 'pending'). Without this branch such
+    // conditions fell through to the lenient fallback and matched
+    // every row; real SQLite compares the literal.
+    const litMatch = cond.match(/(\w+)\s*=\s*'((?:[^']|'')*)'/);
+    if (litMatch) {
+      const col = litMatch[1];
+      const val = litMatch[2].replace(/''/g, "'");
       if (row[col] != val) return { matched: false, consumed: 0 };
       return { matched: true, consumed };
     }

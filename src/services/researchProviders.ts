@@ -1,7 +1,8 @@
 /**
  * Issue #319 — research data provider backed by platform capabilities.
  *
- * Composes (never re-implements): E*TRADE quotes/chains (ETradeService),
+ * Composes (never re-implements): E*TRADE quotes/chains (the platform
+ * contract, resolved through TradingPlatformRegistry — #291 Q2),
  * Nasdaq listings + universe resolution (src/trading), Yahoo technicals
  * (src/trading), and model-calibrated chains as an explicitly-labeled
  * fallback. All trading imports go through src/trading/index.ts (boundary).
@@ -19,13 +20,16 @@
  * READ-ONLY: no order functions are imported or called.
  */
 
-import { ETradeService } from "./etrade";
 import { fetchAllUsStockListings } from "./nasdaqListings";
 import {
   resolveUniverse,
   fetchTechnicalsBatch,
   buildCalibratedOptionChains,
+  TradingPlatformRegistry,
+  fetchQuoteLiveStrict,
+  type ITradingPlatform,
 } from "../trading";
+import { resolveEnvironmentConfig } from "../config/environment";
 import type { Env, ETradeOptionChain } from "../types";
 import type { NasdaqStockListing } from "./nasdaqListings";
 import type {
@@ -127,14 +131,17 @@ function chainToSnapshot(
 }
 
 export class EtradeResearchDataProvider implements ResearchDataProvider {
-  private readonly etrade: ETradeService;
+  private readonly platform: ITradingPlatform;
   private listingsCache: NasdaqStockListing[] | null = null;
 
   constructor(
     private readonly env: Env,
     private readonly userLogin: string
   ) {
-    this.etrade = new ETradeService(undefined, env, userLogin);
+    // #291 Q2: resolved through the platform registry (was a direct
+    // ETradeService construction — the T0 ledger's researchProviders
+    // entry). ORM-free, exactly as before.
+    this.platform = TradingPlatformRegistry.getPlatform("etrade", env, undefined, userLogin);
   }
 
   private async listings(): Promise<NasdaqStockListing[]> {
@@ -166,7 +173,12 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
   async getQuote(symbol: string): Promise<QuoteSnapshot | null> {
     let quote;
     try {
-      quote = await this.etrade.getQuoteAsync(symbol);
+      // LIVE_STRICT (#291 quote unification): the semantics this provider
+      // always had via ETradeService.getQuoteAsync — a failed live quote
+      // throws here and becomes null, never a stale-cache snapshot.
+      quote = await fetchQuoteLiveStrict(this.platform, symbol, {
+        isLive: resolveEnvironmentConfig(this.env).isLive,
+      });
     } catch {
       return null;
     }
@@ -192,7 +204,10 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
     const now = Date.now();
     // Live path first.
     try {
-      const expiries = await this.etrade.getOptionExpireDates(symbol);
+      if (!this.platform.getOptionExpireDates || !this.platform.getOptionChains) {
+        throw new Error("platform lacks the options data plane");
+      }
+      const expiries = await this.platform.getOptionExpireDates(symbol);
       // Issue #353 — select expiries across the near band (30–45 DTE) AND the
       // LEAPS band (>=180 DTE); the old slice(0, 4) cut every LEAPS expiry,
       // which made the PMCC branch unreachable.
@@ -215,7 +230,7 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
       let underlyingPrice = 0;
       for (const exp of picked) {
         const dte = dteOf(exp.year, exp.month, exp.day, now);
-        const chain = await this.etrade.getOptionChains({
+        const chain = await this.platform.getOptionChains({
           symbol,
           expiryYear: exp.year,
           expiryMonth: exp.month,

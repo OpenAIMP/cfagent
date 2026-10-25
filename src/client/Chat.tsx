@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { BRAND } from "./branding";
 import { apiFetch as fetch } from "./apiFetch";
 import { didProofSignatureDisplay } from "./didProofCard";
 import { McpApiExplorer } from "./McpApiExplorer";
@@ -31,6 +32,7 @@ import { ReferralsTab } from "./chat/tabs/ReferralsTab";
 import { AdsTab } from "./chat/tabs/AdsTab";
 import { RevenueTab } from "./chat/tabs/RevenueTab";
 import { EndpointsTab } from "./chat/tabs/EndpointsTab";
+import { SocialPostingPanel } from "./SocialPostingPanel";
 export function Chat({ user }: { user: User }) {
   const [tab, setTab] = useState<NavTabId>("autopilot");
   const [brokerProps, setBrokerProps] = useState<ETradeDynamicMenuProps | null>(null);
@@ -140,9 +142,9 @@ export function Chat({ user }: { user: User }) {
     return 15;
   });
 
-  // Issue #277: server-owned setting for optional HITL confirmation on
-  // research-report dispatch. Default OFF (autonomous, current behavior).
-  const [reportDispatchHitl, setReportDispatchHitl] = useState<boolean>(false);
+  // Issue #277: server-owned setting for HITL confirmation on
+  // research-report dispatch. Default ON (#1144, owner decision).
+  const [reportDispatchHitl, setReportDispatchHitl] = useState<boolean>(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -155,7 +157,7 @@ export function Chat({ user }: { user: User }) {
         const data = (await res.json()) as { enabled?: unknown };
         if (!cancelled && typeof data.enabled === "boolean") setReportDispatchHitl(data.enabled);
       } catch {
-        // Server unreachable or setting unavailable: keep default OFF.
+        // Server unreachable or setting unavailable: keep default ON.
       }
     })();
     return () => {
@@ -273,7 +275,7 @@ export function Chat({ user }: { user: User }) {
   };
 
   const handleAskAgent = (queryText: string) => {
-    setPendingPrompt({ prompt: queryText, sourceTab: "Global Search / NextGenTP" });
+    setPendingPrompt({ prompt: queryText, sourceTab: `Global Search / ${BRAND.name}` });
     setTab("chat");
   };
 
@@ -447,7 +449,7 @@ export function Chat({ user }: { user: User }) {
   };
 
   const handleCopyDiscordEmbed = () => {
-    const text = `**Join Multi-Agent Studio:** [Autonomous AI Agents with Workers AI & SQLite](${personalReferralUrl})`;
+    const text = `**Join ${BRAND.name}:** [Autonomous AI Trading & Strategy Platform](${personalReferralUrl})`;
     navigator.clipboard.writeText(text);
     setDiscordCopied(true);
     setTimeout(() => setDiscordCopied(false), 2500);
@@ -1022,7 +1024,7 @@ export function Chat({ user }: { user: User }) {
                     : tab === "chat"
                     ? "Copilot Ideas"
                     : tab === "nlq"
-                    ? "Database NLQ"
+                    ? "Records NLQ"
                     : tab === "audit"
                     ? "Audit Vault"
                     : tab === "payments"
@@ -1031,6 +1033,8 @@ export function Chat({ user }: { user: User }) {
                     ? "Referrals"
                     : tab === "ads"
                     ? "Marketplace"
+                    : tab === "social"
+                    ? "Social"
                     : "Revenue"}
                 </span>
                 <span className="crumb-divider">/</span>
@@ -1121,7 +1125,7 @@ export function Chat({ user }: { user: User }) {
             </div>
           </header>
         ) : (
-          <header className="nextgentp-top-header algonexus-top-header app-header">
+          <header className="app-top-header nextgentp-top-header app-header">
             <NavigationMenu
               layout="top"
               alertBadgeCount={unreadAlerts}
@@ -1266,9 +1270,9 @@ export function Chat({ user }: { user: User }) {
         {tab === "nlq" && (
           <div className="nlq-view">
             <div className="nlq-header">
-              <h3>📊 Natural Language Database Query Engine (SQLite ORM)</h3>
+              <h3>📊 Natural Language Records &amp; Audit Analytics</h3>
               <p>
-                Query relational SQLite tables, introspect database schema, retrieve table records, or add referral categories using natural language or direct ORM browsing.
+                Query business records, inspect enterprise data schemas, retrieve transaction records, and manage commercial categories with natural language or interactive record browsing.
               </p>
             </div>
 
@@ -1315,7 +1319,7 @@ export function Chat({ user }: { user: User }) {
             <form className="chat-input-bar nlq-bar" onSubmit={(event) => {
               event.preventDefault();
               if (nlqInput.trim()) {
-                setPendingPrompt({ prompt: nlqInput.trim(), sourceTab: "Database Explorer" });
+                setPendingPrompt({ prompt: nlqInput.trim(), sourceTab: "Records Explorer" });
                 setNlqInput("");
                 setTab("chat");
               }
@@ -1333,7 +1337,7 @@ export function Chat({ user }: { user: User }) {
 
             {/* Direct ORM Table Explorer Toolbar */}
             <div className="nlq-orm-toolbar">
-              <span className="orm-tag">⚡ DIRECT ORM EXPLORER:</span>
+              <span className="orm-tag">⚡ RECORD EXPLORER:</span>
               <select
                 value={selectedBrowseTable}
                 onChange={(e) => setSelectedBrowseTable(e.target.value)}
@@ -1362,7 +1366,7 @@ export function Chat({ user }: { user: User }) {
                 onClick={() => browseTable(selectedBrowseTable, browseSearch)}
                 loading={browsingLoading}
               >
-                {browsingLoading ? "Querying ORM…" : "🔍 Browse Records"}
+                {browsingLoading ? "Loading Records…" : "🔍 Browse Records"}
               </Button>
             </div>
 
@@ -1372,7 +1376,7 @@ export function Chat({ user }: { user: User }) {
                 <div className="browsed-card-header">
                   <div className="browsed-title">
                     <span>🗄️ Table Data: <strong>{browsedData.tableName}</strong></span>
-                    <span className="row-count-badge">{browsedData.total} Total Rows in SQLite ORM</span>
+                    <span className="row-count-badge">{browsedData.total} Total Records</span>
                   </div>
                   <button
                     type="button"
@@ -1456,7 +1460,7 @@ export function Chat({ user }: { user: User }) {
                             browseTable(tbl.tableName);
                           }}
                         >
-                          🔍 Browse Records (ORM) →
+                          🔍 Browse Records →
                         </button>
                       </div>
                     ))}
@@ -1566,7 +1570,7 @@ export function Chat({ user }: { user: User }) {
             <div className="audit-header">
               <div>
                 <h3>🛡️ System Audit & Memory Vault</h3>
-                <p>Live observability stream into router decisions, sub-agent executions, LLM Judge evaluations, and SQLite memory state.</p>
+                <p>Live observability stream into router decisions, sub-agent executions, AI decision evaluations, and firm memory state.</p>
               </div>
               <button className="refresh-btn" onClick={fetchAuditData} disabled={auditLoading}>
                 {auditLoading ? "Refreshing…" : "🔄 Refresh Data"}
@@ -2077,6 +2081,10 @@ export function Chat({ user }: { user: User }) {
           />
         )}
 
+        {tab === "social" && (
+          <SocialPostingPanel />
+        )}
+
         {/* API & Model Context Protocol (MCP) Endpoints Explorer */}
         {tab === "endpoints" && (
           <EndpointsTab
@@ -2152,7 +2160,7 @@ export function Chat({ user }: { user: User }) {
       </main>
       </div>
 
-      {/* Floating Ask Agent Widget (Docked bottom-right, matching AlgoNexus reference) */}
+      {/* Floating Ask Agent Widget (Docked bottom-right) */}
       <AskAgentWidget
         onAskAgent={handleAskAgent}
         onOpenFullChat={() => {
