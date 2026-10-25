@@ -85,12 +85,15 @@ export function formatDiscoveryDelivery(result: DiscoveryModeResult): {
       `Fit discovery — strategies for ${r.symbol} (${r.outlook}, chain provenance: ${r.provenance})`,
       "",
       ...r.candidates.slice(0, 8).map((c, i) => {
-        const econ =
-          c.economics.netCredit > 0
+        // Null economics renders as unverified, never as $0 or
+        // "Unlimited" — money() must never see a fabricated figure.
+        const econ = !c.economics
+          ? "economics unverified"
+          : c.economics.netCredit > 0
             ? `credit ${money(c.economics.netCredit)}/unit`
             : `debit ${money(c.economics.netDebit)}/unit`;
         return (
-          `${i + 1}. ${c.label} [${c.source}] — ${c.status}, max loss ${money(c.economics.maxLoss)}/unit, ` +
+          `${i + 1}. ${c.label} [${c.source}] — ${c.status}, max loss ${c.economics ? money(c.economics.maxLoss) : "unverified"}/unit, ` +
           `${econ}, scenario worst ${money(c.scenario.worstPnlTotal)} / mean ${money(c.scenario.meanPnlTotal)}`
         );
       }),
@@ -127,7 +130,7 @@ export function formatDiscoveryDelivery(result: DiscoveryModeResult): {
           : "";
       return (
         `${i + 1}. ${f.symbol} — fit ${f.fitScore.toFixed(1)}, ${f.status} (provenance ${f.provenance}), ` +
-        `max loss ${money(f.economics.maxLoss)}/unit${missing}`
+        `max loss ${f.economics ? money(f.economics.maxLoss) : "unverified"}/unit${missing}`
       );
     }),
     ...(r.ranked.length > 8
