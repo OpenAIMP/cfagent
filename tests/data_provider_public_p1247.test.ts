@@ -1228,15 +1228,21 @@ describe("public registration and lifecycle", () => {
 // ---------------------------------------------------------------------------
 
 describe("public verifier", () => {
-  it("buildDataProviderVerifier binds public (and binds yahoo; alpaca stays unbound)", () => {
+  it("buildDataProviderVerifier binds public (and binds yahoo, nasdaq, and alpaca; unknown ids stay unbound)", () => {
     const store = makeFakeSessionStore();
     const env = makeEnv(store);
     expect(buildDataProviderVerifier(env, LOGIN, "public", null)).toBeDefined();
     // #1317 binds the yahoo verifier (FOSS isConfigured + conformance);
-    // alpaca is now the remaining adapter-without-verifier case, so the
-    // explicit-binding-matrix intent of this pin moves to it unchanged.
+    // #1368 binds the nasdaq verifier (configured-by-construction +
+    // conformance); #1385 binds the alpaca verifier (FOSS
+    // isConfigured + conformance). With all five providers bound,
+    // the unbound case moves to an unknown provider id returning
+    // undefined — the explicit-binding-matrix intent of this pin
+    // is unchanged.
     expect(buildDataProviderVerifier(env, LOGIN, "yahoo")).toBeDefined();
-    expect(buildDataProviderVerifier(env, LOGIN, "alpaca")).toBeUndefined();
+    expect(buildDataProviderVerifier(env, LOGIN, "nasdaq")).toBeDefined();
+    expect(buildDataProviderVerifier(env, LOGIN, "alpaca")).toBeDefined();
+    expect(buildDataProviderVerifier(env, LOGIN, "no-such-provider")).toBeUndefined();
   });
 
   it("no credential reference ⇒ honest failure naming the missing reference", async () => {

@@ -61,6 +61,11 @@ export interface ScreenerRunOutcome {
   xlsxKey?: string;
   xlsxStatus?: "generated" | "failed" | "skipped";
   xlsxError?: string;
+  /** Issue #1346: the run's CSV artifact, carried so the serve
+   *  stage adopts it and deliveries attach text + PDF + XLSX + CSV. */
+  csvKey?: string;
+  csvStatus?: "generated" | "failed" | "skipped";
+  csvError?: string;
   reportUrl?: string;
   matchedCount?: number;
   totalScanned?: number;
@@ -185,7 +190,7 @@ export type FollowupDeliverySubmission = Extract<
 /** The report sub-job's result, as consumed by the delivery planner. */
 export interface FollowupReportResult {
   status: "ready" | "skipped" | string;
-  artifacts?: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" }>;
+  artifacts?: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" | "csv" }>;
   reason?: string;
 }
 
@@ -546,6 +551,11 @@ export function screenerOutcomeFromRunResult(
       ? result.xlsxStatus
       : undefined,
     xlsxError: typeof result.xlsxError === "string" ? result.xlsxError : undefined,
+    csvKey: typeof result.csvKey === "string" ? result.csvKey : undefined,
+    csvStatus: result.csvStatus === "generated" || result.csvStatus === "failed" || result.csvStatus === "skipped"
+      ? result.csvStatus
+      : undefined,
+    csvError: typeof result.csvError === "string" ? result.csvError : undefined,
     reportUrl,
     matchedCount: asNumber(result.matchedCount),
     totalScanned: asNumber(result.totalScanned) ?? asNumber(result.totalUnderlyingsScanned),

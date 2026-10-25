@@ -17,8 +17,13 @@
  *    worker email export → SEARCH_AGENT forward → DO route → service
  *    transitions the seeded ledger row to "executed".
  *  - The forward is addressed to the worker's established owner
- *    instance with the identity header set by the worker — never an
- *    instance derived from the (caller-controlled) sender address.
+ *    instance — never an instance derived from the (caller-controlled)
+ *    sender address. #1262 Phase 1 supersedes the identity half of the
+ *    original pin: the forward no longer asserts an identity header;
+ *    it carries the sender + Authentication-Results, and the DO route
+ *    resolves the channel principal (sender map + DKIM/SPF gate). The
+ *    APPROVE below therefore runs as a mapped trade-tier principal
+ *    whose message passed DKIM.
  *  - A voice NLQ turn over the WebSocket reads real data via the
  *    per-turn DO forwarder (seeded store + screener fixtures).
  *  - If the orchestrator path is unavailable, both entry points keep
@@ -67,6 +72,7 @@ import worker from "../src/server";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { handleTradingIntegrationsRoutes } from "../src/agents/routes/tradingIntegrations";
+import { issueApprovalLink } from "../src/trading/channels/signedLinks";
 import {
   handleVoiceWebSocketConnection,
   createOrchestratorVoiceTurnForwarder,
@@ -182,6 +188,9 @@ function makeOrchestratorNamespace(orm: DatabaseORM, env: Env, forwarded: Forwar
           audit: () => {},
           agentCtx: {} as any,
           nlqSchedulingPort: () => new FakeSchedulingPort(),
+          // Issue #1262 Phase 4: the route builds the channel NLQ
+          // dep set from DO storage SQL for every channel service.
+          getStorageSql: () => ({ exec: () => [] }) as any,
         });
         return response ?? Response.json({ error: "route not found" }, { status: 404 });
       },
@@ -211,11 +220,12 @@ function seedPreviewedTrade(orm: DatabaseORM, session: string, id: string) {
   });
 }
 
-function rawEmailMessage(from: string, subject: string, text: string) {
+function rawEmailMessage(from: string, subject: string, text: string, authResults?: string) {
   const mime = [
     `From: ${from}`,
     "To: trade@agent.openaimp.com",
     `Subject: ${subject}`,
+    ...(authResults ? [`Authentication-Results: ${authResults}`] : []),
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=utf-8",
     "",
@@ -240,7 +250,7 @@ function rawEmailMessage(from: string, subject: string, text: string) {
 // ---------------------------------------------------------------------------
 
 describe("issue #815: worker email export routes through the orchestrator DO", () => {
-  it("an emailed APPROVE acts on the real pending preview in the orchestrator's ledger", async () => {
+  it("an emailed signed-link approval acts on the real pending preview in the orchestrator's ledger", async () => {
     const orm = makeOrm(OWNER_INSTANCE);
     seedPreviewedTrade(orm, OWNER_INSTANCE, "ord_815_email_1");
 
@@ -251,6 +261,13 @@ describe("issue #815: worker email export routes through the orchestrator DO", (
       AI_SEARCH_ENDPOINT: "https://ai-search.internal",
       ETRADE_ENVIRONMENT: "sandbox",
       EMAIL_AGENT_ADDRESS: "trade@agent.openaimp.com",
+      // #1262 Phase 1: the sender is a mapped trade-tier principal.
+      CHANNEL_EMAIL_PRINCIPALS: JSON.stringify({
+        "human.trader@example.com": { login: "owner-login", tier: "trade" },
+      }),
+      // #1262 Phase 5: the approval travels as a signed link, so the
+      // env carries the link secret the issuance + verification read.
+      CHANNEL_APPROVAL_LINK_SECRET: "test-link-secret-1262",
       EMAIL: {
         send: vi.fn(async (message: ReadableStream<Uint8Array>) => {
           sentMail.push(await new Response(message).text());
@@ -259,23 +276,39 @@ describe("issue #815: worker email export routes through the orchestrator DO", (
     } as unknown as Env;
     (env as any).SEARCH_AGENT = makeOrchestratorNamespace(orm, env, forwarded);
 
+    // Phase 5: a bare APPROVE no longer executes — the approval reply
+    // quotes the signed link issued for this draft (the preview email
+    // carries it; here it is issued directly for the seeded draft).
+    const issued = await issueApprovalLink(env as Env, {
+      orderId: "ord_815_email_1",
+      login: "owner-login",
+      address: "human.trader@example.com",
+      baseUrl: "https://agent.openaimp.com",
+    });
+    expect(issued).not.toBeNull();
     const message = rawEmailMessage(
       "human.trader@example.com",
       "Re: HITL Action Required: Preview BUY 5 AAPL [ord_815_email_1]",
-      "APPROVE ord_815_email_1"
+      `APPROVE ord_815_email_1\n${issued!.url}`,
+      // #1262 Phase 1: the trade tier requires a DKIM (or SPF) pass on
+      // this exact message.
+      "mx.openaimp.com; dkim=pass header.d=example.com; spf=pass smtp.mailfrom=example.com"
     );
     await (worker as any).email(message, env, {});
 
     // The persistence work travelled the SEARCH_AGENT channel to the
     // DO-side inbound-email route, addressed to the worker's established
-    // owner instance — the identity header is set by the worker, and the
-    // instance is NOT derived from the caller-controlled sender address.
+    // owner instance — the instance is NOT derived from the
+    // caller-controlled sender address. #1262 Phase 1: the forward
+    // asserts NO identity header; it carries the sender and the
+    // Authentication-Results, and the DO route resolves the principal.
     expect(forwarded).toHaveLength(1);
     expect(forwarded[0].pathname).toBe("/trading/email/inbound");
     expect(forwarded[0].id).toBe(OWNER_INSTANCE);
-    expect(forwarded[0].userLogin).toBe(OWNER_INSTANCE);
+    expect(forwarded[0].userLogin).toBeNull();
     expect(forwarded[0].body.from).toBe("human.trader@example.com");
     expect(forwarded[0].body.text).toContain("APPROVE ord_815_email_1");
+    expect(forwarded[0].body.authenticationResults).toContain("dkim=pass");
 
     // The approval transitioned the ACTUAL seeded row.
     expect(orm.trades.findById("ord_815_email_1")?.status).toBe("executed");

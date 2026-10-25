@@ -42,7 +42,7 @@ import { scheduledReportPdfUrl } from "./scheduledReports";
 import type { ScanRunSummary, DiscoveryRunSummary } from "../trading";
 import type { ScreenerRunResult } from "../agents/screener-agent";
 
-export type RunKind = "screener" | "options_scanner" | "discovery" | "report";
+export type RunKind = "screener" | "options_scanner" | "discovery" | "goal" | "report";
 
 export interface RunSummary {
   kind: RunKind;
@@ -136,6 +136,11 @@ const KIND_BY_REPORT_SOURCE: Record<string, RunKind> = {
   // now (source "discovery"), so their canonical rows map to kind
   // "discovery" instead of falling through to "report".
   discovery: "discovery",
+  // Consolidation C5 (#1361): goal-screen canonical rows get their own
+  // kind (C4 limitation: they surfaced under "report" because the Runs
+  // shape had no goal kind). The Reports panel filters goal_screen
+  // client-side by source, so no client change is needed.
+  goal_screen: "goal",
 };
 
 function xlsxUrlForSource(source: string, key: string): string | null {
@@ -144,6 +149,16 @@ function xlsxUrlForSource(source: string, key: string): string | null {
     return `/api/options/report.xlsx?key=${encodeURIComponent(key)}`;
   if (source === "goal_screen")
     return `/api/screening/goal-screen/report.xlsx?key=${encodeURIComponent(key)}`;
+  return null;
+}
+
+/** Issue #1346: mirrors xlsxUrlForSource for the stored CSV artifact. */
+function csvUrlForSource(source: string, key: string): string | null {
+  if (source === "screener") return `/api/screener/report.csv?key=${encodeURIComponent(key)}`;
+  if (source === "options_scanner" || source === "options_screen")
+    return `/api/options/report.csv?key=${encodeURIComponent(key)}`;
+  if (source === "goal_screen")
+    return `/api/screening/goal-screen/report.csv?key=${encodeURIComponent(key)}`;
   return null;
 }
 
@@ -202,9 +217,7 @@ export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
     csvKey: strOrNull(body?.csvKey) ?? strOrNull(body?.report?.result?.csvKey),
     csvUrl: (() => {
       const k = strOrNull(body?.csvKey) ?? strOrNull(body?.report?.result?.csvKey);
-      return k && hit.source === "goal_screen"
-        ? `/api/screening/goal-screen/report.csv?key=${encodeURIComponent(k)}`
-        : null;
+      return k ? csvUrlForSource(hit.source, k) : null;
     })(),
     pdfStatus:
       strOrNull(body?.pdfStatus) ??
@@ -304,8 +317,10 @@ export function runSummaryFromScreenerRun(run: ScreenerRunResult): RunSummary {
     xlsxUrl: run.xlsxKey
       ? `/api/screener/report.xlsx?key=${encodeURIComponent(run.xlsxKey)}`
       : null,
-    csvKey: null,
-    csvUrl: null,
+    csvKey: run.csvKey ?? null,
+    csvUrl: run.csvKey
+      ? `/api/screener/report.csv?key=${encodeURIComponent(run.csvKey)}`
+      : null,
     pdfStatus: run.pdfStatus ?? null,
     pdfError: run.pdfError ?? null,
     reportId: null,

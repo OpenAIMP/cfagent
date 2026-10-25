@@ -668,6 +668,10 @@ export const marketScreenScheduleCriteriaSchema = z.strictObject({
   // (the Yahoo data-source adapter inside the one pipeline). Absent =
   // the E*TRADE default every existing schedule already runs under.
   provider: z.enum(["etrade", "yahoo"]).optional(),
+  // Issue #1355: a scheduled stock screen may opt into sharded
+  // execution (feed → generate → store → serve → deliver as
+  // async-job shards). Absent/false keeps the monolithic path.
+  sharded: z.boolean().optional(),
   ...deliveryFields,
   ...stageChainFields,
   ...triggerField,
@@ -988,7 +992,7 @@ export function buildSchedulePayload(
 
 /** The kind filter of GET /api/runs — the one Runs read surface over
  *  the four run stores. "all" is the unfiltered merge. */
-export const runsListKindSchema = z.enum(["screener", "options_scanner", "discovery", "all"]);
+export const runsListKindSchema = z.enum(["screener", "options_scanner", "discovery", "goal", "all"]);
 export type RunsListKind = z.infer<typeof runsListKindSchema>;
 
 /** Validate the `kind` query parameter of GET /api/runs in the S1
@@ -999,6 +1003,6 @@ export function parseRunsListKind(input: unknown): ScreeningValidationResult<Run
   if (result.success) return { ok: true, value: result.data };
   return {
     ok: false,
-    error: `Invalid runs list query: kind: must be one of "screener", "options_scanner", "discovery", "all".`,
+    error: `Invalid runs list query: kind: must be one of "screener", "options_scanner", "discovery", "goal", "all".`,
   };
 }

@@ -9,6 +9,8 @@
  *   GET         /screener/latest                    (issue #212/#261)
  *   GET         /screener/report.pdf                (issue #269)
  *   POST        /screener/report/regenerate         (issue #1278, #1173 R5)
+ *   GET         /screener/report.xlsx               (issue #953)
+ *   GET         /screener/report.csv                (issue #1346)
  *   GET         /options/report.pdf                 (issue #361)
  *   POST        /research/run                       (issue #319, manual)
  *   POST        /research/scheduled-tick            (issue #319/#354, daily)
@@ -180,6 +182,31 @@ export async function handleScreenerResearchRoutes(
       }
     }
 
+    // Issue #1346: downloadable CSV report of the screener run
+    // (mirrors the XLSX route; the key must be screener:csv: —
+    // enforced in the agent getter — so this route cannot serve a
+    // PDF/XLSX blob as CSV).
+    if (path.endsWith("/screener/report.csv") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const csv = key ? await agent.getCsvByKey(key) : await agent.getLatestCsv();
+        if (!csv) {
+          return Response.json({ error: "No screener CSV report available yet" }, { status: 404 });
+        }
+        return new Response(csv.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "text/csv",
+            "Content-Disposition": `attachment; filename="${csv.fileName}"`,
+            "Content-Length": String(csv.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load CSV report" }, { status: 500 });
+      }
+    }
+
     // Issue #1335: goal-screen report artifacts (PDF + XLSX + CSV) —
     // served from the ScreenerAgent blob store. The key must be
     // goal_screen-namespaced (enforced again in the agent getter), so
@@ -242,6 +269,30 @@ export async function handleScreenerResearchRoutes(
         });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to load XLSX report" }, { status: 500 });
+      }
+    }
+
+    // Issue #1346: Options CSV download endpoint (mirrors options
+    // XLSX; the key must be options:csv: — enforced in the agent
+    // getter).
+    if (path.endsWith("/options/report.csv") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const csv = key ? await agent.getOptionsCsvByKey(key) : await agent.getLatestOptionsCsv();
+        if (!csv) {
+          return Response.json({ error: "No options CSV report available yet" }, { status: 404 });
+        }
+        return new Response(csv.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "text/csv",
+            "Content-Disposition": `attachment; filename="${csv.fileName}"`,
+            "Content-Length": String(csv.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to load CSV report" }, { status: 500 });
       }
     }
 
@@ -440,7 +491,11 @@ export async function handleScreenerResearchRoutes(
                   reselectStrategyBank,
                   recordReselectionProposal,
                 } = await import("../../services/strategyBankReselection");
-                const { getStrategyWeights } = await import("../../services/strategyWeights");
+                // Consolidation C5 (#1361, #1257): reselection reads
+                // v2 weights for the run's regime (proposal-only; the
+                // informational weight field now carries the regime's
+                // v2 value). Proposal shape unchanged.
+                const { getStrategyWeightsV2ForRegime } = await import("../../services/strategyWeightsV2");
                 const sbDecision = shouldFireStrategyBankTick(
                   new Date(),
                   ctx.readSettingRaw(STRATEGY_BANK_LAST_RUN_KEY)
@@ -452,7 +507,7 @@ export async function handleScreenerResearchRoutes(
                   for (const regime of regimes) {
                     const proposal = reselectStrategyBank({
                       evidence,
-                      weights: getStrategyWeights(orm),
+                      weights: getStrategyWeightsV2ForRegime(orm, regime),
                       regime,
                       overallWinRate: track.winRate,
                       now: new Date(),
@@ -605,9 +660,25 @@ export async function handleScreenerResearchRoutes(
       if (!agent) {
         return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
       }
-      const { getStrategyWeights, buildWeightPolicyEvaluation } = await import("../../services/strategyWeights");
-      const weights = getStrategyWeights(ctx.getOrm());
+      const { isAdaptationWeightsV2RoutesEnabled } = await import("../../services/screeningFlags");
+      const { buildWeightPolicyEvaluation } = await import("../../services/strategyWeights");
       const trackRecord = await agent.getTrackRecord();
+      // Consolidation C5 (#1361, #1257): flag-on reads v2 (collapsed
+      // to plain strategy keys so the hub renders unchanged, plus the
+      // full regime map for transparency); the evaluation builder is
+      // the same, fed the collapsed map. Flag-off is v1 verbatim.
+      if (isAdaptationWeightsV2RoutesEnabled((key) => ctx.readSettingRaw(key))) {
+        const { getStrategyWeightsV2, getStrategyWeightsV2Collapsed } = await import("../../services/strategyWeightsV2");
+        const weights = getStrategyWeightsV2Collapsed(ctx.getOrm());
+        return Response.json({
+          weights,
+          weightsByRegime: getStrategyWeightsV2(ctx.getOrm()),
+          weightsSource: "v2",
+          evaluation: buildWeightPolicyEvaluation(trackRecord, weights),
+        });
+      }
+      const { getStrategyWeights } = await import("../../services/strategyWeights");
+      const weights = getStrategyWeights(ctx.getOrm());
       return Response.json({ weights, evaluation: buildWeightPolicyEvaluation(trackRecord, weights) });
     }
 
@@ -623,6 +694,57 @@ export async function handleScreenerResearchRoutes(
         return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
       }
       const body = (await request.json().catch(() => null)) as { force?: boolean } | null;
+      const { isAdaptationWeightsV2RoutesEnabled } = await import("../../services/screeningFlags");
+      // Consolidation C5 (#1361, #1257): flag-on runs the v2
+      // adjustment behind the SAME fire/no-fire semantics as v1 —
+      // ISO-week guard (same settings key, so one adjustment per
+      // week regardless of engine) + kill switch inside the v2 job.
+      // The v2 result carries regime per entry; the v1-only skipped
+      // detail fields are absent on this path (documented delta —
+      // the flag-off path is byte-identical to v1).
+      if (isAdaptationWeightsV2RoutesEnabled((key) => ctx.readSettingRaw(key))) {
+        const { buildWeightsV2Slices, runWeightsV2Adjustment } = await import("../../services/strategyWeightsV2");
+        const { isoWeekKey, WEIGHTS_LAST_RUN_WEEK_KEY } = await import("../../services/strategyWeights");
+        const { RESEARCH_CONFIG_DEFAULTS } = await import("../../services/researchConfig");
+        const trackRecord = await agent.getTrackRecord();
+        const researchConfig = await agent.getResearchConfig().catch(() => null);
+        const costs = {
+          feePerContract: researchConfig?.feePerContract ?? RESEARCH_CONFIG_DEFAULTS.feePerContract,
+          slippagePerContract: researchConfig?.slippagePerContract ?? RESEARCH_CONFIG_DEFAULTS.slippagePerContract,
+        };
+        const slices = buildWeightsV2Slices(
+          trackRecord.ideas.map((idea: any) => ({
+            structure: idea.structure,
+            regime: idea.regime,
+            contractsPerUnit: idea.contractsPerUnit,
+            evaluation: idea.evaluation
+              ? {
+                  pnlEstimatePerUnit: idea.evaluation.pnlEstimatePerUnit,
+                  rMultiple: idea.evaluation.rMultiple,
+                  evaluatedAt: idea.evaluation.evaluatedAt,
+                }
+              : null,
+          })),
+          costs
+        );
+        const now = new Date();
+        if (body?.force !== true && ctx.readSettingRaw(WEIGHTS_LAST_RUN_WEEK_KEY) === isoWeekKey(now)) {
+          return Response.json({
+            success: true,
+            considered: slices.length,
+            adjusted: [],
+            blocked: [],
+            skipped: "already ran this week",
+            weightsSource: "v2",
+            timestamp: now.toISOString(),
+          });
+        }
+        const result = runWeightsV2Adjustment(ctx.getOrm(), slices, { now });
+        if (!result.halted && body?.force !== true) {
+          ctx.writeSetting(WEIGHTS_LAST_RUN_WEEK_KEY, isoWeekKey(now));
+        }
+        return Response.json({ success: true, ...result, weightsSource: "v2", timestamp: now.toISOString() });
+      }
       const { runStrategyWeightAdjustment } = await import("../../services/strategyWeights");
       const trackRecord = await agent.getTrackRecord();
       const result = runStrategyWeightAdjustment(ctx.getOrm(), trackRecord, { force: body?.force === true });
@@ -687,14 +809,24 @@ export async function handleScreenerResearchRoutes(
       }
       const { getImprovementCandidate } = await import("../../services/improvementCandidates");
       const { evaluateCandidate } = await import("../../services/candidateEvaluation");
-      const { getStrategyWeights } = await import("../../services/strategyWeights");
       const orm = ctx.getOrm();
       const candidate = getImprovementCandidate(orm, candidateId);
       if (!candidate) {
         return Response.json({ error: `candidate ${candidateId} not found.` }, { status: 404 });
       }
       const trackRecord = await agent.getTrackRecord();
-      const weights = getStrategyWeights(orm);
+      // Consolidation C5 (#1361, #1257): flag-on feeds the replay the
+      // collapsed v2 map (the replay keys by strategy alone); flag-off
+      // is v1 verbatim.
+      const { isAdaptationWeightsV2RoutesEnabled } = await import("../../services/screeningFlags");
+      let weights: Record<string, number>;
+      if (isAdaptationWeightsV2RoutesEnabled((key) => ctx.readSettingRaw(key))) {
+        const { getStrategyWeightsV2Collapsed } = await import("../../services/strategyWeightsV2");
+        weights = getStrategyWeightsV2Collapsed(orm);
+      } else {
+        const { getStrategyWeights } = await import("../../services/strategyWeights");
+        weights = getStrategyWeights(orm);
+      }
       const window =
         body?.window && typeof body.window === "object"
           ? {

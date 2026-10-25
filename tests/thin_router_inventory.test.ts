@@ -78,6 +78,11 @@
  * /screener/report/regenerate (in handleScreenerResearchRoutes, after
  * /screener/report.pdf, before /screener/report.xlsx) — bringing the
  * pinned array to 204 entries.
+ * Issue #1361 (consolidation C5) added two more — GET
+ * /trading/options/comparison/outcomes and POST
+ * /trading/options/comparison (in handleEtradeOptionsRoutes, after
+ * /trading/options/compare, before /trading/options/recommend) —
+ * bringing the pinned array to 206 entries.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -169,6 +174,7 @@ const EXPECTED_INVENTORY = [
   "handleDataProviderRoutes :: === \"/data-providers\"",
   "handleDataProviderRoutes :: === \"/data-providers/\"",
   "handleAutopilotRoutes :: endsWith(\"/autopilot\")",
+  "handleAutopilotRoutes :: endsWith(\"/autopilot/jobs\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/state\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/kill-switch\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/limits\")",
@@ -220,6 +226,7 @@ const EXPECTED_INVENTORY = [
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/orders/remote\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/orders/cancel\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/email/inbound\")",
+  "handleTradingIntegrationsRoutes :: endsWith(\"/trading/email/approve-link\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/slack/event\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/slack/interaction\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/slack/command\")",
@@ -250,8 +257,9 @@ const EXPECTED_INVENTORY = [
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/llm-ideas\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/compare\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/compare\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/comparison/outcomes\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/comparison\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/recommend\")",
-  "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/catalog\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/catalog\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/strategies\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/best-trade\")",
@@ -287,10 +295,12 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/screener/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/report/regenerate\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/report.xlsx\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screener/report.csv\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen/report.xlsx\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen/report.csv\")",
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.xlsx\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/options/report.csv\")",
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/run\")",

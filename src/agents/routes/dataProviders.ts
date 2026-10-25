@@ -58,6 +58,8 @@ import {
   createPublicDataProviderFromEnv,
   verifyPublicDataProvider,
   verifyYahooDataProvider,
+  verifyNasdaqDataProvider,
+  verifyAlpacaDataProvider,
   createCaptureFetchOutcomeRecorder,
   createNasdaqDataProvider,
   createYahooDataProvider,
@@ -128,15 +130,16 @@ function buildPlatformRegistry(ctx: DataProviderRoutesContext): DataProviderRegi
 
 /**
  * The orchestrator's verifier binding: etrade (the #1116 vertical's
- * reference provider), since #1247 public, and since #1317 yahoo.
- * The etrade check is the adapter's own status first — a service
- * that reports itself unconfigured fails with that reason — then
- * the P1 conformance kit against the live adapter. The public check
- * resolves the provider record's configured credential REFERENCE
- * (the caller passes it through) to the user's stored token, then
- * runs the same kit. The yahoo check is the FOSS provider's own
- * isConfigured plus the same kit over the yahoo adapter. Any other
- * provider id returns undefined (= no adapter wired for
+ * reference provider), since #1247 public, since #1317 yahoo, since
+ * #1368 nasdaq, and since #1385 alpaca. The etrade check is the
+ * adapter's own status first — a service that reports itself
+ * unconfigured fails with that reason — then the P1 conformance
+ * kit against the live adapter. The public check resolves the
+ * provider record's configured credential REFERENCE (the caller
+ * passes it through) to the user's stored token, then runs the
+ * same kit. The yahoo and alpaca checks are the FOSS providers'
+ * own isConfigured plus the same kit over their adapters. Any
+ * other provider id returns undefined (= no adapter wired for
  * verification), and the route substitutes the honest no-adapter
  * failure.
  *
@@ -166,6 +169,12 @@ export function buildDataProviderVerifier(
   }
   if (providerId === "yahoo") {
     return async () => verifyYahooDataProvider(env, { outcomeRecorder });
+  }
+  if (providerId === "nasdaq") {
+    return async () => verifyNasdaqDataProvider({ outcomeRecorder });
+  }
+  if (providerId === "alpaca") {
+    return async () => verifyAlpacaDataProvider(env, { outcomeRecorder });
   }
   return undefined;
 }
