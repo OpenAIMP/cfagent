@@ -131,10 +131,15 @@ export interface AutonomousStrategyDiscoveryOptions {
   scheduleId?: string;
   /** Consolidation C4 (#1329): per-record stage-chain config — a
    *  completed discovery run bridges generate + serve (canonical
-   *  report adoption); delivery stays on the run's direct path
-   *  (deliverViaChain=false). Absent ⇒ unbridged. Failed runs do not
-   *  bridge: their existing failure-notice path is channel-divergent
-   *  from the bridge's, and suppressing it would risk a lost notice. */
+   *  report adoption). Consolidation #1236 finding: discovery has NO
+   *  direct success delivery to chain (success completes as audit +
+   *  session message + canonical row; the options carry no channel
+   *  fields), so flipping deliverViaChain would INVENT channel
+   *  notifications, not migrate a path — deliver chaining for
+   *  discovery stays carried, not implemented. Absent ⇒ unbridged.
+   *  Failed runs do not bridge: their existing failure-notice path
+   *  is channel-divergent from the bridge's, and suppressing it
+   *  would risk a lost notice. */
   stageChain?: StageChainConfig;
 }
 
@@ -872,9 +877,10 @@ export class ScheduledTasksService {
     pushToSlack?: boolean;
     /** Consolidation C4 (#1329): per-record stage-chain config — a
      *  completed goal screen bridges generate + serve (canonical
-     *  report adoption); delivery stays on the run's direct path
-     *  (deliverViaChain=false, Phase 6 HITL delivery unchanged).
-     *  Absent ⇒ unbridged. */
+     *  report adoption). Consolidation #1236 chains delivery too:
+     *  in chain mode the direct Phase 6 delivery is suppressed and
+     *  the bridge carries deliverViaChain=true, so the artifact is
+     *  delivered exactly once, by the chain. Absent ⇒ unbridged. */
     stageChain?: StageChainConfig;
   } = {}): Promise<ScheduledTaskResult<{
     taskId: string;
@@ -930,10 +936,21 @@ export class ScheduledTasksService {
         trigger === "scheduled"
           ? `goal-screen:scheduled:${userLogin}:${scenario.goalKind}:${timestamp.slice(0, 16)}`
           : `goal-screen:manual:${userLogin}:${scenario.goalKind}:${timestamp}`;
-      const deliver: ("slack" | "email" | "webhook" | "voice")[] = [
+      // Consolidation #1236: in chain mode the direct Phase 6 delivery
+      // is suppressed — the bridge below carries deliverViaChain=true
+      // so the chain delivers exactly once to the same recipients.
+      // Direct delivery (immediate text, draft-marked, no hold) and
+      // chain delivery (followup.deliver, immediate post-#1347) share
+      // the immediate-send posture, so chaining changes timing
+      // (deliverDelaySeconds) and text format (generic followup text,
+      // no hit list), not the hold semantics. Unchained runs keep the
+      // direct path byte-identical.
+      const directChannels: ("email" | "slack")[] = [
         ...(options.emailTo ? ["email" as const] : []),
         ...(options.pushToSlack || options.slackChannel ? ["slack" as const] : []),
       ];
+      const chainMode = Boolean(options.stageChain);
+      const deliver: ("slack" | "email" | "webhook" | "voice")[] = chainMode ? [] : directChannels;
       const out = await runtime.executeGoalScreenRun({
         agent: this.getScreenerAgent(userLogin),
         orm: this.orm,
@@ -962,9 +979,12 @@ export class ScheduledTasksService {
         throw new Error("Goal-driven screen failed on every requested asset class.");
       }
       // Consolidation C4 (#1329): chain identity + serve stage for a
-      // completed goal screen. Delivery is NOT chained — the run's
-      // direct Phase 6 delivery (incl. its HITL posture) stays
-      // untouched, and a bridge failure never fails the run.
+      // completed goal screen. Consolidation #1236 chains delivery:
+      // the direct path above is suppressed in chain mode, and the
+      // bridge carries the per-task recipients + a delivery-channel
+      // allowlist mirroring the direct path, so the chain delivers
+      // exactly once and adds no env-configured channel the direct
+      // path never used. A bridge failure never fails the run.
       if (options.stageChain && this.followupScheduler) {
         try {
           await this.followupScheduler(
@@ -975,7 +995,13 @@ export class ScheduledTasksService {
               thesis: `Goal screen — ${out.result?.goalKind ?? "goal"}`,
               pdfKeys: [],
               canonicalReportId: out.canonicalReportId,
-              deliverViaChain: false,
+              deliverViaChain: true,
+              ...(options.emailTo ? { emailTo: options.emailTo } : {}),
+              ...(options.slackChannel ? { slackChannel: options.slackChannel } : {}),
+              deliveryChannels: directChannels,
+              matchedCount: out.result?.counts.hits,
+              totalScanned: (out.result?.counts.stocksScanned ?? 0)
+                + (out.result?.counts.optionsUnderlyingsScanned ?? 0),
               stageChain: options.stageChain,
             },
             userLogin,
@@ -2055,8 +2081,9 @@ export class ScheduledTasksService {
   /**
    * Consolidation C4 (#1329): persist the canonical mas_reports row
    * for a discovery run and, when the run carries stageChain, bridge
-   * it (generate + serve stages; delivery stays on the run's direct
-   * path via deliverViaChain=false). Called right after the detail
+   * it (generate + serve stages; deliverViaChain=false because
+   * discovery has no direct success delivery to chain — #1236
+   * finding, see the stageChain field comment). Called right after the detail
    * save, before the status is judged — so even a failed run gains
    * its canonical row (the detail prune can never erase it from
    * GET /api/runs). Failed runs do NOT bridge: their failure-notice
