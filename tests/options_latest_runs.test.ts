@@ -144,10 +144,12 @@ describe("options run history (#223)", () => {
   });
 
   it("surfaces the runs in the options schedule panel", () => {
-    const ui = readFileSync(
-      new URL("../src/client/options/ScheduledOptionsManager.tsx", import.meta.url),
-      "utf-8"
-    );
+    const ui = [
+      "../src/client/ScheduledOptionsManager.tsx",
+      "../src/client/scheduledOptionsManager/LatestRunsSection.tsx",
+    ]
+      .map((p) => readFileSync(new URL(p, import.meta.url), "utf-8"))
+      .join("\n");
     expect(ui).toContain('fetch("/api/options/latest"');
     expect(ui).toContain("Latest Autonomous Options Runs");
     expect(ui).toContain("run.summary");

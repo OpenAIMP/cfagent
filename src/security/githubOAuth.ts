@@ -1,107 +1,48 @@
-import type { Env, SessionData } from "../types";
-import { createState, verifyState, createSession, setSessionCookie, clearSessionCookie, getSessionId, isSessionIdFormat, getSession, deleteSession } from "./session";
+/**
+ * What remains of the original GitHub OAuth module after #1254:
+ * the logout handler and the login-page renderer. The GitHub
+ * login FLOW itself is the declarative factory registration in
+ * providers.ts (PR-A), served by the generic registry routes;
+ * PR-B deleted the wiring-off legacy flow that used to live here
+ * (handleLogin / handleOAuthCallback / exchangeGithubCode /
+ * fetchGithubProfile) together with the exact /auth/login +
+ * /auth/callback routes that reached it.
+ */
+import type { Env } from "../types";
+import { clearSessionCookie, getSessionId, isSessionIdFormat, getSession, deleteSession } from "./session";
 import { invalidateSessionCache } from "./sessionCache";
+import {
+  buildLogoutAuditEventInput,
+  recordWiredAuthAudit,
+} from "./iaaaAuthAudit";
+import type { AuditStore } from "./iaaaAudit";
+import { logoutAuditTenant } from "./iaaaGates";
 import { revokeStoredTokens } from "./etradeOAuth";
 import { SERVER_PALETTE } from "../theme/serverPalette";
 
-function getRedirectUri(env: Env): string {
-  return `${env.APP_BASE_URL}/auth/callback`;
+/**
+ * Audit seam for the logout hook (Phase 2b-part1). The caller —
+ * server.ts /auth/logout — supplies the wiring flag, a store, and
+ * the raw tenant id; logoutAuditTenant (iaaaGates.ts, a leaf
+ * module) resolves them to a tenant or null. Without a resolved
+ * tenant the hook is dormant and nothing is recorded. The tenant
+ * is never defaulted here: inventing one would fabricate
+ * attribution. No import of providers.ts here on purpose:
+ * providers.ts imports this module, so importing the wiring
+ * predicate back would create a cycle.
+ */
+export interface LogoutAuditOptions {
+  wiringEnabled?: boolean;
+  auditStore?: AuditStore;
+  tenantId?: string;
 }
 
-export async function handleLogin(env: Env): Promise<Response> {
-  const state = await createState(env);
-  const params = new URLSearchParams({
-    client_id: env.GITHUB_CLIENT_ID,
-    redirect_uri: getRedirectUri(env),
-    scope: "read:user",
-    state,
-  });
-  return new Response(null, {
-    status: 302,
-    headers: { Location: `https://github.com/login/oauth/authorize?${params}` },
-  });
-}
-
-export async function handleOAuthCallback(env: Env, request: Request): Promise<Response> {
-  const url = new URL(request.url);
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const error = url.searchParams.get("error");
-
-  if (error) return errorPage(`GitHub authentication was cancelled or failed: ${error}`, 400);
-  if (!code || !state) return errorPage("Missing required authorization code or state parameter", 400);
-
-  const isValidState = await verifyState(env, state);
-  if (!isValidState) {
-    return errorPage("Invalid or expired OAuth state session. Please try signing in again.", 403);
-  }
-
-  try {
-    const tokenResp = await fetch("https://github.com/login/oauth/access_token", {
-      method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: env.GITHUB_CLIENT_ID,
-        client_secret: env.GITHUB_CLIENT_SECRET,
-        code,
-      }),
-    });
-
-    if (!tokenResp.ok) return errorPage(`Token exchange failed with upstream status ${tokenResp.status}`, 502);
-
-    const tokenData = (await tokenResp.json()) as {
-      access_token?: string;
-      error?: string;
-      error_description?: string;
-    };
-
-    if (!tokenData.access_token) {
-      return errorPage(tokenData.error_description || tokenData.error || "GitHub did not grant an access token", 400);
-    }
-
-    const profileResp = await fetch("https://api.github.com/user", {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "ai-search-agent",
-      },
-    });
-
-    if (!profileResp.ok) return errorPage("Failed to fetch user profile from GitHub", 502);
-
-    const user = (await profileResp.json()) as {
-      login: string;
-      avatar_url: string;
-      name?: string | null;
-    };
-
-    const sessionData: SessionData = {
-      githubLogin: user.login,
-      githubAvatar: user.avatar_url,
-      githubName: user.name || user.login,
-      createdAt: Date.now(),
-    };
-
-    const sessionId = await createSession(env, sessionData);
-
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: "/",
-        "Set-Cookie": setSessionCookie(sessionId),
-      },
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unexpected OAuth authentication error";
-    return errorPage(message, 500);
-  }
-}
-
-export async function handleLogout(env: Env, request: Request): Promise<Response> {
+export async function handleLogout(env: Env, request: Request, options?: LogoutAuditOptions): Promise<Response> {
   const sessionId = getSessionId(request);
 
   // Issue #329: only a UUID-shaped cookie can name a session; skipping the
-  // read (and the delete) for anything else keeps junk cookies off KV.
+  // read (and the delete) for anything else keeps junk cookies off the
+  // session store.
   if (isSessionIdFormat(sessionId)) {
     try {
       // Authoritative read from the session store (not KV): logout must see the
@@ -109,6 +50,27 @@ export async function handleLogout(env: Env, request: Request): Promise<Response
       const session = await getSession(env, sessionId);
       if (session?.githubLogin) {
         await revokeStoredTokens(env, session.githubLogin);
+      }
+      // #945 Phase 2b-part1 logout audit hook: record BEFORE
+      // deleteSession, only for wired sessions (internalUserId
+      // present), only when wiring is ON, and only when a tenant
+      // resolves. Best-effort: recordWiredAuthAudit never throws,
+      // and a failed write never changes the logout outcome.
+      const tenantId = logoutAuditTenant({
+        wiringEnabled: options?.wiringEnabled ?? false,
+        internalUserId: session?.internalUserId,
+        tenantId: options?.tenantId,
+      });
+      if (tenantId && options?.auditStore && session?.internalUserId) {
+        await recordWiredAuthAudit(
+          options.auditStore,
+          buildLogoutAuditEventInput({
+            internalUserId: session.internalUserId,
+            tenantId,
+            timestamp: Date.now(),
+            correlationId: sessionId,
+          }),
+        );
       }
       invalidateSessionCache(sessionId);
       await deleteSession(env, sessionId);
@@ -126,13 +88,46 @@ export async function handleLogout(env: Env, request: Request): Promise<Response
   });
 }
 
-export function renderLoginPage(env: Env): string {
+/**
+ * #945 Google-as-plugin — composable login page.
+ *
+ * With no second argument (or an empty list) this renders exactly
+ * the legacy GitHub-only page, byte for byte. When server.ts passes
+ * the enabled providers (computed there and passed in, so this
+ * renderer stays registry-agnostic), the
+ * page renders one button per provider, href /auth/login/<id>,
+ * labelled "Sign in with <displayName>". Provider ids and display
+ * names are HTML-escaped; the GitHub button keeps its brand mark.
+ */
+export interface LoginPageProvider {
+  id: string;
+  displayName: string;
+}
+
+export function renderLoginPage(env: Env, providers?: LoginPageProvider[]): string {
+  const multiProvider = Array.isArray(providers) && providers.length > 0;
+  const intro = multiProvider
+    ? "Sign in with your authorized credentials to access your trading workspace."
+    : "Sign in with your GitHub account to access your trading workspace.";
+  const githubMark = `<svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
+  const buttons = multiProvider
+    ? providers!
+        .map((p) => {
+          const mark = p.id === "github" ? `${githubMark}\n        ` : "";
+          return `<a href="/auth/login/${encodeURIComponent(p.id)}" class="btn btn-${escapeHtml(p.id)}">\n        ${mark}<span>Sign in with ${escapeHtml(p.displayName)}</span>\n        <span class="btn-arrow" aria-hidden="true">&rarr;</span>\n      </a>`;
+        })
+        .join("\n      ")
+    : `<a href="/auth/login" class="btn btn-github">
+        ${githubMark}
+        <span>Sign in with GitHub</span>
+        <span class="btn-arrow" aria-hidden="true">&rarr;</span>
+      </a>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${env.APP_NAME || "AI Search Agent"} — Sign In</title>
+  <title>${escapeHtml(env.APP_NAME || "NextGenTP")} — Sign In</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -140,7 +135,7 @@ export function renderLoginPage(env: Env): string {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-      background: radial-gradient(circle at 50% 10%, ${SERVER_PALETTE.indigo950} 0%, ${SERVER_PALETTE.pageBackground} 60%, ${SERVER_PALETTE.backgroundEnd} 100%);
+      background: radial-gradient(circle at 50% 10%, ${SERVER_PALETTE.indigo950} 0%, ${SERVER_PALETTE.surface} 55%, ${SERVER_PALETTE.backgroundEnd} 100%);
       color: ${SERVER_PALETTE.gray100};
       display: flex;
       align-items: center;
@@ -150,68 +145,66 @@ export function renderLoginPage(env: Env): string {
     }
     .card {
       background: ${SERVER_PALETTE.loginCard};
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid ${SERVER_PALETTE.whiteAlpha10};
-      border-radius: 20px;
-      padding: 3rem 2.5rem;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid ${SERVER_PALETTE.cardBorder};
+      border-radius: 24px;
+      padding: 3rem 2.25rem;
       text-align: center;
-      max-width: 440px;
+      max-width: 420px;
       width: 100%;
-      box-shadow: 0 25px 50px -12px ${SERVER_PALETTE.blackAlpha50}, 0 0 40px ${SERVER_PALETTE.primaryAlpha};
-      animation: fadeIn 0.5s ease-out;
+      box-shadow: 0 25px 60px -12px ${SERVER_PALETTE.blackAlpha60}, 0 0 45px -5px ${SERVER_PALETTE.primaryAlpha};
+      position: relative;
+      overflow: hidden;
+      animation: fadeIn 0.4s ease-out;
     }
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(12px); }
       to { opacity: 1; transform: translateY(0); }
     }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 15%;
+      right: 15%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, ${SERVER_PALETTE.accent}, ${SERVER_PALETTE.indigo400}, transparent);
+    }
     .logo-badge {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 64px;
-      height: 64px;
+      width: 56px;
+      height: 56px;
       background: linear-gradient(135deg, ${SERVER_PALETTE.indigo500}, ${SERVER_PALETTE.cyan500});
       border-radius: 16px;
-      font-size: 2rem;
       margin-bottom: 1.5rem;
-      box-shadow: 0 8px 24px ${SERVER_PALETTE.primaryBorder};
+      box-shadow: 0 8px 24px ${SERVER_PALETTE.primaryBorder}, 0 0 20px ${SERVER_PALETTE.primaryAlpha};
     }
     h1 {
-      font-size: 1.75rem;
+      font-size: 1.55rem;
       font-weight: 700;
-      letter-spacing: -0.02em;
+      letter-spacing: -0.025em;
       margin-bottom: 0.5rem;
-      background: linear-gradient(180deg, ${SERVER_PALETTE.onGradient} 0%, ${SERVER_PALETTE.textSecondary} 100%);
+      color: ${SERVER_PALETTE.textPrimary};
+    }
+    .brand-gradient {
+      background: linear-gradient(135deg, ${SERVER_PALETTE.onGradient} 40%, ${SERVER_PALETTE.accent} 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
-    p {
+    .subtitle {
       color: ${SERVER_PALETTE.textMuted};
-      font-size: 0.95rem;
-      line-height: 1.6;
-      margin-bottom: 2.25rem;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      margin-bottom: 2rem;
     }
-    .features {
+    .btn-stack {
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
-      margin-bottom: 2.25rem;
-      text-align: left;
-      background: ${SERVER_PALETTE.whiteAlpha3};
-      padding: 1rem 1.25rem;
-      border-radius: 12px;
-      border: 1px solid ${SERVER_PALETTE.muted};
-      font-size: 0.85rem;
-      color: ${SERVER_PALETTE.textSecondary};
-    }
-    .feature-item {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .feature-item span {
-      color: ${SERVER_PALETTE.accent};
+      gap: 0.85rem;
+      margin-bottom: 2rem;
     }
     .btn {
       display: inline-flex;
@@ -221,103 +214,107 @@ export function renderLoginPage(env: Env): string {
       background: ${SERVER_PALETTE.onGradient};
       color: ${SERVER_PALETTE.card};
       text-decoration: none;
-      padding: 0.85rem 1.75rem;
-      border-radius: 12px;
-      font-size: 1rem;
+      padding: 0.9rem 1.5rem;
+      border-radius: 14px;
+      font-size: 0.95rem;
       font-weight: 600;
       width: 100%;
-      transition: all 0.2s ease;
-      box-shadow: 0 4px 12px ${SERVER_PALETTE.whiteAlpha10};
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 4px 14px ${SERVER_PALETTE.whiteAlpha15}, 0 0 24px ${SERVER_PALETTE.primaryAlpha};
+      border: 1px solid ${SERVER_PALETTE.whiteAlpha15};
+      position: relative;
     }
     .btn:hover {
       background: ${SERVER_PALETTE.slate100};
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px ${SERVER_PALETTE.whiteAlpha15};
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px ${SERVER_PALETTE.whiteAlpha15}, 0 0 32px ${SERVER_PALETTE.primaryAlpha};
+    }
+    .btn:active {
+      transform: translateY(0);
     }
     .btn svg {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       fill: ${SERVER_PALETTE.card};
+      flex-shrink: 0;
+    }
+    .btn-arrow {
+      margin-left: auto;
+      opacity: 0.6;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+      font-size: 1.15rem;
+      line-height: 1;
+    }
+    .btn:hover .btn-arrow {
+      opacity: 1;
+      transform: translateX(3px);
+    }
+    .card-footer {
+      border-top: 1px solid ${SERVER_PALETTE.cardBorder};
+      padding-top: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      align-items: center;
+    }
+    .security-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.775rem;
+      color: ${SERVER_PALETTE.textMuted};
+    }
+    .security-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: ${SERVER_PALETTE.green500};
+      box-shadow: 0 0 8px ${SERVER_PALETTE.green500};
+    }
+    .back-link {
+      color: ${SERVER_PALETTE.accent};
+      font-size: 0.825rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+    .back-link:hover {
+      color: ${SERVER_PALETTE.textPrimary};
     }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="logo-badge">🤖</div>
-    <h1>${env.APP_NAME || "AI Multi-Agent"}</h1>
-    <p>Sign in with your GitHub account to research and trade with human-approved, audit-logged workflows.</p>
-    
-    <div class="features">
-      <div class="feature-item"><span>✦</span> trading-platform order preview with human approval</div>
-      <div class="feature-item"><span>✦</span> Options strategy screening &amp; best-trade ranking</div>
-      <div class="feature-item"><span>✦</span> Quant vs LLM recommendation comparison</div>
-      <div class="feature-item"><span>✦</span> Signed, audited trade drafts &amp; ledger</div>
+    <div class="logo-badge">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${SERVER_PALETTE.onGradient}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5"></polygon>
+        <line x1="12" y1="22" x2="12" y2="15.5"></line>
+        <polyline points="22 8.5 12 15.5 2 8.5"></polyline>
+      </svg>
+    </div>
+    <h1>Sign in to <span class="brand-gradient">${escapeHtml(env.APP_NAME || "NextGenTP")}</span></h1>
+    <p class="subtitle">${intro}</p>
+
+    <div class="btn-stack">
+      ${buttons}
     </div>
 
-    <a href="/auth/login" class="btn">
-      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      Sign in with GitHub
-    </a>
-    <a href="/" style="display:block;margin-top:1rem;color:${SERVER_PALETTE.accent};font-size:.85rem;text-decoration:none">&larr; What can this platform do?</a>
+    <div class="card-footer">
+      <div class="security-note">
+        <span class="security-dot" aria-hidden="true"></span>
+        <span>Protected by W3C Agent DIDs &amp; deterministic risk gates</span>
+      </div>
+      <a href="/" class="back-link">&larr; Back to ${escapeHtml(env.APP_NAME || "NextGenTP")} Home</a>
+    </div>
   </div>
 </body>
 </html>`;
 }
 
-function errorPage(message: string, status = 400): Response {
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authentication Error</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: ${SERVER_PALETTE.card};
-      color: ${SERVER_PALETTE.textPrimary};
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 1.5rem;
-    }
-    .card {
-      background: ${SERVER_PALETTE.slate800};
-      border: 1px solid ${SERVER_PALETTE.slate700};
-      border-radius: 16px;
-      padding: 2.5rem;
-      max-width: 420px;
-      width: 100%;
-      text-align: center;
-    }
-    .icon { font-size: 2.5rem; margin-bottom: 1rem; }
-    h1 { font-size: 1.4rem; margin-bottom: 0.5rem; color: ${SERVER_PALETTE.dangerText}; }
-    p { color: ${SERVER_PALETTE.textMuted}; font-size: 0.95rem; line-height: 1.5; margin-bottom: 1.5rem; word-break: break-word; }
-    a {
-      display: inline-block;
-      background: ${SERVER_PALETTE.blue500};
-      color: ${SERVER_PALETTE.onGradient};
-      text-decoration: none;
-      padding: 0.65rem 1.25rem;
-      border-radius: 8px;
-      font-weight: 500;
-    }
-    a:hover { background: ${SERVER_PALETTE.blue600}; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">⚠️</div>
-    <h1>Authentication Error</h1>
-    <p>${message}</p>
-    <a href="/">← Return to Sign In</a>
-  </div>
-</body>
-</html>`;
-
-  return new Response(html, {
-    status,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

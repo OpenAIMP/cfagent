@@ -57,7 +57,7 @@ const urlOf = (path: string) => new URL(`https://agent.internal${path}`);
 describe("E*TRADE options route inventory (extraction #374)", () => {
   it("the options route conditions appear in the module in the original relative order", () => {
     const moduleSrc = src("agents/routes/etradeOptions.ts");
-    // Sequential search: duplicate conditions (profiles GET/POST, catalog x2)
+    // Sequential search: duplicate conditions (profiles GET/POST)
     // must appear in their original relative order too.
     const markers = [
       'path.endsWith("/etrade/options/chains")',
@@ -71,7 +71,6 @@ describe("E*TRADE options route inventory (extraction #374)", () => {
       'path.endsWith("/trading/options/llm-ideas")',
       'path.endsWith("/trading/options/compare")',
       'path.endsWith("/trading/options/recommend")',
-      'path.endsWith("/trading/options/catalog")',
       'path.endsWith("/trading/options/catalog")',
       'path.endsWith("/trading/options/strategies")',
       'path.endsWith("/trading/options/screen")',

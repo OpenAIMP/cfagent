@@ -3,9 +3,31 @@ import type { Env } from "../types";
 import {
   DEFAULT_SCHEDULES,
   isDue,
+  isValidCron,
+  zonedDateParts,
   type ScheduledGoal,
   type ScheduleTick,
 } from "../schedule";
+import { createSocialStoresFromNamespace } from "./social/durableStores";
+import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
+import {
+  createSocialPipelineStoresFromNamespace,
+  runSocialDailyPipeline,
+  SOCIAL_DAILY_PIPELINE_ID,
+} from "./social/pipeline";
+import { executeSocialGoal, priorDates } from "./social/goalExecutor";
+import {
+  deliverPendingApprovals,
+  fetchSlackPost,
+  type SlackPostFn,
+} from "./social/delivery";
+import {
+  createMemoryDryRunSink,
+  type DryRunSink,
+  type SocialTransport,
+} from "./social/publisher";
+import { createFetchSocialTransport } from "./social/liveTransport";
+import type { DoNamespaceLike } from "../security/durableKv";
 
 // ScheduledAgent: autonomous trigger for goal-driven agent work.
 //
@@ -18,6 +40,39 @@ import {
 //
 // The agent never spends directly — all budget decisions go through
 // PaymentsAgent, and all work goes through the orchestrator module.
+//
+// SCOPE (issue #959, survey item D10): ScheduledAgent is explicitly
+// NOT a screening scheduler. Screening schedules (stock screens,
+// options analysis, strategy discovery) live in the OrchestratorAgent
+// schedule store as the autonomousMarketScreen /
+// autonomousOptionsAnalysis / autonomousStrategyDiscovery callbacks,
+// created through POST /api/schedules/create and validated by
+// src/trading/screeningSchemas.ts. Do not add screening callbacks
+// here — this agent's remit is goal evaluations with budget checks
+// on the */30 cron, nothing else.
+//
+// Social posting (issue #1077 Phase 5b slice 1) IS in remit as a goal:
+// the seeded "daily-social-post" goal (disabled) runs "social.publish"
+// through the social goal executor, not through createJob. The goal's
+// cron + timeZone decide when; the executor decides what. The old
+// bespoke fire check and parallel social tick were retired with this
+// change, so there is exactly one scheduler for social posts.
+
+/**
+ * Test/production overrides for onCron. Production passes none: the
+ * social brief is read from the durable brief store for the firing
+ * date (slice 2); an override here is test-only and wins over the
+ * store when one is passed.
+ */
+export interface ScheduledAgentCronOpts {
+  socialBriefProvider?: () => string | null;
+  socialTransport?: SocialTransport;
+  socialDryRunSink?: DryRunSink;
+  /** #1077 Phase 5b slice 3: injected Slack poster for approval-card delivery (tests). Production uses fetch. */
+  socialSlackPost?: SlackPostFn;
+  /** Force evaluation of a specific goal regardless of cron/enabled state (manual trigger). */
+  forceGoalId?: string;
+}
 
 export class ScheduledAgent extends Agent<Env> {
   private async getGoals(): Promise<ScheduledGoal[]> {
@@ -48,8 +103,32 @@ export class ScheduledAgent extends Agent<Env> {
   /**
    * Cron entrypoint, invoked by the Workers runtime on each
    * triggers.crons tick. Evaluates due goals and dispatches work.
+   *
+   * Issue #1391: production calls onCron() with 0 arguments across the
+   * Durable Object RPC boundary; the agent reads this.env directly.
+   * Passing the Worker Env across the DO RPC boundary throws DataCloneError
+   * because binding objects cannot be serialized.
+   *
+   * For backwards compatibility with unit tests, onCron accepts either
+   * onCron(), onCron(opts), or onCron(env, opts).
    */
-  async onCron(env: Env): Promise<ScheduleTick> {
+  async onCron(
+    envOrOpts?: Env | ScheduledAgentCronOpts,
+    maybeOpts?: ScheduledAgentCronOpts,
+  ): Promise<ScheduleTick> {
+    let env: Env = this.env;
+    let opts: ScheduledAgentCronOpts | undefined = maybeOpts;
+
+    if (envOrOpts) {
+      if (
+        typeof envOrOpts === "object" &&
+        ("PAYMENTS_AGENT" in envOrOpts || "SESSION_STORE" in envOrOpts)
+      ) {
+        env = envOrOpts as Env;
+      } else if (!opts) {
+        opts = envOrOpts as ScheduledAgentCronOpts;
+      }
+    }
     const now = new Date();
     const tick: ScheduleTick = {
       timestamp: now.toISOString(),
@@ -62,10 +141,11 @@ export class ScheduledAgent extends Agent<Env> {
     const goals = await this.getGoals();
 
     for (const goal of goals) {
-      if (!goal.enabled) continue;
+      const isForced = opts?.forceGoalId === goal.id;
+      if (!goal.enabled && !isForced) continue;
       tick.goalsEvaluated++;
 
-      if (!isDue(goal.cron, goal.lastRun, now)) continue;
+      if (!isForced && !isDue(goal.cron, goal.lastRun, now, goal.timeZone)) continue;
 
       try {
         const paymentsId = env.PAYMENTS_AGENT.idFromName("default");
@@ -83,6 +163,179 @@ export class ScheduledAgent extends Agent<Env> {
 
         if (!budgetOk.allowed) {
           tick.jobsSkipped++;
+          continue;
+        }
+
+        const rawEnv = env as unknown as Record<string, string | undefined>;
+        if (goal.operation.startsWith("pipeline:")) {
+          // #1224: a goal whose operation names a pipeline runs
+          // ordered stages back-to-back in ONE firing through the
+          // pipeline executor, not the single-operation path. The
+          // budget check above already ran exactly once for this
+          // goal; the pipeline adds no second check, and the one
+          // tick entry for this onCron call records the outcome
+          // below. Manual triggerGoal runs the same branch (it
+          // calls onCron), so cron and manual firings behave
+          // identically. Unknown pipeline ids fail closed: the
+          // goal stays due, no orchestrator job is created.
+          const stores = createSocialPipelineStoresFromNamespace(
+            (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+          );
+          if (!stores) {
+            tick.errors.push(`${goal.id}: SESSION_STORE binding unavailable, goal left due`);
+            tick.jobsSkipped++;
+            continue;
+          }
+          if (goal.operation !== SOCIAL_DAILY_PIPELINE_ID) {
+            tick.errors.push(`${goal.id}: unknown pipeline: ${goal.operation}`);
+            tick.jobsSkipped++;
+            continue;
+          }
+          const pipelineResult = await runSocialDailyPipeline({
+            env: {
+              SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
+              SOCIAL_AUTONOMOUS_CHANNELS: rawEnv.SOCIAL_AUTONOMOUS_CHANNELS,
+              SOCIAL_APPROVAL_CHANNELS: rawEnv.SOCIAL_APPROVAL_CHANNELS,
+              SOCIAL_LIVE_PUBLISHING: rawEnv.SOCIAL_LIVE_PUBLISHING,
+            },
+            tokens: {
+              X_ACCESS_TOKEN: rawEnv.X_ACCESS_TOKEN,
+              THREADS_ACCESS_TOKEN: rawEnv.THREADS_ACCESS_TOKEN,
+              FACEBOOK_PAGE_ACCESS_TOKEN: rawEnv.FACEBOOK_PAGE_ACCESS_TOKEN,
+              INSTAGRAM_ACCESS_TOKEN: rawEnv.INSTAGRAM_ACCESS_TOKEN,
+              LINKEDIN_ACCESS_TOKEN: rawEnv.LINKEDIN_ACCESS_TOKEN,
+              LINKEDIN_AUTHOR_URN: rawEnv.LINKEDIN_AUTHOR_URN,
+            },
+            store: stores.store,
+            approvals: stores.approvals,
+            briefStore: stores.briefStore,
+            ledger: stores.ledger,
+            nowMs: now.getTime(),
+            timeZone: goal.timeZone,
+            transport: opts?.socialTransport ?? createFetchSocialTransport(),
+            dryRunSink: opts?.socialDryRunSink ?? createMemoryDryRunSink(),
+            slackPost: opts?.socialSlackPost,
+            slackEnv: rawEnv,
+          });
+          for (const e of pipelineResult.errors) {
+            tick.errors.push(`${goal.id}: ${e}`);
+          }
+          if (pipelineResult.status === "completed") {
+            goal.lastRun = now.toISOString();
+            tick.jobsCreated++;
+          } else {
+            // Skipped (e.g. noBrief) or failed: lastRun untouched,
+            // the goal stays due and retries on the next tick. A
+            // failed run resumes at the first incomplete stage via
+            // the pipeline ledger; a skipped run starts fresh.
+            tick.jobsSkipped++;
+          }
+          continue;
+        }
+
+        if (goal.operation === "social.publish") {
+          // #1077 Phase 5b slice 1: executed directly, never through
+          // createJob (there is no orchestrator job for posting).
+          const stores = createSocialStoresFromNamespace(
+            (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+          );
+          if (!stores) {
+            tick.errors.push(`${goal.id}: SESSION_STORE binding unavailable, goal left due`);
+            tick.jobsSkipped++;
+            continue;
+          }
+          // #1077 Phase 5b slice 2: production reads the firing
+          // date's brief from the durable brief store (same
+          // SESSION_STORE namespace as the draft/approval stores).
+          // A test override still wins when one is passed. A read
+          // failure throws into the loop's catch below: the error is
+          // recorded and the goal stays due for retry — never a
+          // silent publish of nothing, and never stale content.
+          // The firing date uses the goal's timeZone (default
+          // America/New_York), exactly as buildDailyDrafts derives
+          // the draft date, so the brief and the drafts cannot
+          // disagree about which day they belong to.
+          const briefStore = createSocialBriefStoreFromNamespace(
+            (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+          );
+          const firingDate = zonedDateParts(now.getTime(), goal.timeZone ?? "America/New_York").date;
+          const storedBrief = briefStore ? await briefStore.getBrief(firingDate) : null;
+          const result = await executeSocialGoal({
+            env: {
+              SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
+              SOCIAL_AUTONOMOUS_CHANNELS: rawEnv.SOCIAL_AUTONOMOUS_CHANNELS,
+              SOCIAL_APPROVAL_CHANNELS: rawEnv.SOCIAL_APPROVAL_CHANNELS,
+              SOCIAL_LIVE_PUBLISHING: rawEnv.SOCIAL_LIVE_PUBLISHING,
+            },
+            tokens: {
+              X_ACCESS_TOKEN: rawEnv.X_ACCESS_TOKEN,
+              THREADS_ACCESS_TOKEN: rawEnv.THREADS_ACCESS_TOKEN,
+              FACEBOOK_PAGE_ACCESS_TOKEN: rawEnv.FACEBOOK_PAGE_ACCESS_TOKEN,
+              INSTAGRAM_ACCESS_TOKEN: rawEnv.INSTAGRAM_ACCESS_TOKEN,
+              LINKEDIN_ACCESS_TOKEN: rawEnv.LINKEDIN_ACCESS_TOKEN,
+              LINKEDIN_AUTHOR_URN: rawEnv.LINKEDIN_AUTHOR_URN,
+            },
+            store: stores.ledger,
+            approvals: stores.approvals,
+            briefProvider: opts?.socialBriefProvider ?? (() => storedBrief),
+            nowMs: now.getTime(),
+            timeZone: goal.timeZone,
+            transport: opts?.socialTransport ?? createFetchSocialTransport(),
+            dryRunSink: opts?.socialDryRunSink ?? createMemoryDryRunSink(),
+          });
+          if (!result.fired) {
+            // lastRun untouched: the goal stays due and retries on the
+            // next tick (noBrief, posting off, or no drafts produced).
+            // #1077 Phase 5b slice 3: delivery still runs below for a
+            // not-fired tick (except posting disabled) — delivery is
+            // independent of the day's brief, and a noBrief tick can
+            // still carry undelivered backlog.
+            tick.jobsSkipped++;
+          } else {
+            for (const r of result.publish.results) {
+              if (r.outcome === "error") {
+                tick.errors.push(`${goal.id}: ${r.channel}: ${r.reason}`);
+              }
+            }
+            for (const entry of result.catchUp) {
+              for (const r of entry.results) {
+                if (r.outcome === "error") {
+                  tick.errors.push(`${goal.id}: catch-up ${entry.date} ${r.channel}: ${r.reason}`);
+                }
+              }
+            }
+            goal.lastRun = now.toISOString();
+            tick.jobsCreated++;
+          }
+          // #1077 Phase 5b slice 3: approval-card delivery pass.
+          // Runs after the goal execution on every social tick except
+          // posting-disabled (the kill switch gates delivery too),
+          // over the firing date plus the catch-up lookback, so a
+          // card recorded late in the day is still delivered that
+          // night. Idempotent per (date, channel, draftId): a second
+          // pass skips already-delivered records. Delivery failures
+          // are tick errors — non-fatal, never unfiring the goal —
+          // and the undelivered record retries on the next pass.
+          // When NO Slack destination is configured at all (neither
+          // webhook nor bot token), the pass is skipped silently:
+          // Slack delivery is opt-in by configuration, and the
+          // session-gated route remains the approval path. A
+          // configured destination that fails DOES record errors.
+          const slackConfigured = rawEnv.SLACK_WEBHOOK_URL || rawEnv.SLACK_BOT_TOKEN;
+          if (slackConfigured && (result.fired || result.reason !== "postingDisabled")) {
+            const deliveries = await deliverPendingApprovals({
+              store: stores.ledger,
+              approvals: stores.approvals,
+              dates: [firingDate, ...priorDates(firingDate)],
+              post: opts?.socialSlackPost ?? fetchSlackPost,
+              env: rawEnv,
+            });
+            for (const d of deliveries) {
+              if (d.error) {
+                tick.errors.push(`${goal.id}: slack delivery ${d.channel} ${d.date}: ${d.error}`);
+              }
+            }
+          }
           continue;
         }
 
@@ -122,8 +375,10 @@ export class ScheduledAgent extends Agent<Env> {
 
   /**
    * Add a new scheduled goal. The operation must exist in the
-   * orchestrate.ts catalog; the cron expression uses the same minimal
-   * syntax as the built-in schedules ("minute hour * * *").
+   * orchestrate.ts catalog; the cron expression uses five fields with
+   * lists, ranges, and steps in every field ("0 9 * * 1-5"). An
+   * optional IANA timeZone reads the cron wall-clock in that zone;
+   * without one the historical UTC behavior applies.
    */
   async addGoal(goal: {
     id: string;
@@ -132,12 +387,22 @@ export class ScheduledAgent extends Agent<Env> {
     operation: string;
     budgetCents: number;
     enabled?: boolean;
+    timeZone?: string;
   }): Promise<ScheduledGoal> {
     const id = goal.id.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
     if (!id) throw new Error("Goal id is required.");
     if (!goal.name.trim()) throw new Error("Goal name is required.");
-    if (!/^(\*|\*\/\d+|\d+)\s+(\*|\*\/\d+|\d+)\s+(\*|\d+)\s+(\*|\d+)\s+(\*|\d+)$/.test(goal.cron.trim())) {
+    if (!isValidCron(goal.cron.trim())) {
       throw new Error("Cron must look like 'minute hour * * *' (e.g. '0 6 * * *').");
+    }
+    let timeZone: string | undefined;
+    if (goal.timeZone !== undefined && goal.timeZone !== "") {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: goal.timeZone });
+        timeZone = goal.timeZone;
+      } catch {
+        throw new Error(`Invalid timeZone: ${goal.timeZone}`);
+      }
     }
     if (!Number.isFinite(goal.budgetCents) || goal.budgetCents <= 0) {
       throw new Error("budgetCents must be a positive number.");
@@ -154,6 +419,7 @@ export class ScheduledAgent extends Agent<Env> {
       operation: goal.operation,
       budgetCents: Math.floor(goal.budgetCents),
       enabled: goal.enabled !== false,
+      ...(timeZone ? { timeZone } : {}),
     };
     goals.push(created);
     await this.saveGoals(goals);
@@ -180,8 +446,17 @@ export class ScheduledAgent extends Agent<Env> {
     return true;
   }
 
-  /** Manually trigger evaluation of a single goal. */
-  async triggerGoal(id: string, env: Env): Promise<ScheduleTick> {
+  /**
+   * Manually trigger evaluation of a single goal.
+   *
+   * Issue #1391:
+   * 1. env is optional over the DO RPC boundary; if omitted, reads this.env.
+   * 2. Evaluates the goal even if it is currently disabled (e.g. daily-social-post
+   *    shipped disabled by default). It temporarily enables the goal in storage
+   *    for this firing, and restores its original enabled state afterwards so
+   *    that the daily recurring schedule remains disabled.
+   */
+  async triggerGoal(id: string, env?: Env): Promise<ScheduleTick> {
     const goals = await this.getGoals();
     const goal = goals.find((g: ScheduledGoal) => g.id === id);
     if (!goal) {
@@ -194,12 +469,19 @@ export class ScheduledAgent extends Agent<Env> {
       };
     }
     const origLastRun = goal.lastRun;
-    goal.lastRun = undefined;
-    await this.saveGoals(goals);
-    const tick = await this.onCron(env);
+    const targetEnv =
+      env && typeof env === "object" && ("PAYMENTS_AGENT" in env || "SESSION_STORE" in env)
+        ? env
+        : this.env;
+
+    const tick = await this.onCron(targetEnv, { forceGoalId: id });
     if (tick.jobsCreated === 0 && tick.errors.length === 0) {
-      goal.lastRun = origLastRun;
-      await this.saveGoals(goals);
+      const currentGoals = await this.getGoals();
+      const currentGoal = currentGoals.find((g: ScheduledGoal) => g.id === id);
+      if (currentGoal) {
+        currentGoal.lastRun = origLastRun;
+        await this.saveGoals(currentGoals);
+      }
     }
     return tick;
   }

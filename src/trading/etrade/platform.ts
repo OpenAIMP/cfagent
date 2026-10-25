@@ -7,11 +7,12 @@
  * - Human-in-the-Loop (HITL) Execution Safety with W3C Agent DID Attestations.
  */
 
-import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradePositionLot, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus, StockScreenerFilter, StockScreenResult } from "../../types";
+import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradePositionLot, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus, StockScreenerFilter, StockScreenResult, ETradeOptionChain, ETradeOptionExpireDate } from "../../types";
 import type { DatabaseORM } from "../../orm";
 import type { ITradingPlatform, OrderPreviewParams } from "../interfaces";
 import { etradeOrderKind, validateTradingOrderLegs } from "./optionOrders";
 import { ETradeRestClient } from "./client";
+import { isStubQuote } from "../quotePolicies";
 import { DynamicMarketScreener } from "../screener";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
@@ -131,11 +132,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     try {
       const live = await this.client.fetchQuote(cleanSym);
       if (live && live.lastPrice > 0) {
-        const isStub =
-          (live.lastPrice === 577.51 || live.companyName.toUpperCase().includes("GOOGLE INC")) &&
-          cleanSym !== "GOOG" &&
-          cleanSym !== "GOOGL";
-        if (!isStub) return live;
+        if (!isStubQuote(live, cleanSym)) return live;
       }
     } catch {
       // Ignore
@@ -219,6 +216,31 @@ export class ETradeTradingPlatform implements ITradingPlatform {
 
   async getPositionLots(accountKey: string, positionId: string): Promise<ETradePositionLot[]> {
     return this.client.fetchPositionLots(accountKey, positionId);
+  }
+
+  // Options data reads (#291 T5b): verbatim client passthroughs, matching
+  // ETradeService's getOptionChains/getOptionExpireDates semantics exactly.
+  async getOptionChains(params: {
+    symbol: string;
+    expiryYear?: number;
+    expiryMonth?: number;
+    expiryDay?: number;
+    strikePrice?: number;
+    noOfStrikes?: number;
+    includeWeekly?: boolean;
+    chainType?: "CALL" | "PUT" | "CALLPUT";
+    includeRawResponse?: boolean;
+  }): Promise<ETradeOptionChain | null> {
+    return this.client.getOptionChains(params);
+  }
+
+  async getOptionExpireDates(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]> {
+    return this.client.getOptionExpireDates(symbol, expiryType);
+  }
+
+  /** Verbatim client passthrough — see ITradingPlatform.getQuoteDetailed. */
+  async getQuoteDetailed(symbol: string): Promise<{ quote: ETradeQuote | null; error: string | null }> {
+    return this.client.fetchQuoteDetailed(symbol);
   }
 
   async getPositions(accountKey?: string, includeBalance: boolean = false): Promise<{ account: ETradeAccount; positions: ETradePosition[] }> {

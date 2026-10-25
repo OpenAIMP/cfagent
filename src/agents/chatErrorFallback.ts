@@ -9,7 +9,7 @@
  * idiom): their own orm, session id, audit sink, NLQ stores and
  * scheduling port.
  */
-import { executeNaturalLanguageQuery, formatMarketCap, type NLQSchedulingPort } from "./nlq";
+import { executeNaturalLanguageQuery, formatMarketCap, type NLQSchedulingPort, type NLQStockScreenPort } from "./nlq";
 import { resolveErrorAspect } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import type { DatabaseORM } from "../orm";
@@ -25,6 +25,7 @@ export interface ChatErrorFallbackContext {
   scanRunStore: SqlScanRunStore;
   profileStore: SqlStrategyProfileStore;
   schedulingPort: NLQSchedulingPort;
+  stockScreenPort: NLQStockScreenPort;
 }
 
 /**
@@ -61,7 +62,7 @@ export async function buildChatErrorFallback(
         ctx.env,
         userLogin,
         undefined,
-        { scanRunStore: ctx.scanRunStore, profileStore: ctx.profileStore, schedulingPort: ctx.schedulingPort }
+        { scanRunStore: ctx.scanRunStore, profileStore: ctx.profileStore, schedulingPort: ctx.schedulingPort, stockScreenPort: ctx.stockScreenPort }
       );
       if (result && result.status !== "error") {
         if (Array.isArray(result.rows) && result.rows.length > 0) {

@@ -4,6 +4,7 @@ import {
   AutopilotPolicyLimits,
   AutonomousActionItem,
   mapAuditLogToAutonomousAction,
+  mapPolicyVerdictToRow,
   mapTradeRecordToAutonomousAction,
 } from "../src/client/components/AutopilotControlCenter";
 
@@ -167,5 +168,68 @@ describe("Autopilot Control Center & Policy Limits Cards (Issue #20)", () => {
       expect(mapped.summary).toContain("BUY 50 shares @ $230.50");
       expect(mapped.didAttestation.signature).toBe("sig_ed25519_aapl_proof_882a");
     });
+  });
+});
+
+describe("Policy Decisions Audit (Issue #651)", () => {
+  const baseVerdict = {
+    id: "v-1",
+    symbol: "tsla",
+    action: "buy",
+    quantity: 40,
+    notional: 9600,
+    mode: "live",
+    dry_run: 0,
+    passed: 0,
+    execution_allowed: 0,
+    requires_approval: 0,
+    binding_rule: "maxPositionPct",
+    detail: "Position would exceed 10% of NAV",
+    signature: "sig_ed25519_x",
+    created_at: "2026-10-21T13:45:00.000Z",
+  };
+
+  it("maps a blocked verdict with its binding rule and detail", () => {
+    const row = mapPolicyVerdictToRow(baseVerdict);
+    expect(row.outcome).toBe("blocked");
+    expect(row.outcomeLabel).toBe("Blocked");
+    expect(row.outcomeTone).toBe("danger");
+    expect(row.ruleLabel).toBe("maxPositionPct");
+    expect(row.detail).toContain("exceed 10%");
+    expect(row.intentLabel).toBe("buy 40 TSLA");
+    expect(row.notionalLabel).toBe("$9,600");
+    expect(row.signed).toBe(true);
+    expect(row.modeLabel).toBe("live");
+  });
+
+  it("maps an executable verdict as Allowed", () => {
+    const row = mapPolicyVerdictToRow({
+      ...baseVerdict,
+      id: "v-2",
+      passed: 1,
+      execution_allowed: 1,
+      binding_rule: null,
+      detail: "Within all limits",
+    });
+    expect(row.outcome).toBe("allowed");
+    expect(row.outcomeTone).toBe("success");
+    expect(row.ruleLabel).toBe("—");
+  });
+
+  it("maps a held verdict as Approval required (execution_allowed wins when both set)", () => {
+    const held = mapPolicyVerdictToRow({ ...baseVerdict, requires_approval: 1 });
+    expect(held.outcome).toBe("approval_required");
+    expect(held.outcomeTone).toBe("warning");
+    const both = mapPolicyVerdictToRow({ ...baseVerdict, requires_approval: true, execution_allowed: true });
+    expect(both.outcome).toBe("allowed");
+  });
+
+  it("labels dry runs, tolerates boolean flags and missing fields", () => {
+    const row = mapPolicyVerdictToRow({ dry_run: true, execution_allowed: true, notional: null });
+    expect(row.modeLabel).toBe("dry run");
+    expect(row.notionalLabel).toBe("—");
+    expect(row.intentLabel).toBe("—");
+    expect(row.signed).toBe(false);
+    expect(row.timeLabel).toBe("");
   });
 });

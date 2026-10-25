@@ -12,27 +12,25 @@ import {
   ETradeBrokerStatus,
   TradeRecord,
 } from "../types";
-import { OptionsResearchPanel } from "./OptionsResearchPanel";
-// Issue #319 — autonomous options-research runs (read-only; separate surface
-// from the per-symbol research panel above).
-import { ResearchRunsPanel } from "./options/ResearchRunsPanel";
 import type { TradeAssetClass, TradeOrderContext } from "./trading/tradeOrderContext";
 import { PortfolioRiskPanel } from "./PortfolioRiskPanel";
 import { AccountPanels } from "./AccountPanels";
-import { ScannerPanel } from "./ScannerPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { ScreenersHub } from "./ScreenersHub";
-import { ReportsPanel } from "./ReportsPanel";
-import { SchedulesPanel } from "./SchedulesPanel";
-import { IvHistoryPanel } from "./IvHistoryPanel";
+import { ScreenersHub, type ScreenersHubTab } from "./ScreenersHub";
 import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { EtapiConfigModal } from "./options/EtapiConfigModal";
 import { RiskAnalysisModal } from "./options/RiskAnalysisModal";
 import type { RiskSubject } from "./options/riskManagementEngine";
 
-function OptionsResearchPanelHost({ hidden, children }: { hidden: boolean; children: React.ReactNode }) {
-  return <div hidden={hidden}>{children}</div>;
-}
+/**
+ * C2 (consolidation #1151, issue #1246): the S8 "Screening Moved"
+ * redirect notices are retired. The Trading Hub's screening subtabs
+ * (options research, strategy scanner, IV history, reports,
+ * schedules) render the ONE screening hub — ScreenersHub — directly
+ * on the equivalent tab, so every legacy deep link lands on the live
+ * surface with no interstitial. Reports and Schedules are hosted by
+ * the hub as tabs now; they are no longer mounted here.
+ */
 import { ResearchReportActions } from "./ResearchReportActions";
 import { AutopilotControlCenter } from "./components/AutopilotControlCenter";
 
@@ -90,10 +88,20 @@ export function ETradeTradingHub({
     setSubTab(newSubTab);
     onSelectSubTab?.(newSubTab);
   };
-  // Issue #319: toggle between per-symbol research and the autonomous runs surface.
-  // Issue #387: default to "symbol" — the section landed on the per-symbol
-  // panel before #319; the runs surface is an addition, not a replacement.
-  const [researchRunsView, setResearchRunsView] = useState<"symbol" | "runs">("symbol");
+  // C2: every screening subtab renders the one hub on the
+  // equivalent tab — the same props the hub has always received
+  // here, with initialTab selecting the folded surface.
+  const renderScreenersHub = (tab: ScreenersHubTab) => (
+    <ScreenersHub
+      activeEnv={activeEnv}
+      userLogin={user?.login}
+      onStocksLoaded={setScreenerStocks}
+      initialTab={tab}
+      onPreviewTrade={handleTradeOrder}
+      onSendPrompt={onSendPrompt}
+      onJobStateChange={setOptionsJob}
+    />
+  );
 
   useEffect(() => {
     if (activeSubTab && activeSubTab !== subTab) {
@@ -115,6 +123,10 @@ export function ETradeTradingHub({
   const [configModalOpen, setConfigModalOpen] = useState(false);
 
   const handleSeedDemoPortfolio = () => {
+    // #913/#921: demo holdings are fabricated data — they may never be
+    // seeded into a live/PROD brokerage view. The render sites are gated
+    // on !isLive as well; this guard is the defense in depth.
+    if (isLive) return;
     const samplePositions: ETradePosition[] = [
       {
         symbol: "NVDA",
@@ -378,7 +390,7 @@ export function ETradeTradingHub({
     }
   };
 
-  // Cloudflare Voice Trading Agent state
+  // Voice Trading Desk state
   const [voiceStatus, setVoiceStatus] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
   const [voiceTranscript, setVoiceTranscript] = useState<Array<{
     role: "user" | "assistant";
@@ -797,16 +809,12 @@ export function ETradeTradingHub({
       const data = (await resp.json()) as any;
       setDiagnostics(data);
       setShowDiagnosticsModal(true);
-      if (data?.upstreamAccounts?.count > 0 || (data?.upstreamAccounts?.accounts && data.upstreamAccounts.accounts.length > 0)) {
-        // These panels make their own broker requests. Keep them off the
-        // diagnostics critical path so a slow positions/status call cannot
-        // leave the successful REST verification stuck in a loading state.
-        void Promise.allSettled([
-          fetchBrokerStatus(envToUse),
-          fetchPositions(envToUse),
-          fetchOAuthStatus(envToUse),
-        ]);
-      }
+      // Unconditionally sync broker status, positions, and OAuth state on diagnostics run
+      void Promise.allSettled([
+        fetchBrokerStatus(envToUse),
+        fetchPositions(envToUse),
+        fetchOAuthStatus(envToUse),
+      ]);
     } catch (err: any) {
       setDiagnostics({ error: err.message || "Failed to run diagnostics" });
       setShowDiagnosticsModal(true);
@@ -819,9 +827,32 @@ export function ETradeTradingHub({
     const handleOpenDiag = () => {
       runDiagnostics();
     };
+    const handleSync = () => {
+      runDiagnostics();
+    };
+    const handleStartOAuthEvt = () => {
+      handleStartOAuth();
+    };
+    const handleRenewOAuthEvt = () => {
+      handleRenewOAuth();
+    };
+    const handleRevokeOAuthEvt = () => {
+      handleRevokeOAuth();
+    };
+
     if (typeof window !== "undefined") {
       window.addEventListener("open-etrade-diagnostics", handleOpenDiag);
-      return () => window.removeEventListener("open-etrade-diagnostics", handleOpenDiag);
+      window.addEventListener("sync-etrade-api", handleSync);
+      window.addEventListener("start-etrade-oauth", handleStartOAuthEvt);
+      window.addEventListener("renew-etrade-oauth", handleRenewOAuthEvt);
+      window.addEventListener("revoke-etrade-oauth", handleRevokeOAuthEvt);
+      return () => {
+        window.removeEventListener("open-etrade-diagnostics", handleOpenDiag);
+        window.removeEventListener("sync-etrade-api", handleSync);
+        window.removeEventListener("start-etrade-oauth", handleStartOAuthEvt);
+        window.removeEventListener("renew-etrade-oauth", handleRenewOAuthEvt);
+        window.removeEventListener("revoke-etrade-oauth", handleRevokeOAuthEvt);
+      };
     }
   }, [activeEnv]);
 
@@ -1555,59 +1586,20 @@ export function ETradeTradingHub({
         />
       )}
 
-      {effectiveSubTab === "iv-history" && <IvHistoryPanel />}
+      {/* C2: the screening subtabs render the one hub directly on
+          the equivalent tab — no redirect notices. */}
+      {effectiveSubTab === "iv-history" && renderScreenersHub("iv-history")}
 
-      {effectiveSubTab === "screeners" && (
-        <ScreenersHub
-          activeEnv={activeEnv}
-          userLogin={user?.login}
-          onStocksLoaded={setScreenerStocks}
-        />
-      )}
+      {effectiveSubTab === "screeners" && renderScreenersHub("stocks")}
 
-      {effectiveSubTab === "reports" && (
-        <ReportsPanel />
-      )}
+      {effectiveSubTab === "reports" && renderScreenersHub("reports")}
 
-      {effectiveSubTab === "schedules" && (
-        <SchedulesPanel activeEnv={activeEnv} userLogin={user?.login} />
-      )}
+      {effectiveSubTab === "schedules" && renderScreenersHub("schedules")}
 
-      {/* SUBTAB 1: MARKET SCREENER & SCANNER */}
-      {effectiveSubTab === "scanner" && (
-        <ErrorBoundary label="Strategy/Symbol Scanner panel">
-          <ScannerPanel activeEnv={activeEnv} userLogin={user?.login} onPreviewTrade={handleTradeOrder} />
-        </ErrorBoundary>
-      )}
+      {/* SUBTAB 1: MARKET SCREENER & SCANNER — folded into the hub. */}
+      {effectiveSubTab === "scanner" && renderScreenersHub("scanner")}
 
-      <OptionsResearchPanelHost hidden={effectiveSubTab !== "options"}>
-        {/* Issue #319: one research-run surface for manual + scheduled runs. */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-          <button
-            onClick={() => setResearchRunsView("symbol")}
-            style={{ fontWeight: researchRunsView === "symbol" ? 700 : 400 }}
-          >
-            Symbol research
-          </button>
-          <button
-            onClick={() => setResearchRunsView("runs")}
-            style={{ fontWeight: researchRunsView === "runs" ? 700 : 400 }}
-          >
-            Autonomous runs
-          </button>
-        </div>
-        {researchRunsView === "runs" ? (
-          <ResearchRunsPanel userLogin={user?.login} onSendPrompt={onSendPrompt} />
-        ) : (
-          <OptionsResearchPanel
-            activeEnv={activeEnv}
-            userLogin={user?.login}
-            onPreviewTrade={handleTradeOrder}
-            onJobStateChange={setOptionsJob}
-            onSendPrompt={onSendPrompt}
-          />
-        )}
-      </OptionsResearchPanelHost>
+      {effectiveSubTab === "options" && renderScreenersHub("options")}
 
       {/* SUBTAB 2: ORDER TICKET & HITL PREVIEW */}
       {effectiveSubTab === "order" && (
@@ -2058,7 +2050,7 @@ export function ETradeTradingHub({
               <div className="info-card">
                 <h5>🛡️ Agentic HITL Safety Guarantee</h5>
                 <p>
-                  Every trade initiated by the Multi-Agent System is saved to the SQLite ledger in <code>previewed</code> status.
+                  Every trade initiated by the Multi-Agent System is saved to the institutional ledger in <code>previewed</code> status.
                   No funds are moved, and no order is routed to E*TRADE until you review the order details and click <strong>Approve &amp; Submit</strong>.
                 </p>
                 <div className="safety-bullets">
@@ -2152,13 +2144,15 @@ export function ETradeTradingHub({
               >
                 ⚡ Fast Order Ticket
               </Button>
-              <Button variant="secondary"
-                type="button"
-                onClick={handleSeedDemoPortfolio}
-                title="Load curated paper trading positions (NVDA, AAPL, MSFT, SPY) to explore"
-              >
-                🌱 {positions.length === 0 ? "Load Demo Holdings" : "Reset Demo Holdings"}
-              </Button>
+              {!isLive && (
+                <Button variant="secondary"
+                  type="button"
+                  onClick={handleSeedDemoPortfolio}
+                  title="Load curated paper trading positions (NVDA, AAPL, MSFT, SPY) to explore"
+                >
+                  🌱 {positions.length === 0 ? "Load Demo Holdings" : "Reset Demo Holdings"}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -2233,9 +2227,11 @@ export function ETradeTradingHub({
                               <Button variant="trade" onClick={() => handleNavigateSubTab("order")}>
                                 ⚡ Build Order Ticket
                               </Button>
-                              <Button variant="secondary" onClick={handleSeedDemoPortfolio}>
-                                🌱 Load Curated Demo Positions
-                              </Button>
+                              {!isLive && (
+                                <Button variant="secondary" onClick={handleSeedDemoPortfolio}>
+                                  🌱 Load Curated Demo Positions
+                                </Button>
+                              )}
                             </div>
                           ) : undefined
                         }
@@ -2388,7 +2384,7 @@ export function ETradeTradingHub({
       {effectiveSubTab === "ledger" && (
         <Card className="trading-section">
           <div className="ledger-header-row">
-            <h4>📜 E*TRADE Orders Ledger (SQLite mas_trades)</h4>
+            <h4>📜 Order Execution Ledger (Audited Trade Records)</h4>
             <Button
               variant="secondary"
               disabled={ordersLoading}
@@ -2730,8 +2726,7 @@ export function ETradeTradingHub({
         </div>
       )}
 
-      {/* Omnichannel Trading Agents (Cloudflare Email & Slack Agents) */}
-      {/* Omnichannel Trading Agents (Cloudflare Email & Slack Agents) */}
+      {/* Omnichannel Trading Desks (Autonomous Email & Slack Desks) */}
       {effectiveSubTab === "omnichannel" && (
         <div className="tab-pane active omnichannel-pane">
           {/* Header Card */}
@@ -2739,10 +2734,10 @@ export function ETradeTradingHub({
             <div className="omnichannel-header-top">
               <div>
                 <span className="omnichannel-header-badge">
-                  Cloudflare Agents SDK
+                  Autonomous Multi-Agent Architecture
                 </span>
                 <h3 className="omnichannel-header-title">
-                  💬 Omnichannel Trading Agents (Email &amp; Slack)
+                  💬 Omnichannel Trading Desks (Email &amp; Slack)
                 </h3>
                 <p className="omnichannel-header-desc">
                   Autonomous market research, quoting, and Human-in-the-Loop order drafting via Inbound Email and Slack Bot communication channels. All orders require explicit human authorization before live E*TRADE execution.
@@ -2757,11 +2752,11 @@ export function ETradeTradingHub({
           </div>
 
           <div className="omnichannel-grid">
-            {/* Channel 1: Cloudflare Email Trading Agent */}
+            {/* Channel 1: Autonomous Email Trading Desk */}
             <div className="omnichannel-card">
               <div className="omnichannel-card-header">
                 <h4 className="omnichannel-card-title email">
-                  <span>✉️</span> Cloudflare Email Trading Agent
+                  <span>✉️</span> Autonomous Email Trading Desk
                 </h4>
                 <span className="omnichannel-badge-subtle cyan">
                   send_email &amp; PostalMime
@@ -2883,11 +2878,11 @@ export function ETradeTradingHub({
               )}
             </div>
 
-            {/* Channel 2: Cloudflare Slack Trading Agent */}
+            {/* Channel 2: Autonomous Slack Trading Desk */}
             <div className="omnichannel-card">
               <div className="omnichannel-card-header">
                 <h4 className="omnichannel-card-title slack">
-                  <span>🤖</span> Cloudflare Slack Trading Agent
+                  <span>🤖</span> Autonomous Slack Trading Desk
                 </h4>
                 <span className="omnichannel-badge-subtle purple">
                   Events &amp; Block Kit
@@ -3040,7 +3035,7 @@ export function ETradeTradingHub({
         </div>
       )}
 
-      {/* Cloudflare Voice Trading Agent Desk */}
+      {/* Autonomous Voice Trading Desk */}
       {effectiveSubTab === "voice" && (
         <div className="tab-pane active voice-pane">
           {/* Header Card */}
@@ -3048,13 +3043,13 @@ export function ETradeTradingHub({
             <div className="voice-header-top">
               <div>
                 <span className="voice-header-badge">
-                  Cloudflare Agents Voice SDK
+                  Real-Time Voice Architecture
                 </span>
                 <h3 className="voice-header-title">
                   <span>🎙️</span> E*TRADE Voice Trading Desk
                 </h3>
                 <p className="voice-header-desc">
-                  Real-time conversational voice trading powered by Cloudflare Workers AI STT &amp; TTS. Verbal quote inquiries, technical screening, and strict two-stage verbal Human-in-the-Loop order drafting.
+                  Real-time conversational voice trading with speech synthesis and recognition. Verbal quote inquiries, technical screening, and strict two-stage verbal Human-in-the-Loop order drafting.
                 </p>
               </div>
               <div className="voice-header-status">
@@ -3300,11 +3295,11 @@ export function ETradeTradingHub({
                   </div>
                   <div className="grid-item">
                     <span className="label">52-Week High</span>
-                    <span className="val">${inspectQuote.week52High.toFixed(2)}</span>
+                    <span className="val">{inspectQuote.week52High !== undefined ? `$${inspectQuote.week52High.toFixed(2)}` : "—"}</span>
                   </div>
                   <div className="grid-item">
                     <span className="label">52-Week Low</span>
-                    <span className="val">${inspectQuote.week52Low.toFixed(2)}</span>
+                    <span className="val">{inspectQuote.week52Low !== undefined ? `$${inspectQuote.week52Low.toFixed(2)}` : "—"}</span>
                   </div>
                   <div className="grid-item">
                     <span className="label">Volume</span>
@@ -3417,11 +3412,11 @@ export function ETradeTradingHub({
                     <div className="diag-card">
                       <div className="diag-label">Consumer Secret</div>
                       <div className="diag-val">
-                        {diagnostics.credentials?.apiSecretConfigured ? "✓ Configured in Cloudflare" : "MISSING"}
+                        {diagnostics.credentials?.apiSecretConfigured ? "✓ Securely Configured" : "MISSING"}
                       </div>
                     </div>
                     <div className="diag-card">
-                      <div className="diag-label">Session Token in KV</div>
+                      <div className="diag-label">Session Token Vault</div>
                       <div className={`diag-val ${diagnostics.oauthToken?.present ? "token-active" : "token-inactive"}`}>
                         {diagnostics.oauthToken?.present ? "✓ Present & Active" : "No Active Token"}
                       </div>
@@ -3469,7 +3464,7 @@ export function ETradeTradingHub({
                       <div><strong>Trading Agent DID:</strong> <code>{tradingAgentDid}</code></div>
                       <div><strong>Microservice Architecture:</strong> Model Context Protocol (MCP) &amp; OAuth 1.0a REST Client</div>
                       <div><strong>Attestation Mechanism:</strong> Internal W3C DID cryptographic stamping for microservice audit logs (not a third-party brokerage guarantee)</div>
-                      <div><strong>Edge Database:</strong> Cloudflare Durable Objects + SQLite (tables: <code>mas_trades</code>, <code>mas_events</code>)</div>
+                      <div><strong>Transactional Ledger:</strong> Institutional Execution Ledger (Audited Trades &amp; System Events)</div>
                     </div>
                   </details>
 

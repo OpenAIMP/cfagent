@@ -75,7 +75,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
               <div className="hero-text-block">
                 <h3>💰 Revenue & Monetization Management</h3>
                 <p>
-                  Platform revenue accounting across external ad networks (CPM/CPC), sponsored marketplace placements, agent payment processing fees, and referral partner payouts powered by SQLite ORM.
+                  Platform revenue accounting across external ad networks (CPM/CPC), sponsored marketplace placements, agent payment processing fees, and referral partner payouts with transactional double-entry ledger persistence.
                 </p>
               </div>
               <button
@@ -334,7 +334,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
             {/* Referral Categories Taxonomy Manager (ORM) */}
             <div className="revenue-section-card">
               <div className="card-header">
-                <h4>🏷️ Referral Categories Manager (SQLite ORM `mas_categories`)</h4>
+                <h4>🏷️ Referral Categories &amp; Taxonomy Manager</h4>
                 <p>
                   Configure and maintain the categorization taxonomy used by partners to list developer tools, affiliate links, and monetization campaigns.
                 </p>
@@ -384,7 +384,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
 
               {/* Form to Add New Category */}
               <div className="create-subcard">
-                <h5>➕ Add New Referral Category via ORM</h5>
+                <h5>➕ Add New Referral Category</h5>
                 {catSuccessMsg && <div className="form-alert success">{catSuccessMsg}</div>}
                 {catErrorMsg && <div className="form-alert error">{catErrorMsg}</div>}
 
@@ -437,7 +437,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                     className="submit-action-btn"
                     disabled={savingCat || !newCatName.trim()}
                   >
-                    {savingCat ? "Saving Category…" : "🏷️ Save Category via ORM"}
+                    {savingCat ? "Saving Category…" : "🏷️ Save Category"}
                   </button>
                 </form>
               </div>
@@ -446,9 +446,9 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
             {/* SQLite ORM Database Tables Schema Inspection */}
             <div className="revenue-section-card">
               <div className="card-header">
-                <h4>🗄️ Database Tables Schema & Record Counts (`DatabaseORM`)</h4>
+                <h4>🗄️ Institutional Data Schemas &amp; Record Counts</h4>
                 <p>
-                  Direct view into the typed repositories and relational SQLite tables managed by the Durable Object ORM.
+                  Direct view into institutional records, transaction schemas, and enterprise data repositories.
                 </p>
               </div>
 
@@ -480,7 +480,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                           setTab("nlq");
                         }}
                       >
-                        🔍 Browse Table Records (ORM) →
+                        🔍 Browse Table Records →
                       </button>
                     </div>
                   </div>

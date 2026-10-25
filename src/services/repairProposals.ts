@@ -23,6 +23,7 @@ import type {
   ETradePosition,
 } from "../types";
 import type { ETradeService } from "./etrade";
+import type { ExecutableOrderSpec } from "./hedgeProposals";
 import {
   computePortfolioRisk,
   evaluatePostTradeTotals,
@@ -66,6 +67,7 @@ export interface RepairProposal {
   maxAdditionalCapitalAtRisk: number;
   postRepairBetaWeightedDeltaDollars: number | null;
   rationale: string;
+  executableOrder?: ExecutableOrderSpec;
 }
 
 export interface RepairAnalysis {
@@ -254,6 +256,8 @@ function buildOne(
   }
 
   const maxRecoveryPerUnit = round2((k2 - spot) * 100 - Math.max(netDebit, 0) * 100);
+  const limitPrice = Math.max(0.01, round2(Math.abs(netDebit)));
+  const contractNetDebit = Math.sign(netDebit || -1) * Math.round(limitPrice * 100);
 
   return {
     status: "DRAFT",
@@ -274,6 +278,37 @@ function buildOne(
       `${netDebit <= 0 ? `a $${Math.abs(netDebit).toFixed(2)} credit` : `a $${netDebit.toFixed(2)} debit`} per unit. ` +
       `A rally to $${k2.toFixed(2)} recovers the loss instead of waiting for $${p.pricePaid.toFixed(2)}. ` +
       `Upside is capped above $${k2.toFixed(2)}; there is NO downside protection below $${k1.toFixed(2)}.`,
+    executableOrder: {
+      assetClass: "options",
+      symbol: p.symbol,
+      action: "BUY",
+      orderType: "LIMIT",
+      quantity: units,
+      limitPrice,
+      strategyNetDebit: contractNetDebit,
+      legs: [
+        {
+          underlyingSymbol: p.symbol,
+          securityType: "OPTN",
+          side: "BUY",
+          quantity: 1,
+          optionType: "CALL",
+          strike: k1,
+          expirationDate: expiry,
+        },
+        {
+          underlyingSymbol: p.symbol,
+          securityType: "OPTN",
+          side: "SELL",
+          quantity: 2,
+          optionType: "CALL",
+          strike: k2,
+          expirationDate: expiry,
+        },
+      ],
+      estimatedTotal: round2(netDebit * 100 * units),
+      isExecutable: true,
+    },
   };
 }
 
@@ -286,32 +321,78 @@ export async function generateRepairProposals(
   etrade: ETradeService
 ): Promise<RepairAnalysis> {
   const { positions } = etrade.getPositions();
-  const target = new Date(
-    Date.now() + REPAIR_POLICY.minDteDays * 24 * 3600 * 1000
-  );
-  const yyyy = target.getUTCFullYear();
-  const mm = target.getUTCMonth() + 1;
-  const dd = target.getUTCDate();
-  const expirationDate = `${yyyy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
-
   const chainsBySymbol: Record<string, RepairChainInput | null> = {};
   const equity = positions.filter(
     (p) => p.securityType !== "OPTN" && !p.optionType && p.quantity >= 100
   );
+
   for (const p of equity) {
+    let candidateChain: RepairChainInput | null = null;
+    const spot = p.currentPrice > 0 ? p.currentPrice : p.marketPrice;
+
     try {
-      const chain = await etrade.getOptionChains({
-        symbol: p.symbol,
-        expiryYear: yyyy,
-        expiryMonth: mm,
-        expiryDay: dd,
-      });
-      chainsBySymbol[p.symbol] = chain
-        ? { chain, expirationDate }
-        : null;
+      const expireDates = await etrade.getOptionExpireDates(p.symbol);
+      if (expireDates && expireDates.length > 0) {
+        const now = new Date();
+        const candidateExpiries = expireDates
+          .map((exp) => {
+            const expDate = new Date(Date.UTC(exp.year, exp.month - 1, exp.day, 20, 0, 0));
+            const dte = Math.round((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            return { exp, dte, diff: Math.abs(dte - 35) };
+          })
+          .filter((item) => item.dte >= REPAIR_POLICY.minDteDays && item.dte <= 90)
+          .sort((a, b) => a.diff - b.diff);
+
+        for (const candidate of candidateExpiries) {
+          const exp = candidate.exp;
+          const expDateStr = `${exp.year}-${String(exp.month).padStart(2, "0")}-${String(exp.day).padStart(2, "0")}`;
+          const chain = await etrade.getOptionChains({
+            symbol: p.symbol,
+            expiryYear: exp.year,
+            expiryMonth: exp.month,
+            expiryDay: exp.day,
+            chainType: "CALL",
+          }).catch(() => null);
+
+          if (chain && chain.pairs && chain.pairs.length > 0) {
+            candidateChain = { chain, expirationDate: expDateStr };
+            if (spot > 0 && spot < p.pricePaid) {
+              const test = buildOne(p, spot, chain, expDateStr, null);
+              if (typeof test !== "string") {
+                break;
+              }
+            }
+          }
+        }
+      }
     } catch {
-      chainsBySymbol[p.symbol] = null;
+      // Ignore and fallback
     }
+
+    if (!candidateChain) {
+      const target = new Date(Date.now() + REPAIR_POLICY.minDteDays * 24 * 3600 * 1000);
+      const dayOfWeek = target.getUTCDay();
+      const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+      target.setUTCDate(target.getUTCDate() + (daysUntilFriday === 0 ? 0 : daysUntilFriday));
+      const yyyy = target.getUTCFullYear();
+      const mm = target.getUTCMonth() + 1;
+      const dd = target.getUTCDate();
+      const expirationDate = `${yyyy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+      try {
+        const chain = await etrade.getOptionChains({
+          symbol: p.symbol,
+          expiryYear: yyyy,
+          expiryMonth: mm,
+          expiryDay: dd,
+          chainType: "CALL",
+        }).catch(() => null);
+        candidateChain = chain ? { chain, expirationDate } : null;
+      } catch {
+        candidateChain = null;
+      }
+    }
+
+    chainsBySymbol[p.symbol] = candidateChain;
   }
 
   let report: PortfolioRiskReport | null = null;

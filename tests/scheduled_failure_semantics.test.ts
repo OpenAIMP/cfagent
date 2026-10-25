@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { makeFakeSessionStore } from "./fake-session-store";
+import { storeAccessTokens } from "../src/security/etradeOAuth";
 
 // The orchestrator extends AIChatAgent from @cloudflare/ai-chat, whose real
 // module graph pulls in `cloudflare:` protocol imports the node test loader
@@ -168,6 +170,19 @@ describe("Scheduled job failure semantics (#112)", () => {
   // Orchestrator callback level
   // =========================================================================
   describe("OrchestratorAgent scheduled callbacks", () => {
+    // #1200: the persisted execution context selects PROD, and a
+    // scheduled PROD run with NO stored session is blocked by the auth
+    // pre-flight before the screener runs. These tests pin the
+    // callbacks' broadcast behaviour for runs that DO execute, so seed
+    // a fresh PROD session for the context's owner. (Without the seed
+    // the suite passed or failed with worker file ordering, via the
+    // shared token cache — the seed makes it deterministic.)
+    beforeEach(async () => {
+      const { namespace } = makeFakeSessionStore();
+      (env as any).SESSION_STORE = namespace;
+      await storeAccessTokens(env, "live_account_owner", "mock_token_prod", "mock_secret_prod", "PROD");
+    });
+
     function makeAgent(sql: MockSqlStorage) {
       const storage = new Map<string, unknown>([["screener:execution-context", {
         userLogin: "live_account_owner",

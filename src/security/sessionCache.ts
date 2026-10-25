@@ -5,8 +5,9 @@ import { getSession } from "./session";
  * In-isolate cache in front of `getSession` (issue #329).
  *
  * Why this exists: `requireAuth` runs on every `/api/*` request and each call
- * performed one Workers KV read. KV reads are charged against the free tier
- * (100,000/day), and `requireAuth` is the first KV call in the request path,
+ * performed one backing-store read — in the KV era a Workers KV read, charged
+ * against the free tier (100,000/day) — and `requireAuth` is the first store
+ * call in the request path,
  * so UI polling alone could exhaust the day's budget — at which point every
  * authenticated route returns 401 rather than merely losing writes.
  *

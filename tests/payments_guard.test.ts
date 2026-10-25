@@ -27,6 +27,9 @@ vi.mock("agents", () => {
 
 import { BudgetGuard } from "../src/payments/budget-guard";
 import { PaymentsAgent } from "../src/agents/payments-agent";
+import { DatabaseORM } from "../src/orm";
+import { MockSqlStorage } from "./mock-sql";
+import { handleAgenticPaymentsRoutes } from "../src/agents/routes/agenticPayments";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -47,7 +50,39 @@ function makeCtx() {
   };
 }
 
-const ENV: any = { CF_WALLET_FACILITATOR: "https://facilitator.test" };
+// Issue #896 adaptation (justification): BudgetGuard state no longer
+// lives in the PaymentsAgent ctx.storage blob — it is derived from
+// mas_transactions, owned by the OrchestratorAgent. The harness
+// therefore gives each test a real ledger owner: a DatabaseORM over
+// MockSqlStorage served through the REAL agentic-payments route
+// handler (the exact surface PaymentsAgent now calls), bound as
+// SEARCH_AGENT. Assertions below are unchanged; only the state home
+// behind them moved.
+function makeLedgerEnv(): any {
+  const sql = new MockSqlStorage();
+  const orm = new DatabaseORM(sql);
+  orm.initializeSchema("default_trader");
+  const routeCtx = { env: {}, getOrm: () => orm, audit: () => {} };
+  return {
+    CF_WALLET_FACILITATOR: "https://facilitator.test",
+    SEARCH_AGENT: {
+      idFromName: (name: string) => name,
+      get: (_id: unknown) => ({
+        fetch: async (req: Request) => {
+          const url = new URL(req.url);
+          const res = await handleAgenticPaymentsRoutes(
+            req,
+            url,
+            url.pathname,
+            "default_trader",
+            routeCtx as any
+          );
+          return res ?? Response.json({ error: "no such route" }, { status: 404 });
+        },
+      }),
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // BudgetGuard semantics
@@ -131,7 +166,7 @@ describe("BudgetGuard check/record semantics (#161)", () => {
 describe("PaymentsAgent guard persistence (#161)", () => {
   it("budgetCheck() never consumes budget: repeated near-cap checks stay allowed", async () => {
     const ctx = makeCtx();
-    const agent = new (PaymentsAgent as any)(ctx, ENV);
+    const agent = new (PaymentsAgent as any)(ctx, makeLedgerEnv());
     // Default caps: 5000/day, 1000/call. Six 1000 checks total 6000 — if
     // checks recorded spend, the 6th would breach the daily cap.
     for (let i = 0; i < 6; i++) {
@@ -145,7 +180,7 @@ describe("PaymentsAgent guard persistence (#161)", () => {
       Response.json({ isValid: true })
     );
     const ctx = makeCtx();
-    const agent = new (PaymentsAgent as any)(ctx, ENV);
+    const agent = new (PaymentsAgent as any)(ctx, makeLedgerEnv());
     const proof = btoa(JSON.stringify({ signature: "0xabc", payer: "0x123" }));
 
     // Raise the per-call cap via a fresh agent is not possible; use amounts
@@ -175,7 +210,7 @@ describe("PaymentsAgent guard persistence (#161)", () => {
   it("processPaidRequest rejects a replayed idempotency key", async () => {
     vi.stubGlobal("fetch", async () => Response.json({ isValid: true }));
     const ctx = makeCtx();
-    const agent = new (PaymentsAgent as any)(ctx, ENV);
+    const agent = new (PaymentsAgent as any)(ctx, makeLedgerEnv());
     const proof = btoa(JSON.stringify({ signature: "0xabc", payer: "0x123" }));
     const base = { agentId: "a1", operation: "search.query", amountCents: 10, idempotencyKey: "pay-replay", paymentProof: proof };
     await agent.processPaidRequest(base);
@@ -190,7 +225,7 @@ describe("PaymentsAgent facilitator verification (#161)", () => {
     const fetchMock = vi.fn(async () => Response.json({ isValid: true }));
     vi.stubGlobal("fetch", fetchMock);
     const ctx = makeCtx();
-    const agent = new (PaymentsAgent as any)(ctx, ENV);
+    const agent = new (PaymentsAgent as any)(ctx, makeLedgerEnv());
     const simulated = btoa(JSON.stringify({ signature: "simulated", payer: "0xpayer", simulated: true }));
     await expect(
       agent.processPaidRequest({
@@ -205,7 +240,7 @@ describe("PaymentsAgent facilitator verification (#161)", () => {
     const fetchMock = vi.fn(async () => Response.json({ isValid: true }));
     vi.stubGlobal("fetch", fetchMock);
     const ctx = makeCtx();
-    const agent = new (PaymentsAgent as any)(ctx, ENV);
+    const agent = new (PaymentsAgent as any)(ctx, makeLedgerEnv());
     for (const bad of ["", "not-json-at-all", btoa(JSON.stringify({ nope: true }))]) {
       await expect(
         agent.processPaidRequest({
@@ -225,7 +260,7 @@ describe("PaymentsAgent facilitator verification (#161)", () => {
       return Response.json({ isValid: true });
     });
     const ctx = makeCtx();
-    const agent = new (PaymentsAgent as any)(ctx, ENV);
+    const agent = new (PaymentsAgent as any)(ctx, makeLedgerEnv());
     const record = await agent.processPaidRequest({
       agentId: "a1", operation: "search.query", amountCents: 10,
       idempotencyKey: "pay-good", paymentProof: validProof(),
@@ -237,7 +272,7 @@ describe("PaymentsAgent facilitator verification (#161)", () => {
   it("fails closed when the facilitator rejects", async () => {
     vi.stubGlobal("fetch", async () => Response.json({ isValid: false }));
     const ctx = makeCtx();
-    const agent = new (PaymentsAgent as any)(ctx, ENV);
+    const agent = new (PaymentsAgent as any)(ctx, makeLedgerEnv());
     await expect(
       agent.processPaidRequest({
         agentId: "a1", operation: "search.query", amountCents: 10,
@@ -249,7 +284,7 @@ describe("PaymentsAgent facilitator verification (#161)", () => {
   it("fails closed on facilitator transport errors", async () => {
     vi.stubGlobal("fetch", async () => { throw new Error("boom"); });
     const ctx = makeCtx();
-    const agent = new (PaymentsAgent as any)(ctx, ENV);
+    const agent = new (PaymentsAgent as any)(ctx, makeLedgerEnv());
     await expect(
       agent.processPaidRequest({
         agentId: "a1", operation: "search.query", amountCents: 10,

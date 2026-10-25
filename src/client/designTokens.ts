@@ -1,4 +1,5 @@
 /** Typed semantic tokens and density preference compatibility APIs. */
+export { BRAND, getBrand, type BrandConfig, type BrandEcosystemAgent } from "./branding";
 export const colorRoles = [
   "surface", "surface-foreground", "surface-raised", "surface-raised-foreground",
   "surface-sunken", "surface-sunken-foreground", "card", "card-foreground",
@@ -169,7 +170,19 @@ export const generatedThemeTokens: Record<"dark" | "light" | "high-contrast", Re
     "--color-sentiment-very-bullish-subtle": "rgba(16, 185, 129, 0.18)",
     "--color-sentiment-very-bullish-border": "rgba(16, 185, 129, 0.45)",
     "--color-bullish": "var(--color-sentiment-bullish)",
-    "--color-bearish": "var(--color-sentiment-bearish)"
+    "--color-bearish": "var(--color-sentiment-bearish)",
+    "--color-gain": "#10b981",
+    "--color-gain-foreground": "#04241c",
+    "--color-gain-subtle": "rgba(16, 185, 129, 0.12)",
+    "--color-gain-border": "rgba(16, 185, 129, 0.28)",
+    "--color-loss": "#f43f5e",
+    "--color-loss-foreground": "#2e0a10",
+    "--color-loss-subtle": "rgba(244, 63, 94, 0.12)",
+    "--color-loss-border": "rgba(244, 63, 94, 0.28)",
+    "--color-surface-glass": "rgba(15, 23, 42, 0.82)",
+    "--color-surface-glass-border": "rgba(255, 255, 255, 0.08)",
+    "--color-night": "#060913",
+    "--color-night-border": "rgba(255, 255, 255, 0.08)"
   },
   "light": {
     "--color-surface": "#f8fafc",
@@ -265,7 +278,19 @@ export const generatedThemeTokens: Record<"dark" | "light" | "high-contrast", Re
     "--color-sentiment-very-bullish-subtle": "rgba(5, 150, 105, 0.12)",
     "--color-sentiment-very-bullish-border": "rgba(5, 150, 105, 0.35)",
     "--color-bullish": "var(--color-sentiment-bullish)",
-    "--color-bearish": "var(--color-sentiment-bearish)"
+    "--color-bearish": "var(--color-sentiment-bearish)",
+    "--color-gain": "#15803d",
+    "--color-gain-foreground": "#ffffff",
+    "--color-gain-subtle": "rgba(21, 128, 61, 0.09)",
+    "--color-gain-border": "rgba(21, 128, 61, 0.22)",
+    "--color-loss": "#dc2626",
+    "--color-loss-foreground": "#ffffff",
+    "--color-loss-subtle": "rgba(220, 38, 38, 0.09)",
+    "--color-loss-border": "rgba(220, 38, 38, 0.22)",
+    "--color-surface-glass": "rgba(255, 255, 255, 0.88)",
+    "--color-surface-glass-border": "rgba(0, 0, 0, 0.08)",
+    "--color-night": "#0b1120",
+    "--color-night-border": "rgba(255, 255, 255, 0.1)"
   },
   "high-contrast": {
     "--color-surface": "#000000",
@@ -361,7 +386,19 @@ export const generatedThemeTokens: Record<"dark" | "light" | "high-contrast", Re
     "--color-sentiment-very-bullish-subtle": "rgba(0, 224, 101, 0.26)",
     "--color-sentiment-very-bullish-border": "rgba(0, 224, 101, 0.6)",
     "--color-bullish": "var(--color-sentiment-bullish)",
-    "--color-bearish": "var(--color-sentiment-bearish)"
+    "--color-bearish": "var(--color-sentiment-bearish)",
+    "--color-gain": "#00e065",
+    "--color-gain-foreground": "#000000",
+    "--color-gain-subtle": "rgba(0, 224, 101, 0.22)",
+    "--color-gain-border": "rgba(0, 224, 101, 0.6)",
+    "--color-loss": "#ff4d4d",
+    "--color-loss-foreground": "#000000",
+    "--color-loss-subtle": "rgba(255, 77, 77, 0.22)",
+    "--color-loss-border": "rgba(255, 77, 77, 0.6)",
+    "--color-surface-glass": "#0a0a0a",
+    "--color-surface-glass-border": "rgba(255, 255, 255, 0.45)",
+    "--color-night": "#000000",
+    "--color-night-border": "rgba(255, 255, 255, 0.5)"
   }
 };
 /* END GENERATED TOKENS */
@@ -373,7 +410,7 @@ export const generatedThemeTokens: Record<"dark" | "light" | "high-contrast", Re
  */
 export const adAccentPalette = [
   { value: "#6366f1", label: "Indigo" },
-  { value: "#f38020", label: "Cloudflare Orange" },
+  { value: "#f38020", label: "Amber Orange" },
   { value: "#06b6d4", label: "Cyan" },
   { value: "#10b981", label: "Emerald Green" },
   { value: "#a855f7", label: "Purple" },
