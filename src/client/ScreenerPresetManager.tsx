@@ -27,7 +27,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from "react";
-import type { StockScreenerFilter } from "../types";
+import type { OptionScreenerFilter, StockScreenerFilter } from "../types";
 import { apiFetch as fetch } from "./apiFetch";
 import { Card } from "./components/ui/Card";
 import { FieldShell } from "./components/ui/Field";
@@ -93,7 +93,9 @@ export async function listPresets(userLogin?: string): Promise<ScreenerPreset[]>
 
 export async function createPreset(
   userLogin: string | undefined,
-  input: { name: string; assetClass: string; criteria: StockScreenerFilter }
+  // Issue #1498 (#940-D): both asset classes' criteria flow through Save;
+  // the server validates them with the run path's own strict parsers.
+  input: { name: string; assetClass: string; criteria: StockScreenerFilter | OptionScreenerFilter }
 ): Promise<ScreenerPreset> {
   const response = await fetch("/api/screener/presets", {
     method: "POST",
@@ -116,21 +118,28 @@ export async function deletePreset(userLogin: string | undefined, id: string): P
   if (!response.ok) throw new Error(await readError(response, "Failed to delete preset."));
 }
 
-export interface ScreenerPresetManagerProps {
+export interface ScreenerPresetManagerProps<C> {
   assetClass: "stocks" | "options";
   userLogin?: string;
   /** Current run filter (from the criteria panel) used by Save. */
-  currentFilter: StockScreenerFilter;
+  currentFilter: StockScreenerFilter | OptionScreenerFilter;
   /** Applies a loaded preset's criteria into the criteria panel. */
-  onApplyPreset: (criteria: StockCriteriaState) => void;
+  onApplyPreset: (criteria: C) => void;
+  /**
+   * Issue #1498 (#940-D): maps a stored preset filter onto panel state.
+   * Defaults to the stocks mapper, so the #1497 stocks call site is
+   * unchanged; options call sites pass optionsFilterToCriteria.
+   */
+  filterToCriteria?: (filter: Record<string, unknown>) => C;
 }
 
-export function ScreenerPresetManager({
+export function ScreenerPresetManager<C>({
   assetClass,
   userLogin,
   currentFilter,
   onApplyPreset,
-}: ScreenerPresetManagerProps) {
+  filterToCriteria,
+}: ScreenerPresetManagerProps<C>) {
   const [presets, setPresets] = useState<ScreenerPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -170,7 +179,13 @@ export function ScreenerPresetManager({
           `Preset "${preset.name}" no longer exists — the list has been refreshed.`
         );
       }
-      onApplyPreset(stockFilterToCriteria(found.criteria as StockScreenerFilter));
+      if (filterToCriteria) {
+        onApplyPreset(filterToCriteria(found.criteria));
+      } else {
+        onApplyPreset(
+          stockFilterToCriteria(found.criteria as unknown as StockScreenerFilter) as unknown as C
+        );
+      }
       setNotice(`Preset "${found.name}" loaded into the criteria panel.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to load preset.");
