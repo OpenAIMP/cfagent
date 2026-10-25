@@ -1,9 +1,14 @@
 /**
- * Issue #224: E*TRADE-primary market screener with Nasdaq fallback.
+ * Issue #224 (surviving utilities): shared retry + technology-symbol
+ * helpers for the stock screener.
  *
- * Real-time live trading system: E*TRADE live quotes are primary,
- * Nasdaq API is secondary. Both with retries. No static/fake data —
- * if both sources fail for a symbol, it is skipped (not fabricated).
+ * Issue #1356 deleted the rest of this module's seam: the
+ * broker-shaped LiveScreenerDeps and fetchLiveQuotes (E*TRADE-primary
+ * with Nasdaq-listing DELAYED fallback) are replaced by the platform
+ * quote seam in screenerPipeline.ts (QuoteScreenerDeps,
+ * bindEtradeQuoteDeps / bindLiveQuotesQuoteDeps). No static/fake
+ * data — if providers fail for a symbol, it is skipped or the run
+ * fails honestly (never fabricated).
  *
  * Truthful provenance per issue #118 audit F12: every quote carries
  * its actual source.
@@ -11,20 +16,6 @@
 
 import { fetchAllUsStockListings, type NasdaqStockListing } from "../services/nasdaqListings";
 import { withRetry } from "../services/resilience";
-import type { ETradeQuote } from "../types";
-
-export interface LiveScreenerDeps {
-  /** Fetch a live E*TRADE quote for a symbol. Throws on failure. */
-  fetchETradeQuote: (symbol: string) => Promise<ETradeQuote>;
-  /**
-   * Issue #495: fetch quotes for many symbols in one authenticated request
-   * (E*TRADE's documented `/market/quote/{symbols}` endpoint). Optional:
-   * callers that cannot batch keep the per-symbol path. Returns the quotes
-   * the broker actually returned; the caller diffs against the request to
-   * see which symbols are missing.
-   */
-  fetchETradeQuotes?: (symbols: string[]) => Promise<ETradeQuote[]>;
-}
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
@@ -74,59 +65,4 @@ export async function fetchTechnologySymbols(): Promise<NasdaqStockListing[]> {
       name.includes("data")
     );
   });
-}
-
-/**
- * Fetch live quotes: E*TRADE primary (with retries), Nasdaq data as
- * fallback. Skips symbols where both fail — no fake data.
- */
-export async function fetchLiveQuotes(
-  symbols: NasdaqStockListing[],
-  deps: LiveScreenerDeps,
-  maxSymbols = 50
-): Promise<ETradeQuote[]> {
-  const quotes: ETradeQuote[] = [];
-  const limited = symbols.slice(0, maxSymbols);
-
-  const CONCURRENCY = 10;
-  for (let i = 0; i < limited.length; i += CONCURRENCY) {
-    const batch = limited.slice(i, i + CONCURRENCY);
-    const results = await Promise.allSettled(
-      batch.map(async (listing) => {
-        try {
-          const live = await withRetries(
-            () => deps.fetchETradeQuote(listing.symbol),
-            "E*TRADE",
-            listing.symbol
-          );
-          return {
-            ...live,
-            symbol: listing.symbol,
-            companyName: listing.companyName,
-            source: "E*TRADE live",
-            quoteStatus: "LIVE",
-          } as ETradeQuote;
-        } catch {
-          // Secondary: Nasdaq listing data (already fetched, no extra call).
-          return {
-            symbol: listing.symbol,
-            companyName: listing.companyName,
-            lastPrice: listing.lastPrice,
-            price: listing.lastPrice,
-            change: listing.change,
-            changePercent: listing.changePercent,
-            bid: 0,
-            ask: 0,
-            volume: 0,
-            source: "Nasdaq (E*TRADE failed)",
-            quoteStatus: "DELAYED",
-          } as ETradeQuote;
-        }
-      })
-    );
-    for (const r of results) {
-      if (r.status === "fulfilled") quotes.push(r.value);
-    }
-  }
-  return quotes;
 }
