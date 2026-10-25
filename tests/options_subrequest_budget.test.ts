@@ -96,7 +96,7 @@ function symbols(n: number): string[] {
 describe("config: actual-fetch budget (#1545)", () => {
   it("ships a conservative default under the Workers per-invocation cap", () => {
     const cfg = getScreenerConfig();
-    expect(cfg.subrequestBudget).toBe(400);
+    expect(cfg.subrequestBudget).toBe(35);
   });
 });
 

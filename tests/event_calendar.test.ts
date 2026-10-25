@@ -185,4 +185,16 @@ describe("event calendar service (issue #16)", () => {
     expect(coverage.bySymbol.get("XYZ")?.covered).toBe(true);
     expect(coverage.bySymbol.get("BAD")?.covered).toBe(false);
   });
+
+  it("bounds cold-calendar requests for a 100-symbol options scan", async () => {
+    const stub = installFetchStub();
+    const symbols = ["XYZ", ...Array.from({ length: 99 }, (_, i) => `S${i}`)];
+    const coverage = await getEventCalendarCoverage(symbols, NOW);
+
+    expect(stub).toHaveBeenCalledTimes(5);
+    expect(coverage.total).toBe(100);
+    expect(coverage.bySymbol.size).toBe(100);
+    expect(coverage.bySymbol.get("XYZ")?.covered).toBe(true);
+    expect(coverage.bySymbol.get("S98")?.covered).toBe(false);
+  });
 });

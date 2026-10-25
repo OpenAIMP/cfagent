@@ -2,8 +2,8 @@ import defaultConfig from "../../environment.config.json";
 import { RISK_MATH } from "../shared/riskMath";
 import type { Env } from "../types";
 
-/** Issue #1545: cap actual option API fetch attempts, including fallback requests. */
-export const DEFAULT_SUBREQUEST_BUDGET = 400;
+/** Issue #1545: leave headroom under the Workers Free 50 external-subrequest cap. */
+export const DEFAULT_SUBREQUEST_BUDGET = 35;
 
 export interface EtapiScreenerConfig {
   maxScanSymbols: number;
@@ -11,9 +11,10 @@ export interface EtapiScreenerConfig {
   /**
    * Issue #1545: per-scan budget for actual options chain acquisition
    * fetch attempts (including .json fallback fetches) inside one Worker
-   * invocation. The scheduled invocation also spends fetches outside
-   * the screener (listings, event calendar, report pipeline), so this
-   * cap leaves headroom for those requests. Symbols that do not fit
+   * invocation. The event calendar is independently capped at five live
+   * symbol lookups, and the scheduled path also fetches listings. The
+   * default leaves headroom under the Workers Free external-subrequest
+   * limit; higher values must match the deployed Worker limit. Symbols that do not fit
    * are deferred with a named reason — never fetched past the budget.
    */
   subrequestBudget: number;
