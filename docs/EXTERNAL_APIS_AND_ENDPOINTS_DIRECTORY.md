@@ -399,15 +399,36 @@ Used for authoritative daily US equities universe listing, market capitalization
 
 ## 6. Slack API & Bidirectional Integration Directory
 
-The platform exposes an independent `SlackAgent` (`src/agents/slackAgent.ts`) providing full bidirectional conversational workflows, Slash Commands, Human-in-the-Loop (HITL) trade approval cards, and visual transaction snap receipts.
+Since Issue #1262 Phase 2 there is exactly one Slack parser and
+approval flow: `ETradeSlackTradingService`
+(`src/trading/slack/agent.ts`). The worker routes in `src/server.ts`
+are the production ingress (every route runs the #147 HMAC signature
+gate first); each forwards to the Orchestrator DO route in
+`src/agents/routes/tradingIntegrations.ts`, which resolves the
+caller's principal from the Phase 1 Slack link store (team_id +
+user_id) and runs the service. `SlackAgent`
+(`src/agents/slackAgent.ts`) is a shell kept for the Agents SDK
+surface (export pin, `/health`, the signature gate, the
+`/transaction-snap` trigger, and the `sendPreTradeApprovalTicket` /
+`dispatchTransactionSnap` delegations); it has no wrangler DO
+binding and no longer parses Slack payloads itself — its former
+`handleSlashCommand` / `handleInteraction` duplicates were retired
+in #1262 Phase 2. The #1077 social-approval cards
+(`social_approve` / `social_reject`) are intercepted in
+`/slack/interactions` before the trading forward and never reach
+the trading service. Approvals execute through the shared engine
+(`src/trading/channels/approval.ts`); channel-origin paid actions
+are refused in v1 (Phase 1 seam gate).
 
 ### 6.1 Slack Inbound & Interactive Endpoints
 
-| Endpoint | Method | Handling Method | Description |
+| Endpoint | Method | DO route | Description |
 | :--- | :--- | :--- | :--- |
-| `/api/slack/events` | `POST` | `handleEventsApi(body)` | Handles URL verification (`url_verification`), mentions (`app_mention`), and direct messages (`message.im`). |
-| `/api/slack/command` | `POST` | `handleSlashCommand(formData)` | Routes `/trade`, `/quote`, `/screen`, `/options`, `/portfolio`, `/snap`, `/help`. |
-| `/api/slack/interactive` | `POST` | `handleInteractive(payload)` | Receives Block Kit button clicks (`approve_trade`, `reject_trade`), trade confirmation modals, and overflow menus. |
+| `/slack/events` | `POST` | `/trading/slack/event` | Handles URL verification (`url_verification`), mentions (`app_mention`), and direct messages (`message.im`). |
+| `/slack/commands`, `/slack/slash` | `POST` | `/trading/slack/command` | Routes `/trade`, `/quote`, `/options`, `/portfolio`, `/snap`, `/help` (via `ETradeSlackTradingService.processSlackCommand`). |
+| `/slack/interactions` | `POST` | `/trading/slack/interaction` | Receives Block Kit button clicks (`approve_trade`, `reject_trade`, `snap_trade` — normalized to the engine's `etrade_approve_order` / `etrade_cancel_order` ids at the top of `processSlackInteraction`, before the tier gate). Social cards are intercepted first (see above). |
+| `/slack` | `POST` | `/trading/slack/event` | Alias of the events route. |
+| `/api/trading/email/approve` | `GET` | `/trading/email/approve-link` | Signed email approval link click (#1262 Phase 5, #149 pattern): the worker verifies the token fast-fail, forwards to the Orchestrator DO, which verifies again (signature + expiry + principal-map re-check) and executes through the shared engine, rendering an HTML result page. A bare email APPROVE (no valid signed link) is refused with a reply explaining the link flow. |
 
 ### 6.2 Pre-Trade Approval Ticket & Block Kit Action Payload
 
@@ -539,11 +560,11 @@ const tableData = await browserAgent.scrapeTables("https://example.com/data");
 
 ### 10.1 Slack App Setup Requirements
 1. **Request URL**: Point Slack Events API and Interactivity Request URL to:
-   * `https://<YOUR_WORKER_DOMAIN>/api/slack/events`
-   * `https://<YOUR_WORKER_DOMAIN>/api/slack/interactive`
+   * `https://<YOUR_WORKER_DOMAIN>/slack/events`
+   * `https://<YOUR_WORKER_DOMAIN>/slack/interactions`
 2. **Slash Commands**: Register Slash Commands with Request URL pointing to:
-   * `https://<YOUR_WORKER_DOMAIN>/api/slack/command`
-   * Supported commands: `/trade`, `/quote`, `/screen`, `/options`, `/portfolio`, `/snap`, `/help`.
+   * `https://<YOUR_WORKER_DOMAIN>/slack/commands`
+   * Supported commands: `/trade`, `/quote`, `/options`, `/portfolio`, `/snap`, `/help`. Every command resolves the caller's principal from the Phase 1 Slack link store (team_id + user_id); unlinked users get an ephemeral refusal with a `link` hint, and `/trade` requires the `preview` tier.
 3. **Bot Scopes**: `chat:write`, `commands`, `incoming-webhook`, `app_mentions:read`, `im:history`, `im:write`, `files:write`.
 
 ### 10.2 Request Signature Verification
@@ -561,6 +582,6 @@ if (mySignature !== signature) throw new Error("Invalid Slack signature");
 2. Agent validates cash balances and prices via E\*TRADE API, creates draft order `ORD_DRAFT_12345`.
 3. Agent posts interactive Block Kit card to Slack with **Approve Trade** and **Cancel** buttons.
 4. User clicks **Approve Trade**:
-   - Slack posts interaction to `/api/slack/interactive`.
-   - `SlackAgent` validates user identity, records DID attestation, and calls `ETradeService.placeOrder`.
-   - `BrowserAgent` generates visual execution snap and posts it back to the thread.
+   - Slack posts interaction to `/slack/interactions`.
+   - The worker gate (#147) runs, social cards are intercepted, and the trading forward resolves the clicker's principal from the link store; the shared approval engine (`src/trading/channels/approval.ts`) enforces the trade tier, looks up the exact draft id (no latest-previewed fallback for button approvals), stamps the authorizer DID, and executes via `ETradeService`.
+   - `BrowserAgent` generates visual execution snap and posts it back to the thread (once — the retired `SlackAgent.handleInteraction` double-snap is gone since #1262 Phase 2).

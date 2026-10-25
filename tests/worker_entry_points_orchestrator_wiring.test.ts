@@ -72,6 +72,7 @@ import worker from "../src/server";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { handleTradingIntegrationsRoutes } from "../src/agents/routes/tradingIntegrations";
+import { issueApprovalLink } from "../src/trading/channels/signedLinks";
 import {
   handleVoiceWebSocketConnection,
   createOrchestratorVoiceTurnForwarder,
@@ -187,6 +188,9 @@ function makeOrchestratorNamespace(orm: DatabaseORM, env: Env, forwarded: Forwar
           audit: () => {},
           agentCtx: {} as any,
           nlqSchedulingPort: () => new FakeSchedulingPort(),
+          // Issue #1262 Phase 4: the route builds the channel NLQ
+          // dep set from DO storage SQL for every channel service.
+          getStorageSql: () => ({ exec: () => [] }) as any,
         });
         return response ?? Response.json({ error: "route not found" }, { status: 404 });
       },
@@ -246,7 +250,7 @@ function rawEmailMessage(from: string, subject: string, text: string, authResult
 // ---------------------------------------------------------------------------
 
 describe("issue #815: worker email export routes through the orchestrator DO", () => {
-  it("an emailed APPROVE acts on the real pending preview in the orchestrator's ledger", async () => {
+  it("an emailed signed-link approval acts on the real pending preview in the orchestrator's ledger", async () => {
     const orm = makeOrm(OWNER_INSTANCE);
     seedPreviewedTrade(orm, OWNER_INSTANCE, "ord_815_email_1");
 
@@ -261,6 +265,9 @@ describe("issue #815: worker email export routes through the orchestrator DO", (
       CHANNEL_EMAIL_PRINCIPALS: JSON.stringify({
         "human.trader@example.com": { login: "owner-login", tier: "trade" },
       }),
+      // #1262 Phase 5: the approval travels as a signed link, so the
+      // env carries the link secret the issuance + verification read.
+      CHANNEL_APPROVAL_LINK_SECRET: "test-link-secret-1262",
       EMAIL: {
         send: vi.fn(async (message: ReadableStream<Uint8Array>) => {
           sentMail.push(await new Response(message).text());
@@ -269,10 +276,20 @@ describe("issue #815: worker email export routes through the orchestrator DO", (
     } as unknown as Env;
     (env as any).SEARCH_AGENT = makeOrchestratorNamespace(orm, env, forwarded);
 
+    // Phase 5: a bare APPROVE no longer executes — the approval reply
+    // quotes the signed link issued for this draft (the preview email
+    // carries it; here it is issued directly for the seeded draft).
+    const issued = await issueApprovalLink(env as Env, {
+      orderId: "ord_815_email_1",
+      login: "owner-login",
+      address: "human.trader@example.com",
+      baseUrl: "https://agent.openaimp.com",
+    });
+    expect(issued).not.toBeNull();
     const message = rawEmailMessage(
       "human.trader@example.com",
       "Re: HITL Action Required: Preview BUY 5 AAPL [ord_815_email_1]",
-      "APPROVE ord_815_email_1",
+      `APPROVE ord_815_email_1\n${issued!.url}`,
       // #1262 Phase 1: the trade tier requires a DKIM (or SPF) pass on
       // this exact message.
       "mx.openaimp.com; dkim=pass header.d=example.com; spf=pass smtp.mailfrom=example.com"

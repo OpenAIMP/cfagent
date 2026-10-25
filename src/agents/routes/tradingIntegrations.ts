@@ -27,7 +27,6 @@
 
 import type { AgentContext } from "agents";
 import { BrowserAgent } from "../browserAgent";
-import { SlackAgent } from "../slackAgent";
 import {
   ETradeEmailTradingService,
   ETradeSlackTradingService,
@@ -37,8 +36,12 @@ import {
   parseAuthenticationResults,
   resolvePrincipal,
   slackPrincipalLinkStoreFromEnv,
+  type ChannelNlqDeps,
   type ChannelPrincipal,
 } from "../../trading";
+import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
+import { createDiscoveryService } from "../../services/discoveryService";
+import { createFitDiscoveryRunner } from "../../services/fitDiscoveryRunner";
 import type { TransactionSnapData } from "../../types";
 import type { Env } from "../../types";
 import type { DatabaseORM } from "../../orm";
@@ -58,10 +61,35 @@ export interface TradingIntegrationsRouteContext {
     payload: Record<string, unknown>
   ): void;
   /** Durable Object agent context (owner: OrchestratorAgent - was `this.ctx`),
-   * forwarded to the SlackAgent / BrowserAgent constructors. */
+   * forwarded to the BrowserAgent constructor. */
   agentCtx: AgentContext;
   /** NLQ scheduling port (owner: OrchestratorAgent - was `this.nlqSchedulingPort()`). */
   nlqSchedulingPort(): NLQSchedulingPort;
+  /** DO storage SQL (owner: OrchestratorAgent - was `this.ctx.storage.sql`). */
+  getStorageSql(): any;
+}
+
+/**
+ * Issue #1262 Phase 4: the NLQ dependency set for channel services —
+ * the web-chat set (scan + profile stores, scheduling port, discovery
+ * runners) minus the social-brief port, which web chat withholds from
+ * untrusted-origin NLQ (#1077 slice 2: a brief is a public-post input,
+ * and channel messages are untrusted inbound content). The userLogin
+ * is the resolved principal's login (never a session/instance id).
+ */
+function buildChannelNlqDeps(
+  ctx: TradingIntegrationsRouteContext,
+  orm: DatabaseORM,
+  userLogin: string
+): ChannelNlqDeps {
+  const sql = ctx.getStorageSql();
+  return {
+    scanRunStore: new SqlScanRunStore(sql),
+    profileStore: new SqlStrategyProfileStore(sql),
+    schedulingPort: ctx.nlqSchedulingPort(),
+    discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql }),
+    fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql }),
+  };
 }
 
 /**
@@ -108,12 +136,38 @@ export async function handleTradingIntegrationsRoutes(
           ),
         });
       }
-      const emailService = new ETradeEmailTradingService(ctx.env, ctx.getOrm(), sessionId, principal);
+      const orm = ctx.getOrm();
+      const emailService = new ETradeEmailTradingService(
+        ctx.env,
+        orm,
+        sessionId,
+        principal,
+        buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
+      );
       const result = await emailService.processInboundEmail(body);
       ctx.audit("trading.email_processed", "trading", { actionType: result.actionType, from: result.from, orderId: result.orderId });
       return Response.json(result);
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to process inbound email" }, { status: 500 });
+    }
+  }
+
+  // Omnichannel Trading Channel: Signed Email Approval Link Click
+  // (Issue #1262 Phase 5). The worker route GET /api/trading/email/approve
+  // verifies the token's shape, then forwards here, where the token is
+  // verified again (signature + expiry + principal-map re-check) and
+  // the order executes through the shared engine. The DO holds the
+  // ledger, so execution must happen here, not in the worker.
+  if (path.endsWith("/trading/email/approve-link") && request.method === "POST") {
+    try {
+      const body = (await request.json().catch(() => ({}))) as any;
+      const token = typeof body.token === "string" ? body.token : "";
+      const emailService = new ETradeEmailTradingService(ctx.env, ctx.getOrm(), sessionId);
+      const result = await emailService.executeSignedApprovalLink(token);
+      ctx.audit("trading.email_approve_link", "trading", { orderId: result.orderId, status: result.status });
+      return Response.json(result);
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : "Failed to process signed approval link" }, { status: 500 });
     }
   }
 
@@ -154,7 +208,15 @@ export async function handleTradingIntegrationsRoutes(
           { slackLinks }
         );
       }
-      const slackService = new ETradeSlackTradingService(ctx.env, ctx.getOrm(), sessionId, principal, slackLinks);
+      const orm = ctx.getOrm();
+      const slackService = new ETradeSlackTradingService(
+        ctx.env,
+        orm,
+        sessionId,
+        principal,
+        slackLinks,
+        buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
+      );
       const result = await slackService.processSlackEvent(body);
       ctx.audit("trading.slack_event", "trading", { actionType: result.actionType, handled: result.handled });
       return Response.json(result);
@@ -181,7 +243,15 @@ export async function handleTradingIntegrationsRoutes(
         },
         { slackLinks }
       );
-      const slackService = new ETradeSlackTradingService(ctx.env, ctx.getOrm(), sessionId, principal, slackLinks);
+      const orm = ctx.getOrm();
+      const slackService = new ETradeSlackTradingService(
+        ctx.env,
+        orm,
+        sessionId,
+        principal,
+        slackLinks,
+        buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
+      );
       const result = await slackService.processSlackInteraction(body);
       ctx.audit("trading.slack_interaction", "trading", { actionId: result.actionId, orderId: result.orderId, status: result.status });
       return Response.json(result);
@@ -190,12 +260,35 @@ export async function handleTradingIntegrationsRoutes(
     }
   }
 
-  // Omnichannel Trading Channel: Slack Slash Commands (/trade, /quote, /screen, /options, /snap)
+  // Omnichannel Trading Channel: Slack Slash Commands (/trade, /quote, /options, /portfolio, /snap)
   if (path.endsWith("/trading/slack/command") && request.method === "POST") {
     try {
       const formData = await request.formData();
-      const slackAgent = new SlackAgent(ctx.agentCtx, ctx.env);
-      return slackAgent.handleSlashCommand(formData);
+      // Issue #1262 Phase 2: commands run through the single Slack
+      // service (processSlackCommand) with a resolved principal from
+      // the command's team_id + user_id — the retired SlackAgent
+      // handler ran NLQ under the DO instance id with no tier gates.
+      const slackLinks = slackPrincipalLinkStoreFromEnv(ctx.env);
+      const principal = await resolvePrincipal(
+        ctx.env,
+        {
+          channel: "slack",
+          channelUserId: typeof formData.get("user_id") === "string" ? (formData.get("user_id") as string) : "",
+          channelScopeId: typeof formData.get("team_id") === "string" ? (formData.get("team_id") as string) : "",
+          text: typeof formData.get("text") === "string" ? (formData.get("text") as string) : "",
+        },
+        { slackLinks }
+      );
+      const orm = ctx.getOrm();
+      const slackService = new ETradeSlackTradingService(
+        ctx.env,
+        orm,
+        sessionId,
+        principal,
+        slackLinks,
+        buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
+      );
+      return slackService.processSlackCommand(formData);
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to process slash command" }, { status: 500 });
     }
@@ -229,7 +322,15 @@ export async function handleTradingIntegrationsRoutes(
       const userLogin = request.headers.get("x-user-login") || sessionId;
       const principal =
         (await resolvePrincipal(ctx.env, { channel: "voice", channelUserId: userLogin, text: "" })) ?? undefined;
-      const voiceService = new ETradeVoiceTradingService(ctx.env, ctx.getOrm(), userLogin, ctx.nlqSchedulingPort(), principal);
+      const orm = ctx.getOrm();
+      const voiceService = new ETradeVoiceTradingService(
+        ctx.env,
+        orm,
+        userLogin,
+        ctx.nlqSchedulingPort(),
+        principal,
+        buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? userLogin)
+      );
       const result = await voiceService.processVoiceTurn({
         ...body,
         sessionId: userLogin,
@@ -247,7 +348,15 @@ export async function handleTradingIntegrationsRoutes(
     const userLogin = request.headers.get("x-user-login") || sessionId;
     const principal =
       (await resolvePrincipal(ctx.env, { channel: "voice", channelUserId: userLogin, text: "" })) ?? undefined;
-    const voiceService = new ETradeVoiceTradingService(ctx.env, ctx.getOrm(), userLogin, undefined, principal);
+    const orm = ctx.getOrm();
+    const voiceService = new ETradeVoiceTradingService(
+      ctx.env,
+      orm,
+      userLogin,
+      undefined,
+      principal,
+      buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? userLogin)
+    );
     return Response.json(voiceService.getWelcomeGreeting());
   }
 

@@ -203,9 +203,19 @@ describe("Slack interaction routing for social approvals", () => {
   it("valid signature + social approve → replacement blocks, draft posted, pending cleared", async () => {
     const env = makeEnv();
     seedDraft(env, DRAFT);
+    // Issue #1262 Phase 2: a social APPROVE requires a resolved
+    // principal — seed the clicker's link (team T1, user U1) through
+    // the same fake store the server-side link store reads.
+    const seed = (env as unknown as Record<string, (ns: string, key: string, v: unknown) => void>).__seedSocial;
+    seed("slack_principal_links", "link:T1:U1", {
+      login: "approver-login",
+      tier: "trade",
+      linkedAt: new Date().toISOString(),
+    });
     const res = await worker.fetch(
       slackReq({
         type: "block_actions",
+        team: { id: "T1" },
         user: { id: "U1", username: "approver" },
         channel: { id: "C-general" },
         actions: [{ action_id: "social_approve", value: `${DATE}|facebook|draft-1` }],
