@@ -92,37 +92,55 @@ describe("Real-Time Market Data WebSocket Streaming (Issue #21)", () => {
   });
 
   describe("Baseline Market Ticks & Volatility Generation", () => {
-    it("returns baseline quotes for major equities (NVDA, AAPL, MSFT)", () => {
+    it("returns null for uncached symbols and the cached live tick when present (#929)", () => {
+      liveMarketCache.clear();
+      expect(getBaselineMarketTick("NVDA")).toBeNull();
+      expect(getBaselineMarketTick("BTC/USD")).toBeNull();
+
+      const live: any = {
+        symbol: "NVDA",
+        name: "NVDA",
+        type: "stock",
+        price: 200,
+        formattedPrice: "$200.00",
+        change: 1,
+        formattedChange: "+0.50%",
+        changePercent: 0.5,
+        bid: 199.99,
+        ask: 200.01,
+        formattedBid: "$199.99",
+        formattedAsk: "$200.01",
+        volume: "10.0M",
+        isPositive: true,
+        timestamp: Date.now(),
+        source: "Yahoo Finance",
+      };
+      liveMarketCache.set("NVDA", { tick: live, expiresAt: Date.now() + 60000 });
       const nvda = getBaselineMarketTick("NVDA");
-      expect(nvda.symbol).toBe("NVDA");
-      expect(nvda.type).toBe("stock");
-      expect(nvda.price).toBeGreaterThan(100);
-      expect(nvda.bid).toBeLessThanOrEqual(nvda.ask);
-      expect(nvda.formattedPrice).toContain("$");
-
-      const aapl = getBaselineMarketTick("AAPL");
-      expect(aapl.symbol).toBe("AAPL");
-      expect(aapl.price).toBeGreaterThan(150);
-    });
-
-    it("returns baseline quotes for crypto trading pairs (BTC/USD, ETH/USD, SOL/USD)", () => {
-      const btc = getBaselineMarketTick("BTC/USD");
-      expect(btc.symbol).toBe("BTC/USD");
-      expect(btc.type).toBe("crypto");
-      expect(btc.price).toBeGreaterThan(50000);
-      expect(btc.formattedPrice).toMatch(/^\$[0-9,]+\.[0-9]{2}$/);
-
-      const eth = getBaselineMarketTick("ETH/USD");
-      expect(eth.symbol).toBe("ETH/USD");
-      expect(eth.price).toBeGreaterThan(1500);
-
-      const sol = getBaselineMarketTick("SOL/USD");
-      expect(sol.symbol).toBe("SOL/USD");
-      expect(sol.price).toBeGreaterThan(100);
+      expect(nvda).toEqual(live);
+      expect(nvda!.bid).toBeLessThanOrEqual(nvda!.ask);
+      liveMarketCache.clear();
     });
 
     it("generates realistic next price ticks with consistent NBBO spread and change", () => {
-      const initial = getBaselineMarketTick("NVDA");
+      const initial: any = {
+        symbol: "NVDA",
+        name: "NVDA",
+        type: "stock",
+        price: 200,
+        formattedPrice: "$200.00",
+        change: 1,
+        formattedChange: "+0.50%",
+        changePercent: 0.5,
+        bid: 199.99,
+        ask: 200.01,
+        formattedBid: "$199.99",
+        formattedAsk: "$200.01",
+        volume: "10.0M",
+        isPositive: true,
+        timestamp: Date.now(),
+        source: "Yahoo Finance",
+      };
       const next = generateNextTick(initial);
 
       expect(next.symbol).toBe("NVDA");
@@ -134,14 +152,64 @@ describe("Real-Time Market Data WebSocket Streaming (Issue #21)", () => {
     });
 
     it("returns batch market quotes for multiple symbols", () => {
+      liveMarketCache.clear();
+      const mk = (symbol: string, price: number): any => ({
+        symbol,
+        name: symbol,
+        type: "stock",
+        price,
+        formattedPrice: `$${price.toFixed(2)}`,
+        change: 0,
+        formattedChange: "0.00%",
+        changePercent: 0,
+        bid: price - 0.01,
+        ask: price + 0.01,
+        formattedBid: `$${(price - 0.01).toFixed(2)}`,
+        formattedAsk: `$${(price + 0.01).toFixed(2)}`,
+        volume: "10.0M",
+        isPositive: true,
+        timestamp: Date.now(),
+        source: "Yahoo Finance",
+      });
+      liveMarketCache.set("NVDA", { tick: mk("NVDA", 200), expiresAt: Date.now() + 60000 });
+      liveMarketCache.set("AAPL", { tick: mk("AAPL", 250), expiresAt: Date.now() + 60000 });
+      liveMarketCache.set("BTC/USD", {
+        tick: { ...mk("BTC/USD", 65000), type: "crypto" },
+        expiresAt: Date.now() + 60000,
+      });
       const batch = getBatchMarketQuotes(["NVDA", "AAPL", "BTC/USD"]);
       expect(batch.length).toBe(3);
       expect(batch.map((b) => b.symbol)).toEqual(["NVDA", "AAPL", "BTC/USD"]);
+      liveMarketCache.clear();
     });
   });
 
   describe("HTTP Batch Fallback Handler", () => {
     it("returns 200 Response with quotes payload and CORS headers", async () => {
+      liveMarketCache.clear();
+      const mk = (symbol: string, price: number): any => ({
+        symbol,
+        name: symbol,
+        type: "stock",
+        price,
+        formattedPrice: `$${price.toFixed(2)}`,
+        change: 0,
+        formattedChange: "0.00%",
+        changePercent: 0,
+        bid: price - 0.01,
+        ask: price + 0.01,
+        formattedBid: `$${(price - 0.01).toFixed(2)}`,
+        formattedAsk: `$${(price + 0.01).toFixed(2)}`,
+        volume: "10.0M",
+        isPositive: true,
+        timestamp: Date.now(),
+        source: "Yahoo Finance",
+      });
+      liveMarketCache.set("NVDA", { tick: mk("NVDA", 200), expiresAt: Date.now() + 60000 });
+      liveMarketCache.set("SOL/USD", {
+        tick: { ...mk("SOL/USD", 200), type: "crypto" },
+        expiresAt: Date.now() + 60000,
+      });
       const res = handleMarketQuotesHttp(["NVDA", "SOL/USD"]);
       expect(res.status).toBe(200);
       expect(res.headers.get("Content-Type")).toBe("application/json");
@@ -152,11 +220,41 @@ describe("Real-Time Market Data WebSocket Streaming (Issue #21)", () => {
       expect(data.quotes.length).toBe(2);
       expect(data.quotes[0].symbol).toBe("NVDA");
       expect(data.quotes[1].symbol).toBe("SOL/USD");
+      expect(data.unavailable).toEqual([]);
+      expect(data.dataUnavailable).toBe(false);
+      liveMarketCache.clear();
     });
   });
 
   describe("Duplex WebSocket Real-Time Quote Streaming", () => {
     it("handles client subscribe message and returns snapshot of requested tickers", async () => {
+      liveMarketCache.clear();
+      const mk = (symbol: string, price: number, type: string): any => ({
+        symbol,
+        name: symbol,
+        type,
+        price,
+        formattedPrice: `$${price.toFixed(2)}`,
+        change: 0,
+        formattedChange: "0.00%",
+        changePercent: 0,
+        bid: price - 0.01,
+        ask: price + 0.01,
+        formattedBid: `$${(price - 0.01).toFixed(2)}`,
+        formattedAsk: `$${(price + 0.01).toFixed(2)}`,
+        volume: "10.0M",
+        isPositive: true,
+        timestamp: Date.now(),
+        source: "Yahoo Finance",
+      });
+      for (const [s, p, t] of [
+        ["NVDA", 200, "stock"],
+        ["AAPL", 250, "stock"],
+        ["BTC/USD", 65000, "crypto"],
+        ["SOL/USD", 200, "crypto"],
+      ] as const) {
+        liveMarketCache.set(s, { tick: mk(s, p, t), expiresAt: Date.now() + 60000 });
+      }
       const ws = new MockDuplexWebSocket();
       await handleMarketQuotesWebSocket(ws as any);
 
@@ -175,15 +273,36 @@ describe("Real-Time Market Data WebSocket Streaming (Issue #21)", () => {
         "BTC/USD",
         "SOL/USD",
       ]);
+      expect(messages[0].unavailable).toEqual([]);
+      liveMarketCache.clear();
     });
 
     it("streams tick updates on periodic timer intervals", async () => {
+      liveMarketCache.clear();
+      const mk = (symbol: string, price: number): any => ({
+        symbol,
+        name: symbol,
+        type: "stock",
+        price,
+        formattedPrice: `$${price.toFixed(2)}`,
+        change: 0,
+        formattedChange: "0.00%",
+        changePercent: 0,
+        bid: price - 0.01,
+        ask: price + 0.01,
+        formattedBid: `$${(price - 0.01).toFixed(2)}`,
+        formattedAsk: `$${(price + 0.01).toFixed(2)}`,
+        volume: "10.0M",
+        isPositive: true,
+        timestamp: Date.now(),
+        source: "Yahoo Finance",
+      });
       liveMarketCache.set("NVDA", {
-        tick: getBaselineMarketTick("NVDA"),
+        tick: mk("NVDA", 200),
         expiresAt: Date.now() + 60000,
       });
       liveMarketCache.set("TSLA", {
-        tick: getBaselineMarketTick("TSLA"),
+        tick: mk("TSLA", 250),
         expiresAt: Date.now() + 60000,
       });
 
