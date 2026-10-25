@@ -203,6 +203,27 @@ describe("live publish over a fake transport", () => {
     expect(res2.ok).toBe(false);
     if (!res2.ok) expect(res2.error).toMatch(/401/);
   });
+
+  it("surfaces detailed platform error message from response body on HTTP failure (#1489)", async () => {
+    const metaErrorBody = {
+      error: {
+        message: "Error validating access token: Session has expired on Sunday, 25-Oct-26 12:00:00 PDT.",
+        type: "OAuthException",
+        code: 190,
+      },
+    };
+    const failingMeta = fakeTransport(() => ({ status: 401, body: metaErrorBody }));
+    const res = await publishWithPublisher(getPublisherDef("threads")!, {
+      token: "expired-token",
+      text: "hello",
+      transport: failingMeta,
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toContain("HTTP 401");
+      expect(res.error).toContain("Error validating access token: Session has expired");
+    }
+  });
 });
 
 describe("dry-run publisher", () => {
