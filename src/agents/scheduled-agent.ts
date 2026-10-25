@@ -70,6 +70,8 @@ export interface ScheduledAgentCronOpts {
   socialDryRunSink?: DryRunSink;
   /** #1077 Phase 5b slice 3: injected Slack poster for approval-card delivery (tests). Production uses fetch. */
   socialSlackPost?: SlackPostFn;
+  /** Force evaluation of a specific goal regardless of cron/enabled state (manual trigger). */
+  forceGoalId?: string;
 }
 
 export class ScheduledAgent extends Agent<Env> {
@@ -101,10 +103,32 @@ export class ScheduledAgent extends Agent<Env> {
   /**
    * Cron entrypoint, invoked by the Workers runtime on each
    * triggers.crons tick. Evaluates due goals and dispatches work.
-   * The optional overrides exist for tests (brief/transport/sink);
-   * production calls onCron(env) with defaults.
+   *
+   * Issue #1391: production calls onCron() with 0 arguments across the
+   * Durable Object RPC boundary; the agent reads this.env directly.
+   * Passing the Worker Env across the DO RPC boundary throws DataCloneError
+   * because binding objects cannot be serialized.
+   *
+   * For backwards compatibility with unit tests, onCron accepts either
+   * onCron(), onCron(opts), or onCron(env, opts).
    */
-  async onCron(env: Env, opts?: ScheduledAgentCronOpts): Promise<ScheduleTick> {
+  async onCron(
+    envOrOpts?: Env | ScheduledAgentCronOpts,
+    maybeOpts?: ScheduledAgentCronOpts,
+  ): Promise<ScheduleTick> {
+    let env: Env = this.env;
+    let opts: ScheduledAgentCronOpts | undefined = maybeOpts;
+
+    if (envOrOpts) {
+      if (
+        typeof envOrOpts === "object" &&
+        ("PAYMENTS_AGENT" in envOrOpts || "SESSION_STORE" in envOrOpts)
+      ) {
+        env = envOrOpts as Env;
+      } else if (!opts) {
+        opts = envOrOpts as ScheduledAgentCronOpts;
+      }
+    }
     const now = new Date();
     const tick: ScheduleTick = {
       timestamp: now.toISOString(),
@@ -117,10 +141,11 @@ export class ScheduledAgent extends Agent<Env> {
     const goals = await this.getGoals();
 
     for (const goal of goals) {
-      if (!goal.enabled) continue;
+      const isForced = opts?.forceGoalId === goal.id;
+      if (!goal.enabled && !isForced) continue;
       tick.goalsEvaluated++;
 
-      if (!isDue(goal.cron, goal.lastRun, now, goal.timeZone)) continue;
+      if (!isForced && !isDue(goal.cron, goal.lastRun, now, goal.timeZone)) continue;
 
       try {
         const paymentsId = env.PAYMENTS_AGENT.idFromName("default");
@@ -421,8 +446,17 @@ export class ScheduledAgent extends Agent<Env> {
     return true;
   }
 
-  /** Manually trigger evaluation of a single goal. */
-  async triggerGoal(id: string, env: Env): Promise<ScheduleTick> {
+  /**
+   * Manually trigger evaluation of a single goal.
+   *
+   * Issue #1391:
+   * 1. env is optional over the DO RPC boundary; if omitted, reads this.env.
+   * 2. Evaluates the goal even if it is currently disabled (e.g. daily-social-post
+   *    shipped disabled by default). It temporarily enables the goal in storage
+   *    for this firing, and restores its original enabled state afterwards so
+   *    that the daily recurring schedule remains disabled.
+   */
+  async triggerGoal(id: string, env?: Env): Promise<ScheduleTick> {
     const goals = await this.getGoals();
     const goal = goals.find((g: ScheduledGoal) => g.id === id);
     if (!goal) {
@@ -435,12 +469,19 @@ export class ScheduledAgent extends Agent<Env> {
       };
     }
     const origLastRun = goal.lastRun;
-    goal.lastRun = undefined;
-    await this.saveGoals(goals);
-    const tick = await this.onCron(env);
+    const targetEnv =
+      env && typeof env === "object" && ("PAYMENTS_AGENT" in env || "SESSION_STORE" in env)
+        ? env
+        : this.env;
+
+    const tick = await this.onCron(targetEnv, { forceGoalId: id });
     if (tick.jobsCreated === 0 && tick.errors.length === 0) {
-      goal.lastRun = origLastRun;
-      await this.saveGoals(goals);
+      const currentGoals = await this.getGoals();
+      const currentGoal = currentGoals.find((g: ScheduledGoal) => g.id === id);
+      if (currentGoal) {
+        currentGoal.lastRun = origLastRun;
+        await this.saveGoals(currentGoals);
+      }
     }
     return tick;
   }

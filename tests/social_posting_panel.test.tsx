@@ -109,6 +109,7 @@ interface StubState {
   briefStatus?: number;
   approvals?: unknown[];
   goals?: unknown[];
+  tokenChannels?: unknown;
   failAll?: boolean;
 }
 
@@ -139,7 +140,10 @@ function installFetch(state: StubState, calls: FetchCall[]) {
       return Response.json({ ok: true, date: "2026-10-24", approvals: state.approvals ?? [] });
     }
     if (url.startsWith("/api/social/token-health")) {
-      return Response.json({ ok: true, channels: TOKEN_CHANNELS });
+      return Response.json({
+        ok: true,
+        channels: state.tokenChannels ?? Object.values(TOKEN_CHANNELS),
+      });
     }
     if (url.startsWith("/api/schedule/goals")) {
       if (url.endsWith("/trigger") && method === "POST") {
@@ -259,6 +263,7 @@ describe("socialPostingApi request shapes", () => {
     expect(approvals.approvals).toHaveLength(1);
     const health = await getTokenHealth();
     expect(health.channels.threads.presence).toBe("configured");
+    expect(health.rawChannels).toHaveLength(5);
     expect(calls.map((c) => c.url)).toContain("/api/social/approvals?date=2026-10-24");
     expect(calls.map((c) => c.url)).toContain("/api/social/token-health");
   });
@@ -273,9 +278,20 @@ describe("SocialPostingPanel", () => {
     expect(textarea?.value).toBe("Stored brief text");
     expect(container.textContent).toContain("Daily social post");
     expect(container.textContent).toContain("DISABLED");
-    expect(container.textContent).toContain("Threads");
-    expect(container.textContent).toContain("Configured");
+    // Verify all 5 channels render when server returns array format (#1391)
+    expect(container.textContent).toContain("Threads — Configured · validity Unknown");
+    expect(container.textContent).toContain("X — Not configured · validity Unknown");
+    expect(container.textContent).toContain("Facebook — Not configured · validity Unknown");
+    expect(container.textContent).toContain("Instagram — Not configured · validity Unknown");
+    expect(container.textContent).toContain("LinkedIn — Not configured · validity Unknown");
     expect(container.textContent).toContain("Pending approval draft");
+  });
+
+  it("renders token health rows when server returns record format for backward compatibility", async () => {
+    installFetch({ tokenChannels: TOKEN_CHANNELS }, []);
+    await renderPanel();
+    expect(container.textContent).toContain("Threads — Configured · validity Unknown");
+    expect(container.textContent).toContain("X — Not configured · validity Unknown");
   });
 
   it("starts with an empty editor when no brief is stored — no invented content", async () => {

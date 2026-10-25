@@ -768,7 +768,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         addGoal(goal: Record<string, unknown>): Promise<unknown>;
         removeGoal(id: string): Promise<boolean>;
         setGoalEnabled(id: string, enabled: boolean): Promise<boolean>;
-        triggerGoal(id: string, env: unknown): Promise<unknown>;
+        triggerGoal(id: string): Promise<unknown>;
       };
 
       if (path === "/api/schedule/goals" && request.method === "GET") {
@@ -801,7 +801,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           if (!updated) return Response.json({ error: "Goal not found." }, { status: 404 });
           return Response.json({ ok: true });
         }
-        const tick = await sched.triggerGoal(id, env);
+        const tick = await sched.triggerGoal(id);
         return Response.json({ ok: true, tick });
       }
       const deleteMatch = path.match(/^\/api\/schedule\/goals\/([^/]+)$/);
@@ -2164,9 +2164,9 @@ export default {
     if (event?.cron === "*/30 * * * *") {
       const schedId = env.SCHEDULED_AGENT.idFromName("default");
       const schedAgent = env.SCHEDULED_AGENT.get(schedId) as unknown as {
-        onCron(env: unknown): Promise<unknown>;
+        onCron(): Promise<unknown>;
       };
-      const tickPromise = schedAgent.onCron(env);
+      const tickPromise = schedAgent.onCron();
       if (ctx?.waitUntil) ctx.waitUntil(tickPromise);
       else await tickPromise;
       // Issue #354 — the daily options-research run (after market close)
