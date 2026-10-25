@@ -2,14 +2,15 @@
  * Consolidation C4 (#1329) — kernel probe parity.
  *
  * Fixed probe set (names × outlooks) over fixture chains: the kernel
- * panel output (RecommendationService.discoverPanel) and the
- * OptionsAgentPipeline adapter must produce the SAME route-shape
+ * panel output (RecommendationService.discoverPanel) and the panel
+ * pipeline function (runPanelPipeline, #1256 remainder: the
+ * OptionsAgentPipeline adapter retired, its run() mapping moved
+ * verbatim into the function) must produce the SAME route-shape
  * output as the pre-migration pipeline — whose steps are replayed
  * inline here from the same agents (loadSnapshot → buildStrategies →
- * screenStrategies → rank → pickBestTrade), since the old pipeline
- * class is now the adapter itself. Compared per probe: ranked ids +
- * order, bestTrade best id (or status), screenedOut ids, and
- * riskReport candidate ids. A divergence is a test failure, not a
+ * screenStrategies → rank → pickBestTrade). Compared per probe:
+ * ranked ids + order, bestTrade best id (or status), screenedOut ids,
+ * and riskReport candidate ids. A divergence is a test failure, not a
  * footnote: the PR must enumerate and justify any that remains.
  *
  * Provenance probes: live (real snapshot) and calibrated-demo
@@ -17,15 +18,16 @@
  * Watchlist internally, which must NOT change the route-shape ranked
  * output). Stale quotes exercise the research_only bestTrade path.
  * NLQ + scheduled paths are covered by construction: both resolve to
- * the same adapter (UnifiedOptionsService.runStrategyPipeline and
- * scheduled runDiscoveryRequest call pipeline.run), so adapter ≡
- * facade parity on these probes is their parity too.
+ * the same panel function (UnifiedOptionsService.runStrategyPipeline
+ * and scheduled runDiscoveryRequest call runPanelPipeline /
+ * runPanelWithAgents), so function ≡ facade parity on these probes
+ * is their parity too.
  */
 import { describe, expect, it } from "vitest";
 import type { OptionScreenResult, ScreenedOptionContractItem } from "../src/types";
 import type { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 import {
-  OptionsAgentPipeline,
+  runPanelPipeline,
   OptionsDataAgent,
   RecommendationAgent,
   StrategyRiskAgent,
@@ -146,34 +148,34 @@ describe("C4 kernel probe parity (#1329)", () => {
   ];
 
   for (const probe of probes) {
-    it(`${probe.name}: kernel panel ≡ pre-migration pipeline ≡ adapter`, async () => {
+    it(`${probe.name}: kernel panel ≡ pre-migration pipeline ≡ panel function`, async () => {
       const base = await baselinePipeline(probe.req, probe.opts);
       const panel = await kernelPanel(probe.req, probe.opts);
-      const adapter = await new OptionsAgentPipeline(fakeScreener(makeContracts())).run(probe.req, probe.opts as never);
+      const panelFn = await runPanelPipeline(fakeScreener(makeContracts()), probe.req, probe.opts as never);
 
       const baseRanked = base.ranked.map((r) => r.candidate.id);
       const panelRanked = panel.ranked.map((r) => r.candidate.id);
-      const adapterRanked = adapter.ranked.map((r) => r.candidate.id);
+      const panelFnRanked = panelFn.ranked.map((r) => r.candidate.id);
       expect(panelRanked).toEqual(baseRanked);
-      expect(adapterRanked).toEqual(baseRanked);
+      expect(panelFnRanked).toEqual(baseRanked);
 
       const baseBest = base.bestTrade.best?.candidate.id;
       expect(panel.bestTrade.best?.candidate.id).toBe(baseBest);
       expect(panel.bestTrade.status).toBe(base.bestTrade.status);
-      expect(adapter.bestTrade.best?.candidate.id).toBe(baseBest);
+      expect(panelFn.bestTrade.best?.candidate.id).toBe(baseBest);
 
       const baseScreened = base.screenedOut.map((r) => r.id).sort();
       expect(panel.screenedOut.map((r) => r.id).sort()).toEqual(baseScreened);
-      expect(adapter.screenedOut.map((r) => r.id).sort()).toEqual(baseScreened);
+      expect(panelFn.screenedOut.map((r) => r.id).sort()).toEqual(baseScreened);
 
       expect(panel.riskReports.length).toBe(base.riskReports.length);
-      expect(adapter.riskReports.length).toBe(base.riskReports.length);
-      // /compare pool input: the adapter's strategies carry the FULL
+      expect(panelFn.riskReports.length).toBe(base.riskReports.length);
+      // /compare pool input: the panel function's strategies carry the FULL
       // built set (not gate-survivors) with scoreWeights intact.
-      expect(adapter.strategies.candidates.map((c) => c.id).sort()).toEqual(
+      expect(panelFn.strategies.candidates.map((c) => c.id).sort()).toEqual(
         base.strategies.candidates.map((c) => c.id).sort(),
       );
-      expect(adapter.strategies.scoreWeights).toEqual(base.strategies.scoreWeights);
+      expect(panelFn.strategies.scoreWeights).toEqual(base.strategies.scoreWeights);
     });
   }
 
