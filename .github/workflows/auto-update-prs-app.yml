@@ -1,4 +1,4 @@
-name: Auto Update Open PRs
+name: Auto Update Open PRs (GitHub App)
 
 on:
   push:
@@ -9,14 +9,22 @@ jobs:
   update-prs:
     name: Update open PRs with main
     runs-on: ubuntu-24.04
-    permissions:
-      pull-requests: write
-      contents: write
-      actions: write
     steps:
+      - name: Create short-lived GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.AUTO_UPDATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTO_UPDATE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cfagent
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Update Open PRs with main
         uses: actions/github-script@v7
         with:
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const prs = await github.paginate(github.rest.pulls.list, {
               owner: context.repo.owner,
@@ -38,6 +46,12 @@ jobs:
                 continue;
               }
 
+              const baseRepo = `${context.repo.owner}/${context.repo.repo}`;
+              if (pr.head?.repo?.full_name !== baseRepo) {
+                console.log(`Skipping fork PR #${pr.number} (${pr.head?.repo?.full_name ?? 'deleted fork'}); the App is installed only on ${baseRepo}.`);
+                continue;
+              }
+
               try {
                 console.log(`Updating PR #${pr.number} (${pr.head.ref})...`);
                 await github.rest.pulls.updateBranch({
@@ -46,22 +60,6 @@ jobs:
                   pull_number: pr.number,
                 });
                 console.log(`Successfully requested branch update for PR #${pr.number}`);
-
-                const workflowsToDispatch = ['ci.yml', 'gitleaks.yml', 'codeql.yml'];
-                for (const workflowId of workflowsToDispatch) {
-                  try {
-                    console.log(`Triggering ${workflowId} workflow dispatch for PR #${pr.number} (${pr.head.ref})...`);
-                    await github.rest.actions.createWorkflowDispatch({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      workflow_id: workflowId,
-                      ref: pr.head.ref,
-                    });
-                    console.log(`Successfully dispatched ${workflowId} workflow for PR #${pr.number}`);
-                  } catch (dispatchError) {
-                    console.error(`Failed to trigger ${workflowId} dispatch for PR #${pr.number}: ${dispatchError.message}`);
-                  }
-                }
               } catch (error) {
                 console.error(`Failed to update PR #${pr.number}: ${error.message}`);
               }
