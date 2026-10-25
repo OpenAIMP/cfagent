@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Select, TextInput } from "../components/ui";
+import { listPresets, type ScreenerPreset } from "../ScreenerPresetManager";
 import type { CreatableJob } from "./types";
 import {
   DiscoveryFormSections,
@@ -43,6 +44,10 @@ export interface ScheduleFormModalProps
   setMaxPe: React.Dispatch<React.SetStateAction<string>>;
   trendFilter: string;
   setTrendFilter: React.Dispatch<React.SetStateAction<string>>;
+  /** Issue #1499 (#940-E): stored stocks preset for market-screen schedules. */
+  presetId: string;
+  setPresetId: React.Dispatch<React.SetStateAction<string>>;
+  userLogin?: string;
 }
 
 export function ScheduleFormModal(props: ScheduleFormModalProps) {
@@ -71,7 +76,29 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
     setMaxPe,
     trendFilter,
     setTrendFilter,
+    presetId,
+    setPresetId,
+    userLogin,
   } = props;
+  // Issue #1499 (#940-E): the caller's stocks presets for the picker.
+  // A failed fetch leaves only "No preset" — it never blocks creating
+  // a schedule without one.
+  const [stockPresets, setStockPresets] = useState<ScreenerPreset[]>([]);
+  const [presetsError, setPresetsError] = useState("");
+  useEffect(() => {
+    if (props.jobType !== "marketScreen") return;
+    let cancelled = false;
+    void listPresets(userLogin)
+      .then((all) => {
+        if (!cancelled) setStockPresets(all.filter((p) => p.assetClass === "stocks"));
+      })
+      .catch(() => {
+        if (!cancelled) setPresetsError("Could not load presets.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.jobType, userLogin]);
   return (
         <div className="sched-modal-overlay" onClick={() => setModalOpen(false)}>
           <div className="sched-modal-card" onClick={(e) => e.stopPropagation()}>
@@ -190,6 +217,33 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                     <option value="Utilities">Utilities</option>
                     <option value="Real Estate">Real Estate</option>
                   </Select>
+                </div>
+              )}
+
+              {/* Saved preset (Market Screen, #1499) */}
+              {jobType === "marketScreen" && (
+                <div className="sched-form-group">
+                  <label htmlFor="sched-preset" className="sched-form-label">
+                    Saved criteria preset
+                    <span className="hint">A preset replaces the custom thresholds below; its current criteria resolve at run time, so preset edits apply to future runs. A deleted preset fails the run loudly instead of running unfiltered.</span>
+                  </label>
+                  <Select id="sched-preset"
+                    value={presetId}
+                    onChange={(e) => setPresetId(e.target.value)}
+                  >
+                    <option value="">No preset (custom thresholds)</option>
+                    {stockPresets.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                    {presetId && !stockPresets.some((p) => p.id === presetId) && (
+                      <option value={presetId}>
+                        {presetId} (no longer exists)
+                      </option>
+                    )}
+                  </Select>
+                  {presetsError && <span className="hint">{presetsError}</span>}
                 </div>
               )}
 

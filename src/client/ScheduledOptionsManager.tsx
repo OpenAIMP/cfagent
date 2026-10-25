@@ -122,6 +122,8 @@ export function ScheduledOptionsManager({
   const [minMarketCap, setMinMarketCap] = useState("");
   const [maxPe, setMaxPe] = useState("");
   const [trendFilter, setTrendFilter] = useState("");
+  // Issue #1499 (#940-E): stored stocks preset for market-screen schedules.
+  const [presetId, setPresetId] = useState("");
   const [scheduleType, setScheduleType] = useState<ScheduleMode>("interval");
   const [intervalSeconds, setIntervalSeconds] = useState(3600);
   const [cronExpression, setCronExpression] = useState(() =>
@@ -309,6 +311,7 @@ export function ScheduledOptionsManager({
     setMinMarketCap("");
     setMaxPe("");
     setTrendFilter("");
+    setPresetId("");
     setDiscoveryRequests([blankDiscoveryRequestDraft()]);
     setDiscoveryInputModel("saved-request");
     setDerivedSource("symbols");
@@ -370,6 +373,7 @@ export function ScheduledOptionsManager({
           : item.callback === "autonomousMarketScreen" ? "NASDAQ100" : ""
       );
       setSector(typeof payload.sector === "string" ? payload.sector : "Technology");
+      setPresetId(typeof payload.presetId === "string" ? payload.presetId : "");
       setThesis(payload.thesis || "bullish");
       setRiskProfile(payload.riskProfile || "balanced");
       setPushToSlack(payload.pushToSlack !== false);
@@ -427,6 +431,7 @@ export function ScheduledOptionsManager({
       minMarketCap,
       maxPe,
       trendFilter,
+      presetId,
       scheduleType,
       intervalSeconds,
       cronExpression,
@@ -897,6 +902,9 @@ export function ScheduledOptionsManager({
           setMaxPe={setMaxPe}
           trendFilter={trendFilter}
           setTrendFilter={setTrendFilter}
+          presetId={presetId}
+          setPresetId={setPresetId}
+          userLogin={userLogin}
           discoveryInputModel={discoveryInputModel}
           setDiscoveryInputModel={setDiscoveryInputModel}
           discoveryRequests={discoveryRequests}

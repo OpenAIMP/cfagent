@@ -160,7 +160,15 @@ export function buildScheduleSubmission(
         slackChannel: form.pushToSlack ? form.slackChannel : undefined,
         emailTo: form.emailTo.trim() || undefined,
         webhookUrl: form.webhookUrl.trim() || undefined,
-        ...(Object.keys(customFilters).length > 0 ? { filters: customFilters } : {}),
+        // Issue #1499 (#940-E): a chosen preset replaces the custom
+        // thresholds — the run resolves the preset's CURRENT criteria at
+        // run time, so the form never freezes criteria into the payload
+        // alongside the preset id.
+        ...(form.presetId
+          ? { presetId: form.presetId }
+          : Object.keys(customFilters).length > 0
+            ? { filters: customFilters }
+            : {}),
       };
     } else {
       callback = JOB_CALLBACKS.optionsAnalysis;

@@ -58,6 +58,7 @@ import type {
   DiscoverySymbolOutcome,
   StrategyProfileStore,
 } from "../trading";
+import { resolvePresetFilter } from "./screenerPresetResolution";
 import { DynamicOptionsScreener } from "../trading";
 import { OptionsDataAgent, StrategyRiskAgent, RecommendationAgent } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
@@ -573,6 +574,12 @@ export class ScheduledTasksService {
     webhookUrl?: string;
     pushToSlack?: boolean;
     filters?: import("../types").StockScreenerFilter;
+    /** Issue #1499 (#940-E): id of a stored screener preset whose
+     *  criteria filter this run. Resolved at RUN time (below), so
+     *  preset edits apply to future runs without re-arming the
+     *  schedule. When set, the preset's criteria REPLACE options.filters
+     *  — a run never merges two filter sources. */
+    presetId?: string;
     /** Issue #1007: data provider (default "etrade"); "yahoo" runs the
      *  same pipeline over the Yahoo data-source adapter. */
     provider?: import("../trading").StockScreenProvider;
@@ -624,6 +631,28 @@ export class ScheduledTasksService {
       const userLogin = options.userLogin || this.userLogin;
       if (!userLogin) {
         throw new Error("No authenticated E*TRADE account is associated with this scheduled screen. Open the schedules panel while signed in and run it again.");
+      }
+      // Issue #1499 (#940-E): a schedule's presetId resolves at RUN time
+      // against the caller's own presets, before any broker work — so a
+      // missing, foreign, unreadable, or wrong-asset-class preset fails
+      // this run loudly through the catch below (audit + session
+      // message + failure broadcast), never as a silent unfiltered run.
+      // The resolved criteria replace options.filters for both the
+      // sharded and the monolithic dispatch below.
+      let screenFilters = options.filters;
+      if (options.presetId !== undefined) {
+        const sql = this.platformDeps?.sql;
+        if (!sql) {
+          throw new Error("Preset resolution is unavailable for this scheduled screen host — the run cannot apply its preset, so it does not run unfiltered.");
+        }
+        const resolved = resolvePresetFilter(sql, userLogin, options.presetId);
+        if (!resolved.ok) {
+          throw new Error(resolved.error);
+        }
+        if (resolved.assetClass !== "stocks") {
+          throw new Error(`Preset "${options.presetId}" is an options preset and cannot filter a stock screen.`);
+        }
+        screenFilters = resolved.criteria as import("../types").StockScreenerFilter;
       }
       // Issue #17: the portfolio-context flag is read at run time
       // (settings live in the orchestrator's storage, which this
@@ -681,7 +710,7 @@ export class ScheduledTasksService {
         // caught by this function's catch instead of escaping to the
         // caller. A bare `return` of a rejected promise bypasses the
         // enclosing try/catch in an async function.
-        return await this.autonomousMarketScreenSharded(options, userLogin, timestamp);
+        return await this.autonomousMarketScreenSharded({ ...options, filters: screenFilters }, userLogin, timestamp);
       }
       // Issue #261/#270: delegate screening to ScreenerAgent (E*TRADE-only).
       // Issue #421: pass the sector through unset when none was chosen —
@@ -691,7 +720,7 @@ export class ScheduledTasksService {
         sector: options.sector,
         universe: (options.universe as any) || "TECH",
         maxSymbols: options.maxItems,
-        filters: options.filters,
+        filters: screenFilters,
         userLogin,
         environment: options.environment,
         portfolioContext,

@@ -54,6 +54,12 @@ export interface ScheduleFormState {
   minMarketCap: string;
   maxPe: string;
   trendFilter: string;
+  /**
+   * Issue #1499 (#940-E): id of a stored stocks preset for market-screen
+   * schedules. Optional so existing form literals keep compiling; empty
+   * means no preset (the custom thresholds below apply instead).
+   */
+  presetId?: string;
   scheduleType: ScheduleMode;
   intervalSeconds: number;
   cronExpression: string;

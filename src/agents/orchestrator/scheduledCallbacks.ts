@@ -107,6 +107,11 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
   webhookUrl?: string;
   pushToSlack?: boolean;
   filters?: import("../../types").StockScreenerFilter;
+  /** Issue #1499 (#940-E): id of a stored preset, resolved at RUN time
+   *  by the service (preset edits apply to future runs; the preset's
+   *  criteria replace filters). Carried through the {...payload} spread
+   *  below — including Trigger-Now dispatches of the same schedule. */
+  presetId?: string;
   /** Issue #1007: data provider for the scheduled run (default "etrade"). */
   provider?: import("../../trading").StockScreenProvider;
   /** Consolidation C3 (#1277): stage-chain config from the schedule

@@ -665,6 +665,13 @@ export const marketScreenScheduleCriteriaSchema = z.strictObject({
   symbols: z.array(z.string()).optional(),
   broadcast: z.boolean().optional(),
   filters: stockScreenerFilterSchema.optional(),
+  // Issue #1499 (#940-E): a scheduled stock screen may reference a
+  // stored preset by id. The id (not the criteria) is what arms the
+  // schedule — the criteria resolve at RUN time, so preset edits apply
+  // to future runs. Existence is NOT checked here: this builder is pure
+  // validation with no store access, and a deleted preset must fail the
+  // run loudly at resolution time, not at arm time.
+  presetId: nonEmptyString.optional(),
   // Issue #1007: a scheduled stock screen may name its data provider
   // (the Yahoo data-source adapter inside the one pipeline). Absent =
   // the E*TRADE default every existing schedule already runs under.
