@@ -23,6 +23,7 @@ import { ETradeService } from "../../../services/etrade";
 import { getYahooCrumbSession } from "../../../services/fossResearch";
 import { fetchAllUsStockListings, type NasdaqStockListing } from "../../../services/nasdaqListings";
 import { CURATED_STOCK_UNIVERSE, getCuratedStockUniverse } from "../../../config/curatedStockUniverse";
+import { isDemoCalibratedChainsEnabled } from "../../../config/demoMode";
 import { classifyNewsSentiment } from "./newsSentiment";
 
 /**
@@ -36,7 +37,9 @@ export const FLOW_PROVENANCE_NOTICE =
   "It is not a live exchange trade tape, and these items are not executed trade prints.";
 
 export const FLOW_PROVENANCE_LABELS: Record<FlowItemProvenance, string> = {
-  "chain-derived": "Chain-derived estimate",
+  // Issue #925: chain-derived items are modelled estimates — the label
+  // says so explicitly, in the API label map and in the UI badge alike.
+  "chain-derived": "Modelled chain-derived estimate",
   static: "Static sample data",
   generated: "Generated sample data",
 };
@@ -1795,9 +1798,12 @@ export async function resolveDynamicFlowSymbols(
 /**
  * Generates template-based sample options flow items across the given
  * underlyings. This is a fully GENERATED dataset (fixed trade templates over
- * profile prices — no chain data involved), used only when no chain-derived
- * items are available. Every item is stamped provenance: "generated"
- * (issue #119) and surfaces must label it as sample data.
+ * profile prices — no chain data involved). Issue #925: it is reachable
+ * only under the demo regime — the #65 demo gate enabled AND an explicit
+ * dataMode "demo" request (see getDynamicLiveFlowItems step 6). It is
+ * never a silent fallback on a live path. Every item is stamped
+ * provenance: "generated" (issue #119) and surfaces must label it as
+ * sample data.
  */
 export function generateDynamicFlowUniverse(options?: DynamicFlowUniverseOptions): LiveFlowItem[] {
   const refTime = options?.referenceTimestamp ?? Date.now();
@@ -2127,14 +2133,18 @@ export async function fetchRealMarketFlowsForSymbol(
  *    requested tickers (provenance: "chain-derived").
  * 2. Estimates derived from Yahoo Finance option-chain snapshots
  *    (provenance: "chain-derived").
- * 3. ONLY when no chain data is available at all: the template-generated
- *    sample universe (provenance: "generated"), which surfaces must label
- *    as generated sample data.
+ * 3. Issue #925: when no chain data is available at all, the result is
+ *    EMPTY in production — the template-generated sample universe is
+ *    served only under the demo regime (the #65 demo gate enabled AND
+ *    an explicit dataMode: "demo" request, the same two-condition regime
+ *    as calibrated chains), never as a silent fallback on a live path.
+ *    Callers surface the empty result with an explicit unavailable state
+ *    (see the /api/options/flows route envelopes).
  */
 export async function getDynamicLiveFlowItems(
   env?: Env,
   filter?: Partial<FlowFilterConfig>,
-  options?: { forceRefresh?: boolean; count?: number }
+  options?: { forceRefresh?: boolean; count?: number; dataMode?: "live" | "demo" }
 ): Promise<LiveFlowItem[]> {
   const refTime = Date.now();
   const requestedTickers = filter?.tickers && filter.tickers.length > 0 ? filter.tickers : [];
@@ -2207,8 +2217,15 @@ export async function getDynamicLiveFlowItems(
     return filterLiveFlowItems(deduped, filter || {});
   }
 
-  // 6. Fallback when no chain data is available at all (e.g. offline):
-  // the template-generated sample universe, stamped "generated".
+  // 6. Issue #925: no chain data at all. In production this is an empty
+  // result — the caller reports it as an explicit unavailable state.
+  // The template-generated sample universe is reachable ONLY under the
+  // demo regime: the #65 demo gate enabled AND an explicit dataMode
+  // "demo" request. Either condition missing means empty, never a
+  // silent generated fallback on a live path.
+  if (!isDemoCalibratedChainsEnabled() || options?.dataMode !== "demo") {
+    return [];
+  }
   const dynamicUniverse = generateDynamicFlowUniverse({
     referenceTimestamp: refTime,
     symbols: targetSymbols.length > 0 ? targetSymbols : undefined,
@@ -2225,9 +2242,10 @@ export async function getDynamicLiveFlowItems(
  */
 export async function getDynamicFlowSummary(
   env?: Env,
-  filter?: Partial<FlowFilterConfig>
+  filter?: Partial<FlowFilterConfig>,
+  options?: { dataMode?: "live" | "demo" }
 ): Promise<FlowSummary> {
-  const items = await getDynamicLiveFlowItems(env, filter);
+  const items = await getDynamicLiveFlowItems(env, filter, options);
   return calculateFlowSummary(items);
 }
 

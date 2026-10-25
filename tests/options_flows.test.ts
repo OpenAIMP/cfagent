@@ -459,15 +459,22 @@ describe("Options Flows Engine & Institutional Activity Suite", () => {
       DynamicOptionsScreener.clearTestChainsFixture();
     });
 
-    it("computes dynamic FlowSummary and dual leaderboards over live flow data", async () => {
+    // Issue #925 pin update (same PR, not a deletion): this test previously
+    // asserted the forbidden behaviour — with Yahoo stubbed failing and no
+    // chain fixtures, the summary totalled the generated sample universe.
+    // Under #925 that PROD failure path yields an empty summary instead;
+    // generated-universe summary coverage now lives in
+    // tests/options_flow_925.test.ts under the demo regime.
+    it("returns an empty FlowSummary when no chain data is available (issue #925)", async () => {
       const summary = await getDynamicFlowSummary(undefined, { tickers: ["NVDA", "AAPL", "WMT"] });
-      expect(summary.totalTrades).toBeGreaterThan(0);
-      expect(summary.totalPremium).toBeGreaterThan(0);
+      expect(summary.totalTrades).toBe(0);
+      expect(summary.totalPremium).toBe(0);
       expect(summary.bullishSentimentRatio).toBeGreaterThanOrEqual(0);
       expect(summary.bullishSentimentRatio).toBeLessThanOrEqual(100);
-      expect(summary.bullishLeaderboard.length).toBeGreaterThan(0);
-      expect(summary.bearishLeaderboard.length).toBeGreaterThan(0);
-      expect(summary.largestTrades.length).toBeGreaterThan(0);
+      expect(summary.bullishLeaderboard).toEqual([]);
+      expect(summary.bearishLeaderboard).toEqual([]);
+      expect(summary.largestTrades).toEqual([]);
+      expect(summary.provenance.counts.generated).toBe(0);
     });
 
     it("sortAndScaleLeaderboard correctly scales percentages and ranks by premium", () => {
