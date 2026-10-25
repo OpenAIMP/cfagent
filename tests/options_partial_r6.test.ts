@@ -150,7 +150,7 @@ describe("UnifiedOptionsService opportunities — partial stamping (#1290)", () 
     DynamicOptionsScreener.setTestChainsFixture({
       NVDA: scanChainFixture("NVDA", 250, expiry),
     });
-    const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env);
+    const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env, "test_trader");
     const res = await service.execute({
       action: "opportunities",
       symbols: ["NVDA", "AMD"],
@@ -172,7 +172,7 @@ describe("UnifiedOptionsService opportunities — partial stamping (#1290)", () 
       NVDA: scanChainFixture("NVDA", 250, expiry),
       AMD: scanChainFixture("AMD", 40, expiry),
     });
-    const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env);
+    const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env, "test_trader");
     const res = await service.execute({
       action: "opportunities",
       symbols: ["NVDA", "AMD"],

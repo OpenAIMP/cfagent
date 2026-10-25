@@ -242,7 +242,7 @@ describe("issue #781: stub-ORM elimination", () => {
   it("unified: execute(screen) without an ORM still succeeds — client-only flow, no stub substituted", async () => {
     DynamicOptionsScreener.setTestChainsFixture({ NVDA: chainFixture("NVDA", 130) });
     try {
-      const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env);
+      const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env, "test-user");
       const result = await service.execute({
         action: "screen",
         symbol: "NVDA",
