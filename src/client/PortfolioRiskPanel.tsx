@@ -268,8 +268,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
 
           {coverage && (
             <div className="prp-note">
-              Beta coverage: {coverage.covered}/{coverage.total} positions — {coverage.computedLive} computed live, {coverage.staticFallback} static fallback
-              {coverage.covered < coverage.total ? `, ${coverage.total - coverage.covered} unavailable (excluded from beta-weighted totals, never assumed)` : ""}
+              Beta coverage: {coverage.covered}/{coverage.total} positions — {coverage.computedLive} computed live, {coverage.unavailable} unavailable (excluded from beta-weighted totals, never assumed)
             </div>
           )}
 

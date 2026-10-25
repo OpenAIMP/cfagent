@@ -12,7 +12,7 @@ function totals(partial: Partial<PortfolioRiskTotals>): PortfolioRiskTotals {
     deltaShares: 0, deltaDollars: 0, betaWeightedDeltaDollars: 0, betaWeightedSpyShares: 0,
     gammaSharesPerDollar: 0, thetaDollarsPerDay: 0, vegaDollarsPerVolPoint: 0, rhoDollarsPerRatePoint: 0,
     definedMaxLoss: 0, definedMaxLossPctOfNav: 0,
-    betaCoverage: { covered: 0, total: 0, computedLive: 0, staticFallback: 0 },
+    betaCoverage: { covered: 0, total: 0, computedLive: 0, unavailable: 0 },
     ...partial,
   };
 }

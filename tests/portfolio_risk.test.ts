@@ -10,7 +10,6 @@ import {
   evaluatePostTradeTotals,
   resolvePositionsSnapshot,
   signedQuantityOf,
-  betaForSymbol,
   type ResolvedPosition,
 } from "../src/services/portfolioRisk";
 import type { ETradePosition } from "../src/types";
@@ -73,7 +72,7 @@ describe("aggregatePortfolioRisk", () => {
       }),
       kind: "option", signedQuantity: 2, referencePrice: 800,
       greeks: { delta: 0.5, gamma: 0.02, theta: -0.05, vega: 0.12, rho: 0.03 }, beta: 1.68,
-      betaSource: "static-fallback" as const, betaObservations: 0,
+      betaSource: "computed-live" as const, betaObservations: 252,
     }),
     // Short 1 SPY put, delta -.3, spot 500, beta 1.0 → delta +30 sh; undefined standalone risk
     resolved({
@@ -123,7 +122,7 @@ describe("aggregatePortfolioRisk", () => {
     // BW dollars: 20,000*1.2 + 80,000*1.68 + 15,000*1.0 = 24,000 + 134,400 + 15,000
     expect(report.totals.betaWeightedDeltaDollars).toBe(173400);
     expect(report.totals.betaWeightedSpyShares).toBe(346.8);
-    expect(report.totals.betaCoverage).toEqual({ covered: 3, total: 4, computedLive: 2, staticFallback: 1 });
+    expect(report.totals.betaCoverage).toEqual({ covered: 3, total: 4, computedLive: 3, unavailable: 1 });
     // rho per +1% rates: (2*100*0.03*0.01) + (-1*100*-0.02*0.01) = 0.06 + 0.02
     expect(report.totals.rhoDollarsPerRatePoint).toBe(0.08);
     expect(report.partial.map((p) => p.symbol)).toEqual(["XYZ"]);
@@ -215,12 +214,5 @@ describe("resolvePositionsSnapshot", () => {
     expect(resolvedList[1].greeksMissingReason).toContain("rho");
     expect(resolvedList[2].greeks).toBeNull();
     expect(resolvedList[2].greeksMissingReason).toContain("without contract detail");
-  });
-});
-
-describe("betaForSymbol", () => {
-  it("reads the in-repo universe and returns null outside it", () => {
-    expect(typeof betaForSymbol("AAPL")).toBe("number");
-    expect(betaForSymbol("ZZZZNOTREAL")).toBeNull();
   });
 });
