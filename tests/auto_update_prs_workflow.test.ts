@@ -1,18 +1,18 @@
 /**
- * Tests for .github/workflows/auto-update-prs.yml and workflow runner standardization.
+ * Tests for .github/workflows/auto-update-prs-app.yml and workflow runner standardization.
  *
- * Ensures auto-update-prs workflow triggers on push to main, uses actions/github-script@v7,
- * handles pagination, and that all repo workflows use pinned ubuntu-24.04 runners.
+ * Ensures the App-authenticated updater triggers on push to main, handles pagination,
+ * avoids duplicate dispatches, and all repo workflows use pinned ubuntu-24.04 runners.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const workflowPath = new URL("../.github/workflows/auto-update-prs.yml", import.meta.url);
+const workflowPath = new URL("../.github/workflows/auto-update-prs-app.yml", import.meta.url);
 const workflowContent = readFileSync(workflowPath, "utf-8");
 
-describe("auto-update-prs.yml workflow configuration", () => {
+describe("auto-update-prs-app.yml workflow configuration", () => {
   it("triggers on push to main branch", () => {
     expect(workflowContent).toMatch(/^\s*push:\s*$/m);
     expect(workflowContent).toMatch(/^\s*branches:\s*$/m);
@@ -23,20 +23,21 @@ describe("auto-update-prs.yml workflow configuration", () => {
     expect(workflowContent).toMatch(/runs-on:\s*ubuntu-24\.04/);
   });
 
-  it("sets required write permissions for pull-requests, contents, and actions", () => {
-    expect(workflowContent).toMatch(/pull-requests:\s*write/);
-    expect(workflowContent).toMatch(/contents:\s*write/);
-    expect(workflowContent).toMatch(/actions:\s*write/);
+  it("creates a narrowly scoped GitHub App token from repository configuration", () => {
+    expect(workflowContent).toContain("actions/create-github-app-token@");
+    expect(workflowContent).toContain("vars.AUTO_UPDATE_APP_CLIENT_ID");
+    expect(workflowContent).toContain("secrets.AUTO_UPDATE_APP_PRIVATE_KEY");
+    expect(workflowContent).toContain("permission-contents: write");
+    expect(workflowContent).toContain("permission-pull-requests: write");
+    expect(workflowContent).not.toContain("permission-actions:");
   });
 
-  it("uses actions/github-script@v7 with pagination, updateBranch API call, and workflow dispatches", () => {
-    expect(workflowContent).toContain("uses: actions/github-script@v7");
+  it("uses the App token with pagination and updateBranch API without manual dispatches", () => {
+    expect(workflowContent).toContain("actions/github-script@");
+    expect(workflowContent).toContain("github-token: ${{ steps.app-token.outputs.token }}");
     expect(workflowContent).toContain("github.paginate(github.rest.pulls.list");
     expect(workflowContent).toContain("github.rest.pulls.updateBranch");
-    expect(workflowContent).toContain("github.rest.actions.createWorkflowDispatch");
-    expect(workflowContent).toContain("'ci.yml'");
-    expect(workflowContent).toContain("'gitleaks.yml'");
-    expect(workflowContent).toContain("'codeql.yml'");
+    expect(workflowContent).not.toContain("github.rest.actions.createWorkflowDispatch");
     expect(workflowContent).toContain("if (pr.draft) continue;");
   });
 
@@ -44,6 +45,11 @@ describe("auto-update-prs.yml workflow configuration", () => {
     expect(workflowContent).toContain("pr.user?.login === 'dependabot[bot]'");
     expect(workflowContent).toContain("isDependabot");
     expect(workflowContent).toContain("Skipping Dependabot PR");
+  });
+
+  it("skips fork PRs because the App is installed only on the base repository", () => {
+    expect(workflowContent).toContain("pr.head?.repo?.full_name !== baseRepo");
+    expect(workflowContent).toContain("Skipping fork PR");
   });
 });
 
