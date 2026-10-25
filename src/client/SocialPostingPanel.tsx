@@ -23,8 +23,10 @@ import {
   listPendingApprovals,
   saveBrief,
   todayInNewYork,
+  listPosts,
   type ChannelTokenHealth,
   type PendingApproval,
+  type SocialPostItem,
 } from "./socialPostingApi";
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -44,6 +46,7 @@ export function SocialPostingPanel() {
   const [goal, setGoal] = useState<ScheduledGoal | null>(null);
   const [goalMissing, setGoalMissing] = useState(false);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [posts, setPosts] = useState<SocialPostItem[]>([]);
   const [tokenChannels, setTokenChannels] = useState<Record<string, ChannelTokenHealth>>({});
   const [lastTick, setLastTick] = useState<ScheduleTick | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,17 +55,19 @@ export function SocialPostingPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const [brief, goals, pending, health] = await Promise.all([
+      const [brief, goals, pending, health, postsRes] = await Promise.all([
         getBrief(date),
         listGoals(),
         listPendingApprovals(date),
         getTokenHealth(),
+        listPosts(date).catch(() => ({ ok: false, date, posts: [] as SocialPostItem[] })),
       ]);
       setBriefText(brief.brief ?? "");
       const found = goals.goals.find((g) => g.id === DAILY_SOCIAL_POST_GOAL_ID);
       setGoal(found ?? null);
       setGoalMissing(!found);
       setApprovals(pending.approvals);
+      setPosts(postsRes.posts ?? []);
       const channelMap: Record<string, ChannelTokenHealth> = {};
       if (Array.isArray(health.channels)) {
         for (const c of health.channels) {
@@ -229,6 +234,73 @@ export function SocialPostingPanel() {
               <div style={{ fontSize: 13, marginTop: 4 }}>{a.text}</div>
             </div>
           ))}
+
+          <h3 style={{ margin: "20px 0 8px" }}>Submitted posts</h3>
+          {posts.length === 0 && (
+            <div style={{ opacity: 0.7 }}>No submitted posts or drafts for {date}.</div>
+          )}
+          {posts.map((p) => {
+            const label = CHANNEL_LABELS[p.channel] ?? p.channel;
+            const isPosted = p.status === "posted";
+            const isDryRun = p.status === "dry-run-posted";
+            return (
+              <div
+                key={p.draftId}
+                style={{
+                  border: "1px solid var(--color-border-medium)",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  marginBottom: 10,
+                  maxWidth: 640,
+                }}
+              >
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                  <strong>{label}</strong>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: isPosted
+                        ? "var(--color-success)"
+                        : isDryRun
+                          ? "var(--color-primary)"
+                          : "var(--color-text-muted)",
+                    }}
+                  >
+                    {p.status.toUpperCase()}
+                  </span>
+                  {p.platformPostId && (
+                    <code style={{ fontSize: 12, opacity: 0.8 }}>ID: {p.platformPostId}</code>
+                  )}
+                  <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.7 }}>
+                    {new Date(p.createdAtMs).toLocaleString()}
+                  </span>
+                </div>
+                <div style={{ fontSize: 13, marginBottom: 4 }}>
+                  <span style={{ opacity: 0.7 }}>Submission endpoint: </span>
+                  <code style={{ fontSize: 12 }}>{p.submissionEndpoint || "—"}</code>
+                </div>
+                <div style={{ fontSize: 13, marginBottom: 6 }}>
+                  <span style={{ opacity: 0.7 }}>Submitted post URL: </span>
+                  {p.postUrl ? (
+                    <a
+                      href={p.postUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "var(--color-primary)", textDecoration: "underline" }}
+                    >
+                      {p.postUrl}
+                    </a>
+                  ) : (
+                    <span style={{ opacity: 0.7, fontSize: 12 }}>
+                      {isDryRun ? "Dry run (simulated — not submitted to live platform)" : "Pending submission"}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 13, marginTop: 4 }}>{p.text}</div>
+              </div>
+            );
+          })}
 
           <h3 style={{ margin: "20px 0 8px" }}>Token health</h3>
           {SOCIAL_CHANNEL_ORDER.filter((id) => tokenChannels[id]).map((id) => {
