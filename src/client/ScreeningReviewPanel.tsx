@@ -1,17 +1,20 @@
 /**
- * ScreeningReviewPanel — consolidation C2 (issue #1246, epic #1151).
+ * ScreeningReviewPanel — consolidation C2 (issue #1246, epic #1151),
+ * challenger inbox since #1257.
  *
  * The hub's proposal review inbox: everything the autonomous
  * screening system proposes, in one place, with the decision actions
  * wired to the endpoints that already govern them —
  *
- *  - Adaptation candidates (the #757→#760 improvement pipeline):
- *    evaluate (counterfactual replay), run the promotion gate
- *    (held-out significance), request a human approval, decide it,
- *    then start / advance the staged promotion. No action here
- *    bypasses that flow: the buttons call the same endpoints, with
- *    the same governance (no self-promotion; approvals are recorded;
- *    promotion applies only through the staged seam).
+ *  - Challengers (the champion/challenger gate, #1140): evaluate on
+ *    the frozen set (walk-forward, holdout decides), run the gate for
+ *    its verdict, approve or reject directly (recording an approval
+ *    IS the decision — there is no pending-request step), then
+ *    promote or roll back. No action here bypasses that flow: the
+ *    buttons call the same endpoints, with the same governance (no
+ *    self-promotion; the promoter must be the approver of record;
+ *    promotion applies only through the audited seam). Challengers
+ *    are generated from re-selection proposals, never invented here.
  *  - Goal proposals (Phase 0 store): goals the discovery pass
  *    persisted as proposed-only. Activate / dismiss go through
  *    POST /api/screening/goals/decide, which moves only proposed
@@ -21,7 +24,7 @@
  *    is proposal_only_not_promoted: promotion runs through the
  *    champion/challenger gate above, never from this list.
  *  - Strategy weights (read path): the current weights and the
- *    policy evaluation behind them (#754), shown for context.
+ *    policy evaluation behind them, shown for context.
  *
  * Fail-soft per section (the ScreeningActivityPanel idiom): a
  * section whose API is unavailable says so; nothing is fabricated.
@@ -29,54 +32,63 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./apiFetch";
 
-interface CandidateView {
+interface ChallengerView {
   id: string;
-  target: string;
-  change: { action: string; parameter?: string; from?: unknown; to?: unknown; description: string };
-  hypothesis: string;
-  expectedEffect: { metric: string; direction: string };
-  provenance: { source: string; id: string };
+  kind: string;
+  title: string;
+  regime: string | null;
+  spec: {
+    weights?: Record<string, number>;
+    activeStrategies?: string[];
+    ranking?: string[];
+    retireStrategy?: string;
+  };
+  criteria: { minHoldoutEdge: number; minEvaluated: number };
+  evalSetVersion: string;
+  sourceProposalId: string | null;
   status: string;
+  evaluation: {
+    datasetVersion: string;
+    evaluatedAt: string;
+    selection: { championScore: number | null; challengerScore: number | null; evaluated: number };
+    holdout: { championScore: number | null; challengerScore: number | null; evaluated: number };
+    verdict: "pass" | "fail";
+  } | null;
+  createdBy: string;
   createdAt: string;
-  updatedAt: string;
 }
 
 interface EvaluationView {
-  id?: string;
-  method: string;
-  baselineMetric: number | null;
-  candidateMetric: number | null;
-  delta: number | null;
-  sampleSize: number;
-  createdAt?: string;
+  datasetVersion: string;
+  evaluatedAt: string;
+  selection: { championScore: number | null; challengerScore: number | null; evaluated: number };
+  holdout: { championScore: number | null; challengerScore: number | null; evaluated: number };
+  verdict: "pass" | "fail";
+  criteria: { minHoldoutEdge: number; minEvaluated: number };
 }
 
 interface ApprovalView {
   id: string;
-  candidateId: string;
-  status: "pending" | "approved" | "rejected";
-  requestedBy: string | null;
-  decidedBy: string | null;
+  challengerId: string;
+  approver: string;
+  decision: "approved" | "rejected";
   createdAt: string;
-  decidedAt: string | null;
 }
 
 interface VerdictView {
   id: string;
-  candidateId: string;
+  challengerId: string;
   passed: boolean;
   reasons: string[];
-  z: number | null;
-  pValue: number | null;
-  createdAt: string;
+  evaluatedAt: string;
 }
 
 interface PromotionView {
-  id: string;
-  candidateId: string;
-  stage: string;
-  stageStartedAt: string;
-  createdAt: string;
+  action: string;
+  prior: unknown;
+  applied: unknown;
+  actor: string;
+  reason: string | null;
 }
 
 interface GoalView {
@@ -113,7 +125,7 @@ interface WeightsView {
   } | null;
 }
 
-interface CandidateDetail {
+interface ChallengerDetail {
   evaluations: EvaluationView[];
   approvals: ApprovalView[];
   verdicts: VerdictView[];
@@ -139,8 +151,25 @@ function metric(value: number | null | undefined): string {
   return value === null || value === undefined ? "—" : value.toFixed(3);
 }
 
+function specSummary(challenger: ChallengerView): string {
+  const spec = challenger.spec;
+  if (spec.weights && Object.keys(spec.weights).length > 0) {
+    return `Target weights: ${Object.entries(spec.weights).map(([s, w]) => `${s} → ${w}`).join(", ")}.`;
+  }
+  if (spec.activeStrategies && spec.activeStrategies.length > 0) {
+    return `Target active set: ${spec.activeStrategies.join(", ")}.`;
+  }
+  if (spec.ranking && spec.ranking.length > 0) {
+    return `Target ranking: ${spec.ranking.join(" › ")}.`;
+  }
+  if (spec.retireStrategy) {
+    return `Retire strategy: ${spec.retireStrategy}.`;
+  }
+  return "No spec recorded.";
+}
+
 export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
-  const [candidates, setCandidates] = useState<CandidateView[] | null>(null);
+  const [candidates, setCandidates] = useState<ChallengerView[] | null>(null);
   const [candidatesError, setCandidatesError] = useState<string | null>(null);
   const [weights, setWeights] = useState<WeightsView | null>(null);
   const [weightsError, setWeightsError] = useState(false);
@@ -150,7 +179,7 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
   const [reselectionError, setReselectionError] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<CandidateDetail | null>(null);
+  const [detail, setDetail] = useState<ChallengerDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -166,11 +195,11 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
     try {
       const res = await apiFetch("/api/adaptation/candidates", { headers: headers() });
       if (!res.ok) throw new Error("candidates unavailable");
-      const body = (await res.json()) as { candidates?: CandidateView[] };
+      const body = (await res.json()) as { candidates?: ChallengerView[] };
       setCandidates(Array.isArray(body.candidates) ? body.candidates : []);
       setCandidatesError(null);
     } catch {
-      setCandidatesError("Adaptation candidates are unavailable right now.");
+      setCandidatesError("Challengers are unavailable right now.");
     }
   }, [headers]);
 
@@ -284,7 +313,6 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
     await loadDetail(candidateId);
   };
 
-  const pendingApproval = detail?.approvals.find((a) => a.status === "pending");
   const latestVerdict = detail?.verdicts[0];
   const latestEvaluation = detail?.evaluations[0];
 
@@ -294,7 +322,7 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
         🗳️ Proposal Review
       </h3>
       <p style={{ margin: "0 0 1rem", ...bodyText }}>
-        Everything the screening system proposes — adaptation candidates, discovered goals, and
+        Everything the screening system proposes — challengers, discovered goals, and
         strategy-bank re-selections — decided here, through the same governed endpoints that
         produced them. Nothing activates, promotes, or trades without a recorded human decision.
       </p>
@@ -309,24 +337,42 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
         </p>
       )}
 
-      {/* ---------------- Adaptation candidates ---------------- */}
+      {/* ---------------- Challengers ---------------- */}
       <div style={boxStyle}>
         <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-text-primary)", fontSize: "1rem" }}>
-          Adaptation candidates
+          Challengers
         </h4>
         <p style={{ margin: "0 0 0.75rem", ...muted }}>
-          Improvement candidates from the track record, reflections, and learnings. The governed
-          path: evaluate → promotion gate (held-out significance) → human approval → staged
-          promotion. The gate verdict sits beside the decision — a promotion cannot be confirmed
-          without it.
+          Proposed changes to weights, the active set, or a ranking, each judged on a frozen
+          evaluation set. The governed path: evaluate (walk-forward, holdout decides) → gate
+          verdict → human approval → promote or roll back. Recording an approval IS the
+          decision — there is no pending-request step — and the promoter must be the approver
+          of record. Staged promotions are retired; in-flight ones drain via the API.
         </p>
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void runAction("Generate challengers", async () => {
+                const data = await post("/api/adaptation/candidates/generate", {});
+                await loadCandidates();
+                const created = Array.isArray(data.created) ? data.created.length : 0;
+                const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
+                return `Generated ${created} challenger${created === 1 ? "" : "s"} from re-selection proposals (${skipped} skipped).`;
+              })
+            }
+          >
+            Generate challengers from proposals
+          </button>
+        </div>
         {candidatesError && <p style={muted}>{candidatesError}</p>}
         {candidates !== null && candidates.length === 0 && !candidatesError && (
-          <p style={muted}>No adaptation candidates are waiting for review.</p>
+          <p style={muted}>No challengers are waiting for review.</p>
         )}
-        {candidates?.map((candidate) => (
+        {candidates?.map((challenger) => (
           <div
-            key={candidate.id}
+            key={challenger.id}
             style={{
               padding: "0.75rem 0",
               borderTop: "1px solid var(--color-border-subtle)",
@@ -334,34 +380,34 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
           >
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "baseline" }}>
               <strong style={{ color: "var(--color-text-primary)", fontSize: "0.92rem" }}>
-                {candidate.change.description}
+                {challenger.title}
               </strong>
               <span style={muted}>
-                {candidate.target} · status: {candidate.status}
+                {challenger.kind} · {challenger.regime ?? "no regime"} · status: {challenger.status}
               </span>
             </div>
-            <p style={{ margin: "0.35rem 0 0.5rem", ...bodyText }}>{candidate.hypothesis}</p>
+            <p style={{ margin: "0.35rem 0 0.5rem", ...bodyText }}>{specSummary(challenger)}</p>
             <p style={{ margin: "0 0 0.5rem", ...muted }}>
-              Expected effect: {candidate.expectedEffect.metric} to {candidate.expectedEffect.direction} ·
-              proposed from {candidate.provenance.source} · {new Date(candidate.createdAt).toLocaleString()}
+              Frozen set {challenger.evalSetVersion} · criteria: holdout edge ≥ {challenger.criteria.minHoldoutEdge},
+              holdout evaluated ≥ {challenger.criteria.minEvaluated} · created by {challenger.createdBy} ·{" "}
+              {new Date(challenger.createdAt).toLocaleString()}
             </p>
-            <button type="button" onClick={() => void openCandidate(candidate.id)} disabled={busy}>
-              {selectedId === candidate.id ? "Close review" : "Review candidate"}
+            <button type="button" onClick={() => void openCandidate(challenger.id)} disabled={busy}>
+              {selectedId === challenger.id ? "Close review" : "Review challenger"}
             </button>
 
-            {selectedId === candidate.id && detail && (
+            {selectedId === challenger.id && detail && (
               <div style={{ marginTop: "0.75rem" }}>
                 <p style={{ margin: "0 0 0.35rem", ...bodyText }}>
                   <strong>Latest evaluation:</strong>{" "}
                   {latestEvaluation
-                    ? `${latestEvaluation.method} — baseline ${metric(latestEvaluation.baselineMetric)} → candidate ${metric(latestEvaluation.candidateMetric)} (Δ ${metric(latestEvaluation.delta)}, n=${latestEvaluation.sampleSize})`
+                    ? `frozen set ${latestEvaluation.datasetVersion} — selection champion ${metric(latestEvaluation.selection.championScore)} vs challenger ${metric(latestEvaluation.selection.challengerScore)}; holdout champion ${metric(latestEvaluation.holdout.championScore)} vs challenger ${metric(latestEvaluation.holdout.challengerScore)} (n=${latestEvaluation.holdout.evaluated}) → ${latestEvaluation.verdict}`
                     : "none recorded yet."}
                 </p>
                 <p style={{ margin: "0 0 0.5rem", ...bodyText }}>
-                  <strong>Promotion gate verdict:</strong>{" "}
+                  <strong>Gate verdict:</strong>{" "}
                   {latestVerdict
-                    ? `${latestVerdict.passed ? "PASSED" : "FAILED"} — ${latestVerdict.reasons.join("; ") || "no reasons recorded"}` +
-                      (latestVerdict.pValue !== null ? ` (p=${latestVerdict.pValue})` : "")
+                    ? `${latestVerdict.passed ? "PASSED" : "FAILED"} — ${latestVerdict.reasons.join("; ") || "no reasons recorded"}`
                     : "not run yet."}
                 </p>
 
@@ -371,22 +417,22 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                     disabled={busy}
                     onClick={() =>
                       void runAction("Evaluation", async () => {
-                        const data = await post("/api/adaptation/candidates/evaluate", { candidateId: candidate.id });
-                        await loadDetail(candidate.id);
+                        const data = await post("/api/adaptation/candidates/evaluate", { candidateId: challenger.id });
+                        await loadDetail(challenger.id);
                         const ev = data.evaluation as EvaluationView;
-                        return `Evaluation recorded: candidate ${metric(ev.candidateMetric)} vs baseline ${metric(ev.baselineMetric)} (n=${ev.sampleSize}).`;
+                        return `Evaluation recorded: verdict ${ev.verdict} — holdout challenger ${metric(ev.holdout.challengerScore)} vs champion ${metric(ev.holdout.championScore)} (n=${ev.holdout.evaluated}).`;
                       })
                     }
                   >
-                    Evaluate candidate
+                    Evaluate challenger
                   </button>
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() =>
                       void runAction("Gate", async () => {
-                        const data = await post("/api/adaptation/candidates/gate", { candidateId: candidate.id });
-                        await loadDetail(candidate.id);
+                        const data = await post("/api/adaptation/candidates/gate", { candidateId: challenger.id });
+                        await loadDetail(challenger.id);
                         await loadCandidates();
                         return `Gate verdict: ${data.verdict?.passed ? "PASSED" : "FAILED"} — ${(data.verdict?.reasons ?? []).join("; ")}`;
                       })
@@ -394,133 +440,95 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                   >
                     Run promotion gate
                   </button>
-                  {!pendingApproval && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void runAction("Decision", async () => {
+                        const data = await post("/api/adaptation/candidates/approve", { candidateId: challenger.id, decision: "approved" });
+                        await loadDetail(challenger.id);
+                        if (data.success === false) {
+                          throw new Error(typeof data.reason === "string" ? data.reason : "Approval could not be recorded.");
+                        }
+                        return "Approval recorded as approved.";
+                      })
+                    }
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void runAction("Decision", async () => {
+                        const data = await post("/api/adaptation/candidates/approve", { candidateId: challenger.id, decision: "rejected" });
+                        await loadDetail(challenger.id);
+                        if (data.success === false) {
+                          throw new Error(typeof data.reason === "string" ? data.reason : "Approval could not be recorded.");
+                        }
+                        return "Approval recorded as rejected.";
+                      })
+                    }
+                  >
+                    Reject
+                  </button>
+                  {challenger.status === "evaluated" && (
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() =>
-                        void runAction("Approval request", async () => {
-                          await post("/api/adaptation/candidates/approve", { candidateId: candidate.id });
-                          await loadDetail(candidate.id);
-                          return "Approval requested. It stays pending until a person decides it below.";
-                        })
-                      }
-                    >
-                      Request approval
-                    </button>
-                  )}
-                  {candidate.status === "gated" && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        void runAction("Start promotion", async () => {
-                          const data = await post("/api/adaptation/promotions/start", { candidateId: candidate.id });
-                          await loadDetail(candidate.id);
+                        void runAction("Promote", async () => {
+                          const data = await post("/api/adaptation/promotions/promote", { candidateId: challenger.id });
+                          await loadDetail(challenger.id);
                           await loadCandidates();
                           if (data.success === false) {
-                            throw new Error(typeof data.reason === "string" ? data.reason : "Promotion could not start.");
+                            throw new Error(typeof data.reason === "string" ? data.reason : "Promotion could not be applied.");
                           }
-                          return "Staged promotion started in shadow — nothing is applied yet.";
+                          return "Challenger promoted.";
                         })
                       }
                     >
-                      Start staged promotion
+                      Promote challenger
+                    </button>
+                  )}
+                  {challenger.status === "promoted" && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        void runAction("Rollback", async () => {
+                          const data = await post("/api/adaptation/promotions/rollback", { candidateId: challenger.id });
+                          await loadDetail(challenger.id);
+                          await loadCandidates();
+                          if (data.success === false) {
+                            throw new Error(typeof data.reason === "string" ? data.reason : "Rollback could not be applied.");
+                          }
+                          return "Promotion rolled back.";
+                        })
+                      }
+                    >
+                      Roll back promotion
                     </button>
                   )}
                 </div>
 
-                {pendingApproval && (
-                  <div
-                    style={{
-                      padding: "0.75rem",
-                      border: "1px solid var(--color-border-focus)",
-                      borderRadius: "6px",
-                      marginBottom: "0.5rem",
-                    }}
-                  >
-                    <p style={{ margin: "0 0 0.5rem", ...bodyText }}>
-                      <strong>Pending approval</strong> requested by {pendingApproval.requestedBy ?? "unknown"} ·{" "}
-                      {new Date(pendingApproval.createdAt).toLocaleString()}. Gate verdict at decision time:{" "}
-                      {latestVerdict ? `${latestVerdict.passed ? "PASSED" : "FAILED"} (p=${latestVerdict.pValue ?? "—"})` : "not run"}.
-                    </p>
-                    <div style={{ display: "flex", gap: "0.5rem" }}>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          void runAction("Decision", async () => {
-                            await post("/api/adaptation/candidates/approve/decide", {
-                              approvalId: pendingApproval.id,
-                              decision: "approved",
-                            });
-                            await loadDetail(candidate.id);
-                            return "Approval recorded as approved.";
-                          })
-                        }
-                      >
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          void runAction("Decision", async () => {
-                            await post("/api/adaptation/candidates/approve/decide", {
-                              approvalId: pendingApproval.id,
-                              decision: "rejected",
-                            });
-                            await loadDetail(candidate.id);
-                            return "Approval recorded as rejected.";
-                          })
-                        }
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {detail.approvals.filter((a) => a.status !== "pending").length > 0 && (
+                {detail.approvals.length > 0 && (
                   <ul style={{ margin: "0 0 0.5rem", paddingLeft: "1.1rem" }}>
-                    {detail.approvals
-                      .filter((a) => a.status !== "pending")
-                      .map((a) => (
-                        <li key={a.id} style={muted}>
-                          Approval {a.status} by {a.decidedBy ?? "unknown"}
-                          {a.decidedAt ? ` · ${new Date(a.decidedAt).toLocaleString()}` : ""}
-                        </li>
-                      ))}
+                    {detail.approvals.map((a) => (
+                      <li key={a.id} style={muted}>
+                        Approval {a.decision} by {a.approver}
+                        {` · ${new Date(a.createdAt).toLocaleString()}`}
+                      </li>
+                    ))}
                   </ul>
                 )}
 
                 {detail.promotions.length > 0 && (
                   <ul style={{ margin: 0, paddingLeft: "1.1rem" }}>
-                    {detail.promotions.map((promotion) => (
-                      <li key={promotion.id} style={{ ...bodyText, marginBottom: "0.35rem" }}>
-                        Promotion stage: <strong>{promotion.stage}</strong> since{" "}
-                        {new Date(promotion.stageStartedAt).toLocaleString()}{" "}
-                        {promotion.stage !== "completed" && promotion.stage !== "rolled_back" && (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() =>
-                              void runAction("Advance promotion", async () => {
-                                const data = await post("/api/adaptation/promotions/advance", {
-                                  promotionId: promotion.id,
-                                });
-                                await loadDetail(candidate.id);
-                                await loadCandidates();
-                                if (data.success === false) {
-                                  throw new Error(typeof data.reason === "string" ? data.reason : "Promotion could not advance.");
-                                }
-                                return `Promotion ${data.action ?? "advanced"} (stage: ${data.promotion?.stage ?? "updated"}).`;
-                              })
-                            }
-                          >
-                            Advance promotion
-                          </button>
-                        )}
+                    {detail.promotions.map((promotion, i) => (
+                      <li key={`${promotion.action}-${i}`} style={{ ...bodyText, marginBottom: "0.35rem" }}>
+                        Promotion record: <strong>{promotion.action}</strong> by {promotion.actor}
+                        {promotion.reason ? ` — ${promotion.reason}` : ""}
                       </li>
                     ))}
                   </ul>

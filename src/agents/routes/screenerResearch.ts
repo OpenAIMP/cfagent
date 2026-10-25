@@ -756,41 +756,59 @@ export async function handleScreenerResearchRoutes(
     // findings (recovered from reflection learnings), and human
     // learnings into structured candidates. Generation applies
     // nothing — candidates reach production only via #758 → #759 → #760.
+    // Consolidation #1257 (challenger re-point): the inbox lists
+    // challengers, tenant-scoped. The envelope key stays "candidates"
+    // so the panel changes only its item type; the items ARE
+    // challengers (kind/title/regime/spec/status/evaluation).
     if (path.endsWith("/adaptation/candidates") && request.method === "GET") {
-      const { listImprovementCandidates } = await import("../../services/improvementCandidates");
-      const statusParam = url.searchParams.get("status") || undefined;
-      const candidates = listImprovementCandidates(ctx.getOrm(), statusParam as any);
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const { listChallengers } = await import("../../services/championChallenger");
+      const candidates = listChallengers(ctx.getOrm(), userLogin);
       return Response.json({ candidates });
     }
+    // Consolidation #1257: generate creates challengers from the
+    // latest re-selection proposals (deduped on sourceProposalId).
+    // The old #757 generation has no production caller and is retired
+    // with its store; proposals are the only generation source.
     if (path.endsWith("/adaptation/candidates/generate") && request.method === "POST") {
       const userLogin = request.headers.get("x-user-login") || sessionId;
-      const agent = ctx.getResearchAgent(userLogin);
-      if (!agent) {
-        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
-      }
-      const { generateImprovementCandidates, findingsFromReflectionLearnings } = await import("../../services/improvementCandidates");
-      const { getActiveLearnings } = await import("../../services/learnings");
-      const orm = ctx.getOrm();
-      const learnings = getActiveLearnings(orm);
-      const trackRecord = await agent.getTrackRecord();
-      const result = generateImprovementCandidates(orm, {
-        track: trackRecord,
-        learnings,
-        findings: findingsFromReflectionLearnings(learnings),
-      });
+      const { generateChallengersFromProposals } = await import("../../services/proposalChallengerBridge");
+      const result = generateChallengersFromProposals(ctx.getOrm(), userLogin);
       return Response.json({
         success: true,
-        created: result.created.length,
-        deduped: result.deduped.length,
-        superseded: result.superseded.length,
-        candidates: result.created,
+        created: result.created,
+        skipped: result.skipped,
         timestamp: new Date().toISOString(),
       });
     }
 
-    // Issue #758: isolated candidate evaluation. Replay runs against
-    // the recorded track record only — the harness cannot write live
-    // state (pinned in tests/candidate_evaluation.test.ts).
+    // Consolidation #1257: evaluate runs the challenger's frozen-set
+    // evaluation (walk-forward, holdout decides). The specs come
+    // from the bridge mapping — champion = current state, challenger
+    // differing only in what its kind changes — never invented here.
+    // Gate runs the same evaluation and returns its verdict.
+    async function evaluateChallengerRoute(candidateId: string, userLogin: string) {
+      const { getChallenger, evaluateChallenger, getActiveStrategySet } = await import("../../services/championChallenger");
+      const { getStrategyWeightsV2ForRegime } = await import("../../services/strategyWeightsV2");
+      const { buildEvaluationSpecs } = await import("../../services/proposalChallengerBridge");
+      const orm = ctx.getOrm();
+      const challenger = getChallenger(orm, userLogin, candidateId);
+      if (!challenger) {
+        return Response.json({ error: `challenger ${candidateId} not found.` }, { status: 404 });
+      }
+      const activeSet = getActiveStrategySet(orm, userLogin);
+      const specs = buildEvaluationSpecs(challenger, {
+        weightsForRegime: challenger.regime
+          ? getStrategyWeightsV2ForRegime(orm, challenger.regime)
+          : {},
+        activeSet: activeSet ? activeSet.strategies : null,
+      });
+      const evaluation = await evaluateChallenger(orm, userLogin, candidateId, {
+        championSpec: specs.championSpec,
+        challengerSpec: specs.challengerSpec,
+      });
+      return { evaluation };
+    }
     if (path.endsWith("/adaptation/candidates/evaluate") && request.method === "POST") {
       let body: any = {};
       try {
@@ -803,75 +821,63 @@ export async function handleScreenerResearchRoutes(
         return Response.json({ error: "candidateId is required." }, { status: 400 });
       }
       const userLogin = request.headers.get("x-user-login") || sessionId;
-      const agent = ctx.getResearchAgent(userLogin);
-      if (!agent) {
-        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
-      }
-      const { getImprovementCandidate } = await import("../../services/improvementCandidates");
-      const { evaluateCandidate } = await import("../../services/candidateEvaluation");
-      const orm = ctx.getOrm();
-      const candidate = getImprovementCandidate(orm, candidateId);
-      if (!candidate) {
-        return Response.json({ error: `candidate ${candidateId} not found.` }, { status: 404 });
-      }
-      const trackRecord = await agent.getTrackRecord();
-      // Consolidation C5 (#1361, #1257): flag-on feeds the replay the
-      // collapsed v2 map (the replay keys by strategy alone); flag-off
-      // is v1 verbatim.
-      const { isAdaptationWeightsV2RoutesEnabled } = await import("../../services/screeningFlags");
-      let weights: Record<string, number>;
-      if (isAdaptationWeightsV2RoutesEnabled((key) => ctx.readSettingRaw(key))) {
-        const { getStrategyWeightsV2Collapsed } = await import("../../services/strategyWeightsV2");
-        weights = getStrategyWeightsV2Collapsed(orm);
-      } else {
-        const { getStrategyWeights } = await import("../../services/strategyWeights");
-        weights = getStrategyWeights(orm);
-      }
-      const window =
-        body?.window && typeof body.window === "object"
-          ? {
-              from: typeof body.window.from === "string" ? body.window.from : undefined,
-              to: typeof body.window.to === "string" ? body.window.to : undefined,
-            }
-          : undefined;
-      const report = evaluateCandidate(orm, candidate, trackRecord, { weights, window });
-      return Response.json({ success: true, evaluation: report, timestamp: new Date().toISOString() });
+      const out = await evaluateChallengerRoute(candidateId, userLogin);
+      if (out instanceof Response) return out;
+      return Response.json({ success: true, evaluation: out.evaluation, timestamp: new Date().toISOString() });
     }
     if (path.endsWith("/adaptation/candidates/evaluations") && request.method === "GET") {
       const candidateId = url.searchParams.get("candidateId") || "";
       if (!candidateId) {
         return Response.json({ error: "candidateId query parameter is required." }, { status: 400 });
       }
-      const { listEvaluations } = await import("../../services/candidateEvaluation");
-      return Response.json({ evaluations: listEvaluations(ctx.getOrm(), candidateId) });
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const { getChallenger } = await import("../../services/championChallenger");
+      const challenger = getChallenger(ctx.getOrm(), userLogin, candidateId);
+      // Fail-soft read (the panel idiom): an unknown challenger has
+      // no evaluations, not an error.
+      return Response.json({ evaluations: challenger?.evaluation ? [challenger.evaluation] : [] });
     }
 
-    // Consolidation C2 (issue #1246, epic #1151): the hub Review
-    // inbox's decision-evidence reads — the candidate's promotion
-    // approvals and gate verdicts, over the promotion gate's existing
-    // stores. Read-only; requesting and deciding approvals stay on
-    // the #759 endpoints below.
+    // Consolidation C2 inbox reads, re-pointed to challenger records.
+    // Reads are fail-soft (unknown challenger → empty); writes below
+    // 404 on an unknown challenger.
     if (path.endsWith("/adaptation/candidates/approvals") && request.method === "GET") {
       const candidateId = url.searchParams.get("candidateId") || "";
       if (!candidateId) {
         return Response.json({ error: "candidateId query parameter is required." }, { status: 400 });
       }
-      const { listPromotionApprovals } = await import("../../services/promotionGate");
-      return Response.json({ approvals: listPromotionApprovals(ctx.getOrm(), candidateId) });
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const { listChallengerApprovals } = await import("../../services/championChallenger");
+      return Response.json({ approvals: listChallengerApprovals(ctx.getOrm(), userLogin, candidateId) });
     }
     if (path.endsWith("/adaptation/candidates/verdicts") && request.method === "GET") {
       const candidateId = url.searchParams.get("candidateId") || "";
       if (!candidateId) {
         return Response.json({ error: "candidateId query parameter is required." }, { status: 400 });
       }
-      const { listGateVerdicts } = await import("../../services/promotionGate");
-      return Response.json({ verdicts: listGateVerdicts(ctx.getOrm(), candidateId) });
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const { getChallenger } = await import("../../services/championChallenger");
+      const { verdictReasons } = await import("../../services/proposalChallengerBridge");
+      const challenger = getChallenger(ctx.getOrm(), userLogin, candidateId);
+      if (!challenger?.evaluation) {
+        return Response.json({ verdicts: [] });
+      }
+      return Response.json({
+        verdicts: [{
+          id: challenger.id,
+          challengerId: challenger.id,
+          passed: challenger.evaluation.verdict === "pass",
+          reasons: verdictReasons(challenger.evaluation),
+          evaluatedAt: challenger.evaluation.evaluatedAt,
+        }],
+      });
     }
 
-    // Issue #759: promotion gate — held-out significance + human
-    // approval (the #653 decision pattern, in a dedicated approvals
-    // store). The gate endpoint returns the persisted verdict either
-    // way; failing candidates stay in "evaluating".
+    // Consolidation #1257: recording an approval IS the decision.
+    // The old #759 request-then-decide two-step (and its pending
+    // state) is retired with the panel rework: approve takes the
+    // decision directly, and the challenger locks (non-creator,
+    // non-system approver) still apply inside recordChallengerApproval.
     if (path.endsWith("/adaptation/candidates/approve") && request.method === "POST") {
       let body: any = {};
       try {
@@ -880,37 +886,23 @@ export async function handleScreenerResearchRoutes(
         /* empty body */
       }
       const candidateId = typeof body?.candidateId === "string" ? body.candidateId : "";
+      const decision = body?.decision;
       if (!candidateId) {
         return Response.json({ error: "candidateId is required." }, { status: 400 });
       }
-      const { getImprovementCandidate } = await import("../../services/improvementCandidates");
-      const { requestPromotionApproval } = await import("../../services/promotionGate");
-      const orm = ctx.getOrm();
-      if (!getImprovementCandidate(orm, candidateId)) {
-        return Response.json({ error: `candidate ${candidateId} not found.` }, { status: 404 });
+      if (decision !== "approved" && decision !== "rejected") {
+        return Response.json({ error: "decision (approved|rejected) is required." }, { status: 400 });
       }
-      const approval = requestPromotionApproval(orm, candidateId, request.headers.get("x-user-login") || sessionId);
-      return Response.json({ success: true, approval });
-    }
-    if (path.endsWith("/adaptation/candidates/approve/decide") && request.method === "POST") {
-      let body: any = {};
-      try {
-        body = await request.json();
-      } catch {
-        /* empty body */
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const { getChallenger, recordChallengerApproval } = await import("../../services/championChallenger");
+      if (!getChallenger(ctx.getOrm(), userLogin, candidateId)) {
+        return Response.json({ error: `challenger ${candidateId} not found.` }, { status: 404 });
       }
-      const { approvalId, decision } = body ?? {};
-      if (!approvalId || (decision !== "approved" && decision !== "rejected")) {
-        return Response.json({ error: "approvalId and decision (approved|rejected) required" }, { status: 400 });
-      }
-      const { decidePromotionApproval } = await import("../../services/promotionGate");
-      const ok = decidePromotionApproval(
-        ctx.getOrm(),
-        approvalId,
+      const result = recordChallengerApproval(ctx.getOrm(), userLogin, candidateId, {
+        approver: userLogin,
         decision,
-        request.headers.get("x-user-login") || sessionId
-      );
-      return Response.json({ success: ok });
+      });
+      return Response.json({ success: result.ok, reason: result.reason ?? null, timestamp: new Date().toISOString() });
     }
     if (path.endsWith("/adaptation/candidates/gate") && request.method === "POST") {
       let body: any = {};
@@ -924,26 +916,25 @@ export async function handleScreenerResearchRoutes(
         return Response.json({ error: "candidateId is required." }, { status: 400 });
       }
       const userLogin = request.headers.get("x-user-login") || sessionId;
-      const agent = ctx.getResearchAgent(userLogin);
-      if (!agent) {
-        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
-      }
-      const { getImprovementCandidate } = await import("../../services/improvementCandidates");
-      const { runPromotionGate } = await import("../../services/promotionGate");
-      const orm = ctx.getOrm();
-      const candidate = getImprovementCandidate(orm, candidateId);
-      if (!candidate) {
-        return Response.json({ error: `candidate ${candidateId} not found.` }, { status: 404 });
-      }
-      const trackRecord = await agent.getTrackRecord();
-      const verdict = runPromotionGate(orm, candidate, trackRecord);
-      return Response.json({ success: true, verdict, timestamp: new Date().toISOString() });
+      const { verdictReasons } = await import("../../services/proposalChallengerBridge");
+      const out = await evaluateChallengerRoute(candidateId, userLogin);
+      if (out instanceof Response) return out;
+      return Response.json({
+        success: true,
+        verdict: {
+          passed: out.evaluation.verdict === "pass",
+          reasons: verdictReasons(out.evaluation),
+        },
+        timestamp: new Date().toISOString(),
+      });
     }
 
-    // Issue #760: staged promotion. Start parks a gated candidate in
-    // shadow (nothing applied); each advance runs the regression
-    // check, respects the stage time-box, and applies through the
-    // #755 seam. Regression rolls back automatically.
+    // Consolidation #1257, drain era: NEW staged promotions are
+    // refused — the #760 chain is retired, and promotion runs
+    // through the challenger gate (promote below). The refusal names
+    // the replacement so API callers are not left guessing. In-flight
+    // promotions still drain via advance below; deleting this module
+    // (retirement PR) waits on GET promotions/active being empty.
     if (path.endsWith("/adaptation/promotions/start") && request.method === "POST") {
       let body: any = {};
       try {
@@ -955,22 +946,14 @@ export async function handleScreenerResearchRoutes(
       if (!candidateId) {
         return Response.json({ error: "candidateId is required." }, { status: 400 });
       }
-      const userLogin = request.headers.get("x-user-login") || sessionId;
-      const agent = ctx.getResearchAgent(userLogin);
-      if (!agent) {
-        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
-      }
-      const { getImprovementCandidate } = await import("../../services/improvementCandidates");
-      const { startPromotion } = await import("../../services/stagedPromotion");
-      const orm = ctx.getOrm();
-      const candidate = getImprovementCandidate(orm, candidateId);
-      if (!candidate) {
-        return Response.json({ error: `candidate ${candidateId} not found.` }, { status: 404 });
-      }
-      const trackRecord = await agent.getTrackRecord();
-      const result = startPromotion(orm, candidate, trackRecord);
-      return Response.json({ success: result.ok, ...result, timestamp: new Date().toISOString() });
+      return Response.json({
+        success: false,
+        reason: "Staged promotions are retired under #1257: file a challenger from a re-selection proposal and promote it through the champion/challenger gate.",
+        timestamp: new Date().toISOString(),
+      });
     }
+    // Drain path, unchanged: in-flight #760 promotions advance to
+    // completed (or roll back on regression) through the #755 seam.
     if (path.endsWith("/adaptation/promotions/advance") && request.method === "POST") {
       let body: any = {};
       try {
@@ -992,13 +975,60 @@ export async function handleScreenerResearchRoutes(
       const result = advancePromotion(ctx.getOrm(), promotionId, trackRecord);
       return Response.json({ success: result.ok, ...result, timestamp: new Date().toISOString() });
     }
+    // Drain gate visibility: every in-flight staged promotion.
+    if (path.endsWith("/adaptation/promotions/active") && request.method === "GET") {
+      const { listActivePromotions } = await import("../../services/stagedPromotion");
+      return Response.json({ promotions: listActivePromotions(ctx.getOrm()) });
+    }
     if (path.endsWith("/adaptation/promotions") && request.method === "GET") {
       const candidateId = url.searchParams.get("candidateId") || "";
       if (!candidateId) {
         return Response.json({ error: "candidateId query parameter is required." }, { status: 400 });
       }
-      const { listPromotions } = await import("../../services/stagedPromotion");
-      return Response.json({ promotions: listPromotions(ctx.getOrm(), candidateId) });
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const { listPromotionRecords } = await import("../../services/championChallenger");
+      return Response.json({ promotions: listPromotionRecords(ctx.getOrm(), userLogin, candidateId) });
+    }
+    // Consolidation #1257: challenger promotion + rollback. The
+    // promoter/actor must be the approver of record (enforced inside
+    // promoteChallenger); a refusal names the lock that held.
+    if (path.endsWith("/adaptation/promotions/promote") && request.method === "POST") {
+      let body: any = {};
+      try {
+        body = await request.json();
+      } catch {
+        /* empty body */
+      }
+      const candidateId = typeof body?.candidateId === "string" ? body.candidateId : "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId is required." }, { status: 400 });
+      }
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const { getChallenger, promoteChallenger } = await import("../../services/championChallenger");
+      if (!getChallenger(ctx.getOrm(), userLogin, candidateId)) {
+        return Response.json({ error: `challenger ${candidateId} not found.` }, { status: 404 });
+      }
+      const result = promoteChallenger(ctx.getOrm(), userLogin, candidateId, { actor: userLogin });
+      return Response.json({ success: result.ok, reason: result.reason ?? null, timestamp: new Date().toISOString() });
+    }
+    if (path.endsWith("/adaptation/promotions/rollback") && request.method === "POST") {
+      let body: any = {};
+      try {
+        body = await request.json();
+      } catch {
+        /* empty body */
+      }
+      const candidateId = typeof body?.candidateId === "string" ? body.candidateId : "";
+      if (!candidateId) {
+        return Response.json({ error: "candidateId is required." }, { status: 400 });
+      }
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const { getChallenger, rollbackChallengerPromotion } = await import("../../services/championChallenger");
+      if (!getChallenger(ctx.getOrm(), userLogin, candidateId)) {
+        return Response.json({ error: `challenger ${candidateId} not found.` }, { status: 404 });
+      }
+      const result = rollbackChallengerPromotion(ctx.getOrm(), userLogin, candidateId, { actor: userLogin });
+      return Response.json({ success: result.ok, reason: result.reason ?? null, timestamp: new Date().toISOString() });
     }
 
     // Typed filter/config API (amendment 1; mirrors the #277 settings pattern).
