@@ -158,7 +158,7 @@ export interface DiscoveryProfileBias {
 
 /** Run one setup through the pipeline and judge it. The pipeline is
  *  injected as its run signature so tests (and later, the discovery
- *  service) can supply the real OptionsAgentPipeline or a fixture. */
+ *  service) can supply the real panel pipeline function or a fixture. */
 export async function expressDiscoverySetup(
   pipeline: { run(request: StrategyRequest): Promise<PipelineResult> },
   request: StrategyRequest,
