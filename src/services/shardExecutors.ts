@@ -117,20 +117,43 @@ async function feedEtrade(
     throw new Error("Feed shard etrade blocked: nasdaq shard has no completed listings result.");
   }
   const symbols = await symbolsForUniverse(chain, nasdaq.listings);
-  const { bootstrapDataProviders } = await import("../trading");
-  const { bindETradeScreenerDeps } = await import("../trading");
+  // Issue #1356: the feed shard binds the platform quote seam
+  // (replacing the E2 LiveScreenerDeps binding): bootstrap this
+  // chain's platform store (seed + enable etrade), construct the
+  // adapter over the chain's ETradeService, resolve the quotes
+  // route's etrade primary, and bind the etrade-only deps over it.
+  // The chain id is the run id, so every quote the shard acquires
+  // is captured under the chain's run.
+  const {
+    bootstrapDataProviders,
+    createETradeDataProvider,
+    DataProviderRegistry,
+    etradeQuoteProviderFromRoute,
+    listProviderConfigs,
+    listCapabilityRoutes,
+    bindEtradeQuoteDeps,
+  } = await import("../trading");
   bootstrapDataProviders(deps.sql as any);
   const service = deps.createETradeService(chain.userLogin, chain.environment);
-  const liveDeps = bindETradeScreenerDeps(
-    service as any,
-    { sql: deps.sql, blobStorage: deps.storage, env: deps.env } as any,
-    { runId: chain.chainId, userLogin: chain.userLogin } as any
+  const adapter = createETradeDataProvider(service as any, {
+    capture: { sql: deps.sql, blobStorage: deps.storage, env: deps.env } as any,
+  });
+  const registry = new DataProviderRegistry();
+  registry.register(adapter);
+  const provider = etradeQuoteProviderFromRoute(
+    registry,
+    listProviderConfigs(deps.sql as any),
+    listCapabilityRoutes(deps.sql as any)
   );
+  const quoteDeps = bindEtradeQuoteDeps(provider, {
+    runId: chain.chainId,
+    userLogin: chain.userLogin,
+  } as any);
   const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
-  if (!liveDeps.fetchETradeQuotes) {
+  if (!quoteDeps.fetchQuotes) {
     throw new Error("Feed shard etrade blocked: the bound E*TRADE deps expose no quote fetcher.");
   }
-  const fetchQuotes = liveDeps.fetchETradeQuotes;
+  const fetchQuotes = quoteDeps.fetchQuotes;
   const quotes = await withRetry(() => fetchQuotes(symbols), policy, {
     label: "shard.feed.etrade",
   });

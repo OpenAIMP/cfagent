@@ -47,8 +47,8 @@
  * batch path, capturing one provider-response record per sub-batch
  * via the client's new onWireResponse hook) and getOptionExpiryDates
  * (the options engines' expiry lookup, served under optionsChains) —
- * plus bindETradeScreenerDeps, the LiveScreenerDeps binding the
- * stock screener consumes.
+ * plus the E*TRADE adapter the stock screener consumes through
+ * the platform quote seam in screenerPipeline.ts (#1356).
  *
  * E7 (issue #1248): every fetch above also records its OUTCOME via
  * the FetchOutcomeRecorder port (fetchOutcome.ts): the recorder is
@@ -89,7 +89,6 @@ import type {
 } from "../../types";
 import type { SqlStorage } from "../../orm";
 import type { QuoteTrace } from "../etrade/quoteTrace";
-import type { LiveScreenerDeps } from "../liveScreener";
 import { fetchAllUsStockListings } from "../../services/nasdaqListings";
 import type {
   DataProvider,
@@ -568,39 +567,16 @@ export async function verifyETradeDataProvider(
 }
 
 /**
- * E2 (issue #1157): bind the stock screener's LiveScreenerDeps to
- * the platform — the seam ScreenerAgent.runScreenInner consumes via
- * acquireUniverse's etrade-only mode. The batch dep routes to the
- * adapter's getQuotesBatch (preserving the #495 batching and the
- * caller's QuoteTrace, forwarded through the adapter options); the
- * per-symbol dep routes to the adapter's getQuote. Both carry the
- * run's DataRunContext, so every quote the run acquires is captured
- * under the run's id. The returned deps have exactly the signatures
- * acquireUniverse has always consumed — the cutover is invisible to
- * the pipeline.
- *
- * The helper lives here, not in screener-agent.ts, because that
- * module extends the real `agents` Durable Object base and cannot
- * be imported under the repo's vitest setup (native cloudflare:
- * scheme) — no existing test imports it; the binding must stay
- * unit-pinnable.
+ * Issue #1356 deleted bindETradeScreenerDeps (the E2 LiveScreenerDeps
+ * binding): the stock screener now binds its platform quote seam in
+ * screenerPipeline.ts (bindEtradeQuoteDeps /
+ * bindLiveQuotesQuoteDeps), which must stay unit-pinnable outside
+ * screener-agent.ts (that module extends the real `agents` Durable
+ * Object base and cannot be imported under the repo's vitest
+ * setup). Callers construct the adapter with
+ * createETradeDataProvider (capture + QuoteTrace via its options)
+ * and bind it in the pipeline module.
  */
-export function bindETradeScreenerDeps(
-  service: ETradeDataSurface,
-  capture: ETradeCaptureDeps,
-  runContext: DataRunContext,
-  trace?: QuoteTrace
-): LiveScreenerDeps {
-  const provider = createETradeDataProvider(service, { capture, trace });
-  return {
-    fetchETradeQuote: async (symbol: string) =>
-      (await provider.getQuote!(symbol, runContext)).result as ETradeQuote,
-    fetchETradeQuotes: async (symbols: string[]) =>
-      // #1317 widened the batch element type to QuoteResult; the
-      // E*TRADE adapter's batch is ETradeQuote rows by construction.
-      (await provider.getQuotesBatch!(symbols, runContext)).result as ETradeQuote[],
-  };
-}
 
 /**
  * Shared FOSS adapter: YahooFinanceProvider and AlpacaMarketDataProvider
