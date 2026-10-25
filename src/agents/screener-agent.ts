@@ -1047,21 +1047,14 @@ export class ScreenerAgent extends Agent<Env> {
   async generateAndStoreOptionsXlsx(
     result: import("../types").OptionScreenResult,
   ): Promise<{ key: string; fileName: string }> {
-    // Issue #1278 (#1173 R5): generate+store retries under the R1 report
-    // policy, mirroring the stock XLSX block in persistRun.
-    const { withRetry } = await import("../services/resilience");
-    const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
-    const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+    const { generateOptionsXlsx, optionsXlsxFileName } = await import("../trading");
+    const { putReportPdf } = await import("../services/reportBlobStore");
+    const bytes = generateOptionsXlsx(result);
+    const fileName = optionsXlsxFileName(result);
     const key = `${OPTIONS_XLSX_KEY_PREFIX}${crypto.randomUUID().slice(0, 8)}`;
-    return withRetry(async () => {
-      const { generateOptionsXlsx, optionsXlsxFileName } = await import("../trading");
-      const { putReportPdf } = await import("../services/reportBlobStore");
-      const bytes = generateOptionsXlsx(result);
-      const fileName = optionsXlsxFileName(result);
-      await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes);
-      await putReportPdf(this.env, this.ctx.storage as any, OPTIONS_XLSX_LATEST_KEY, fileName, bytes);
-      return { key, fileName };
-    }, reportRetry, { label: "options-xlsx" });
+    await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes);
+    await putReportPdf(this.env, this.ctx.storage as any, OPTIONS_XLSX_LATEST_KEY, fileName, bytes);
+    return { key, fileName };
   }
 
   /** Get a specific options run's XLSX report by its storage key (#1195). */
@@ -1123,52 +1116,11 @@ export class ScreenerAgent extends Agent<Env> {
       HISTORY_KEY,
       [result, ...history].slice(0, DEFAULT_SCREENER_CONFIG.acquisition.historyLimit)
     );
-    // Issue #269/#914: PDF generation + storage lives in generateRunPdf
-    // (shared with regeneration, #1278).
-    await this.generateRunPdf(result);
-
-    // XLSX Multi-tab report generation (Screened Stocks + Formulas & Methodology)
-    // Issue #1278 (#1173 R5): generate+store retries under the R1 report
-    // policy — a transient blob-store failure no longer fails the XLSX.
-    try {
-      const { putReportPdf } = await import("../services/reportBlobStore");
-      const { withRetry } = await import("../services/resilience");
-      const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
-      const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
-      const xlsxKey = `${XLSX_KEY_PREFIX}${crypto.randomUUID().slice(0, 8)}`;
-      await withRetry(async () => {
-        const { generateScreenerXlsx, screenerXlsxFileName } = await import("../trading");
-        const xlsxBytes = generateScreenerXlsx(result);
-        const xlsxFileName = screenerXlsxFileName(result);
-        await putReportPdf(this.env, this.ctx.storage as any, xlsxKey, xlsxFileName, xlsxBytes);
-        await putReportPdf(this.env, this.ctx.storage as any, XLSX_LATEST_KEY, xlsxFileName, xlsxBytes);
-        result.xlsxKey = xlsxKey;
-        result.xlsxStatus = "generated";
-      }, reportRetry, { label: "screener-xlsx" });
-    } catch (xlsxErr) {
-      result.xlsxStatus = "failed";
-      result.xlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
-      console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
-    }
-    // Issue #783: no report-store write happens here. The #732 block that
-    // persisted a second copy into this DO's own report table is removed:
-    // nothing read that copy. The canonical report copy for a run is
-    // stored exactly once by OrchestratorAgent at generation time (the
-    // store every report surface reads — Reports tab, routes, AI Search);
-    // this method keeps only the delivery cache above (latest/history in
-    // DO storage + the per-run PDFs).
-  }
-
-  /**
-   * Issue #269: generate + store the report PDF for download/delivery.
-   * Issue #297: Store with per-run key (not shared) to prevent franken-PDFs.
-   * Issue #605: blobs go to R2 when bound, else legacy DO storage.
-   * Issue #914: Use the unified report pipeline (shared by stock + options,
-   * manual + scheduled). Mutates result.pdfKey/pdfStatus/pdfError.
-   * Extracted from persistRun for #1278 so regeneration runs the exact
-   * same generation path (which itself retries per #1278 part A).
-   */
-  private async generateRunPdf(result: ScreenerRunResult): Promise<void> {
+    // Issue #269: generate + store the report PDF for download/delivery.
+    // Issue #297: Store with per-run key (not shared) to prevent franken-PDFs.
+    // Issue #605: blobs go to R2 when bound, else legacy DO storage.
+    // Issue #914: Use the unified report pipeline (shared by stock + options,
+    // manual + scheduled).
     const { runReportPipeline } = await import("../services/unifiedReportPipeline");
     const { putReportPdf, getReportPdf } = await import("../services/reportBlobStore");
     const pipelineResult = await runReportPipeline(
@@ -1199,8 +1151,6 @@ export class ScreenerAgent extends Agent<Env> {
       }
       result.pdfKey = pipelineResult.pdfKey;
       result.pdfStatus = "generated";
-      // A regenerated run must not keep its previous failure on record.
-      delete result.pdfError;
     } else {
       // Issue #1023 (S4): NO direct-generator fallback — the unified
       // pipeline is the only PDF path (#914/#680). Issue #822: do NOT
@@ -1210,44 +1160,51 @@ export class ScreenerAgent extends Agent<Env> {
       result.pdfError = pipelineResult.pdfError;
       console.error("[ScreenerAgent] PDF generation failed:", result.pdfError);
     }
-  }
 
-  /**
-   * Issue #1278 (#1173 R5): regenerate the stored latest run's PDF —
-   * the #1123-deferred recovery path for a run whose PDF failed. No
-   * re-screen: the full run result persists in this agent's storage.
-   * The outcome is written back to LATEST and the matching HISTORY
-   * entry (same timestamp), so the Runs list (F3 twin inheritance)
-   * surfaces the healed artifact.
-   */
-  async regenerateLatestReport(): Promise<{
-    pdfStatus: "generated" | "failed";
-    pdfKey?: string;
-    pdfError?: string;
-    timestamp?: string;
-  }> {
-    const latest = await this.ctx.storage.get<ScreenerRunResult>(LATEST_KEY);
-    if (!latest) {
-      const { codedMessage } = await import("../errors/errorAspects");
-      return {
-        pdfStatus: "failed",
-        pdfError: codedMessage("REPORT_003", "no stored screener run to regenerate"),
-      };
+    // XLSX Multi-tab report generation (Screened Stocks + Formulas & Methodology)
+    try {
+      const { generateScreenerXlsx, screenerXlsxFileName } = await import("../trading");
+      const xlsxBytes = generateScreenerXlsx(result);
+      const xlsxFileName = screenerXlsxFileName(result);
+      const xlsxKey = `${XLSX_KEY_PREFIX}${crypto.randomUUID().slice(0, 8)}`;
+      await putReportPdf(this.env, this.ctx.storage as any, xlsxKey, xlsxFileName, xlsxBytes);
+      await putReportPdf(this.env, this.ctx.storage as any, XLSX_LATEST_KEY, xlsxFileName, xlsxBytes);
+      result.xlsxKey = xlsxKey;
+      result.xlsxStatus = "generated";
+    } catch (xlsxErr) {
+      result.xlsxStatus = "failed";
+      result.xlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
+      console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
     }
-    await this.generateRunPdf(latest);
-    await this.ctx.storage.put(LATEST_KEY, latest);
-    const history =
-      (await this.ctx.storage.get<ScreenerRunResult[]>(HISTORY_KEY)) ?? [];
-    const idx = history.findIndex((r) => r.timestamp === latest.timestamp);
-    if (idx >= 0) {
-      history[idx] = latest;
-      await this.ctx.storage.put(HISTORY_KEY, history);
+    // Issue #1346: CSV report generation — the XLSX block's twin.
+    // Same failure contract (recorded, never fatal, never silent);
+    // a 0-record run stores a headers-only CSV.
+    try {
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const { withRetry } = await import("../services/resilience");
+      const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+      const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+      const csvKey = `screener:csv:${crypto.randomUUID().slice(0, 8)}`;
+      await withRetry(async () => {
+        const { generateScreenerCsv, screenerCsvFileName } = await import("../trading");
+        const csvBytes = new TextEncoder().encode(generateScreenerCsv(result));
+        const csvFileName = screenerCsvFileName(result);
+        await putReportPdf(this.env, this.ctx.storage as any, csvKey, csvFileName, csvBytes, "text/csv");
+        await putReportPdf(this.env, this.ctx.storage as any, CSV_LATEST_KEY, csvFileName, csvBytes, "text/csv");
+        result.csvKey = csvKey;
+        result.csvStatus = "generated";
+      }, reportRetry, { label: "screener-csv" });
+    } catch (csvErr) {
+      result.csvStatus = "failed";
+      result.csvError = csvErr instanceof Error ? csvErr.message : String(csvErr);
+      console.error("[ScreenerAgent] CSV generation failed:", result.csvError);
     }
-    return {
-      pdfStatus: latest.pdfStatus === "generated" ? "generated" : "failed",
-      pdfKey: latest.pdfKey,
-      pdfError: latest.pdfError,
-      timestamp: latest.timestamp,
-    };
+    // Issue #783: no report-store write happens here. The #732 block that
+    // persisted a second copy into this DO's own report table is removed:
+    // nothing read that copy. The canonical report copy for a run is
+    // stored exactly once by OrchestratorAgent at generation time (the
+    // store every report surface reads — Reports tab, routes, AI Search);
+    // this method keeps only the delivery cache above (latest/history in
+    // DO storage + the per-run PDFs).
   }
 }

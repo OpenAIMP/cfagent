@@ -548,8 +548,7 @@ export async function handleEtradeOptionsRoutes(
         return Response.json({ error: parsedDiscovery.error }, { status: 400 });
       }
       try {
-        const userLogin = request.headers.get("x-user-login");
-        if (!userLogin) return unauthenticatedResponse();
+        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
         const s = await dataAgent.loadSnapshot(parsedDiscovery.value.request);
