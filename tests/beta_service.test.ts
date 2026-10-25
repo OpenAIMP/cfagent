@@ -2,10 +2,10 @@
  * Issue #34 correction: beta is computed from live price history, not read
  * from a static table. These tests pin the regression math, the observation
  * floor, date alignment, and the provenance ladder
- * (computed-live → static-fallback → unavailable).
+ * (computed-live → unavailable; the static tier was removed by #927).
  */
 import { describe, it, expect } from "vitest";
-import { BetaService, computeBetaFromCloses, staticBetaFor } from "../src/services/betaService";
+import { BetaService, computeBetaFromCloses } from "../src/services/betaService";
 
 const BENCH_RETURNS = [0.01, -0.005, 0.02, -0.01, 0.004, -0.015, 0.008, 0.012, -0.002, 0.006];
 
@@ -83,11 +83,12 @@ describe("BetaService provenance ladder", () => {
     expect(res.source).toBe("computed-live");
   });
 
-  it("falls back to the static table — marked as such — when live history is unavailable", async () => {
+  it("returns unavailable — never a static-table number — when live history is unavailable (#927)", async () => {
     const svc = new BetaService(async () => null);
     const res = await svc.resolve("AAPL");
-    expect(res.source).toBe("static-fallback");
-    expect(res.beta).toBe(staticBetaFor("AAPL"));
+    expect(res.source).toBe("unavailable");
+    expect(res.beta).toBeNull();
+    expect(res.observations).toBe(0);
     const missing = await svc.resolve("ZZZZNOTREAL");
     expect(missing.source).toBe("unavailable");
     expect(missing.beta).toBeNull();

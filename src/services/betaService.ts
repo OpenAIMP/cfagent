@@ -1,22 +1,21 @@
 /**
- * Dynamic beta resolution (issue #34 correction — part of epic #32).
+ * Dynamic beta resolution (issue #34 correction — part of epic #32;
+ * static tier removed by #927, parent #913 S9).
  *
  * Beta for the portfolio risk rollup is COMPUTED from live price history —
  * an OLS regression of the symbol's daily returns against SPY over a
- * trailing window — never merely read from a static table. The static
- * FOSS_MARKET_UNIVERSE values survive only as an explicitly marked fallback
- * for when live history cannot be fetched, and every resolution carries its
- * provenance so consumers can see exactly what a beta number is made of.
+ * trailing window — never read from a static table. Every resolution
+ * carries its provenance so consumers can see exactly what a beta number
+ * is made of: computed-live, or unavailable.
  *
  * Live-data-only rule: this module fetches real market history and treats
  * ANY fetch/parse failure as "unavailable". It never substitutes generated
- * bars. (The FOSS providers' async getHistoricalBars silently falls back to
- * generated bars on failure, which is why beta does not route through it.)
+ * bars, and it never consults the static FOSS table. (The FOSS providers'
+ * async getHistoricalBars silently falls back to generated bars on
+ * failure, which is why beta does not route through it.)
  */
 
-import { FOSS_MARKET_UNIVERSE } from "./fossResearch";
-
-export type BetaSource = "computed-live" | "static-fallback" | "unavailable";
+export type BetaSource = "computed-live" | "unavailable";
 
 export interface BetaResolution {
   beta: number | null;
@@ -29,12 +28,6 @@ export interface BetaResolution {
 export const BETA_BENCHMARK = "SPY";
 export const BETA_WINDOW = 252;
 export const BETA_MIN_OBSERVATIONS = 60;
-
-/** Static-table beta (fallback only). Null when the symbol is not in the table. */
-export function staticBetaFor(symbol: string): number | null {
-  const profile = FOSS_MARKET_UNIVERSE[symbol.toUpperCase()];
-  return profile && typeof profile.beta === "number" ? profile.beta : null;
-}
 
 export type DailyClosesFetcher = (symbol: string) => Promise<Map<string, number> | null>;
 
@@ -162,10 +155,7 @@ export class BetaService {
         }
       }
     }
-    const staticBeta = staticBetaFor(symbol);
-    if (staticBeta !== null) {
-      return { beta: staticBeta, source: "static-fallback", observations: 0, asOf };
-    }
+    // No Tier 2: a live failure is unavailable, never a static-table number (#927).
     return { beta: null, source: "unavailable", observations: 0, asOf };
   }
 }

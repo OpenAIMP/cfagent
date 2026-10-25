@@ -56,7 +56,7 @@ describe("panel API clients vs the async-job flow (issue #71)", () => {
     const report = {
       asOf: new Date().toISOString(), nav: 1000, spyPrice: 500,
       rows: [], excluded: [], partial: [], undefinedRiskPositions: [],
-      totals: { positionCount: 0, deltaShares: 0, deltaDollars: 0, betaWeightedDeltaDollars: null, betaWeightedSpyShares: null, gammaSharesPerDollar: 0, thetaDollarsPerDay: 0, vegaDollarsPerVolPoint: 0, rhoDollarsPerRatePoint: 0, definedMaxLoss: 0, definedMaxLossPctOfNav: null, betaCoverage: { covered: 0, total: 0, computedLive: 0, staticFallback: 0 } },
+      totals: { positionCount: 0, deltaShares: 0, deltaDollars: 0, betaWeightedDeltaDollars: null, betaWeightedSpyShares: null, gammaSharesPerDollar: 0, thetaDollarsPerDay: 0, vegaDollarsPerVolPoint: 0, rhoDollarsPerRatePoint: 0, definedMaxLoss: 0, definedMaxLossPctOfNav: null, betaCoverage: { covered: 0, total: 0, computedLive: 0, unavailable: 0 } },
     };
     stubJobFlow(JSON.stringify(report));
     const data = await fetchPortfolioRisk("TEST");

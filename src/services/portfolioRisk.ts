@@ -29,7 +29,6 @@ import type { ETradeOptionChain, ETradePosition } from "../types";
 import type { ETradeService } from "./etrade";
 import { sharedBetaService, type BetaResolution, type BetaSource } from "./betaService";
 
-export { staticBetaFor as betaForSymbol } from "./betaService";
 export type { BetaResolution, BetaSource } from "./betaService";
 
 /** Standard equity-options contract multiplier (shares per contract). */
@@ -102,8 +101,9 @@ export interface PortfolioRiskTotals {
   definedMaxLoss: number;
   definedMaxLossPctOfNav: number | null;
   /** Positions whose beta is known / total positions contributing delta,
-   *  split by provenance so a static fallback is never passed off as live. */
-  betaCoverage: { covered: number; total: number; computedLive: number; staticFallback: number };
+   *  split by provenance: computed live, or unavailable (excluded from
+   *  beta-weighted totals, never assumed). */
+  betaCoverage: { covered: number; total: number; computedLive: number; unavailable: number };
 }
 
 export interface PortfolioRiskReport {
@@ -146,7 +146,7 @@ export function aggregatePortfolioRisk(resolved: ResolvedPosition[], opts: Aggre
   let betaCovered = 0;
   let betaTotal = 0;
   let betaComputedLive = 0;
-  let betaStaticFallback = 0;
+  let betaUnavailable = 0;
   let rhoDollarsPerRatePoint = 0;
 
   for (const r of resolved) {
@@ -181,11 +181,11 @@ export function aggregatePortfolioRisk(resolved: ResolvedPosition[], opts: Aggre
       betaWeightedDeltaDollars += rowBetaWeighted;
       betaCovered += 1;
       if (r.betaSource === "computed-live") betaComputedLive += 1;
-      if (r.betaSource === "static-fallback") betaStaticFallback += 1;
       if (opts.spyPrice && opts.spyPrice > 0) {
         rowSpyShares = rowBetaWeighted / opts.spyPrice;
       }
     } else {
+      betaUnavailable += 1;
       partial.push({ symbol, reason: "No beta available for this symbol; excluded from beta-weighted totals" });
     }
 
@@ -241,7 +241,7 @@ export function aggregatePortfolioRisk(resolved: ResolvedPosition[], opts: Aggre
       rhoDollarsPerRatePoint: round2(rhoDollarsPerRatePoint),
       definedMaxLoss: round2(definedMaxLoss),
       definedMaxLossPctOfNav: opts.nav > 0 ? round2((definedMaxLoss / opts.nav) * 100) : null,
-      betaCoverage: { covered: betaCovered, total: betaTotal, computedLive: betaComputedLive, staticFallback: betaStaticFallback },
+      betaCoverage: { covered: betaCovered, total: betaTotal, computedLive: betaComputedLive, unavailable: betaUnavailable },
     },
     rows,
     excluded,
