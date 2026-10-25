@@ -1248,6 +1248,27 @@ the default label.
 - Prerequisite: the repo-level General → "Allow auto-merge" switch must
   be ON, or PR-level auto-merge does not exist at all.
 
+### Automatic PR branch updates
+
+`.github/workflows/auto-update-prs-app.yml` updates eligible open PR branches
+when `main` changes. It uses a short-lived installation token from a GitHub App
+so the resulting `pull_request` checks can start without the approval prompt
+that can occur for pushes made with the repository `GITHUB_TOKEN`. The updater
+uses GitHub's update-branch API, which merges the current base branch into the
+PR branch; it does not perform a rebase. It does not dispatch CI workflows
+manually, avoiding duplicate runs. Drafts, Dependabot PRs, and fork PRs are
+skipped; the App is installed only on this repository.
+
+Create a GitHub App under the OpenAIMP account, grant repository permissions
+`Contents: Read and write` and `Pull requests: Read and write`, and install it
+only on `OpenAIMP/cfagent`. In the repository's Settings → Secrets and
+variables → Actions, store the App's client ID as the variable
+`AUTO_UPDATE_APP_CLIENT_ID` and its generated private key PEM as the secret
+`AUTO_UPDATE_APP_PRIVATE_KEY`. The workflow mints a narrowly scoped token per
+run; do not store a long-lived installation token or PAT. The App installation
+and both values must exist before merging a workflow change that enables this
+updater, or the run will fail.
+
 ### Default eligibility
 
 The workflow treats non-draft PRs as eligible by default, with the

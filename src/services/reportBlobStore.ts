@@ -40,7 +40,7 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function base64ToBytes(base64: string): Uint8Array {
+export function base64ToBytes(base64: string): Uint8Array {
   const bin = atob(base64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -67,6 +67,14 @@ export function r2KeyForStorageKey(key: string): string {
   // the stocks/ + options/ families above.
   if (key.startsWith("goal_screen:")) {
     return `goals/${key.slice("goal_screen:".length).replaceAll(":", "/")}`;
+  }
+  // Issue #1169 (S1): knowledge-corpus artifacts live under knowledge/,
+  // mirroring the families above. The `knowledge:` namespace is the
+  // declared key family for the corpus (approved gate G3); corpus keys
+  // are never report keys, so they never collide with the stocks/ +
+  // options/ + goals/ families.
+  if (key.startsWith("knowledge:")) {
+    return `knowledge/${key.slice("knowledge:".length).replaceAll(":", "/")}`;
   }
   return key;
 }

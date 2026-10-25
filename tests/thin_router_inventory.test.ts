@@ -13,7 +13,7 @@
  * block remains inline.
  *
  * This test pins that end state:
- *  (a) the delegation sequence (22 calls, exact order) and its guards;
+ *  (a) the delegation sequence (24 calls, exact order) and its guards;
  *  (b) the absence of any inline path-matching condition in
  *      routeRequest;
  *  (c) the non-handler logic that legitimately stays inline (the
@@ -91,6 +91,10 @@
  * 208 entries.
  * Issue #1326 added one more — GET /trading/reports/confirmations
  * (in handleReportsRoutes, after the pending list).
+ * Issue #1169 (S1) added one more — POST /knowledge/corpus (in
+ * handleKnowledgeCorpusRoutes, after the data-provider handler) —
+ * bringing the pinned array to 216 entries and the delegation
+ * sequence to 24 calls.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -109,6 +113,7 @@ const HANDLER_FILE: Record<string, string> = {
   "handleReferralsAdsRoutes": "adsRevenueReferrals.ts",
   "handleAuditRoutes": "audit.ts",
   "handleDataProviderRoutes": "dataProviders.ts",
+  "handleKnowledgeCorpusRoutes": "knowledgeCorpus.ts",
   "handleAutopilotRoutes": "autopilot.ts",
   "handleMemoryResetRoutes": "memoryReset.ts",
   "handlePaymentsRoutes": "payments.ts",
@@ -135,6 +140,7 @@ const EXPECTED_DELEGATIONS = [
   "handleAdsRevenueReferralsRoutes",
   "handleAuditRoutes",
   "handleDataProviderRoutes",
+  "handleKnowledgeCorpusRoutes",
   "handleAutopilotRoutes",
   "handleMemoryResetRoutes",
   "handleReferralsAdsRoutes",
@@ -187,6 +193,7 @@ const EXPECTED_INVENTORY = [
   "handleAuditRoutes :: endsWith(\"/audit/event\")",
   "handleDataProviderRoutes :: === \"/data-providers\"",
   "handleDataProviderRoutes :: === \"/data-providers/\"",
+  "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/corpus\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/jobs\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/state\")",
