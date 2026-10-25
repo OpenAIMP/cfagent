@@ -6,7 +6,7 @@
 **Tracking epic:** #1070
 **Agent:** #CAIO-quns (RSI-CAIO lane)
 **Date:** 2026-10-22
-**Delivery policy:** `docs/agents/gitops.md` — one issue at a time: issue → branch → PR → merge into `main` → post-merge CI verification → §15 completion report, before the next issue starts.
+**Delivery policy:** `docs/agents/gitops.md` — independent issues may proceed in parallel on separate branches; each issue follows issue → branch → PR → merge into `main` → post-merge CI verification → §15 completion report before it is Done.
 
 ## Method
 

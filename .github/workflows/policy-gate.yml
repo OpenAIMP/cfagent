@@ -21,8 +21,8 @@
 #
 # OWNER STEP: add the job name "Policy Gate" to the protectmain
 # ruleset's required checks; until then this workflow runs but does
-# not block merges. Workflow touches are never auto-merged
-# (auto-merge-trusted.yml excludes .github/workflows/).
+# not block merges. Draft and workflow-changing PRs run through the
+# same policy checks as every other PR.
 
 name: Policy Gate
 
@@ -43,7 +43,6 @@ jobs:
   policy-gate:
     name: Policy Gate
     runs-on: ubuntu-24.04
-    if: ${{ !github.event.pull_request.draft }}
     steps:
       - name: Check out PR head
         uses: actions/checkout@v4

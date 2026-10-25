@@ -98,6 +98,6 @@ Discovery finds what's setting up with no view from the user; the track-record s
 
 ## Rules
 
-- One issue at a time per gitops; merge + verify before the next.
+- Independent issues may proceed in parallel per gitops; merge + verify each issue before marking it Done.
 - Tier order is the build order; do not skip tiers.
 - Every backend change names its UX counterpart.
