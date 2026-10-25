@@ -16,6 +16,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { Button, SegmentedControl } from "./components/ui";
+import { PendingReviewQueue } from "./PendingReviewQueue";
 import { ResearchRunDetail } from "./chat/tabs/ResearchRunDetail";
 import { ResearchIdeasBrowser } from "./chat/tabs/ResearchIdeasBrowser";
 import { ResearchTrackRecord } from "./chat/tabs/ResearchTrackRecord";
@@ -192,6 +193,7 @@ export function ReportsPanel() {
         />
       ) : (
       <>
+      {!selectedReportId && <PendingReviewQueue />}
       <div className="reports-toolbar">
         <form onSubmit={handleSearch} className="reports-search">
           <input
