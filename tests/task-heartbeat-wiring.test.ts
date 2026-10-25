@@ -33,7 +33,7 @@ const screenerAgent = read("src/agents/screener-agent.ts");
 const orchestrator = read("src/agents/orchestrator.ts");
 // Issue #992 subset 2: the research-publish bodies moved to this module.
 const researchPublish = read("src/agents/orchestrator/researchPublish.ts");
-const yahooHistory = read("src/trading/yahooHistory.ts");
+const platformHistory = read("src/trading/platformHistory.ts");
 
 describe("task heartbeat wiring (#624)", () => {
   it("ResearchAgent exposes heartbeatResearchTask delegating to the ledger", () => {
@@ -72,10 +72,10 @@ describe("task heartbeat wiring (#624)", () => {
 
   it("the technicals phase reports progress into the heartbeat", () => {
     const run = region(screenerAgent, "async runScreen(");
-    // The batch progress callback passed to fetchTechnicalsBatch is the
-    // throttled heartbeat itself (positional 4th argument, yahooHistory).
+    // The batch progress callback passed to fetchPlatformTechnicalsBatch
+    // is the throttled heartbeat itself (onBatch option, platformHistory).
     expect(run).toContain("() => beat()");
-    const batch = region(yahooHistory, "fetchTechnicalsBatch(");
+    const batch = region(platformHistory, "fetchPlatformTechnicalsBatch(");
     expect(batch).toContain("onBatch?:");
     expect(batch).toContain("await onBatch(");
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { YahooDailyBar } from "../src/trading/yahooHistory";
+import type { YahooDailyBar } from "../src/trading/technicals";
 import type { BestTradePick, RankedStrategy } from "../src/trading/options/recommendationAgent";
 import type { PipelineResult } from "../src/trading/options/panelPipeline";
 import type { StrategyCandidate } from "../src/trading/options/strategyEngine";

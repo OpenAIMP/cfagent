@@ -78,7 +78,7 @@ describe("trading boundary (issue #290)", () => {
       "handleCloudflareEmailMessage",
       "handleVoiceWebSocketConnection",
       "verifySlackSignature",
-      "fetchTechnicalsBatch",
+      "fetchPlatformTechnicalsBatch",
       "resolveUniverse",
       "UNIVERSES",
       "DEFAULT_SCREENER_CONFIG",

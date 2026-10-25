@@ -155,7 +155,13 @@ async function feedYahoo(
   );
   const missing = symbols.filter((s) => !quoted.has(s.toUpperCase()));
   const { YahooFinanceProvider } = await import("./fossResearch");
-  const { yahooQuoteToPipelineQuote, fetchTechnicalsBatch } = await import("../trading");
+  const {
+    yahooQuoteToPipelineQuote,
+    bootstrapDataProviders,
+    createYahooDataProvider,
+    bindYahooHistoryDeps,
+    fetchPlatformTechnicalsBatch,
+  } = await import("../trading");
   const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
   const provider = new YahooFinanceProvider(deps.env as any);
   const gapFill = await withRetry(
@@ -166,7 +172,27 @@ async function feedYahoo(
     policy,
     { label: "shard.feed.yahoo.quotes" }
   );
-  const technicalsMap = await fetchTechnicalsBatch(symbols);
+  // Issue #1331 (fix): binding failure degrades to a null-fetching
+  // deps object, so the batch still runs and every symbol gets
+  // honest null technicals — the shard never fails on history
+  // binding alone, matching the old fetchTechnicalsBatch contract.
+  // The gap-fill quotes above stay direct: they are not yahooHistory
+  // and are out of this issue's scope (named residual).
+  let historyDeps;
+  try {
+    bootstrapDataProviders(deps.sql as any);
+    const historyAdapter = createYahooDataProvider(new YahooFinanceProvider(deps.env as any), deps.env as any, {
+      capture: { sql: deps.sql as any, blobStorage: deps.storage as any, env: deps.env as any },
+    });
+    historyDeps = bindYahooHistoryDeps(historyAdapter, {
+      runId: chain.chainId,
+      userLogin: chain.userLogin,
+    });
+  } catch (err) {
+    console.warn("[feedYahoo] History binding failed — technicals degrade to null:", err);
+    historyDeps = { fetchBars: async () => null };
+  }
+  const technicalsMap = await fetchPlatformTechnicalsBatch(historyDeps, symbols);
   return {
     gapFillQuotes: gapFill,
     technicals: [...technicalsMap.entries()].map(([symbol, t]) => ({ ...t, symbol })),
