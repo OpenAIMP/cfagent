@@ -13,8 +13,9 @@
  *  - ScreenersHub hosts Reports, Schedules, the proposal Review
  *    inbox, and the outcome Track record as tabs.
  *  - The Review inbox drives the EXISTING adaptation endpoints
- *    (evaluate / gate / approve / decide) and the goal store's
- *    proposed-only decisions; re-selection proposals are read-only.
+ *    (evaluate / gate / approve / promote / rollback) and the goal
+ *    store's proposed-only decisions; re-selection proposals are
+ *    read-only.
  *  - The Track record renders the outcome ledger honestly:
  *    Unverified stays Unverified; unknown P&L is "Not recorded".
  *  - Discovery stays server-driven: StrategyDiscoveryPanel imports
@@ -43,17 +44,24 @@ const readSrc = (rel: string) => fs.readFileSync(path.join(SRC, rel), "utf8");
 /* ------------------------------------------------------------------ */
 
 const candidate = {
-  id: "cand-1",
-  target: "strategy:iron_condor",
-  change: { action: "gate_off", description: "Gate off iron_condor below a 25% win rate" },
-  hypothesis: "Iron condor underperforms in the current regime.",
-  expectedEffect: { metric: "winRate", direction: "increase" },
-  evidenceRefs: ["track-record"],
-  provenance: { source: "track-record", id: "tr-1" },
-  status: "gated",
-  supersedesId: null,
+  id: "chl-1",
+  kind: "active_set",
+  title: "Reselection chop active set (2 strategies)",
+  regime: "chop",
+  spec: { activeStrategies: ["iron_condor", "bull_put_spread"] },
+  criteria: { minHoldoutEdge: 0.0005, minEvaluated: 1 },
+  evalSetVersion: "v2",
+  sourceProposalId: "prop-1",
+  status: "evaluated",
+  evaluation: {
+    datasetVersion: "v2",
+    evaluatedAt: "2026-10-23T04:30:00.000Z",
+    selection: { championScore: 0.1, challengerScore: 0.2, evaluated: 2 },
+    holdout: { championScore: 0.1, challengerScore: 0.2, evaluated: 2 },
+    verdict: "pass",
+  },
+  createdBy: "strategy-bank-reselection",
   createdAt: "2026-10-23T04:00:00.000Z",
-  updatedAt: "2026-10-23T04:00:00.000Z",
 };
 
 const proposedGoal = {
@@ -118,16 +126,12 @@ function stubFetch(calls: Array<{ method: string; url: string; body: any }>) {
       return jsonResponse({
         evaluations: [
           {
-            id: "eval-1",
-            candidateId: "cand-1",
-            method: "counterfactual-replay",
-            baselineMetric: 0.41,
-            candidateMetric: 0.52,
-            delta: 0.11,
-            sampleSize: 64,
-            window: {},
-            detail: {},
-            createdAt: "2026-10-23T04:30:00.000Z",
+            datasetVersion: "v2",
+            evaluatedAt: "2026-10-23T04:30:00.000Z",
+            selection: { championScore: 0.1, challengerScore: 0.2, evaluated: 2 },
+            holdout: { championScore: 0.1, challengerScore: 0.2, evaluated: 2 },
+            verdict: "pass",
+            criteria: { minHoldoutEdge: 0.0005, minEvaluated: 1 },
           },
         ],
       });
@@ -140,54 +144,53 @@ function stubFetch(calls: Array<{ method: string; url: string; body: any }>) {
       return jsonResponse({
         verdicts: [
           {
-            id: "gv-1",
-            candidateId: "cand-1",
+            id: "chl-1",
+            challengerId: "chl-1",
             passed: true,
-            reasons: ["held-out edge significant"],
-            heldOutEvaluationId: "eval-1",
-            z: 2.4,
-            pValue: 0.008,
-            approvalId: null,
-            createdAt: "2026-10-23T04:35:00.000Z",
+            reasons: ["Holdout edge 0.1000 >= minimum 0.0005.", "Holdout evaluated 2 >= minimum 1."],
+            evaluatedAt: "2026-10-23T04:30:00.000Z",
           },
         ],
       });
     }
-    if (url.includes("/api/adaptation/candidates/approve/decide")) {
-      approvals = approvals.map((a) => ({ ...a, status: body?.decision, decidedBy: "alice" }));
-      return jsonResponse({ success: true });
-    }
     if (url.includes("/api/adaptation/candidates/approve")) {
       const approval = {
         id: "appr-1",
-        candidateId: "cand-1",
-        status: "pending",
-        requestedBy: "alice",
-        decidedBy: null,
+        challengerId: "chl-1",
+        approver: "alice",
+        decision: body?.decision ?? "approved",
         createdAt: "2026-10-23T05:00:00.000Z",
-        decidedAt: null,
       };
       approvals = [approval];
-      return jsonResponse({ success: true, approval });
+      return jsonResponse({ success: true });
     }
     if (url.includes("/api/adaptation/candidates/evaluate")) {
       return jsonResponse({
         success: true,
         evaluation: {
-          method: "counterfactual-replay",
-          baselineMetric: 0.41,
-          candidateMetric: 0.52,
-          delta: 0.11,
-          sampleSize: 64,
-          detail: {},
+          datasetVersion: "v2",
+          evaluatedAt: "2026-10-23T04:30:00.000Z",
+          selection: { championScore: 0.1, challengerScore: 0.2, evaluated: 2 },
+          holdout: { championScore: 0.1, challengerScore: 0.2, evaluated: 2 },
+          verdict: "pass",
+          criteria: { minHoldoutEdge: 0.0005, minEvaluated: 1 },
         },
       });
     }
     if (url.includes("/api/adaptation/candidates/gate")) {
       return jsonResponse({
         success: true,
-        verdict: { id: "gv-1", candidateId: "cand-1", passed: true, reasons: ["held-out edge significant"], z: 2.4, pValue: 0.008 },
+        verdict: { passed: true, reasons: ["Holdout edge 0.1000 >= minimum 0.0005.", "Holdout evaluated 2 >= minimum 1."] },
       });
+    }
+    if (url.includes("/api/adaptation/candidates/generate")) {
+      return jsonResponse({ success: true, created: [candidate], skipped: [] });
+    }
+    if (url.includes("/api/adaptation/promotions/promote")) {
+      return jsonResponse({ success: true });
+    }
+    if (url.includes("/api/adaptation/promotions/rollback")) {
+      return jsonResponse({ success: true });
     }
     if (url.includes("/api/adaptation/promotions") && method === "GET") {
       return jsonResponse({ promotions: [] });
@@ -425,14 +428,14 @@ describe("C2 hub + panels (render)", () => {
     expect(container.textContent).toContain("Covered-call income on SPY");
   });
 
-  it("the review inbox shows candidates, goals, read-only re-selections, and weights", async () => {
+  it("the review inbox shows challengers, goals, read-only re-selections, and weights", async () => {
     await act(async () => {
       root.render(<ScreeningReviewPanel userLogin="alice" />);
     });
     await flush();
-    // Adaptation candidate with its hypothesis.
-    expect(container.textContent).toContain("Gate off iron_condor below a 25% win rate");
-    expect(container.textContent).toContain("Iron condor underperforms in the current regime.");
+    // Challenger with its title and spec summary.
+    expect(container.textContent).toContain("Reselection chop active set (2 strategies)");
+    expect(container.textContent).toContain("Target active set: iron_condor, bull_put_spread.");
     // Goal proposal with its scenario.
     expect(container.textContent).toContain("Covered-call income on SPY");
     expect(container.textContent).toContain("Activate goal");
@@ -446,22 +449,22 @@ describe("C2 hub + panels (render)", () => {
     expect(container.textContent).toContain("iron_condor");
   });
 
-  it("the candidate flow drives the existing endpoints: request approval → decide", async () => {
+  it("the challenger flow drives the existing endpoints: approve → promote", async () => {
     await act(async () => {
       root.render(<ScreeningReviewPanel userLogin="alice" />);
     });
     await flush();
-    await click(container, "Review candidate");
+    await click(container, "Review challenger");
     // The gate verdict (frozen evidence) is visible beside the decision controls.
-    expect(container.textContent).toContain("held-out edge significant");
-    await click(container, "Request approval");
-    const approveCall = calls.find((c) => c.url.includes("/api/adaptation/candidates/approve") && !c.url.includes("decide"));
-    expect(approveCall?.method).toBe("POST");
-    expect(approveCall?.body).toEqual({ candidateId: "cand-1" });
+    expect(container.textContent).toContain("Holdout edge 0.1000 >= minimum 0.0005.");
     await click(container, "Approve");
-    const decideCall = calls.find((c) => c.url.includes("/api/adaptation/candidates/approve/decide"));
-    expect(decideCall?.method).toBe("POST");
-    expect(decideCall?.body).toEqual({ approvalId: "appr-1", decision: "approved" });
+    const approveCall = calls.find((c) => c.url.includes("/api/adaptation/candidates/approve"));
+    expect(approveCall?.method).toBe("POST");
+    expect(approveCall?.body).toEqual({ candidateId: "chl-1", decision: "approved" });
+    await click(container, "Promote challenger");
+    const promoteCall = calls.find((c) => c.url.includes("/api/adaptation/promotions/promote"));
+    expect(promoteCall?.method).toBe("POST");
+    expect(promoteCall?.body).toEqual({ candidateId: "chl-1" });
   });
 
   it("a goal decision posts to the goal decide route", async () => {
