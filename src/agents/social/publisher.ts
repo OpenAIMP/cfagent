@@ -315,3 +315,47 @@ export function resolvePublishTarget(
   }
   return { kind: "live", def };
 }
+
+/**
+ * Platform API endpoint where posts are submitted.
+ */
+export function resolveSubmissionEndpoint(channel: string): string {
+  switch (channel.toLowerCase()) {
+    case "threads":
+      return "https://graph.threads.net/v1.0/me/threads_publish";
+    case "x":
+      return "https://api.twitter.com/2/tweets";
+    case "facebook":
+      return "https://graph.facebook.com/v21.0/me/feed";
+    case "instagram":
+      return "https://graph.instagram.com/v21.0/me/media_publish";
+    case "linkedin":
+      return "https://api.linkedin.com/v2/ugcPosts";
+    default:
+      return "";
+  }
+}
+
+/**
+ * Public web permalink where a submitted post is live.
+ */
+export function resolvePostUrl(channel: string, platformPostId?: string | null): string | null {
+  if (!platformPostId || typeof platformPostId !== "string" || !platformPostId.trim()) {
+    return null;
+  }
+  const id = platformPostId.trim();
+  switch (channel.toLowerCase()) {
+    case "threads":
+      return `https://www.threads.net/t/${encodeURIComponent(id)}`;
+    case "x":
+      return `https://x.com/i/web/status/${encodeURIComponent(id)}`;
+    case "facebook":
+      return `https://www.facebook.com/${encodeURIComponent(id)}`;
+    case "instagram":
+      return `https://www.instagram.com/p/${encodeURIComponent(id)}`;
+    case "linkedin":
+      return `https://www.linkedin.com/feed/update/${encodeURIComponent(id)}`;
+    default:
+      return null;
+  }
+}
