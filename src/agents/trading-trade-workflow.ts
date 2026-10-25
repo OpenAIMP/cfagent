@@ -76,6 +76,7 @@ export async function runTradeApprovalFlow(
         orderId: params.orderId,
         authorizerDid: decision.authorizerDid,
         decision: decision.decision,
+        expectedTerms: decision.expectedTerms,
       },
       "workflow",
     ),
