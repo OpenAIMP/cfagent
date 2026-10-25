@@ -28,12 +28,18 @@
  * the MCP command supplies NO leg executor, and every production
  * leg reports as `unimplemented` with the reason, rather than
  * inventing execution. `runChain` itself is executor-agnostic: a
- * caller that DOES supply an executor (tests, a future wiring that
- * goes through the existing execution paths) gets real per-leg
- * dispatch, a failed leg skips later legs, and a paid leg is gated
- * on the existing PaymentsAgent budget-check path — see
- * `RunChainOptions.budgetCheck`. Wiring a real executor into the
- * MCP command is a follow-up decision, not smuggled in here.
+ * caller that DOES supply an executor gets real per-leg dispatch,
+ * a failed leg skips later legs, and a paid leg is gated on the
+ * existing PaymentsAgent budget-check path — see
+ * `RunChainOptions.budgetCheck`. Lane 2 (#1523) supplies that
+ * executor as `src/agentic/chainExecutor.ts`
+ * (`createChainLegExecutor` over a caller-supplied DO/SQL runtime,
+ * wired through the governed firing path in ScheduledAgent) — the
+ * MCP command still supplies none, because the MCP context still
+ * carries no such runtime. A leg the executor cannot run in its
+ * context throws `LegNotExecutableError` and reports as
+ * `unimplemented` with the real reason; a serve leg submitted to
+ * the async-job rails reports as `submitted`, never `completed`.
  *
  * Auth: none of these tools authenticates anything. The server
  * route (`/mcp`, src/server.ts, #180) rejects callers without an
@@ -60,6 +66,10 @@ import {
   synthesizeSchedule,
   type SynthesizedSchedule,
 } from "../agentic/jobSynthesis";
+import {
+  isLegNotExecutable,
+  isSubmittedLeg,
+} from "../agentic/chainExecutor";
 import { VectorMemory } from "../memory/vector-memory";
 
 function validBudgetCents(value: unknown): value is number {
@@ -335,6 +345,7 @@ export type ChainLegStatus =
   | "failed"
   | "blocked"
   | "unimplemented"
+  | "submitted"
   | "skipped";
 
 export interface ChainLegResult {
@@ -352,8 +363,10 @@ export interface ChainRunResult {
   budgetCents: number;
   budgetCapCents: number | null;
   legs: ChainLegResult[];
-  /** True only when at least one leg actually executed. */
+  /** True only when at least one leg actually executed inline. */
   ranAnything: boolean;
+  /** True when at least one leg was submitted to the async-job rails for real execution (serve). */
+  submittedAnything: boolean;
   /** Always false: chain.run never creates a scheduled job. */
   scheduledJobCreated: false;
   /** Always false from the MCP command (no executor supplied). */
@@ -414,6 +427,7 @@ export async function runChain(
   const legs: ChainLegResult[] = [];
   let stopped = false;
   let ranAnything = false;
+  let submittedAnything = false;
   let ok = true;
   for (const step of validated.steps) {
     if (stopped) {
@@ -434,7 +448,8 @@ export async function runChain(
         status: "unimplemented",
         detail:
           `No executor callable from the MCP command context for ${step.capabilityId}; ` +
-          "existing execution rides the #1355 sharded chain / async-job path, which chain.run does not invoke.",
+          "the real executor is src/agentic/chainExecutor.ts (createChainLegExecutor over a DO/SQL runtime, " +
+          "wired through the governed firing path), which the MCP context cannot supply — it carries no DO/SQL runtime.",
       });
       continue;
     }
@@ -456,6 +471,23 @@ export async function runChain(
     }
     try {
       const result = await opts.executeLeg(step);
+      // #1523: a leg the rails will execute is `submitted`, not
+      // `completed` — submission is real work queued on the existing
+      // path, but claiming completion would be invented execution.
+      // A submitted leg does not stop later legs: the rails order
+      // serve before the deliver jobs its completion hook plans.
+      if (isSubmittedLeg(result)) {
+        submittedAnything = true;
+        legs.push({
+          stepId: step.id,
+          capabilityId: step.capabilityId,
+          stage: step.stage,
+          status: "submitted",
+          detail: result.detail,
+          result,
+        });
+        continue;
+      }
       ranAnything = true;
       legs.push({
         stepId: step.id,
@@ -466,6 +498,21 @@ export async function runChain(
         result,
       });
     } catch (err) {
+      // #1523: a leg the executor cannot run in this context is
+      // `unimplemented` with its real reason — not a failure, and
+      // it does not stop the run by itself: each later leg reports
+      // its own truth (a downstream leg with no inputs fails on
+      // its own terms, as the store/assemble gates do).
+      if (isLegNotExecutable(err)) {
+        legs.push({
+          stepId: step.id,
+          capabilityId: step.capabilityId,
+          stage: step.stage,
+          status: "unimplemented",
+          detail: err.message,
+        });
+        continue;
+      }
       ok = false;
       stopped = true;
       legs.push({
@@ -486,6 +533,7 @@ export async function runChain(
     budgetCapCents: validated.budgetCapCents,
     legs,
     ranAnything,
+    submittedAnything,
     scheduledJobCreated: false,
     paidActionPerformed: false,
     ok,
