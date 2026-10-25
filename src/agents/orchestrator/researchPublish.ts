@@ -108,9 +108,22 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
   }
   try {
     let executionPath: ResearchExecutionPath = "think";
-    const child = await ctx.runAgentTool(ResearchAgent, {
-      input: { trigger, userLogin: login },
-    });
+    // Issue #1387: a THROWN Think dispatch (e.g. the sub-agent bootstrap
+    // error when the root namespace is missing) must degrade to the
+    // direct pipeline like a non-completed status — the #543 fallback
+    // below triggers on status, never on a throw, so without this the
+    // throw fails the whole run instead of degrading it.
+    let child: { status: string; error?: string };
+    try {
+      child = await ctx.runAgentTool(ResearchAgent, {
+        input: { trigger, userLogin: login },
+      });
+    } catch (err) {
+      child = {
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
     let report = await agent.getLatest();
     if (child.status !== "completed" || !report || report.runId === previousRunId || report.trigger !== trigger || report.userLogin !== login) {
       // Keep scheduled discovery dependable if a provider cannot complete

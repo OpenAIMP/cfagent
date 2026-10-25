@@ -10,6 +10,11 @@ export interface Env {
   // wrangler.jsonc are #606).
   SESSION_STORE?: DurableObjectNamespace;
   SEARCH_AGENT: DurableObjectNamespace;
+  // Issue #1387 — OrchestratorAgent root namespace for sub-agent
+  // bootstrap (agents SDK resolves ctx.exports by constructor.name).
+  // Optional: the SDK resolves via ctx.exports, not env, so no code
+  // reads this binding yet.
+  ORCHESTRATOR_AGENT?: DurableObjectNamespace;
   // PR #3 — x402 PaymentsAgent DO (issue #161)
   PAYMENTS_AGENT: DurableObjectNamespace;
   // PR #4 — ScheduledAgent DO (issue #166)
