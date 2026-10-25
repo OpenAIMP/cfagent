@@ -46,8 +46,8 @@ import { getOpportunityScannerConfig } from "../config/etapiConfig";
 import { tagOpportunitiesWithDirection, ETradeSlackTradingService } from "../trading";
 // Issue #1291: the scheduled path's unified scan result is an
 // OpportunityScanResult, not the OptionScreenResult the workbook
-// generator reads — adapt at this seam (XLSX only; the CSV call below
-// is untouched by this slice).
+// generator reads — adapt at this seam (XLSX; #1569 applies the
+// same adapter at the CSV seam below).
 import { adaptOpportunityScanToOptionScreenResult } from "../trading";
 import type { ScanRunStore } from "../trading";
 import type { ETradeCaptureDeps } from "../trading";
@@ -1502,10 +1502,15 @@ export class ScheduledTasksService {
         console.warn("[ScheduledTasksService] Options XLSX generation/storage failed:", xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr));
       }
       // Issue #1346: generate + store the options CSV (own failure
-      // domain; recorded, never fatal).
+      // domain; recorded, never fatal). Issue #1569: the scheduled
+      // path's unified scan result is an OpportunityScanResult, not
+      // the OptionScreenResult the CSV generator reads — adapt at
+      // this seam with the same #1291 adapter as the XLSX call above.
       try {
         const screenerAgent = this.getScreenerAgent(userLogin);
-        const stored = await (screenerAgent as any).generateAndStoreOptionsCsv(response.data);
+        const stored = await (screenerAgent as any).generateAndStoreOptionsCsv(
+          adaptOpportunityScanToOptionScreenResult(response.data),
+        );
         optionsCsvKey = stored.key;
         optionsCsvFile = stored.fileName;
         const data = await (screenerAgent as any).getOptionsCsvByKey(stored.key);
