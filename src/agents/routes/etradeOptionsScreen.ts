@@ -16,6 +16,7 @@ import { unauthenticatedResponse } from "./routeIdentity";
 import {
   DynamicOptionsScreener,
   UnifiedOptionsService,
+  adaptOpportunityScanToOptionScreenResult,
   SqlScanRunStore,
   SqlStrategyProfileStore,
   buildCalibratedOptionChains,
@@ -404,9 +405,13 @@ export async function executeUnifiedOptions(args: {
     }
 
     // Issue #1195 (#1173 R3b): XLSX from the same result payload.
+    // Issue #1570: the unified opportunities payload is an
+    // OpportunityScanResult, not the OptionScreenResult the workbook
+    // generator reads — adapt at this seam with the #1291 adapter
+    // (XLSX only; the CSV call below is untouched by this slice).
     try {
       const agent = ctx.getScreenerAgent(userLogin);
-      const stored = await agent.generateAndStoreOptionsXlsx(result.data);
+      const stored = await agent.generateAndStoreOptionsXlsx(adaptOpportunityScanToOptionScreenResult(result.data));
       scannerXlsxKey = stored.key;
       scannerXlsxFileName = stored.fileName;
       scannerXlsxUrl = `/api/options/report.xlsx?key=${encodeURIComponent(stored.key)}`;

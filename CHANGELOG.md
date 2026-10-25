@@ -31,6 +31,7 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Unified-route XLSX built from the right result shape (#1570):** the unified opportunities route now adapts the `OpportunityScanResult` to the workbook's `OptionScreenResult` input with the #1291 adapter before generating, so workbooks from the unified route show populated contract rows and summary counts instead of "(no contracts matched)" and empty fields on good runs. The :148 manual route (true `OptionScreenResult`) and the scheduled path (fixed by #1291) are unchanged. Pinned by `tests/unified_route_xlsx_shape_1570.test.ts`. #CTO-mbshr
 - **E*TRADE option scan Worker subrequest budget (#1545):** count every actual option-chain and expiration Fetch attempt, including fallback requests, against a 35-request default budget under Workers Free’s 50 external-subrequest cap; bound cold event-calendar fan-out to five live symbol lookups per scan and preserve cache hits, leaving headroom for listings and other calls. Deferred symbols remain eligible for a later run. #CTO-mbshr
 
 - **Scheduled options CSV built from the right result shape (#1569, twin of #1291):** the scheduled path now adapts the `OpportunityScanResult` to the CSV generator's `OptionScreenResult` input with the same #1291 adapter as the XLSX seam, so scheduled CSVs carry data rows instead of headers only on good runs; the adapted `scannedAt` drives the filename date. Manual-shaped input passes through unchanged. Pinned by `tests/scheduled_options_csv_shape_1569.test.ts`. #CTO-mbshr
