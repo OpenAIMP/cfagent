@@ -14,7 +14,12 @@ import {
   KNOWN_SOCIAL_CHANNELS,
   parseSocialConfig,
 } from "./agents/social/config";
-import { createMemoryDryRunSink } from "./agents/social/publisher";
+import {
+  createMemoryDryRunSink,
+  resolvePostUrl,
+  resolveSubmissionEndpoint,
+} from "./agents/social/publisher";
+import { createFetchSocialTransport } from "./agents/social/liveTransport";
 import { approveAndPublish, rejectSocialDraft } from "./agents/social/approvalActions";
 import {
   handleSocialSlackInteraction,
@@ -997,7 +1002,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         },
         store: stores.ledger,
         approvals: stores.approvals,
-        transport: undefined,
+        transport: createFetchSocialTransport(),
         dryRunSink: createMemoryDryRunSink(),
         nowMs: Date.now(),
         date,
@@ -1014,6 +1019,44 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         channel,
         publish: approved.channelResult,
       });
+    }
+
+    // Issue #1391: list posts / drafts for date, including submitted platform URLs
+    if (path === "/api/social/posts") {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      if (request.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+      const stores = createSocialStoresFromNamespace(
+        (env as unknown as { SESSION_STORE?: DoNamespaceLike }).SESSION_STORE ?? null,
+      );
+      if (!stores) {
+        return Response.json({ error: "Social stores unavailable." }, { status: 500 });
+      }
+      const rawDate = new URL(request.url).searchParams.get("date");
+      const date = rawDate ?? zonedDateParts(Date.now(), "America/New_York").date;
+      if (!isBriefDate(date)) {
+        return Response.json({ error: "date must be YYYY-MM-DD." }, { status: 400 });
+      }
+      try {
+        const drafts = await stores.ledger.listDrafts(date);
+        const posts = drafts.map((draft) => ({
+          channel: draft.channel,
+          draftId: draft.id,
+          date: draft.date,
+          status: draft.status,
+          text: draft.text,
+          platformPostId: draft.platformPostId ?? null,
+          submissionEndpoint: resolveSubmissionEndpoint(draft.channel),
+          postUrl: resolvePostUrl(draft.channel, draft.platformPostId),
+          createdAtMs: draft.createdAtMs,
+          approval: draft.approval,
+        }));
+        return Response.json({ ok: true, date, posts });
+      } catch {
+        return Response.json({ error: "Social stores unavailable." }, { status: 500 });
+      }
     }
 
     // #1077 token-health slice (#1160) — token presence + validity probe.
