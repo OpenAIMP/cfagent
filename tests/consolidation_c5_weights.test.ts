@@ -15,6 +15,11 @@
  *   flag setting is a no-op. The v1 module itself stays until the
  *   retirement PR (stagedPromotion still reads v1 for promotion
  *   baselines).
+ * - NOTE (#1257 challenger re-point): the counterfactual-replay
+ *   POST /adaptation/candidates/evaluate route this file once pinned
+ *   is retired — evaluation is now frozen-set challenger evaluation
+ *   (see tests/adaptation_challenger_routes.test.ts). The replay
+ *   helpers stay in candidateEvaluation.ts until the retirement PR.
  */
 import { describe, it, expect, vi } from "vitest";
 import {
@@ -173,59 +178,4 @@ describe("/adaptation/weights on v2 always (#1257 flip)", () => {
     expect(forced.data.skipped).toBeUndefined();
   });
 
-  it("evaluate replays against collapsed v2 weights with no flag set", async () => {
-    const { ctx, orm, sql, agent } = routeCtx();
-    // v2: Fine at 1.4 (single regime → collapsed 1.4). v1 distractor: 9.9.
-    (sql as any).tables.set("mas_strategy_weights_v2", [
-      { strategy: "Fine", regime: "bull", weight: 1.4, version: 1, updated_at: NOW.toISOString() },
-    ]);
-    setStrategyWeight(orm as any, "Fine", 9.9, NOW);
-    (sql as any).tables.set("mas_improvement_candidates", [
-      {
-        id: "cand_cap",
-        target: "strategy-weight-cap:Fine",
-        change_json: JSON.stringify({ action: "raise-weight-cap", parameter: "weightCap", from: 2.0, to: 2.5, description: "Raise Fine cap." }),
-        hypothesis: "Fine wins more at a higher cap.",
-        expected_metric: "weightedWinRate",
-        expected_direction: "increase",
-        evidence_refs: "[]",
-        provenance_source: "track-record",
-        provenance_id: "Fine",
-        status: "queued",
-        supersedes_id: null,
-        created_at: NOW.toISOString(),
-        updated_at: NOW.toISOString(),
-      },
-    ]);
-    // 10 Fine ideas (6 wins) + 10 Other ideas (5 wins), all evaluated.
-    const ideas: any[] = [];
-    for (let i = 0; i < 10; i++) {
-      ideas.push({
-        runId: "run_2026-10", runCreatedAt: "2026-10-20T00:00:00.000Z", symbol: `F${i}`,
-        structure: "Fine", outlook: "bullish", thesis: "t", invalidation: "", entrySpot: 100,
-        evaluation: { evaluatedAt: "2026-10-20T00:00:00.000Z", invalidated: false, pnlEstimatePerUnit: i < 6 ? 1 : -1, rMultiple: null, evalSpot: 101, directionCorrect: i < 6, notes: [] },
-      });
-    }
-    for (let i = 0; i < 10; i++) {
-      ideas.push({
-        runId: "run_2026-10", runCreatedAt: "2026-10-20T00:00:00.000Z", symbol: `O${i}`,
-        structure: "Other", outlook: "bullish", thesis: "t", invalidation: "", entrySpot: 100,
-        evaluation: { evaluatedAt: "2026-10-20T00:00:00.000Z", invalidated: false, pnlEstimatePerUnit: i < 5 ? 1 : -1, rMultiple: null, evalSpot: 101, directionCorrect: i < 5, notes: [] },
-      });
-    }
-    (agent.getTrackRecord as any).mockResolvedValue({
-      published: 20, evaluated: 20, invalidated: 0, winRate: 0.55,
-      directionAccuracy: null, avgPnlPerUnit: null, avgRMultiple: null,
-      byStrategy: [], byPeriod: [], ideas,
-    });
-    const { data } = await call(ctx, "POST", "/api/adaptation/candidates/evaluate", { candidateId: "cand_cap" });
-    expect(data.success).toBe(true);
-    expect(data.evaluation.method).toBe("counterfactual-replay");
-    // v2 baseline: Fine at min(1.4, 2.0) = 1.4, Other at default 1.0:
-    // (1.4*6 + 1.0*5) / (1.4*10 + 1.0*10) = 13.4/24. v1 would give
-    // Fine at min(9.9, 2.0) = 2.0 → 17/30. The baseline pins the source.
-    expect(data.evaluation.baselineMetric).toBeCloseTo(13.4 / 24, 10);
-    expect(data.evaluation.candidateMetric).toBeCloseTo(20 / 35, 10);
-    expect(data.evaluation.sampleSize).toBe(20);
-  });
 });
