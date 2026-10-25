@@ -541,17 +541,123 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
       };
       const b64Proof = Buffer.from(JSON.stringify(proof)).toString("base64");
 
-      const paidRes = await cmd.execute({ symbol: "NVDA", paymentSignature: b64Proof }, {
-        env: mockEnv,
-        orm,
-        sessionId: "mcp_client",
-        audit: vi.fn(),
+      // #923: the paid report is built from live FOSS data — the old
+      // test passed only because the provider served fallback profiles
+      // with no network. Stub realistic live Yahoo payloads (chart for
+      // quote + bars, crumb + quoteSummary for fundamentals) so the
+      // paid path still exercises a real live report.
+      const closes = Array.from({ length: 30 }, (_, i) => 170 + i);
+      const timestamps = closes.map((_, i) => 1767225600 + i * 86400);
+      const jsonRes = (body: unknown) => ({
+        ok: true,
+        status: 200,
+        json: async () => body,
+        text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
+        headers: { get: (h: string) => (h === "set-cookie" ? "A1=dummy; path=/" : null) },
       });
+      // Exact-hostname check (CodeQL js/incomplete-url-substring-sanitization).
+      const isFcYahoo = (u: string) => {
+        try {
+          return new URL(u).hostname === "fc.yahoo.com";
+        } catch {
+          return false;
+        }
+      };
+      vi.stubGlobal("fetch", vi.fn(async (input: any) => {
+        const url = String(input);
+        if (isFcYahoo(url)) return jsonRes({});
+        if (url.includes("getcrumb")) return jsonRes("dummy-crumb");
+        if (url.includes("/v10/finance/quoteSummary/")) {
+          return jsonRes({
+            quoteSummary: {
+              result: [
+                {
+                  price: { longName: "NVIDIA Corporation", marketCap: { raw: 3e12 } },
+                  summaryDetail: {
+                    trailingPE: { raw: 50 },
+                    forwardPE: { raw: 40 },
+                    marketCap: { raw: 3e12 },
+                    fiftyTwoWeekHigh: { raw: 210 },
+                    fiftyTwoWeekLow: { raw: 100 },
+                    dividendYield: { raw: 0.001 },
+                  },
+                  defaultKeyStatistics: {
+                    enterpriseValue: { raw: 3.1e12 },
+                    pegRatio: { raw: 1.1 },
+                    priceToBook: { raw: 40 },
+                    beta: { raw: 1.7 },
+                  },
+                  financialData: {
+                    targetMeanPrice: { raw: 220 },
+                    targetHighPrice: { raw: 260 },
+                    targetLowPrice: { raw: 170 },
+                    recommendationKey: "strong_buy",
+                    recommendationMean: { raw: 1.4 },
+                    numberOfAnalystOpinions: { raw: 42 },
+                    profitMargins: { raw: 0.55 },
+                    operatingMargins: { raw: 0.6 },
+                    returnOnEquity: { raw: 1.1 },
+                    totalRevenue: { raw: 1.3e11 },
+                    grossProfits: { raw: 9e10 },
+                    ebitda: { raw: 8e10 },
+                    freeCashflow: { raw: 6e10 },
+                  },
+                },
+              ],
+            },
+          });
+        }
+        return jsonRes({
+          chart: {
+            result: [
+              {
+                meta: {
+                  symbol: "NVDA",
+                  longName: "NVIDIA Corporation",
+                  currency: "USD",
+                  regularMarketPrice: 199,
+                  regularMarketPreviousClose: 198,
+                  chartPreviousClose: 198,
+                  regularMarketVolume: 1234567,
+                  regularMarketDayHigh: 201,
+                  regularMarketDayLow: 197,
+                  fiftyTwoWeekHigh: 210,
+                  fiftyTwoWeekLow: 100,
+                  bid: 198.9,
+                  ask: 199.1,
+                },
+                timestamp: timestamps,
+                indicators: {
+                  quote: [
+                    {
+                      close: closes,
+                      open: closes,
+                      high: closes,
+                      low: closes,
+                      volume: closes.map(() => 1000),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        });
+      }));
+      try {
+        const paidRes = await cmd.execute({ symbol: "NVDA", paymentSignature: b64Proof }, {
+          env: mockEnv,
+          orm,
+          sessionId: "mcp_client",
+          audit: vi.fn(),
+        });
 
-      expect(paidRes.status).toBe(200);
-      expect(paidRes.paid).toBe(true);
-      expect(paidRes.report).toBeDefined();
-      expect(paidRes.report.symbol).toBe("NVDA");
+        expect(paidRes.status).toBe(200);
+        expect(paidRes.paid).toBe(true);
+        expect(paidRes.report).toBeDefined();
+        expect(paidRes.report.symbol).toBe("NVDA");
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it("AgenticWalletStatusCommand returns wallet status and transaction aggregates", async () => {
