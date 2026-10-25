@@ -44,13 +44,15 @@ import {
 } from "../trading";
 import { YahooFinanceProvider } from "../services/fossResearch";
 import {
-  bindETradeScreenerDeps,
+  bindEtradeQuoteDeps,
   bindNasdaqUniverseDeps,
   bindYahooScreenerDeps,
   bootstrapDataProviders,
+  createETradeDataProvider,
   createNasdaqDataProvider,
   createYahooDataProvider,
   DataProviderRegistry,
+  etradeQuoteProviderFromRoute,
   fetchPlatformTechnicalsBatch,
   getProviderConfig,
   listCapabilityRoutes,
@@ -622,30 +624,45 @@ export class ScreenerAgent extends Agent<Env> {
       const { QuoteTrace } = await import("../trading");
       const quoteTrace = new QuoteTrace();
       quoteTrace.setNasdaqSymbols(selectedSymbols.map(s => typeof s === 'string' ? s : s.symbol));
-      // Issue #1157 (E2): E*TRADE-provider runs acquire through the
-      // data-provider platform: bootstrap this DO's platform store
-      // (seed + enable etrade), mint the run id, and bind the live
-      // deps to the adapter (batch via getQuotesBatch, per-symbol
-      // via getQuote — the QuoteTrace rides along unchanged). The
-      // pipeline consumes the same LiveScreenerDeps signatures as
-      // the direct bindings they replace; non-E*TRADE modes are
-      // untouched. (The deps type is taken from the binding helper's
-      // return — the #290 boundary keeps trading-internal type paths
-      // out of this module; only the barrel is imported.)
-      let platformLiveDeps: ReturnType<typeof bindETradeScreenerDeps> | undefined;
+      // Issue #1356: E*TRADE-provider runs acquire through the
+      // platform quote seam (replacing the E2 LiveScreenerDeps
+      // binding): bootstrap this DO's platform store (seed +
+      // enable etrade — no separate verify→enable step, unlike the
+      // nasdaq/yahoo blocks), mint the run id, construct the
+      // adapter over the session-scoped ETradeService (D2: the
+      // from-env fallback login is not equivalent to this
+      // construction, so the service stays the adapter's fetcher),
+      // resolve the quotes route's etrade primary, and
+      // bind the pipeline deps over it (batch via getQuotesBatch,
+      // per-symbol via getQuote — the QuoteTrace rides along
+      // unchanged through the adapter options, capture + outcome
+      // tracking under the run id). Non-E*TRADE modes are
+      // untouched. (The deps type is taken from the binding
+      // helper's return — the #290 boundary keeps trading-internal
+      // type paths out of this module; only the barrel is imported.)
+      let platformQuoteDeps: ReturnType<typeof bindEtradeQuoteDeps> | undefined;
       if (etrade) {
         bootstrapDataProviders(this.ctx.storage.sql);
         platformRunId ??= crypto.randomUUID();
-        platformLiveDeps = bindETradeScreenerDeps(
-          etrade,
-          {
+        const etradeAdapter = createETradeDataProvider(etrade, {
+          capture: {
             sql: this.ctx.storage.sql,
             blobStorage: this.ctx.storage,
             env: this.env,
           },
-          { runId: platformRunId, userLogin },
-          quoteTrace
+          trace: quoteTrace,
+        });
+        const etradeRegistry = new DataProviderRegistry();
+        etradeRegistry.register(etradeAdapter);
+        const etradeProvider = etradeQuoteProviderFromRoute(
+          etradeRegistry,
+          listProviderConfigs(this.ctx.storage.sql),
+          listCapabilityRoutes(this.ctx.storage.sql)
         );
+        platformQuoteDeps = bindEtradeQuoteDeps(etradeProvider, {
+          runId: platformRunId,
+          userLogin,
+        });
       }
       // Issue #1317: Yahoo-provider runs acquire through the
       // data-provider platform, mirroring the E2 etrade cutover:
@@ -725,7 +742,7 @@ export class ScreenerAgent extends Agent<Env> {
             mode: "etrade-only",
             symbols: selectedSymbols,
             maxSymbols: selectedSymbols.length,
-            liveDeps: platformLiveDeps!,
+            quoteDeps: platformQuoteDeps!,
           });
       await beat();
       const screenResult = screenUniverse(screener, acquired, {

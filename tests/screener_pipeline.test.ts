@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   acquireUniverse,
+  bindLiveQuotesQuoteDeps,
   screenUniverse,
   toScannedStock,
   toOpportunityStock,
@@ -188,31 +189,69 @@ describe("screenerPipeline — acquireUniverse live-quotes", () => {
     vi.restoreAllMocks();
   });
 
-  it("acquires via E*TRADE-primary with Nasdaq fallback", async () => {
+  it("acquires via E*TRADE-primary with Yahoo gap-fill (#1356)", async () => {
     const screener = new DynamicMarketScreener();
     const listings = [
       { symbol: "NVDA", companyName: "NVIDIA Corp", exchange: "NASDAQ", lastPrice: 100, change: 1, changePercent: 1, marketCap: 1e12 },
       { symbol: "AAPL", companyName: "Apple Inc", exchange: "NASDAQ", lastPrice: 200, change: 2, changePercent: 1, marketCap: 2e12 },
     ] as any[];
-    const liveDeps = {
-      fetchETradeQuote: vi.fn(async (sym: string) => {
-        if (sym === "NVDA") return makeQuote({ symbol: "NVDA" });
+    // #1356: the Nasdaq-listing DELAYED fallback is replaced by Yahoo
+    // gap-fill composition — the leg now consumes a composed
+    // QuoteScreenerDeps, not a broker-shaped liveDeps fixture.
+    const etradeProvider = {
+      id: "etrade",
+      capabilities: ["quotes"],
+      getQuote: vi.fn(async (sym: string) => {
+        if (sym === "NVDA") return { providerId: "etrade", capability: "quotes", result: makeQuote({ symbol: "NVDA" }) };
         throw new Error("E*TRADE unavailable");
       }),
     };
+    const yahooProvider = {
+      id: "yahoo",
+      capabilities: ["quotes"],
+      getQuote: vi.fn(async (sym: string) => ({
+        providerId: "yahoo",
+        capability: "quotes",
+        result: {
+          symbol: sym,
+          provider: "yfinance",
+          provenance: "live",
+          companyName: "Apple Inc",
+          price: 200,
+          lastPrice: 200,
+          change: 2,
+          changePercent: 1,
+          bid: 199.95,
+          ask: 200.05,
+          volume: 1000,
+          open: 200,
+          high: 200,
+          low: 200,
+          previousClose: 198,
+          timestamp: "2026-10-25T00:00:00.000Z",
+          currency: "USD",
+        },
+      })),
+    };
+    const quoteDeps = bindLiveQuotesQuoteDeps(
+      etradeProvider as any,
+      yahooProvider as any,
+      { runId: "run-test", userLogin: "trader1" }
+    );
     // Mock the symbol source via the symbols option (avoids live network).
     const acquired = await acquireUniverse({
       mode: "live-quotes",
       symbols: listings,
       maxSymbols: 50,
-      liveDeps,
+      quoteDeps,
     });
     expect(acquired.quotes.length).toBe(2);
     expect(acquired.discovery.mode).toBe("live_quotes");
-    // NVDA via E*TRADE, AAPL via Nasdaq fallback
+    // NVDA via E*TRADE, AAPL via Yahoo gap-fill (no Nasdaq rows).
     const bySym = new Map(acquired.quotes.map((q) => [q.symbol, q]));
     expect(bySym.get("NVDA")?.source).toBe("E*TRADE live");
-    expect(bySym.get("AAPL")?.source).toContain("Nasdaq");
+    expect(bySym.get("AAPL")?.source).toBe("Yahoo Finance");
+    expect(acquired.quotes.every((q) => !String(q.source).includes("Nasdaq"))).toBe(true);
     expect(screener).toBeTruthy();
   });
 
@@ -221,7 +260,7 @@ describe("screenerPipeline — acquireUniverse live-quotes", () => {
     const acquired = await acquireUniverse({
       mode: "live-quotes",
       symbols: [],
-      liveDeps: { fetchETradeQuote: vi.fn(async () => null) },
+      quoteDeps: { fetchQuote: vi.fn(async () => null) },
     });
     const result = screenUniverse(screener, acquired, {});
     expect(result.totalScanned).toBe(0);
@@ -235,8 +274,8 @@ describe("screenerPipeline — acquireUniverse live-quotes", () => {
         { symbol: "NVDA", companyName: "NVIDIA", exchange: "NASDAQ" },
         { symbol: "AAPL", companyName: "Apple", exchange: "NASDAQ" },
       ] as any,
-      liveDeps: {
-        fetchETradeQuote: async () => { throw new Error("E*TRADE Session Expired [HTTP 401]"); },
+      quoteDeps: {
+        fetchQuote: async () => { throw new Error("E*TRADE Session Expired [HTTP 401]"); },
       },
     })).rejects.toThrow("E*TRADE connection expired. Please reconnect your account in Settings.");
   });
@@ -249,8 +288,8 @@ describe("screenerPipeline — acquireUniverse live-quotes", () => {
         { symbol: "AAPL", companyName: "Apple", exchange: "NASDAQ" },
         { symbol: "MSFT", companyName: "Microsoft", exchange: "NASDAQ" },
       ] as any,
-      liveDeps: {
-        fetchETradeQuote: async (sym: string) => {
+      quoteDeps: {
+        fetchQuote: async (sym: string) => {
           if (sym === "AAPL") throw new Error("E*TRADE Quote API Error [HTTP 500]");
           return makeQuote({ symbol: sym });
         },
@@ -275,8 +314,8 @@ describe("screenerPipeline — acquireUniverse live-quotes", () => {
       symbols: [
         { symbol: "NVDA", companyName: "NVIDIA", exchange: "NASDAQ" },
       ] as any,
-      liveDeps: {
-        fetchETradeQuote: async (sym: string) => makeQuote({ symbol: sym }),
+      quoteDeps: {
+        fetchQuote: async (sym: string) => makeQuote({ symbol: sym }),
       },
     });
     expect(acquired.quotes.length).toBe(1);
@@ -311,7 +350,7 @@ describe("screenerPipeline — E*TRADE batch quote acquisition (#495)", () => {
       symbols: listed(symbols),
       maxSymbols: 0,
       config: configWith({ quoteBatchSize: 50 }),
-      liveDeps: { fetchETradeQuote: single, fetchETradeQuotes: batch },
+      quoteDeps: { fetchQuote: single, fetchQuotes: batch },
     });
 
     // 60 symbols = 50 + 10: two broker calls, zero per-symbol calls.
@@ -333,7 +372,7 @@ describe("screenerPipeline — E*TRADE batch quote acquisition (#495)", () => {
       mode: "etrade-only",
       symbols: listed(["AAA", "BBB", "CCC"]),
       maxSymbols: 0,
-      liveDeps: { fetchETradeQuote: single, fetchETradeQuotes: batch },
+      quoteDeps: { fetchQuote: single, fetchQuotes: batch },
     });
 
     expect(single).toHaveBeenCalledWith("BBB");
@@ -354,7 +393,7 @@ describe("screenerPipeline — E*TRADE batch quote acquisition (#495)", () => {
       // Spent retry budget: the omission is reported as a broker omission
       // instead of being retried again.
       config: configWith({ maxIndividualQuoteRetries: 0 }),
-      liveDeps: { fetchETradeQuote: single, fetchETradeQuotes: batch },
+      quoteDeps: { fetchQuote: single, fetchQuotes: batch },
     });
 
     expect(single).not.toHaveBeenCalled();
@@ -375,7 +414,7 @@ describe("screenerPipeline — E*TRADE batch quote acquisition (#495)", () => {
       symbols: listed(symbols),
       maxSymbols: 0,
       config: configWith({ maxIndividualQuoteRetries: 3 }),
-      liveDeps: { fetchETradeQuote: single, fetchETradeQuotes: batch },
+      quoteDeps: { fetchQuote: single, fetchQuotes: batch },
     });
 
     expect(batch).toHaveBeenCalledTimes(1);
