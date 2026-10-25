@@ -203,6 +203,22 @@ Epic/feature:
 Architecture decisions:
 ```
 
+### Required issue metadata
+
+The issue body template is not enough — every issue must also have its sidebar fields deliberately set at creation. No field may sit at its empty default (`No labels`, `No projects`, `No milestone`, `None yet`) without a recorded reason in the issue body:
+
+- **Assignees** — the creating agent assigns the issue to itself in the assignee field. An unassigned issue has no owner.
+- **Labels** — at least one applicable label, including the lane label (`lane:<lane>`). Labels are how lanes, types, and CI failures are found.
+- **Projects** — link the applicable project. If no project applies, record that in Traceability.
+- **Milestone** — set the target milestone. If none applies, record that in Traceability.
+- **Relationships** — link the parent epic, sub-issues, and blocked-by/blocking issues where they exist. A related issue with no recorded relationship is invisible to sequencing.
+- **Development** — link the branch and pull request once they exist (a PR body `Closes #N` links automatically). An issue with no linked development has no delivery path.
+- **Notifications** — the author stays subscribed to the issue thread while it is open. Unsubscribing from an issue you own breaks the feedback loop.
+
+Collaboration: when a change requires creating or updating a shared capability that belongs to another agent's lane, do not fold it into your own issue. Create a separate issue for that agent and assign it to them in the assignee field, with the `## Agent` hashtag naming their lane. Your issue carries your part; their issue carries theirs. Cross-lane work with no separately assigned issue is unowned work.
+
+Update these fields as the issue evolves — a label, milestone, or relationship that goes stale is the same defect as a stale body.
+
 ### Scope discipline
 
 - Keep issues small enough for focused review.
@@ -967,6 +983,7 @@ The Risks and limitations section MUST state known test-coverage gaps for the ch
 [ ] Refactor and rerun tests
 [ ] Review diff and security implications
 [ ] Push and open PR with required authorization
+[ ] Agents must continue to work in parallel while CI/CD does its job — start the next independent issue (§20), never idle waiting for checks
 [ ] Resolve review and CI failures
 [ ] Synchronize or use merge queue as configured
 [ ] Obtain merge authorization
@@ -976,7 +993,7 @@ The Risks and limitations section MUST state known test-coverage gaps for the ch
 [ ] Confirm §18/§19 regression coverage (pins bite-proofed; detection covers the changed surface; fix + coverage where a defect was fixed)
 [ ] Update issue and completion evidence
 [ ] Synchronize local main
-[ ] Only now begin the next issue
+[ ] Only now begin the next dependent issue (independent issues already started in parallel under §20)
 ```
 
 ## 17. Post-merge verification discipline
@@ -1288,6 +1305,63 @@ not just visible in prose.
   label is its author's lane, not its reviewer's.
 - Backfill record (2026-10-24): 311 of 1,358 items carried a body hashtag
   and were labeled; 1,047 stay unlabeled by this rule, not by omission.
+
+## 22. Enforcement: policy lives in GitHub, not in agent instructions
+
+AGENTS.md and this document state policy; they cannot enforce it.
+An agent can ignore a document, and every lane works through the
+same OpenAIMP account, so GitHub identity alone cannot tell lanes
+apart. Enforcement therefore lives in repository settings and
+required checks, with documents as the specification those checks
+implement.
+
+- **Ruleset (owner-side setting, §19.4).** `main` must be protected
+  by a ruleset that blocks direct pushes, force pushes, and
+  deletions, requires a pull request, requires branches to be up to
+  date, requires the CI/test/build and secret-scanning checks, and
+  runs the merge queue. The bypass list must be empty, except for
+  a documented owner emergency path: an owner bypass is permitted
+  only when it files a restore issue in the same action (§18.1
+  emergency exception), and the bypass is recorded in the ruleset
+  audit log for review. A bypass list that silently includes the
+  owner account is an enforcement hole, not an emergency path.
+- **Policy gate (required check).** `.github/workflows/policy-gate.yml`
+  ("Policy Gate") fails any PR missing a linked issue, a §21 lane
+  label, an agent hashtag, or a CHANGELOG entry under
+  `## [Unreleased]`. The owner must add "Policy Gate" to the
+  ruleset's required checks; until then the workflow runs but does
+  not block merges, and that state must be reported, not described
+  as covered.
+- **Gate protection.** `.github/CODEOWNERS` requires owner review
+  for `.github/workflows/*`, `docs/agents/gitops.md`, and `AGENTS.md`,
+  and the ruleset must enable "Require review from Code Owners".
+  A lane must not be able to weaken the gate in its own PR.
+  PRs touching `.github/workflows/` are never auto-merged
+  (auto-merge-trusted.yml excludes them); they need a human merge.
+- **Detection backstop.** `.github/workflows/main-audit.yml`
+  ("Main Audit", daily + workflow_dispatch) checks every new main
+  commit for an associated merged PR and, on a direct-push commit,
+  files an `[audit] Direct push to main detected` issue naming SHA,
+  author, and committer, and fails the run. It is read-only except
+  for that filing: it never pushes, merges, or reverts. A direct
+  push it finds is reported for a human repair decision, not
+  auto-repaired.
+- **Attribution.** Lane attribution is the §21 lane label plus the
+  agent hashtag in the PR body — not the GitHub user, which is
+  OpenAIMP for every lane. A PR with no label and no hashtag is
+  unattributable, and the policy gate fails it on that ground.
+- **Correction of record (2026-10-25).** Jules did NOT push directly
+  to main. The six cited Jules commits landed via merged PRs
+  (#1006, #1021, #1028, #1061, #1137), each with zero labels and
+  no agent hashtag, #1137 with zero issue refs. The enforcement
+  gap was therefore missing gates and shared-account attribution,
+  not a bypassed branch rule — and this section closes the gate
+  gap, not an imagined push gap. Direct-push detection remains a
+  backstop for genuine direct pushes, whatever their source.
+- **Out of scope for this section.** Lane identity separation
+  (separate GitHub Apps/accounts per lane), Jules access changes,
+  and cfpay branch protection are owner-side actions, tracked
+  separately; this section does not claim them as done.
 
 ***
 ## Instruction to add to `AGENTS.md`

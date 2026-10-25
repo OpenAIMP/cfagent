@@ -89,6 +89,8 @@
  * (drain gate), POST /adaptation/promotions/promote, and POST
  * /adaptation/promotions/rollback — bringing the pinned array to
  * 208 entries.
+ * Issue #1326 added one more — GET /trading/reports/confirmations
+ * (in handleReportsRoutes, after the pending list).
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -152,6 +154,7 @@ const EXPECTED_DELEGATIONS = [
 
 const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: endsWith(\"/trading/reports/pending\")",
+  "handleReportsRoutes :: endsWith(\"/trading/reports/confirmations\")",
   "handleReportsRoutes :: endsWith(\"/trading/settings/report-dispatch-hitl\")",
   "handleReportsRoutes :: endsWith(\"/trading/settings/report-dispatch-hitl\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/confirm\")",

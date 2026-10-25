@@ -211,6 +211,61 @@ export async function handleReportsRoutes(
     }
   }
 
+  // Issue #1326: confirmations for ONE run, joined exactly — the run's
+  // canonical mas_reports row (run_id = `screener:<timestamp>`) → its id
+  // → mas_report_confirmations rows for that report. Summaries only;
+  // payload bytes stay server-side until decided, as in the pending list.
+  // A run with no canonical row returns an empty list, not an error:
+  // pre-canonical runs have no delivery record to link.
+  if (path.endsWith("/trading/reports/confirmations") && request.method === "GET") {
+    try {
+      const runId = url.searchParams.get("runId");
+      if (!runId) {
+        return Response.json({ error: "runId is required." }, { status: 400 });
+      }
+      const sql = ctx.ensureTables();
+      const reports = Array.from(
+        sql.exec("SELECT id FROM mas_reports WHERE run_id = ?", runId)
+      ) as any[];
+      if (reports.length === 0) {
+        return Response.json({ confirmations: [] });
+      }
+      const reportId = String(reports[0].id);
+      const rows = Array.from(
+        sql.exec(
+          "SELECT id, kind, status, created_at, decided_at, decided_by, payload_json FROM mas_report_confirmations WHERE report_id = ? ORDER BY created_at DESC",
+          reportId
+        )
+      ) as any[];
+      return Response.json({
+        confirmations: rows.map((row) => {
+          let payload: any = {};
+          try {
+            payload = JSON.parse(String(row.payload_json));
+          } catch {
+            payload = {};
+          }
+          const sheetCount =
+            (payload.sheets || []).length || payload.sheetCount || 0;
+          return {
+            confirmationId: String(row.id),
+            kind: String(row.kind),
+            status: String(row.status),
+            createdAt: String(row.created_at),
+            decidedAt: row.decided_at ? String(row.decided_at) : null,
+            decidedBy: row.decided_by ? String(row.decided_by) : null,
+            detail:
+              row.kind === "email"
+                ? `${payload.recipient || "?"} · ${payload.fileName || "?"}`
+                : `${payload.title || "Research report"} · ${sheetCount} sheets`,
+          };
+        }),
+      });
+    } catch (err) {
+      return Response.json({ error: "Failed to list run confirmations." }, { status: 500 });
+    }
+  }
+
   // Issue #277: server-side setting for HITL confirmation on report
   // dispatch. Default ON (#1144) — held for confirmation unless the
   // setting explicitly opts out.
