@@ -305,7 +305,7 @@ describe("S3 (b) — FOSS route persists a canonical report with provider proven
     } as unknown as FossResearchRouteContext;
     const req = new Request("https://agent.internal/api/foss/screen", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-user-login": "octocat-s3" },
       body: JSON.stringify({}),
     });
     const res = await handleFossCompareScreenRoutes(req, new URL(req.url), "/api/foss/screen", "sess-s3", ctx);

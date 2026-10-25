@@ -952,7 +952,7 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       expect(plan.tradingData?.filters?.minDelta).toBe(0.40);
       expect(plan.tradingData?.filters?.underlyingSymbols).toEqual(["NVDA"]);
 
-      const res = await executeNLQQueryAsync(orm, "trader_user", plan, mockEnv);
+      const res = await executeNLQQueryAsync(orm, "trader_user", plan, mockEnv, "trader_user");
       expect(res.domain).toBe("trading");
       expect(res.targetTable).toBe("etrade_options_screener");
       expect(res.count).toBeGreaterThan(0);
@@ -968,7 +968,7 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       expect(plan.tradingData?.action).toBe("watchlist_save");
       expect(plan.tradingData?.watchlistName).toBe("Tech Winners");
 
-      const res = await executeNLQQueryAsync(orm, "trader_user", plan, mockEnv);
+      const res = await executeNLQQueryAsync(orm, "trader_user", plan, mockEnv, "trader_user");
       expect(res.domain).toBe("trading");
       expect(res.targetTable).toBe("mas_watchlists");
       expect(res.summary).toContain("Tech Winners");
@@ -990,7 +990,7 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       expect(plan.domain).toBe("trading");
       expect(plan.tradingData?.action).toBe("watchlist_list");
 
-      const res = await executeNLQQueryAsync(orm, "trader_user", plan, mockEnv);
+      const res = await executeNLQQueryAsync(orm, "trader_user", plan, mockEnv, "trader_user");
       expect(res.count).toBeGreaterThan(0);
       expect(res.rows.some((r) => r.name === "AI Portfolio")).toBe(true);
     });

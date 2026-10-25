@@ -88,7 +88,12 @@ function makeLedger() {
 }
 
 function makeEnv(ledger?: ReturnType<typeof makeLedger>) {
-  const env: any = { CF_WALLET_FACILITATOR: "https://facilitator.test" };
+  // Issue #1185: the fixture's configured service identity — the
+  // ledger owner login the fake namespace serves.
+  const env: any = {
+    CF_WALLET_FACILITATOR: "https://facilitator.test",
+    SERVICE_USER_LOGIN: "default_trader",
+  };
   if (ledger) env.SEARCH_AGENT = ledger.namespace;
   return env;
 }

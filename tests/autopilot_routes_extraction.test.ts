@@ -170,7 +170,7 @@ describe("handleAutopilotRoutes behavior", () => {
   it("POST /autopilot/evaluate delegates to the pipeline and echoes verdict + requestedBy", async () => {
     const ctx = baseCtx();
     const res = await handleAutopilotRoutes(
-      req("POST", "/api/autopilot/evaluate", { symbol: "aapl", quantity: 10, action: "buy", requestedBy: "qa" }),
+      req("POST", "/api/autopilot/evaluate", { symbol: "aapl", quantity: 10, action: "buy", requestedBy: "qa" }, { "x-user-login": "alice" }),
       new URL("https://x"),
       "/api/autopilot/evaluate",
       "sess-9",
@@ -181,7 +181,7 @@ describe("handleAutopilotRoutes behavior", () => {
     expect(body.attestation.signature).toBe("sig");
     expect(body.requestedBy).toBe("qa");
     expect(ctx.evaluateAndRecordAutopilotVerdict).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "sess-9", userLogin: "sess-9", dryRun: true, intent: expect.objectContaining({ symbol: "AAPL", quantity: 10 }) })
+      expect.objectContaining({ sessionId: "sess-9", userLogin: "alice", dryRun: true, intent: expect.objectContaining({ symbol: "AAPL", quantity: 10 }) })
     );
   });
 });
