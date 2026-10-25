@@ -117,7 +117,9 @@ describe("handleReportsRoutes behavior", () => {
               id: "c1",
               kind: "email",
               payload_json: JSON.stringify({ recipient: "a@b.com", fileName: "r.xlsx" }),
-              created_at: "2026-10-19T00:00:00Z",
+              // Issue #1324: the list sweeps expired rows, so the
+              // fixture must be inside the 24h window to stay listed.
+              created_at: new Date().toISOString(),
             },
           ],
         }),

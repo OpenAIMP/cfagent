@@ -1,0 +1,32 @@
+# Gitleaks configuration — cfagent
+# Extends default gitleaks rules with project allowlists for test fixtures,
+# documentation examples, and historical mock credentials.
+
+title = "cfagent gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist for test fixtures, documentation samples, and historical mock tokens"
+paths = [
+  '''tests/.*''',
+  '''docs/.*''',
+  '''\.agents/.*''',
+]
+commits = [
+  "c49ea9c659b03abda1fae3f61f9cb5aef5b2a0ae",
+  "1d9e719c0f5eeb0ad07d3dcd40e107783c1f218f",
+  "7676f0babe957b8fcd2b001e54e93b6c7bd81ff0",
+  "b398dd1b4d51f11f09cb92e9dd51b9fde773bae2",
+  "420f56ad333cb4b62962b7a5e467ed29033e73bb",
+  "13594c2bb398c2cb6c88d4b2d7c9193b97ee7eb3",
+  "fcb6f08983dd8c76b55a4f731035b809edaa0cc9",
+  "b3af1ffd3e27f0b233d8b089eebb261eed167c29",
+  "0c8312c0b9e3d98dfd6b9d98d6482eebddd0a152",
+]
+regexTarget = "line"
+regexes = [
+  '''sandbox\.paypal\.com''',
+  '''0x1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A0B''',
+]

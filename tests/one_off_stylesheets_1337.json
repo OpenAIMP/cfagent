@@ -1,0 +1,87 @@
+[
+  {
+    "path": "src/client/accountPanels.css",
+    "lines": 133,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/agenticWalletPanel.css",
+    "lines": 189,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/apiKeysPanel.css",
+    "lines": 130,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/dataProvidersPanel.css",
+    "lines": 192,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/iaaaAdminPanel.css",
+    "lines": 74,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/options/flows/optionsFlows.css",
+    "lines": 1774,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/options/optionsResearch.css",
+    "lines": 1087,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/options/riskAnalysis.css",
+    "lines": 668,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/options/strategyDiscovery.css",
+    "lines": 5505,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/optionsResearch.css",
+    "lines": 1107,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/portfolioRiskPanel.css",
+    "lines": 297,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/reports.css",
+    "lines": 617,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/researchReports.css",
+    "lines": 102,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/scannerPanel.css",
+    "lines": 468,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/scheduledOptions.css",
+    "lines": 811,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/styles.css",
+    "lines": 14419,
+    "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/workflowsHub.css",
+    "lines": 1188,
+    "reason": "grandfathered (#1337)"
+  }
+]

@@ -560,3 +560,57 @@
   margin: 10px 0 2px;
   color: var(--color-text-primary);
 }
+
+/* Issue #1324: pending-review queue layout. Spacing in px matches the
+ * surrounding reports.css (density tokens live in the ui primitives);
+ * colors are semantic tokens only. */
+.pending-review-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.pending-review-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pending-review-header h3 {
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+.pending-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pending-review-item-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.pending-review-detail {
+  margin: 8px 0;
+  color: var(--color-text-primary);
+}
+
+.pending-review-artifacts {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  color: var(--color-text-secondary);
+}
+
+.pending-review-report-link {
+  color: var(--color-accent);
+}
+
+.pending-review-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
