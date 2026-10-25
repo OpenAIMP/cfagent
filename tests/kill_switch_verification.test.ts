@@ -59,15 +59,27 @@ describe("entry-point enumeration (#756)", () => {
   });
 
   it("weight-job callers are exactly the enumerated delegating surfaces", () => {
-    const callers = prodFiles
+    // Consolidation #1257 flip: the v1 job has NO production caller
+    // left — the routes run the v2 job (pinned below). The v1 module
+    // stays until the retirement PR (stagedPromotion still reads v1
+    // weights for baselines), but its adjustment job is dead from
+    // production; a new caller must be added here deliberately, with
+    // its halt story, or this pin fails.
+    const v1Callers = prodFiles
       .filter((f) => f.rel !== "services/strategyWeights.ts")
       .filter((f) => /\brunStrategyWeightAdjustment\b/.test(f.text))
       .map((f) => f.rel)
       .sort();
-    // The route delegates to the job, which self-checks the switch;
-    // the cron ride dispatches the route. A new caller must be added
-    // here deliberately, with its halt story, or this pin fails.
-    expect(callers).toEqual(["agents/routes/screenerResearch.ts"]);
+    expect(v1Callers).toEqual([]);
+    // The v2 job is the live one: the route delegates to it, it
+    // self-checks the switch (halted result), and the scheduled tick
+    // calls it directly. Same pin discipline as the v1 job had.
+    const v2Callers = prodFiles
+      .filter((f) => f.rel !== "services/strategyWeightsV2.ts")
+      .filter((f) => /\brunWeightsV2Adjustment\b/.test(f.text))
+      .map((f) => f.rel)
+      .sort();
+    expect(v2Callers).toEqual(["agents/routes/screenerResearch.ts"]);
     // server.ts dispatches the route over HTTP; it names the path, not the function.
     const server = prodFiles.find((f) => f.rel === "server.ts");
     expect(server?.text).toContain("/adaptation/weights/run");

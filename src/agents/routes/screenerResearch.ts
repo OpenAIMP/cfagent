@@ -376,8 +376,7 @@ export async function handleScreenerResearchRoutes(
       }
     }
 
-    // ==========================================
-    // Issue #319: autonomous options research.
+    // ==========================================    // Issue #319: autonomous options research.
     // The manual route and the scheduled tick are thin triggers over the
     // single runResearchAndPublish entry (amendment 2) — only the trigger
     // source differs. Note: server.ts strips the /api prefix before
@@ -679,26 +678,20 @@ export async function handleScreenerResearchRoutes(
       if (!agent) {
         return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
       }
-      const { isAdaptationWeightsV2RoutesEnabled } = await import("../../services/screeningFlags");
       const { buildWeightPolicyEvaluation } = await import("../../services/strategyWeights");
       const trackRecord = await agent.getTrackRecord();
-      // Consolidation C5 (#1361, #1257): flag-on reads v2 (collapsed
-      // to plain strategy keys so the hub renders unchanged, plus the
-      // full regime map for transparency); the evaluation builder is
-      // the same, fed the collapsed map. Flag-off is v1 verbatim.
-      if (isAdaptationWeightsV2RoutesEnabled((key) => ctx.readSettingRaw(key))) {
-        const { getStrategyWeightsV2, getStrategyWeightsV2Collapsed } = await import("../../services/strategyWeightsV2");
-        const weights = getStrategyWeightsV2Collapsed(ctx.getOrm());
-        return Response.json({
-          weights,
-          weightsByRegime: getStrategyWeightsV2(ctx.getOrm()),
-          weightsSource: "v2",
-          evaluation: buildWeightPolicyEvaluation(trackRecord, weights),
-        });
-      }
-      const { getStrategyWeights } = await import("../../services/strategyWeights");
-      const weights = getStrategyWeights(ctx.getOrm());
-      return Response.json({ weights, evaluation: buildWeightPolicyEvaluation(trackRecord, weights) });
+      // Consolidation #1257 flip (C5's flag is retired): v2 always
+      // (collapsed to plain strategy keys so the hub renders
+      // unchanged, plus the full regime map for transparency); the
+      // evaluation builder is the same, fed the collapsed map.
+      const { getStrategyWeightsV2, getStrategyWeightsV2Collapsed } = await import("../../services/strategyWeightsV2");
+      const weights = getStrategyWeightsV2Collapsed(ctx.getOrm());
+      return Response.json({
+        weights,
+        weightsByRegime: getStrategyWeightsV2(ctx.getOrm()),
+        weightsSource: "v2",
+        evaluation: buildWeightPolicyEvaluation(trackRecord, weights),
+      });
     }
 
     // Issue #754: run the calibration-driven weight adjustment job.
@@ -713,61 +706,54 @@ export async function handleScreenerResearchRoutes(
         return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
       }
       const body = (await request.json().catch(() => null)) as { force?: boolean } | null;
-      const { isAdaptationWeightsV2RoutesEnabled } = await import("../../services/screeningFlags");
-      // Consolidation C5 (#1361, #1257): flag-on runs the v2
-      // adjustment behind the SAME fire/no-fire semantics as v1 —
-      // ISO-week guard (same settings key, so one adjustment per
-      // week regardless of engine) + kill switch inside the v2 job.
-      // The v2 result carries regime per entry; the v1-only skipped
-      // detail fields are absent on this path (documented delta —
-      // the flag-off path is byte-identical to v1).
-      if (isAdaptationWeightsV2RoutesEnabled((key) => ctx.readSettingRaw(key))) {
-        const { buildWeightsV2Slices, runWeightsV2Adjustment } = await import("../../services/strategyWeightsV2");
-        const { isoWeekKey, WEIGHTS_LAST_RUN_WEEK_KEY } = await import("../../services/strategyWeights");
-        const { RESEARCH_CONFIG_DEFAULTS } = await import("../../services/researchConfig");
-        const trackRecord = await agent.getTrackRecord();
-        const researchConfig = await agent.getResearchConfig().catch(() => null);
-        const costs = {
-          feePerContract: researchConfig?.feePerContract ?? RESEARCH_CONFIG_DEFAULTS.feePerContract,
-          slippagePerContract: researchConfig?.slippagePerContract ?? RESEARCH_CONFIG_DEFAULTS.slippagePerContract,
-        };
-        const slices = buildWeightsV2Slices(
-          trackRecord.ideas.map((idea: any) => ({
-            structure: idea.structure,
-            regime: idea.regime,
-            contractsPerUnit: idea.contractsPerUnit,
-            evaluation: idea.evaluation
-              ? {
-                  pnlEstimatePerUnit: idea.evaluation.pnlEstimatePerUnit,
-                  rMultiple: idea.evaluation.rMultiple,
-                  evaluatedAt: idea.evaluation.evaluatedAt,
-                }
-              : null,
-          })),
-          costs
-        );
-        const now = new Date();
-        if (body?.force !== true && ctx.readSettingRaw(WEIGHTS_LAST_RUN_WEEK_KEY) === isoWeekKey(now)) {
-          return Response.json({
-            success: true,
-            considered: slices.length,
-            adjusted: [],
-            blocked: [],
-            skipped: "already ran this week",
-            weightsSource: "v2",
-            timestamp: now.toISOString(),
-          });
-        }
-        const result = runWeightsV2Adjustment(ctx.getOrm(), slices, { now });
-        if (!result.halted && body?.force !== true) {
-          ctx.writeSetting(WEIGHTS_LAST_RUN_WEEK_KEY, isoWeekKey(now));
-        }
-        return Response.json({ success: true, ...result, weightsSource: "v2", timestamp: now.toISOString() });
-      }
-      const { runStrategyWeightAdjustment } = await import("../../services/strategyWeights");
+      // Consolidation #1257 flip (C5's flag is retired): the v2
+      // adjustment runs behind the SAME fire/no-fire semantics as
+      // the old v1 job — ISO-week guard (same settings key, so one
+      // adjustment per week regardless of engine) + kill switch
+      // inside the v2 job. The v2 result carries regime per entry;
+      // the v1-only skipped detail fields are absent (documented
+      // C5 delta).
+      const { buildWeightsV2Slices, runWeightsV2Adjustment } = await import("../../services/strategyWeightsV2");
+      const { isoWeekKey, WEIGHTS_LAST_RUN_WEEK_KEY } = await import("../../services/strategyWeights");
+      const { RESEARCH_CONFIG_DEFAULTS } = await import("../../services/researchConfig");
       const trackRecord = await agent.getTrackRecord();
-      const result = runStrategyWeightAdjustment(ctx.getOrm(), trackRecord, { force: body?.force === true });
-      return Response.json({ success: true, ...result, timestamp: new Date().toISOString() });
+      const researchConfig = await agent.getResearchConfig().catch(() => null);
+      const costs = {
+        feePerContract: researchConfig?.feePerContract ?? RESEARCH_CONFIG_DEFAULTS.feePerContract,
+        slippagePerContract: researchConfig?.slippagePerContract ?? RESEARCH_CONFIG_DEFAULTS.slippagePerContract,
+      };
+      const slices = buildWeightsV2Slices(
+        trackRecord.ideas.map((idea: any) => ({
+          structure: idea.structure,
+          regime: idea.regime,
+          contractsPerUnit: idea.contractsPerUnit,
+          evaluation: idea.evaluation
+            ? {
+                pnlEstimatePerUnit: idea.evaluation.pnlEstimatePerUnit,
+                rMultiple: idea.evaluation.rMultiple,
+                evaluatedAt: idea.evaluation.evaluatedAt,
+              }
+            : null,
+        })),
+        costs
+      );
+      const now = new Date();
+      if (body?.force !== true && ctx.readSettingRaw(WEIGHTS_LAST_RUN_WEEK_KEY) === isoWeekKey(now)) {
+        return Response.json({
+          success: true,
+          considered: slices.length,
+          adjusted: [],
+          blocked: [],
+          skipped: "already ran this week",
+          weightsSource: "v2",
+          timestamp: now.toISOString(),
+        });
+      }
+      const result = runWeightsV2Adjustment(ctx.getOrm(), slices, { now });
+      if (!result.halted && body?.force !== true) {
+        ctx.writeSetting(WEIGHTS_LAST_RUN_WEEK_KEY, isoWeekKey(now));
+      }
+      return Response.json({ success: true, ...result, weightsSource: "v2", timestamp: now.toISOString() });
     }
 
     // Issue #757: improvement candidates — the Phase 5 queue. Listing is
@@ -1417,8 +1403,25 @@ export async function handleScreenerResearchRoutes(
         );
       }
       const { executeScreenBacktest } = await import("../../services/screeningRuntime");
+      // Issue #1331: backtest bars through the platform — route-
+      // resolved + outcome-tracked under a per-request run id.
+      // The route ctx carries no blob handle, so this binding
+      // writes outcome rows but no capture rows (follow-up:
+      // thread a storage handle into the route ctx).
+      const { resolveYahooHistoryDeps } = await import("../../trading");
+      // Issue #1331 (fix): resolution failure degrades to undefined
+      // deps, so fetchLivePriceBars returns null and the engine
+      // excludes the symbol with its reason — the route never 500s
+      // on a history outage. See resolveYahooHistoryDeps.
+      const historyDeps = await resolveYahooHistoryDeps({
+        sql: ctx.getOrm() as any,
+        env: ctx.env as any,
+        userLogin,
+        runId: crypto.randomUUID(),
+      });
       const result = await executeScreenBacktest({
         symbols: body.symbols as string[],
+        historyDeps,
         ...(typeof body.folds === "number" ? { folds: body.folds } : {}),
         ...(typeof body.holdingBars === "number" ? { holdingBars: body.holdingBars } : {}),
         ...(typeof body.capital === "number" ? { capital: body.capital } : {}),

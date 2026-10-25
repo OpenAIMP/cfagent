@@ -8,10 +8,18 @@
  * - Reselection on v2-for-regime weights: the informational weight on
  *   a proposal entry is the run regime's v2 value, not another
  *   regime's, and the proposal shape is unchanged.
- * - /adaptation/weights + /adaptation/weights/run behind the new
- *   screening.adaptationWeightsV2Routes flag (default OFF): flag-off
- *   responses are the v1 responses verbatim; flag-on responses carry
- *   v2 weights with weightsSource "v2" and the v2 adjustment result.
+ * - /adaptation/weights + /adaptation/weights/run + the candidate
+ *   evaluation weights read on v2 ALWAYS (#1257 flip): the
+ *   screening.adaptationWeightsV2Routes flag is retired — v1 rows
+ *   present in the store are ignored by these routes, and the legacy
+ *   flag setting is a no-op. The v1 module itself stays until the
+ *   retirement PR (stagedPromotion still reads v1 for promotion
+ *   baselines).
+ * - NOTE (#1257 challenger re-point): the counterfactual-replay
+ *   POST /adaptation/candidates/evaluate route this file once pinned
+ *   is retired — evaluation is now frozen-set challenger evaluation
+ *   (see tests/adaptation_challenger_routes.test.ts). The replay
+ *   helpers stay in candidateEvaluation.ts until the retirement PR.
  */
 import { describe, it, expect, vi } from "vitest";
 import {
@@ -130,24 +138,13 @@ describe("v2 weight reads", () => {
   });
 });
 
-describe("/adaptation/weights behind the v2-routes flag", () => {
-  it("flag-off: v1 weights + v1 evaluation, no weightsSource marker", async () => {
-    const { ctx, orm } = routeCtx();
-    setStrategyWeight(orm as any, "strat-a", 1.5, NOW);
-    setStrategyWeight(orm as any, "strat-b", 1.0, NOW);
-    const { data } = await call(ctx, "GET", "/api/adaptation/weights");
-    expect(data.weights).toEqual({ "strat-a": 1.5, "strat-b": 1.0 });
-    expect(data.weightsSource).toBeUndefined();
-    // (1.5*0.6*30 + 1.0*0.4*10) / (1.5*30 + 1.0*10) = 31/55
-    expect(data.evaluation.weightedWinRate).toBeCloseTo(31 / 55, 10);
-    expect(data.evaluation.unweightedWinRate).toBe(0.5);
-  });
-
-  it("flag-on: collapsed v2 weights + regime map + weightsSource v2", async () => {
-    const { ctx, orm, sql, settings } = routeCtx();
+describe("/adaptation/weights on v2 always (#1257 flip)", () => {
+  it("v2 weights win over v1 rows with no flag set", async () => {
+    const { ctx, orm, sql } = routeCtx();
     seedV2(sql);
+    // Distractor v1 rows: the flipped routes must ignore them.
     setStrategyWeight(orm as any, "strat-a", 9.9, NOW);
-    settings.set("screening.adaptationWeightsV2Routes", "1");
+    setStrategyWeight(orm as any, "strat-b", 9.9, NOW);
     const { data } = await call(ctx, "GET", "/api/adaptation/weights");
     expect(data.weights["strat-a"]).toBeCloseTo(1.4, 10);
     expect(data.weights["strat-b"]).toBe(2.0);
@@ -158,9 +155,17 @@ describe("/adaptation/weights behind the v2-routes flag", () => {
     expect(data.evaluation.weightedWinRate).toBeCloseTo(33.2 / 62, 10);
   });
 
-  it("flag-on run: v2 adjustment result with weightsSource v2; second run in the same week skips", async () => {
-    const { ctx, settings } = routeCtx();
+  it("the legacy flag setting is ignored: same v2 response with the flag set", async () => {
+    const { ctx, sql, settings } = routeCtx();
+    seedV2(sql);
     settings.set("screening.adaptationWeightsV2Routes", "1");
+    const { data } = await call(ctx, "GET", "/api/adaptation/weights");
+    expect(data.weights["strat-a"]).toBeCloseTo(1.4, 10);
+    expect(data.weightsSource).toBe("v2");
+  });
+
+  it("run: v2 adjustment result with weightsSource v2; second run in the same week skips", async () => {
+    const { ctx } = routeCtx();
     const first = await call(ctx, "POST", "/api/adaptation/weights/run", {});
     expect(first.data.success).toBe(true);
     expect(first.data.weightsSource).toBe("v2");
@@ -173,11 +178,4 @@ describe("/adaptation/weights behind the v2-routes flag", () => {
     expect(forced.data.skipped).toBeUndefined();
   });
 
-  it("flag-off run: v1 adjustment result, no weightsSource marker", async () => {
-    const { ctx } = routeCtx();
-    const { data } = await call(ctx, "POST", "/api/adaptation/weights/run", {});
-    expect(data.success).toBe(true);
-    expect(data.weightsSource).toBeUndefined();
-    expect(Array.isArray(data.adjusted)).toBe(true);
-  });
 });

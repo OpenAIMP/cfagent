@@ -23,7 +23,7 @@
  */
 
 import type { EtapiDiscoveryConfig } from "../../config/etapiConfig";
-import type { YahooDailyBar } from "../yahooHistory";
+import type { YahooDailyBar } from "../technicals";
 import type { IvStats } from "./ivHistoryStore";
 import type { EventCalendarInfo } from "./strategyEngine";
 
