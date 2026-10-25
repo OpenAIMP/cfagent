@@ -4,12 +4,13 @@
  * screenerResearch.ts over the EXISTING stores — the Phase 0
  * goal/scenario store (listGoals / updateGoalStatus), the Phase 3
  * re-selection transparency log (listReselectionProposals), the
- * Phase 5 outcome ledger (listOutcomeTracking), and the promotion
- * gate's approval/verdict reads (listPromotionApprovals /
- * listGateVerdicts). These tests pin the routes' contracts: tenant
- * scoping, the proposed-only goal decision guard, and honest empty
- * states. Handler-level, following the C1 route-test pattern
- * (tests/consolidation_c1_execution_path.test.ts).
+ * Phase 5 outcome ledger (listOutcomeTracking), and the challenger
+ * gate's approval/verdict reads (listChallengerApprovals / challenger
+ * evaluation verdicts, since the #1257 challenger re-point retired
+ * the #759 approval/verdict shapes). These tests pin the routes'
+ * contracts: tenant scoping, the proposed-only goal decision guard,
+ * and honest empty states. Handler-level, following the C1 route-test
+ * pattern (tests/consolidation_c1_execution_path.test.ts).
  */
 import { describe, it, expect, vi } from "vitest";
 import {
@@ -32,10 +33,6 @@ import {
   startOutcomeTracking,
   recordOutcomeTerminal,
 } from "../src/services/outcomeTracking";
-import {
-  requestPromotionApproval,
-  ensureGateVerdictsTable,
-} from "../src/services/promotionGate";
 import { buildScreeningActivityFeed } from "../src/services/screeningActivity";
 
 function routeCtx() {
@@ -275,41 +272,63 @@ describe("C2 GET /screening/outcomes", () => {
 });
 
 describe("C2 GET /adaptation/candidates/approvals + /verdicts", () => {
-  it("lists the candidate's approvals and gate verdicts (the inbox's decision evidence)", async () => {
-    const { ctx, orm } = routeCtx();
-    const approval = requestPromotionApproval(orm as any, "cand-1", "alice");
-    ensureGateVerdictsTable(orm as any);
-    orm.exec(
-      `INSERT INTO mas_promotion_gate_verdicts (id, candidate_id, passed, reasons_json, heldout_evaluation_id, z, p_value, approval_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      "gv-1",
-      "cand-1",
-      1,
-      JSON.stringify(["held-out edge significant"]),
-      "eval-1",
-      2.4,
-      0.008,
-      approval.id,
-      "2026-10-23T05:00:00.000Z",
-    );
+  it("lists the challenger's approvals and gate verdicts (the inbox's decision evidence)", async () => {
+    const { ctx, sql } = routeCtx();
+    const tables = (sql as any).tables as Map<string, Array<Record<string, any>>>;
+    // Challenger re-point (#1257): approvals are recorded decisions
+    // (no pending state) and verdicts are frozen-set evaluation
+    // verdicts — the #759 pending-approval / z / pValue shapes retired.
+    tables.set("mas_challengers", [
+      {
+        id: "chl-1",
+        user_login: "alice",
+        kind: "active_set",
+        title: "Strangle only",
+        regime: "high_vol",
+        spec_json: JSON.stringify({ activeStrategies: ["long_strangle"] }),
+        criteria_json: JSON.stringify({ minHoldoutEdge: 0.0005, minEvaluated: 1 }),
+        eval_set_version: "v2",
+        source_proposal_id: null,
+        status: "evaluated",
+        evaluation_json: JSON.stringify({
+          datasetVersion: "v2",
+          evaluatedAt: "2026-10-23T05:00:00.000Z",
+          selection: { championScore: 0.1, challengerScore: 0.2, evaluated: 2 },
+          holdout: { championScore: 0.1, challengerScore: 0.2, evaluated: 2 },
+          verdict: "pass",
+          criteria: { minHoldoutEdge: 0.0005, minEvaluated: 1 },
+        }),
+        created_by: "research-agent",
+        created_at: "2026-10-23T05:00:00.000Z",
+        updated_at: "2026-10-23T05:00:00.000Z",
+      },
+    ]);
+    tables.set("mas_challenger_approvals", [
+      { id: "apr-1", challenger_id: "chl-1", user_login: "alice", approver: "owner-mubasher", decision: "approved", created_at: "2026-10-23T05:00:00.000Z" },
+    ]);
 
     const approvalsRes = await call(
       ctx,
       "GET",
-      "/adaptation/candidates/approvals?candidateId=cand-1",
+      "/adaptation/candidates/approvals?candidateId=chl-1",
+      undefined,
+      ALICE,
     );
     expect(approvalsRes.status).toBe(200);
     const approvals = ((await approvalsRes.json()) as any).approvals;
     expect(approvals).toHaveLength(1);
-    expect(approvals[0].id).toBe(approval.id);
-    expect(approvals[0].status).toBe("pending");
+    expect(approvals[0].id).toBe("apr-1");
+    expect(approvals[0].decision).toBe("approved");
+    expect(approvals[0].approver).toBe("owner-mubasher");
 
-    const verdictsRes = await call(ctx, "GET", "/adaptation/candidates/verdicts?candidateId=cand-1");
+    const verdictsRes = await call(ctx, "GET", "/adaptation/candidates/verdicts?candidateId=chl-1", undefined, ALICE);
     expect(verdictsRes.status).toBe(200);
     const verdicts = ((await verdictsRes.json()) as any).verdicts;
     expect(verdicts).toHaveLength(1);
     expect(verdicts[0].passed).toBe(true);
-    expect(verdicts[0].pValue).toBeCloseTo(0.008);
+    expect(verdicts[0].reasons).toEqual(
+      expect.arrayContaining([expect.stringMatching(/Holdout edge/)])
+    );
   });
 
   it("requires candidateId (400) on both reads", async () => {
