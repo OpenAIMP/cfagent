@@ -19,7 +19,6 @@
 
 import { Agent } from "agents";
 import type { Env } from "../types";
-import { getServiceUserLogin } from "../security/serviceIdentity";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
 import { DynamicMarketScreener } from "../trading";
@@ -35,7 +34,6 @@ import {
   type OpportunityStock,
   type PartialQuoteQualification,
 } from "../trading";
-import { fetchTechnicalsBatch } from "../trading";
 import {
   UNIVERSES,
   shardableUniverses,
@@ -52,10 +50,12 @@ import {
   createNasdaqDataProvider,
   createYahooDataProvider,
   DataProviderRegistry,
+  fetchPlatformTechnicalsBatch,
   getProviderConfig,
   listCapabilityRoutes,
   listProviderConfigs,
   nasdaqUniverseProviderFromRoute,
+  resolveYahooHistoryDeps,
   transitionProvider,
   verifyNasdaqDataProvider,
   verifyYahooDataProvider,
@@ -252,36 +252,8 @@ export class ScreenerAgent extends Agent<Env> {
     return true;
   }
 
-  private static OWNER_STORAGE_KEY = "screener:owner-login";
-
-  /**
-   * Issue #1185: record this instance's owner at entry — the login the
-   * orchestrator threaded from the validated session header (or the
-   * schedule's stored owner) when dispatching work to this instance.
-   */
-  private async recordOwner(userLogin: string): Promise<void> {
-    if (userLogin) {
-      await this.ctx.storage.put(ScreenerAgent.OWNER_STORAGE_KEY, userLogin);
-    }
-  }
-
-  /**
-   * Issue #1185: this instance's owner login — the owner recorded at
-   * entry; before any entry, the instance name itself encodes it
-   * (`screener:<login>`; the bare shared instance belongs to the
-   * configured service identity). Fail closed when none exists: there
-   * is no synthetic shared identity to attribute runs or reports to.
-   */
-  private async userLogin(): Promise<string> {
-    const recorded = await this.ctx.storage.get<string>(ScreenerAgent.OWNER_STORAGE_KEY);
-    if (recorded) return recorded;
-    const name = this.name ?? "";
-    if (name.startsWith("screener:")) return name.slice("screener:".length);
-    if (name === "default") {
-      const serviceLogin = getServiceUserLogin(this.env);
-      if (serviceLogin) return serviceLogin;
-    }
-    throw new Error("ScreenerAgent has no owner identity recorded for this instance (issue #1185: no default identity).");
+  private userLogin(): string {
+    return "default_trader";
   }
 
   /**
@@ -425,11 +397,7 @@ export class ScreenerAgent extends Agent<Env> {
     // Issue #828: prevent concurrent runs for same user/universe.
     // Multiple clicks were spawning parallel runs that exhausted the
     // Cloudflare subrequest budget and spammed Slack with partials.
-    // Issue #1185: the run's owner is the request's threaded login;
-    // record it at entry so later reads on this instance resolve to
-    // the same owner. Without one, the recorded/derived owner applies.
-    if (req.userLogin) await this.recordOwner(req.userLogin);
-    const lockKey = `screen_lock:${await this.userLogin()}:${req.universe || "nasdaq100"}`;
+    const lockKey = `screen_lock:${this.userLogin()}:${req.universe || "nasdaq100"}`;
     const existingLock = await this.ctx.storage.get<string>(lockKey);
     if (existingLock) {
       const lockAge = Date.now() - parseInt(existingLock, 10);
@@ -465,7 +433,7 @@ export class ScreenerAgent extends Agent<Env> {
     // default, which made NASDAQ100 reports claim "Technology sector".
     const sector = req.sector || req.filters?.sector || "ALL";
     const screener = new DynamicMarketScreener();
-    const userLogin = req.userLogin || (await this.userLogin());
+    const userLogin = req.userLogin || this.userLogin();
     const universe: UniverseId = req.universe ?? "TECH";
     // Issue #1007: the run's data provider (default E*TRADE). Recorded
     // on every result — success, duplicate and failure alike — so the
@@ -687,6 +655,27 @@ export class ScreenerAgent extends Agent<Env> {
           userLogin,
         });
       }
+      // Issue #1331: technicals history through the platform —
+      // the historicalBars route's yahoo primary, resolved with
+      // capture + outcome tracking under the run id (shared with
+      // the quotes/etrade blocks via platformRunId). The
+      // technicals leg runs for every screen (both providers), so
+      // yahoo is verified→enabled here when the quotes block did
+      // not already enable it — the run depends on yahoo for
+      // history exactly as it always fetched it directly.
+      platformRunId ??= crypto.randomUUID();
+      // Issue #1331 (fix): resolution failure degrades to a
+      // null-fetching deps object, so the batch still runs (chunking
+      // + heartbeat beat intact) and every symbol gets honest null
+      // technicals — the screen itself never fails on history
+      // resolution. See resolveYahooHistoryDeps.
+      const platformHistoryDeps = (await resolveYahooHistoryDeps({
+        sql: this.ctx.storage.sql,
+        env: this.env,
+        userLogin,
+        blobStorage: this.ctx.storage,
+        runId: platformRunId,
+      })) ?? { fetchBars: async () => null };
       // Provider-scoped acquisition (#261, #1007). Symbols come from
       // the listings directory (membership, not market data) for both
       // providers; quotes come from the named provider or nothing.
@@ -714,11 +703,12 @@ export class ScreenerAgent extends Agent<Env> {
       // Issue #269: Yahoo history complement — real RSI/MACD/gaps.
       // E*TRADE stays the primary quote source; Yahoo fills only the
       // history-shaped hole. Per-symbol failures → honest nulls.
-      const technicalsBySymbol = await fetchTechnicalsBatch(
+      // Issue #1331: bars come through the platform history deps
+      // (bound above); the throttled beat stays the onBatch hook.
+      const technicalsBySymbol = await fetchPlatformTechnicalsBatch(
+        platformHistoryDeps,
         acquired.quotes.map((q) => q.symbol),
-        undefined,
-        undefined,
-        () => beat()
+        { onBatch: () => beat() }
       );
       // Issue #1184 (#1173 R2): record technicals coverage on the
       // result — symbols quoted vs symbols with real MACD / gap
@@ -877,7 +867,7 @@ export class ScreenerAgent extends Agent<Env> {
     baseStockFilter?: StockScreenerFilter;
     baseOptionsFilter?: OptionScreenerFilter;
   }): Promise<{ task: ScreenerTask; executed: boolean; result?: GoalDrivenScreenResult }> {
-    const userLogin = req.userLogin || (await this.userLogin());
+    const userLogin = req.userLogin || this.userLogin();
     const etrade = new ETradeService(
       this.getOrm(),
       this.env,
@@ -951,7 +941,7 @@ export class ScreenerAgent extends Agent<Env> {
     const local = await getReportPdf(this.env, this.ctx.storage, PDF_LATEST_KEY);
     if (local) return local;
     const { getPdfAsset } = await import("./report-asset-agent");
-    return await getPdfAsset(this.env, await this.userLogin(), PDF_LATEST_KEY);
+    return await getPdfAsset(this.env, this.userLogin(), PDF_LATEST_KEY);
   }
 
   /**
@@ -962,7 +952,7 @@ export class ScreenerAgent extends Agent<Env> {
     const local = await getReportPdf(this.env, this.ctx.storage, pdfKey);
     if (local) return local;
     const { getPdfAsset } = await import("./report-asset-agent");
-    return await getPdfAsset(this.env, await this.userLogin(), pdfKey);
+    return await getPdfAsset(this.env, this.userLogin(), pdfKey);
   }
 
   /**
@@ -1023,7 +1013,7 @@ export class ScreenerAgent extends Agent<Env> {
     const local = await getReportPdf(this.env, this.ctx.storage, OPTIONS_PDF_LATEST_KEY);
     if (local) return local;
     const { getPdfAsset } = await import("./report-asset-agent");
-    return await getPdfAsset(this.env, await this.userLogin(), OPTIONS_PDF_LATEST_KEY);
+    return await getPdfAsset(this.env, this.userLogin(), OPTIONS_PDF_LATEST_KEY);
   }
 
   /**
@@ -1034,7 +1024,7 @@ export class ScreenerAgent extends Agent<Env> {
     const local = await getReportPdf(this.env, this.ctx.storage, pdfKey);
     if (local) return local;
     const { getPdfAsset } = await import("./report-asset-agent");
-    return await getPdfAsset(this.env, await this.userLogin(), pdfKey);
+    return await getPdfAsset(this.env, this.userLogin(), pdfKey);
   }
 
   /**
@@ -1150,6 +1140,29 @@ export class ScreenerAgent extends Agent<Env> {
       result.xlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
       console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
     }
+    // Issue #1346: CSV report generation — the XLSX block's twin.
+    // Same failure contract (recorded, never fatal, never silent);
+    // a 0-record run stores a headers-only CSV.
+    try {
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const { withRetry } = await import("../services/resilience");
+      const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+      const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+      const csvKey = `screener:csv:${crypto.randomUUID().slice(0, 8)}`;
+      await withRetry(async () => {
+        const { generateScreenerCsv, screenerCsvFileName } = await import("../trading");
+        const csvBytes = new TextEncoder().encode(generateScreenerCsv(result));
+        const csvFileName = screenerCsvFileName(result);
+        await putReportPdf(this.env, this.ctx.storage as any, csvKey, csvFileName, csvBytes, "text/csv");
+        await putReportPdf(this.env, this.ctx.storage as any, CSV_LATEST_KEY, csvFileName, csvBytes, "text/csv");
+        result.csvKey = csvKey;
+        result.csvStatus = "generated";
+      }, reportRetry, { label: "screener-csv" });
+    } catch (csvErr) {
+      result.csvStatus = "failed";
+      result.csvError = csvErr instanceof Error ? csvErr.message : String(csvErr);
+      console.error("[ScreenerAgent] CSV generation failed:", result.csvError);
+    }
     // Issue #783: no report-store write happens here. The #732 block that
     // persisted a second copy into this DO's own report table is removed:
     // nothing read that copy. The canonical report copy for a run is
@@ -1178,7 +1191,7 @@ export class ScreenerAgent extends Agent<Env> {
         type: "screener",
         trigger: result.trigger === "manual" ? "manual" : "scheduled",
         result,
-        userLogin: await this.userLogin(),
+        userLogin: this.userLogin(),
         title: `Market screen — ${String((result as any).universe ?? (result as any).sector ?? "ALL")}`,
         summary: result.success
           ? `Scanned ${result.totalScanned} symbols, ${result.matchedCount} matched.`
@@ -1191,7 +1204,7 @@ export class ScreenerAgent extends Agent<Env> {
       let stored = await getReportPdf(this.env, this.ctx.storage as any, pipelineResult.pdfKey);
       if (!stored) {
         const { getPdfAsset } = await import("./report-asset-agent");
-        stored = await getPdfAsset(this.env, await this.userLogin(), pipelineResult.pdfKey);
+        stored = await getPdfAsset(this.env, this.userLogin(), pipelineResult.pdfKey);
       }
       if (stored) {
         await putReportPdf(this.env, this.ctx.storage as any, pipelineResult.pdfKey, stored.fileName, stored.bytes);
