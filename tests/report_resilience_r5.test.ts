@@ -163,6 +163,10 @@ describe("C. ScreenerAgent.regenerateLatestReport (#1278)", () => {
 
   it("regenerates the stored latest run's PDF and updates LATEST + HISTORY in place", async () => {
     const storage = new FakeStorage();
+    // Issue #1185: a stored run exists only on an instance whose owner was
+    // recorded at run entry — regeneration runs under that recorded owner
+    // (no default identity to fall back to).
+    await storage.put("screener:owner-login", "test-owner");
     await storage.put("screener:latest", { ...FAILED_RUN });
     await storage.put("screener:history", [{ ...FAILED_RUN }]);
     const agent = makeAgent(storage);
@@ -191,6 +195,7 @@ describe("C. ScreenerAgent.regenerateLatestReport (#1278)", () => {
       pdfError: "[REPORT_001] The PDF report could not be generated. — still broken",
     };
     const storage = new FakeStorage();
+    await storage.put("screener:owner-login", "test-owner");
     await storage.put("screener:latest", { ...FAILED_RUN });
     await storage.put("screener:history", [{ ...FAILED_RUN }]);
     const agent = makeAgent(storage);

@@ -35,6 +35,7 @@
  * service.
  */
 
+import { unauthenticatedResponse } from "./routeIdentity";
 import { FossResearchService, fossBarsSourceLabel } from "../../services/fossResearch";
 import { parseStockScreenRequest } from "../../trading";
 import type { ScreenerAgent } from "../screener-agent";
@@ -233,7 +234,8 @@ export async function handleFossCompareScreenRoutes(
         return Response.json({ error: parsedScreen.error }, { status: 400 });
       }
       const universe = parsedScreen.value.universe;
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const agent = ctx.getScreenerAgent(userLogin);
       if (universe === "ALL") {
         const shards = await agent.runSharded({

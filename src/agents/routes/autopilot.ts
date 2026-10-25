@@ -23,6 +23,7 @@
  * no back-references into the class.
  */
 
+import { unauthenticatedResponse } from "./routeIdentity";
 import type { AgentName } from "../../types";
 import type { SqlStorage } from "../../orm";
 import {
@@ -169,7 +170,8 @@ export async function handleAutopilotRoutes(
       if (!symbol || quantity <= 0) {
         return Response.json({ error: "symbol and a positive quantity are required" }, { status: 400 });
       }
-      const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin) return unauthenticatedResponse();
       const limitPrice = body.limitPrice !== undefined ? Number(body.limitPrice) : undefined;
       // This endpoint is declared before the E*TRADE routes resolve the
       // environment header, so it resolves the same value locally.

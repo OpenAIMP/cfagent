@@ -166,7 +166,9 @@ async function call(path: string, ctx: ReportsRouteContext, init: RequestInit = 
 
 describe("GET /api/runs (S5)", () => {
   it("merges all four stores newest-first with canonical de-duplication", async () => {
-    const res = await call("/api/runs?kind=all", makeCtx(makeSql()));
+    const res = await call("/api/runs?kind=all", makeCtx(makeSql()), {
+      headers: { "x-user-login": "alice" },
+    });
     expect(res).not.toBeNull();
     expect(res!.status).toBe(200);
     const data = (await res!.json()) as any;
@@ -190,7 +192,9 @@ describe("GET /api/runs (S5)", () => {
 
   it("kind=discovery reads only the discovery store", async () => {
     const sql = makeSql();
-    const res = await call("/api/runs?kind=discovery", makeCtx(sql));
+    const res = await call("/api/runs?kind=discovery", makeCtx(sql), {
+      headers: { "x-user-login": "alice" },
+    });
     const data = (await res!.json()) as any;
     expect(data.runs.map((r: any) => r.kind)).toEqual(["discovery"]);
     const queried = sql.calls.map((c: any) => c.query).join("\n");
