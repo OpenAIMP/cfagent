@@ -176,7 +176,7 @@ This report delivers a C-suite management consulting assessment across all strat
 | Compliance Aspect | Current Posture | Target Requirement | Gap & Action Item |
 |---|---|---|---|
 | **SOC 2 Type II** | Partial (Edge security controls) | Full Compliance | Formalize access logs, zero-trust policies, and vendor risk management docs. |
-| **Anti-Drift Architecture** | Enforced via `docs/architecture/compliance/anti-drift.md` | Zero Architectural Drift | Add automated CI drift checkers verifying module boundaries against spec. |
+| **Anti-Drift Architecture** | Enforced via `docs/compliance/anti-drift.md` | Zero Architectural Drift | Add automated CI drift checkers verifying module boundaries against spec. |
 | **Financial Disclaimers** | Implemented in `docs/DISCLAIMER.md` | Regulatory Compliance | Display mandatory non-advisory disclaimer headers on all generated reports. |
 | **Data Privacy (GDPR/CCPA)**| Basic session isolation | Right to be forgotten | Add memory vault erasure API (`DELETE /api/memory/user`). |
 
