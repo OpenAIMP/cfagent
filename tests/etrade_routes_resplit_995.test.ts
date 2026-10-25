@@ -27,7 +27,9 @@
  * (the #359 target, strictest reading); (b) the whole-file route
  * condition inventory of each original file is byte-identical to the
  * pre-split baseline captured on main ac61fb39 (order and duplicates
- * included — the same COND_RE scan thin_router_inventory uses); (c) the
+ * included — the same COND_RE scan thin_router_inventory uses), except
+ * the #1334 dedup below (catalog 2→1: the dead second handler is gone,
+ * so the baseline carries one catalog condition); (c) the
  * regex-match conditions stay in etradeOptions.ts in order; (d) the
  * construction ledger is preserved exactly — originals keep their
  * counts, new modules construct no ETradeService; (e) the originals
@@ -75,8 +77,13 @@ const OPTIONS_CONDITIONS_BASELINE = [
   'endsWith("/trading/options/llm-ideas")',
   'endsWith("/trading/options/compare")',
   'endsWith("/trading/options/compare")',
+  // Issue #1361 (consolidation C5): the comparison surface — ledger
+  // read-back first (its path ends with the comparison path), then
+  // the comparison run, both before recommend (source order).
+  'endsWith("/trading/options/comparison/outcomes")',
+  'endsWith("/trading/options/comparison")',
   'endsWith("/trading/options/recommend")',
-  'endsWith("/trading/options/catalog")',
+  // Issue #1334: one catalog condition — the dead second handler is gone.
   'endsWith("/trading/options/catalog")',
   'endsWith("/trading/options/strategies")',
   'endsWith("/trading/options/best-trade")',
@@ -156,7 +163,9 @@ describe("route module re-split (#995)", () => {
     // Was 7 at the #995 re-split; #291 T5c migrated the chain +
     // expire-dates handlers to the platform registry (ledger 51 -> 49),
     // shrinking this count in the migrating PR per the ledger's rule.
-    expect(count(OPTIONS_FILE)).toBe(5);
+    // #1361 (consolidation C5) added the comparison route, which
+    // constructs its own service like every sibling options route.
+    expect(count(OPTIONS_FILE)).toBe(6);
     // Was 20 at the re-split; #291 Q3 migrated the quote route to the
     // registry + LIVE_STRICT policy (ledger 48 -> 47); #1135 added the
     // recommendation-bundle route, which constructs its own service

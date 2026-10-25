@@ -1,10 +1,9 @@
 /**
- * Issue #1123 S5c: #277 composition. With report-dispatch HITL
- * enabled, followup.deliver jobs HOLD instead of sending: the job
- * completes as 'held' with a mas_report_confirmations row of kind
- * 'screener' (visible in the same pending-review surface, same 24h
- * TTL). Approval resubmits the delivery with an approval marker and
- * the executor sends it. No unapproved delivery is ever sent.
+ * Issue #1347 (owner ruling 2026-10-24, reversing the #277 flip-ON
+ * for RUN deliveries): followup.deliver jobs SEND immediately even
+ * with report-dispatch HITL enabled — no hold, no confirmation row.
+ * The research-report dispatch gate (reportDispatch module, tested
+ * below) is a different surface and is untouched by this change.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -157,8 +156,8 @@ async function submitDelivery(ctx: AsyncJobsContext, extra?: Record<string, unkn
   return jobId;
 }
 
-describe("followup.deliver under report-dispatch HITL (#277)", () => {
-  it("holds the delivery: job completes 'held', a screener confirmation carries the full spec, nothing is sent", async () => {
+describe("followup.deliver under report-dispatch HITL (#1347: no hold for runs)", () => {
+  it("sends immediately even with HITL on: job completes 'sent', no confirmation is created", async () => {
     const sql = new StatefulAsyncSql();
     const sent: string[] = [];
     const confirmations: string[] = [];
@@ -167,17 +166,12 @@ describe("followup.deliver under report-dispatch HITL (#277)", () => {
     await executeAsyncJob(ctx, { jobId });
     const rec = getAsyncJob(ctx, jobId);
     expect(rec?.status).toBe("completed");
-    expect(rec?.result).toMatchObject({ status: "held", confirmationId: "rc_test123", channel: "slack" });
-    expect(sent).toEqual([]);
-    expect(confirmations).toHaveLength(1);
-    const spec = JSON.parse(confirmations[0]) as { delivery: Record<string, unknown> };
-    expect(spec.delivery.channel).toBe("slack");
-    expect(spec.delivery.parentJobId).toBe("main-1");
-    expect(spec.delivery.displayName).toBe("Deliver by Slack — Stock screen");
-    expect(spec.delivery.artifacts).toEqual([{ key: "k1", fileName: "screen.pdf" }]);
+    expect(rec?.result).toMatchObject({ status: "sent", channel: "slack" });
+    expect(sent).toEqual(["slack"]);
+    expect(confirmations).toEqual([]);
   });
 
-  it("an approved delivery (approval marker) sends even with HITL on", async () => {
+  it("an approval marker is inert: delivery sends (the hold no longer exists)", async () => {
     const sql = new StatefulAsyncSql();
     const sent: string[] = [];
     const confirmations: string[] = [];
@@ -255,10 +249,10 @@ describe("approval-release wiring pins", () => {
     expect(src).toContain('row.kind === "screener"');
     expect(src).toContain("submitFollowupDelivery");
   });
-  it("the orchestrator wires the release port and the async-job HITL ports", () => {
+  it("the orchestrator keeps the release port but no longer wires async-job HITL ports (#1347)", () => {
     const src = readFileSync("src/agents/orchestrator.ts", "utf8");
     expect(src).toContain("submitFollowupDelivery:");
-    expect(src).toContain("reportDispatchHitlEnabled:");
-    expect(src).toContain("createScreenerConfirmation:");
+    expect(src).not.toContain("reportDispatchHitlEnabled:");
+    expect(src).not.toContain("createScreenerConfirmation:");
   });
 });

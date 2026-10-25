@@ -69,6 +69,11 @@ vi.mock("agents/x402", () => {
 
 import worker from "../src/server";
 import { SlackAgent } from "../src/agents/slackAgent";
+import {
+  confirmSlackLink,
+  slackPrincipalLinkStoreFromEnv,
+} from "../src/trading/channels/intake";
+import { makeFakeSessionStore } from "./fake-session-store";
 import { gateSlackRequest } from "../src/security/webhookSecurity";
 import { computeHmacSha256Hex } from "../src/services/cryptoUtils";
 import { DatabaseORM } from "../src/orm";
@@ -382,6 +387,21 @@ describe("SlackAgent.onRequest — mandatory gate (#147)", () => {
   const configuredEnv = { ...baseEnv, SLACK_SIGNING_SECRET: SECRET } as unknown as Env;
   const unconfiguredEnv = { ...baseEnv } as unknown as Env;
 
+  // Issue #1262 Phase 2: onRequest resolves the caller's principal
+  // from the Phase 1 link store, so "valid signature → processed"
+  // tests must link the test user first (the gate is what these
+  // tests prove; the link state is just the principal precondition).
+  // The link is driven through the real issue + confirm flow over
+  // the repo's fake SessionStore (#604 helper).
+  const linkedConfiguredEnv = async (userId: string): Promise<Env> => {
+    const env = { ...configuredEnv, SESSION_STORE: makeFakeSessionStore().namespace } as unknown as Env;
+    const store = slackPrincipalLinkStoreFromEnv(env);
+    const { code } = await store.issueLinkCode(agentTeam, userId);
+    const confirmed = await confirmSlackLink(env, code, `trader-${userId.toLowerCase()}`);
+    expect(confirmed.ok).toBe(true);
+    return env;
+  };
+
   const createMockCtx = () => ({
     id: { toString: () => agentTeam },
     storage: { sql },
@@ -518,7 +538,7 @@ describe("SlackAgent.onRequest — mandatory gate (#147)", () => {
 
   it("configured + valid signature: 'approve' event is processed and executes the order", async () => {
     seedPreviewedTrade("ord_147_ok_event");
-    const agent = new SlackAgent(createMockCtx() as any, configuredEnv);
+    const agent = new SlackAgent(createMockCtx() as any, await linkedConfiguredEnv("U_ATTACKER"));
     const body = approveEventBody("ord_147_ok_event");
     const headers = await slackSigHeaders(SECRET, body);
     const res = await agent.onRequest(
@@ -566,7 +586,7 @@ describe("SlackAgent.onRequest — mandatory gate (#147)", () => {
   });
 
   it("configured + valid signature: slash command is processed", async () => {
-    const agent = new SlackAgent(createMockCtx() as any, configuredEnv);
+    const agent = new SlackAgent(createMockCtx() as any, await linkedConfiguredEnv("U147"));
     const body = "command=%2Fhelp&team_id=T147AGENT&user_id=U147";
     const headers = await slackSigHeaders(SECRET, body);
     const res = await agent.onRequest(
@@ -596,7 +616,7 @@ describe("SlackAgent.onRequest — mandatory gate (#147)", () => {
   });
 
   it("configured + valid signature: interaction is processed", async () => {
-    const agent = new SlackAgent(createMockCtx() as any, configuredEnv);
+    const agent = new SlackAgent(createMockCtx() as any, await linkedConfiguredEnv("U147"));
     const body = `payload=${encodeURIComponent(
       JSON.stringify({
         type: "block_actions",

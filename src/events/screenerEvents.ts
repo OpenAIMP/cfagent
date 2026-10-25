@@ -39,6 +39,11 @@ export interface ScreenerCompletedEvent {
   xlsxKey?: string;
   xlsxStatus?: "generated" | "failed" | "skipped";
   xlsxError?: string;
+  /** Issue #1346: per-run CSV artifact, mirroring the PDF/XLSX
+   *  triple. */
+  csvKey?: string;
+  csvStatus?: "generated" | "failed" | "skipped";
+  csvError?: string;
   /** Stable delivery id used to suppress duplicate scheduled notifications. */
   deliveryId?: string;
   sector: string;
@@ -119,6 +124,16 @@ export interface OptionsCompletedEvent {
   summary: string;
   reportUrl?: string;
   opportunities: OptionsOpportunitySummary[];
+  /** Consolidation C4 (#1329): the run's PDF key, so a chained
+   *  options run's serve stage adopts the same artifact the direct
+   *  path delivered. Absent on runs that produced no PDF. */
+  pdfKey?: string;
+  pdfStatus?: "generated" | "failed" | "skipped";
+  pdfError?: string;
+  /** Consolidation C4 (#1329): stage-chain config when the schedule
+   *  opted in — the bridge chains (serve/deliver) instead of
+   *  recording only. Absent = the direct path (the degenerate case). */
+  stageChain?: import("../types").StageChainConfig;
 }
 
 export interface OptionsFailedEvent {
@@ -128,6 +143,9 @@ export interface OptionsFailedEvent {
   universe?: string;
   thesis: string;
   error: string;
+  /** Consolidation C4 (#1329): as on the completed event — a chained
+   *  failed run still records its generate stage + stop point. */
+  stageChain?: import("../types").StageChainConfig;
 }
 
 export type ScreenerEvent =

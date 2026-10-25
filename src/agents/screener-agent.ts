@@ -45,14 +45,18 @@ import {
 import { YahooFinanceProvider } from "../services/fossResearch";
 import {
   bindETradeScreenerDeps,
+  bindNasdaqUniverseDeps,
   bindYahooScreenerDeps,
   bootstrapDataProviders,
+  createNasdaqDataProvider,
   createYahooDataProvider,
   DataProviderRegistry,
   getProviderConfig,
   listCapabilityRoutes,
   listProviderConfigs,
+  nasdaqUniverseProviderFromRoute,
   transitionProvider,
+  verifyNasdaqDataProvider,
   verifyYahooDataProvider,
   yahooQuoteProviderFromRoute,
 } from "../trading";
@@ -155,6 +159,11 @@ export interface ScreenerRunResult {
   xlsxKey?: string;
   xlsxStatus?: "generated" | "failed" | "skipped";
   xlsxError?: string;
+  /** Issue #1346: per-run CSV key, populated by persistRun after
+   *  the CSV report is stored (same failure contract as XLSX). */
+  csvKey?: string;
+  csvStatus?: "generated" | "failed" | "skipped";
+  csvError?: string;
   /** Issue #816: quote pipeline trace summary for the UI. */
   quoteTrace?: {
     traceId: string;
@@ -198,6 +207,7 @@ const PDF_LATEST_KEY = "screener:latest.pdf";
 // XLSX report storage
 const XLSX_KEY_PREFIX = "screener:xlsx:";
 const XLSX_LATEST_KEY = "screener:latest.xlsx";
+const CSV_LATEST_KEY = "screener:latest.csv";
 // Issue #361: Options PDF storage (mirrors stock pattern). Since #1023
 // (single PDF path) per-run options PDFs are generated + stored by
 // ReportAssetAgent and addressed by its key; this constant remains only
@@ -206,6 +216,7 @@ const OPTIONS_PDF_LATEST_KEY = "options:latest.pdf";
 /** Issue #1195 (#1173 R3b): options XLSX storage keys. */
 const OPTIONS_XLSX_KEY_PREFIX = "options:xlsx:";
 const OPTIONS_XLSX_LATEST_KEY = "options:latest.xlsx";
+const OPTIONS_CSV_LATEST_KEY = "options:latest.csv";
 
 export class ScreenerAgent extends Agent<Env> {
   private orm: DatabaseORM | null = null;
@@ -525,13 +536,47 @@ export class ScreenerAgent extends Agent<Env> {
 
       // Issue #270: resolve the universe to symbols (listings directory
       // = symbol membership only, not market data). E*TRADE-only quotes.
+      // Issue #1368: universe resolution acquires through the
+      // data-provider platform, mirroring the #1317 yahoo cutover:
+      // bootstrap this DO's platform store (seed + routes), verify
+      // + enable nasdaq through the lifecycle API when it is not
+      // already enabled, resolve the screenUniverse route's primary
+      // assignment to the nasdaq adapter, and bind the listings
+      // fetch over it (capture + outcome tracking ride along under
+      // the run id, minted here when no provider block has minted
+      // one yet — the etrade/yahoo blocks reuse it via ??=, so the
+      // listings capture shares the screen's run id).
       const universeDef = UNIVERSES[universe];
       let symbols = req.symbols;
       if (!symbols && universe !== "ALL") {
-        const { fetchAllUsStockListings } = await import(
-          "../services/nasdaqListings"
+        bootstrapDataProviders(this.ctx.storage.sql);
+        platformRunId ??= crypto.randomUUID();
+        const nasdaqConfig = getProviderConfig(this.ctx.storage.sql, "nasdaq");
+        if (!nasdaqConfig || nasdaqConfig.lifecycleState !== "enabled" || !nasdaqConfig.enabled) {
+          await transitionProvider(this.ctx.storage.sql, "nasdaq", "verify", userLogin, {
+            verifier: async () => verifyNasdaqDataProvider(),
+          });
+          await transitionProvider(this.ctx.storage.sql, "nasdaq", "enable", userLogin, {});
+        }
+        const nasdaqRegistry = new DataProviderRegistry();
+        const nasdaqAdapter = createNasdaqDataProvider(undefined, {
+          capture: {
+            sql: this.ctx.storage.sql,
+            blobStorage: this.ctx.storage,
+            env: this.env,
+          },
+        });
+        nasdaqRegistry.register(nasdaqAdapter);
+        const nasdaqProvider = nasdaqUniverseProviderFromRoute(
+          nasdaqRegistry,
+          listProviderConfigs(this.ctx.storage.sql),
+          listCapabilityRoutes(this.ctx.storage.sql)
         );
-        const listings = await fetchAllUsStockListings();
+        const nasdaqUniverseDeps = bindNasdaqUniverseDeps(nasdaqProvider, {
+          runId: platformRunId,
+          userLogin,
+        });
+        const listings = await nasdaqUniverseDeps.fetchListings();
         symbols = resolveUniverse(universe, listings);
       }
       const requestedMaxSymbols = req.maxSymbols ?? universeDef.defaultMaxSymbols;
@@ -556,7 +601,7 @@ export class ScreenerAgent extends Agent<Env> {
       let platformLiveDeps: ReturnType<typeof bindETradeScreenerDeps> | undefined;
       if (etrade) {
         bootstrapDataProviders(this.ctx.storage.sql);
-        platformRunId = crypto.randomUUID();
+        platformRunId ??= crypto.randomUUID();
         platformLiveDeps = bindETradeScreenerDeps(
           etrade,
           {
@@ -582,7 +627,7 @@ export class ScreenerAgent extends Agent<Env> {
       let platformYahooDeps: ReturnType<typeof bindYahooScreenerDeps> | undefined;
       if (provider === "yahoo" && !req.yahooDeps) {
         bootstrapDataProviders(this.ctx.storage.sql);
-        platformRunId = crypto.randomUUID();
+        platformRunId ??= crypto.randomUUID();
         const yahooConfig = getProviderConfig(this.ctx.storage.sql, "yahoo");
         if (!yahooConfig || yahooConfig.lifecycleState !== "enabled" || !yahooConfig.enabled) {
           await transitionProvider(this.ctx.storage.sql, "yahoo", "verify", userLogin, {
@@ -807,7 +852,7 @@ export class ScreenerAgent extends Agent<Env> {
       req.environment
     );
     const { runProductionGoalScreen } = await import("../services/screeningRuntime");
-    return runProductionGoalScreen({
+    const out = await runProductionGoalScreen({
       ledger: this.taskLedger(),
       optionsScreener: new DynamicOptionsScreener(etrade.client),
       scenario: req.scenario,
@@ -819,6 +864,22 @@ export class ScreenerAgent extends Agent<Env> {
       baseStockFilter: req.baseStockFilter,
       baseOptionsFilter: req.baseOptionsFilter,
     });
+    // Issue #1335: every completed goal-screen run — 0 hits included —
+    // leaves PDF + XLSX + CSV artifacts in the blob store, mirroring
+    // generateRunPdf for stock runs. Artifact failure is recorded on
+    // the result, never thrown: the run completed, the artifact did not.
+    if (out.executed && out.result) {
+      const { generateAndStoreGoalScreenArtifacts } = await import(
+        "../services/goalScreenReports"
+      );
+      const artifacts = await generateAndStoreGoalScreenArtifacts(
+        this.env,
+        this.ctx.storage as any,
+        out.result
+      );
+      Object.assign(out.result, artifacts);
+    }
+    return out;
   }
 
   async getLatest(): Promise<ScreenerRunResult | null> {
@@ -888,6 +949,40 @@ export class ScreenerAgent extends Agent<Env> {
   }
 
   /**
+   * Issue #1346: get a specific run's CSV report by its storage
+   * key. Prefix-validated like getGoalScreenArtifactByKey — a
+   * non-CSV key never reads another family's blob through this
+   * getter, so /api/screener/report.csv cannot serve a PDF/XLSX.
+   */
+  async getCsvByKey(csvKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { isScreenerCsvKey } = await import("../trading");
+    if (!isScreenerCsvKey(csvKey)) return null;
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, csvKey);
+  }
+
+  /** Latest report CSV — generated at run time, served by GET /api/screener/report.csv. */
+  async getLatestCsv(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, CSV_LATEST_KEY);
+  }
+
+  /**
+   * Issue #1335: one getter for all three goal-screen artifact formats.
+   * The key must be goal_screen-namespaced — this getter never serves
+   * stock/options blobs, so a goal-screen download link cannot be
+   * repurposed into an open blob read.
+   */
+  async getGoalScreenArtifactByKey(
+    key: string
+  ): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { isGoalScreenArtifactKey } = await import("../services/goalScreenReports");
+    if (!isGoalScreenArtifactKey(key)) return null;
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, key);
+  }
+
+  /**
    * Get the latest options PDF (issue #361).
    */
   async getLatestOptionsPdf(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
@@ -942,6 +1037,45 @@ export class ScreenerAgent extends Agent<Env> {
     return await getReportPdf(this.env, this.ctx.storage, xlsxKey);
   }
 
+  /**
+   * Issue #1346: generate an options run's CSV report and store it
+   * under a per-run key (+ the latest pointer), the options twin
+   * of generateAndStoreOptionsXlsx. Throws on failure — callers
+   * record csvStatus "failed" with the error, mirroring the XLSX
+   * convention. A 0-contract run stores a headers-only CSV.
+   */
+  async generateAndStoreOptionsCsv(
+    result: import("../types").OptionScreenResult,
+  ): Promise<{ key: string; fileName: string }> {
+    const { withRetry } = await import("../services/resilience");
+    const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+    const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+    const key = `options:csv:${crypto.randomUUID().slice(0, 8)}`;
+    return withRetry(async () => {
+      const { generateOptionsCsv, optionsCsvFileName } = await import("../trading");
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const bytes = new TextEncoder().encode(generateOptionsCsv(result));
+      const fileName = optionsCsvFileName(result);
+      await putReportPdf(this.env, this.ctx.storage as any, key, fileName, bytes, "text/csv");
+      await putReportPdf(this.env, this.ctx.storage as any, OPTIONS_CSV_LATEST_KEY, fileName, bytes, "text/csv");
+      return { key, fileName };
+    }, reportRetry, { label: "options-csv" });
+  }
+
+  /** Get a specific options run's CSV report by its storage key (#1346, prefix-validated). */
+  async getOptionsCsvByKey(csvKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { isOptionsCsvKey } = await import("../trading");
+    if (!isOptionsCsvKey(csvKey)) return null;
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, csvKey);
+  }
+
+  /** Get the latest options CSV report (#1346). */
+  async getLatestOptionsCsv(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, OPTIONS_CSV_LATEST_KEY);
+  }
+
   /** Get the latest options XLSX report (#1195). */
   async getLatestOptionsXlsx(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
@@ -982,6 +1116,29 @@ export class ScreenerAgent extends Agent<Env> {
       result.xlsxStatus = "failed";
       result.xlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
       console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
+    }
+    // Issue #1346: CSV report generation — the XLSX block's twin.
+    // Same failure contract (recorded, never fatal, never silent);
+    // a 0-record run stores a headers-only CSV.
+    try {
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const { withRetry } = await import("../services/resilience");
+      const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+      const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+      const csvKey = `screener:csv:${crypto.randomUUID().slice(0, 8)}`;
+      await withRetry(async () => {
+        const { generateScreenerCsv, screenerCsvFileName } = await import("../trading");
+        const csvBytes = new TextEncoder().encode(generateScreenerCsv(result));
+        const csvFileName = screenerCsvFileName(result);
+        await putReportPdf(this.env, this.ctx.storage as any, csvKey, csvFileName, csvBytes, "text/csv");
+        await putReportPdf(this.env, this.ctx.storage as any, CSV_LATEST_KEY, csvFileName, csvBytes, "text/csv");
+        result.csvKey = csvKey;
+        result.csvStatus = "generated";
+      }, reportRetry, { label: "screener-csv" });
+    } catch (csvErr) {
+      result.csvStatus = "failed";
+      result.csvError = csvErr instanceof Error ? csvErr.message : String(csvErr);
+      console.error("[ScreenerAgent] CSV generation failed:", result.csvError);
     }
     // Issue #783: no report-store write happens here. The #732 block that
     // persisted a second copy into this DO's own report table is removed:

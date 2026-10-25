@@ -534,7 +534,7 @@ export async function handleReportsRoutes(
           storeErrors[name] = err?.message || String(err);
         }
       };
-      if (kind === "all" || kind === "screener" || kind === "options_scanner") {
+      if (kind === "all" || kind === "screener" || kind === "options_scanner" || kind === "goal") {
         await readStore("reports", async () => {
           const { listScheduledReports, ensureScheduledReportsTable, resolveCanonicalReportBodyWithBackfill } = await import("../../services/scheduledReports");
           const { runSummaryFromReport } = await import("../../services/runSummaries");

@@ -71,6 +71,7 @@ describe("autopilot route inventory (extraction #368)", () => {
     const moduleSrc = src("agents/routes/autopilot.ts");
     const markers = [
       'path.endsWith("/autopilot") && request.method === "GET"',
+      'path.endsWith("/autopilot/jobs") && request.method === "GET"',
       'path.endsWith("/autopilot/state") && request.method === "POST"',
       'path.endsWith("/autopilot/kill-switch") && request.method === "POST"',
       'path.endsWith("/autopilot/limits") && (request.method === "POST" || request.method === "PUT")',
