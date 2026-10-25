@@ -3,11 +3,16 @@
  *
  * Pins:
  *  (a) No production file outside the unified report pipeline
- *      (src/services/unifiedReportPipeline.ts), the ReportAssetAgent owner
- *      (src/agents/report-asset-agent.ts) and the generator definition
- *      modules (src/trading/*ReportPdf.ts) CALLS a direct PDF generator
- *      (generateOptionsPdf / generateScreenerPdf / generateResearchPdf).
- *      Call-level pins — comments do not satisfy them (house idiom).
+ *      (src/services/unifiedReportPipeline.ts) and the generator
+ *      definition modules (src/trading/*ReportPdf.ts) CALLS a direct PDF
+ *      generator (generateOptionsPdf / generateScreenerPdf /
+ *      generateResearchPdf). Call-level pins — comments do not satisfy
+ *      them (house idiom). Consolidation C4 (#1329) completed the
+ *      epic's "report-asset-agent's direct PDF call moves behind
+ *      runReportPipeline" item: the ReportAssetAgent (still the single
+ *      owner of the generate step, #680) now dispatches through the
+ *      pipeline's generateReportPdf, so it leaves this allowed set —
+ *      the pipeline is the ONE generator dispatch.
  *  (b) ScreenerAgent.persistRun has no direct-generator fallback: on
  *      pipeline failure it records pdfStatus "failed" (the #822 contract)
  *      instead of generating behind the pipeline's back. And
@@ -277,8 +282,7 @@ const listTs = (dir: string): string[] =>
 const rel = (p: string) => p.slice(SRC_ROOT.length + 1).replace(/\\/g, "/");
 
 const ALLOWED_GENERATOR_CALLERS = new Set([
-  "services/unifiedReportPipeline.ts", // the pipeline
-  "agents/report-asset-agent.ts", // the single owner (#680)
+  "services/unifiedReportPipeline.ts", // the pipeline — the ONE dispatch (C4 #1329)
   "trading/optionsReportPdf.ts", // generator definitions
   "trading/screenerReportPdf.ts",
   "trading/researchReportPdf.ts",
@@ -299,12 +303,20 @@ describe("#1023 one PDF path — source pins", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("(a) the generator definitions + ReportAssetAgent remain the only call sites inside the allowed set", () => {
+  it("(a) the pipeline remains the only dispatch, and the ReportAssetAgent dispatches through it", () => {
     // Guards against the allowed set silently shrinking the pin's value:
-    // the owner must still be the place that renders.
+    // the pipeline must still be the place that renders, and the agent
+    // (the generate step's owner, #680) must reach the generators only
+    // through the pipeline's dispatch (C4 #1329).
+    const pipeline = readFileSync(join(SRC_ROOT, "services/unifiedReportPipeline.ts"), "utf8");
+    expect(pipeline).toMatch(/generateOptionsPdf\s*\(/);
+    expect(pipeline).toMatch(/generateScreenerPdf\s*\(/);
+    expect(pipeline).toMatch(/generateResearchPdf\s*\(/);
     const owner = readFileSync(join(SRC_ROOT, "agents/report-asset-agent.ts"), "utf8");
-    expect(owner).toMatch(/generateOptionsPdf\s*\(/);
-    expect(owner).toMatch(/generateScreenerPdf\s*\(/);
+    expect(owner).toMatch(/generateReportPdf\s*\(/);
+    expect(owner).not.toMatch(/generateOptionsPdf\s*\(/);
+    expect(owner).not.toMatch(/generateScreenerPdf\s*\(/);
+    expect(owner).not.toMatch(/generateResearchPdf\s*\(/);
   });
 
   it("(b) persistRun has no direct-generator fallback; failure is recorded, not re-generated", () => {

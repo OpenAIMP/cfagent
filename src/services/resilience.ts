@@ -65,9 +65,74 @@ const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * Issue #1355: a 429 failure that carries a Retry-After. The
+ * existing backoff below is policy-driven; when the server names
+ * its own wait, that wait wins for THAT attempt — a shard that
+ * hits a limit backs off alone while sibling shards proceed.
+ * retryAfterSeconds is in seconds (HTTP semantics); callers that
+ * read a raw header use parseRetryAfterSeconds first.
+ */
+export class RateLimitError extends Error {
+  readonly status = 429;
+  constructor(
+    message: string,
+    readonly retryAfterSeconds?: number
+  ) {
+    super(message);
+    this.name = "RateLimitError";
+  }
+}
+
+/**
+ * Issue #1355: parse a Retry-After value — bare seconds, a numeric
+ * string, or an HTTP-date — into seconds. Invalid input yields
+ * undefined (the caller falls back to policy backoff); never throws.
+ */
+export function parseRetryAfterSeconds(value: unknown, nowMs = Date.now()): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") return undefined;
+    if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+    const at = Date.parse(trimmed);
+    if (Number.isFinite(at)) return Math.max(0, Math.ceil((at - nowMs) / 1000));
+  }
+  return undefined;
+}
+
+/**
+ * Issue #1355: the Retry-After wait in milliseconds for an error
+ * that carries one — a RateLimitError's field, a 429-shaped error
+ * with retryAfterSeconds / retry-after / Retry-After, or undefined
+ * when the error names no wait (policy backoff applies).
+ */
+export function retryAfterMsForError(err: unknown): number | undefined {
+  if (err instanceof RateLimitError && err.retryAfterSeconds !== undefined) {
+    return err.retryAfterSeconds * 1000;
+  }
+  if (err && typeof err === "object") {
+    const rec = err as Record<string, unknown>;
+    const status = rec.status ?? rec.statusCode;
+    if (status === 429) {
+      const raw = rec.retryAfterSeconds ?? rec["retry-after"] ?? rec["Retry-After"];
+      const seconds = parseRetryAfterSeconds(raw);
+      if (seconds !== undefined) return seconds * 1000;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Run `fn` until it succeeds or the policy's attempts are exhausted.
  * The LAST error is rethrown unwrapped — callers keep their own
  * error semantics (the catalog mapping is R4's concern).
+ *
+ * Issue #1355: a Retry-After on the failed attempt overrides the
+ * policy backoff for that retry (the server's wait wins); the
+ * attempt cap is unchanged, so a misconfigured backoff cannot
+ * retry-storm — the cap, not the delay, bounds the storm.
  */
 export async function withRetry<T>(
   fn: (attempt: number) => Promise<T>,
@@ -84,7 +149,10 @@ export async function withRetry<T>(
       lastError = err;
       if (attempt >= maxAttempts) break;
       if (opts.shouldRetry && !opts.shouldRetry(err)) break;
-      const delayMs = computeBackoffDelayMs(policy, attempt, opts.rng);
+      // Issue #1355: Retry-After wins over policy backoff for this
+      // retry only; without one the policy schedule applies.
+      const delayMs =
+        retryAfterMsForError(err) ?? computeBackoffDelayMs(policy, attempt, opts.rng);
       const event: RetryEvent = {
         label: opts.label,
         attempt,

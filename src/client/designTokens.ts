@@ -1,4 +1,5 @@
 /** Typed semantic tokens and density preference compatibility APIs. */
+export { BRAND, getBrand, type BrandConfig, type BrandEcosystemAgent } from "./branding";
 export const colorRoles = [
   "surface", "surface-foreground", "surface-raised", "surface-raised-foreground",
   "surface-sunken", "surface-sunken-foreground", "card", "card-foreground",
@@ -409,7 +410,7 @@ export const generatedThemeTokens: Record<"dark" | "light" | "high-contrast", Re
  */
 export const adAccentPalette = [
   { value: "#6366f1", label: "Indigo" },
-  { value: "#f38020", label: "Cloudflare Orange" },
+  { value: "#f38020", label: "Amber Orange" },
   { value: "#06b6d4", label: "Cyan" },
   { value: "#10b981", label: "Emerald Green" },
   { value: "#a855f7", label: "Purple" },

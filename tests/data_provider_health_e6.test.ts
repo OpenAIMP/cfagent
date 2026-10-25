@@ -226,6 +226,15 @@ describe("provider health aggregation (issue #1235)", () => {
       totalRawBytes: 0,
       capturesLast24h: 0,
       failuresLast24h: 0,
+      // E7 (#1248): the health block's fetch dimension, zeroed on an
+      // empty store — additive fields, every E6 field above unchanged.
+      fetchAttempts: 0,
+      fetchFailures: 0,
+      fetchFailureRate: 0,
+      captureFailures: 0,
+      lastFetchFailureAt: null,
+      fetchConsecutiveFailures: 0,
+      latestFetchFailureKind: null,
       byCapability: {},
     });
 

@@ -109,6 +109,13 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
   filters?: import("../../types").StockScreenerFilter;
   /** Issue #1007: data provider for the scheduled run (default "etrade"). */
   provider?: import("../../trading").StockScreenProvider;
+  /** Consolidation C3 (#1277): stage-chain config from the schedule
+   *  payload, forwarded to the service so the run's stage jobs are
+   *  stamped at the follow-up bridge. */
+  stageChain?: import("../../types").StageChainConfig;
+  /** Issue #1355: run this scheduled screen as sharded jobs
+   *  (validated by marketScreenScheduleCriteriaSchema). */
+  sharded?: boolean;
 }): Promise<void> {
   try {
     await ctx.waitUntilStable({ timeout: 30_000 });
@@ -149,7 +156,11 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
     const orm = ctx.getOrm();
     // Scheduled callbacks have no authenticated HTTP headers. Use the
     // identity and environment saved from the user's schedules requests.
-    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env });
+    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env },
+      // Issue #1355: shard submission rides the agent's private
+      // submitAsyncJob via the same (ctx.self as any) escape hatch
+      // this file already uses for broadcast/keepAliveWhile.
+      (spec) => (ctx.self as any).submitAsyncJob(spec));
     const res = await service.autonomousMarketScreen({ ...payload, userLogin, environment, trigger });
     if ((res as any).skipped) return;
     // Issue #212: persist the run for the "last results" UX endpoint.
@@ -172,13 +183,22 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
         // per-symbol data table. Already shaped by the shared pipeline.
         allStocks: res.data?.allStocks || [],
         pdfKey: res.data?.pdfKey,
+        csvKey: res.data?.csvKey,
+        // Issue #1355: a queued sharded chain has no outcome yet —
+        // last_runs records the chain id, and the canonical row is
+        // skipped (the chain's store shards write the per-format
+        // rows when they run).
+        queued: res.data?.sharded ? true : undefined,
+        chainId: res.data?.chainId,
         error: res.success ? undefined : res.error,
       };
       await ctx.agentCtx.storage.put(key, [run, ...existing].slice(0, 20));
       // Issue #278: persist the scheduled run's report durably
-      // (mas_reports) so the AI Search agent can surface it later.
+      // (mas_reports) so the NextGenTP agent can surface it later.
       // Issue #308: through the single generate→store seam — one
       // canonical row per generation (generationId = run id).
+      // Skipped for queued sharded chains (see above).
+      if (!res.data?.sharded) {
       orm.storeCanonicalReport({
         runId: `screener:${res.timestamp}`,
         generationId: `screener:${res.timestamp}`,
@@ -196,6 +216,7 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
         },
         createdAt: res.timestamp,
       });
+      }
     } catch {
       // Non-critical: persistence failure must not break the screen.
     }
@@ -273,6 +294,10 @@ export async function autonomousGoalScreen(ctx: ScheduledCallbacksContext, paylo
   emailTo?: string;
   slackChannel?: string;
   pushToSlack?: boolean;
+  /** Consolidation C4 (#1329): stage-chain config from the schedule
+   *  payload, forwarded to the service (spread into the service call
+   *  below) so a completed goal screen bridges generate + serve. */
+  stageChain?: import("../../types").StageChainConfig;
 }): Promise<void> {
   try {
     await ctx.waitUntilStable({ timeout: 30_000 });

@@ -20,8 +20,9 @@ Slack is the primary communication/collaboration mechanism for agents to collabo
 
 In brief:
 
-- Work one issue at a time: issue → branch → PR → merge into `main` →
-  post-merge verification, before starting the next issue (§11).
+- Work one issue at a time per delivery stream: issue → branch → PR →
+  merge into `main` → post-merge verification, before that issue is Done
+  (§11). §20 authorizes parallel independent streams during CI waits.
 - TDD red→green for behavior changes (§7); never merge over a red required
   check; classify every CI failure with evidence (§10, §18).
 - Put your agent hashtag in every issue and PR you create — the `## Agent`

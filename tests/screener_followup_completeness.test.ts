@@ -6,8 +6,9 @@
  * port attaches text + PDF + XLSX (email MIME carries both files
  * with their content types); the pipeline policy gates deliveries
  * and lifecycle notifications per channel+event (explicit 'skipped',
- * never silent); a #277-held delivery announces itself; lifecycle
- * notifications plan per-task override channels too.
+ * never silent); run deliveries send immediately even with the #277
+ * gate on (#1347); lifecycle notifications plan per-task override
+ * channels too.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -221,7 +222,7 @@ function makeCtx(sql: StatefulAsyncSql, env: Record<string, unknown>, opts?: { h
 
 const ENV = { SLACK_WEBHOOK_URL: "https://hooks.slack.com/x", SCREENER_EMAIL_TO: "ops@example.com" };
 
-describe("executor: policy gates + xlsx adoption + held announcements", () => {
+describe("executor: policy gates + xlsx adoption + immediate delivery", () => {
   it("the report sub-job adopts the XLSX artifact next to the PDF", async () => {
     const sql = new StatefulAsyncSql();
     const { ctx } = makeCtx(sql, ENV);
@@ -252,7 +253,7 @@ describe("executor: policy gates + xlsx adoption + held announcements", () => {
     expect(notified).toHaveLength(0);
   });
 
-  it("a #277-held delivery announces itself on the delivery channel", async () => {
+  it("a delivery sends immediately even with HITL on (#1347: no hold for runs)", async () => {
     const sql = new StatefulAsyncSql();
     const { ctx, notified, delivered, confirmations } = makeCtx(sql, ENV, { hitl: true });
     const job = await submitAsyncJob(ctx, {
@@ -261,12 +262,10 @@ describe("executor: policy gates + xlsx adoption + held announcements", () => {
       parentJobId: "main-1",
     });
     await executeAsyncJob(ctx, { jobId: job.jobId });
-    expect(getAsyncJob(ctx, job.jobId)?.result).toMatchObject({ status: "held", confirmationId: "rc_held_1" });
-    expect(confirmations).toHaveLength(1);
-    expect(delivered).toHaveLength(0);
-    expect(notified).toHaveLength(1);
-    expect(notified[0].channel).toBe("slack");
-    expect(notified[0].text).toContain("held for approval");
+    expect(getAsyncJob(ctx, job.jobId)?.result).toMatchObject({ status: "sent", channel: "slack" });
+    expect(confirmations).toHaveLength(0);
+    expect(delivered).toHaveLength(1);
+    expect(notified).toHaveLength(0);
   });
 });
 

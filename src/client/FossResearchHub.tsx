@@ -1703,7 +1703,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             </div>
 
             <p className="section-intro-desc" style={{ marginBottom: "1rem" }}>
-              Every market inquiry, snapshot lookup, and order routed through Alpaca is cryptographically stamped with Agent DID (<code>did:agent:openaimp:trading</code>) and recorded in SQLite Durable Objects (<code>mas_events</code>) for end-to-end provenance.
+              Every market inquiry, snapshot lookup, and order routed through Alpaca is cryptographically stamped with Agent DID (<code>did:agent:openaimp:trading</code>) and recorded in the persistent event ledger (<code>mas_events</code>) for end-to-end provenance.
             </p>
 
             {alpacaTraces.length === 0 ? (

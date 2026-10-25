@@ -156,6 +156,41 @@ function renderAllStocksHeader(ctx: Ctx): void {
   ctx.y -= 6;
 }
 
+/**
+ * Issue #1278 (#1173 R5): provider-truthful provenance lines. The
+ * pre-R5 report hardcoded "E*TRADE live snapshots" — and "No fallback
+ * data substituted" — even on Yahoo runs, where both claims were false
+ * (the manual NASDAQ100 incident report of 2026-10-23). The lines are
+ * built from the run's recorded provider; legacy stored runs without
+ * a provider keep the E*TRADE wording (they predate provider tagging).
+ * Partial technicals coverage (R2's technicalsCoverage) is stated
+ * explicitly so blank MACD/Gap columns are explained on the artifact.
+ */
+export function screenerProvenanceLines(result: {
+  provider?: string;
+  technicalsCoverage?: { symbols: number; withMacd: number; withGap: number };
+}): { quotesLine: string; methodologyQuotes: string; technicalsNote?: string } {
+  const yahoo = result.provider === "yahoo";
+  const lines: { quotesLine: string; methodologyQuotes: string; technicalsNote?: string } = yahoo
+    ? {
+        quotesLine: "Quotes: Yahoo Finance quotes (delayed)",
+        methodologyQuotes:
+          "Quotes: Yahoo Finance (delayed) — the quote source for this run.",
+      }
+    : {
+        quotesLine: "Quotes: E*TRADE live snapshots",
+        methodologyQuotes:
+          "Quotes: E*TRADE live snapshots (primary). No fallback data substituted.",
+      };
+  const cov = result.technicalsCoverage;
+  if (cov && cov.symbols > 0 && (cov.withMacd < cov.symbols || cov.withGap < cov.symbols)) {
+    lines.technicalsNote =
+      `Technicals coverage: MACD available for ${cov.withMacd} of ${cov.symbols} symbols, ` +
+      `Gap% for ${cov.withGap} of ${cov.symbols}; blanks mean daily history was unavailable for that symbol.`;
+  }
+  return lines;
+}
+
 export async function generateScreenerPdf(
   result: ScreenerRunResult
 ): Promise<Uint8Array> {
@@ -164,6 +199,7 @@ export async function generateScreenerPdf(
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const ctx: Ctx = { doc, font, bold, page: doc.addPage([PAGE_W, PAGE_H]), y: PAGE_H - MARGIN };
 
+  const prov = screenerProvenanceLines(result);
   const triggerLabel = result.trigger === "manual" ? "Manual Screen" : "Autonomous Screen";
 
   // Header
@@ -277,7 +313,7 @@ export async function generateScreenerPdf(
   if (result.allStocks && result.allStocks.length > 0) {
     ensureSpace(ctx, 35);
     text(ctx, `All Screened Symbols (${result.allStocks.length})`, { size: 12, bold: true });
-    text(ctx, "Quotes: E*TRADE live snapshots  |  Technicals (RSI, MACD, Gap%): Yahoo Finance daily history", { size: 8, color: PRINT_MUTED });
+    text(ctx, `${prov.quotesLine}  |  Technicals (RSI, MACD, Gap%): Yahoo Finance daily history`, { size: 8, color: PRINT_MUTED });
     ctx.y -= 4;
     renderAllStocksHeader(ctx);
 
@@ -321,7 +357,8 @@ export async function generateScreenerPdf(
   ensureSpace(ctx, 60);
   text(ctx, "Methodology", { size: 10, bold: true });
   const notes = [
-    "Quotes: E*TRADE live snapshots (primary). No fallback data substituted.",
+    prov.methodologyQuotes,
+    ...(prov.technicalsNote ? [prov.technicalsNote] : []),
     "RSI(14), MACD(12,26,9), gaps: Yahoo Finance daily history (complement).",
     "Factor grades (Value/Momentum A+..F): percentile-relative within this run's universe.",
     "Sentiment: day-action based (very bearish -> very bullish). Range zones are 52-week based, not RSI.",

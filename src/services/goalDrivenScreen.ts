@@ -159,6 +159,19 @@ export interface GoalDrivenScreenResult {
     reasons: Record<string, string>;
   };
   completedAt: string;
+  /** Issue #1335: stored report artifacts (PDF + XLSX + CSV), set by
+   *  the agent after the run completes — 0-hit runs included. Each
+   *  format records its own generated/failed state; a failed artifact
+   *  never fails the run. */
+  pdfKey?: string;
+  pdfStatus?: "generated" | "failed";
+  pdfError?: string;
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed";
+  xlsxError?: string;
+  csvKey?: string;
+  csvStatus?: "generated" | "failed";
+  csvError?: string;
 }
 
 export async function runGoalDrivenScreen(input: {

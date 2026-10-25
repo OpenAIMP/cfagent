@@ -62,7 +62,7 @@ export function ToolResultView({
             <strong>Knowledge Search:</strong> <em>"{query}"</em>
           </div>
           <span className={`tool-status-pill ${resultsFound ? "success" : "warning"}`}>
-            {resultsFound ? `RAG (${count} docs)` : "0 Docs (Fallback)"}
+            {resultsFound ? `Knowledge (${count} docs)` : "0 Docs (Fallback)"}
           </span>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
@@ -432,7 +432,7 @@ export function ToolResultView({
               <span><strong>Session Memory:</strong> <code>{data.key}</code> = "{data.value}"</span>
             )}
           </div>
-          <span className="tool-status-pill info">SQLite Stored</span>
+          <span className="tool-status-pill info">Ledger Stored</span>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
         {open && (

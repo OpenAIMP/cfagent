@@ -18,7 +18,10 @@ import type {
   AsyncJobStatus,
   AsyncJobSubmission,
   Env,
+  PipelineStage,
 } from "../../types";
+import { recordScreeningActivity } from "../../services/screeningActivity";
+import { recordJobOutcome } from "../../services/jobOutcomes";
 import type { NLQSchedulingPort, NLQStockScreenPort } from "../nlq";
 import { codedMessage } from "../../errors/errorAspects";
 import { executeMCPTool } from "../../mcp";
@@ -29,7 +32,6 @@ import { createDiscoveryService } from "../../services/discoveryService";
 import { createFitDiscoveryRunner } from "../../services/fitDiscoveryRunner";
 import {
   followupChannelLabel,
-  formatHeldNotification,
   formatLifecycleNotification,
   formatUndeliverableNotification,
   isEmailAllowed,
@@ -37,8 +39,10 @@ import {
   planInitialFollowups,
   planLifecycleNotifications,
   plannedDeliveryChannels,
+  resolveHttpJobChain,
   resolveScreenerFollowupConfig,
   screenerKindForPath,
+  screenerKindLabel,
   screenerOutcomeFromHttpJob,
   type FollowupLifecycleEvent,
   type FollowupReportResult,
@@ -86,26 +90,21 @@ export interface AsyncJobsContext {
       text: string;
     }) => Promise<{ ok: boolean; error?: string; detail?: string }>;
   };
-  /** Issue #1123 S5c: the #277 report-dispatch confirmation gate.
-   *  When enabled, followup.deliver jobs hold for approval instead of
-   *  sending; the hold is recorded as a 'screener' confirmation in
-   *  the same pending-review store (same 24h TTL). */
-  reportDispatchHitlEnabled: () => boolean;
-  createScreenerConfirmation: (payloadJson: string) => string;
-  /** Issue #1228: the #277 confirmation TTL, so a held delivery's
-   *  announcement can state its exact expiry. Optional — the hold
-   *  branch defaults to 24h (the store's TTL) when unbound. */
-  reportConfirmationTtlMs?: () => number;
 }
 
 const ASYNC_JOB_KINDS: readonly AsyncJobKind[] = ["main", "report", "delivery", "notification"];
 const ASYNC_JOB_CHANNELS: readonly AsyncJobChannel[] = ["email", "slack", "webhook"];
+const PIPELINE_STAGES: readonly PipelineStage[] = ["feed", "generate", "store", "serve", "deliver"];
 
 /**
  * Issue #1123: additive job-graph migration for mas_async_jobs —
  * parent_job_id / job_kind / channel, probed and added when missing so
  * existing DO tables upgrade in place. Called from
  * OrchestratorAgent.ensureTables after the CREATE TABLE.
+ * Consolidation C3 (#1277): the same probed migration adds the
+ * stage-chain columns — not_before (per-stage timing), stage and
+ * chain_id (stage identity) — all nullable, so legacy rows read as
+ * unchained.
  */
 export function ensureAsyncJobGraphColumns(sql: AgentContext["storage"]["sql"]): void {
   const cols = Array.from(sql.exec("PRAGMA table_info(mas_async_jobs)")) as Array<{ name?: unknown }>;
@@ -119,7 +118,17 @@ export function ensureAsyncJobGraphColumns(sql: AgentContext["storage"]["sql"]):
   if (!names.has("channel")) {
     sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN channel TEXT");
   }
+  if (!names.has("not_before")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN not_before TEXT");
+  }
+  if (!names.has("stage")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN stage TEXT");
+  }
+  if (!names.has("chain_id")) {
+    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN chain_id TEXT");
+  }
   sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_parent ON mas_async_jobs(parent_job_id)");
+  sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_chain ON mas_async_jobs(chain_id)");
 }
 
 /** Issue #1123: map a row's graph columns onto record fields, tolerating
@@ -128,14 +137,64 @@ function jobGraphFields(row: Record<string, unknown>): {
   parentJobId?: string;
   jobKind: AsyncJobKind;
   channel?: AsyncJobChannel;
+  stage?: PipelineStage;
+  chainId?: string;
+  notBefore?: string;
 } {
   const kind = ASYNC_JOB_KINDS.find((k) => k === row.job_kind);
   const channel = ASYNC_JOB_CHANNELS.find((c) => c === row.channel);
+  const stage = PIPELINE_STAGES.find((s) => s === row.stage);
   return {
     parentJobId: typeof row.parent_job_id === "string" && row.parent_job_id ? row.parent_job_id : undefined,
     jobKind: kind ?? "main",
     channel,
+    stage,
+    chainId: typeof row.chain_id === "string" && row.chain_id ? row.chain_id : undefined,
+    notBefore: typeof row.not_before === "string" && row.not_before ? row.not_before : undefined,
   };
+}
+
+/** Consolidation C3 (#1277): whole seconds from now until an ISO
+ *  not-before time — the arming delay for a deferred job (0 when the
+ *  time has passed or is unparseable). */
+function delaySecondsUntil(iso: string | undefined, nowMs: number): number {
+  if (!iso) return 0;
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return 0;
+  return Math.max(0, Math.ceil((at - nowMs) / 1000));
+}
+
+/** Consolidation C3 (#1277): record one stage transition in the
+ *  screening activity log, so a chain's stages are visible per stage
+ *  (with held/failed/skipped reasons) in the screening activity feed
+ *  — never invisible (the #1209 anti-pattern). Recording follows the
+ *  activity log's own contract: it never throws. */
+function recordStageTransition(
+  ctx: AsyncJobsContext,
+  input: {
+    userLogin?: string;
+    stage: PipelineStage;
+    chainId?: string;
+    jobId: string;
+    status: "completed" | "failed" | "skipped" | "held";
+    reason?: string;
+  },
+): void {
+  const userLogin = input.userLogin || ctx.sessionKey();
+  const reasonText = input.reason ? `: ${input.reason}` : "";
+  recordScreeningActivity(ctx.agentCtx.storage.sql, {
+    userLogin,
+    kind: "stage",
+    summary: `Stage ${input.stage} ${input.status}${reasonText}`,
+    detail: {
+      chainId: input.chainId ?? null,
+      jobId: input.jobId,
+      stage: input.stage,
+      status: input.status,
+      reason: input.reason ?? null,
+    },
+    refId: input.jobId,
+  });
 }
 
 export async function submitAsyncJob(ctx: AsyncJobsContext,
@@ -161,6 +220,14 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
   );
   const jobId = crypto.randomUUID();
   const now = new Date().toISOString();
+  // Consolidation C4 (#1329): a generic http.request job whose payload
+  // carries stageChain is submitted as its chain's generate stage —
+  // the same idiom as the bridge (chainId minted when stageChain is
+  // present). An explicit stage/chainId on the submission wins; a job
+  // without stageChain is untouched (the degenerate case).
+  const payloadStageChain = (job.payload as Record<string, unknown> | undefined)?.stageChain;
+  const httpChainStage = job.capability === "http.request" && payloadStageChain && !job.stage ? "generate" : job.stage;
+  const httpChainId = job.capability === "http.request" && payloadStageChain && !job.chainId ? crypto.randomUUID() : job.chainId;
   const displayName = job.displayName ?? (job.capability === "http.request"
     ? `${job.payload.method} ${job.payload.pathAndQuery.split("?")[0]}`
     : job.capability === "mcp.tool"
@@ -173,12 +240,14 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
             ? "Deliver report"
             : job.capability === "followup.notify"
               ? "Notify"
-              : `Task: ${job.payload.title}`);
+              : job.capability === "shard.execute"
+                ? `Shard: ${(job.payload as { shard: { stage: string; key: string } }).shard.stage}/${(job.payload as { shard: { stage: string; key: string } }).shard.key}`
+                : `Task: ${(job.payload as { title?: string }).title ?? job.capability}`);
   // Single-line column list: the shared MockSqlStorage INSERT parser does
   // not span newlines inside the column list (tests would silently drop
   // the row) — keep this statement on one line.
   sql.exec(
-    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at, parent_job_id, job_kind, channel) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at, parent_job_id, job_kind, channel, not_before, stage, chain_id) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     jobId,
     ctx.sessionKey(),
     job.capability,
@@ -189,10 +258,16 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
     job.parentJobId ?? null,
     job.jobKind ?? "main",
     job.channel ?? null,
+    job.runAt ?? null,
+    httpChainStage ?? null,
+    httpChainId ?? null,
   );
 
   try {
-    await ctx.schedule(0, "executeAsyncJob", { jobId } satisfies AsyncJobPayload, {
+    // Consolidation C3 (#1277): a job with a not-before time is armed
+    // at the remaining delay instead of immediately — the executor
+    // still refuses an early claim (defense in depth for re-arms).
+    await ctx.schedule(delaySecondsUntil(job.runAt, Date.now()), "executeAsyncJob", { jobId } satisfies AsyncJobPayload, {
       idempotent: true,
       retry: { maxAttempts: 1 },
     });
@@ -214,15 +289,24 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
 
 export async function recoverQueuedAsyncJobs(ctx: AsyncJobsContext): Promise<void> {
   const pending = Array.from(ctx.ensureTables().exec(
-    "SELECT job_id FROM mas_async_jobs WHERE session_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 100",
+    "SELECT job_id, not_before FROM mas_async_jobs WHERE session_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 100",
     ctx.sessionKey(),
-  )) as Array<{ job_id: string }>;
-  for (const { job_id: jobId } of pending) {
+  )) as Array<{ job_id: string; not_before?: string | null }>;
+  for (const row of pending) {
+    const jobId = row.job_id;
     try {
-      await ctx.schedule(0, "executeAsyncJob", { jobId } satisfies AsyncJobPayload, {
-        idempotent: true,
-        retry: { maxAttempts: 1 },
-      });
+      // Consolidation C3 (#1277): re-arm at the remaining delay — a
+      // deferred stage must not fire early just because the DO
+      // restarted and recovered its queue.
+      await ctx.schedule(
+        delaySecondsUntil(typeof row.not_before === "string" ? row.not_before : undefined, Date.now()),
+        "executeAsyncJob",
+        { jobId } satisfies AsyncJobPayload,
+        {
+          idempotent: true,
+          retry: { maxAttempts: 1 },
+        },
+      );
     } catch (error) {
       console.error(`[OrchestratorAgent] Could not reschedule queued async job ${jobId}:`, error);
     }
@@ -233,7 +317,7 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
   const sql = ctx.ensureTables();
   const rows = Array.from(sql.exec(
     `SELECT job_id, session_id, capability, display_name, status, result_json, response_status,
-            error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel
+            error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel, not_before, stage, chain_id
      FROM mas_async_jobs WHERE job_id = ? AND session_id = ?`,
     jobId,
     ctx.sessionKey(),
@@ -280,7 +364,7 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
 
 export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord[] {
   const rows = Array.from(ctx.ensureTables().exec(
-    `SELECT job_id, session_id, capability, display_name, status, error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel
+    `SELECT job_id, session_id, capability, display_name, status, result_json, error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel, not_before, stage, chain_id
      FROM mas_async_jobs WHERE session_id = ?
      ORDER BY created_at DESC LIMIT ?`,
     ctx.sessionKey(),
@@ -291,6 +375,20 @@ export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord
       const updated = getAsyncJob(ctx, String(row.job_id));
       if (updated?.status === "failed") return updated;
     }
+    // Consolidation C3 (#1277): the parsed result rides the list
+    // record so stage projections can read a stage's terminal state
+    // (skipped / held + reason). Wire consumers strip it before
+    // responding, exactly as they already do for getAsyncJob-shaped
+    // records. Lenient parse: one corrupt result must not take the
+    // whole list down (the per-job read stays strict).
+    let result: unknown;
+    if (typeof row.result_json === "string") {
+      try {
+        result = JSON.parse(row.result_json);
+      } catch {
+        result = undefined;
+      }
+    }
     return {
       jobId: String(row.job_id),
       sessionId: String(row.session_id),
@@ -298,6 +396,7 @@ export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord
       label: String(row.display_name),
       status: row.status as AsyncJobStatus,
       ...jobGraphFields(row),
+      result,
       error: typeof row.error === "string" ? row.error : undefined,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -343,13 +442,17 @@ export async function recordScreenerRunMainJob(
   const sql = ctx.ensureTables();
   const jobId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
+  const kindLabel = screenerKindLabel(outcome.kind);
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
   const displayName = `${kindLabel} screen${scope ? ` — ${scope}` : ""}`;
+  // Consolidation C3 (#1277): with a stage chain on the outcome, the
+  // run's main job IS the chain's generate stage — stamped with the
+  // stage + a fresh chain id the serve/deliver stages link back to.
+  const chainId = outcome.stageChain ? crypto.randomUUID() : undefined;
   // Single-line INSERT per the MockSqlStorage lesson (multi-line
   // column lists silently no-op in the shared mock).
   sql.exec(
-    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, result_json, error, created_at, updated_at, completed_at, job_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, result_json, error, created_at, updated_at, completed_at, job_kind, stage, chain_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     jobId,
     ctx.sessionKey(),
     "screener.run",
@@ -370,15 +473,57 @@ export async function recordScreenerRunMainJob(
     now,
     now,
     "main",
+    chainId ? "generate" : null,
+    chainId ?? null,
   );
   ctx.audit("screener.run_bridged", "orchestrator", { jobId, kind: outcome.kind, success: outcome.success });
+  // Issue #1333: every bridged run lands in the job-outcome sink
+  // Autopilot Control renders as its job feed. The id is the run's
+  // deliveryId when one exists (shared with any bus re-record, so a
+  // run recorded twice converges to one row), else this main job's
+  // id. Never throws: a sink failure must not fail the run.
+  try {
+    recordJobOutcome(ctx.ensureTables(), {
+      id: outcome.deliveryId ?? jobId,
+      kind: outcome.kind,
+      trigger: outcome.trigger,
+      status: outcome.success ? "completed" : "failed",
+      scanned: outcome.totalScanned,
+      matched: outcome.matchedCount,
+      codedError: outcome.success ? undefined : outcome.error ?? undefined,
+      reportUrl: outcome.reportUrl,
+      pdfKey: outcome.pdfKeys?.[0],
+      xlsxKey: outcome.xlsxKey,
+      csvKey: outcome.csvKey,
+      origin: "job-tree",
+      createdAt: now,
+    });
+  } catch (err) {
+    console.warn("[AsyncJobs] job outcome record failed:", err instanceof Error ? err.message : String(err));
+  }
+  if (chainId) {
+    recordStageTransition(ctx, {
+      userLogin,
+      stage: "generate",
+      chainId,
+      jobId,
+      status: outcome.success ? "completed" : "failed",
+      reason: outcome.success ? undefined : outcome.error,
+    });
+  }
   const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
   // chainReport=false covers sources whose report delivery lives on
   // another sanctioned path (scheduled options, #223): the run is
   // recorded + notified, never double-delivered.
   let reportChained = false;
   if (options?.chainReport !== false) {
-    const initialSpecs = planInitialFollowups(outcome, config, jobId, userLogin);
+    const initialSpecs = planInitialFollowups(
+      outcome,
+      config,
+      jobId,
+      userLogin,
+      chainId ? { chainId, nowIso: now } : undefined,
+    );
     reportChained = initialSpecs.length > 0;
     for (const spec of initialSpecs) {
       await submitAsyncJob(ctx, spec);
@@ -405,8 +550,99 @@ export async function scheduleScreenerFollowups(
   await recordScreenerRunMainJob(ctx, outcome, userLogin, { chainReport: chainReport !== false });
 }
 
+/**
+ * Consolidation C3 (#1277, #1236 per-stage retry): resubmit a FAILED
+ * job from its recorded payload — the retried stage reuses its
+ * recorded inputs verbatim and the executor's existing completion
+ * hooks resume the chain from it. No upstream job is re-executed;
+ * the failed row stays failed (the failure record is kept), and the
+ * retry carries `retryOf` in its payload plus the original's stage /
+ * chain identity. A second retry while an earlier retry is queued,
+ * running, or completed is refused, so a stage is never delivered
+ * twice by double-clicking retry.
+ */
+export async function retryAsyncJob(
+  ctx: AsyncJobsContext,
+  jobId: string,
+): Promise<{ jobId: string; status: "queued"; statusUrl: string }> {
+  const sql = ctx.ensureTables();
+  const rows = Array.from(sql.exec(
+    `SELECT job_id, capability, display_name, status, payload_json, parent_job_id, job_kind, channel, stage, chain_id
+     FROM mas_async_jobs WHERE job_id = ? AND session_id = ?`,
+    jobId,
+    ctx.sessionKey(),
+  )) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) {
+    throw new Error(`Async job ${jobId} was not found in this session.`);
+  }
+  if (row.status !== "failed") {
+    throw new Error(`Only a failed job can be retried; job ${jobId} is ${String(row.status)}.`);
+  }
+  const prior = Array.from(sql.exec(
+    "SELECT job_id, status, payload_json FROM mas_async_jobs WHERE session_id = ?",
+    ctx.sessionKey(),
+  )) as Array<Record<string, unknown>>;
+  for (const candidate of prior) {
+    if (candidate.job_id === jobId) continue;
+    if (!["queued", "running", "completed"].includes(String(candidate.status))) continue;
+    try {
+      const parsed = JSON.parse(String(candidate.payload_json)) as { retryOf?: unknown };
+      if (parsed?.retryOf === jobId) {
+        throw new Error(
+          `Job ${jobId} was already retried as job ${String(candidate.job_id)} (status ${String(candidate.status)}); refusing a duplicate retry.`,
+        );
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("already retried")) throw error;
+      // An unparseable sibling payload cannot be a retry of this job.
+    }
+  }
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(String(row.payload_json)) as Record<string, unknown>;
+  } catch {
+    throw new Error(`Stored payload for async job ${jobId} is invalid JSON; it cannot be retried.`);
+  }
+  payload.retryOf = jobId;
+  const graph = jobGraphFields(row);
+  const submission = {
+    capability: String(row.capability),
+    payload,
+    displayName: String(row.display_name),
+    parentJobId: graph.parentJobId,
+    jobKind: graph.jobKind,
+    channel: graph.channel,
+    stage: graph.stage,
+    chainId: graph.chainId,
+  } as unknown as AsyncJobSubmission;
+  const submitted = await submitAsyncJob(ctx, submission);
+  ctx.audit("async_job.retried", "orchestrator", { jobId, retryJobId: submitted.jobId, capability: String(row.capability) });
+  return submitted;
+}
+
 export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJobPayload): Promise<void> {
   const sql = ctx.ensureTables();
+  // Consolidation C3 (#1277): the not-before guard — a deferred stage
+  // job whose alarm fired early (recovery re-arm, duplicate fire) is
+  // re-armed for the remainder instead of being claimed early. A
+  // stage never runs before its time.
+  const preRows = Array.from(sql.exec(
+    "SELECT status, not_before FROM mas_async_jobs WHERE job_id = ? AND session_id = ?",
+    jobId,
+    ctx.sessionKey(),
+  )) as Array<{ status: string; not_before?: string | null }>;
+  const preRow = preRows[0];
+  if (preRow?.status === "queued" && typeof preRow.not_before === "string") {
+    const remainingSeconds = delaySecondsUntil(preRow.not_before, Date.now());
+    if (remainingSeconds > 0) {
+      await ctx.schedule(remainingSeconds, "executeAsyncJob", { jobId } satisfies AsyncJobPayload, {
+        idempotent: true,
+        retry: { maxAttempts: 1 },
+      });
+      return;
+    }
+  }
   const now = new Date().toISOString();
   const claimed = sql.exec(
     `UPDATE mas_async_jobs SET status = 'running', started_at = ?, updated_at = ?
@@ -419,12 +655,23 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
   if (claimed.rowsWritten !== 1) return;
 
   const rows = Array.from(sql.exec(
-    "SELECT capability, payload_json FROM mas_async_jobs WHERE job_id = ? AND session_id = ?",
+    "SELECT capability, payload_json, stage, chain_id FROM mas_async_jobs WHERE job_id = ? AND session_id = ?",
     jobId,
     ctx.sessionKey(),
-  )) as Array<{ capability: string; payload_json: string }>;
+  )) as Array<{ capability: string; payload_json: string; stage?: string | null; chain_id?: string | null }>;
   const job = rows[0];
   if (!job) throw new Error(`Async job ${jobId} disappeared after it was claimed.`);
+  // Consolidation C3 (#1277): stage identity for transition recording
+  // (in scope for both the completion and failure paths below).
+  const jobStage = PIPELINE_STAGES.find((s) => s === job.stage);
+  const jobChainId = typeof job.chain_id === "string" && job.chain_id ? job.chain_id : undefined;
+  let jobUserLogin: string | undefined;
+  try {
+    const parsed = JSON.parse(job.payload_json) as { userLogin?: unknown };
+    if (typeof parsed?.userLogin === "string") jobUserLogin = parsed.userLogin;
+  } catch {
+    jobUserLogin = undefined;
+  }
 
   try {
     const payload = JSON.parse(job.payload_json) as Record<string, unknown>;
@@ -506,11 +753,26 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       if (!outcome || typeof outcome !== "object") throw new Error("followup.report job requires an outcome payload.");
       if (outcome.pdfStatus === "failed") {
         result = { status: "skipped", reason: codedMessage("REPORT_001", outcome.pdfError || undefined) };
+      } else if (outcome.canonicalReportId) {
+        // Consolidation C4 (#1329): serve's schedulable content for
+        // runs whose artifact is a canonical row (discovery, goal) —
+        // verify the row exists via the serve stage. A missing row
+        // fails the serve job explicitly (the chain's stop point),
+        // exactly like a missing PDF key below.
+        const { serveReportStage } = await import("../../services/unifiedReportPipeline");
+        const checked = await serveReportStage({
+          canonicalReportId: outcome.canonicalReportId,
+          findCanonicalReport: (id: string) => ctx.getOrm().reports.findById(id),
+        });
+        if (!checked.verified) {
+          throw new Error(codedMessage("REPORT_003", checked.reason));
+        }
+        result = { status: "ready", artifacts: [], canonicalReportId: outcome.canonicalReportId };
       } else if (!outcome.pdfKeys || outcome.pdfKeys.length === 0) {
         result = { status: "skipped", reason: codedMessage("REPORT_003", "The run produced no report artifact key.") };
       } else {
         const port = ctx.followupReportPort();
-        const artifacts: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" }> = [];
+        const artifacts: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" | "csv" }> = [];
         const missing: string[] = [];
         for (const key of outcome.pdfKeys) {
           const pdf = outcome.kind === "stock"
@@ -535,7 +797,30 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         } else if (outcome.xlsxStatus === "failed") {
           xlsxNote = codedMessage("REPORT_002", outcome.xlsxError || undefined);
         }
-        result = { status: "ready", artifacts, missingKeys: missing, ...(xlsxNote ? { xlsxNote } : {}) };
+        // Issue #1346: adopt the run's CSV on the same terms as the
+        // XLSX (outcome's word is the evidence; the delivery port's
+        // byte fetch verifies). perFormat records each format's
+        // adoption so a missing format is visible, not silent.
+        let csvNote: string | undefined;
+        if (outcome.csvKey && outcome.csvStatus !== "failed") {
+          artifacts.push({ key: outcome.csvKey, fileName: "screener-report.csv", kind: "csv" });
+        } else if (outcome.csvStatus === "failed") {
+          csvNote = codedMessage("REPORT_001", outcome.csvError || undefined);
+        }
+        const perFormat: Record<string, string> = {
+          pdf: artifacts.some((a) => a.kind === "pdf") ? "adopted" : "missing",
+          xlsx: outcome.xlsxKey && outcome.xlsxStatus !== "failed"
+            ? "adopted"
+            : outcome.xlsxStatus === "failed"
+              ? "failed"
+              : "missing",
+          csv: outcome.csvKey && outcome.csvStatus !== "failed"
+            ? "adopted"
+            : outcome.csvStatus === "failed"
+              ? "failed"
+              : "missing",
+        };
+        result = { status: "ready", artifacts, missingKeys: missing, perFormat, ...(xlsxNote ? { xlsxNote } : {}), ...(csvNote ? { csvNote } : {}) };
       }
     } else if (job.capability === "followup.deliver") {
       // Issue #1123 S3: deliver the shared report artifact on one
@@ -543,7 +828,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       // email allowlist); transport lives behind the delivery port.
       const channel = payload.channel as AsyncJobChannel;
       const outcome = payload.outcome as import("../../services/screenerFollowups").ScreenerRunOutcome;
-      const artifacts = (payload.artifacts ?? []) as Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" }>;
+      const artifacts = (payload.artifacts ?? []) as Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" | "csv" }>;
       const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
       // Issue #1191 (#1173 R3): the pipeline policy gates deliveries
       // per channel + event — an operator's explicit off switch
@@ -576,50 +861,11 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         result = { status: "skipped", reason: payload.skipReason, channel, noticeSent };
       } else if (!shouldNotify(pipelinePolicy, "completed", channel)) {
         result = { status: "skipped", reason: `Pipeline policy disables completed-run deliveries on ${channel}.`, channel };
-      } else if (typeof payload.approvedConfirmationId !== "string" && ctx.reportDispatchHitlEnabled()) {
-        // Issue #1123 S5c / #277: with the confirmation gate on, the
-        // delivery HOLDS — it is recorded as a pending 'screener'
-        // confirmation carrying the full delivery spec, and approval
-        // in the pending-review surface resubmits it with the
-        // approval marker. Nothing unapproved is ever sent.
-        const self = getAsyncJob(ctx, jobId);
-        const confirmationId = ctx.createScreenerConfirmation(JSON.stringify({
-          delivery: {
-            outcome,
-            userLogin,
-            channel,
-            artifacts,
-            parentJobId: self?.parentJobId,
-            displayName: self?.label,
-          },
-        }));
-        result = {
-          status: "held",
-          channel,
-          confirmationId,
-          reason: "Report-dispatch confirmation (#277) is enabled; delivery held for approval.",
-        };
-        // Issue #1191 (#1173 R3): a held delivery announces itself —
-        // before R3 the hold was silent, which is how completed runs
-        // produced no message of any kind. Best-effort: announcement
-        // failure never changes the hold outcome. (Webhook is a
-        // delivery channel, not a notification channel — slack/email
-        // only, and only when the policy allows held notices.)
-        if (channel !== "webhook" && shouldNotify(pipelinePolicy, "held", channel)) {
-          try {
-            await ctx.followupDeliveryPort().notify({
-              channel,
-              userLogin,
-              text: formatHeldNotification(outcome, {
-                expiresAtIso: new Date(Date.now() + (ctx.reportConfirmationTtlMs?.() ?? 24 * 60 * 60 * 1000)).toISOString(),
-              }),
-              ...(channel === "email" && outcome.emailTo ? { emailTo: outcome.emailTo } : {}),
-              ...(channel === "slack" && outcome.slackChannel ? { slackChannel: outcome.slackChannel } : {}),
-            });
-          } catch (announceError) {
-            console.warn("[asyncJobs] held-delivery announcement failed:", announceError instanceof Error ? announceError.message : String(announceError));
-          }
-        }
+      // Issue #1347 (owner ruling 2026-10-24, reversing #277 for
+      // RUN deliveries): screener follow-up deliveries send
+      // immediately — no confirmation hold, no held announcement.
+      // The research-report dispatch gate is untouched: it lives
+      // in reportDispatch / the reports routes, not this executor.
       } else {
         if (channel === "email") {
           const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
@@ -675,6 +921,25 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       if (!sent.ok) throw new Error(sent.error || `Notification via ${channel} failed.`);
       result = { status: "notified", channel, event };
       }
+    } else if (job.capability === "shard.execute") {
+      // Issue #1355: one shard of a sharded scheduled screen. The
+      // executor owns policy + job state; the handler owns the
+      // shard's work (providers, pipeline, store seams).
+      const { executeShardJob } = await import("../../services/shardExecutors");
+      const { ETradeService } = await import("../../services/etrade");
+      const shardPayload = payload as unknown as import("../../services/shardJobs").ShardPayload;
+      result = await executeShardJob(
+        {
+          sql: ctx.agentCtx.storage.sql,
+          env: ctx.env as unknown as Record<string, unknown>,
+          orm: ctx.getOrm(),
+          storage: ctx.agentCtx.storage,
+          createETradeService: (userLogin, environment) =>
+            new ETradeService(ctx.getOrm(), ctx.env, userLogin, environment),
+          sessionId: ctx.sessionKey(),
+        },
+        shardPayload
+      );
     } else if (job.capability === "nlq.execute") {
       const query = String(payload.query || "").trim();
       if (!query) throw new Error("NLQ job requires a non-empty query.");
@@ -706,6 +971,60 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       jobId,
     );
     ctx.audit("async_job.completed", "orchestrator", { jobId, capability: job.capability });
+    // Consolidation C3 (#1277): a stage job's terminal state is
+    // recorded per stage — a skipped or held stage says so, with its
+    // reason, instead of reading as a plain completion.
+    if (jobStage) {
+      const stageResult = (result ?? {}) as { status?: unknown; reason?: unknown };
+      const stageStatus =
+        stageResult.status === "skipped" ? "skipped" : stageResult.status === "held" ? "held" : "completed";
+      recordStageTransition(ctx, {
+        userLogin: jobUserLogin,
+        stage: jobStage,
+        chainId: jobChainId,
+        jobId,
+        status: stageStatus,
+        reason: typeof stageResult.reason === "string" ? stageResult.reason : undefined,
+      });
+    }
+
+    // Issue #1355: a completed shard advances its chain — the
+    // completion hook plans the next stage's shards (feed order,
+    // assemble gate, per-format generate/store, serve adoption),
+    // exactly like report → deliveries above. Scheduling must
+    // never fail the completed shard.
+    if (job.capability === "shard.execute" && jobStage && jobChainId) {
+      try {
+        const { planShardAdvance, chainRowsFromSql } = await import("../../services/shardJobs");
+        const shardPayload = payload as unknown as import("../../services/shardJobs").ShardPayload;
+        if (shardPayload?.chain) {
+          const rows = chainRowsFromSql(sql, jobChainId, ctx.sessionKey());
+          const completed = rows.find((r) => r.jobId === jobId);
+          const specs = planShardAdvance({
+            chain: shardPayload.chain,
+            rows,
+            completedStage: jobStage,
+            completedKey: shardPayload.shard.key,
+            rootJobId: completed?.parentJobId ?? jobId,
+            assembleJobId:
+              shardPayload.shard.key === "assemble"
+                ? jobId
+                : (completed?.parentJobId ?? jobId),
+            nowIso: completedAt,
+          });
+          for (const spec of specs) {
+            await submitAsyncJob(ctx, spec);
+          }
+        }
+      } catch (hookError) {
+        ctx.audit("shard.advance_failed", "orchestrator", {
+          jobId,
+          chainId: jobChainId,
+          error: hookError instanceof Error ? hookError.message : String(hookError),
+        });
+        console.error(`[OrchestratorAgent] Shard advance failed for job ${jobId}:`, hookError);
+      }
+    }
 
     // Issue #1123 S2: a completed screener main-job schedules its
     // follow-ups (report first; deliveries/notifications chain from
@@ -722,7 +1041,24 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           const config = resolveScreenerFollowupConfig(ctx.env as unknown as Record<string, unknown>);
           const headers = (payload.headers || {}) as Record<string, string>;
           const userLogin = typeof headers["x-user-login"] === "string" ? headers["x-user-login"] : ctx.sessionKey();
-          const initialSpecs = planInitialFollowups(outcome, config, jobId, userLogin);
+          // Consolidation C4 (#1329): a staged http.request job plans
+          // its serve/deliver stages with per-stage delays instead of
+          // the legacy immediate chain. The job row carries the stage
+          // + chain identity (stamped at submit); the payload carries
+          // the config. Unstaged jobs and non-screener completions
+          // keep the legacy behavior (no outcome ⇒ no specs).
+          const httpChain = resolveHttpJobChain(
+            { stage: job.stage, chainId: job.chain_id },
+            payload as { stageChain?: import("../../types").StageChainConfig },
+          );
+          if (httpChain) outcome.stageChain = httpChain.stageChain;
+          const initialSpecs = planInitialFollowups(
+            outcome,
+            config,
+            jobId,
+            userLogin,
+            httpChain ? { chainId: httpChain.chainId, nowIso: new Date().toISOString() } : undefined,
+          );
           for (const spec of initialSpecs) {
             await submitAsyncJob(ctx, spec);
           }
@@ -761,12 +1097,22 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           : ctx.sessionKey();
         if (outcome) {
           const mainJobId = getAsyncJob(ctx, jobId)?.parentJobId ?? jobId;
+          // Consolidation C3 (#1277): in chain mode the completed
+          // serve stage's payload carries the chain config + id, so
+          // the deliver stages planned here inherit their own delay
+          // and chain identity from the completed stage's record.
+          const chainPayload = payload as { stageChain?: unknown; chainId?: unknown };
+          const chain =
+            outcome.stageChain && typeof chainPayload.chainId === "string"
+              ? { chainId: chainPayload.chainId, nowIso: completedAt }
+              : undefined;
           const specs = planDeliveryFollowups(
             outcome,
             config,
             (result ?? {}) as FollowupReportResult,
             mainJobId,
             userLogin,
+            chain,
           );
           for (const spec of specs) {
             await submitAsyncJob(ctx, spec);
@@ -819,6 +1165,40 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       jobId,
     );
     ctx.audit("async_job.failed", "orchestrator", { jobId, capability: job.capability, error: message });
+    // Consolidation C3 (#1277): a failed stage is the chain's stop
+    // point — recorded per stage with its reason; nothing downstream
+    // was scheduled (the completion hooks above never ran).
+    if (jobStage) {
+      recordStageTransition(ctx, {
+        userLogin: jobUserLogin,
+        stage: jobStage,
+        chainId: jobChainId,
+        jobId,
+        status: "failed",
+        reason: message,
+      });
+    }
+    // Issue #1355: a failed feed shard blocks assembly by NAME —
+    // the chain stops here, and the audit names the blocker so a
+    // partial report is never silently produced downstream.
+    if (job.capability === "shard.execute" && jobStage === "feed" && jobChainId) {
+      let shardKey = "unknown";
+      try {
+        const parsed = JSON.parse(job.payload_json) as { shard?: { key?: unknown } };
+        if (typeof parsed?.shard?.key === "string") shardKey = parsed.shard.key;
+      } catch {
+        shardKey = "unknown";
+      }
+      ctx.audit("shard.blocked", "orchestrator", {
+        jobId,
+        chainId: jobChainId,
+        shardKey,
+        error: message,
+      });
+      console.error(
+        `[OrchestratorAgent] Sharded chain ${jobChainId} blocked: feed shard ${shardKey} failed (${message}) — assembly refused, no partial report.`
+      );
+    }
     console.error(`[OrchestratorAgent] Async job ${jobId} failed:`, error);
     // Issue #1123 S4: a screener main job that fails hard (the route
     // threw before any response) still emits its failed notifications
