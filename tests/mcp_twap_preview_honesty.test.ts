@@ -17,18 +17,30 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
+import { DatabaseORM } from "../src/orm";
+import { MockSqlStorage } from "./mock-sql";
 import { ETradeDurableFiberService } from "../src/services/durableFibers";
 import { DurableTWAPOrderCommand } from "../src/mcp/cloudflareAgentCommands";
 import { ETradeService } from "../src/services/etrade";
 
-const stubContext = (auditLog: any[]) =>
-  ({
-    env: undefined,
-    orm: undefined,
+// #922 ([#913 S4]): these pins are about preview honesty, not live
+// pricing, so they run in the sandbox env where the simulated quote path
+// still drafts. A real ORM is required for the env to reach the service:
+// ETradeService only reads its env argument when the first argument is
+// an ORM (with orm undefined the env is dropped and PROD/live is the
+// default) — where a MARKET preview for a curated-only symbol now fails
+// explicit instead of drafting off a static price.
+const stubContext = (auditLog: any[]) => {
+  const orm = new DatabaseORM(new MockSqlStorage());
+  orm.initializeSchema("test-session");
+  return {
+    env: { ETRADE_ENVIRONMENT: "sandbox" },
+    orm,
     sessionId: "test-session",
     audit: (type: string, agent: any, payload: Record<string, unknown>) =>
       auditLog.push({ type, agent, payload }),
-  }) as any;
+  } as any;
+};
 
 const fakePreview = (sliceNum: number, sliceQty: number) =>
   Promise.resolve({

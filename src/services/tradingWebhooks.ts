@@ -165,15 +165,29 @@ export class ETradeWebhookService {
     }
 
     // Automatically draft order in E*TRADE trading engine with Agent DID attestation
+    // Issue #922 ([#913 S4]): in the live env the quote step now fails
+    // explicit instead of drafting off a curated static price, so a draft
+    // can no longer be assumed here — convert that failure into the
+    // handler's structured failure response instead of an uncaught throw.
     const tradingService = new ETradeService(this.orm, this.env, userLogin);
-    const draft = tradingService.previewOrder({
-      symbol: ticker,
-      action,
-      quantity: qty,
-      orderType,
-      limitPrice: price,
-      sessionId: userLogin,
-    });
+    let draft: ReturnType<ETradeService["previewOrder"]>;
+    try {
+      draft = tradingService.previewOrder({
+        symbol: ticker,
+        action,
+        quantity: qty,
+        orderType,
+        limitPrice: price,
+        sessionId: userLogin,
+      });
+    } catch (err) {
+      return {
+        success: false,
+        statusCode: 502,
+        eventId,
+        message: `TradingView alert could not be drafted: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
 
     return {
       success: true,
