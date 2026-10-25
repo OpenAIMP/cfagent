@@ -19,7 +19,7 @@
  * All market access is injected (DiscoveryServiceDeps) so the
  * orchestration is unit-testable end to end; createDiscoveryService
  * wires the production dependencies. Note the pipeline loads its own
- * chain snapshot per expressed name (the panel pipeline's
+ * chain snapshot per expressed name (the OptionsAgentPipeline's
  * contract) — characterization deliberately reads a separate,
  * earlier snapshot so inference never sees the expression's screen.
  */
@@ -34,7 +34,12 @@ import type { Env } from "../types";
 import type { DatabaseORM } from "../orm";
 import { ETradeService } from "./etrade";
 import { getSymbolEventCalendar, toEventCalendarInfo, type SymbolEventCalendar } from "./eventCalendar";
-import { fetchYahooDailyHistory } from "../trading";
+import {
+  bindYahooHistoryDeps,
+  resolveYahooHistoryProvider,
+  type DataProvider,
+} from "../trading";
+import type { CaptureBlobStorage } from "../trading";
 import type { YahooDailyBar } from "../trading";
 import {
   chainAggregatesFromContracts,
@@ -62,7 +67,7 @@ import {
   type DiscoveryRiskCaps,
 } from "../trading";
 import { estimateExpectedMove } from "../trading";
-import { runPanelPipeline } from "../trading";
+import { OptionsAgentPipeline } from "../trading";
 import { OptionsDataAgent, type OptionsDataSnapshot } from "../trading";
 import { DynamicOptionsScreener } from "../trading";
 import {
@@ -325,6 +330,15 @@ export function createDiscoveryService(args: {
   overrideEnv?: string;
   orm?: DatabaseORM;
   sql: { exec(query: string, ...params: unknown[]): Iterable<unknown> };
+  /**
+   * Issue #1331: blob handle for history capture. When supplied,
+   * discovery bars are captured (raw + normalized, run-linked);
+   * without it the binding still outcome-tracks every fetch via
+   * the sql-derived recorder, but writes no capture rows. No
+   * caller passes one today — threading it through is a
+   * follow-up, not silent behavior.
+   */
+  blobStorage?: CaptureBlobStorage;
   /** Issue #18: opt into Decision 2 alert dispatch for runs from
    *  this service instance. Channels are built from the
    *  environment: SLACK_WEBHOOK_URL (Slack), and
@@ -338,17 +352,54 @@ export function createDiscoveryService(args: {
     : new ETradeService(args.env, undefined, args.userLogin, args.overrideEnv);
   const screener = new DynamicOptionsScreener(etrade.client);
   const dataAgent = new OptionsDataAgent(screener);
+  const pipeline = new OptionsAgentPipeline(screener);
   const ivStore = new SqlIvHistoryStore(args.sql);
   // Referenced so the config load (and its env validation) happens
   // at construction, like the unified service's constructor.
   void getEtapiConfig(args.env, args.overrideEnv);
+  // Issue #1331: history through the platform — the provider
+  // resolves lazily (createDiscoveryService is sync, the
+  // lifecycle is async) on first fetchBars, then caches for the
+  // service instance; the run id is minted per run() call below,
+  // before any fetch, so every discovery fetch is attributable
+  // to exactly one discovery run.
+  let discoveryRunId = crypto.randomUUID();
+  let historyProviderPromise: Promise<DataProvider> | null = null;
+  function ensureHistoryProvider(): Promise<DataProvider> {
+    if (!historyProviderPromise) {
+      historyProviderPromise = resolveYahooHistoryProvider({
+        sql: args.sql,
+        env: args.env,
+        userLogin: args.userLogin,
+        ...(args.blobStorage ? { blobStorage: args.blobStorage } : {}),
+      });
+    }
+    return historyProviderPromise;
+  }
   const deps: DiscoveryServiceDeps = {
     loadSnapshot: (symbol) => dataAgent.loadSnapshot({ symbol }),
-    fetchBars: (symbol) => fetchYahooDailyHistory(symbol),
+    fetchBars: async (symbol) => {
+      // Issue #1331 (fix): resolution failure degrades to null —
+      // the old fetchYahooDailyHistory contract (missing history
+      // means "indicator unavailable", never a thrown run). A
+      // rejected cached promise is cleared so a later call retries
+      // instead of inheriting a transient failure.
+      let provider;
+      try {
+        provider = await ensureHistoryProvider();
+      } catch {
+        historyProviderPromise = null;
+        return null;
+      }
+      return bindYahooHistoryDeps(provider, {
+        runId: discoveryRunId,
+        userLogin: args.userLogin,
+      }).fetchBars(symbol);
+    },
     ivStatsFor: async (symbol) => computeIvStats(await ivStore.listSeries(symbol)),
     calendarFor: (symbol) => getSymbolEventCalendar(symbol),
     flowFor: (symbol) => fetchRealMarketFlowsForSymbol(symbol),
-    runPipeline: (request) => runPanelPipeline(screener, request),
+    runPipeline: (request) => pipeline.run(request),
     store: new SqlDiscoverySetupStore(args.sql),
     ...(args.alerts
       ? {
@@ -360,7 +411,12 @@ export function createDiscoveryService(args: {
       : {}),
     now: () => new Date(),
   };
-  return { run: (request) => runDiscovery(deps, request) };
+  return {
+    run: (request) => {
+      discoveryRunId = crypto.randomUUID();
+      return runDiscovery(deps, request);
+    },
+  };
 }
 
 /** Channel senders from the environment — a channel exists only
