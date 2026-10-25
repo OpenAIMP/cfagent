@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { ETradeService } from "../src/services/etrade";
+import { ETradeTradingPlatform } from "../src/trading/etrade/platform";
 import { DynamicMarketScreener } from "../src/trading/screener";
 import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync, extractOrderParameters } from "../src/agents/nlq";
@@ -79,17 +80,15 @@ describe("#920 NLQ relative pricing provenance", () => {
     expect(src).not.toMatch(/defaultPrice\s*\)/);
   });
 
-  it("sync execution REFUSES a relative order when the quote is a static fallback", async () => {
+  // #922 ([#913 S4]) supersedes the STATIC_FALLBACK refusal row: in the
+  // live env the sync service quote for JPM now FAILS EXPLICIT before any
+  // draft is created, so the relative order is refused by exception — still
+  // no draft, still no static-derived price.
+  it("sync execution REFUSES a relative order when no live quote exists (fails explicit, #922)", async () => {
     const plan = await planNLQ(liveEnv, `buy 10 shares of ${CURATED_ONLY} at 5% below market price`);
     expect(plan.tradingData?.action).toBe("preview_order");
     expect(plan.tradingData?.relativePriceOffsetPercent).toBe(-5);
-    // In the live env the sync service quote for JPM is STATIC_FALLBACK
-    // (curated table) — the relative order must be refused, not drafted.
-    const result = executeNLQQuery(orm, sessionId, plan, liveEnv);
-    expect(result.count).toBe(0);
-    expect(result.rows).toHaveLength(0);
-    expect(result.summary).toMatch(/live E\*TRADE quote/i);
-    expect(result.summary).toMatch(/no order draft/i);
+    expect(() => executeNLQQuery(orm, sessionId, plan, liveEnv)).toThrow(/live quote unavailable/i);
   });
 
   it("sync execution prices a relative order off the LIVE quote when one exists", async () => {
@@ -116,6 +115,11 @@ describe("#920 NLQ relative pricing provenance", () => {
 
   it("async execution prices a relative order off the LIVE remote quote", async () => {
     vi.spyOn(ETradeService.prototype, "fetchQuoteRemote").mockResolvedValue(liveQuote(CURATED_ONLY, 300));
+    // #922: previewOrderRemote re-fetches via the platform quote path,
+    // which no longer serves a curated static fallback in the live env.
+    // The scenario under test is "a live quote exists", so that seam
+    // returns the same live quote rather than a static fallback.
+    vi.spyOn(ETradeTradingPlatform.prototype, "getQuote").mockResolvedValue(liveQuote(CURATED_ONLY, 300));
     const plan = await planNLQ(liveEnv, `buy 10 shares of ${CURATED_ONLY} at 10% above market price`);
     const result = await executeNLQQueryAsync(orm, sessionId, plan, liveEnv, "test-user");
     expect(result.count).toBe(1);
