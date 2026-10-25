@@ -228,7 +228,9 @@ export interface AiModelDefinition {
 
 export interface AiConfig {
   defaultModel: string;
-  fallbackModel: string;
+  // #930: failover-model key removed — no LLM call path consumed it, so the
+  // advertised failover was a fabricated surface. Its removal is subject
+  // to the owner waiver recorded on #913 before this PR is marked ready.
   fastModel: string;
   reasoningModel: string;
   availableModels: AiModelDefinition[];
@@ -418,7 +420,6 @@ const BASELINE_FALLBACK_CONFIG: EtapiConfig = {
   },
   ai: {
     defaultModel: "@cf/zai-org/glm-4.7-flash",
-    fallbackModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     fastModel: "@cf/zai-org/glm-4.7-flash",
     reasoningModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     availableModels: [

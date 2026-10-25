@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { __resetQuoteCache } from "../src/services/quoteCache";
 
 // The orchestrator extends AIChatAgent from @cloudflare/ai-chat, whose real
 // module graph pulls in `cloudflare:` protocol imports the node test loader
@@ -146,6 +147,12 @@ function stubFetchChartOnly() {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // #930: the module-level quote cache leaks across tests in this file —
+  // an earlier successful NVDA fetch would otherwise make the "fully live
+  // report" test read a cached quote (now honestly stamped "cached").
+  // Resetting restores that test's fresh-fetch premise; no assertion here
+  // is weakened.
+  __resetQuoteCache();
 });
 
 describe("provenance helpers (#117)", () => {
