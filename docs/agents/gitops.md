@@ -1247,6 +1247,13 @@ the default label.
   PR page.
 - Prerequisite: the repo-level General → "Allow auto-merge" switch must
   be ON, or PR-level auto-merge does not exist at all.
+- The workflow uses the short-lived installation token from the existing
+  `AUTO_UPDATE_APP_CLIENT_ID` / `AUTO_UPDATE_APP_PRIVATE_KEY` GitHub App
+  configuration for both labeling and enabling auto-merge. This lets the
+  resulting merge push trigger the normal CI and Deploy workflows; pushes
+  authenticated with the built-in `GITHUB_TOKEN` do not trigger follow-on
+  workflows. The App requires `Contents: Read and write` and
+  `Pull requests: Read and write`, as documented below.
 
 ### Automatic PR branch updates
 
