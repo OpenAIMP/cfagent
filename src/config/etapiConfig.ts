@@ -2,19 +2,18 @@ import defaultConfig from "../../environment.config.json";
 import { RISK_MATH } from "../shared/riskMath";
 import type { Env } from "../types";
 
-/** Issue #1204: baseline chain-fetch subrequest budget per scan. */
-export const DEFAULT_SUBREQUEST_BUDGET = 500;
+/** Issue #1545: cap actual option API fetch attempts, including fallback requests. */
+export const DEFAULT_SUBREQUEST_BUDGET = 400;
 
 export interface EtapiScreenerConfig {
   maxScanSymbols: number;
   maxExpirationsPerSymbol: number;
   /**
-   * Issue #1204: per-scan budget for options chain acquisition fetches
-   * (expire-dates + chain calls) inside one Worker invocation.
-   * Cloudflare caps subrequests per invocation (1,000 on the paid
-   * plan); the scheduled invocation also spends fetches outside the
-   * screener (listings, event calendar, report pipeline), so the
-   * chain budget stays well under the cap. Symbols that do not fit
+   * Issue #1545: per-scan budget for actual options chain acquisition
+   * fetch attempts (including .json fallback fetches) inside one Worker
+   * invocation. The scheduled invocation also spends fetches outside
+   * the screener (listings, event calendar, report pipeline), so this
+   * cap leaves headroom for those requests. Symbols that do not fit
    * are deferred with a named reason — never fetched past the budget.
    */
   subrequestBudget: number;

@@ -255,6 +255,32 @@ describe("ETradeRestClient options calls — lastError contract (#155)", () => {
     expect(client.getLastError()).toContain("oauth_problem");
   });
 
+  it("charges and blocks the .json fallback as a second real fetch attempt", async () => {
+    const env = makeEnv();
+    await storeAccessTokens(env, USER, FAKE_TOKEN, FAKE_TOKEN_SECRET);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("bad request", { status: 400 }));
+    const client = new ETradeRestClient(env, USER);
+    const budget = {
+      limit: 1,
+      used: 0,
+      exhausted: false,
+      tryConsume() {
+        if (this.used >= this.limit) {
+          this.exhausted = true;
+          return false;
+        }
+        this.used++;
+        return true;
+      },
+    };
+
+    expect(await client.getOptionChains({ symbol: "NVDA" }, budget)).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(budget.used).toBe(1);
+    expect(budget.exhausted).toBe(true);
+    expect(client.getLastError()).toContain("Subrequest budget exhausted");
+  });
+
   it("expire-dates: a network failure sets lastError", async () => {
     const env = makeEnv();
     await storeAccessTokens(env, USER, FAKE_TOKEN, FAKE_TOKEN_SECRET);

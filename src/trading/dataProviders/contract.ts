@@ -220,7 +220,8 @@ export interface DataProvider {
   ): Promise<DataResult<QuoteResult[]>>;
   getOptionsChain?(
     request: OptionsChainRequest,
-    runContext?: DataRunContext
+    runContext?: DataRunContext,
+    requestBudget?: import("../interfaces").OptionRequestBudget
   ): Promise<DataResult<OptionsChainResult>>;
   /**
    * optionsChains, expiry-dates form (E2, issue #1157): the
@@ -235,7 +236,8 @@ export interface DataProvider {
    */
   getOptionExpiryDates?(
     symbol: string,
-    runContext?: DataRunContext
+    runContext?: DataRunContext,
+    requestBudget?: import("../interfaces").OptionRequestBudget
   ): Promise<DataResult<ETradeOptionExpireDate[]>>;
   getScreenUniverse?(
     runContext?: DataRunContext

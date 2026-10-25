@@ -245,12 +245,14 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     includeWeekly?: boolean;
     chainType?: "CALL" | "PUT" | "CALLPUT";
     includeRawResponse?: boolean;
-  }): Promise<ETradeOptionChain | null> {
-    return this.client.getOptionChains(params);
+  }, requestBudget?: import("../interfaces").OptionRequestBudget): Promise<ETradeOptionChain | null> {
+    return requestBudget ? this.client.getOptionChains(params, requestBudget) : this.client.getOptionChains(params);
   }
 
-  async getOptionExpireDates(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]> {
-    return this.client.getOptionExpireDates(symbol, expiryType);
+  async getOptionExpireDates(symbol: string, expiryType?: string, requestBudget?: import("../interfaces").OptionRequestBudget): Promise<ETradeOptionExpireDate[]> {
+    return requestBudget
+      ? this.client.getOptionExpireDates(symbol, expiryType, requestBudget)
+      : this.client.getOptionExpireDates(symbol, expiryType);
   }
 
   /** Verbatim client passthrough — see ITradingPlatform.getQuoteDetailed. */
