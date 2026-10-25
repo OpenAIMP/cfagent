@@ -197,7 +197,9 @@ export async function handleScreenerResearchRoutes(
       try {
         const url = new URL(request.url);
         const key = url.searchParams.get("key");
-        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
+        if (!ownerLogin) return unauthenticatedResponse();
+        const agent = ctx.getScreenerAgent(ownerLogin);
         const csv = key ? await agent.getCsvByKey(key) : await agent.getLatestCsv();
         if (!csv) {
           return Response.json({ error: "No screener CSV report available yet" }, { status: 404 });
@@ -230,7 +232,9 @@ export async function handleScreenerResearchRoutes(
         if (!key) {
           return Response.json({ error: "A report key is required" }, { status: 400 });
         }
-        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
+        if (!ownerLogin) return unauthenticatedResponse();
+        const agent = ctx.getScreenerAgent(ownerLogin);
         const artifact = await agent.getGoalScreenArtifactByKey(key);
         if (!artifact) {
           return Response.json({ error: "No goal-screen report found for that key" }, { status: 404 });
@@ -288,7 +292,9 @@ export async function handleScreenerResearchRoutes(
       try {
         const url = new URL(request.url);
         const key = url.searchParams.get("key");
-        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
+        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
+        if (!ownerLogin) return unauthenticatedResponse();
+        const agent = ctx.getScreenerAgent(ownerLogin);
         const csv = key ? await agent.getOptionsCsvByKey(key) : await agent.getLatestOptionsCsv();
         if (!csv) {
           return Response.json({ error: "No options CSV report available yet" }, { status: 404 });
