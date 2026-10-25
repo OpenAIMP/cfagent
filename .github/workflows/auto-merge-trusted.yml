@@ -54,9 +54,21 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
-          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "auto-merge"
+          LANE_LABEL=""
+          AGENT_TAG=$(echo "$PR_BODY" | grep -i -o -E '#[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+' | head -n 1 || true)
+          if [ -n "$AGENT_TAG" ]; then
+            AGENT_ID=$(echo "$AGENT_TAG" | sed 's/^#//' | tr '[:upper:]' '[:lower:]')
+            LANE_LABEL="lane:$AGENT_ID"
+          fi
+
+          if [ -n "$LANE_LABEL" ]; then
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "auto-merge,$LANE_LABEL"
+          else
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "auto-merge"
+          fi
           if [ "$PR_IS_DRAFT" = "true" ]; then
             echo "Draft PR labeled. GitHub will allow merging after it is marked ready for review."
             exit 0
