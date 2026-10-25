@@ -78,6 +78,12 @@ import { ETradeRestClient } from "./trading";
 import { resolveEnvironmentConfig } from "./config/environment";
 import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./trading";
 import { ETradeSlackTradingService, confirmSlackLink } from "./trading";
+import {
+  INBOUND_EMAIL_ORCHESTRATOR_INSTANCE,
+  resolvePrincipal,
+  slackPrincipalLinkStoreFromEnv,
+  verifyApprovalLinkForPrincipal,
+} from "./trading";
 import { gateSlackRequest } from "./security/webhookSecurity";
 import { checkRateLimit } from "./security/rateLimiter";
 import {
@@ -1508,6 +1514,54 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
     }
 
+    // --- Omnichannel Trading Agent: Signed Email Approval Link Click ---
+    // Issue #1262 Phase 5: a link click is NOT session-authenticated —
+    // the signed token is the authorization (HMAC + expiry + login
+    // binding, #149 pattern). The worker verifies the token's shape
+    // fast (fail-closed HTML page, no DO round-trip for junk), then
+    // forwards to the Orchestrator DO /trading/email/approve-link,
+    // which verifies again (signature + expiry + principal-map
+    // re-check) and executes through the shared engine. The DO
+    // instance is the inbound-email instance constant (imported, not
+    // copied — its value is #1289's scope; a rebase onto post-#1289
+    // main picks up the new value automatically).
+    if (path === "/api/trading/email/approve" && request.method === "GET") {
+      const escapeHtml = (s: string) =>
+        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const renderPage = (title: string, body: string) =>
+        new Response(
+          `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head>` +
+            `<body style="font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px">` +
+            `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p></body></html>`,
+          { headers: { "Content-Type": "text/html; charset=utf-8" } }
+        );
+      const token = url.searchParams.get("token") || "";
+      const fastCheck = await verifyApprovalLinkForPrincipal(env, token, undefined);
+      if (!fastCheck.ok) {
+        return renderPage("Approval link invalid", fastCheck.error);
+      }
+      const id = env.SEARCH_AGENT.idFromName(INBOUND_EMAIL_ORCHESTRATOR_INSTANCE);
+      const targetUrl = new URL("/trading/email/approve-link", "https://agent.internal");
+      const forwardRes = await env.SEARCH_AGENT.get(id).fetch(
+        new Request(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        })
+      );
+      const result = (await forwardRes.json().catch(() => ({}))) as any;
+      if (result.success) {
+        return renderPage(
+          "Order executed",
+          `Order ${result.orderId ?? ""} executed on E*TRADE${result.execId ? ` (reference ${result.execId})` : ""}.`
+        );
+      }
+      return renderPage(
+        "Approval not completed",
+        result.message || "The approval link could not be completed. The order was not executed."
+      );
+    }
+
     // --- Omnichannel Trading Agent: Slack Test Simulator ---
     if (path === "/api/trading/slack/test" && request.method === "POST") {
       const session = await requireAuth(request, env);
@@ -1795,8 +1849,26 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           return new Response("Social stores unavailable", { status: 500 });
         }
         const rawEnv = env as unknown as Record<string, string | undefined>;
+        // Issue #1262 Phase 2 (social convergence): a social APPROVE
+        // requires a resolved principal — the clicker's Slack identity
+        // linked to a trading login (Phase 1 link store). Unlinked
+        // clickers get a refusal with a link hint; REJECT stays open
+        // to any clicker (fail-safe: rejecting only prevents
+        // publication). The handler stamps the resolved login as the
+        // approver when one exists, else the legacy slack:<userId>.
+        const clickerPrincipal = await resolvePrincipal(
+          env,
+          {
+            channel: "slack",
+            channelUserId: payload.user?.id ?? "",
+            channelScopeId: payload.team?.id ?? "",
+            text: "",
+          },
+          { slackLinks: slackPrincipalLinkStoreFromEnv(env) }
+        );
         const outcome = await handleSocialSlackInteraction({
           payload,
+          principal: clickerPrincipal,
           env: {
             SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
             SOCIAL_AUTONOMOUS_CHANNELS: rawEnv.SOCIAL_AUTONOMOUS_CHANNELS,
