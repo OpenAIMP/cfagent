@@ -366,7 +366,7 @@ describe("ETradeRestClient options calls — lastError contract (#155)", () => {
 
 describe("ETradeService.getLastError forwarding (#155)", () => {
   it("forwards the missing-credentials error from both options calls", async () => {
-    const service = new ETradeService(makeBareEnv());
+    const service = new ETradeService(makeBareEnv(), undefined, USER);
     await service.getOptionExpireDates("NVDA");
     expect(service.getLastError()).toContain("consumer credentials are not configured");
     const chain = await service.getOptionChains({ symbol: "NVDA" });

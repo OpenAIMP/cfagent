@@ -27,7 +27,7 @@ vi.mock("agents/x402", () => {
 
 import worker from "../src/server";
 
-function fakeEnv() {
+function fakeEnv(withServiceIdentity = true) {
   const agentFetchCalls: string[] = [];
   const fakeAgent = {
     fetch: async (req: Request) => {
@@ -36,11 +36,14 @@ function fakeEnv() {
     },
   };
   const env = {
-    SEARCH_AGENT: { idFromName: () => "default_trader", get: () => fakeAgent },
+    SEARCH_AGENT: { idFromName: () => "shared-instance", get: () => fakeAgent },
     SCHEDULED_AGENT: {
       idFromName: () => "default",
       get: () => ({ onCron: async () => undefined }),
     },
+    // #1185: the identity-bearing dispatches require the configured
+    // service identity; without it they are skipped (fail closed).
+    ...(withServiceIdentity ? { SERVICE_USER_LOGIN: "svc-background" } : {}),
   };
   return { env, agentFetchCalls };
 }
@@ -63,6 +66,18 @@ describe("worker scheduled() social dispatch (Phase 5b slice 1)", () => {
       "/reflection/run",
       "/research/scheduled-tick",
     ]);
+  });
+
+  it("skips the identity-bearing dispatches when no service identity is configured (#1185)", async () => {
+    const { env, agentFetchCalls } = fakeEnv(false);
+    const waited: Array<Promise<unknown>> = [];
+    const ctx = { waitUntil: (p: Promise<unknown>) => void waited.push(p) };
+    await worker.scheduled({ cron: "*/30 * * * *" }, env as never, ctx as never);
+    await Promise.all(waited);
+    // Fail closed: the ScheduledAgent onCron still runs (it asserts no
+    // identity from this handler), but no dispatch carries a fabricated
+    // identity — and nothing throws.
+    expect(agentFetchCalls).toEqual([]);
   });
 
   it("runs no social work on crons other than */30", async () => {

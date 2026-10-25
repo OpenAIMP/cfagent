@@ -12,6 +12,7 @@
  * original inline block returned.
  */
 
+import { unauthenticatedResponse } from "./routeIdentity";
 import {
   SqlStrategyProfileStore,
   validateStrategyProfile,
@@ -22,7 +23,8 @@ import type { EtradeOptionsRouteContext } from "./etradeOptions";
 
 export async function handleOptionsProfilesList(request: Request, sessionId: string, sql: SqlStorage): Promise<Response> {
   try {
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const store = new SqlStrategyProfileStore(sql);
     const profiles = await store.list(userLogin);
     return Response.json({ count: profiles.length, profiles });
@@ -33,7 +35,8 @@ export async function handleOptionsProfilesList(request: Request, sessionId: str
 
 export async function handleOptionsProfilesCreate(request: Request, sessionId: string, sql: SqlStorage): Promise<Response> {
   try {
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const { name, ...spec } = body;
     const profileName = typeof name === "string" ? name : "";
@@ -55,7 +58,8 @@ export async function handleOptionsProfilesCreate(request: Request, sessionId: s
 
 export async function handleOptionsProfileGet(request: Request, sessionId: string, sql: SqlStorage, profileIdMatch: RegExpMatchArray): Promise<Response> {
   try {
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const store = new SqlStrategyProfileStore(sql);
     const profile = await store.get(userLogin, decodeURIComponent(profileIdMatch[1]));
     if (!profile) {
@@ -69,7 +73,8 @@ export async function handleOptionsProfileGet(request: Request, sessionId: strin
 
 export async function handleOptionsProfileUpdate(request: Request, sessionId: string, sql: SqlStorage, profileIdMatch: RegExpMatchArray): Promise<Response> {
   try {
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const store = new SqlStrategyProfileStore(sql);
     const existing = await store.get(userLogin, decodeURIComponent(profileIdMatch[1]));
     if (!existing) {
@@ -97,7 +102,8 @@ export async function handleOptionsProfileUpdate(request: Request, sessionId: st
 
 export async function handleOptionsProfileDelete(request: Request, sessionId: string, sql: SqlStorage, profileIdMatch: RegExpMatchArray): Promise<Response> {
   try {
-    const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+    const userLogin = request.headers.get("x-user-login");
+    if (!userLogin) return unauthenticatedResponse();
     const store = new SqlStrategyProfileStore(sql);
     const deleted = await store.delete(userLogin, decodeURIComponent(profileIdMatch[1]));
     if (!deleted) {
