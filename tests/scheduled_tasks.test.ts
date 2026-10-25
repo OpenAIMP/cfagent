@@ -67,6 +67,15 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
             return {
             timestamp: new Date().toISOString(),
             trigger: req.trigger,
+            pdfKey: "stock-report.pdf",
+            pdfStatus: "generated",
+            pdfError: undefined,
+            xlsxKey: "stock-report.xlsx",
+            xlsxStatus: "generated",
+            xlsxError: undefined,
+            csvKey: "stock-report.csv",
+            csvStatus: "generated",
+            csvError: undefined,
             sector: req.sector || "Technology",
             success: true,
             totalScanned: 3,
@@ -230,6 +239,14 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       expect(lastScreenerRequest.userLogin).toBe(sessionId);
       expect(res.taskType).toBe("market_screen");
       expect(res.data?.totalScanned).toBeGreaterThan(0);
+      expect(res.data).toMatchObject({
+        pdfKey: "stock-report.pdf",
+        pdfStatus: "generated",
+        xlsxKey: "stock-report.xlsx",
+        xlsxStatus: "generated",
+        csvKey: "stock-report.csv",
+        csvStatus: "generated",
+      });
       expect(Array.isArray(res.data?.opportunities)).toBe(true);
 
       // Issue #253: full scanned set is retained, not just standouts.

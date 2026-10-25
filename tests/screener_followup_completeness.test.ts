@@ -53,6 +53,9 @@ describe("outcome adapters carry the XLSX artifact", () => {
       pdfStatus: "generated",
       xlsxKey: "x1",
       xlsxStatus: "generated",
+      csvKey: "c1",
+      csvStatus: "generated",
+      csvError: undefined,
       sector: "ALL",
       totalScanned: 50,
       matchedCount: 2,
@@ -61,6 +64,8 @@ describe("outcome adapters carry the XLSX artifact", () => {
     const o = screenerOutcomeFromEvent(event);
     expect(o.xlsxKey).toBe("x1");
     expect(o.xlsxStatus).toBe("generated");
+    expect(o.csvKey).toBe("c1");
+    expect(o.csvStatus).toBe("generated");
   });
 
   it("from a run result and from an http job body", () => {
