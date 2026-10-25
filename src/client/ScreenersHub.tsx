@@ -15,6 +15,7 @@ import {
   stockCriteriaToFilter,
   type StockCriteriaState,
 } from "./StockCriteriaPanel";
+import { ScreenerPresetManager } from "./ScreenerPresetManager";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "./components/CapabilityNavBar";
 import { ScreenerResultsView } from "./ScreenerResultsView";
 import { RunDetailView, type RunDetailConfirmation } from "./RunDetailView";
@@ -1093,6 +1094,12 @@ export function ScreenersHub({
             {providerSupportsFilter(activeProvider, assetClass, "limit") && (
               <label className="options-field"><span>Max results</span><input type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)} /></label>
             )}
+            <ScreenerPresetManager
+              assetClass="stocks"
+              userLogin={userLogin}
+              currentFilter={stockCriteriaToFilter(stockCriteria)}
+              onApplyPreset={setStockCriteria}
+            />
             <StockCriteriaPanel
               criteria={stockCriteria}
               onChange={setStockCriteria}

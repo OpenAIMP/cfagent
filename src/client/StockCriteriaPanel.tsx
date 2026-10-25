@@ -104,6 +104,38 @@ export function stockCriteriaToFilter(criteria: StockCriteriaState): StockScreen
   return filter;
 }
 
+/**
+ * Issue #1497 (#940-C): map a stored preset's filter back onto panel
+ * state. A present field becomes an enabled row with its value; an
+ * absent field becomes an off row with an empty value — loading a preset
+ * fully determines the panel, never merges silently with draft state.
+ * Market cap converts back from dollars to the panel's $B unit. A saved
+ * "any" band/momentum (possible via direct API writes; the panel never
+ * saves "any") maps to off, since "any" means no constraint.
+ */
+export function stockFilterToCriteria(filter: StockScreenerFilter): StockCriteriaState {
+  const numeric = (value: number | undefined): StockCriterionValue =>
+    value === undefined ? { enabled: false, value: "" } : { enabled: true, value: String(value) };
+  return {
+    minRsi: numeric(filter.minRsi),
+    maxRsi: numeric(filter.maxRsi),
+    minVolume: numeric(filter.minVolume),
+    minMarketCapB:
+      filter.minMarketCap === undefined
+        ? { enabled: false, value: "" }
+        : { enabled: true, value: String(filter.minMarketCap / 1e9) },
+    maxPeRatio: numeric(filter.maxPeRatio),
+    rsiFilter:
+      filter.rsiFilter && filter.rsiFilter !== "any"
+        ? { enabled: true, value: filter.rsiFilter }
+        : { enabled: false, value: "any" },
+    momentum:
+      filter.momentum && filter.momentum !== "any"
+        ? { enabled: true, value: filter.momentum }
+        : { enabled: false, value: "any" },
+  };
+}
+
 const RSI_BAND_LABELS: Record<RsiBand, string> = {
   any: "Any",
   oversold: "Oversold (RSI < 35)",
