@@ -3,6 +3,7 @@ node_modules
 .dev.vars
 .dev.vars.local
 !.dev.vars.example
+.agents/mcp_config.json
 dist
 EtradeNodeClient.zip
 etrade_node_client/
