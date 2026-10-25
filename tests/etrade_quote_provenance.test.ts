@@ -73,19 +73,13 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
   });
 
   describe("platform getQuote (F12)", () => {
-    it("LIVE env + failed REST + curated symbol → STATIC_FALLBACK, no invented bid/ask/volume", async () => {
+    // #922 ([#913 S4]): in the LIVE env a curated-table hit is NO LONGER
+    // served as a STATIC_FALLBACK quote — the sync/async quote path fails
+    // explicit instead, so no curated static price (222) is ever served.
+    // Non-live behaviour is unchanged (see the TEST-env pin below).
+    it("LIVE env + failed REST + curated symbol → fails explicit, no curated static price served (#922)", async () => {
       const platform = new ETradeTradingPlatform(liveEnv, undefined, "tester", undefined, nullClient);
-      const q = await platform.getQuote(CURATED_ONLY);
-      expect(q.quoteStatus).toBe("STATIC_FALLBACK");
-      expect(q.quoteStatus).not.toBe("REALTIME");
-      expect(q.source).not.toContain("Live Market Feed");
-      expect(q.source).toMatch(/curated/i);
-      expect(q.lastPrice).toBe(222);
-      expect(q.bid).toBe(0);
-      expect(q.ask).toBe(0);
-      expect(q.volume).toBe(0);
-      expect(q.week52High).toBe(0);
-      expect(q.week52Low).toBe(0);
+      await expect(platform.getQuote(CURATED_ONLY)).rejects.toThrow(/live quote unavailable/i);
     });
 
     it("LIVE env + failed REST + cached universe symbol → never upgraded to REALTIME", async () => {
@@ -126,16 +120,12 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
   });
 
   describe("service getQuote twin (F12)", () => {
-    it("LIVE env curated symbol → STATIC_FALLBACK with static-table source and zeroed invented fields", () => {
+    // #922 ([#913 S4]): the sync service path likewise fails explicit in
+    // the LIVE env for a curated-only symbol — no STATIC_FALLBACK quote,
+    // no curated static price (222), no fresh timestamp over static data.
+    it("LIVE env curated symbol → throws live-quote-unavailable, no curated static price served (#922)", () => {
       const service = new ETradeService(orm, liveEnv, "test-user");
-      const q = service.getQuote(CURATED_ONLY);
-      expect(q.quoteStatus).toBe("STATIC_FALLBACK");
-      expect(q.source).not.toContain("Live");
-      expect(q.source).toMatch(/curated/i);
-      expect(q.lastPrice).toBe(222);
-      expect(q.bid).toBe(0);
-      expect(q.ask).toBe(0);
-      expect(q.volume).toBe(0);
+      expect(() => service.getQuote(CURATED_ONLY)).toThrow(/live quote unavailable/i);
     });
 
     it("LIVE env cached universe symbol → STATIC_FALLBACK, not a live-feed label", () => {
@@ -167,32 +157,29 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
   });
 
   describe("order previews priced from fallback quotes (F12)", () => {
-    it("platform previewOrder (LIVE, static fallback) flags the draft and the message", async () => {
+    // #922 ([#913 S4]): a preview priced from a curated static quote no
+    // longer exists in the LIVE env — preview fails explicit at the quote
+    // step, so no draft is ever priced off the curated static price.
+    it("platform previewOrder (LIVE, curated symbol) fails explicit instead of drafting off a static price (#922)", async () => {
       const platform = new ETradeTradingPlatform(liveEnv, undefined, "tester", undefined, nullClient);
-      const draft = await platform.previewOrder({
+      await expect(platform.previewOrder({
         sessionId,
         symbol: CURATED_ONLY,
         orderAction: "BUY",
         quantity: 10,
         orderType: "MARKET",
-      });
-      expect(draft.pricingQuoteStatus).toBe("STATIC_FALLBACK");
-      expect(draft.previewMessage).toContain("NON-LIVE QUOTE");
-      expect(draft.previewMessage).toContain("STATIC_FALLBACK");
-      expect(draft.estimatedPrice).toBe(222);
+      })).rejects.toThrow(/live quote unavailable/i);
     });
 
-    it("service previewOrder (LIVE, static fallback) flags the draft and the message", () => {
+    it("service previewOrder (LIVE, curated symbol) fails explicit instead of drafting off a static price (#922)", () => {
       const service = new ETradeService(orm, liveEnv, "test-user");
-      const draft = service.previewOrder({
+      expect(() => service.previewOrder({
         sessionId,
         symbol: CURATED_ONLY,
         orderAction: "BUY",
         quantity: 10,
         orderType: "MARKET",
-      });
-      expect(draft.pricingQuoteStatus).toBe("STATIC_FALLBACK");
-      expect(draft.previewMessage).toContain("NON-LIVE QUOTE");
+      })).toThrow(/live quote unavailable/i);
     });
 
     it("service previewOrder (sandbox, simulated quote) records status without the non-live alarm", () => {
@@ -242,13 +229,13 @@ describe("Issue #118 — E*TRADE quote fallback provenance", () => {
       expect(result.summary).toContain("Simulated quote");
     });
 
-    it("sync preview_order in LIVE env discloses static-fallback pricing in summary and rows", async () => {
+    // #922 ([#913 S4]): the sync NLQ preview path now fails explicit at
+    // the quote step for a curated-only symbol in the LIVE env — no draft
+    // row is produced at all, instead of a STATIC_FALLBACK-priced draft.
+    it("sync preview_order in LIVE env fails explicit for a curated-only symbol, producing no draft (#922)", async () => {
       const plan = await planNLQ(liveEnv, `buy 10 shares of ${CURATED_ONLY}`);
       expect(plan.tradingData?.action).toBe("preview_order");
-      const result = executeNLQQuery(orm, sessionId, plan, liveEnv);
-      expect(result.rows[0].pricingQuoteStatus).toBe("STATIC_FALLBACK");
-      expect(result.summary).toContain("NON-LIVE QUOTE");
-      expect(result.summary).toContain("STATIC_FALLBACK");
+      expect(() => executeNLQQuery(orm, sessionId, plan, liveEnv)).toThrow(/live quote unavailable/i);
     });
 
     it("async preview_order in LIVE env propagates quote failures instead of substituting fallback data", async () => {
