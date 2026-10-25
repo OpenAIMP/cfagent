@@ -52,6 +52,11 @@ import {
   AISearchFinancialDocsCommand,
   DurableTWAPOrderCommand,
 } from "./cloudflareAgentCommands";
+import {
+  ChainRunCommand,
+  GoalCompileCommand,
+  GoalScheduleCommand,
+} from "./goalChainCommands";
 
 import { searchPlatformKnowledge } from "../services/platformKnowledge";
 
@@ -1036,6 +1041,13 @@ export class McpToolFactory {
     this.registerTool(new ThinkTradeValidationCommand());
     this.registerTool(new AISearchFinancialDocsCommand());
     this.registerTool(new DurableTWAPOrderCommand());
+
+    // Agentic goal/chain tools (#1362 Phase 5, #1466): compiled from
+    // the SAME registry + compiler + synthesis definitions the
+    // planner uses. No existing tool is modified or duplicated here.
+    this.registerTool(new GoalCompileCommand());
+    this.registerTool(new GoalScheduleCommand());
+    this.registerTool(new ChainRunCommand());
   }
 
   /**
