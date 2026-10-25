@@ -18,8 +18,8 @@ links their own brokerage account through their own OAuth flow.
 | --- | --- | --- |
 | App | The OAuth consumer (cfagent as an E*TRADE API app) | Consumer key/secret in environment config (`src/config/environment.ts`) |
 | User | A signed-in app user | App session; the login string is `session.githubLogin` (legacy key — see §6) |
-| `default_trader` | Synthetic identity for unattended work | Hardcoded in the worker `scheduled()` and `queue()` handlers (`src/server.ts`); fallback in broker/NLQ/autopilot/watchlist routes when no login is present |
-| Service identity (planned) | Explicit, non-secret id for background jobs | Proposed in #1066; replaces `default_trader` as the background identity (§7) |
+| `default_trader` | Synthetic identity for unattended work — **being removed** | Hardcoded in the worker `scheduled()` and `queue()` handlers (`src/server.ts`); fallback in broker/NLQ/autopilot/watchlist routes when no login is present. Removal executes under #1185 (§8) |
+| Service identity | Explicit, non-secret id for background jobs | Config (`SERVICE_USER_LOGIN`, owner-set; absence = fail closed). Designed in #1066, implemented under #1185; replaces `default_trader` as the background identity (§7, §8) |
 
 ## 3. Per-user linking: the 3-legged OAuth 1.0a flow
 
@@ -164,7 +164,7 @@ Removing it changes the background identity's lifecycle, not user isolation.
    made-up identity, not to an accountable authorization, which weakens
    the audit trail.
 
-**Removal (designed in #1066, not yet implemented).** Replace
+**Removal (designed in #1066; executing under #1185).** Replace
 `default_trader` with an explicit, non-secret service-identity id whose
 token is obtained through the same 3-legged flow as any user and stored
 under the same store — then delete the static fallback, delete the env
@@ -176,9 +176,75 @@ because the code will no longer read them. The honest limit: background
 jobs still need *an* account — the service identity is authorized against
 the owner's brokerage account by explicit owner action, as a token
 independent of the owner's personal token, so revoking one does not kill
-the other.
+the other. §8 states, flow by flow, where identity comes from once the
+exception is gone.
 
-## 8. What this doc does not claim
+## 8. Life after `default_trader`: where every flow gets its identity
+
+Removal is executed under #1185 (owner direction, 2026-10-23: the system
+is multi-dimensional now; the shared synthetic identity goes completely).
+The per-site inventory behind this section classified all 164 occurrences
+of the literal (114 in `src/`, 50 in `tests/`). The rule afterwards is
+singular: **every execution runs under an identity that was authenticated,
+stored by an authenticated action, or explicitly configured — or it does
+not run.**
+
+| Flow | Identity after removal | Source | When no identity exists |
+| --- | --- | --- | --- |
+| User routes — broker, options, watchlists, autopilot, NLQ chat | The session login | `x-user-login`, set by the worker's `requireAuth` from `session.githubLogin` | **401.** The route never invents one. This also removes a latent second defect: the old chain's middle term (`sessionId`) is the Orchestrator DO *instance id* (`ctx.id.toString()`), not a login — the chain degraded header → instance-id → synthetic login, and the whole tail is deleted, not just the literal |
+| Screener / research and report reads | Header login, else the stored screener execution-context owner | `ScreenerExecutionContext`, persisted by `OrchestratorAgent.onRequest` from authenticated requests | Honest error; report stores record the miss in `storeErrors` rather than substituting an identity |
+| Durable scheduled work (user screeners, schedules) | The schedule's stored owner login | The schedule record / stored execution context | The run is skipped and logged under its schedule id — never executed anonymously |
+| Worker `scheduled()` / `queue()` (agent tick, research, reflection, adaptation, retention, options-analysis queue) | The service identity | `SERVICE_USER_LOGIN` config; its token lives in the SessionStore like any user's | The handler logs and skips. Queue messages dispatch under the payload's stored owner when one is present, else the service identity |
+| Inbound email | No sender identity (by design, #815) | Any E*TRADE access runs under the service identity | n/a for addressing (see "addressing is not identity" below) |
+| Public scanner (paid) | Session-affinity label only — never an identity (#700 / #180) | Downstream orchestrator work runs under the service identity; paid actions bind the **verified payer** (#183) | A payment is never attributed to a synthetic or instance identity |
+| NLQ execution and payments | The `userLogin` threaded from the authenticated route / async-job payload | `payer:` is that verified identity only | The action is refused |
+| TradingAgent / ReportAssetAgent / ScreenerAgent instances | Per-login instances; an agent's owner is its instance selection, recorded in DO storage at entry from the validated header — never defaulted | The service identity inherits the legacy bare instance names (`"default"`, `"trading"`), so existing background state keeps its home under its new owner | An agent with no recorded owner fails closed |
+| Token resolution (`getValidTokens`) | The stored per-identity token only; expired → revoked → `null` | SessionStore (`etrade:token:<ENV>:<login>`) | `null` → the caller fails closed with an auth-required error; `getETradeAuthStatus` reports the truth. The 03:00 UTC renewal pass already enumerates every stored token, so the service token is renewed with no special case |
+
+**Addressing is not identity.** Durable Object instance names are
+addresses, not principals. The session-less entry points address one
+shared Orchestrator instance; that address is a constant, not a login,
+and is never used as a token key, an audit actor, or a payer. Where the
+legacy address literally equals the old identity string, it survives in
+exactly one named constant, documented as an address, until a state
+migration renames it — renaming an address orphans the live state behind
+it, and no identity property depends on the name.
+
+**Why the system is better without it.**
+
+1. **One identity rule, no exceptions.** "No stored token → no execution"
+   holds for every principal, human or service. A rule with one exception
+   is the exception's rule; auditors and the #1078 ExecutionContext
+   contract can now bind *every* execution to a real principal.
+2. **The background token gets a real lifecycle.** Expiry (midnight ET),
+   the 03:00 UTC renewal pass, and revocation apply to the service token
+   exactly as to user tokens — replacing a process-wide secret that never
+   expired, could not be rotated without a redeploy, and reported
+   `authenticated: true` even if E*TRADE had revoked it.
+3. **Failures are loud.** A missing or revoked service token fails the
+   background job visibly, under its own identity, instead of silently
+   degrading to a shared pair whose provenance no one can check.
+4. **Attribution is real.** Audit entries name the accountable principal —
+   a user, a schedule's owner, or the service identity — never a made-up
+   login shared by unrelated work.
+5. **Blast radius shrinks.** Revoking the service token stops background
+   work without touching any user's session; revoking a user never stops
+   the platform's own jobs. Each identity is independently revocable.
+6. **Every record has an owner.** Data written by unattended work belongs
+   to the service identity or to the schedule's owner by construction —
+   the precondition for tenant isolation (#945) and per-user accounting
+   to mean anything.
+
+**Migration order (merges deploy, so order is safety).** (1) The owner
+authorizes the service identity through the normal linking flow and sets
+`SERVICE_USER_LOGIN`. (2) Phase A lands: entry points take the service
+identity explicitly; dual-run verifies background jobs use the stored
+service token. (3) Phase B lands: the static-token exception and the env
+config fields are deleted. (4) Phase C lands: every fallback site fails
+closed. (5) The owner deletes the `ETRADE_OAUTH_TOKEN*` Worker secrets.
+Rollback at any step is redeploying the previous release.
+
+## 9. What this doc does not claim
 
 - Live production environment values were not inspected (secrets are never
   read from chat or code); the env-var names above are from
