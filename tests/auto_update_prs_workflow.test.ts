@@ -22,15 +22,20 @@ describe("auto-update-prs.yml workflow configuration", () => {
     expect(workflowContent).toMatch(/runs-on:\s*ubuntu-24\.04/);
   });
 
-  it("sets required write permissions for pull-requests and contents", () => {
+  it("sets required write permissions for pull-requests, contents, and actions", () => {
     expect(workflowContent).toMatch(/pull-requests:\s*write/);
     expect(workflowContent).toMatch(/contents:\s*write/);
+    expect(workflowContent).toMatch(/actions:\s*write/);
   });
 
-  it("uses actions/github-script@v7 with pagination and updateBranch API call", () => {
+  it("uses actions/github-script@v7 with pagination, updateBranch API call, and workflow dispatches", () => {
     expect(workflowContent).toContain("uses: actions/github-script@v7");
     expect(workflowContent).toContain("github.paginate(github.rest.pulls.list");
     expect(workflowContent).toContain("github.rest.pulls.updateBranch");
+    expect(workflowContent).toContain("github.rest.actions.createWorkflowDispatch");
+    expect(workflowContent).toContain("'ci.yml'");
+    expect(workflowContent).toContain("'gitleaks.yml'");
+    expect(workflowContent).toContain("'codeql.yml'");
     expect(workflowContent).toContain("if (pr.draft) continue;");
   });
 
