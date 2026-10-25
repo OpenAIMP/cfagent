@@ -48,6 +48,9 @@ import { logChatActivity, enqueueHttpRequest, type HttpEntryContext } from "./or
 import { runResearchAndPublish, deliverResearchReport, sendResearchSummaryEmail, type ResearchPublishContext } from "./orchestrator/researchPublish";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
+import { createGovernanceAdapter } from "../data/createGovernancePorts";
+import { ensureGovernanceSchema } from "../data/d1GovernanceAdapter";
+import { seedGovernanceHalt, type GovernedHaltState } from "../data/governedHalt";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
 import { createFollowupDeliveryPort } from "../services/screenerFollowupDelivery";
@@ -400,6 +403,38 @@ export class OrchestratorAgent extends Think<Env> {
     userLogin: string
   ): Promise<boolean> {
     return sendResearchSummaryEmail(this.researchPublishContext(), recipient, summary, ideaCount, reportId, userLogin);
+  }
+
+  /**
+   * Issue #1559 ([AGENTIC] slice-0 cutover) — run the one-time
+   * governance halt seed from the operator route. This method
+   * must run on THIS instance's storage: the seed reads THIS
+   * instance's mas_settings adaptation.killSwitch (the existing
+   * read path) and mirrors it into AgentDB. The route addresses
+   * the shared Orchestrator instance, so the seed reflects the
+   * canonical kill-switch state. It never writes the DO setting
+   * (mirror row only), and a second run is a no-op. Throws when
+   * AGENT_DB is unbound — the caller surfaces the error, never
+   * a fabricated result.
+   */
+  async seedGovernanceHalt(
+    setBy: string,
+    tenantId: string,
+  ): Promise<{ seeded: boolean; state: GovernedHaltState }> {
+    const adapter = createGovernanceAdapter(this.env);
+    if (!adapter) {
+      throw new Error(
+        "[data-foundation] AGENT_DB is not bound; cannot seed governance halt",
+      );
+    }
+    await ensureGovernanceSchema(adapter.db);
+    return seedGovernanceHalt({
+      doSql: this.ctx.storage.sql,
+      writer: adapter,
+      tenantId,
+      setBy,
+      nowMs: Date.now(),
+    });
   }
 
   /** Cloudflare Agents lifecycle: initialize SQLite and recover durable work. */

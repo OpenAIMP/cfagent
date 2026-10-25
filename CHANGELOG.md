@@ -19,6 +19,8 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **Guarded operator route for the halt seed cutover (#1559):** POST `/api/governance/seed-halt` runs the one-time `seedGovernanceHalt` for the primary tenant (mirror row only, never the DO setting; second run returns seeded:false), gated by requireAuth + wired session + live platform-admin membership following the IAAA admin pattern, via a new OrchestratorAgent method on the shared instance. No boot logic, no auto-run. #CAIO-quns
+
 - **Data foundation layer, slice 0: halt mirror (#1548):** port-first data layer (R1–R9) with a Drizzle ORM D1 adapter, migration 0001 for `agent_governance` (halt rows only, append-only, tenant-scoped), a synchronous halt-set mirror writer (SET mirrors first, CLEAR writes the durable object first, so partial failure leaves the tick-facing read halted), and the ScheduledAgent tick consulting `HaltRead` with the governed predicate still the decision-maker. Includes the one-time halt seed from `mas_settings` at cutover (second run is a no-op, never on boot). ADR 0002. Retention: `agent_governance` rows are long-lived audit history. #CAIO-quns
 
 - **D1 AgentDB binding (#1546):** `wrangler.jsonc` now binds the owner-created D1 database `agentdb` as `AGENT_DB` — the shared cross-agent query surface. No tables, migrations, or code changes in this step; DO storage stays authoritative for execution state. #CAIO-quns

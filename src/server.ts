@@ -34,6 +34,8 @@ import { createKvMembershipStore, grantMembership } from "./security/iaaaMembers
 import { canGrantRole } from "./security/authorization";
 import { createAccessRequestStore } from "./security/iaaaAccessRequests";
 import { buildAdminOverview } from "./security/iaaaAdminOverview";
+import { handleSeedGovernanceRoute } from "./data/seedGovernanceRoute";
+import type { GovernedHaltState } from "./data/governedHalt";
 import { buildOpenApiSpec, SWAGGER_UI_HTML } from "./security/openapiSpec";
 import {
   checkRoutePermission,
@@ -1174,6 +1176,53 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       } catch {
         return Response.json({ error: "IAAA admin overview unavailable." }, { status: 500 });
       }
+    }
+
+    // --- Governance halt seed (issue #1559, slice-0 cutover) ---
+    // POST /api/governance/seed-halt: the one-time cutover seed
+    // for the AgentDB halt mirror. Gating reuses the IAAA admin
+    // pattern exactly (requireAuth → wired session → live
+    // platform-admin membership, fail-closed, no data on 403).
+    // The seed runs on the shared Orchestrator instance, whose
+    // mas_settings holds the canonical kill switch; it writes
+    // the mirror row only, never the DO setting, and a second
+    // run returns seeded:false with the same state. No boot
+    // logic, no auto-run on deploy or tick.
+    if (path === "/api/governance/seed-halt") {
+      const session = await requireAuth(request, env);
+      let isPlatformAdmin = false;
+      if (session?.internalUserId) {
+        try {
+          const overview = await buildAdminOverview(
+            {
+              membershipStore: createKvMembershipStore(sessionStore(env)),
+              auditStore: createWiredAuditStore(env),
+              kv: sessionStore(env),
+              tenantId: resolveIaaaTenant(env),
+              nowMs: Date.now(),
+            },
+            { callerInternalUserId: session.internalUserId },
+          );
+          isPlatformAdmin = overview.allowed;
+        } catch {
+          return Response.json({ error: "Governance seed unavailable." }, { status: 500 });
+        }
+      }
+      const stub = env.SEARCH_AGENT.get(
+        env.SEARCH_AGENT.idFromName(SHARED_ORCHESTRATOR_INSTANCE),
+      ) as unknown as {
+        seedGovernanceHalt(
+          setBy: string,
+          tenantId: string,
+        ): Promise<{ seeded: boolean; state: GovernedHaltState }>;
+      };
+      return handleSeedGovernanceRoute({
+        session,
+        method: request.method,
+        isPlatformAdmin,
+        tenantId: resolveIaaaTenant(env),
+        runSeed: ({ tenantId, setBy }) => stub.seedGovernanceHalt(setBy, tenantId),
+      });
     }
 
     // --- Access requests (issue #1274): request access + admin decide.
