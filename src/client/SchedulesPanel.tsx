@@ -324,7 +324,7 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
 
       {actionError && <div className="schedule-action-error">{actionError}</div>}
 
-      {(activeTab === "all" || activeTab === "stocks" || activeTab === "options") && (
+      {userLogin && (activeTab === "all" || activeTab === "stocks" || activeTab === "options") && (
         <ScheduledOptionsManager
           activeEnv={activeEnv}
           userLogin={userLogin}
