@@ -8,6 +8,13 @@
  * notice: every blocked run in the episode notifies. The guard sits
  * before the sharded dispatch, so a blocked sharded run must notify
  * through the same catch and must never submit a shard chain.
+ *
+ * SUPERSEDED IN PART by #1527 (2026-10-25 ruling): a blocked run
+ * first attempts the whole-run Yahoo fallback. These pins now cover
+ * the case where the fallback itself fails — that is the failure
+ * path that must notify. The fallback-success case (no failure
+ * notice; the marker is the signal) is pinned in
+ * tests/scheduled_stock_yahoo_fallback_1527.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ScheduledTasksService } from "../src/services/scheduledTasks";
@@ -37,19 +44,28 @@ describe("autonomousMarketScreen preflight-blocked failure path (#1369)", () => 
       blocked: true,
       error: "⚠️ [AUTH_003] E*TRADE connection missing — scheduled stock screen is blocked.",
     });
+    // Issue #1527: a blocked run attempts the Yahoo fallback first,
+    // so the failure path here is the fallback failing — not the
+    // guard block itself. The fallback failure must notify.
+    (service as any).getScreenerAgent = () => ({
+      runScreen: async () => {
+        throw new Error("Yahoo quotes unavailable");
+      },
+    });
     return { service, publish };
   }
 
-  it("a blocked run publishes screener.failed with the coded error instead of returning silently", async () => {
+  it("a blocked run whose Yahoo fallback fails publishes screener.failed instead of returning silently", async () => {
     const { service, publish } = blockedService();
     const result = await service.autonomousMarketScreen({});
     expect(result.success).toBe(false);
-    expect(String((result as any).error)).toContain("[AUTH_003]");
+    expect(String((result as any).error)).toContain("Yahoo quotes unavailable");
     const events = publish.mock.calls.map((c) => c[0]);
     const failed = events.find((e: any) => e.type === "screener.failed");
     expect(failed).toBeDefined();
-    expect(failed.error).toContain("[AUTH_003]");
+    expect(failed.error).toContain("Yahoo quotes unavailable");
     expect(failed.trigger).toBe("scheduled");
+    expect(events.find((e: any) => e.type === "screener.completed")).toBeUndefined();
   });
 
   it("a second blocked run in the same episode notifies again (no dedup on the per-run notice)", async () => {
@@ -66,7 +82,7 @@ describe("autonomousMarketScreen preflight-blocked failure path (#1369)", () => 
     (service as any).shardSubmit = shardSubmit;
     const result = await service.autonomousMarketScreen({ sharded: true });
     expect(result.success).toBe(false);
-    expect(String((result as any).error)).toContain("[AUTH_003]");
+    expect(String((result as any).error)).toContain("Yahoo quotes unavailable");
     const failed = publish.mock.calls.map((c) => c[0]).filter((e: any) => e.type === "screener.failed");
     expect(failed).toHaveLength(1);
     expect(shardSubmit).not.toHaveBeenCalled();
