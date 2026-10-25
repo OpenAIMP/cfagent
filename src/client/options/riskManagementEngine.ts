@@ -87,13 +87,19 @@ export interface RiskAnatomy {
   vegaInterpretation: string;
 
   // Probabilities & Boundaries
-  probabilityOfProfit: number; // 0-100
+  /** 0-100, or null when IV-dependent POP cannot be computed because no
+   *  leg carries chain IV (issue #926: never a substitute number). */
+  probabilityOfProfit: number | null;
   /** Provenance labels (issue #38): engine-provided, computed from legs via
    *  the shared risk math, or a client-anatomy estimate. Surfaces must not
-   *  present "estimated" values as engine numbers. */
-  popSource?: "provided" | "computed" | "estimated";
+   *  present "estimated" values as engine numbers. "unavailable" means no
+   *  leg carried chain IV, so POP was not computed at all (#926). */
+  popSource?: "provided" | "computed" | "estimated" | "unavailable";
   greeksSource?: "provided" | "legs" | "estimated" | "heuristic" | "equity";
-  probabilityOfTouch: number; // 0-100
+  /** Legs excluded from Greek sums because they carry no chain IV (#926).
+   *  Counted, never silently dropped into a fallback. */
+  missingIvLegs?: number;
+  probabilityOfTouch: number | null; // 0-100, null when POP is unavailable
   breakevens: Array<{
     price: number;
     distancePct: number; // % distance from spot
@@ -205,6 +211,7 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
   // Determine Net Greeks (use provided or calculate)
   let greeksSource: NonNullable<RiskAnatomy["greeksSource"]> = subject.netGreeks ? "provided" : "legs";
   let greeksEstimated = false;
+  let missingIvLegs = 0;
   let netDelta = subject.netGreeks?.delta ?? 0;
   let netGamma = subject.netGreeks?.gamma ?? 0;
   let netTheta = subject.netGreeks?.theta ?? 0;
@@ -234,16 +241,23 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
         th += sign * (leg.theta ?? 0) * legQty;
         v += sign * (leg.vega ?? 0) * legQty;
       } else {
-        // Black-Scholes estimate
+        // Black-Scholes estimate from CHAIN IV only (#926): a leg without
+        // IV is excluded from the Greek sums and counted, never modeled
+        // with an assumed constant.
         const strike = leg.strike ?? leg.strikePrice ?? spot;
         const oType = normalizeOptionType(leg.optionType);
         if (oType !== "STOCK") {
-          const bs = blackScholes(spot, strike, dte / 365, leg.iv || leg.impliedVolatility || RISK_MATH.defaultIvWhenMissing, RISK_MATH.riskFreeRate, RISK_MATH.dividendYield, oType);
-          greeksEstimated = true; // Greeks were modeled via Black-Scholes, not provided
-          d += sign * bs.delta * legQty;
-          g += sign * bs.gamma * legQty;
-          th += sign * bs.theta * legQty;
-          v += sign * bs.vega * legQty;
+          const legIv = leg.iv ?? leg.impliedVolatility;
+          if (legIv == null || legIv <= 0) {
+            missingIvLegs++;
+          } else {
+            const bs = blackScholes(spot, strike, dte / 365, legIv, RISK_MATH.riskFreeRate, RISK_MATH.dividendYield, oType);
+            greeksEstimated = true; // Greeks were modeled via Black-Scholes, not provided
+            d += sign * bs.delta * legQty;
+            g += sign * bs.gamma * legQty;
+            th += sign * bs.theta * legQty;
+            v += sign * bs.vega * legQty;
+          }
         }
       }
     }
@@ -392,7 +406,7 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
   // otherwise compute from the legs with the SHARED POP method; only a
   // leg-less subject falls back to a placeholder, and it is labeled
   // "estimated" via popSource so no surface mistakes it for an engine value.
-  let pop: number;
+  let pop: number | null;
   let popSource: NonNullable<RiskAnatomy["popSource"]> = "estimated";
   if (subject.chanceOfProfit !== undefined) {
     pop = subject.chanceOfProfit;
@@ -410,22 +424,30 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
       }, 0);
     const maxStrike = Math.max(...legs.map((l) => l.strike ?? l.strikePrice ?? spot));
     const ivs = legs.map((l) => l.iv ?? l.impliedVolatility).filter((v): v is number => typeof v === "number" && v > 0);
-    const avgIv = ivs.length ? ivs.reduce((a, b) => a + b, 0) / ivs.length : RISK_MATH.defaultIvWhenMissing;
-    pop = Number((calculateProbabilityOfProfit(
-      spot,
-      subject.breakevens,
-      { lowProfit: intrinsicAt(0.01) > 0, highProfit: intrinsicAt(maxStrike * 10 + 1000) > 0 },
-      dte / 365,
-      avgIv,
-      RISK_MATH.riskFreeRate,
-      RISK_MATH.dividendYield,
-    ) * 100).toFixed(1));
-    popSource = ivs.length ? "computed" : "estimated";
+    if (ivs.length === 0) {
+      // #926: no chain IV on any leg — POP is unavailable, never computed
+      // with an assumed IV and never replaced by a placeholder number.
+      pop = null;
+      popSource = "unavailable";
+    } else {
+      const avgIv = ivs.reduce((a, b) => a + b, 0) / ivs.length;
+      pop = Number((calculateProbabilityOfProfit(
+        spot,
+        subject.breakevens,
+        { lowProfit: intrinsicAt(0.01) > 0, highProfit: intrinsicAt(maxStrike * 10 + 1000) > 0 },
+        dte / 365,
+        avgIv,
+        RISK_MATH.riskFreeRate,
+        RISK_MATH.dividendYield,
+      ) * 100).toFixed(1));
+      popSource = "computed";
+    }
   } else {
     pop = 55;
   }
-  // Probability of touch is roughly 2x ITM probability (bounded at 99%)
-  const probOfTouch = Math.min(99, Math.round(pop < 50 ? pop * 1.8 : (100 - pop) * 1.8 + pop * 0.5));
+  // Probability of touch is roughly 2x ITM probability (bounded at 99%);
+  // null when POP itself is unavailable (#926).
+  const probOfTouch = pop == null ? null : Math.min(99, Math.round(pop < 50 ? pop * 1.8 : (100 - pop) * 1.8 + pop * 0.5));
 
   // Breakevens & Cushion
   const breakevensList: Array<{ price: number; distancePct: number; direction: "ABOVE" | "BELOW" }> = [];
@@ -541,7 +563,7 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
   if (assignmentSeverity === "HIGH") score += 15;
   if (assignmentSeverity === "MODERATE") score += 8;
   if (liquidityRating === "POOR") score += 10;
-  if (pop < 40) score += 12;
+  if (pop != null && pop < 40) score += 12;
   if (riskProfileType === "DEFINED_RISK") score = Math.min(score, 65);
   score = Math.max(10, Math.min(98, score));
 
@@ -582,6 +604,7 @@ export function computeRiskProfile(subject: RiskSubject): ComprehensiveRiskProfi
     probabilityOfProfit: pop,
     popSource,
     greeksSource,
+    missingIvLegs,
     probabilityOfTouch: probOfTouch,
     breakevens: breakevensList,
     earlyAssignmentRisk: {
@@ -804,7 +827,7 @@ function buildDefensePlaybook(
   // AI Prompt for 1-click dispatch to Chat
   const aiPrompt =
     `Perform real-time risk assessment and defense playbook for ${subject.underlyingSymbol} ${subject.strategyType || subject.title || "strategy"}. ` +
-    `Current Spot: $${spot.toFixed(2)}, Net Delta: ${anatomy.netDelta.toFixed(2)}, Max Loss: ${anatomy.capitalAtRiskFormatted}, POP: ${anatomy.probabilityOfProfit}%. ` +
+    `Current Spot: $${spot.toFixed(2)}, Net Delta: ${anatomy.netDelta.toFixed(2)}, Max Loss: ${anatomy.capitalAtRiskFormatted}, POP: ${anatomy.probabilityOfProfit ?? "unavailable (no chain IV)"}%. ` +
     `What are the best tactical roll adjustments and exit stops if the underlying moves against the position by 5%?`;
 
   return {

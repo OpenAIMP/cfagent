@@ -403,6 +403,38 @@ export function toResearchLeg(leg: ProviderChainLeg, quantity: number, quoteTs: 
   };
 }
 
+/**
+ * #926: does building `name` fail ONLY because a required leg lacks chain
+ * IV? Used to classify a null build as a counted missing-IV exclusion
+ * instead of a silent skip. Mirrors buildStructure's leg selection for the
+ * IV-dependent structures (straddle, strangle, PMCC); all other structures
+ * return false here.
+ */
+export function missingIvForStructure(
+  name: string,
+  chain: ChainSnapshot,
+  spot: number,
+  config: ResearchConfig
+): boolean {
+  const hasIv = (leg: ProviderChainLeg | null | undefined): boolean =>
+    leg != null && leg.iv != null && leg.iv > 0;
+  if (name === "long_straddle" || name === "long_strangle") {
+    const expiry = pickExpiry(chain.expiries, config.minDte, 30, 45);
+    if (!expiry) return false;
+    const call = findLeg(expiry, "call", () => true, spot);
+    return call != null && !hasIv(call);
+  }
+  if (name === "pmcc") {
+    const leaps = chain.expiries
+      .filter((e) => e.dte >= PMCC_LONG_LEG_MIN_DTE)
+      .sort((a, b) => a.dte - b.dte)[0];
+    if (!leaps) return false;
+    const long = findLeg(leaps, "call", (s) => s < spot * 0.9, spot);
+    return long != null && !hasIv(long);
+  }
+  return false;
+}
+
 export function buildStructure(
   name: string,
   chain: ChainSnapshot,
@@ -513,11 +545,12 @@ export function buildStructure(
     case "long_straddle": {
       const call = legOrNull("call", () => true, 1);
       const put = call ? legOrNull("put", (s) => s === call.strike, 1) : null;
-      if (call && put) {
+      // #926: chain IV required — without it the structure is not built.
+      if (call && put && call.iv != null && call.iv > 0) {
         legs = [call, put];
         const priced = legs.map((l) => ({ ...l, mid: (l.bid + l.ask) / 2 }));
         const premium = priced.reduce((s, l) => s + l.mid, 0);
-        const assess = straddleEconomics(legs, spot, call.iv ?? 0.4, call.dte);
+        const assess = straddleEconomics(legs, spot, call.iv, call.dte);
         economics = {
           structure: "long_straddle",
           legs: priced,
@@ -536,11 +569,12 @@ export function buildStructure(
     case "long_strangle": {
       const call = legOrNull("call", (s) => s > spot, 1);
       const put = call ? legOrNull("put", (s) => s < spot, 1) : null;
-      if (call && put) {
+      // #926: chain IV required — without it the structure is not built.
+      if (call && put && call.iv != null && call.iv > 0) {
         legs = [call, put];
         const priced = legs.map((l) => ({ ...l, mid: (l.bid + l.ask) / 2 }));
         const premium = priced.reduce((s, l) => s + l.mid, 0);
-        const assess = straddleEconomics(legs, spot, call.iv ?? 0.4, call.dte);
+        const assess = straddleEconomics(legs, spot, call.iv, call.dte);
         economics = {
           structure: "long_strangle",
           legs: priced,
@@ -565,7 +599,8 @@ export function buildStructure(
         const long = findLeg(leaps, "call", (s) => s < spot * 0.9, spot);
         const shortExp = pickExpiry(chain.expiries, config.minDte, 30, 45);
         const short = shortExp ? findLeg(shortExp, "call", (s) => s > spot, spot) : null;
-        if (long && short && short.strike > long.strike) {
+        // #926: the long leg's chain IV is required to price the PMCC.
+        if (long && short && short.strike > long.strike && long.iv != null && long.iv > 0) {
           const longLeg = toResearchLeg(long, 1, qt);
           const shortLeg = toResearchLeg(short, -1, qt);
           legs = [longLeg, shortLeg];
@@ -575,7 +610,7 @@ export function buildStructure(
             spot,
             rate: config.riskFreeRate,
             dividendYield: config.dividendYield,
-            longIv: longLeg.iv ?? 0.4,
+            longIv: long.iv,
           });
           const priced = legs.map((l) => ({ ...l, mid: (l.bid + l.ask) / 2 }));
           economics = {
@@ -817,14 +852,30 @@ export async function runResearchPipeline(
       } catch {
         built = null;
       }
-      if (!built) continue;
+      if (!built) {
+        // #926: a missing-IV build is a counted exclusion, not a silent skip.
+        if (missingIvForStructure(name, chain, quote.price, config)) {
+          rejected.push({
+            symbol, outlook: draft.outlook, structure: name,
+            gate: "missing-iv",
+            reason: "Chain IV missing for the required leg — structure excluded, no assumed IV used.",
+          });
+        }
+        continue;
+      }
 
       const eventRisk: string | null =
         (catalysts ?? []).find((c) => c.date != null)?.description ?? null;
       const hasNearTermShortLeg = built.legs.some(
         (l) => l.quantity < 0 && l.dte <= config.assignmentRiskDte
       );
-      const em = expectedMove(quote.price, built.legs[0].iv ?? 0.4, built.legs[0].dte / 365);
+      // #926: expected move needs the first leg's chain IV; without it the
+      // percentage stays null (the isFinite guard below) — never 0.4.
+      const firstLegIv = built.legs[0]?.iv;
+      const allLegsHaveIv = built.legs.every((l) => l.iv != null && l.iv > 0);
+      const em = firstLegIv != null && firstLegIv > 0
+        ? expectedMove(quote.price, firstLegIv, built.legs[0].dte / 365)
+        : NaN;
 
       const gateCandidate: GateCandidate = {
         symbol,
@@ -852,6 +903,8 @@ export async function runResearchPipeline(
         limitations: [
           ...(catalysts === null ? ["Catalyst/event feed unavailable — event risk partially unassessed."] : []),
           ...(chain.provenance === "calibrated" ? ["Chain is model-calibrated, not a live broker quote."] : []),
+          ...(firstLegIv == null || firstLegIv <= 0 ? ["Expected move unavailable — first leg lacks chain IV; no assumed IV used."] : []),
+          ...(!allLegsHaveIv ? ["IV-dependent scenarios unavailable — one or more legs lack chain IV; no assumed IV used."] : []),
           "American-exercise nuances are not priced; early assignment is a risk-review item, not a modeled cost.",
           "Portfolio concentration unassessed — no portfolio data available.",
         ],
@@ -898,10 +951,12 @@ export async function runResearchPipeline(
         maxLoss: built.economics.maxLoss,
       });
 
+      // #926: buildScenarioRows itself returns [] when any leg lacks IV;
+      // pass NaN (not 0.4) when the first leg has none, so the guard fires.
       const scenarios = buildScenarioRows(
         built.economics,
         quote.price,
-        built.legs[0].iv ?? 0.4,
+        firstLegIv != null && firstLegIv > 0 ? firstLegIv : NaN,
         Math.min(21, Math.max(7, Math.floor(built.legs[0].dte / 2))),
         config.riskFreeRate,
         config.dividendYield,
