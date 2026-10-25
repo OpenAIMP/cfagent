@@ -8,6 +8,7 @@
  * All reads/writes go through the existing session-gated routes.
  */
 import React, { useCallback, useEffect, useState } from "react";
+import { Button } from "./components/ui";
 import {
   listGoals,
   triggerGoal,
@@ -154,9 +155,9 @@ export function SocialPostingPanel() {
               )}
             </div>
             <div>
-              <button disabled={!canSave} onClick={() => void handleSave()}>
+              <Button variant="primary" disabled={!canSave} onClick={() => void handleSave()}>
                 {busy === "save" ? "Saving…" : "Save brief"}
-              </button>
+              </Button>
               {savedNote && (
                 <span style={{ color: "var(--color-success)", marginLeft: 12, fontSize: 13 }}>
                   {savedNote}
@@ -195,9 +196,9 @@ export function SocialPostingPanel() {
                 run {goal.lastRun ? new Date(goal.lastRun).toLocaleString() : "never"}
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                <button disabled={!!busy} onClick={() => void handleTrigger()}>
+                <Button variant="primary" disabled={!!busy} onClick={() => void handleTrigger()}>
                   Run now
-                </button>
+                </Button>
               </div>
               {lastTick && (
                 <div style={{ fontSize: 13, marginTop: 8 }}>
