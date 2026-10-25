@@ -187,6 +187,10 @@ describe("ScheduledAgent DO RPC boundary (#1391)", () => {
 
     const ctx = makeCtx([disabledSocialGoal]);
     const paymentsAgent = new (PaymentsAgent as any)(makeCtx(), {
+      // Issue #1185: the ledger forward budgetCheck reads requires the
+      // configured service identity; without it the check fails closed
+      // and the goal never fires.
+      SERVICE_USER_LOGIN: "test_service",
       SEARCH_AGENT: {
         idFromName: () => "search",
         get: () => ({
