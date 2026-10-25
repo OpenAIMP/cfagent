@@ -14,6 +14,7 @@ import {
 } from "../types";
 import type { TradeAssetClass, TradeOrderContext } from "./trading/tradeOrderContext";
 import { PortfolioRiskPanel } from "./PortfolioRiskPanel";
+import { TradingApprovalsQueue } from "./TradingApprovalsQueue";
 import { AccountPanels } from "./AccountPanels";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { ScreenersHub, type ScreenersHubTab } from "./ScreenersHub";
@@ -1604,6 +1605,10 @@ export function ETradeTradingHub({
       {/* SUBTAB 2: ORDER TICKET & HITL PREVIEW */}
       {effectiveSubTab === "order" && (
         <div className="trading-section order-ticket-section">
+          {/* Issue #1327: approvals queue above the ticket — pending proposals first. */}
+          <div style={{ marginBottom: "1rem" }}>
+            <TradingApprovalsQueue />
+          </div>
           <div className="order-ticket-layout">
             {/* Left: Interactive Order Ticket Form */}
             <div className="order-form-card">
