@@ -671,6 +671,21 @@ describe("assemble gate enforced at execution (issue #1355 job2.1)", () => {
       )
     ).rejects.toThrow("Assembly blocked by feed shard(s): etrade (broker 429)");
   });
+
+  it("fails cleanly when every options shard failed", async () => {
+    const sql = {
+      exec: () => [{
+        job_id: "aapl", stage: "feed", status: "failed",
+        payload_json: JSON.stringify({ shard: { stage: "feed", key: "AAPL" } }),
+        result_json: null, error: "chain rate limited",
+        created_at: "2026-10-24T12:01:00.000Z", parent_job_id: null,
+      }],
+    };
+    await expect(executeShardJob(
+      { sql, env: {}, orm: {} as any, storage: {}, createETradeService: (() => { throw new Error("unused"); }) as any, sessionId: "s1" },
+      { shard: { stage: "generate", key: "assemble" }, chain: chain({ screenType: "options", options: { symbols: ["AAPL"] } } as any) }
+    )).rejects.toThrow("Options chain shards produced no evaluable symbols. AAPL: chain rate limited");
+  });
 });
 
 describe("schedule schema + RunSummary surfacing (issues #1355, #1346)", () => {
