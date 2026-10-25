@@ -48,6 +48,7 @@ import {
 } from "../../services/positionSizing";
 import { generateHedgeProposals, resolveSpyPutContract } from "../../services/hedgeProposals";
 import { buildRecommendationBundle, normalizeBundleCandidates, type BundleRouteCandidateBody } from "../../services/recommendationBundle";
+import { completeBundleRoute } from "./etradeBrokerBundle";
 import type { ScreeningChannel, ScreeningChannelResult } from "../../services/screeningDelivery";
 import { buildScenario, type ScenarioConstraints, type ScenarioShockGrid } from "../../services/goalScenarioEngine";
 import type { GoalKind } from "../../services/goalScenarioStore";
@@ -638,6 +639,9 @@ export async function handleEtradeBrokerRoutes(
   // bundle text over the existing Slack/email/signed-webhook
   // transports via screeningDelivery). Both are off unless requested:
   // the Phase 4 response shape is unchanged for existing callers.
+  // C5 (#1361): opt-in `persistReport` stores the bundle via the
+  // shared store seam (source "bundle"); completion (persist +
+  // persistReport + deliver + response) lives in etradeBrokerBundle.
   if (path.endsWith("/etrade/portfolio-risk/bundle") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as {
@@ -653,6 +657,7 @@ export async function handleEtradeBrokerRoutes(
         pickStatus?: "recommended" | "research_only" | "no_trade";
         pickConfidence?: "HIGH" | "MEDIUM" | "LOW";
         persist?: boolean;
+        persistReport?: boolean;
         deliver?: { channels?: ScreeningChannel[]; emailTo?: string };
       };
       const normalized = normalizeBundleCandidates(body);
@@ -698,37 +703,14 @@ export async function handleEtradeBrokerRoutes(
         repairAnalysis,
       });
 
-      let outcomeId: string | null = null;
-      if (body.persist === true) {
-        const { persistRecommendationBundle } = await import("../../services/recommendationBundle");
-        const record = persistRecommendationBundle(ctx.getOrm(), bundle, { userLogin });
-        outcomeId = record?.id ?? null;
-      }
-      let delivery: ScreeningChannelResult[] | null = null;
-      if (Array.isArray(body.deliver?.channels) && body.deliver.channels.length > 0) {
-        const { deliverScreeningContent, formatBundleDelivery, createScreeningDeliverySenders } = await import("../../services/screeningDelivery");
-        const formatted = formatBundleDelivery(bundle);
-        delivery = await deliverScreeningContent({
-          channels: body.deliver.channels,
-          subject: formatted.subject,
-          text: formatted.text,
-          event: "screening.bundle",
-          data: { bundleId: bundle.id, decision: bundle.decision, qualification: bundle.qualification, confidence: bundle.confidence, text: formatted.text },
-          emailTo: body.deliver.emailTo,
-          senders: createScreeningDeliverySenders(ctx.env, ctx.getOrm(), userLogin),
-          sql: ctx.getOrm(),
-          userLogin,
-          actor: "bundle-route",
-        });
-      }
-      if (outcomeId !== null || delivery !== null) {
-        return Response.json({
-          ...bundle,
-          ...(outcomeId !== null ? { persistence: { outcomeId } } : {}),
-          ...(delivery !== null ? { delivery } : {}),
-        });
-      }
-      return Response.json(bundle);
+      // C5 (#1361): completion lives in etradeBrokerBundle (the #995
+      // split pattern) so this file stays under the #359 50 KB target.
+      return completeBundleRoute(ctx, {
+        bundle,
+        primarySymbol: primary.candidate.symbol,
+        body,
+        userLogin,
+      });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to build recommendation bundle" }, { status: 500 });
     }
