@@ -16,6 +16,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { Button, SegmentedControl } from "./components/ui";
+import { PendingReviewQueue } from "./PendingReviewQueue";
+import { RegeneratePdfButton } from "./RegeneratePdfButton";
 import { ResearchRunDetail } from "./chat/tabs/ResearchRunDetail";
 import { ResearchIdeasBrowser } from "./chat/tabs/ResearchIdeasBrowser";
 import { ResearchTrackRecord } from "./chat/tabs/ResearchTrackRecord";
@@ -192,6 +194,7 @@ export function ReportsPanel() {
         />
       ) : (
       <>
+      {!selectedReportId && <PendingReviewQueue />}
       <div className="reports-toolbar">
         <form onSubmit={handleSearch} className="reports-search">
           <input
@@ -292,6 +295,9 @@ export function ReportsPanel() {
                 <span className="report-pdf-unavailable">
                   📄 PDF unavailable{r.pdfError ? ` — ${r.pdfError}` : ""}
                 </span>
+              )}
+              {!r.reportUrl && r.pdfStatus === "failed" && (
+                <RegeneratePdfButton onRegenerated={() => fetchReports()} />
               )}
             </div>
           </div>
