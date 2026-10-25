@@ -33,6 +33,12 @@ describe("auto-update-prs.yml workflow configuration", () => {
     expect(workflowContent).toContain("github.rest.pulls.updateBranch");
     expect(workflowContent).toContain("if (pr.draft) continue;");
   });
+
+  it("skips Dependabot PRs to prevent exponential CI workflow thrash on reference-only PRs", () => {
+    expect(workflowContent).toContain("pr.user?.login === 'dependabot[bot]'");
+    expect(workflowContent).toContain("isDependabot");
+    expect(workflowContent).toContain("Skipping Dependabot PR");
+  });
 });
 
 describe("workflow runner standardization", () => {
