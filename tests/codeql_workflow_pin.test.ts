@@ -31,4 +31,8 @@ describe("codeql.yml — runner pin and v4 action bump (#1312)", () => {
   it("includes merge_group event trigger for queue validation", () => {
     expect(workflow).toMatch(/^\s*merge_group:\s*$/m);
   });
+
+  it("includes workflow_dispatch event trigger for manual and bot dispatch", () => {
+    expect(workflow).toMatch(/^\s*workflow_dispatch:\s*$/m);
+  });
 });
