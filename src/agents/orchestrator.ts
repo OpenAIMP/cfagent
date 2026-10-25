@@ -48,6 +48,8 @@ import { logChatActivity, enqueueHttpRequest, type HttpEntryContext } from "./or
 import { runResearchAndPublish, deliverResearchReport, sendResearchSummaryEmail, type ResearchPublishContext } from "./orchestrator/researchPublish";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
+import { runGovernanceSeed } from "./orchestrator/governanceSeed";
+import type { GovernedHaltState } from "../data/governedHalt";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
 import { createFollowupDeliveryPort } from "../services/screenerFollowupDelivery";
@@ -400,6 +402,11 @@ export class OrchestratorAgent extends Think<Env> {
     userLogin: string
   ): Promise<boolean> {
     return sendResearchSummaryEmail(this.researchPublishContext(), recipient, summary, ideaCount, reportId, userLogin);
+  }
+
+  /** Issue #1559 — thin wrapper for the operator route's one-time halt seed (execution in ./orchestrator/governanceSeed.ts). */
+  async seedGovernanceHalt(setBy: string, tenantId: string): Promise<{ seeded: boolean; state: GovernedHaltState }> {
+    return runGovernanceSeed({ doSql: this.ctx.storage.sql, env: this.env }, setBy, tenantId);
   }
 
   /** Cloudflare Agents lifecycle: initialize SQLite and recover durable work. */
