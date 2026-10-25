@@ -77,8 +77,30 @@ export function listPendingApprovals(date: string = todayInNewYork()) {
   );
 }
 
-export function getTokenHealth() {
-  return api<{ ok: boolean; channels: Record<string, ChannelTokenHealth> }>(
-    "/api/social/token-health",
-  );
+export async function getTokenHealth(): Promise<{
+  ok: boolean;
+  channels: Record<string, ChannelTokenHealth>;
+  rawChannels: ChannelTokenHealth[];
+}> {
+  const data = await api<{
+    ok: boolean;
+    channels: ChannelTokenHealth[] | Record<string, ChannelTokenHealth>;
+  }>("/api/social/token-health");
+
+  const byChannel: Record<string, ChannelTokenHealth> = {};
+  const rawChannels: ChannelTokenHealth[] = [];
+
+  if (Array.isArray(data.channels)) {
+    for (const c of data.channels) {
+      if (c && typeof c === "object" && c.channel) {
+        byChannel[c.channel] = c;
+        rawChannels.push(c);
+      }
+    }
+  } else if (data.channels && typeof data.channels === "object") {
+    Object.assign(byChannel, data.channels);
+    rawChannels.push(...Object.values(data.channels));
+  }
+
+  return { ok: data.ok, channels: byChannel, rawChannels };
 }

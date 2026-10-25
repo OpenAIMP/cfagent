@@ -63,7 +63,17 @@ export function SocialPostingPanel() {
       setGoal(found ?? null);
       setGoalMissing(!found);
       setApprovals(pending.approvals);
-      setTokenChannels(health.channels);
+      const channelMap: Record<string, ChannelTokenHealth> = {};
+      if (Array.isArray(health.channels)) {
+        for (const c of health.channels) {
+          if (c && typeof c === "object" && (c as ChannelTokenHealth).channel) {
+            channelMap[(c as ChannelTokenHealth).channel] = c as ChannelTokenHealth;
+          }
+        }
+      } else if (health.channels && typeof health.channels === "object") {
+        Object.assign(channelMap, health.channels);
+      }
+      setTokenChannels(channelMap);
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not load social posting status.");
