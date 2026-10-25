@@ -6,8 +6,9 @@ export interface EnvironmentETradeConfig {
   type: "sandbox" | "live";
   apiKey?: string;
   apiSecret?: string;
-  oauthToken?: string;
-  oauthTokenSecret?: string;
+  // #1185 Phase B (#1066): no oauthToken/oauthTokenSecret fields — the
+  // process-wide static pair was deleted so no consumer can reintroduce
+  // it. Access tokens are per-user, stored in the SessionStore.
 }
 
 export interface EnvironmentPaymentsConfig {
@@ -23,6 +24,8 @@ export interface ResolvedEnvironment {
   isLive: boolean;
   etrade: EnvironmentETradeConfig;
   payments: EnvironmentPaymentsConfig;
+  /** #1185 / #1066 — the configured service identity for unattended work, when set. */
+  serviceUserLogin?: string;
 }
 
 /**
@@ -194,32 +197,24 @@ export function resolveEnvironmentConfig(env?: Partial<Env>, overrideEnv?: strin
   const apiKey = sanitize(rawApiKey);
   const apiSecret = sanitize(rawApiSecret);
 
-  // OAuth 1.0a access token pair (obtained after user authorizes via E*TRADE OAuth flow)
-  const oauthToken =
-    env?.ETRADE_OAUTH_TOKEN ||
-    (env as any)?.ETRADE_ACCESS_TOKEN ||
-    processEnv.ETRADE_OAUTH_TOKEN ||
-    processEnv.ETRADE_ACCESS_TOKEN;
-
-  const oauthTokenSecret =
-    env?.ETRADE_OAUTH_TOKEN_SECRET ||
-    (env as any)?.ETRADE_ACCESS_TOKEN_SECRET ||
-    processEnv.ETRADE_OAUTH_TOKEN_SECRET ||
-    processEnv.ETRADE_ACCESS_TOKEN_SECRET;
-
   const paypalEnv = env?.PAYPAL_ENVIRONMENT || (isLive ? "live" : "sandbox");
+
+  // #1185 / #1066 — explicit service identity for unattended work. A
+  // non-secret login id, owner-set via SERVICE_USER_LOGIN; undefined when
+  // unset so unattended dispatch fails closed (see
+  // src/security/serviceIdentity.ts).
+  const serviceUserLogin = sanitize(env?.SERVICE_USER_LOGIN);
 
   return {
     name: activeName,
     label: baseDef.label || (isLive ? "Live" : "Sandbox"),
     isLive,
+    serviceUserLogin,
     etrade: {
       baseUrl,
       type: isLive ? "live" : "sandbox",
       apiKey,
       apiSecret,
-      oauthToken,
-      oauthTokenSecret,
     },
     payments: {
       mode: isLive ? "live" : "test",

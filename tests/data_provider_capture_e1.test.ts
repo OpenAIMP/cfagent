@@ -733,7 +733,7 @@ describe("quote includeRawResponse hook (issue #1133)", () => {
     } as Env;
     const orm = new DatabaseORM(new MockSqlStorage());
     orm.initializeSchema("e1_quote_raw_hook");
-    const service = new ETradeService(orm, liveEnv);
+    const service = new ETradeService(orm, liveEnv, "test-user");
     const seenOptions: unknown[] = [];
     (service.client as any).fetchQuoteDetailed = async (
       _symbol: string,
