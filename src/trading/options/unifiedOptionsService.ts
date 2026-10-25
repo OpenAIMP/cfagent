@@ -35,7 +35,7 @@ import {
 } from "../dataProviders";
 import { DynamicOptionsScreener } from "../optionsScreener";
 import {
-  OptionsAgentPipeline,
+  runPanelPipeline,
   type PipelineOptions,
   type PipelineResult,
   recommendOptionStrategies,
@@ -351,7 +351,7 @@ export class UnifiedOptionsService {
     request: StrategyRequest,
     options: PipelineOptions = {}
   ): Promise<PipelineResult> {
-    return new OptionsAgentPipeline(new DynamicOptionsScreener(client)).run(request, options);
+    return runPanelPipeline(new DynamicOptionsScreener(client), request, options);
   }
 
   static async scanOpportunities(

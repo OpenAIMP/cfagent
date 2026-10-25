@@ -25,7 +25,8 @@ import {
 import { ETradeService } from "./etrade";
 import {
   UnifiedOptionsService,
-  OptionsAgentPipeline,
+  runPanelWithAgents,
+  type PanelAgents,
   validateStrategyRequest,
   validateNoViewRequest,
   NO_VIEW_EXPECTED_IV_DIRECTION,
@@ -49,7 +50,7 @@ import type {
   StrategyProfileStore,
 } from "../trading";
 import { DynamicOptionsScreener } from "../trading";
-import { OptionsDataAgent } from "../trading";
+import { OptionsDataAgent, StrategyRiskAgent, RecommendationAgent } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
 import type { IvHistoryStore } from "../trading";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
@@ -1662,7 +1663,7 @@ export class ScheduledTasksService {
   /**
    * Scheduled strategy discovery (issue #126, PR-E): re-runs SAVED
    * StrategyRequests — captured whole from the discovery panel — against
-   * live chains through the same OptionsAgentPipeline the interactive
+   * live chains through the same panel pipeline function the interactive
    * route uses, and persists one run record per execution
    * (SqlDiscoveryRunStore) with per-symbol outcomes.
    *
@@ -1864,15 +1865,19 @@ export class ScheduledTasksService {
         }
       }
 
-      // One client/pipeline for the whole execution — the same
+      // One client/agent set for the whole execution — the same
       // construction the interactive strategies route uses, under the
       // schedule owner's identity and environment (#447/#461).
       const etrade = this.createETradeService(userLogin, options.environment);
-      const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
+      const agents: PanelAgents = {
+        data: new OptionsDataAgent(new DynamicOptionsScreener(etrade.client)),
+        risk: new StrategyRiskAgent(),
+        recommender: new RecommendationAgent(),
+      };
 
       const outcomes: DiscoverySymbolOutcome[] = [];
       for (const request of requests) {
-        outcomes.push(await this.runDiscoveryRequest(pipeline, etrade, request));
+        outcomes.push(await this.runDiscoveryRequest(agents, etrade, request));
       }
 
       const failures = outcomes
@@ -2036,13 +2041,13 @@ export class ScheduledTasksService {
    * request is executed or judged.
    */
   private async runDiscoveryRequest(
-    pipeline: OptionsAgentPipeline,
+    agents: PanelAgents,
     etrade: ETradeService,
     request: StrategyRequest
   ): Promise<DiscoverySymbolOutcome> {
     const symbol = request.symbol.toUpperCase().trim();
     try {
-      const result = await pipeline.run(request);
+      const result = await runPanelWithAgents(agents, request);
       const snapshot = result.snapshot;
       // A snapshot that never loaded its chain is a failure, not
       // an empty success: the screen records why (validation
@@ -2297,21 +2302,23 @@ export class ScheduledTasksService {
         );
       }
 
-      // One client/pipeline for the whole execution — the saved
+      // One client/agent set for the whole execution — the saved
       // path's construction, under the schedule owner's identity and
       // environment (#447/#461, #672).
       const etrade = this.createETradeService(userLogin, options.environment);
-      const pipeline = new OptionsAgentPipeline(
-        new DynamicOptionsScreener(etrade.client)
-      );
+      const agents: PanelAgents = {
+        data: new OptionsDataAgent(new DynamicOptionsScreener(etrade.client)),
+        risk: new StrategyRiskAgent(),
+        recommender: new RecommendationAgent(),
+      };
       const emMultiples = getOpportunityScannerConfig().targetEmMultiples;
 
       const outcomes: DiscoverySymbolOutcome[] = [];
       const constructed: StrategyRequest[] = [];
       for (const symbol of symbols) {
-        let derivationSnapshot: Awaited<ReturnType<typeof pipeline.data.loadSnapshot>>;
+        let derivationSnapshot: Awaited<ReturnType<typeof agents.data.loadSnapshot>>;
         try {
-          derivationSnapshot = await pipeline.data.loadSnapshot({
+          derivationSnapshot = await agents.data.loadSnapshot({
             symbol,
             minDte: profile.minDte,
             maxDte: profile.maxDte,
@@ -2349,7 +2356,7 @@ export class ScheduledTasksService {
         // request, so the run's calendar facts stay auditable. The
         // service never throws; uncovered keeps event risk unverified.
         derived.request.eventCalendar = await getSymbolEventCalendar(symbol);
-        const outcome = await this.runDiscoveryRequest(pipeline, etrade, derived.request);
+        const outcome = await this.runDiscoveryRequest(agents, etrade, derived.request);
         outcomes.push({ ...outcome, derivation: derived.derivation });
       }
 
@@ -2633,15 +2640,19 @@ export class ScheduledTasksService {
         }
       }
 
-      // One client/pipeline for the whole execution — the saved
+      // One client/agent set for the whole execution — the saved
       // path's construction, under the schedule owner's identity and
       // environment (#447/#461).
       const etrade = this.createETradeService(userLogin, options.environment);
-      const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
+      const agents: PanelAgents = {
+        data: new OptionsDataAgent(new DynamicOptionsScreener(etrade.client)),
+        risk: new StrategyRiskAgent(),
+        recommender: new RecommendationAgent(),
+      };
 
       const outcomes: DiscoverySymbolOutcome[] = [];
       for (const constraintSet of options.constraintSets) {
-        outcomes.push(await this.runNoViewDiscoveryRequest(pipeline, etrade, constraintSet));
+        outcomes.push(await this.runNoViewDiscoveryRequest(agents, etrade, constraintSet));
       }
 
       const failures = outcomes
@@ -2784,7 +2795,7 @@ export class ScheduledTasksService {
    * and never a manufactured pick.
    */
   private async runNoViewDiscoveryRequest(
-    pipeline: OptionsAgentPipeline,
+    agents: PanelAgents,
     etrade: ETradeService,
     constraintSet: NoViewStrategyRequest
   ): Promise<DiscoverySymbolOutcome> {
@@ -2795,7 +2806,7 @@ export class ScheduledTasksService {
       expectedIvDirection: NO_VIEW_EXPECTED_IV_DIRECTION,
     };
     try {
-      const snapshot = await pipeline.data.loadSnapshot(constraintSet);
+      const snapshot = await agents.data.loadSnapshot(constraintSet);
       // A snapshot that never loaded its chain is a failure, not an
       // abstention: the screen records why (validation error,
       // per-symbol fetch errors, or the client's recorded upstream
@@ -2815,14 +2826,14 @@ export class ScheduledTasksService {
       if (failure) {
         return { symbol, status: "failed", constraintSet: record, error: failure };
       }
-      const strategies = pipeline.risk.buildNoViewStrategies(snapshot.contracts, constraintSet);
-      const ranked = pipeline.recommender.rankNoView(
+      const strategies = agents.risk.buildNoViewStrategies(snapshot.contracts, constraintSet);
+      const ranked = agents.recommender.rankNoView(
         strategies.candidates,
         constraintSet,
         constraintSet.riskProfile ?? "balanced"
       );
       const limit = constraintSet.candidateLimit ?? ranked.length;
-      const bestTrade = pipeline.recommender.pickBestNoViewTrade(strategies.candidates, constraintSet);
+      const bestTrade = agents.recommender.pickBestNoViewTrade(strategies.candidates, constraintSet);
       const snapshotBlock = {
         dataSource: snapshot.dataSource,
         screen: snapshot.screen,

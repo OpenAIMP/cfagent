@@ -60,7 +60,7 @@ import {
   validateStrategyRequest,
   validateStrategyProfile,
   describeLlmInput,
-  OptionsAgentPipeline,
+  runPanelPipeline,
   OptionsDataAgent,
   RecommendationAgent,
   StrategyRiskAgent,
@@ -488,8 +488,7 @@ export async function handleEtradeOptionsRoutes(
         const userLogin = request.headers.get("x-user-login");
         if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const pipeline = new OptionsAgentPipeline(new DynamicOptionsScreener(etrade.client));
-        const result = await pipeline.run(strategyRequest, {
+        const result = await runPanelPipeline(new DynamicOptionsScreener(etrade.client), strategyRequest, {
           riskProfile: body.riskProfile,
           alternatives: body.alternatives,
         });
