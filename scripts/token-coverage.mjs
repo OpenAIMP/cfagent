@@ -81,18 +81,49 @@ function styleSpans(text) {
 function countNamedInTs(text) {
   let n = 0;
   const spans = styleSpans(text);
+  const objSpans = styleObjectSpans(text);
   for (const m of text.matchAll(/(["']?)([A-Za-z][\w-]*)\1\s*:\s*(["'`])([^"'`]*)\3/g)) {
     const prop = m[2];
     const isColorProp =
       COLOR_CAMEL_PROPS.has(prop) || COLOR_KEBAB_PROPS.has(prop.toLowerCase()) || prop.startsWith("--");
     if (!isColorProp) continue;
-    if (!spans.some(([a, b]) => m.index >= a && m.index <= b)) continue;
+    if (!spans.some(([a, b]) => m.index >= a && m.index <= b) && !objSpans.some(([a, b]) => m.index >= a && m.index <= b)) continue;
     n += (m[4].match(NAMED_COLOR_RE) ?? []).length;
   }
   for (const m of text.matchAll(COLOR_JSX_ATTR_RE)) {
     n += (m[2].match(NAMED_COLOR_RE) ?? []).length;
   }
   return n;
+}
+
+// Issue #1337: brace-balanced spans of style objects referenced by
+// identifier — `style={panelStyle}` / `style={styles.panel}`. A named
+// color in a standalone style object escaped the gate (the span check
+// only saw direct style={{…}} literals), while a data field like a
+// preset's `color: "purple"` must NOT be flagged — so the scan is
+// limited to objects actually used as a style value, resolved in-file
+// from a direct const/let/var definition. Call expressions, ternaries,
+// and cross-file style objects are out of scope for this pass.
+function styleObjectSpans(text) {
+  const spans = [];
+  for (const m of text.matchAll(/style\s*=\s*\{\s*([A-Za-z_$][\w$]*)(?:\.[A-Za-z_$][\w$]*)?\s*\}/g)) {
+    const ident = m[1];
+    const defRe = new RegExp(`(?:const|let|var)\\s+${ident}\\s*(?::[^=]+)?=\\s*\\{`, "g");
+    for (const d of text.matchAll(defRe)) {
+      const start = text.indexOf("{", d.index);
+      let depth = 0;
+      let i = start;
+      for (; i < text.length; i += 1) {
+        if (text[i] === "{") depth += 1;
+        else if (text[i] === "}") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      spans.push([start, i]);
+    }
+  }
+  return spans;
 }
 
 function* walk(dir) {
@@ -137,6 +168,20 @@ for (const file of walk(CLIENT_DIR)) {
 
 perFile.sort((a, b) => b.hex + b.functional + b.named - (a.hex + a.functional + a.named));
 
+// Issue #1337: one-off stylesheet report — every stylesheet outside
+// the shared ui/ primitives, with its size, so growth shows up per PR
+// in this report (the ratchet test pins registration + size, so a PR
+// that grows one must bump tests/one_off_stylesheets_1337.json).
+const oneOffStylesheets = [];
+for (const file of walk(CLIENT_DIR)) {
+  const rel = relative(ROOT, file);
+  if (!rel.endsWith(".css")) continue;
+  if (rel.includes("components/ui/") || TOKEN_SOURCES.has(rel)) continue;
+  oneOffStylesheets.push({ file: rel, lines: readFileSync(file, "utf8").split("\n").length });
+}
+oneOffStylesheets.sort((a, b) => b.lines - a.lines);
+const oneOffStylesheetLines = oneOffStylesheets.reduce((sum, f) => sum + f.lines, 0);
+
 const report = {
   generatedAt: new Date().toISOString(),
   scope: "src/client (.css/.ts/.tsx), excluding token sources tokens.css + designTokens.ts",
@@ -147,8 +192,11 @@ const report = {
     namedColorLiterals: totalNamed,
     distinctHexValues: distinctHex.size,
     tsxFilesWithInlineStyleBlocks: inlineStyleFiles,
+    oneOffStylesheetLines,
+    oneOffStylesheetFiles: oneOffStylesheets.length,
   },
   perFile,
+  oneOffStylesheets,
 };
 
 const jsonArg = process.argv.indexOf("--json");
@@ -169,4 +217,9 @@ if (jsonArg !== -1) {
   console.log(
     `TOTAL raw=${report.totals.rawColorLiterals} hex=${totalHex} functional=${totalFn} named=${totalNamed} distinctHex=${distinctHex.size} tsxFilesWithInlineStyles=${inlineStyleFiles}`,
   );
+  console.log("One-off stylesheets (outside src/client/components/ui/)");
+  for (const f of oneOffStylesheets) {
+    console.log(`  ${String(f.lines).padStart(6)}  ${f.file}`);
+  }
+  console.log(`TOTAL one-off stylesheet lines=${oneOffStylesheetLines} files=${oneOffStylesheets.length}`);
 }
