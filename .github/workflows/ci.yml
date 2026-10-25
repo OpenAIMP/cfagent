@@ -28,7 +28,7 @@ jobs:
       target_env: ${{ steps.read-env.outputs.target_env }}
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           sparse-checkout: |
             environment.config.json
@@ -50,10 +50,10 @@ jobs:
       contents: read
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: ⚙️ Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: "npm"
@@ -97,10 +97,10 @@ jobs:
       ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: ⚙️ Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: "npm"
