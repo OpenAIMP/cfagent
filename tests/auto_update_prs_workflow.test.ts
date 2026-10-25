@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const workflowPath = new URL("../.github/workflows/auto-update-prs.yml", import.meta.url);
 const workflowContent = readFileSync(workflowPath, "utf-8");
@@ -48,7 +49,7 @@ describe("auto-update-prs.yml workflow configuration", () => {
 
 describe("workflow runner standardization", () => {
   it("ensures no workflow in .github/workflows uses unpinned ubuntu-latest", () => {
-    const workflowsDir = new URL("../.github/workflows", import.meta.url).pathname;
+    const workflowsDir = fileURLToPath(new URL("../.github/workflows", import.meta.url));
     const files = readdirSync(workflowsDir).filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
 
     expect(files.length).toBeGreaterThan(0);
