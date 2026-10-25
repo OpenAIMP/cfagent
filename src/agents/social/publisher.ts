@@ -156,6 +156,34 @@ function isBlank(value: string | undefined): boolean {
   return value === undefined || value.trim() === "";
 }
 
+/** Extract diagnostic error message from platform response body (#1489). */
+export function extractResponseErrorDetail(body: unknown): string | undefined {
+  if (typeof body === "string" && body.trim() !== "") {
+    return body.trim();
+  }
+  if (typeof body !== "object" || body === null) return undefined;
+  const b = body as Record<string, unknown>;
+  if (typeof b.error === "string" && b.error.trim()) return b.error.trim();
+  if (typeof b.error === "object" && b.error !== null) {
+    const err = b.error as Record<string, unknown>;
+    if (typeof err.message === "string" && err.message.trim()) return err.message.trim();
+  }
+  if (typeof b.detail === "string" && b.detail.trim()) return b.detail.trim();
+  if (typeof b.message === "string" && b.message.trim()) return b.message.trim();
+  if (Array.isArray(b.errors) && b.errors.length > 0) {
+    const firstErr = b.errors[0];
+    if (typeof firstErr === "string" && firstErr.trim()) return firstErr.trim();
+    if (
+      typeof firstErr === "object" &&
+      firstErr !== null &&
+      typeof (firstErr as Record<string, unknown>).message === "string"
+    ) {
+      return ((firstErr as Record<string, unknown>).message as string).trim();
+    }
+  }
+  return undefined;
+}
+
 /**
  * Run one channel's publish steps over the injected transport. Never
  * throws: transport failures and non-2xx responses become error
@@ -193,15 +221,29 @@ export async function publishWithPublisher(
       JSON.stringify(def.buildPayload(input.text, input.accountId)),
     );
     if (first.status < 200 || first.status >= 300) {
-      return { ok: false, error: `publish failed for ${def.channel}: HTTP ${first.status}` };
+      const detail = extractResponseErrorDetail(first.body);
+      return {
+        ok: false,
+        error: `publish failed for ${def.channel}: HTTP ${first.status}${detail ? ` — ${detail}` : ""}`,
+      };
     }
     const firstId = def.extractPostId(first.body);
     if (!def.buildSecondStep) {
-      if (!firstId) return { ok: false, error: `publish failed for ${def.channel}: no post id returned` };
+      if (!firstId) {
+        const detail = extractResponseErrorDetail(first.body);
+        return {
+          ok: false,
+          error: `publish failed for ${def.channel}: no post id returned${detail ? ` — ${detail}` : ""}`,
+        };
+      }
       return { ok: true, platformPostId: firstId };
     }
     if (!firstId) {
-      return { ok: false, error: `publish failed for ${def.channel}: no container id returned` };
+      const detail = extractResponseErrorDetail(first.body);
+      return {
+        ok: false,
+        error: `publish failed for ${def.channel}: no container id returned${detail ? ` — ${detail}` : ""}`,
+      };
     }
     const second = def.buildSecondStep(firstId);
     const secondRes = await input.transport.post(
@@ -210,7 +252,11 @@ export async function publishWithPublisher(
       JSON.stringify(second.payload),
     );
     if (secondRes.status < 200 || secondRes.status >= 300) {
-      return { ok: false, error: `publish failed for ${def.channel}: HTTP ${secondRes.status}` };
+      const detail = extractResponseErrorDetail(secondRes.body);
+      return {
+        ok: false,
+        error: `publish failed for ${def.channel}: HTTP ${secondRes.status}${detail ? ` — ${detail}` : ""}`,
+      };
     }
     const postId = def.extractPostId(secondRes.body) ?? firstId;
     return { ok: true, platformPostId: postId };
