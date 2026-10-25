@@ -13,6 +13,7 @@ import { getOpportunityScannerConfig, type EtapiFitGateConfig } from "../../conf
 import { defaultRegistry } from "./strategies/catalog";
 import { applyProfileFields, profileDisclosure, toProfileRef, type ProfileRef, type StrategyProfile } from "./strategyProfile";
 import type { ScreenedOptionContractItem } from "../../types";
+import { RiskProfileComposite, type KernelCandidate } from "../../services/recommendationKernel";
 
 const baseOppConfig = getOpportunityScannerConfig();
 export const MAX_SCAN_SYMBOLS = baseOppConfig.maxScanSymbols;
@@ -739,10 +740,87 @@ function scanOverrideAssumption(template: ScanRequestTemplate, batch: string[]):
  * set. Cells are ordered by best compositeScore descending (best-less cells
  * last), ties broken by strategy type ascending for determinism.
  */
+/**
+ * Rank-only wrapping of an engine candidate for the kernel ranking policy.
+ * RiskProfileComposite reads only id / source / engineScore / status, so
+ * the pipeline-only fields are carried honestly, not asserted: legs are not
+ * carried (ranking never reads them), economics is null (no kernel
+ * economics is computed here), status is "unverified" (screen-passed, never
+ * kernel-gated), and the limitation says so. The wrapped objects are
+ * transient — mapped back immediately, never stored or returned.
+ */
+function wrapScannerCandidateForPolicy(c: StrategyCandidate): KernelCandidate {
+  return {
+    id: c.id,
+    symbol: c.symbol,
+    structure: c.type,
+    label: c.label,
+    legs: [],
+    economics: null,
+    status: "unverified",
+    provenance: "quant",
+    chainProvenance: "live",
+    definedRisk: Number.isFinite(c.maxLoss),
+    marginEstimate: null,
+    assignmentRisk: c.legs.some((l) => l.side === "SELL" && l.optionType !== "STOCK"),
+    gateReasons: [],
+    limitations: ["scanner rank-only wrapping: screen-passed, not kernel-gated/priced/falsified"],
+    rationale: "",
+    builderId: "opportunity-scanner",
+    engineScore: c.score,
+    source: c,
+  };
+}
+
+/**
+ * #1257 rankers-as-policies: the scanner's per-symbol rank, routed through
+ * the kernel RiskProfileComposite policy instead of calling the recommender
+ * directly. The ranker is the same function the policy wraps (and the panel
+ * path uses), so the order is identical — the policy owns it.
+ *
+ * Fallback: when the policy cannot invoke the ranker (its guard requires
+ * numeric maxPlannedLoss/minRewardRisk and a numeric targetRewardRisk on
+ * every candidate), the adapter falls back to the direct ranker — today's
+ * path, unchanged — rather than returning engineScore-ordered rows with
+ * engine scores mislabeled as composites.
+ */
+export function rankScannerCandidates(
+  rankFn: (
+    candidates: StrategyCandidate[],
+    request: Pick<StrategyRequest, "maxPlannedLoss" | "minRewardRisk">,
+    profile: RiskProfile,
+  ) => RankedStrategy[],
+  matched: StrategyCandidate[],
+  request: Pick<StrategyRequest, "maxPlannedLoss" | "minRewardRisk">,
+  profile: RiskProfile,
+): Array<{ candidate: StrategyCandidate; compositeScore: number }> {
+  let rankedViaPolicy = false;
+  const policy = new RiskProfileComposite({
+    rankFn: (c, r, p) => {
+      rankedViaPolicy = true;
+      return rankFn(c, r, p);
+    },
+  });
+  const policyRanked = policy.rank(matched.map(wrapScannerCandidateForPolicy), {
+    request,
+    riskProfile: profile,
+  });
+  if (rankedViaPolicy) {
+    return policyRanked.map((kc) => ({
+      candidate: kc.source as StrategyCandidate,
+      compositeScore: kc.score ?? 0,
+    }));
+  }
+  return rankFn(matched, request, profile).map((r) => ({
+    candidate: r.candidate,
+    compositeScore: r.compositeScore,
+  }));
+}
+
 function buildMatrixCells(
   candidates: StrategyCandidate[],
   rejected: Array<{ id: string; reason: string }>,
-  rankedMatched: RankedStrategy[],
+  rankedMatched: Array<{ candidate: StrategyCandidate; compositeScore: number }>,
 ): ScanMatrixCell[] {
   const typeById = new Map(candidates.map((c) => [c.id, c.type]));
   const cells = new Map<string, ScanMatrixCell>();
@@ -1017,7 +1095,16 @@ export class OpportunityScanner {
         // The fit matrix is additive: it reports every built/screened
         // candidate per strategy type, ranked once via the recommender.
         // The pick path below is unchanged and still uses pickBestTrade.
-        const cells = buildMatrixCells(built.candidates, rejected, this.recommender.rank(matched, request, profile));
+        const cells = buildMatrixCells(
+          built.candidates,
+          rejected,
+          rankScannerCandidates(
+            (c, r, p) => this.recommender.rank(c, r, p),
+            matched,
+            request,
+            profile,
+          ),
+        );
         const pick = this.recommender.pickBestTrade(matched, request, profile, 2);
         // The fit gate (issue #24) qualifies the pick: it rides on the
         // matrix row (fit / borderline / no_fit) and on the opportunity
