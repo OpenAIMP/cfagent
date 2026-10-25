@@ -60,7 +60,9 @@ class ETradeThinkStateProvider implements ThinkStateProvider {
   constructor(private orm?: DatabaseORM, private env?: Env) {}
 
   private service(userLogin?: string): ETradeService {
-    return new ETradeService(this.orm, this.env, userLogin || "default_trader");
+    // Issue #1185: no login, no service — ETradeService throws and the
+    // callers' try/catch returns the honest null (no live state).
+    return new ETradeService(this.orm, this.env, userLogin);
   }
 
   async getLiveQuote(symbol: string, userLogin?: string): Promise<LiveQuoteSnapshot | null> {

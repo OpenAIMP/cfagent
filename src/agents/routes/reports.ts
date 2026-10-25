@@ -507,9 +507,11 @@ export async function handleReportsRoutes(
   // src/services/runSummaries.ts — newest first, de-duplicated on the
   // exact canonical joins (the canonical row wins). Scoping matches
   // each store's own route: canonical reports use the header login or
-  // stay unscoped; the scan/discovery stores use header, session, or
-  // default_trader; the screener feed uses header, execution context,
-  // or default_trader. A store that fails to read is named in
+  // stay unscoped; the scan/discovery stores use the header login; the
+  // screener feed uses header or execution context. Issue #1185: there
+  // is no synthetic fallback identity — when no identity is available
+  // for a store, that store is skipped and the skip is named in
+  // storeErrors. A store that fails to read is likewise named in
   // storeErrors — never silently presented as empty.
   if (path.endsWith("/runs") && request.method === "GET") {
     try {
@@ -522,7 +524,9 @@ export async function handleReportsRoutes(
       const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 100));
       const headerLogin = request.headers.get("x-user-login");
       const reportLogin = headerLogin && headerLogin.trim() ? headerLogin : undefined;
-      const storeLogin = headerLogin || sessionId || "default_trader";
+      // Issue #1185: identity-scoped stores read under the header login
+      // only; without one they are skipped and named in storeErrors.
+      const storeLogin = reportLogin;
       const sql = ctx.ensureTables();
       const lists: RunSummary[][] = [];
       const storeErrors: Record<string, string> = {};
@@ -554,26 +558,39 @@ export async function handleReportsRoutes(
         });
       }
       if (kind === "all" || kind === "options_scanner") {
-        await readStore("scans", async () => {
-          const { SqlScanRunStore } = await import("../../trading");
-          const { runSummaryFromScanRun } = await import("../../services/runSummaries");
-          const scans = await new SqlScanRunStore(sql).list({ limit, userLogin: storeLogin });
-          return scans.map(runSummaryFromScanRun);
-        });
+        if (!storeLogin) {
+          storeErrors["scans"] = "skipped: no authenticated user identity available to scope the read";
+        } else {
+          await readStore("scans", async () => {
+            const { SqlScanRunStore } = await import("../../trading");
+            const { runSummaryFromScanRun } = await import("../../services/runSummaries");
+            const scans = await new SqlScanRunStore(sql).list({ limit, userLogin: storeLogin });
+            return scans.map(runSummaryFromScanRun);
+          });
+        }
       }
       if (kind === "all" || kind === "discovery") {
-        await readStore("discovery", async () => {
-          const { SqlDiscoveryRunStore } = await import("../../trading");
-          const { runSummaryFromDiscoveryRun } = await import("../../services/runSummaries");
-          const runs = await new SqlDiscoveryRunStore(sql).list({ limit, userLogin: storeLogin });
-          return runs.map(runSummaryFromDiscoveryRun);
-        });
+        if (!storeLogin) {
+          storeErrors["discovery"] = "skipped: no authenticated user identity available to scope the read";
+        } else {
+          await readStore("discovery", async () => {
+            const { SqlDiscoveryRunStore } = await import("../../trading");
+            const { runSummaryFromDiscoveryRun } = await import("../../services/runSummaries");
+            const runs = await new SqlDiscoveryRunStore(sql).list({ limit, userLogin: storeLogin });
+            return runs.map(runSummaryFromDiscoveryRun);
+          });
+        }
       }
       if (kind === "all" || kind === "screener") {
         await readStore("screener", async () => {
           const { runSummaryFromScreenerRun } = await import("../../services/runSummaries");
           const context = await ctx.getScreenerExecutionContext();
-          const agent = ctx.getScreenerAgent(headerLogin || context?.userLogin || "default_trader");
+          const screenerLogin = headerLogin || context?.userLogin;
+          if (!screenerLogin) {
+            // Issue #1185: named skip — surfaced via storeErrors by readStore.
+            throw new Error("skipped: no authenticated user identity available to scope the read");
+          }
+          const agent = ctx.getScreenerAgent(screenerLogin);
           const history = await agent.getHistory();
           return history.map(runSummaryFromScreenerRun);
         });

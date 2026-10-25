@@ -33,7 +33,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
     sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
     orm.initializeSchema(sessionId);
-    etrade = new ETradeService(orm, mockEnv);
+    etrade = new ETradeService(orm, mockEnv, "test-user");
   });
 
   afterEach(() => {
@@ -389,7 +389,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(plan.tradingData?.action).toBe("quote");
       expect(plan.tradingData?.symbol).toBe("NVDA");
 
-      const result = await executeNLQQueryAsync(orm, sessionId, plan, mockEnv);
+      const result = await executeNLQQueryAsync(orm, sessionId, plan, mockEnv, "test-user");
       expect(result.domain).toBe("trading");
       expect(result.count).toBe(1);
       const row = result.rows[0];
@@ -458,7 +458,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(plan.tradingData?.symbol).toBe("NVDA");
       expect(plan.tradingData?.quantity).toBe(10);
 
-      const result = await executeNLQQueryAsync(orm, sessionId, plan, mockEnv);
+      const result = await executeNLQQueryAsync(orm, sessionId, plan, mockEnv, "test-user");
       expect(result.domain).toBe("trading");
       expect(result.count).toBe(1);
       const row = result.rows[0];
@@ -588,7 +588,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
           )
         );
 
-      const tradingService = new ETradeService(orm, liveEnv);
+      const tradingService = new ETradeService(orm, liveEnv, "test-user");
       const res = await tradingService.placeOrderRemote({
         orderId: "ord_51765383",
         symbol: "NVDA",
@@ -624,7 +624,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
         // fetchAccounts fails because user has no stored OAuth tokens
         .mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }));
 
-      const tradingService = new ETradeService(orm, unauthEnv);
+      const tradingService = new ETradeService(orm, unauthEnv, "test-user");
       const res = await tradingService.placeOrderRemote({
         orderId: "ord_unauth_123",
         symbol: "JPM",
@@ -690,7 +690,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
           )
         );
 
-      const tradingService = new ETradeService(orm, liveEnv);
+      const tradingService = new ETradeService(orm, liveEnv, "test-user");
       const res = await tradingService.placeOrderRemote({
         orderId: "ord_no_preview_id",
         symbol: "JPM",
@@ -756,7 +756,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
           )
         );
 
-      const tradingService = new ETradeService(orm, liveEnv);
+      const tradingService = new ETradeService(orm, liveEnv, "test-user");
       const res = await tradingService.placeOrderRemote({
         orderId: "ord_timeout_xml",
         symbol: "JPM",
@@ -907,7 +907,7 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
           changePercent: 0.84,
           marketCap: 50_000_000_000,
         }]);
-        const tradingService = new ETradeService(orm, mockEnv);
+        const tradingService = new ETradeService(orm, mockEnv, "test-user");
         const res = await tradingService.screenMarketsAsync({ search: "DELL" });
         expect(res.ledger.universeSymbols).toContain("DELL");
         expect(res.stocks[0].companyName).toBe("Dell Technologies Inc.");

@@ -60,14 +60,20 @@ export class ETradeService {
   }
 
   constructor(ormOrEnv?: DatabaseORM | Env, env?: Env, userLogin?: string, overrideEnv?: string) {
+    // Issue #1185: the service resolves the caller's stored per-user
+    // token — an explicit login is required; there is no default
+    // identity to fall back to.
+    if (!userLogin) {
+      throw new Error("ETradeService requires an explicit userLogin (issue #1185: no default identity).");
+    }
     if (ormOrEnv && "trades" in (ormOrEnv as any)) {
       this.orm = ormOrEnv as DatabaseORM;
       this.env = env || ({} as Env);
-      this.userLogin = userLogin || "default_trader";
+      this.userLogin = userLogin;
       this.overrideEnv = overrideEnv;
     } else {
       this.env = (ormOrEnv as Env) || ({} as Env);
-      this.userLogin = userLogin || "default_trader";
+      this.userLogin = userLogin;
       this.overrideEnv = overrideEnv;
     }
 
