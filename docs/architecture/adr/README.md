@@ -18,6 +18,7 @@ PR.
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0001](0001-derived-stable-identity.md) | Derived stable identity from (issuer, subject) | Accepted |
+| [0002](0002-data-foundation-layer.md) | Data foundation layer: port-first, Drizzle ORM, D1 as one adapter | Accepted |
 
 ## Template
 

@@ -48,6 +48,29 @@ import {
 } from "./social/publisher";
 import { createFetchSocialTransport } from "./social/liveTransport";
 import type { DoNamespaceLike } from "../security/durableKv";
+import { readAgentDbHalt } from "../data/createGovernancePorts";
+import type { HaltReader } from "../data/governancePorts";
+
+/**
+ * Resolve a halt read for the firing path, failing closed: any
+ * reader error reports halted. The adapter's own `isHalted`
+ * already fails closed; this covers injected readers too, so no
+ * failure mode on this path reads as clear.
+ */
+async function resolveReaderHalt(
+  reader: HaltReader,
+  tenantId: string,
+): Promise<boolean> {
+  try {
+    return await reader.isHalted(tenantId);
+  } catch (err) {
+    console.error(
+      "[ScheduledAgent] Halt read failed; failing closed:",
+      err,
+    );
+    return true;
+  }
+}
 
 // ScheduledAgent: autonomous trigger for goal-driven agent work.
 //
@@ -131,6 +154,17 @@ export interface ScheduledAgentCronOpts {
   /** Sql for the global-halt read + blocked-firing audit (callers with D1 access only). */
   sql?: any;
   /**
+   * #1548 (slice 0): injected halt reader (tests, or a caller
+   * that already owns a governance adapter). An explicit halted
+   * flag still wins; a sql still wins over the reader. When
+   * neither is present, the production tick reads the mirrored
+   * halt from this.env.AGENT_DB when bound — the DO's own env
+   * carries bindings, so no env crosses the RPC boundary (#1391).
+   */
+  haltReader?: HaltReader;
+  /** Tenant for the halt read; default "primary" (single-tenant default, same as IAAA). */
+  tenantId?: string;
+  /**
    * #1523 (Lane 2): leg executor for governed chain firings
    * (e.g. `createChainLegExecutor` bound to a DO/SQL runtime by
    * the caller that owns it). Absent, the branch keeps lane 1
@@ -211,8 +245,21 @@ export class ScheduledAgent extends Agent<Env> {
     // goals are unaffected. A supplied sql wins over a supplied flag
     // only when the flag is absent — an explicit halted:true is never
     // overridden by a sql read.
+    // #1548 (slice 0): the bare tick finally sees the global halt:
+    // an injected reader wins over the binding read, and the
+    // binding read (this.env.AGENT_DB, the DO's own env) is the
+    // production path. Unbound + no reader = legacy behavior
+    // (false). The governed predicate below stays the decision-maker.
+    const tickTenantId = opts?.tenantId ?? "primary";
     const governedHalted =
-      opts?.halted ?? (opts?.sql ? isGovernedHalted(opts.sql) : false);
+      opts?.halted ??
+      (opts?.sql
+        ? isGovernedHalted(opts.sql)
+        : opts?.haltReader
+          ? await resolveReaderHalt(opts.haltReader, tickTenantId)
+          : this.env.AGENT_DB
+            ? await readAgentDbHalt(this.env, tickTenantId)
+            : false);
 
     for (const goal of goals) {
       const isForced = opts?.forceGoalId === goal.id;
@@ -777,6 +824,8 @@ export class ScheduledAgent extends Agent<Env> {
     opts?: {
       halted?: boolean;
       sql?: any;
+      haltReader?: HaltReader;
+      tenantId?: string;
       chainExecutor?: (step: CompiledChainStep) => Promise<unknown>;
     },
   ): Promise<{
@@ -797,7 +846,18 @@ export class ScheduledAgent extends Agent<Env> {
       );
     }
     const now = new Date();
-    const halted = opts?.halted ?? (opts?.sql ? isGovernedHalted(opts.sql) : false);
+    // #1548 (slice 0): same halt resolution as onCron, so the
+    // direct one-shot path sees the mirrored halt too.
+    const fireTenantId = opts?.tenantId ?? "primary";
+    const halted =
+      opts?.halted ??
+      (opts?.sql
+        ? isGovernedHalted(opts.sql)
+        : opts?.haltReader
+          ? await resolveReaderHalt(opts.haltReader, fireTenantId)
+          : this.env.AGENT_DB
+            ? await readAgentDbHalt(this.env, fireTenantId)
+            : false);
     const decision = decideChainFiring(record, now, { halted });
     if (!decision.fire) {
       if (opts?.sql) {
