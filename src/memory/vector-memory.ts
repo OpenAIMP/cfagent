@@ -87,4 +87,113 @@ export class VectorMemory {
       ),
     ].join("\n");
   }
+
+  /**
+   * Store a compiled chain's outcome as plan memory (issue #1461,
+   * #1362 Phase 4). Same embedding model, same Vectorize index as
+   * `remember` — the record is distinguished only by its `plan:`
+   * id prefix and `kind: "plan"` metadata, so plan records stay
+   * separable from outcome records and #337 report records in the
+   * shared index. Returns the record id. Errors propagate, matching
+   * the `remember` convention (callers wrap in try/catch).
+   */
+  async rememberPlan(input: PlanMemoryInput): Promise<string> {
+    const id = `plan:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+    const text = [
+      `Goal: ${input.goal}`,
+      `Plan: ${input.capabilityIds.join(", ")}`,
+      `Success: ${input.success}`,
+      `Summary: ${input.summary}`,
+    ].join("\n");
+    const values = await embed(this.ai, text);
+    await this.vectorize.upsert([
+      {
+        id,
+        values,
+        metadata: {
+          kind: "plan",
+          goal: input.goal.slice(0, 500),
+          normalizedGoal: input.normalizedGoal.slice(0, 500),
+          steps: JSON.stringify(input.capabilityIds),
+          budgetCents: input.budgetCents,
+          recurrence: input.recurrence,
+          reusesStoredReport: String(input.reusesStoredReport),
+          success: String(input.success),
+          summary: input.summary.slice(0, 500),
+          timestamp: input.timestamp,
+        },
+      },
+    ]);
+    return id;
+  }
+
+  /**
+   * Recall prior plans for a goal, most similar first. Only
+   * `kind: "plan"` matches are returned; a match whose stored steps
+   * do not parse is dropped, never trusted.
+   */
+  async recallPlans(goal: string, topK: number = RECALL_TOP_K): Promise<RecalledPlan[]> {
+    const values = await embed(this.ai, goal);
+    const results = await this.vectorize.query(values, {
+      topK: Math.max(1, Math.min(50, Math.floor(topK) || RECALL_TOP_K)),
+      filter: { kind: "plan" },
+      returnMetadata: true,
+    });
+    const plans: RecalledPlan[] = [];
+    for (const m of results.matches ?? []) {
+      const md = (m as any).metadata ?? {};
+      let capabilityIds: string[];
+      try {
+        const parsed = JSON.parse(String(md.steps ?? ""));
+        if (!Array.isArray(parsed) || !parsed.every((s) => typeof s === "string")) continue;
+        capabilityIds = parsed;
+      } catch {
+        continue;
+      }
+      plans.push({
+        id: String((m as any).id ?? ""),
+        goal: String(md.goal ?? ""),
+        normalizedGoal: String(md.normalizedGoal ?? ""),
+        capabilityIds,
+        budgetCents: typeof md.budgetCents === "number" ? md.budgetCents : Number(md.budgetCents ?? 0),
+        recurrence: md.recurrence === "recurring" ? "recurring" : "one-shot",
+        reusesStoredReport: md.reusesStoredReport === "true",
+        success: md.success === "true",
+        summary: String(md.summary ?? ""),
+        timestamp: String(md.timestamp ?? ""),
+        score: typeof (m as any).score === "number" ? (m as any).score : 0,
+      });
+    }
+    return plans;
+  }
+}
+
+/**
+ * Plan-level composition memory input (issue #1461, #1362 Phase 4):
+ * goal text → compiled chain → outcome, for reuse.
+ */
+export interface PlanMemoryInput {
+  goal: string;
+  normalizedGoal: string;
+  capabilityIds: string[];
+  budgetCents: number;
+  recurrence: "recurring" | "one-shot";
+  reusesStoredReport: boolean;
+  success: boolean;
+  summary: string;
+  timestamp: string;
+}
+
+export interface RecalledPlan {
+  id: string;
+  goal: string;
+  normalizedGoal: string;
+  capabilityIds: string[];
+  budgetCents: number;
+  recurrence: "recurring" | "one-shot";
+  reusesStoredReport: boolean;
+  success: boolean;
+  summary: string;
+  timestamp: string;
+  score: number;
 }
