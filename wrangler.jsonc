@@ -40,7 +40,12 @@
       // Issue #680 — ReportAssetAgent DO (single owner for Generate)
       { "name": "REPORT_ASSET_AGENT", "class_name": "ReportAssetAgent" },
       // Issue #291 — TradingAgent DO (provider-neutral trading competency)
-      { "name": "TRADING_AGENT", "class_name": "TradingAgent" }
+      { "name": "TRADING_AGENT", "class_name": "TradingAgent" },
+      // Issue #1387 — OrchestratorAgent root namespace for sub-agent
+      // bootstrap: the agents SDK resolves ctx.exports by the parent's
+      // constructor.name, so the SearchAgent alias above cannot satisfy
+      // it. The alias stays (live orchestrator address + stored state).
+      { "name": "ORCHESTRATOR_AGENT", "class_name": "OrchestratorAgent" }
     ]
   },
   "migrations": [
@@ -57,7 +62,9 @@
     // Issue #680 — ReportAssetAgent
     { "tag": "v7", "new_sqlite_classes": ["ReportAssetAgent"] },
     // Issue #291 — TradingAgent
-    { "tag": "v8", "new_sqlite_classes": ["TradingAgent"] }
+    { "tag": "v8", "new_sqlite_classes": ["TradingAgent"] },
+    // Issue #1387 — OrchestratorAgent root namespace for sub-agent bootstrap
+    { "tag": "v9", "new_sqlite_classes": ["OrchestratorAgent"] }
   ],
   // Issue #606 (phase 4 of #415): no KV namespaces remain — sessions and
   // E*TRADE credentials live in the SessionStore DO (#329), report PDFs
