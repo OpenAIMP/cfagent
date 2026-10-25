@@ -180,6 +180,7 @@ jobs:
           S_DASHBOARD_API_KEY: ${{ secrets.DASHBOARD_API_KEY_IS_A2A_TOKEN }}
           S_SCREENER_SLACK_CHANNEL: ${{ secrets.SCREENER_SLACK_CHANNEL }}
           S_SCREENER_EMAIL_TO: ${{ secrets.SCREENER_EMAIL_TO }}
+          S_CHANNEL_EMAIL_PRINCIPALS: ${{ secrets.CHANNEL_EMAIL_PRINCIPALS }}
         run: |
           set -euo pipefail
           source scripts/ci/put-secret.sh
@@ -200,6 +201,7 @@ jobs:
           # Notification targets are genuinely optional; absence is reported.
           optional_secret SCREENER_SLACK_CHANNEL "$S_SCREENER_SLACK_CHANNEL"
           optional_secret SCREENER_EMAIL_TO "$S_SCREENER_EMAIL_TO"
+          optional_secret CHANNEL_EMAIL_PRINCIPALS "$S_CHANNEL_EMAIL_PRINCIPALS"
 
       - name: Set E*TRADE secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
