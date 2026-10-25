@@ -56,11 +56,11 @@ import {
   createPublicDataProvider,
   createYahooDataProvider,
   createNasdaqDataProvider,
-  bindETradeScreenerDeps,
   verifyETradeDataProvider,
   verifyPublicDataProvider,
   type ETradeDataSurface,
 } from "../src/trading/dataProviders/adapters";
+import { bindEtradeQuoteDeps } from "../src/trading/screenerPipeline";
 import { seedProviderConfigs } from "../src/trading/dataProviders/providerConfigStore";
 import {
   handleDataProviderRoutes,
@@ -547,16 +547,19 @@ describe("E*TRADE adapter fetch outcomes (issue #1248)", () => {
   it("the stock-screener binding path records failures too (deps carry the same seam)", async () => {
     const sql = new MockSqlStorage();
     const err = new ETradeError(ETradeErrorCode.AUTH_REQUIRED);
-    const deps = bindETradeScreenerDeps(
+    // #1356: the stock-screener binding path is now the pipeline's
+    // QuoteScreenerDeps binding over an adapter constructed with the
+    // same capture deps the retired bindETradeScreenerDeps took.
+    const provider = createETradeDataProvider(
       stubETradeService({
         getQuoteAsync: async () => {
           throw err;
         },
       }),
-      captureDeps(sql),
-      RUN
+      { capture: captureDeps(sql) }
     );
-    const caught = await deps.fetchETradeQuote("AAPL").catch((e) => e);
+    const deps = bindEtradeQuoteDeps(provider, RUN);
+    const caught = await deps.fetchQuote("AAPL").catch((e) => e);
     expect(caught).toBe(err);
     const rows = listCapturesByProvider(sql as any, TENANT, "etrade");
     expect(rows).toHaveLength(1);
