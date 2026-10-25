@@ -93,6 +93,9 @@ const PINNED_STAR_REEXPORTS = [
   "./email/agent",
   "./slack/agent",
   "./voice/agent",
+  "./channels/intake",
+  "./channels/approval",
+  "./channels/signedLinks",
   "./etrade/quoteTrace",
   "./quotePolicies",
 ];
@@ -111,12 +114,14 @@ const PINNED_NAMED_REEXPORTS = ["MAX_SCAN_SYMBOLS from ./options/opportunityScan
  * quote policy named at the call site: 49 -> 48. Q3 (2026-10-23) —
  * the broker quote route onto the registry + LIVE_STRICT: 48 -> 47.
  * Q4 (2026-10-23) — the MCP quote command likewise: 47 -> 46.
+ * Growths: C5 (#1361) — the comparison route constructs its own
+ * service like every sibling options route: etradeOptions 5 -> 6.
  */
 const CONSTRUCTION_LEDGER: Record<string, number> = {
   "agents/nlq/execution.ts": 2,
   "agents/orchestrator/asyncJobs.ts": 1,
   "agents/routes/etradeBroker.ts": 20,
-  "agents/routes/etradeOptions.ts": 5,
+  "agents/routes/etradeOptions.ts": 6,
   "agents/routes/watchlists.ts": 5,
   "agents/screener-agent.ts": 2,
   "mcp/cloudflareAgentCommands.ts": 1,
@@ -156,6 +161,8 @@ describe("trading extraction ledger (issue #291 T0)", () => {
     // 48 → 49 in #1355: the shard executor dispatch constructs its
     // ETradeService for the feed.etrade shard, like the scheduled
     // screen path it shards.
-    expect(total).toBe(49);
+    // 49 → 50 in #1361: the comparison route constructs its own
+    // ETradeService like every sibling options route.
+    expect(total).toBe(50);
   });
 });

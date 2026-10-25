@@ -64,7 +64,7 @@
  */
 
 import { ETradeService } from "../../services/etrade";
-import { YahooFinanceProvider } from "../../services/fossResearch";
+import { AlpacaMarketDataProvider, YahooFinanceProvider } from "../../services/fossResearch";
 import { PublicMcpClient } from "../../services/publicMcp";
 import {
   PublicDataError,
@@ -817,16 +817,86 @@ export async function verifyYahooDataProvider(
 }
 
 /**
+ * Issue #1385: the Alpaca lifecycle verifier, mirroring
+ * verifyYahooDataProvider — configuration from the FOSS provider's
+ * own isConfigured (key AND secret required — NOT
+ * configured-by-construction, unlike nasdaq's public feed), then
+ * the conformance kit over the adapter. The provider is injectable
+ * for tests; production constructs the real AlpacaMarketDataProvider
+ * from env. A failed conformance fails verification (never a
+ * silent pass).
+ */
+export async function verifyAlpacaDataProvider(
+  env?: Env,
+  options?: {
+    provider?: IFossMarketDataProvider;
+    outcomeRecorder?: FetchOutcomeRecorder;
+  }
+): Promise<{ ok: boolean; summary: string }> {
+  const adapter = createAlpacaDataProvider(
+    options?.provider ?? new AlpacaMarketDataProvider(env),
+    env,
+    { outcomeRecorder: options?.outcomeRecorder }
+  );
+  if (!adapter.isConfigured(env)) {
+    return {
+      ok: false,
+      summary: "Alpaca provider reports not configured.",
+    };
+  }
+  const report = await runDataProviderConformance(adapter);
+  if (!report.ok) {
+    const failures = report.checks
+      .flatMap((c) => c.failures.map((f) => `${c.capability}: ${f}`))
+      .join("; ");
+    return { ok: false, summary: `Alpaca adapter conformance failed — ${failures}` };
+  }
+  return {
+    ok: true,
+    summary: `Alpaca adapter status configured; conformance passed for ${report.checks
+      .map((c) => c.capability)
+      .join(", ")}.`,
+  };
+}
+
+/** Capture wiring for the Nasdaq adapter: identical shape to E*TRADE's (E1). */
+export type NasdaqCaptureDeps = ETradeCaptureDeps;
+
+export interface NasdaqDataProviderOptions {
+  capture?: NasdaqCaptureDeps;
+  /**
+   * E7 (issue #1248): the fetch-outcome recorder — derived from the
+   * capture deps whenever capture is wired, injectable on its own
+   * for verifier probes (see ETradeDataProviderOptions).
+   */
+  outcomeRecorder?: FetchOutcomeRecorder;
+}
+
+/**
  * Nasdaq adapter — wraps the listings fetch. The fetcher is injectable
  * (nasdaqListings' own seam: fetchAllUsStockListings already accepts a
  * fetch implementation) so tests and later slices can substitute the
  * transport without touching the adapter.
+ *
+ * Issue #1368 (Nasdaq slice): the adapter takes the E1 capture seam
+ * (options.capture), derived-recorder included, exactly like the
+ * FOSS adapters. The listings surface exposes no wire-response hook,
+ * so the capture's raw payload is the provider's result itself
+ * (rawKind "provider-result"); the normalized digest is computed over
+ * the same result. A throwing fetch writes fetch_failed via the
+ * decorator and rethrows unchanged; a capture-write failure writes
+ * the capture_failed marker via recordCapture and never fails the
+ * fetch. The listings module stays the adapter's fetcher — call sites
+ * move to the adapter, the module is not duplicated.
  */
 export function createNasdaqDataProvider(
   fetchListings: typeof fetchAllUsStockListings = fetchAllUsStockListings,
-  options?: { outcomeRecorder?: FetchOutcomeRecorder }
+  options?: NasdaqDataProviderOptions
 ): DataProvider {
-  const outcomeRecorder = options?.outcomeRecorder;
+  const capture = options?.capture;
+  const outcomeRecorder =
+    options?.outcomeRecorder ??
+    (capture ? createCaptureFetchOutcomeRecorder(capture.sql) : undefined);
   return {
     id: "nasdaq",
     name: "Nasdaq Listings",
@@ -836,11 +906,22 @@ export function createNasdaqDataProvider(
     isConfigured: () => true,
     getScreenUniverse: async (runContext?: DataRunContext) => {
       const ctx = resolveRunContext(runContext);
-      return tag(
-        "nasdaq",
-        "screenUniverse",
-        await trackedFetch(
-          outcomeRecorder,
+      const result = await trackedFetch(
+        outcomeRecorder,
+        {
+          providerId: "nasdaq",
+          capability: "screenUniverse",
+          requestParams: {},
+          runId: ctx.runId,
+          tenantId: ctx.tenantId,
+          userLogin: ctx.userLogin,
+        },
+        () => fetchListings()
+      );
+      if (capture) {
+        await recordCapture(
+          capture.sql,
+          { storage: capture.blobStorage, env: capture.env },
           {
             providerId: "nasdaq",
             capability: "screenUniverse",
@@ -848,11 +929,53 @@ export function createNasdaqDataProvider(
             runId: ctx.runId,
             tenantId: ctx.tenantId,
             userLogin: ctx.userLogin,
-          },
-          () => fetchListings()
-        )
-      );
+            rawPayload: result,
+            rawKind: "provider-result",
+            normalizedResult: result,
+            retentionClass: capture.retentionClass,
+          }
+        );
+      }
+      return tag("nasdaq", "screenUniverse", result);
     },
+  };
+}
+
+/**
+ * Issue #1368: the Nasdaq lifecycle verifier, mirroring
+ * verifyYahooDataProvider — configuration by construction (the public
+ * listings feed carries no credentials), then the conformance kit
+ * over the adapter. The listings fetcher is injectable for tests;
+ * production uses the module default. A failed conformance fails
+ * verification (never a silent pass).
+ */
+export async function verifyNasdaqDataProvider(
+  options?: {
+    fetchListings?: typeof fetchAllUsStockListings;
+    outcomeRecorder?: FetchOutcomeRecorder;
+  }
+): Promise<{ ok: boolean; summary: string }> {
+  const adapter = createNasdaqDataProvider(options?.fetchListings, {
+    outcomeRecorder: options?.outcomeRecorder,
+  });
+  if (!adapter.isConfigured()) {
+    return {
+      ok: false,
+      summary: "Nasdaq provider reports not configured.",
+    };
+  }
+  const report = await runDataProviderConformance(adapter);
+  if (!report.ok) {
+    const failures = report.checks
+      .flatMap((c) => c.failures.map((f) => `${c.capability}: ${f}`))
+      .join("; ");
+    return { ok: false, summary: `Nasdaq adapter conformance failed — ${failures}` };
+  }
+  return {
+    ok: true,
+    summary: `Nasdaq adapter status configured; conformance passed for ${report.checks
+      .map((c) => c.capability)
+      .join(", ")}.`,
   };
 }
 

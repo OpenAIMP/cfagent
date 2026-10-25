@@ -1928,6 +1928,9 @@ export class OrchestratorAgent extends Think<Env> {
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       agentCtx: this.ctx,
       nlqSchedulingPort: () => this.nlqSchedulingPort(),
+      // Issue #1262 Phase 4: channel NLQ deps need DO storage SQL
+      // for the scan/profile stores and discovery runners.
+      getStorageSql: () => this.ctx.storage.sql,
     });
     if (tradingIntegrationsResponse) return tradingIntegrationsResponse;
 

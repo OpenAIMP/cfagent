@@ -286,6 +286,41 @@ export const EXAMPLE_BUNDLE_CANDIDATE: StrategyCandidate = {
   assumptions: [],
 };
 
+/**
+ * Consolidation C5 (#1361): the from-results handoff. A screening
+ * results panel stages a ranked/best-trade candidate here; the bundle
+ * panel consumes it once on mount and pre-fills the textarea, so
+ * candidates flow from screening results into the bundle builder
+ * instead of only arriving by manual paste. One-shot by design: take
+ * removes the key even for invalid JSON, so a stale or broken staged
+ * candidate can never re-appear on a later visit. Best-effort —
+ * staging never throws (the panel still accepts paste).
+ */
+export const STAGED_BUNDLE_CANDIDATE_KEY = "cfagent_bundle_candidate";
+
+export function stageBundleCandidate(candidate: unknown): void {
+  try {
+    localStorage.setItem(STAGED_BUNDLE_CANDIDATE_KEY, JSON.stringify(candidate));
+  } catch {
+    /* staging unavailable; paste still works */
+  }
+}
+
+export function takeStagedBundleCandidate(): string | null {
+  try {
+    const raw = localStorage.getItem(STAGED_BUNDLE_CANDIDATE_KEY);
+    localStorage.removeItem(STAGED_BUNDLE_CANDIDATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { symbol?: unknown; legs?: unknown } | null;
+    if (!parsed || typeof parsed.symbol !== "string" || !Array.isArray(parsed.legs) || parsed.legs.length === 0) {
+      return null;
+    }
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
 /** The example candidate as pretty-printed JSON for the textarea. */
 export function exampleBundleCandidateJson(): string {
   return JSON.stringify(EXAMPLE_BUNDLE_CANDIDATE, null, 2);

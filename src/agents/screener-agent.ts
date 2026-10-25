@@ -45,14 +45,18 @@ import {
 import { YahooFinanceProvider } from "../services/fossResearch";
 import {
   bindETradeScreenerDeps,
+  bindNasdaqUniverseDeps,
   bindYahooScreenerDeps,
   bootstrapDataProviders,
+  createNasdaqDataProvider,
   createYahooDataProvider,
   DataProviderRegistry,
   getProviderConfig,
   listCapabilityRoutes,
   listProviderConfigs,
+  nasdaqUniverseProviderFromRoute,
   transitionProvider,
+  verifyNasdaqDataProvider,
   verifyYahooDataProvider,
   yahooQuoteProviderFromRoute,
 } from "../trading";
@@ -532,13 +536,47 @@ export class ScreenerAgent extends Agent<Env> {
 
       // Issue #270: resolve the universe to symbols (listings directory
       // = symbol membership only, not market data). E*TRADE-only quotes.
+      // Issue #1368: universe resolution acquires through the
+      // data-provider platform, mirroring the #1317 yahoo cutover:
+      // bootstrap this DO's platform store (seed + routes), verify
+      // + enable nasdaq through the lifecycle API when it is not
+      // already enabled, resolve the screenUniverse route's primary
+      // assignment to the nasdaq adapter, and bind the listings
+      // fetch over it (capture + outcome tracking ride along under
+      // the run id, minted here when no provider block has minted
+      // one yet — the etrade/yahoo blocks reuse it via ??=, so the
+      // listings capture shares the screen's run id).
       const universeDef = UNIVERSES[universe];
       let symbols = req.symbols;
       if (!symbols && universe !== "ALL") {
-        const { fetchAllUsStockListings } = await import(
-          "../services/nasdaqListings"
+        bootstrapDataProviders(this.ctx.storage.sql);
+        platformRunId ??= crypto.randomUUID();
+        const nasdaqConfig = getProviderConfig(this.ctx.storage.sql, "nasdaq");
+        if (!nasdaqConfig || nasdaqConfig.lifecycleState !== "enabled" || !nasdaqConfig.enabled) {
+          await transitionProvider(this.ctx.storage.sql, "nasdaq", "verify", userLogin, {
+            verifier: async () => verifyNasdaqDataProvider(),
+          });
+          await transitionProvider(this.ctx.storage.sql, "nasdaq", "enable", userLogin, {});
+        }
+        const nasdaqRegistry = new DataProviderRegistry();
+        const nasdaqAdapter = createNasdaqDataProvider(undefined, {
+          capture: {
+            sql: this.ctx.storage.sql,
+            blobStorage: this.ctx.storage,
+            env: this.env,
+          },
+        });
+        nasdaqRegistry.register(nasdaqAdapter);
+        const nasdaqProvider = nasdaqUniverseProviderFromRoute(
+          nasdaqRegistry,
+          listProviderConfigs(this.ctx.storage.sql),
+          listCapabilityRoutes(this.ctx.storage.sql)
         );
-        const listings = await fetchAllUsStockListings();
+        const nasdaqUniverseDeps = bindNasdaqUniverseDeps(nasdaqProvider, {
+          runId: platformRunId,
+          userLogin,
+        });
+        const listings = await nasdaqUniverseDeps.fetchListings();
         symbols = resolveUniverse(universe, listings);
       }
       const requestedMaxSymbols = req.maxSymbols ?? universeDef.defaultMaxSymbols;
@@ -563,7 +601,7 @@ export class ScreenerAgent extends Agent<Env> {
       let platformLiveDeps: ReturnType<typeof bindETradeScreenerDeps> | undefined;
       if (etrade) {
         bootstrapDataProviders(this.ctx.storage.sql);
-        platformRunId = crypto.randomUUID();
+        platformRunId ??= crypto.randomUUID();
         platformLiveDeps = bindETradeScreenerDeps(
           etrade,
           {
@@ -589,7 +627,7 @@ export class ScreenerAgent extends Agent<Env> {
       let platformYahooDeps: ReturnType<typeof bindYahooScreenerDeps> | undefined;
       if (provider === "yahoo" && !req.yahooDeps) {
         bootstrapDataProviders(this.ctx.storage.sql);
-        platformRunId = crypto.randomUUID();
+        platformRunId ??= crypto.randomUUID();
         const yahooConfig = getProviderConfig(this.ctx.storage.sql, "yahoo");
         if (!yahooConfig || yahooConfig.lifecycleState !== "enabled" || !yahooConfig.enabled) {
           await transitionProvider(this.ctx.storage.sql, "yahoo", "verify", userLogin, {

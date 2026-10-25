@@ -42,7 +42,7 @@ import { scheduledReportPdfUrl } from "./scheduledReports";
 import type { ScanRunSummary, DiscoveryRunSummary } from "../trading";
 import type { ScreenerRunResult } from "../agents/screener-agent";
 
-export type RunKind = "screener" | "options_scanner" | "discovery" | "report";
+export type RunKind = "screener" | "options_scanner" | "discovery" | "goal" | "report";
 
 export interface RunSummary {
   kind: RunKind;
@@ -136,6 +136,11 @@ const KIND_BY_REPORT_SOURCE: Record<string, RunKind> = {
   // now (source "discovery"), so their canonical rows map to kind
   // "discovery" instead of falling through to "report".
   discovery: "discovery",
+  // Consolidation C5 (#1361): goal-screen canonical rows get their own
+  // kind (C4 limitation: they surfaced under "report" because the Runs
+  // shape had no goal kind). The Reports panel filters goal_screen
+  // client-side by source, so no client change is needed.
+  goal_screen: "goal",
 };
 
 function xlsxUrlForSource(source: string, key: string): string | null {
