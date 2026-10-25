@@ -235,8 +235,17 @@ describe("S5 no invented bid/ask, no static PE/market-cap in live quotes (#923)"
   });
 
   it("live Yahoo batch quote without bid/ask carries no bid/ask — never price ± 0.05", async () => {
+    // Exact-hostname check (CodeQL js/incomplete-url-substring-sanitization):
+    // a host substring match would also match lookalike hosts.
+    const isFcYahoo = (u: string) => {
+      try {
+        return new URL(u).hostname === "fc.yahoo.com";
+      } catch {
+        return false;
+      }
+    };
     stubFetch(async (url) => {
-      if (url.includes("fc.yahoo.com")) {
+      if (isFcYahoo(url)) {
         return {
           ok: true,
           status: 200,
