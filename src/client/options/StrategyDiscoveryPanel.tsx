@@ -170,27 +170,26 @@ interface SavedOptionTrade {
 
 const STORAGE_KEY_SAVED_TRADES = "etrade_saved_options_trades";
 
-// Popular stock & ETF presets including futures
-const POPULAR_TICKERS: StockQuoteState[] = [
-  { symbol: "TSLA", price: 368.44, change: -6.79, changePercent: -1.81, companyName: "Tesla, Inc.", delayed: true },
-  { symbol: "NVDA", price: 138.50, change: 1.20, changePercent: 0.87, companyName: "NVIDIA Corporation", delayed: true },
-  { symbol: "AAPL", price: 232.50, change: 1.25, changePercent: 0.54, companyName: "Apple Inc.", delayed: true },
-  { symbol: "SPY", price: 586.20, change: 2.10, changePercent: 0.36, companyName: "SPDR S&P 500 ETF Trust", delayed: true },
-  { symbol: "QQQ", price: 494.30, change: 1.80, changePercent: 0.37, companyName: "Invesco QQQ Trust", delayed: true },
-  { symbol: "MSFT", price: 428.15, change: -0.85, changePercent: -0.20, companyName: "Microsoft Corporation", delayed: true },
-  { symbol: "AMD", price: 156.40, change: -1.10, changePercent: -0.70, companyName: "Advanced Micro Devices", delayed: true },
-  { symbol: "AMZN", price: 186.50, change: 0.90, changePercent: 0.49, companyName: "Amazon.com, Inc.", delayed: true },
-  { symbol: "GOOGL", price: 168.20, change: -0.40, changePercent: -0.24, companyName: "Alphabet Inc.", delayed: true },
-  { symbol: "META", price: 588.60, change: 4.50, changePercent: 0.77, companyName: "Meta Platforms, Inc.", delayed: true },
-  { symbol: "WMT", price: 107.20, change: 0.0, changePercent: 0.0, companyName: "Walmart Inc.", delayed: true },
-  { symbol: "IWM", price: 221.80, change: 0.75, changePercent: 0.34, companyName: "iShares Russell 2000 ETF", delayed: true },
-  { symbol: "/ES", price: 5875.50, change: 14.25, changePercent: 0.24, companyName: "E-mini S&P 500 Futures", delayed: true },
-  { symbol: "/NQ", price: 20420.00, change: 65.50, changePercent: 0.32, companyName: "E-mini Nasdaq 100 Futures", delayed: true },
+// Popular stock & ETF presets including futures — symbols and names ONLY.
+// Issue #924: prices must never come from a hardcoded table. A preset
+// carries no price until a live quote is fetched for it; the dropdown
+// shows "Quote unavailable" for symbols with no live quote yet.
+const POPULAR_SYMBOLS: { symbol: string; companyName: string }[] = [
+  { symbol: "TSLA", companyName: "Tesla, Inc." },
+  { symbol: "NVDA", companyName: "NVIDIA Corporation" },
+  { symbol: "AAPL", companyName: "Apple Inc." },
+  { symbol: "SPY", companyName: "SPDR S&P 500 ETF Trust" },
+  { symbol: "QQQ", companyName: "Invesco QQQ Trust" },
+  { symbol: "MSFT", companyName: "Microsoft Corporation" },
+  { symbol: "AMD", companyName: "Advanced Micro Devices" },
+  { symbol: "AMZN", companyName: "Amazon.com, Inc." },
+  { symbol: "GOOGL", companyName: "Alphabet Inc." },
+  { symbol: "META", companyName: "Meta Platforms, Inc." },
+  { symbol: "WMT", companyName: "Walmart Inc." },
+  { symbol: "IWM", companyName: "iShares Russell 2000 ETF" },
+  { symbol: "/ES", companyName: "E-mini S&P 500 Futures" },
+  { symbol: "/NQ", companyName: "E-mini Nasdaq 100 Futures" },
 ];
-
-const DEFAULT_QUOTES: Record<string, StockQuoteState> = Object.fromEntries(
-  POPULAR_TICKERS.map((t) => [t.symbol, t])
-);
 
 // URL hash encoding / decoding for Capability 10 (Share Trades)
 function encodeTradeToHash(payload: {
@@ -252,19 +251,17 @@ export function StrategyDiscoveryPanel({
   const [showSymbolSearchMenu, setShowSymbolSearchMenu] = useState(false);
   const [customStrategyName, setCustomStrategyName] = useState<string | null>(initialStrategyName || null);
   const [isFlowBannerDismissed, setIsFlowBannerDismissed] = useState<boolean>(false);
-  const [quote, setQuote] = useState<StockQuoteState>(
-    DEFAULT_QUOTES[initialSymbol.toUpperCase()] || {
-      symbol: initialSymbol.toUpperCase(),
-      price: 250.0,
-      change: 1.2,
-      changePercent: 0.48,
-      companyName: `${initialSymbol.toUpperCase()} Equity`,
-      delayed: true,
-    }
-  );
-  const [quotesCache, setQuotesCache] = useState<Record<string, StockQuoteState>>(() => ({
-    ...DEFAULT_QUOTES,
-  }));
+  // Issue #924: initial quote state is EMPTY, never priced. A quote exists
+  // only after a live fetch succeeds; the cache holds live-fetched quotes
+  // only — never static presets or invented values.
+  const [quote, setQuote] = useState<StockQuoteState | null>(null);
+  const [quotesCache, setQuotesCache] = useState<Record<string, StockQuoteState>>({});
+  // Explicit quote-failure state: null while loading, set on failure.
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  // Symbol awaiting its first live quote so its target price can be derived
+  // from the live price on arrival (never from a preset). Cleared once the
+  // target is set, so later refreshes never override a user-set target.
+  const pendingTargetSymbolRef = useRef<string | null>(initialSymbol.toUpperCase());
 
   // Expirations schedule
   const expirations = useMemo(() => generateExpirations(), []);
@@ -275,11 +272,10 @@ export function StrategyDiscoveryPanel({
   // Sentiment selector
   const [sentiment, setSentiment] = useState<SentimentType>("bullish");
 
-  // Target price state
-  const [targetPrice, setTargetPrice] = useState<number>(() => {
-    const p = quote.price;
-    return Number((p * 1.43).toFixed(2));
-  });
+  // Target price state — 0 (unset) until a live quote arrives, at which
+  // point fetchQuoteData derives it from the live price for the pending
+  // symbol (issue #924: never from a hardcoded price).
+  const [targetPrice, setTargetPrice] = useState<number>(0);
 
   // Budget state (null = None)
   const [budget, setBudget] = useState<number | null>(null);
@@ -401,7 +397,7 @@ export function StrategyDiscoveryPanel({
       }, 120);
       return () => clearTimeout(timer);
     }
-  }, [activeView, activeSymbol, quote.price]);
+  }, [activeView, activeSymbol, quote?.price]);
 
   // Auto-center active expiration when expiration selection changes
   useEffect(() => {
@@ -513,10 +509,19 @@ export function StrategyDiscoveryPanel({
             delayed: true,
           };
           setQuote(freshQuote);
+          setQuoteError(null);
           setQuotesCache((prev) => ({
             ...prev,
             [sym.toUpperCase()]: freshQuote,
           }));
+          // First live quote for a newly selected symbol: derive the
+          // target price from it (issue #924: never from a preset).
+          if (pendingTargetSymbolRef.current === sym.toUpperCase()) {
+            pendingTargetSymbolRef.current = null;
+            setTargetPrice(
+              getTargetPriceForSentiment(sentiment, freshPrice, builderIv, selectedExpiration.dte)
+            );
+          }
           if (builderLegs.length > 0) {
             const updated = builderLegs.map((l) =>
               updateLegStrike(l, l.strike, freshPrice, selectedExpiration.dte, builderIv / 100, engineConfig.riskFreeRate)
@@ -533,14 +538,22 @@ export function StrategyDiscoveryPanel({
         }
       }
     } catch {
-      // Fallback to defaults
+      // No live quote: fall through to the explicit unavailable path below.
     } finally {
       setIsQuoteRefreshing(false);
     }
 
-    const fallbackQuote = quotesCache[sym.toUpperCase()] || DEFAULT_QUOTES[sym.toUpperCase()];
-    if (fallbackQuote) {
-      setQuote(fallbackQuote);
+    // Issue #924: on failure, NEVER substitute a static or invented price.
+    // A previously live-fetched quote for this symbol may stay visible
+    // (it is real market data, labelled delayed), flagged as stale; with
+    // no live quote at all, the state is explicitly unavailable.
+    const cachedQuote = quotesCache[sym.toUpperCase()];
+    if (cachedQuote) {
+      setQuote(cachedQuote);
+      setQuoteError(`Live refresh failed for ${sym} — showing the last live quote.`);
+    } else {
+      setQuote(null);
+      setQuoteError(`Quote unavailable for ${sym} — live quote could not be loaded.`);
     }
   };
 
@@ -615,14 +628,19 @@ export function StrategyDiscoveryPanel({
     }
     setSentiment(nextSentiment);
     setCustomStrategyName(null);
-    const target = getTargetPriceForSentiment(nextSentiment, quote.price, builderIv, selectedExpiration.dte);
-    setTargetPrice(target);
+    // No live quote → no target derivation (issue #924: never from a fake).
+    if (quote) {
+      const target = getTargetPriceForSentiment(nextSentiment, quote.price, builderIv, selectedExpiration.dte);
+      setTargetPrice(target);
+    }
   };
 
   const handleSelectExpiration = (exp: ExpirationOption) => {
     setSelectedExpiration(exp);
-    const target = getTargetPriceForSentiment(sentiment, quote.price, builderIv, exp.dte);
-    setTargetPrice(target);
+    if (quote) {
+      const target = getTargetPriceForSentiment(sentiment, quote.price, builderIv, exp.dte);
+      setTargetPrice(target);
+    }
   };
 
   const handleSelectSymbol = (sym: string) => {
@@ -633,17 +651,22 @@ export function StrategyDiscoveryPanel({
     if (clean !== activeSymbol) {
       setActiveSymbol(clean);
       setSymbolInput(clean);
-      const fallback = quotesCache[clean] || DEFAULT_QUOTES[clean] || {
-        symbol: clean,
-        price: clean.startsWith("/") ? 5000.0 : 150.0,
-        change: 0.5,
-        changePercent: 0.33,
-        companyName: clean,
-        delayed: true,
-      };
-      setQuote(fallback);
-      const target = getTargetPriceForSentiment(sentiment, fallback.price, builderIv, selectedExpiration.dte);
-      setTargetPrice(target);
+      // Issue #924: never invent a price for a new symbol. A previously
+      // live-fetched quote may show immediately; otherwise the quote is
+      // empty until the live fetch for this symbol resolves, and its
+      // target is derived from that live price on arrival.
+      const cached = quotesCache[clean];
+      if (cached) {
+        setQuote(cached);
+        setQuoteError(null);
+        pendingTargetSymbolRef.current = null;
+        const target = getTargetPriceForSentiment(sentiment, cached.price, builderIv, selectedExpiration.dte);
+        setTargetPrice(target);
+      } else {
+        setQuote(null);
+        setQuoteError(null);
+        pendingTargetSymbolRef.current = clean;
+      }
     }
   };
 
@@ -669,7 +692,10 @@ export function StrategyDiscoveryPanel({
   // verbatim — never a re-derived approximation of it.
   const currentDiscoveryInputs = (): ServerDiscoveryInputs => ({
     symbol: activeSymbol,
-    currentPrice: quote.price,
+    // No live quote → 0 placeholder; callers that act on these inputs
+    // (auto-discovery effect, schedule capture) refuse to run without a
+    // quote, so 0 is never presented or sent as a price.
+    currentPrice: quote?.price ?? 0,
     sentiment,
     targetPrice,
     budget: budget ?? 100000,
@@ -698,6 +724,12 @@ export function StrategyDiscoveryPanel({
   const [captureError, setCaptureError] = useState("");
 
   const openScheduleCapture = () => {
+    // Issue #924: never snapshot a discovery view with no live quote —
+    // its currentPrice would be the 0 placeholder, not a market price.
+    if (!quote) {
+      showToast("Quote unavailable — load a live quote before scheduling this discovery.");
+      return;
+    }
     setCapturedRequest(buildStrategyRequest(currentDiscoveryInputs()));
     setCaptureError("");
     setScheduleCaptureOpen(true);
@@ -754,6 +786,17 @@ export function StrategyDiscoveryPanel({
 
   useEffect(() => {
     let cancelled = false;
+    // Issue #924: no live quote → no discovery run. Running with a
+    // placeholder price would rank strategies against a fake spot.
+    if (!quote) {
+      setIsDiscovering(false);
+      setDiscoveredStrategies([]);
+      setDiscoveryDataSource("unavailable");
+      setDiscoveryError("Quote unavailable — live quote could not be loaded.");
+      return () => {
+        cancelled = true;
+      };
+    }
     setIsDiscovering(true);
     setDiscoveryError("");
     fetchServerDiscovery(currentDiscoveryInputs())
@@ -778,7 +821,7 @@ export function StrategyDiscoveryPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeSymbol, quote.price, sentiment, targetPrice, budget, minRewardRiskRatio, selectedExpiration, optimizationBias, builderIv, engineConfig, dataTab]);
+  }, [activeSymbol, quote?.price, sentiment, targetPrice, budget, minRewardRiskRatio, selectedExpiration, optimizationBias, builderIv, engineConfig, dataTab]);
 
   // When discovering strategies, synchronize selectedStrategy and builderLegs with the top match
   useEffect(() => {
@@ -811,6 +854,11 @@ export function StrategyDiscoveryPanel({
 
   // Capability 1: Choose a strategy from 50+ Library
   const handleSelectPreMadeStrategy = (stratDef: StrategyDefinition) => {
+    // Issue #924: legs are built from spot — no live quote, no strategy.
+    if (!quote) {
+      showToast("Quote unavailable — load a live quote before choosing a strategy.");
+      return;
+    }
     if (builderLegs.length > 0) {
       setPreviousStrategyLegs([...builderLegs]);
     }
@@ -845,9 +893,9 @@ export function StrategyDiscoveryPanel({
 
   // Target price percentage change from spot
   const targetPctChange = useMemo(() => {
-    if (!quote.price) return 0;
+    if (!quote?.price) return 0;
     return Number((((targetPrice - quote.price) / quote.price) * 100).toFixed(0));
-  }, [targetPrice, quote.price]);
+  }, [targetPrice, quote?.price]);
 
   // Optimization Factor breakdown
   const optFactors = useMemo(() => {
@@ -857,7 +905,10 @@ export function StrategyDiscoveryPanel({
   // =========================================================================
   // BUILDER VIEW CALCULATIONS & MATHEMATICAL ENGINE
   // =========================================================================
-  const spot = quote.price;
+  // No live quote → 0 spot; builder math that needs spot is gated on a
+  // live quote at its entry points (strategy select, discovery, trade
+  // preview), so 0 is never presented as a price.
+  const spot = quote?.price ?? 0;
   const currentStrategyName = customStrategyName || selectedStrategy?.name || "Options Strategy";
   const canTradeBuilderCandidate = Boolean(
     dataTab === "live" &&
@@ -1411,7 +1462,7 @@ export function StrategyDiscoveryPanel({
 
   // Fast order ticket context creator
   const sendToFastOrder = () => {
-    if (!onPreviewTrade || !selectedStrategy || !canTradeBuilderCandidate) return;
+    if (!onPreviewTrade || !selectedStrategy || !canTradeBuilderCandidate || !quote) return;
     const activeLegs = builderLegs.filter((leg) => !leg.isExcluded && !leg.isClosed);
     const ctx: TradeOrderContext = {
       assetClass: activeLegs.some((leg) => leg.optionType !== "STOCK") ? "options" : "equity",
@@ -1463,12 +1514,14 @@ export function StrategyDiscoveryPanel({
     []
   );
 
-  // Autocomplete suggestions for stock search with synchronized live quotes
+  // Autocomplete suggestions for stock search with synchronized live quotes.
+  // Issue #924: entries carry a price ONLY from a live quote (current or
+  // previously fetched); otherwise they carry no price at all.
   const filteredTickers = useMemo(() => {
     const q = symbolInput ? symbolInput.trim().toUpperCase() : "";
     const baseList = q
-      ? POPULAR_TICKERS.filter((t) => t.symbol.includes(q) || t.companyName.toUpperCase().includes(q))
-      : POPULAR_TICKERS.slice(0, 8);
+      ? POPULAR_SYMBOLS.filter((t) => t.symbol.includes(q) || t.companyName.toUpperCase().includes(q))
+      : POPULAR_SYMBOLS.slice(0, 8);
 
     return baseList.map((t) => {
       const sym = t.symbol.toUpperCase();
@@ -1488,7 +1541,9 @@ export function StrategyDiscoveryPanel({
           changePercent: quotesCache[sym].changePercent,
         };
       }
-      return t;
+      // No live quote for this symbol: no price fields at all, so the
+      // dropdown renders "Quote unavailable" instead of a number.
+      return { ...t, price: undefined, change: undefined, changePercent: undefined };
     });
   }, [symbolInput, activeSymbol, quote, quotesCache]);
 
@@ -1637,10 +1692,16 @@ export function StrategyDiscoveryPanel({
                                 <span className="strat-dropdown-name">{t.companyName}</span>
                               </div>
                               <div className="strat-dropdown-price-col">
-                                <span className="strat-dropdown-price">${t.price.toFixed(2)}</span>
-                                <span className={`strat-dropdown-pill ${t.change >= 0 ? "gain" : "loss"}`}>
-                                  {t.change >= 0 ? "+" : ""}{t.changePercent.toFixed(2)}%
-                                </span>
+                                {typeof t.price === "number" ? (
+                                  <>
+                                    <span className="strat-dropdown-price">${t.price.toFixed(2)}</span>
+                                    <span className={`strat-dropdown-pill ${(t.change ?? 0) >= 0 ? "gain" : "loss"}`}>
+                                      {(t.change ?? 0) >= 0 ? "+" : ""}{(t.changePercent ?? 0).toFixed(2)}%
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="strat-dropdown-price">Quote unavailable</span>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -1651,12 +1712,20 @@ export function StrategyDiscoveryPanel({
                 </div>
 
                 <div className="strat-price-badge">
-                  <span className="strat-price-num">${quote.price.toFixed(2)}</span>
-                  <span className={`strat-change-pill ${quote.change >= 0 ? "gain" : "loss"}`}>
-                    {quote.change >= 0 ? "+" : ""}
-                    {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+$" : "-$"}{Math.abs(quote.change).toFixed(2)})
-                  </span>
-                  <span className="strat-delayed-tag">↻ Delayed</span>
+                  {quote ? (
+                    <>
+                      <span className="strat-price-num">${quote.price.toFixed(2)}</span>
+                      <span className={`strat-change-pill ${quote.change >= 0 ? "gain" : "loss"}`}>
+                        {quote.change >= 0 ? "+" : ""}
+                        {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+$" : "-$"}{Math.abs(quote.change).toFixed(2)})
+                      </span>
+                      <span className="strat-delayed-tag">↻ Delayed</span>
+                    </>
+                  ) : (
+                    <span className="strat-price-unavailable">
+                      {isQuoteRefreshing ? "Loading quote…" : quoteError || "Quote unavailable"}
+                    </span>
+                  )}
                   <button
                     type="button"
                     className="strat-mini-refresh-btn"
@@ -1745,10 +1814,16 @@ export function StrategyDiscoveryPanel({
                 <span className="strat-pill-icon">📐</span>
                 <label>Implied Move:</label>
                 <span className="strat-implied-val">
-                  ±${computeImpliedMove(quote.price, builderIv, selectedExpiration.dte).toFixed(2)}
-                  <span className="strat-implied-pct">
-                    (±{(((computeImpliedMove(quote.price, builderIv, selectedExpiration.dte) / (quote.price || 1)) * 100).toFixed(1))}%)
-                  </span>
+                  {quote ? (
+                    <>
+                      ±${computeImpliedMove(quote.price, builderIv, selectedExpiration.dte).toFixed(2)}
+                      <span className="strat-implied-pct">
+                        (±{(((computeImpliedMove(quote.price, builderIv, selectedExpiration.dte) / (quote.price || 1)) * 100).toFixed(1))}%)
+                      </span>
+                    </>
+                  ) : (
+                    "Quote unavailable"
+                  )}
                 </span>
               </div>
 
@@ -2034,7 +2109,10 @@ export function StrategyDiscoveryPanel({
                             symbol: activeSymbol,
                             action: sentiment.includes("bearish") ? "SELL_SHORT" : "BUY",
                             quantity: 1,
-                            underlyingPrice: quote.price,
+                            // Reachable only after a live-quote discovery run
+                            // (button renders on discoveryDataSource live);
+                            // 0 is a type-level fallback, never a shown price.
+                            underlyingPrice: quote?.price ?? 0,
                             label: `${strat.name} (${selectedExpiration.date})`,
                             legs: strat.legs.map(
                               (leg) =>
@@ -2420,13 +2498,21 @@ export function StrategyDiscoveryPanel({
                 🔍 Search
               </button>
             </div>
-            <span className="strat-quote-name">{quote.companyName}</span>
-            <span className="strat-quote-price">${quote.price.toFixed(2)}</span>
-            <span className={`strat-quote-change ${quote.change >= 0 ? "gain" : "loss"}`}>
-              {quote.change >= 0 ? "+" : ""}
-              {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+$" : "-$"}{Math.abs(quote.change).toFixed(2)})
-            </span>
-            <span className="strat-delayed-tag">↻ Realtime/Delayed</span>
+            <span className="strat-quote-name">{quote ? quote.companyName : activeSymbol}</span>
+            {quote ? (
+              <>
+                <span className="strat-quote-price">${quote.price.toFixed(2)}</span>
+                <span className={`strat-quote-change ${quote.change >= 0 ? "gain" : "loss"}`}>
+                  {quote.change >= 0 ? "+" : ""}
+                  {quote.changePercent.toFixed(2)}% ({quote.change >= 0 ? "+$" : "-$"}{Math.abs(quote.change).toFixed(2)})
+                </span>
+                <span className="strat-delayed-tag">↻ Realtime/Delayed</span>
+              </>
+            ) : (
+              <span className="strat-quote-unavailable">
+                {isQuoteRefreshing ? "Loading quote…" : quoteError || "Quote unavailable"}
+              </span>
+            )}
             <button
               type="button"
               className="strat-mini-refresh-btn"
@@ -2466,10 +2552,16 @@ export function StrategyDiscoveryPanel({
                           <span className="strat-dropdown-name">{t.companyName}</span>
                         </div>
                         <div className="strat-dropdown-price-col">
-                          <span className="strat-dropdown-price">${t.price.toFixed(2)}</span>
-                          <span className={`strat-dropdown-pill ${t.change >= 0 ? "gain" : "loss"}`}>
-                            {t.change >= 0 ? "+" : ""}{t.changePercent.toFixed(2)}%
-                          </span>
+                          {typeof t.price === "number" ? (
+                            <>
+                              <span className="strat-dropdown-price">${t.price.toFixed(2)}</span>
+                              <span className={`strat-dropdown-pill ${(t.change ?? 0) >= 0 ? "gain" : "loss"}`}>
+                                {(t.change ?? 0) >= 0 ? "+" : ""}{(t.changePercent ?? 0).toFixed(2)}%
+                              </span>
+                            </>
+                          ) : (
+                            <span className="strat-dropdown-price">Quote unavailable</span>
+                          )}
                         </div>
                       </div>
                     ))}
