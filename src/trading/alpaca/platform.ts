@@ -15,7 +15,11 @@ export class AlpacaTradingPlatform implements ITradingPlatform {
   readonly name = "Alpaca Securities Brokerage (API v2)";
   private alpacaData: AlpacaMarketDataProvider;
 
-  constructor(private env: Env, private orm?: DatabaseORM, private userLogin: string = "default_trader") {
+  constructor(private env: Env, private orm: DatabaseORM | undefined, private userLogin: string) {
+    // Issue #1185: per-user platform — an explicit login is required.
+    if (!userLogin) {
+      throw new Error("AlpacaTradingPlatform requires an explicit userLogin (issue #1185: no default identity).");
+    }
     this.alpacaData = new AlpacaMarketDataProvider(env);
   }
 
