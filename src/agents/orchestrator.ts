@@ -67,6 +67,7 @@ import { handleSchemaRoutes } from "./routes/schema";
 import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./routes/adsRevenueReferrals";
 import { handleAuditRoutes } from "./routes/audit";
 import { handleDataProviderRoutes } from "./routes/dataProviders";
+import { handleKnowledgeCorpusRoutes } from "./routes/knowledgeCorpus";
 import { handleAutopilotRoutes } from "./routes/autopilot";
 import { handleMemoryResetRoutes } from "./routes/memoryReset";
 import { handlePaymentsRoutes } from "./routes/payments";
@@ -1805,6 +1806,21 @@ export class OrchestratorAgent extends Think<Env> {
       recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
     });
     if (dataProvidersResponse) return dataProvidersResponse;
+
+    // Issue #1169 (S1): knowledge-corpus admin upload routes (POST
+    // /knowledge/corpus) are handled by
+    // src/agents/routes/knowledgeCorpus.ts. Invoked at this exact
+    // position in the sequential matching sequence (after the
+    // data-provider handler, before autopilot); a non-null return
+    // matched. The verified login (set by src/server.ts from the
+    // session) gates ingestion; the corpus itself is not partitioned
+    // by login (see knowledgeCorpus.ts header).
+    const knowledgeCorpusResponse = await handleKnowledgeCorpusRoutes(request, url, path, sessionId, {
+      env: this.env,
+      storage: this.ctx.storage,
+      userLogin: request.headers.get("x-user-login") || "",
+    });
+    if (knowledgeCorpusResponse) return knowledgeCorpusResponse;
 
     // Issue #359-05: autopilot control center routes (GET /autopilot,
     // POST /autopilot/state, POST /autopilot/kill-switch,
