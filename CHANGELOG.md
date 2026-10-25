@@ -19,6 +19,8 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **D1 AgentDB binding (#1546):** `wrangler.jsonc` now binds the owner-created D1 database `agentdb` as `AGENT_DB` — the shared cross-agent query surface. No tables, migrations, or code changes in this step; DO storage stays authoritative for execution state. #CAIO-quns
+
 - **Screen execution audit history (#1542):** the schedule audit view now includes stock screen runs, displays run ID, screen type, and manual/scheduled trigger, and renders explicit unavailable markers for missing symbols, setup counts, or delivery-channel data. Stock and options run audit events now include these metadata fields. #CTO-mbshr
 
 ### Fixed
