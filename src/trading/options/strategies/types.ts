@@ -22,7 +22,11 @@ export interface ChainView {
 }
 
 export interface StrategyContext {
-  request: StrategyRequest;
+  /** Generators read only the request's DTE ceiling (template expiry
+   *  windows). Both request shapes satisfy this — StrategyRequest and
+   *  the view-less NoViewStrategyRequest (issue #534) — so the engine
+   *  never fabricates a viewed request to satisfy generation. */
+  request: Pick<StrategyRequest, "maxDte">;
   symbol: string;
   underlying: number;
   chains: ChainView[];
@@ -85,5 +89,8 @@ export interface EvaluationObserver {
   onSkipped(def: StrategyDefinition, reason: string): void;
   onGenerated(def: StrategyDefinition, count: number, truncated: number, skipReason?: string): void;
   onRejected(def: StrategyDefinition, reason: string): void;
-  onAccepted(def: StrategyDefinition, candidate: StrategyCandidate): void;
+  /** Observers need only the accepted candidate's score (the ledger's
+   *  best-score tally) — narrowed so no-view candidates (issue #534),
+   *  which have no target fields, report through the same observer. */
+  onAccepted(def: StrategyDefinition, candidate: Pick<StrategyCandidate, "score">): void;
 }

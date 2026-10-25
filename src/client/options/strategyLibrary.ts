@@ -1648,3 +1648,23 @@ export const STRATEGY_LIBRARY: StrategyDefinition[] = [
     },
   },
 ];
+
+/**
+ * Issue #1334: Scanner backstop for server catalog entries. The live
+ * /api/trading/options/catalog shape once carried `name` without
+ * `label`, and both the Scanner browser list and StrategyLibraryModal
+ * render `label` — so names came out blank. The server now emits both,
+ * but the Scanner never trusts a label-less entry again: resolve each
+ * entry's label from its own label, else the client library's name for
+ * that id, else the entry's server name, else the id itself (never
+ * blank). Other fields pass through untouched.
+ */
+export function resolveCatalogStrategyLabels<T extends { id: string; name?: string; label?: string }>(
+  entries: T[]
+): (T & { label: string })[] {
+  const byId = new Map(STRATEGY_LIBRARY.map((d) => [d.id, d.name]));
+  return entries.map((e) => ({
+    ...e,
+    label: e.label ?? byId.get(e.id) ?? e.name ?? e.id,
+  }));
+}

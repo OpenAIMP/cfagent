@@ -1,0 +1,53 @@
+# CodeQL — static application security testing (SAST) for this repo.
+#
+# Issue #765 (RSI-InfoSec plan #764, P1 DevSecOps): until now the repo had
+# secret scanning (gitleaks + GitHub secret scanning) but no SAST — injection,
+# unsafe-data-flow, and similar classes were found by human review or not at
+# all. This workflow runs CodeQL's javascript-typescript analysis on every
+# pull request, on pushes to main, and weekly, and publishes results to the
+# repo's code-scanning tab, where the #766 bridge (security findings →
+# self-heal queue) will pick them up.
+#
+# The workflow name matters: anything wired to workflow_run elsewhere must
+# match this `name:` exactly.
+name: CodeQL
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+  schedule:
+    # Weekly, Mondays 06:17 UTC — off the hour to avoid the fleet-wide rush.
+    - cron: "17 6 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v4
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:javascript-typescript"

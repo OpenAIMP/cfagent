@@ -1,4 +1,4 @@
-import type { StrategyCandidate, StrategyRequest } from "../strategyEngine";
+import type { NoViewStrategyCandidate, NoViewStrategyRequest, StrategyCandidate, StrategyRequest } from "../strategyEngine";
 import type { RankedStrategy } from "../recommendationAgent";
 import type { ScanMatrixCellBest } from "../opportunityScanner";
 import type { AcceptanceRule, EvaluationObserver, EvaluationStatus, StrategyDefinition, StrategyEvaluation } from "./types";
@@ -20,6 +20,53 @@ export const DEFAULT_ACCEPTANCE_RULES: AcceptanceRule[] = [
 ];
 
 export function runAcceptanceRules(candidate: StrategyCandidate, request: StrategyRequest, rules: AcceptanceRule[] = DEFAULT_ACCEPTANCE_RULES): string | null {
+  for (const rule of rules) {
+    const reason = rule.evaluate(candidate, request);
+    if (reason) return reason;
+  }
+  return null;
+}
+
+/** Chain-of-responsibility link for the no-view mode (issue #534). */
+export interface NoViewAcceptanceRule {
+  id: string;
+  evaluate(candidate: NoViewStrategyCandidate, request: NoViewStrategyRequest): string | null;
+}
+
+/**
+ * The no-view acceptance rules (issue #534): two of the viewed rules are
+ * defined by a target and cannot run when no target exists, so they are
+ * REPLACED openly — never approximated with a fabricated target:
+ * profitable-at-target becomes a structure-payoff test, min-reward-risk
+ * is measured on structure-defined quantities, and a POP floor keeps a
+ * top rank from being best-of-garbage. Max planned loss is a pure
+ * constraint and carries over unchanged.
+ */
+export const NO_VIEW_ACCEPTANCE_RULES: NoViewAcceptanceRule[] = [
+  {
+    id: "max-planned-loss",
+    evaluate: (candidate, request) => candidate.maxLoss > request.maxPlannedLoss ? `${candidate.label} exceeds the max planned loss` : null,
+  },
+  {
+    id: "positive-structure-payoff",
+    evaluate: (candidate) => !candidate.maxProfitUnbounded && (candidate.maxProfit ?? 0) <= 0 ? `${candidate.label} has no positive modeled payoff after fees` : null,
+  },
+  {
+    id: "min-structure-reward-risk",
+    evaluate: (candidate, request) => candidate.structureRewardRisk !== null && candidate.structureRewardRisk < request.minRewardRisk ? `${candidate.label} is below the minimum structure reward/risk` : null,
+  },
+  {
+    id: "min-pop",
+    // The 0.35 backstop mirrors NO_VIEW_DEFAULT_MIN_PROBABILITY_OF_PROFIT
+    // in strategyEngine.ts — a literal here, because the engine imports
+    // this module (a value import back would close a runtime cycle).
+    // The engine resolves the default before rules run, so the backstop
+    // only fires for direct rule calls.
+    evaluate: (candidate, request) => candidate.modelImpliedProbabilityOfProfit < (request.minProbabilityOfProfit ?? 0.35) ? `${candidate.label} is below the minimum probability of profit` : null,
+  },
+];
+
+export function runNoViewAcceptanceRules(candidate: NoViewStrategyCandidate, request: NoViewStrategyRequest, rules: NoViewAcceptanceRule[] = NO_VIEW_ACCEPTANCE_RULES): string | null {
   for (const rule of rules) {
     const reason = rule.evaluate(candidate, request);
     if (reason) return reason;
@@ -62,7 +109,7 @@ export class EvaluationLedger implements EvaluationObserver {
     tally.reasons.set(reason, (tally.reasons.get(reason) || 0) + 1);
   }
 
-  onAccepted(def: StrategyDefinition, candidate: StrategyCandidate): void {
+  onAccepted(def: StrategyDefinition, candidate: Pick<StrategyCandidate, "score">): void {
     const tally = this.tallies.get(def.id)!;
     tally.accepted++;
     tally.bestScore = Math.max(tally.bestScore, candidate.score);

@@ -69,7 +69,7 @@ export function MemoryBrowser({ embedded = false }: MemoryBrowserProps = {}) {
         </button>
       </div>
 
-      {error && <div style={{ color: "crimson", marginBottom: 12 }}>{error}</div>}
+      {error && <div style={{ color: "var(--color-danger)", marginBottom: 12 }}>{error}</div>}
 
       {searched && !loading && !error && chunks.length === 0 && (
         <div style={{ opacity: 0.7 }}>
@@ -84,7 +84,7 @@ export function MemoryBrowser({ embedded = false }: MemoryBrowserProps = {}) {
             <div
               key={`${c.operation}-${i}`}
               style={{
-                border: "1px solid #ddd",
+                border: "1px solid var(--color-border-medium)",
                 borderRadius: 8,
                 padding: "10px 12px",
               }}
@@ -93,7 +93,7 @@ export function MemoryBrowser({ embedded = false }: MemoryBrowserProps = {}) {
                 <span
                   style={{
                     fontWeight: 700,
-                    color: c.success ? "#1a7f37" : "#b42318",
+                    color: c.success ? "var(--color-success)" : "var(--color-danger)",
                   }}
                 >
                   {c.success ? "OK" : "FAIL"}

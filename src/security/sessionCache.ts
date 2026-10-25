@@ -5,16 +5,18 @@ import { getSession } from "./session";
  * In-isolate cache in front of `getSession` (issue #329).
  *
  * Why this exists: `requireAuth` runs on every `/api/*` request and each call
- * performed one Workers KV read. KV reads are charged against the free tier
- * (100,000/day), and `requireAuth` is the first KV call in the request path,
+ * performed one backing-store read — in the KV era a Workers KV read, charged
+ * against the free tier (100,000/day) — and `requireAuth` is the first store
+ * call in the request path,
  * so UI polling alone could exhaust the day's budget — at which point every
  * authenticated route returns 401 rather than merely losing writes.
  *
- * This absorbs the polling traffic without changing the auth model: KV stays
- * the source of truth, and the staleness bound is the TTL below. That bound
- * sits inside a window the platform already gives us — KV propagates writes
- * to other colos in up to ~60s, so a 30s cache adds no meaningfully new gap
- * between what two regions already see.
+ * This absorbs the polling traffic without changing the auth model: the
+ * SessionStore DO stays the source of truth (#604), and the staleness bound
+ * is the TTL below. #411 raised the positive TTL to 60s and the cap to 2000
+ * entries to cut backing-store reads further; explicit invalidation remains
+ * the immediate path for revocations, so the longer TTL only governs how
+ * long an un-invalidated stale copy can linger.
  *
  * Properties that matter for review:
  * - Per-isolate and best-effort. A cold or recycled isolate simply misses, so
@@ -26,9 +28,9 @@ import { getSession } from "./session";
  *   Other isolates keep their stale copy until TTL — which is why the TTL is
  *   short and why sensitive routes are not meant to rely on it.
  */
-const POSITIVE_TTL_MS = 30_000;
+const POSITIVE_TTL_MS = 60_000;
 const NEGATIVE_TTL_MS = 10_000;
-const MAX_ENTRIES = 500;
+const MAX_ENTRIES = 2000;
 
 interface CacheEntry {
   data: SessionData | null;

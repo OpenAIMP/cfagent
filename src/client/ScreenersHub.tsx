@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePolling } from "./usePolling";
+import { Skeleton, EmptyState } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import {
   getScreeningProviders,
@@ -10,12 +11,102 @@ import {
 import type { ScreenedStockItem } from "../types";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "./components/CapabilityNavBar";
 import { ScreenerResultsView } from "./ScreenerResultsView";
+import { ScannerPanel } from "./ScannerPanel";
+import { GoalScreenPanel } from "./GoalScreenPanel";
+import { ErrorBoundary } from "./ErrorBoundary";
+import { IvHistoryPanel } from "./IvHistoryPanel";
+import { ReportsPanel } from "./ReportsPanel";
+import { SchedulesPanel } from "./SchedulesPanel";
+import { ScreeningReviewPanel } from "./ScreeningReviewPanel";
+import { ScreeningOutcomesPanel } from "./ScreeningOutcomesPanel";
+import { OptionsResearchHost } from "./options/OptionsResearchHost";
+import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import "./optionsResearch.css";
+
+/** S8 (consolidation, umbrella #958): the hub's tabs — the screening
+ *  asset classes plus the folded Strategy/Symbol Scanner and IV
+ *  History surfaces (formerly Trading Hub subtabs).
+ *  C1 (consolidation #1151, issue #1201): the Goal Screen tab — the
+ *  #1096 unified stack's surface (goal-driven screens + backtest).
+ *  C2 (consolidation #1151, issue #1246): Reports and Schedules move
+ *  INTO the hub as tabs (they were standalone nav entries), and the
+ *  hub gains the proposal Review inbox and the recommendation Track
+ *  Record — the #1096 surfaces users could not reach before. */
+export type ScreenersHubTab =
+  | ScreeningAssetClass
+  | "scanner"
+  | "iv-history"
+  | "goal-screen"
+  | "reports"
+  | "schedules"
+  | "review"
+  | "track-record";
+
+export const SCREENER_HUB_TABS: readonly ScreenersHubTab[] = [
+  "stocks",
+  "options",
+  "forex",
+  "futures",
+  "commodities",
+  "bonds",
+  "scanner",
+  "iv-history",
+  "goal-screen",
+  "reports",
+  "schedules",
+  "review",
+  "track-record",
+] as const;
+
+export function isValidScreenerTab(tab: unknown): tab is ScreenersHubTab {
+  return typeof tab === "string" && (SCREENER_HUB_TABS as readonly string[]).includes(tab);
+}
+
+export function parseScreenerTabFromUrl(urlStr?: string): ScreenersHubTab | null {
+  try {
+    const targetUrl = urlStr
+      ? new URL(urlStr, "http://localhost")
+      : typeof window !== "undefined"
+      ? new URL(window.location.href)
+      : null;
+    if (!targetUrl) return null;
+
+    const param = targetUrl.searchParams.get("screenerTab") || targetUrl.searchParams.get("tab");
+    if (param && isValidScreenerTab(param)) {
+      return param;
+    }
+
+    const hash = targetUrl.hash.replace(/^#/, "");
+    if (hash) {
+      if (isValidScreenerTab(hash)) {
+        return hash;
+      }
+      const hashParams = new URLSearchParams(hash);
+      const hashTab = hashParams.get("screenerTab") || hashParams.get("tab");
+      if (hashTab && isValidScreenerTab(hashTab)) {
+        return hashTab;
+      }
+    }
+  } catch {
+    // Malformed URL, ignore
+  }
+  return null;
+}
 
 interface ScreenersHubProps {
   activeEnv: "TEST" | "PROD";
   userLogin?: string;
   onStocksLoaded?: (rows: ScreenedStockItem[]) => void;
+  /** S8: the trade-preview handoff threaded into the folded panels —
+   *  the Trading Hub passes its order-ticket handler, exactly as it
+   *  did when the panels were its own subtabs. */
+  onPreviewTrade?: (ctx: TradeOrderContext) => void;
+  onSendPrompt?: (prompt: string, sourceTab?: string) => void;
+  onJobStateChange?: (state: "idle" | "running" | "ready") => void;
+  /** S8: the tab to open on — the Trading Hub's screening redirects
+   *  deep-link into the hub with the folded surface's tab. */
+  initialTab?: ScreenersHubTab;
+  onTabChange?: (tab: ScreenersHubTab) => void;
 }
 
 type ScreenRow = Record<string, unknown>;
@@ -106,8 +197,87 @@ function displayValue(value: unknown): string {
   return String(value);
 }
 
-export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: ScreenersHubProps) {
-  const [assetClass, setAssetClass] = useState<ScreeningAssetClass>("stocks");
+export function ScreenersHub({
+  activeEnv,
+  userLogin,
+  onStocksLoaded,
+  onPreviewTrade,
+  onSendPrompt,
+  onJobStateChange,
+  initialTab,
+  onTabChange,
+}: ScreenersHubProps) {
+  // Reference tabbed browsing: URL priority (query > hash > prop > fallback)
+  const initialResolvedTab = useMemo<ScreenersHubTab>(() => {
+    const fromUrl = parseScreenerTabFromUrl();
+    if (fromUrl) return fromUrl;
+    if (initialTab && isValidScreenerTab(initialTab)) return initialTab;
+    return "stocks";
+  }, [initialTab]);
+
+  const [hubTab, setHubTab] = useState<ScreenersHubTab>(initialResolvedTab);
+  const [visitedTabs, setVisitedTabs] = useState<Set<ScreenersHubTab>>(
+    () => new Set([initialResolvedTab]),
+  );
+
+  useEffect(() => {
+    if (initialTab && isValidScreenerTab(initialTab) && initialTab !== hubTab) {
+      setHubTab(initialTab);
+      setVisitedTabs((prev) => new Set(prev).add(initialTab));
+    }
+  }, [initialTab]);
+
+  const handleTabChange = useCallback(
+    (newTabId: string) => {
+      if (!isValidScreenerTab(newTabId)) return;
+      setHubTab(newTabId);
+      setVisitedTabs((prev) => new Set(prev).add(newTabId));
+      onTabChange?.(newTabId);
+
+      if (typeof window !== "undefined" && window.history) {
+        try {
+          const url = new URL(window.location.href);
+          if (url.searchParams.get("screenerTab") !== newTabId) {
+            url.searchParams.set("screenerTab", newTabId);
+            window.history.pushState({ screenerTab: newTabId }, "", url.toString());
+          }
+        } catch {
+          // Safe fallback for environments with restricted history
+        }
+      }
+    },
+    [onTabChange],
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handlePopState = () => {
+      const tabFromUrl = parseScreenerTabFromUrl();
+      if (tabFromUrl && tabFromUrl !== hubTab) {
+        setHubTab(tabFromUrl);
+        setVisitedTabs((prev) => new Set(prev).add(tabFromUrl));
+        onTabChange?.(tabFromUrl);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [hubTab, onTabChange]);
+
+  // The provider-adapter machinery below serves the asset classes;
+  // the folded scanner / iv-history tabs have no adapter, so they
+  // borrow "stocks" for the (unused) provider lookups.
+  const assetClass: ScreeningAssetClass =
+    hubTab === "scanner" ||
+    hubTab === "iv-history" ||
+    hubTab === "goal-screen" ||
+    hubTab === "reports" ||
+    hubTab === "schedules" ||
+    hubTab === "review" ||
+    hubTab === "track-record"
+      ? "stocks"
+      : hubTab;
   const providers = useMemo(() => getScreeningProviders(assetClass), [assetClass]);
   const [providerId, setProviderId] = useState("etrade");
   const [symbolSearch, setSymbolSearch] = useState("");
@@ -119,6 +289,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
   const [rows, setRows] = useState<ScreenRow[]>([]);
   // Issue #261: manual run result for the unified ScreenerResultsView.
   const [universe, setUniverse] = useState("TECH");
+  const [sector, setSector] = useState("ALL");
+  const [minScore, setMinScore] = useState("");
   const [shardedResults, setShardedResults] = useState<any[]>([]);
   const [manualResult, setManualResult] = useState<{
     timestamp: string;
@@ -148,6 +320,12 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       source: string;
     }>;
     discoveryMessage?: string;
+    pdfStatus?: "generated" | "failed" | "skipped";
+    pdfError?: string;
+    xlsxKey?: string;
+    xlsxStatus?: "generated" | "failed" | "skipped";
+    xlsxError?: string;
+    xlsxUrl?: string;
   } | null>(null);
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(false);
@@ -208,6 +386,8 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
     try {
       const filters = {
         universe,
+        ...(sector && sector !== "ALL" ? { sector } : {}),
+        ...(minScore.trim() !== "" ? { minScore: Number(minScore) } : {}),
         ...(providerSupportsFilter(activeProvider, assetClass, "search") ? { search: symbolSearch.trim() || undefined } : {}),
         ...(providerSupportsFilter(activeProvider, assetClass, "limit") ? { limit: numberFilter(stockLimit) } : {}),
         ...(providerSupportsFilter(activeProvider, assetClass, "exchange") ? { exchange } : {}),
@@ -336,9 +516,9 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         icon: "📈",
       },
       options: {
-        eyebrow: "DERIVATIVES · CONSOLIDATED",
-        title: "Options · Auto Options Research",
-        desc: "All options capabilities, raw contracts screening, and strategy discovery are in the dedicated Auto Options Research tab.",
+        eyebrow: "DERIVATIVES SCREENING",
+        title: "Options Research",
+        desc: "Strategy discovery, the raw contracts screener, custom thesis scans, NLQ, and the LLM idea experiment — the full options research surface, hosted here.",
         icon: "⚡",
       },
       forex: {
@@ -367,7 +547,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       },
     };
 
-    return SCREENING_ASSET_CLASSES.map((asset) => {
+    const assetTabs: CapabilityTabItem[] = SCREENING_ASSET_CLASSES.map((asset) => {
       const info = descriptions[asset.id] || {
         eyebrow: "MARKET SCREENER",
         title: asset.label,
@@ -388,6 +568,98 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         },
       };
     });
+
+    // S8: the folded surfaces ride the same tab bar, right after
+    // Options — the Strategy/Symbol Scanner and IV History, formerly
+    // Trading Hub subtabs.
+    const optionsIndex = assetTabs.findIndex((tab) => tab.id === "options");
+    assetTabs.splice(optionsIndex + 1, 0,
+      {
+        id: "scanner",
+        label: "Strategy Scanner",
+        icon: "🎯",
+        badge: "AI",
+        badgeType: "purple",
+        tooltip: {
+          eyebrow: "STRATEGY / SYMBOL SCANNING",
+          title: "Strategy/Symbol Scanner",
+          description: "Best strategy for a name, or names that fit your strategy — across the full strategy catalog.",
+        },
+      },
+      {
+        id: "iv-history",
+        label: "IV History",
+        icon: "📈",
+        tooltip: {
+          eyebrow: "IMPLIED VOLATILITY",
+          title: "IV History",
+          description: "Daily option-chain IV snapshots: per-symbol coverage, IV rank, and the latest readings.",
+        },
+      },
+      {
+        // C1 (consolidation #1151, issue #1201): the goal-driven
+        // screen — one goal, one screen across stocks + options
+        // through the unified screening stack, with backtest-on-screen.
+        id: "goal-screen",
+        label: "Goal Screen",
+        icon: "🧭",
+        badge: "AI",
+        badgeType: "purple",
+        tooltip: {
+          eyebrow: "GOAL-DRIVEN SCREENING",
+          title: "Goal Screen",
+          description: "Pick a goal; the unified screening stack screens stocks and options for it — and can backtest the hits.",
+        },
+      },
+    );
+    // C2 (consolidation #1151, issue #1246): the hub's own surfaces —
+    // Reports and Schedules (formerly standalone nav entries) and the
+    // #1096 Review inbox + recommendation Track Record.
+    assetTabs.push(
+      {
+        id: "reports",
+        label: "Reports",
+        icon: "📄",
+        tooltip: {
+          eyebrow: "SCREENING REPORTS",
+          title: "Reports",
+          description: "Generated screening reports — view, download, and regenerate them here.",
+        },
+      },
+      {
+        id: "schedules",
+        label: "Schedules",
+        icon: "🗓️",
+        tooltip: {
+          eyebrow: "SCREENING SCHEDULES",
+          title: "Schedules",
+          description: "The one scheduling surface for screening runs — create, pause, and inspect scheduled jobs.",
+        },
+      },
+      {
+        id: "review",
+        label: "Review",
+        icon: "🧾",
+        badge: "AI",
+        badgeType: "purple",
+        tooltip: {
+          eyebrow: "PROPOSAL REVIEW",
+          title: "Proposal Review",
+          description: "Decide what the system proposed: goal proposals, adaptation candidates, and strategy re-selections — nothing activates without a person.",
+        },
+      },
+      {
+        id: "track-record",
+        label: "Track Record",
+        icon: "📈",
+        tooltip: {
+          eyebrow: "RECOMMENDATION OUTCOMES",
+          title: "Track Record",
+          description: "What happened to issued recommendations, from the outcome ledger — Unverified stays Unverified.",
+        },
+      },
+    );
+    return assetTabs;
   }, []);
 
   return (
@@ -395,14 +667,14 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
       <CapabilityNavBar
         ariaLabel="Instrument class capabilities"
         tabs={screenerTabs}
-        activeTabId={assetClass}
-        onTabChange={(id) => setAssetClass(id as ScreeningAssetClass)}
+        activeTabId={hubTab}
+        onTabChange={handleTabChange}
         rightContent={
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "0.8rem", color: "var(--theme-text-muted)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
             <CopilotTriggerButton label="✨ Ask Copilot" />
             {scannedAt && (
               <span>
-                Last scan: <strong style={{ color: "var(--theme-text-main)" }}>{scannedAt}</strong>
+                Last scan: <strong style={{ color: "var(--color-text-primary)" }}>{scannedAt}</strong>
               </span>
             )}
             {rows.length > 0 && (
@@ -410,10 +682,10 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                 style={{
                   padding: "0.15rem 0.5rem",
                   borderRadius: "4px",
-                  background: "var(--theme-card-bg)",
-                  border: "1px solid var(--theme-border-subtle)",
+                  background: "var(--color-card)",
+                  border: "1px solid var(--color-border-subtle)",
                   fontWeight: 600,
-                  color: "var(--theme-accent)",
+                  color: "var(--color-accent)",
                 }}
               >
                 {rows.length} matched
@@ -423,104 +695,185 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
         }
       />
 
-      {assetClass === "stocks" ? (
-        <>
+      {/* Tabbed Browsing Panels — reference multi-tab state retention:
+          Panels mount on first visit and stay preserved in the DOM with role="tabpanel",
+          id, and aria-labelledby linking back to their corresponding tab button. */}
+
+      {/* 1. Stocks Screener Panel */}
+      {visitedTabs.has("stocks") && (
+        <div
+          role="tabpanel"
+          id="screener-tabpanel-stocks"
+          aria-labelledby="cap-tab-stocks"
+          hidden={hubTab !== "stocks"}
+          style={hubTab !== "stocks" ? { display: "none" } : undefined}
+        >
           {/* Issue #212: autonomous screener panel — latest scheduled runs. */}
           <div className="screener-feed-callout" style={{ marginBottom: "1rem" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>🤖 Autonomous Screen</span>
-              <span style={{ fontSize: "0.8rem", color: "var(--theme-text-muted)" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                 Runs every 5 min via the scheduled job — latest results below (refreshes automatically).
               </span>
             </div>
             {autoLoading ? (
-              <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>Loading latest autonomous run…</div>
+              <div role="status" aria-label="Loading latest autonomous run">
+                <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>Loading latest autonomous run…</div>
+                <Skeleton lines={3} />
+              </div>
             ) : autoRuns.length === 0 ? (
-              <div style={{ fontSize: "0.85rem", color: "var(--theme-text-muted)" }}>
+              <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
                 No autonomous runs recorded yet. The next 5-minute tick will populate this panel.
               </div>
             ) : (
               <>
-                {/* Issue #125: retained runs are reviewable — select any run
-                    (quiet and failed runs included; they are history) to
-                    view its full results below. */}
-                {autoRuns.length > 1 && (
-                  <div
-                    className="screener-run-list"
-                    aria-label="Retained autonomous screen runs"
-                    style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginBottom: "0.75rem" }}
-                  >
-                    {autoRuns.map((run, index) => {
-                      const status = screenRunStatus(run);
-                      const selected = selectedAutoRun?.timestamp === run.timestamp;
-                      const badgeColors = {
-                        success: { background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" },
-                        partial: { background: "var(--color-warning-subtle)", color: "var(--color-warning)", border: "1px solid var(--color-warning)" },
-                        failed: { background: "var(--color-danger-subtle)", color: "var(--color-danger)", border: "1px solid var(--color-danger)" },
-                      }[status];
-                      return (
-                        <button
-                          key={`${run.timestamp}:${index}`}
-                          type="button"
-                          className="screener-run-item"
-                          aria-pressed={selected}
-                          aria-label={`Review screen run from ${new Date(run.timestamp).toLocaleString()}`}
-                          onClick={() => setSelectedAutoTs(run.timestamp)}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5rem",
-                            flexWrap: "wrap",
-                            textAlign: "left",
-                            padding: "0.4rem 0.6rem",
-                            borderRadius: "6px",
-                            cursor: "pointer",
-                            fontSize: "0.78rem",
-                            color: "var(--color-text-primary)",
-                            background: selected ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
-                            border: `1px solid ${selected ? "var(--color-accent)" : "var(--color-border-subtle)"}`,
-                          }}
-                        >
-                          <strong>{new Date(run.timestamp).toLocaleString()}</strong>
-                          <span style={{ color: "var(--theme-text-muted)" }}>
-                            {[run.universe, run.sector && run.sector !== "ALL" ? `${run.sector} sector` : null]
-                              .filter(Boolean)
-                              .join(" · ")}
-                            {" · "}
-                            {run.trigger === "manual" ? "Manual" : "Scheduled"}
-                          </span>
-                          <span>
-                            {run.totalScanned.toLocaleString()} scanned · {run.matchedCount} matched ·{" "}
-                            {run.opportunities.length} standout{run.opportunities.length === 1 ? "" : "s"}
-                          </span>
-                          <span
-                            className="screener-run-status"
-                            style={{
-                              padding: "0.1rem 0.5rem",
-                              borderRadius: "9999px",
-                              fontSize: "0.7rem",
-                              fontWeight: 700,
-                              ...badgeColors,
-                            }}
-                          >
-                            {SCREEN_RUN_STATUS_LABELS[status]}
-                          </span>
-                          {selected && (
-                            <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--color-accent)" }}>
-                              ● Viewing
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
+                {/* Issue #830: grouped jobs + data panel.
+                    Jobs are grouped by universe in scrollable panels.
+                    Selecting a job shows its latest run data below. */}
+                <div
+                  aria-label="Scheduled jobs by universe"
+                  style={{
+                    display: "flex",
+                    gap: "0.75rem",
+                    overflowX: "auto",
+                    paddingBottom: "0.5rem",
+                    marginBottom: "0.75rem",
+                  }}
+                >
+                  {Object.entries(
+                    autoRuns.reduce((groups, run) => {
+                      const universe = run.universe || "nasdaq100";
+                      if (!groups[universe]) groups[universe] = [];
+                      groups[universe].push(run);
+                      return groups;
+                    }, {} as Record<string, typeof autoRuns>)
+                  ).map(([universe, runs]) => {
+                    const latest = runs[0];
+                    const status = screenRunStatus(latest);
+                    const isSelected = selectedAutoRun?.universe === universe ||
+                      (selectedAutoRun && runs.some(r => r.timestamp === selectedAutoRun.timestamp));
+                    return (
+                      <button
+                        key={universe}
+                        type="button"
+                        onClick={() => setSelectedAutoTs(latest.timestamp)}
+                        aria-pressed={isSelected}
+                        style={{
+                          minWidth: "220px",
+                          flex: "0 0 auto",
+                          textAlign: "left",
+                          padding: "0.75rem",
+                          borderRadius: "8px",
+                          border: isSelected
+                            ? "2px solid var(--color-accent)"
+                            : "1px solid var(--color-border-subtle)",
+                          background: "var(--color-surface)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.25rem", color: "var(--color-text-primary)" }}>
+                          {universe.toUpperCase()}
+                        </div>
+                        <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.25rem" }}>
+                          Every 5 min · {runs.length} run{runs.length !== 1 ? "s" : ""} retained
+                        </div>
+                        <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                          Last: {new Date(latest.timestamp).toLocaleTimeString()} · {latest.totalScanned || 0} scanned · {latest.matchedCount || 0} matched
+                        </div>
+                        <div style={{
+                          display: "inline-block",
+                          marginTop: "0.35rem",
+                          padding: "0.15rem 0.5rem",
+                          borderRadius: "12px",
+                          fontSize: "0.75rem",
+                          fontWeight: 600,
+                          ...(status === "success"
+                            ? { background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" }
+                            : status === "partial"
+                            ? { background: "var(--color-warning-subtle)", color: "var(--color-warning)", border: "1px solid var(--color-warning)" }
+                            : { background: "var(--color-danger-subtle)", color: "var(--color-danger)", border: "1px solid var(--color-danger)" }),
+                        }}>
+                          {status === "success" ? "✓ Complete" : status === "partial" ? "◐ Partial" : "✗ Failed"}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Issue #125: per-run history — every retained run is
+                    selectable (newest first), across universes. Selecting a
+                    run swaps the results view + PDF + exports below to that
+                    run. The grouped universe cards above are a #830 shortcut
+                    to each universe's latest run; this list is the full
+                    history. */}
+                <div
+                  aria-label="Autonomous run history"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.35rem",
+                    marginBottom: "0.75rem",
+                  }}
+                >
+                  {autoRuns.map((run) => {
+                    const status = screenRunStatus(run);
+                    const isSelected = selectedAutoRun?.timestamp === run.timestamp;
+                    const oppCount = run.opportunities?.length ?? 0;
+                    return (
+                      <button
+                        key={run.timestamp}
+                        type="button"
+                        className="screener-run-item"
+                        aria-pressed={isSelected}
+                        onClick={() => setSelectedAutoTs(run.timestamp)}
+                        style={{
+                          textAlign: "left",
+                          padding: "0.5rem 0.75rem",
+                          borderRadius: "6px",
+                          border: isSelected
+                            ? "2px solid var(--color-accent)"
+                            : "1px solid var(--color-border-subtle)",
+                          background: "var(--color-surface)",
+                          cursor: "pointer",
+                          fontSize: "0.8rem",
+                          color: "var(--color-text-primary)",
+                        }}
+                      >
+                        <span style={{ fontWeight: 600 }}>
+                          {new Date(run.timestamp).toLocaleString()}
+                        </span>
+                        {" · "}
+                        {(run.universe || "nasdaq100").toUpperCase()}
+                        {run.sector && run.sector !== "ALL" ? ` · ${run.sector} sector` : ""}
+                        {" · "}
+                        {run.totalScanned ?? 0} scanned · {run.matchedCount ?? 0} matched · {oppCount} standout
+                        {" "}
+                        <span className="screener-run-status" style={{ fontWeight: 700 }}>
+                          {SCREEN_RUN_STATUS_LABELS[status]}
+                        </span>
+                        {" · "}
+                        <span>{isSelected ? "Viewing" : "View"}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Data panel for selected job */}
+                <div
+                  aria-label="Selected job run data"
+                  style={{
+                    border: "1px solid var(--color-border-subtle)",
+                    borderRadius: "8px",
+                    padding: "1rem",
+                    background: "var(--color-surface)",
+                    marginBottom: "0.75rem",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.5rem", color: "var(--color-text-primary)" }}>
+                    {(selectedAutoRun?.universe || "nasdaq100").toUpperCase()} · {selectedAutoRun ? new Date(selectedAutoRun.timestamp).toLocaleString() : "—"}
                   </div>
-                )}
-                {/* Issue #261: unified results UI — same component as manual.
-                    Issue #125: shows the selected retained run (default:
-                    latest); its PDF link keys off that run's own pdfKey. */}
-                <ScreenerResultsView
-                  result={{ ...selectedAutoRun, trigger: selectedAutoRun.trigger ?? "scheduled" }}
-                />
+                  <ScreenerResultsView
+                    result={{ ...selectedAutoRun, trigger: selectedAutoRun.trigger ?? "scheduled" }}
+                  />
+                </div>
               </>
             )}
           </div>
@@ -621,6 +974,31 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
                 <option value="ALL">All (auto-sharded, parallel)</option>
               </select>
             </label>
+            <label className="options-field">
+              <span>Sector</span>
+              <select value={sector} onChange={(event) => setSector(event.target.value)} title="Industry sector filter">
+                <option value="ALL">All Sectors</option>
+                <option value="Technology">Technology</option>
+                <option value="Semiconductors">Semiconductors</option>
+                <option value="Financial">Financial / Banking</option>
+                <option value="Healthcare">Healthcare / Biotech</option>
+                <option value="Consumer Discretionary">Consumer Discretionary</option>
+                <option value="Communication Services">Communication Services</option>
+                <option value="Energy">Energy</option>
+                <option value="Industrials">Industrials</option>
+              </select>
+            </label>
+            <label className="options-field">
+              <span>Min Score (0–100)</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={minScore}
+                onChange={(event) => setMinScore(event.target.value)}
+                placeholder="Optional; e.g. 50"
+              />
+            </label>
             {providerSupportsFilter(activeProvider, assetClass, "trend") && (
               <label className="options-field">
                 <span>Daily trend</span>
@@ -650,7 +1028,7 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
           ))}
           {!manualResult && summary && <div className="screener-results-header"><span>{summary}</span><span>{activeProvider?.label} · {activeEnv}</span></div>}
           {!manualResult && (rows.length > 0 || summary) && (
-            rows.length === 0 ? <p className="empty-state">No results matched those filters.</p> : (
+            rows.length === 0 ? <EmptyState title="No results matched those filters." /> : (
               <div className="options-table-scroll">
                 <div style={{
                   display: "flex",
@@ -762,24 +1140,153 @@ export function ScreenersHub({ activeEnv, userLogin, onStocksLoaded }: Screeners
               </div>
             )
           )}
-        </>
-      ) : assetClass === "options" ? (
-        <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
-          <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>⚡ Options Capabilities Moved to Auto Options Research</h4>
-          <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
-            All options screening, analysis, and execution tools—including the <strong>📋 Raw Contracts Screener</strong>, <strong>🎯 Strategy Discovery &amp; Payoff Analyzer</strong>, <strong>⚙️ Custom Thesis Universe</strong>, <strong>💬 Natural Language Screen (NLQ)</strong>, and <strong>⏰ Scheduled Options Schedulers</strong>—are now centralized under the <strong>Auto Options Research</strong> tab.
-          </p>
-          <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
-            The Options tab in this Multi-Asset Screener is marked as planned to keep this screener focused on equities and future multi-asset feeds without duplication.
-          </p>
         </div>
-      ) : (
-        <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
-          <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)", fontSize: "1.05rem" }}>🚧 {SCREENING_ASSET_CLASSES.find((a) => a.id === assetClass)?.label || "Asset"} Screener · Planned</h4>
-          <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
-            This instrument class is a planned extension point. Multi-asset provider adapters are currently in development.
-          </p>
+      )}
+
+      {/* 2. Options Research Panel */}
+      {visitedTabs.has("options") && (
+        <div
+          role="tabpanel"
+          id="screener-tabpanel-options"
+          aria-labelledby="cap-tab-options"
+          hidden={hubTab !== "options"}
+          style={hubTab !== "options" ? { display: "none" } : undefined}
+        >
+          <OptionsResearchHost
+            activeEnv={activeEnv}
+            userLogin={userLogin}
+            onPreviewTrade={onPreviewTrade}
+            onJobStateChange={onJobStateChange}
+            onSendPrompt={onSendPrompt}
+            onOpenSchedules={() => handleTabChange("schedules")}
+          />
         </div>
+      )}
+
+      {/* 3. Strategy/Symbol Scanner Panel */}
+      {visitedTabs.has("scanner") && (
+        <div
+          role="tabpanel"
+          id="screener-tabpanel-scanner"
+          aria-labelledby="cap-tab-scanner"
+          hidden={hubTab !== "scanner"}
+          style={hubTab !== "scanner" ? { display: "none" } : undefined}
+        >
+          <ErrorBoundary label="Strategy/Symbol Scanner panel">
+            <ScannerPanel activeEnv={activeEnv} userLogin={userLogin} onPreviewTrade={onPreviewTrade} />
+          </ErrorBoundary>
+        </div>
+      )}
+
+      {/* 4. IV History Panel */}
+      {visitedTabs.has("iv-history") && (
+        <div
+          role="tabpanel"
+          id="screener-tabpanel-iv-history"
+          aria-labelledby="cap-tab-iv-history"
+          hidden={hubTab !== "iv-history"}
+          style={hubTab !== "iv-history" ? { display: "none" } : undefined}
+        >
+          <IvHistoryPanel />
+        </div>
+      )}
+
+      {/* 5. Goal Screen Panel */}
+      {visitedTabs.has("goal-screen") && (
+        <div
+          role="tabpanel"
+          id="screener-tabpanel-goal-screen"
+          aria-labelledby="cap-tab-goal-screen"
+          hidden={hubTab !== "goal-screen"}
+          style={hubTab !== "goal-screen" ? { display: "none" } : undefined}
+        >
+          <ErrorBoundary label="Goal Screen panel">
+            <GoalScreenPanel activeEnv={activeEnv} userLogin={userLogin} />
+          </ErrorBoundary>
+        </div>
+      )}
+
+      {/* 6. Reports Panel */}
+      {visitedTabs.has("reports") && (
+        <div
+          role="tabpanel"
+          id="screener-tabpanel-reports"
+          aria-labelledby="cap-tab-reports"
+          hidden={hubTab !== "reports"}
+          style={hubTab !== "reports" ? { display: "none" } : undefined}
+        >
+          <ErrorBoundary label="Reports panel">
+            <ReportsPanel />
+          </ErrorBoundary>
+        </div>
+      )}
+
+      {/* 7. Schedules Panel */}
+      {visitedTabs.has("schedules") && (
+        <div
+          role="tabpanel"
+          id="screener-tabpanel-schedules"
+          aria-labelledby="cap-tab-schedules"
+          hidden={hubTab !== "schedules"}
+          style={hubTab !== "schedules" ? { display: "none" } : undefined}
+        >
+          <ErrorBoundary label="Schedules panel">
+            <SchedulesPanel activeEnv={activeEnv} userLogin={userLogin} onPreviewTrade={onPreviewTrade} />
+          </ErrorBoundary>
+        </div>
+      )}
+
+      {/* 8. Proposal Review Panel */}
+      {visitedTabs.has("review") && (
+        <div
+          role="tabpanel"
+          id="screener-tabpanel-review"
+          aria-labelledby="cap-tab-review"
+          hidden={hubTab !== "review"}
+          style={hubTab !== "review" ? { display: "none" } : undefined}
+        >
+          <ErrorBoundary label="Proposal Review panel">
+            <ScreeningReviewPanel userLogin={userLogin} />
+          </ErrorBoundary>
+        </div>
+      )}
+
+      {/* 9. Track Record Panel */}
+      {visitedTabs.has("track-record") && (
+        <div
+          role="tabpanel"
+          id="screener-tabpanel-track-record"
+          aria-labelledby="cap-tab-track-record"
+          hidden={hubTab !== "track-record"}
+          style={hubTab !== "track-record" ? { display: "none" } : undefined}
+        >
+          <ErrorBoundary label="Track Record panel">
+            <ScreeningOutcomesPanel userLogin={userLogin} />
+          </ErrorBoundary>
+        </div>
+      )}
+
+      {/* 10. Multi-Asset Planned Panels (forex, futures, commodities, bonds) */}
+      {(["forex", "futures", "commodities", "bonds"] as const).map((asset) =>
+        visitedTabs.has(asset) ? (
+          <div
+            key={asset}
+            role="tabpanel"
+            id={`screener-tabpanel-${asset}`}
+            aria-labelledby={`cap-tab-${asset}`}
+            hidden={hubTab !== asset}
+            style={hubTab !== asset ? { display: "none" } : undefined}
+          >
+            <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
+              <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)", fontSize: "1.05rem" }}>
+                🚧 {SCREENING_ASSET_CLASSES.find((a) => a.id === asset)?.label || "Asset"} Screener · Planned
+              </h4>
+              <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
+                This instrument class is a planned extension point. Multi-asset provider adapters are currently in development.
+              </p>
+            </div>
+          </div>
+        ) : null
       )}
 
       <p className="options-assumptions">

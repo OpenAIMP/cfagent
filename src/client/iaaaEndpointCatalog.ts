@@ -1,0 +1,1232 @@
+/**
+ * IAAA endpoint/event explorer catalogs (issue 945, IAAA-UI v2: READ-ONLY).
+ *
+ * Static code knowledge, derived by reading the sources — no new server
+ * route serves this data, and the panel stays gated behind
+ * GET /api/iaaa/overview as a whole. The catalogs contain no user data.
+ *
+ * Sources:
+ * - API tab: every route branch in src/server.ts handleFetch, read
+ *   branch by branch. Aliases (several paths to one handler) are one
+ *   entry, not several. The generic /api/* forwarder is a catch-all
+ *   row, not an endpoint. Auth notes describe the edge check in the
+ *   handler itself (requireAuth, PDP, step-up, webhook signature);
+ *   downstream DO enforcement is noted where it differs.
+ * - MCP tab: REUSED from src/client/mcpEndpointsData.ts — this module
+ *   does not duplicate tool/resource/prompt entries. Server
+ *   capabilities the catalog lacks are reported as gaps, never
+ *   invented into the catalog.
+ * - IAAA tab: event builders in src/security/iaaaAudit.ts and
+ *   src/security/iaaaAuthAudit.ts plus every live audit call site.
+ *   Occurrences that emit NO audit event are gaps, not events.
+ *
+ * Honesty rule: an unknown is a gap. Nothing here is inferred from a
+ * name similarity — a mapping row exists only when the code shows a
+ * shared handler, a shared store, or an emitter site.
+ */
+
+import { MCP_TOOLS_CATALOG } from "./mcpEndpointsData";
+
+export type ApiEndpointAuth =
+  | "public"
+  | "session"
+  | "session-or-apikey"
+  | "session-optional"
+  | "platform-admin"
+  | "webhook-signature"
+  | "slack-signature"
+  | "payment-gated";
+
+export type ApiEndpointKind = "http" | "websocket" | "catchall" | "static";
+
+export interface ApiEndpointEntry {
+  id: string;
+  method: "GET" | "POST" | "DELETE" | "ANY" | "WS" | "GET|POST";
+  path: string;
+  aliases: string[];
+  kind: ApiEndpointKind;
+  auth: ApiEndpointAuth;
+  authNote: string;
+  source: string;
+  /** startsWith literals in server.ts that this entry covers. */
+  prefixes?: string[];
+  /** path.match regex literal in server.ts that this entry covers. */
+  pattern?: string;
+}
+
+export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
+  {
+    id: "static-assets",
+    method: "ANY",
+    path: "Static assets (ASSETS binding)",
+    aliases: [],
+    kind: "static",
+    auth: "public",
+    authNote: "Pre-route: serveStaticAsset runs before the route table and a matching asset short-circuits routing.",
+    source: "src/server.ts serveStaticAsset pre-route",
+  },
+  {
+    id: "a2a",
+    method: "ANY",
+    path: "/a2a/*",
+    aliases: ["/.well-known/*"],
+    kind: "http",
+    auth: "public",
+    authNote: "Delegated to handleA2A (agent-card discovery plus JSON-RPC dispatch). No session check at the edge; per-agent enforcement inside the DO was not verified here.",
+    source: "src/server.ts branch: path.startsWith /a2a/",
+    prefixes: ["/a2a/", "/.well-known/"],
+  },
+  {
+    id: "agents-sdk",
+    method: "ANY",
+    path: "/agents/*",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "Cloudflare Agents SDK routeAgentRequest: onBeforeConnect and onBeforeRequest both require a session (401 otherwise).",
+    source: "src/server.ts routeAgentRequest",
+  },
+  {
+    id: "nlq-webhook",
+    method: "POST",
+    path: "/nlq/webhook",
+    aliases: ["/api/trading/nlq/webhook", "/api/nlq/webhook"],
+    kind: "http",
+    auth: "webhook-signature",
+    authNote: "HMAC X-Signature-256 plus timestamp plus replay protection; INBOUND_NLQ_WEBHOOK_SECRET required (503 when unconfigured).",
+    source: "src/server.ts branch: POST /nlq/webhook",
+  },
+  {
+    id: "login-page",
+    method: "GET",
+    path: "/login",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote: "Renders the login page with one button per enabled registered provider.",
+    source: "src/server.ts branch: GET /login",
+  },
+  {
+    id: "auth-login-provider",
+    method: "ANY",
+    path: "/auth/login/:provider",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote: "Generic provider route. Wiring OFF returns 403; an unknown or unlisted provider id returns 403, never a fallback to another provider.",
+    source: "src/server.ts branch: path.match login provider",
+    pattern: "/^\\/auth\\/login\\/([^/]+)$/",
+  },
+  {
+    id: "auth-callback-provider",
+    method: "ANY",
+    path: "/auth/callback/:provider",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote: "Generic provider callback with wired audit store, resolved tenant, and post-login enabled.",
+    source: "src/server.ts branch: path.match callback provider",
+    pattern: "/^\\/auth\\/callback\\/([^/]+)$/",
+  },
+  {
+    id: "auth-logout",
+    method: "ANY",
+    path: "/auth/logout",
+    aliases: [],
+    kind: "http",
+    auth: "session-optional",
+    authNote: "Clears the cookie regardless of session; the logout audit fires only for wired sessions when wiring is ON with a resolved tenant.",
+    source: "src/server.ts branch: path === /auth/logout",
+  },
+  {
+    id: "etrade-start",
+    method: "ANY",
+    path: "/auth/etrade/start",
+    aliases: ["/api/etrade/oauth/start"],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth, then PDP gate when IAAA_PDP_ENABLED is on and the session is wired: integration:connect required (403 on denial). Legacy sessions take the pre-change path.",
+    source: "src/server.ts branch: /auth/etrade/start",
+  },
+  {
+    id: "etrade-callback",
+    method: "ANY",
+    path: "/auth/etrade/callback",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; exchanges the verifier, then redirects with success or error.",
+    source: "src/server.ts branch: path === /auth/etrade/callback",
+  },
+  {
+    id: "etrade-status",
+    method: "ANY",
+    path: "/api/etrade/oauth/status",
+    aliases: [],
+    kind: "http",
+    auth: "session-optional",
+    authNote: "No session returns authenticated false, not a 401.",
+    source: "src/server.ts branch: path === /api/etrade/oauth/status",
+  },
+  {
+    id: "etrade-diagnostics",
+    method: "ANY",
+    path: "/api/etrade/diagnostics",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "No session returns 401.",
+    source: "src/server.ts branch: path === /api/etrade/diagnostics",
+  },
+  {
+    id: "etrade-verifier",
+    method: "POST",
+    path: "/api/etrade/oauth/verifier",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth plus PDP gate (integration:connect) when the flag is on and the session is wired; 403 on denial.",
+    source: "src/server.ts branch: POST /api/etrade/oauth/verifier",
+  },
+  {
+    id: "etrade-renew",
+    method: "POST",
+    path: "/api/etrade/oauth/renew",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; no PDP gate.",
+    source: "src/server.ts branch: POST /api/etrade/oauth/renew",
+  },
+  {
+    id: "etrade-revoke",
+    method: "POST",
+    path: "/api/etrade/oauth/revoke",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; deliberately NOT PDP-gated (revocation is a safety action).",
+    source: "src/server.ts branch: POST /api/etrade/oauth/revoke",
+  },
+  {
+    id: "public-client-metadata",
+    method: "GET",
+    path: "/.well-known/oauth-client-id-metadata-document",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote: "No session: the Public authorization server fetches this document unauthenticated. Its iss is the client_id the Public connect flow presents.",
+    source: "src/server.ts branch: path === /.well-known/oauth-client-id-metadata-document",
+  },
+  {
+    id: "public-start",
+    method: "ANY",
+    path: "/auth/public/start",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth, then PDP gate when IAAA_PDP_ENABLED is on and the session is wired: integration:connect required (403 on denial) — same rule as the E*TRADE start route.",
+    source: "src/server.ts branch: /auth/public/start",
+  },
+  {
+    id: "public-callback",
+    method: "ANY",
+    path: "/auth/public/callback",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth plus the session.ts state check and a pending-flow login match inside completePublicOAuth; stores the Public token set for the session's login and redirects. Never creates a login session (resource provider).",
+    source: "src/server.ts branch: path === /auth/public/callback",
+  },
+  {
+    id: "public-status",
+    method: "ANY",
+    path: "/api/public/status",
+    aliases: [],
+    kind: "http",
+    auth: "session-optional",
+    authNote: "No session returns connected false, not a 401. Reports only a 4+4 token hint, never the token.",
+    source: "src/server.ts branch: path === /api/public/status",
+  },
+  {
+    id: "public-connect",
+    method: "POST",
+    path: "/api/public/connect",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth plus PDP gate (integration:connect) when the flag is on and the session is wired; the pasted personal access token is verified against the MCP server before it is stored.",
+    source: "src/server.ts branch: POST /api/public/connect",
+  },
+  {
+    id: "public-disconnect",
+    method: "POST",
+    path: "/api/public/disconnect",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; best-effort upstream revocation, then the stored token set is dropped. Deliberately not PDP-gated (disconnect is a safety action), mirroring the E*TRADE revoke rule.",
+    source: "src/server.ts branch: POST /api/public/disconnect",
+  },
+  {
+    id: "health",
+    method: "ANY",
+    path: "/health",
+    aliases: ["/api/health"],
+    kind: "http",
+    auth: "public",
+    authNote: "Liveness endpoint; no session check.",
+    source: "src/server.ts branch: path === /health",
+  },
+  {
+    id: "qa-investigate",
+    method: "POST",
+    path: "/api/qa/investigate",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote: "No session check in the handler (QA diagnostic). Listed as public; whether that is intended is not asserted here.",
+    source: "src/server.ts branch: POST /api/qa/investigate",
+  },
+  {
+    id: "memory-search",
+    method: "POST",
+    path: "/api/memory/search",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote: "No session check in the handler; throttled per caller (60 per minute).",
+    source: "src/server.ts branch: POST /api/memory/search",
+  },
+  {
+    id: "schedule-goals-get",
+    method: "GET",
+    path: "/api/schedule/goals",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated (#1156); any signed-in user may list goals. Forwards to the SCHEDULED_AGENT DO.",
+    source: "src/server.ts branch: GET /api/schedule/goals",
+    prefixes: ["/api/schedule/"],
+  },
+  {
+    id: "schedule-goals-post",
+    method: "POST",
+    path: "/api/schedule/goals",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated (#1156); any signed-in user may add goals. Forwards to the SCHEDULED_AGENT DO.",
+    source: "src/server.ts branch: POST /api/schedule/goals",
+  },
+  {
+    id: "schedule-ticks-get",
+    method: "GET",
+    path: "/api/schedule/ticks",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated (#1156); any signed-in user may read tick history. Forwards to the SCHEDULED_AGENT DO.",
+    source: "src/server.ts branch: GET /api/schedule/ticks",
+  },
+  {
+    id: "schedule-goal-action",
+    method: "POST",
+    path: "/api/schedule/goals/:id/(enabled|trigger)",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "Regex branch; 401 unauthenticated (#1156); any signed-in user may enable/trigger goals. Forwards to the SCHEDULED_AGENT DO.",
+    source: "src/server.ts branch: goalMatch regex",
+    pattern: "/^\\/api\\/schedule\\/goals\\/([^/]+)\\/(enabled|trigger)$/",
+  },
+  {
+    id: "schedule-goal-delete",
+    method: "DELETE",
+    path: "/api/schedule/goals/:id",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "Regex branch; 401 unauthenticated (#1156); any signed-in user may delete goals. Forwards to the SCHEDULED_AGENT DO.",
+    source: "src/server.ts branch: deleteMatch regex",
+    pattern: "/^\\/api\\/schedule\\/goals\\/([^/]+)$/",
+  },
+  {
+    id: "social-brief-get",
+    method: "GET",
+    path: "/api/social/brief",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated; any signed-in user may read the stored brief. Returns the brief or null; optional ?date (default today NY).",
+    source: "src/server.ts branch: path === /api/social/brief",
+  },
+  {
+    id: "social-brief-post",
+    method: "POST",
+    path: "/api/social/brief",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated; 400 empty text, bad JSON, or bad date; 413 text over 4000 chars; 405 other methods. Any signed-in user may provision; admin-only provisioning is a later item.",
+    source: "src/server.ts branch: path === /api/social/brief",
+  },
+  {
+    id: "social-approval-post",
+    method: "POST",
+    path: "/api/social/approval",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated; 400 bad date/channel/action; 404 no draft; 409 already posted/rejected or posting disabled. Approve publishes promptly through the existing publish path (dry-run by default); reject publishes nothing. Any signed-in user may decide.",
+    source: "src/server.ts branch: path === /api/social/approval",
+  },
+  {
+    id: "social-approvals-get",
+    method: "GET",
+    path: "/api/social/approvals",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated; lists pending approvals for a date with draft text; optional ?date (default today NY); 405 other methods.",
+    source: "src/server.ts branch: path === /api/social/approvals",
+  },
+  {
+    id: "social-token-health-get",
+    method: "GET",
+    path: "/api/social/token-health",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote:
+      "401 unauthenticated; 405 other methods. Reports per-channel token presence (configured/unconfigured) and validity (valid/invalid/unknown); no live transport is wired in this slice, so validity is unknown by design. Response never contains a token value. Any signed-in user may query.",
+    source: "src/server.ts branch: path === /api/social/token-health",
+  },
+  {
+    id: "me",
+    method: "ANY",
+    path: "/api/me",
+    aliases: [],
+    kind: "http",
+    auth: "session-optional",
+    authNote: "No session returns authenticated false; internalUserId is present only for wired sessions. Provider {id, name, issuer} is present only for wired sessions with a known issuer (#1274).",
+    source: "src/server.ts branch: path === /api/me",
+  },
+  {
+    id: "iaaa-access-request-create",
+    method: "POST",
+    path: "/api/iaaa/access-request",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated; 403 legacy sessions or callers with no active membership in the tenant; 409 when a pending request for the role already exists; 400 for roles other than tenant-admin. Requests never auto-grant.",
+    source: "src/server.ts branch: path === /api/iaaa/access-request",
+  },
+  {
+    id: "iaaa-access-requests-list",
+    method: "GET",
+    path: "/api/iaaa/access-requests",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated; 403 unless the caller can grant tenant-admin in the tenant (canGrantRole). Lists all requests with statuses; admin-only.",
+    source: "src/server.ts branch: path === /api/iaaa/access-requests",
+  },
+  {
+    id: "iaaa-access-request-decision",
+    method: "POST",
+    path: "/api/iaaa/access-request/decision",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated; 404 unknown request; 403 unless the caller can grant the requested role; 409 when no longer pending. Approve calls grantMembership (idempotent when the requester already holds the role); deny grants nothing.",
+    source: "src/server.ts branch: path === /api/iaaa/access-request/decision",
+  },
+  {
+    id: "iaaa-overview",
+    method: "GET",
+    path: "/api/iaaa/overview",
+    aliases: [],
+    kind: "http",
+    auth: "platform-admin",
+    authNote: "401 unauthenticated; 403 for legacy or non-admin sessions with no data; non-GET returns 405. The only new server route in IAAA-UI.",
+    source: "src/server.ts branch: path === /api/iaaa/overview",
+  },
+  {
+    id: "openapi-spec",
+    method: "GET",
+    path: "/openapi.json",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "Provisional spike gating (#1024 Phase 1): requires an authenticated session; unauthenticated returns 401; non-GET returns 405. Serves the generated OpenAPI spec.",
+    source: "src/server.ts branch: path === /openapi.json",
+  },
+  {
+    id: "api-docs",
+    method: "GET",
+    path: "/api/docs",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "Provisional spike gating (#1024 Phase 1): requires an authenticated session; unauthenticated returns 401; non-GET returns 405. Serves Swagger UI HTML against /openapi.json.",
+    source: "src/server.ts branch: path === /api/docs",
+  },
+  {
+    id: "api-keys-list",
+    method: "GET",
+    path: "/api/api-keys",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "Lists the caller's own keys (hashes only).",
+    source: "src/server.ts branch: GET /api/api-keys",
+  },
+  {
+    id: "api-keys-mint",
+    method: "POST",
+    path: "/api/api-keys",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth plus step-up gate: stale or legacy sessions return 403 until re-login. NOT additionally PDP-gated.",
+    source: "src/server.ts branch: POST /api/api-keys",
+  },
+  {
+    id: "api-keys-delete",
+    method: "DELETE",
+    path: "/api/api-keys/:id",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "Deletes the caller's own key; deliberately ungated (revocation is a safety action).",
+    source: "src/server.ts branch: DELETE /api/api-keys/:id",
+    prefixes: ["/api/api-keys/"],
+  },
+  {
+    id: "mcp",
+    method: "ANY",
+    path: "/mcp",
+    aliases: ["/api/mcp"],
+    kind: "http",
+    auth: "session-or-apikey",
+    authNote: "Session or valid API key (Bearer); forwards to the caller's SEARCH_AGENT DO. GET, POST, and OPTIONS; the OPTIONS preflight is unauthenticated CORS.",
+    source: "src/server.ts branch: path === /mcp",
+  },
+  {
+    id: "mcp-scanner",
+    method: "ANY",
+    path: "/mcp/scanner",
+    aliases: [],
+    kind: "http",
+    auth: "payment-gated",
+    authNote: "No session auth — payment IS the access control (x402 paid tool). The session header only picks an instance; without one, traffic shares the public_scanner instance.",
+    source: "src/server.ts branch: path === /mcp/scanner",
+    prefixes: ["/mcp/scanner/"],
+  },
+  {
+    id: "payments-agentic",
+    method: "ANY",
+    path: "/api/payments/agentic/*",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth (401); the OPTIONS preflight is handled by the earlier CORS branch.",
+    source: "src/server.ts branch: path.startsWith /api/payments/agentic/",
+    prefixes: ["/api/payments/agentic/"],
+  },
+  {
+    id: "premium",
+    method: "ANY",
+    path: "/api/premium/*",
+    aliases: [],
+    kind: "http",
+    auth: "session-optional",
+    authNote: "Session optional at the edge: anonymous callers route to the shared gateway instance; x402 payment headers (PAYMENT-REQUIRED) signal paid gating downstream.",
+    source: "src/server.ts branch: path.startsWith /api/premium/",
+    prefixes: ["/api/premium/"],
+  },
+  {
+    id: "payments-webhook",
+    method: "ANY",
+    path: "/api/payments/webhook",
+    aliases: ["/payments/webhook"],
+    kind: "http",
+    auth: "webhook-signature",
+    authNote: "No edge session check; forwarded to the system_webhook_receiver DO, whose listener is HMAC-verified (Stripe, PayPal, Lemon Squeezy).",
+    source: "src/server.ts branch: path.startsWith /api/payments/webhook",
+    prefixes: ["/api/payments/webhook"],
+  },
+  {
+    id: "trading-email-inbound",
+    method: "POST",
+    path: "/api/trading/email/inbound",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; forwards into the caller's agent.",
+    source: "src/server.ts branch: POST /api/trading/email/inbound",
+  },
+  {
+    id: "trading-email-approve",
+    method: "GET",
+    path: "/api/trading/email/approve",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote:
+      "No session: the #149-style signed approval link token is the authorization (#1262 Phase 5 — HMAC + expiry + login binding). The worker verifies the token fast-fail, then forwards to the Orchestrator DO /trading/email/approve-link, which verifies again (signature + expiry + principal-map re-check) and executes through the shared approval engine. A missing, tampered, or expired token renders a failure page and executes nothing.",
+    source: "src/server.ts branch: GET /api/trading/email/approve",
+  },
+  {
+    id: "trading-slack-test",
+    method: "POST",
+    path: "/api/trading/slack/test",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; forwards into the caller's agent.",
+    source: "src/server.ts branch: POST /api/trading/slack/test",
+  },
+  {
+    id: "trading-slack-link",
+    method: "POST",
+    path: "/api/trading/slack/link",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote:
+      "requireAuth; confirms a Slack connect code (#1262 Phase 1) — binds the code's Slack user (team_id + user_id) to the SESSION's login at tier trade. Self-binding only; the login is never taken from the request body.",
+    source: "src/server.ts branch: POST /api/trading/slack/link",
+  },
+  {
+    id: "trading-voice-turn",
+    method: "POST",
+    path: "/api/trading/voice/turn",
+    aliases: ["/api/trading/voice/test"],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; forwards into the caller's agent.",
+    source: "src/server.ts branch: POST /api/trading/voice/turn",
+  },
+  {
+    id: "trading-voice-greeting",
+    method: "GET",
+    path: "/api/trading/voice/greeting",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; forwards into the caller's agent.",
+    source: "src/server.ts branch: GET /api/trading/voice/greeting",
+  },
+  {
+    id: "trading-options",
+    method: "GET|POST",
+    path: "/api/trading/options/*",
+    aliases: ["/trading/options/*"],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; GET or POST only.",
+    source: "src/server.ts branch: path.startsWith /api/trading/options/",
+    prefixes: ["/api/trading/options/", "/trading/options/"],
+  },
+  {
+    id: "schedules",
+    method: "ANY",
+    path: "/api/schedules",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; forwards to the caller's SEARCH_AGENT DO with the /api prefix stripped.",
+    source: "src/server.ts branch: path.startsWith /api/schedules",
+  },
+  {
+    id: "voice-ws",
+    method: "WS",
+    path: "/voice/trade",
+    aliases: ["/api/trading/voice/ws"],
+    kind: "websocket",
+    auth: "session",
+    authNote: "WebSocket upgrade plus requireAuth.",
+    source: "src/server.ts branch: WebSocket /voice/trade",
+  },
+  {
+    id: "quotes-ws",
+    method: "WS",
+    path: "/api/market/quotes/ws",
+    aliases: ["/api/foss/quotes/ws"],
+    kind: "websocket",
+    auth: "public",
+    authNote: "WebSocket upgrade; no session check in the handler.",
+    source: "src/server.ts branch: WebSocket /api/market/quotes/ws",
+  },
+  {
+    id: "quotes-get",
+    method: "GET",
+    path: "/api/market/quotes",
+    aliases: ["/api/foss/quotes"],
+    kind: "http",
+    auth: "public",
+    authNote: "Batch quotes; no session check in the handler.",
+    source: "src/server.ts branch: GET /api/market/quotes",
+  },
+  {
+    id: "browser-snapshot",
+    method: "POST",
+    path: "/api/browser/snapshot",
+    aliases: ["/browser/snapshot"],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth.",
+    source: "src/server.ts branch: POST /api/browser/snapshot",
+  },
+  {
+    id: "browser-txsnap",
+    method: "POST",
+    path: "/api/browser/transaction-snap",
+    aliases: ["/browser/transaction-snap", "/api/browser/snap/transaction"],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth.",
+    source: "src/server.ts branch: POST /api/browser/transaction-snap",
+  },
+  {
+    id: "slack-commands",
+    method: "POST",
+    path: "/slack/commands",
+    aliases: ["/slack/slash"],
+    kind: "http",
+    auth: "slack-signature",
+    authNote: "Slack signature verification mandatory; unconfigured verification returns the gate response.",
+    source: "src/server.ts branch: POST /slack/commands",
+  },
+  {
+    id: "slack-events",
+    method: "POST",
+    path: "/slack",
+    aliases: ["/slack/events"],
+    kind: "http",
+    auth: "slack-signature",
+    authNote: "Slack signature verification mandatory; unconfigured verification returns the gate response.",
+    source: "src/server.ts branch: POST /slack",
+  },
+  {
+    id: "slack-interactions",
+    method: "POST",
+    path: "/slack/interactions",
+    aliases: [],
+    kind: "http",
+    auth: "slack-signature",
+    authNote: "Slack signature verification mandatory; unconfigured verification returns the gate response.",
+    source: "src/server.ts branch: POST /slack/interactions",
+  },
+  {
+    id: "slack-install",
+    method: "ANY",
+    path: "/slack/install",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote: "Slack OAuth install flow.",
+    source: "src/server.ts branch: path === /slack/install",
+  },
+  {
+    id: "slack-oauth-callback",
+    method: "ANY",
+    path: "/slack/oauth_callback",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote: "Slack OAuth callback flow.",
+    source: "src/server.ts branch: path === /slack/oauth_callback",
+  },
+  {
+    id: "trade-approve",
+    method: "ANY",
+    path: "/trade/approve",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; downstream DO HITL gate; deliberately NOT PDP-gated.",
+    source: "src/server.ts branch: path === /trade/approve",
+  },
+  {
+    id: "clear-reset",
+    method: "ANY",
+    path: "/clear",
+    aliases: ["/reset", "/api/clear", "/api/reset"],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth.",
+    source: "src/server.ts branch: path === /clear",
+  },
+  {
+    id: "options-flows",
+    method: "ANY",
+    path: "/api/options/flows/*",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote: "No session check in the handler (live and historical sub-paths). Listed as public; whether that is intended is not asserted here.",
+    source: "src/server.ts branch: path.startsWith /api/options/flows/",
+    prefixes: ["/api/options/flows/"],
+  },
+  {
+    id: "api-forwarder",
+    method: "ANY",
+    path: "/api/*",
+    aliases: [],
+    kind: "catchall",
+    auth: "session",
+    authNote: "Catch-all forwarder to the caller's SEARCH_AGENT DO — NOT an endpoint. Anything under /api not matched above lands here; immediate-sync sub-paths (clear, reset, memory, audit, chat) are served inline.",
+    source: "src/server.ts branch: path.startsWith /api/",
+    prefixes: ["/api/"],
+  },
+  {
+    id: "checkout-sandbox",
+    method: "ANY",
+    path: "/checkout/sandbox",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote: "Sandbox terminal page; no session check in the handler.",
+    source: "src/server.ts branch: path === /checkout/sandbox",
+  },
+  {
+    id: "index",
+    method: "ANY",
+    path: "/",
+    aliases: ["/index.html"],
+    kind: "http",
+    auth: "public",
+    authNote: "App shell page; session optional (renders the login view or the app).",
+    source: "src/server.ts branch: path === /",
+  },
+];
+
+export interface IaaaAuditEventEntry {
+  action: string;
+  decision: string;
+  outcome: string;
+  /** True only when a live call site records this event. */
+  emitted: boolean;
+  builder: string;
+  emitter: string;
+  fields: string[];
+  /** API catalog ids that emit this event (empty when unemitted). */
+  endpoints: string[];
+}
+
+export const IAAA_AUDIT_EVENT_CATALOG: IaaaAuditEventEntry[] = [
+  {
+    action: "auth.login",
+    decision: "allow",
+    outcome: "succeeded",
+    emitted: true,
+    builder: "src/security/iaaaAuthAudit.ts buildLoginSuccessAuditEventInput",
+    emitter: "src/security/iaaaLogin.ts post-login seam on wired login success",
+    fields: [
+      "timestamp",
+      "type (auth.login)",
+      "actorPrincipalId (internalUserId)",
+      "actorType (human)",
+      "initiatingPrincipalId",
+      "tenantId",
+      "correlationId (session id)",
+      "action",
+      "decision",
+      "policyVersion (iaaa-audit-1)",
+      "outcome",
+    ],
+    endpoints: ["auth-login", "auth-callback", "auth-login-provider", "auth-callback-provider"],
+  },
+  {
+    action: "auth.login",
+    decision: "deny",
+    outcome: "failed",
+    emitted: true,
+    builder: "src/security/iaaaAuthAudit.ts buildLoginFailureAuditEventInput",
+    emitter: "src/security/iaaaLogin.ts wired callback on missing subject id or binding failure",
+    fields: [
+      "timestamp",
+      "type (auth.login)",
+      "actorPrincipalId (unknown)",
+      "actorType (human)",
+      "initiatingPrincipalId (unknown)",
+      "tenantId",
+      "correlationId",
+      "action",
+      "decision",
+      "policyVersion (iaaa-audit-1)",
+      "outcome",
+      "errorCode (wired login failure code)",
+    ],
+    endpoints: ["auth-login", "auth-callback", "auth-login-provider", "auth-callback-provider"],
+  },
+  {
+    action: "auth.logout",
+    decision: "allow",
+    outcome: "succeeded",
+    emitted: true,
+    builder: "src/security/iaaaAuthAudit.ts buildLogoutAuditEventInput",
+    emitter: "src/security/githubOAuth.ts handleLogout, recorded BEFORE deleteSession, only when an audit store and tenant are supplied and the session is wired",
+    fields: [
+      "timestamp",
+      "type (auth.logout)",
+      "actorPrincipalId (internalUserId)",
+      "actorType (human)",
+      "initiatingPrincipalId",
+      "tenantId",
+      "correlationId (session id)",
+      "action",
+      "decision",
+      "policyVersion (iaaa-audit-1)",
+      "outcome",
+    ],
+    endpoints: ["auth-logout"],
+  },
+  {
+    action: "audit.access",
+    decision: "allow",
+    outcome: "succeeded",
+    emitted: false,
+    builder: "src/security/iaaaAudit.ts createAuditAccessEvent and recordAuditAccess",
+    emitter: "",
+    fields: [
+      "timestamp",
+      "type (equals the access value)",
+      "actorPrincipalId (reader)",
+      "actorType",
+      "initiatingPrincipalId",
+      "tenantId",
+      "workspaceId",
+      "correlationId",
+      "action (equals the access value)",
+      "decision",
+      "policyVersion",
+      "outcome",
+    ],
+    endpoints: [],
+  },
+];
+
+export type CorrelationRelation = "transport" | "shares-source" | "emits" | "unmapped";
+
+export interface CorrelationRow {
+  kind: "endpoint-mcp" | "event-endpoint";
+  left: string;
+  /** Null means UNMAPPED — no counterpart exists, and none is forced. */
+  right: string | null;
+  relation: CorrelationRelation;
+  source: string;
+  note: string;
+}
+
+const MCP_TRANSPORT_SOURCE =
+  "src/server.ts /mcp branch forwards to the SEARCH_AGENT DO; src/client/mcpEndpointsData.ts MCP_TOOLS_CATALOG";
+
+const MCP_UNMAPPED_NOTE =
+  "No worker HTTP route in the API catalog is this tool's handler; the tool executes inside the agent behind the MCP transport.";
+
+const MCP_UNMAPPED_NOTES: Record<string, string> = {
+  execute_nlq:
+    "Not the /nlq/webhook inbound webhook: execute_nlq submits an in-agent NLQ job, a different path from the signed webhook.",
+  knowledge_search:
+    "Not /api/memory/search: knowledge_search uses AI Search RAG, while memory search uses Vectorize vector search — related systems, not one handler.",
+};
+
+export const IAAA_CORRELATION_ROWS: CorrelationRow[] = [
+  // Every catalog tool is reachable through the MCP transport (one row
+  // per tool, generated from the reused catalog — not duplicated data).
+  ...MCP_TOOLS_CATALOG.map((tool): CorrelationRow => ({
+    kind: "endpoint-mcp",
+    left: "mcp",
+    right: tool.name,
+    relation: "transport",
+    source: MCP_TRANSPORT_SOURCE,
+    note: "Transport only: the tool is served through the MCP endpoint; it does not share a worker HTTP handler.",
+  })),
+  // The one shares-source mapping: both read the same Kv audit store.
+  {
+    kind: "endpoint-mcp",
+    left: "iaaa-overview",
+    right: "get_audit_events",
+    relation: "shares-source",
+    source: "src/security/iaaaAuditStore.ts single key iaaa-audit:events; src/client/mcpEndpointsData.ts",
+    note: "Both read the same audit store, but they are not one handler — and the MCP tool is gated by the transport's session-or-key check, not by the overview route's platform-admin rule.",
+  },
+  // Every catalog tool except get_audit_events has no worker HTTP
+  // handler counterpart beyond the transport itself.
+  ...MCP_TOOLS_CATALOG.filter((tool) => tool.name !== "get_audit_events").map(
+    (tool): CorrelationRow => ({
+      kind: "endpoint-mcp",
+      left: "mcp",
+      right: tool.name,
+      relation: "unmapped",
+      source: MCP_TRANSPORT_SOURCE,
+      note: MCP_UNMAPPED_NOTES[tool.name] ?? MCP_UNMAPPED_NOTE,
+    }),
+  ),
+  // Event to endpoint: emitted events cite their emitting endpoints.
+  {
+    kind: "event-endpoint",
+    left: "auth.login",
+    right: "auth-login-provider",
+    relation: "emits",
+    source: "src/security/iaaaLogin.ts wired callback audit seam",
+    note: "Generic provider callbacks use the same wired-callback options, so the same events are emitted.",
+  },
+  {
+    kind: "event-endpoint",
+    left: "auth.login",
+    right: "auth-callback-provider",
+    relation: "emits",
+    source: "src/security/iaaaLogin.ts wired callback audit seam",
+    note: "Generic provider callbacks use the same wired-callback options, so the same events are emitted.",
+  },
+  {
+    kind: "event-endpoint",
+    left: "auth.logout",
+    right: "auth-logout",
+    relation: "emits",
+    source: "src/security/githubOAuth.ts handleLogout",
+    note: "Recorded before deleteSession, and only when an audit store and tenant are supplied and the session is wired.",
+  },
+  // Gap rows: occurrences with no audit event. The left side names the
+  // gap item (also listed in IAAA_CATALOG_GAPS), not an event action.
+  {
+    kind: "event-endpoint",
+    left: "PDP denial",
+    right: "etrade-start",
+    relation: "unmapped",
+    source: "src/server.ts etrade PDP branches",
+    note: "UNMAPPED: the 403 returns with no audit call at the denial site.",
+  },
+  {
+    kind: "event-endpoint",
+    left: "PDP denial",
+    right: "etrade-verifier",
+    relation: "unmapped",
+    source: "src/server.ts etrade PDP branches",
+    note: "UNMAPPED: the 403 returns with no audit call at the denial site.",
+  },
+  {
+    kind: "event-endpoint",
+    left: "Step-up denial",
+    right: "api-keys-mint",
+    relation: "unmapped",
+    source: "src/server.ts api-keys mint branch",
+    note: "UNMAPPED: the 403 for stale or legacy sessions returns with no audit call.",
+  },
+  {
+    kind: "event-endpoint",
+    left: "Idle-expiry rejection",
+    right: null,
+    relation: "unmapped",
+    source: "src/security/iaaaEnforcement.ts wired session validation",
+    note: "UNMAPPED: idle-expiry rejection applies to every wired route's validation and has no single endpoint and no audit call.",
+  },
+  {
+    kind: "event-endpoint",
+    left: "Bootstrap grant",
+    right: null,
+    relation: "unmapped",
+    source: "src/security/iaaaBootstrap.ts provisionBootstrapAdmins",
+    note: "UNMAPPED: genesis and ordinary bootstrap grants write memberships with no audit call; they occur at login, not on a dedicated endpoint.",
+  },
+  {
+    kind: "event-endpoint",
+    left: "audit.access",
+    right: null,
+    relation: "unmapped",
+    source: "src/security/iaaaAudit.ts createAuditAccessEvent",
+    note: "UNMAPPED: the builder exists but no live call site was found, so no endpoint emits this event.",
+  },
+];
+
+export interface CatalogGap {
+  area: "mcp" | "iaaa" | "api";
+  item: string;
+  detail: string;
+  source: string;
+}
+
+const MCP_COMMAND_GAP_DETAIL =
+  "Server command class exists but is absent from the client MCP catalog; whether it is wired into the live MCP transport was not verified from the catalog alone, so it is reported here, not added to the tab.";
+
+export const IAAA_CATALOG_GAPS: CatalogGap[] = [
+  {
+    area: "iaaa",
+    item: "audit.access",
+    detail: "The builder exists (createAuditAccessEvent and recordAuditAccess) but no live call site was found — no read or export is currently recorded as an audit event.",
+    source: "src/security/iaaaAudit.ts",
+  },
+  {
+    area: "iaaa",
+    item: "PDP denial",
+    detail: "When IAAA_PDP_ENABLED is on and a wired session lacks integration:connect, the 403 on etrade start, oauth start, and verifier returns with no audit call at the denial site.",
+    source: "src/server.ts etrade PDP branches",
+  },
+  {
+    area: "iaaa",
+    item: "Step-up denial",
+    detail: "POST /api/api-keys mint returns 403 for stale or legacy sessions with no audit call.",
+    source: "src/server.ts api-keys mint branch",
+  },
+  {
+    area: "iaaa",
+    item: "Idle-expiry rejection",
+    detail: "Wired session validation rejects idle-expired sessions with no audit call.",
+    source: "src/security/iaaaEnforcement.ts",
+  },
+  {
+    area: "iaaa",
+    item: "Bootstrap grant",
+    detail: "Genesis and ordinary bootstrap provisioning write memberships with no audit call.",
+    source: "src/security/iaaaBootstrap.ts",
+  },
+  {
+    area: "iaaa",
+    item: "Alias recording",
+    detail: "Login alias recording writes Kv alias keys only; it is not an audit event.",
+    source: "src/security/iaaaMigration.ts recordLoginAlias",
+  },
+  {
+    area: "iaaa",
+    item: "Genesis marker",
+    detail: "Setting the platform-genesis marker is a Kv write only, not an audit event.",
+    source: "src/security/iaaaGithubEndToEnd.ts",
+  },
+  {
+    area: "iaaa",
+    item: "Logout audit skip",
+    detail: "The logout hook records nothing for legacy sessions or when no audit store or tenant is supplied — the skip is silent.",
+    source: "src/security/githubOAuth.ts handleLogout",
+  },
+  {
+    area: "mcp",
+    item: "screen_options",
+    detail: "Paid scanner tool served by /mcp/scanner but absent from the client MCP catalog.",
+    source: "src/services/cloudflareWalletsScanner.ts",
+  },
+  {
+    area: "mcp",
+    item: "scanner_status",
+    detail: "Free scanner tool served by /mcp/scanner but absent from the client MCP catalog.",
+    source: "src/services/cloudflareWalletsScanner.ts",
+  },
+  {
+    area: "mcp",
+    item: "get_scan_job",
+    detail: "Scanner tool served by /mcp/scanner but absent from the client MCP catalog.",
+    source: "src/services/cloudflareWalletsScanner.ts",
+  },
+  {
+    area: "mcp",
+    item: "list_scan_jobs",
+    detail: "Scanner tool served by /mcp/scanner but absent from the client MCP catalog.",
+    source: "src/services/cloudflareWalletsScanner.ts",
+  },
+  {
+    area: "mcp",
+    item: "query_platform_knowledge",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/commands.ts QueryPlatformKnowledgeCommand",
+  },
+  {
+    area: "mcp",
+    item: "etrade_auth_status",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/etradeCommands.ts",
+  },
+  {
+    area: "mcp",
+    item: "etrade_account_discovery",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/etradeCommands.ts",
+  },
+  {
+    area: "mcp",
+    item: "browser_inspect_page",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/cloudflareAgentCommands.ts BrowserInspectCommand",
+  },
+  {
+    area: "mcp",
+    item: "browser_screenshot",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/cloudflareAgentCommands.ts BrowserScreenshotCommand",
+  },
+  {
+    area: "mcp",
+    item: "dispatch_trading_webhook",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/cloudflareAgentCommands.ts DispatchTradingWebhookCommand",
+  },
+  {
+    area: "mcp",
+    item: "run_sandbox_command",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/cloudflareAgentCommands.ts SandboxRunCommand",
+  },
+  {
+    area: "mcp",
+    item: "run_quant_backtest",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/cloudflareAgentCommands.ts QuantBacktestCommand",
+  },
+  {
+    area: "mcp",
+    item: "think_trade_validation",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/cloudflareAgentCommands.ts ThinkTradeValidationCommand",
+  },
+  {
+    area: "mcp",
+    item: "ai_search_financial_docs",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/cloudflareAgentCommands.ts AISearchFinancialDocsCommand",
+  },
+  {
+    area: "mcp",
+    item: "execute_durable_twap",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/cloudflareAgentCommands.ts DurableTWAPOrderCommand",
+  },
+  {
+    area: "mcp",
+    item: "paid_options_screener",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/agenticPaymentCommands.ts PaidOptionsScreenerCommand",
+  },
+  {
+    area: "mcp",
+    item: "paid_market_research",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/agenticPaymentCommands.ts PaidMarketResearchCommand",
+  },
+  {
+    area: "mcp",
+    item: "agentic_wallet_status",
+    detail: MCP_COMMAND_GAP_DETAIL,
+    source: "src/mcp/agenticPaymentCommands.ts AgenticWalletStatusCommand",
+  },
+  {
+    area: "api",
+    item: "Public no-session handlers",
+    detail: "Several worker handlers perform no session check: qa investigate, memory search, schedule family, options flows, market quotes (HTTP and WebSocket), and the checkout sandbox page. They are listed as public in the catalog; whether each is intentionally public is not asserted here.",
+    source: "src/server.ts route branches",
+  },
+  {
+    area: "api",
+    item: "A2A per-agent enforcement",
+    detail: "The A2A dispatcher performs no edge auth; whether individual agent handleA2A implementations enforce auth was not verified.",
+    source: "src/a2a/index.ts handleA2A",
+  },
+  {
+    area: "api",
+    item: "REST_APIS_CATALOG drift",
+    detail: "A separate client REST catalog exists for McpApiExplorer and was NOT used for the API tab, which is derived from server.ts. The two may drift; reconciling them is out of scope for this change.",
+    source: "src/client/mcpEndpointsData.ts REST_APIS_CATALOG",
+  },
+];

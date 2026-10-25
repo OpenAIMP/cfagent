@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AgentName, Env } from "../types";
 import { AGENT_DIDS, createDidAttestation, getUserDid } from "./did";
 import { PaymentGatewayService, type SupportedGateway } from "../services/payments";
+import { registerDraftOwner } from "../payments/draftOwners";
 // Issue #278: single-owner TTL cache for AI Search queries + durable
 // scheduled-run reports searchable through this same path.
 import { getAiSearchCache, aiSearchCacheKey } from "../services/aiSearchCache";
@@ -147,6 +148,7 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
         authorizerDid: userDid,
       });
 
+      let inserted = false;
       try {
         sql.exec(
           "INSERT OR REPLACE INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -167,8 +169,16 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
           now,
           now
         );
+        inserted = true;
       } catch (err) {
         console.error("Failed to insert transaction draft into SQLite:", err);
+      }
+
+      if (inserted) {
+        // Issue #932: record this instance as the draft's owner so a
+        // gateway settlement webhook (received by the shared
+        // system_webhook_receiver instance) can be routed back here.
+        await registerDraftOwner(env, draftId, sessionId);
       }
 
       const payload = {

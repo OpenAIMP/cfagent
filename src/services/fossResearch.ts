@@ -31,6 +31,7 @@ import type {
 } from "../types";
 import type { IFossMarketDataProvider } from "../patterns/interfaces";
 import { AGENT_DIDS, createDidAttestationSync } from "../agents/did";
+import { getCachedQuote, setCachedQuote } from "./quoteCache";
 
 export interface StockMarketProfile {
   symbol: string;
@@ -1867,6 +1868,9 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
 
   async getQuote(symbol: string): Promise<FossQuote> {
     const cleanSym = symbol.toUpperCase().trim();
+    // #411: serve repeat quotes from the 5-minute in-memory cache.
+    const cachedQuote = getCachedQuote<FossQuote>(`yahoo:${cleanSym}`);
+    if (cachedQuote) return cachedQuote;
     const urls = [
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=1d&range=1mo`,
       `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=1d&range=1mo`,
@@ -1932,7 +1936,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
               // Ignore enrichment error
             }
 
-            return {
+            const liveQuote: FossQuote = {
               symbol: meta.symbol || cleanSym,
               provider: "yfinance",
               provenance: "live",
@@ -1956,6 +1960,9 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
               timestamp: new Date().toISOString(),
               currency: meta.currency || "USD",
             };
+            // #411: only live results are cached — never the fallback below.
+            setCachedQuote(`yahoo:${cleanSym}`, liveQuote);
+            return liveQuote;
           }
         }
       } catch {
@@ -1964,6 +1971,88 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
     }
 
     return this.getQuoteSync(symbol);
+  }
+
+  /**
+   * Issue #1184 (#1173 R2): batch quotes via Yahoo's v7 quote
+   * endpoint — ONE request for a whole symbol chunk using the crumb
+   * session, instead of 2–3 requests per symbol (the burst that got
+   * the 2026-10-23 NASDAQ100 screen throttled to 25 of 100). Returns
+   * only genuinely live quotes; symbols Yahoo omits are absent and
+   * the caller falls back per-symbol. Throws when the batch itself
+   * fails (no session / HTTP error / empty payload) so the caller's
+   * retry + fallback policy decides what happens next. RSI/MACD are
+   * deliberately unset here: technicals come from the history leg
+   * for every provider (parity with E*TRADE quotes, whose snapshots
+   * carry no indicators either). Market cap and trailing PE ride the
+   * batch payload — no per-symbol quoteSummary call is needed.
+   */
+  async getQuotes(symbols: string[]): Promise<FossQuote[]> {
+    const wanted = [...new Set(symbols.map((s) => s.toUpperCase().trim()).filter(Boolean))];
+    if (wanted.length === 0) return [];
+    const session = await getYahooCrumbSession();
+    if (!session) {
+      throw new Error("Yahoo batch quotes unavailable: no crumb session");
+    }
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(wanted.join(","))}&crumb=${encodeURIComponent(session.crumb)}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "application/json",
+        Cookie: session.cookie,
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`Yahoo batch quotes HTTP ${res.status}`);
+    }
+    const data = (await res.json().catch(() => ({}))) as any;
+    const rows: any[] = Array.isArray(data?.quoteResponse?.result) ? data.quoteResponse.result : [];
+    if (rows.length === 0) {
+      throw new Error("Yahoo batch quotes returned no results");
+    }
+    const out: FossQuote[] = [];
+    for (const r of rows) {
+      const symbol = String(r?.symbol || "").toUpperCase();
+      const price = Number(r?.regularMarketPrice);
+      if (!symbol || !wanted.includes(symbol) || !(price > 0)) continue;
+      const prevCloseRaw = Number(r?.regularMarketPreviousClose);
+      const prevClose = prevCloseRaw > 0 ? prevCloseRaw : price;
+      const changeRaw = Number(r?.regularMarketChange);
+      const change = Number.isFinite(changeRaw) && r?.regularMarketChange !== undefined
+        ? changeRaw
+        : Number((price - prevClose).toFixed(2));
+      const pctRaw = Number(r?.regularMarketChangePercent);
+      const changePercent = Number.isFinite(pctRaw) && r?.regularMarketChangePercent !== undefined
+        ? pctRaw
+        : prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+      const quote: FossQuote = {
+        symbol,
+        provider: "yfinance",
+        provenance: "live",
+        companyName: r?.longName || r?.shortName || `${symbol} Inc.`,
+        price,
+        lastPrice: price,
+        change,
+        changePercent,
+        bid: Number(r?.bid || Number((price - 0.05).toFixed(2))),
+        ask: Number(r?.ask || Number((price + 0.05).toFixed(2))),
+        volume: Number(r?.regularMarketVolume || 0),
+        open: Number(r?.regularMarketOpen || price),
+        high: Number(r?.regularMarketDayHigh || price),
+        low: Number(r?.regularMarketDayLow || price),
+        previousClose: prevClose,
+        vwap: price,
+        trailingPE: Number(r?.trailingPE) || undefined,
+        marketCap: Number(r?.marketCap) || undefined,
+        timestamp: new Date().toISOString(),
+        currency: r?.currency || "USD",
+      };
+      // #411 cohesion: batch results populate the same 5-minute
+      // per-symbol cache the single-quote path reads.
+      setCachedQuote(`yahoo:${symbol}`, quote);
+      out.push(quote);
+    }
+    return out;
   }
 
   getFundamentalsSync(symbol: string): FossCompanyFundamentals {

@@ -11,6 +11,13 @@
  * delegation and the premium delegation):
  *   GET      /payments/agentic/wallet             (wallet status & metrics)
  *   GET|POST /payments/agentic/auto-approve-limit (HITL threshold)
+ *   POST     /payments/agentic/ledger/record      (issue #896: PaymentsAgent
+ *                                                  write-through to the ledger
+ *                                                  of record, mas_transactions)
+ *   GET      /payments/agentic/ledger/budget-state (issue #896: BudgetGuard
+ *                                                  state derived from the ledger)
+ *   GET      /payments/agentic/ledger/payments    (issue #896: PaymentsAgent-
+ *                                                  origin rows read back)
  *
  * Each route constructs the ETradeAgenticPaymentService per request,
  * exactly as the inline block did. The handler ends with an explicit
@@ -24,6 +31,14 @@
  */
 
 import { ETradeAgenticPaymentService } from "../../services/agenticPayments";
+import {
+  buildLedgerTransaction,
+  deriveBudgetGuardState,
+  findPaymentsAgentRowByKey,
+  isPaymentsAgentRow,
+  toPaymentRecord,
+} from "../../payments/ledger";
+import { AGENT_DIDS } from "../did";
 import type { DatabaseORM } from "../../orm";
 import type { AgentName, Env } from "../../types";
 
@@ -65,6 +80,108 @@ export async function handleAgenticPaymentsRoutes(
       return Response.json(status);
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to fetch wallet status" }, { status: 500 });
+    }
+  }
+
+  // Issue #896: PaymentsAgent ledger write-through. mas_transactions in
+  // THIS instance's store is the single payment ledger of record; the
+  // PaymentsAgent Durable Object no longer keeps its own blob ledger.
+  // The duplicate check and the insert below are deliberately
+  // synchronous with no await between them: this Durable Object is
+  // single-threaded, so check+insert is atomic here — two concurrent
+  // verified payments with distinct keys both persist, and a replayed
+  // key can never slip a second row past the facilitator-await window
+  // that broke the old read-modify-write blob ledger (#785).
+  if (path.endsWith("/payments/agentic/ledger/record") && request.method === "POST") {
+    try {
+      const body = (await request.json().catch(() => ({}))) as {
+        agentId?: unknown;
+        operation?: unknown;
+        amountCents?: unknown;
+        idempotencyKey?: unknown;
+        payer?: unknown;
+        proofSignature?: unknown;
+        createdAt?: unknown;
+      };
+      const agentId = typeof body.agentId === "string" ? body.agentId.trim() : "";
+      const operation = typeof body.operation === "string" ? body.operation.trim() : "";
+      const idempotencyKey =
+        typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
+      const amountCents = Number(body.amountCents);
+      if (!agentId || !operation || !idempotencyKey || !Number.isFinite(amountCents) || amountCents <= 0) {
+        return Response.json(
+          { error: "agentId, operation, idempotencyKey and a positive amountCents are required" },
+          { status: 400 }
+        );
+      }
+      const orm = ctx.getOrm();
+      const existing = findPaymentsAgentRowByKey(orm.transactions.findMany(), idempotencyKey);
+      if (existing) {
+        return Response.json({ duplicate: true, record: toPaymentRecord(existing) }, { status: 409 });
+      }
+      const tx = buildLedgerTransaction(
+        {
+          agentId,
+          operation,
+          amountCents: Math.floor(amountCents),
+          idempotencyKey,
+          payer: typeof body.payer === "string" ? body.payer : undefined,
+          proofSignature: typeof body.proofSignature === "string" ? body.proofSignature : undefined,
+          createdAt: typeof body.createdAt === "string" ? body.createdAt : undefined,
+        },
+        AGENT_DIDS.PAYMENTS
+      );
+      orm.transactions.create(tx);
+      ctx.audit("payments_agent.recorded", "payments", {
+        transactionId: tx.id,
+        agentId,
+        operation,
+        amountCents: Math.floor(amountCents),
+        idempotencyKey,
+      });
+      return Response.json({ duplicate: false, record: toPaymentRecord(tx) });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to record payment in ledger" }, { status: 500 });
+    }
+  }
+
+  // Issue #896: BudgetGuard state, derived from the ledger of record on
+  // every read — the guard has no second home to diverge into.
+  if (path.endsWith("/payments/agentic/ledger/budget-state") && request.method === "GET") {
+    try {
+      const agentId = url.searchParams.get("agentId");
+      const state = deriveBudgetGuardState(ctx.getOrm().transactions.findMany(), agentId);
+      return Response.json({ agentId, state });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to derive budget state" }, { status: 500 });
+    }
+  }
+
+  // Issue #896: PaymentsAgent-origin payments, read back from the ledger.
+  if (path.endsWith("/payments/agentic/ledger/payments") && request.method === "GET") {
+    try {
+      const rawLimit = Number(url.searchParams.get("limit") ?? 50);
+      const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(500, Math.floor(rawLimit))) : 50;
+      // Newest first. createdAt is millisecond-resolution, so two
+      // payments recorded in the same millisecond tie on timestamp;
+      // Array.sort is stable, which would then return them in
+      // insertion order (oldest first) and break the newest-first
+      // contract. Tie-break on insertion order, latest inserted first.
+      const payments = ctx
+        .getOrm()
+        .transactions.findMany()
+        .filter(isPaymentsAgentRow)
+        .map((row, index) => ({ row, index }))
+        .sort(
+          (a, b) =>
+            String(b.row.createdAt).localeCompare(String(a.row.createdAt)) ||
+            b.index - a.index
+        )
+        .slice(0, limit)
+        .map(({ row }) => toPaymentRecord(row));
+      return Response.json({ count: payments.length, payments });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to list ledger payments" }, { status: 500 });
     }
   }
 

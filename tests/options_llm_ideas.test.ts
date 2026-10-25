@@ -16,7 +16,7 @@ import {
   createOptionsIdeasReportXls,
   createRawOptionsIdeasXls,
   createRetrievedOptionsDataXls,
-} from "../src/client/optionsIdeasExport";
+} from "../src/client/runExport";
 
 const expirations: ETradeOptionExpireDate[] = [{ year: 2026, month: 11, day: 20, expiryType: "REGULAR" }];
 const chains: ETradeOptionChain[] = [{

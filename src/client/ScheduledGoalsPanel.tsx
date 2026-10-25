@@ -90,14 +90,14 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
   return (
     <div className={embedded ? "" : "scheduled-goals-panel"}>
       <h3 style={{ margin: "0 0 12px" }}>Scheduled goals</h3>
-      {error && <div style={{ color: "crimson", marginBottom: 12 }}>{error}</div>}
+      {error && <div style={{ color: "var(--color-danger)", marginBottom: 12 }}>{error}</div>}
       {loading && <div>Loading…</div>}
 
       {!loading && goals.length === 0 && <div style={{ opacity: 0.7 }}>No scheduled goals.</div>}
       {goals.map((g) => (
         <div
           key={g.id}
-          style={{ border: "1px solid #ddd", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}
+          style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}
         >
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <strong>{g.name}</strong>
@@ -108,7 +108,7 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
                 marginLeft: "auto",
                 fontSize: 12,
                 fontWeight: 700,
-                color: g.enabled ? "#1a7f37" : "#888",
+                color: g.enabled ? "var(--color-success)" : "var(--color-text-muted)",
               }}
             >
               {g.enabled ? "ENABLED" : "DISABLED"}
@@ -145,7 +145,7 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
       ))}
 
       <h3 style={{ margin: "20px 0 12px" }}>Add goal</h3>
-      {formError && <div style={{ color: "crimson", marginBottom: 8 }}>{formError}</div>}
+      {formError && <div style={{ color: "var(--color-danger)", marginBottom: 8 }}>{formError}</div>}
       <div style={{ display: "grid", gap: 8, maxWidth: 520 }}>
         <input style={inputStyle} placeholder="id (e.g. weekly-report)" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} />
         <input style={inputStyle} placeholder="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
@@ -162,13 +162,13 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
       <h3 style={{ margin: "20px 0 12px" }}>Recent ticks</h3>
       {ticks.length === 0 && <div style={{ opacity: 0.7 }}>No ticks recorded yet.</div>}
       {ticks.map((t, i) => (
-        <div key={`${t.timestamp}-${i}`} style={{ fontSize: 13, marginBottom: 8, borderBottom: "1px solid #eee", paddingBottom: 8 }}>
+        <div key={`${t.timestamp}-${i}`} style={{ fontSize: 13, marginBottom: 8, borderBottom: "1px solid var(--color-border-subtle)", paddingBottom: 8 }}>
           <div>
             <strong>{new Date(t.timestamp).toLocaleString()}</strong> — evaluated {t.goalsEvaluated},
             created {t.jobsCreated}, skipped {t.jobsSkipped}
           </div>
           {t.errors.length > 0 && (
-            <div style={{ color: "crimson", marginTop: 4 }}>
+            <div style={{ color: "var(--color-danger)", marginTop: 4 }}>
               {t.errors.map((e, j) => (
                 <div key={j}>{e}</div>
               ))}

@@ -5,6 +5,7 @@ import {
   type ComprehensiveRiskProfile,
 } from "./riskManagementEngine";
 import "./riskAnalysis.css";
+import { Tabs, TabPanel } from "../components/ui";
 
 export interface RiskAnalysisModalProps {
   isOpen: boolean;
@@ -105,36 +106,18 @@ export function RiskAnalysisModal({
         </div>
 
         {/* Tab Navigation */}
-        <div className="risk-tabs-nav">
-          <button
-            type="button"
-            className={`risk-tab-btn ${activeTab === "anatomy" ? "active" : ""}`}
-            onClick={() => setActiveTab("anatomy")}
-          >
-            📊 What is Involved (Risk Anatomy)
-          </button>
-          <button
-            type="button"
-            className={`risk-tab-btn ${activeTab === "playbook" ? "active" : ""}`}
-            onClick={() => setActiveTab("playbook")}
-          >
-            🛡️ How to Manage (Defense Playbook)
-          </button>
-          <button
-            type="button"
-            className={`risk-tab-btn ${activeTab === "scenarios" ? "active" : ""}`}
-            onClick={() => setActiveTab("scenarios")}
-          >
-            📉 Stress Tests & Tail Shocks
-          </button>
-          <button
-            type="button"
-            className={`risk-tab-btn ${activeTab === "ai" ? "active" : ""}`}
-            onClick={() => setActiveTab("ai")}
-          >
-            🤖 AI Risk Manager (Chat)
-          </button>
-        </div>
+        <Tabs
+          idBase="risk-analysis"
+          ariaLabel="Risk analysis views"
+          tabs={[
+            { id: "anatomy", icon: "📊", label: "What is Involved (Risk Anatomy)" },
+            { id: "playbook", icon: "🛡️", label: "How to Manage (Defense Playbook)" },
+            { id: "scenarios", icon: "📉", label: "Stress Tests & Tail Shocks" },
+            { id: "ai", icon: "🤖", label: "AI Risk Manager (Chat)" },
+          ]}
+          value={activeTab}
+          onChange={setActiveTab}
+        />
 
         {/* Body Content */}
         <div className="risk-modal-body">
@@ -176,7 +159,7 @@ export function RiskAnalysisModal({
           </div>
 
           {/* TAB 1: WHAT IS INVOLVED (ANATOMY) */}
-          {activeTab === "anatomy" && (
+          <TabPanel idBase="risk-analysis" tabId="anatomy" active={activeTab === "anatomy"}>
             <>
               {/* Greeks Sensitivity Matrix */}
               <div className="risk-section-box">
@@ -286,10 +269,10 @@ export function RiskAnalysisModal({
                 </div>
               )}
             </>
-          )}
+          </TabPanel>
 
           {/* TAB 2: HOW TO MANAGE (DEFENSE PLAYBOOK) */}
-          {activeTab === "playbook" && (
+          <TabPanel idBase="risk-analysis" tabId="playbook" active={activeTab === "playbook"}>
             <>
               {/* Dynamic Position Sizing Calculator */}
               <div className="risk-sizing-calculator">
@@ -404,10 +387,10 @@ export function RiskAnalysisModal({
                 </div>
               </div>
             </>
-          )}
+          </TabPanel>
 
           {/* TAB 3: STRESS TESTS & SCENARIOS */}
-          {activeTab === "scenarios" && (
+          <TabPanel idBase="risk-analysis" tabId="scenarios" active={activeTab === "scenarios"}>
             <div className="risk-section-box">
               <div className="risk-section-header">
                 <h3 className="risk-section-title">
@@ -475,10 +458,10 @@ export function RiskAnalysisModal({
                 </div>
               </div>
             </div>
-          )}
+          </TabPanel>
 
           {/* TAB 4: ASK AI AGENT */}
-          {activeTab === "ai" && (
+          <TabPanel idBase="risk-analysis" tabId="ai" active={activeTab === "ai"}>
             <div className="risk-ai-card">
               <div className="risk-ai-header">
                 <h3 className="risk-ai-title">
@@ -550,7 +533,7 @@ export function RiskAnalysisModal({
                 </div>
               </div>
             </div>
-          )}
+          </TabPanel>
         </div>
       </div>
     </div>

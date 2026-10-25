@@ -6,6 +6,7 @@ import { applyTypographyToDocument, getStoredFontScale, getStoredFontStyle, init
 import { applyDensityToDocument, getStoredDensity, initDensityListener } from "./designTokens";
 import "./styles.css";
 import "./tokens.css";
+import "./components/ui/primitives.css";
 
 // Startup applies preferences without writing storage.
 applyThemeToDocument(getStoredTheme());
@@ -33,7 +34,10 @@ const devUser = import.meta.env.DEV
 const user = (window as any).__USER__ || devUser;
 
 if (!user) {
-  window.location.replace("/auth/login");
+  // #1254 PR-B: the exact /auth/login route is deleted; the
+  // generic provider route for the default provider (github)
+  // is the login start.
+  window.location.replace("/auth/login/github");
 } else {
   createRoot(document.getElementById("root")!).render(
     <React.StrictMode>

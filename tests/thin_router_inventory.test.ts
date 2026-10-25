@@ -28,6 +28,62 @@
  *      14-15 (schema) and 44-47 (agentic payments), now attributed to
  *      their handlers).
  *
+ * Post-#359 growth, recorded deliberately: issue #126 (PR-E) added
+ * two route conditions — GET /etrade/options/discovery-runs (in
+ * handleEtradeOptionsRoutes, after scans/diff) and POST
+ * /schedules/trigger-discovery (in handleSchedulesRoutes, last) —
+ * bringing the inventory to 152. New routes update this pin; the
+ * pin's purpose (no UNINTENTIONAL route-surface change) is unchanged.
+ * Issue #341 added one more — GET /api/reports/research/browse (in
+ * handleReportsRoutes, after the trading/reports webhook handler and
+ * before the reports list) — bringing the inventory to 156.
+ * Issue #340 added GET /research/track-record (in
+ * handleScreenerResearchRoutes, after /research/history) — 157.
+ * Issue #273 added seven — POST /schedules/:id/pause, /resume and
+ * /trigger plus PUT /schedules/:id (in handleSchedulesRoutes, after
+ * the get-by-id block and before create) — bringing the inventory
+ * to 164.
+ * Issue #649 added one more — POST /reports/semantic-search (in
+ * handleReportsRoutes, after the /api/reports list) — bringing the
+ * inventory to 165; the pin update landed with #714 after the route
+ * was found unpinned during #686 post-merge verification.
+ * #714 also pinned five more routes that had landed unpinned:
+ * /trading/setup-catalog and /learnings ×2 (handleEtradeBroker-
+ * ActivityRoutes, after /etrade/lookup; #650, #706) and
+ * /options/strategy-reviews + /options/strategy-reviews/decide
+ * (handleEtradeOptionsRoutes, after /trading/options/config; #653)
+ * — bringing the inventory to 170. Issue #705 added one more —
+ * POST /reflection/run (handleEtradeBrokerActivityRoutes, last) —
+ * 171, pinned by #714 as well. Issue #1057 (consolidation S5) added
+ * one more — GET /runs (in handleReportsRoutes, after
+ * /reports/research/browse and before the reports list) — bringing
+ * the inventory to 172.
+ * Issue #1162 (epic #1096 Phase 6) added three more — GET
+ * /screening/activity and GET|POST /screening/controls (in
+ * handleScreenerResearchRoutes, after /research/evaluate, last in
+ * that handler) — bringing the pinned array to 192 entries.
+ * Issue #1201 (consolidation C1) added two more — POST
+ * /screening/goal-screen and POST /screening/backtest (in
+ * handleScreenerResearchRoutes, after /screening/controls, last in
+ * that handler) — bringing the pinned array to 197 entries.
+ * Issue #1246 (consolidation C2) added six more — GET
+ * /adaptation/candidates/approvals and GET
+ * /adaptation/candidates/verdicts (in handleScreenerResearchRoutes,
+ * after /adaptation/candidates/evaluations), and GET
+ * /screening/goals, POST /screening/goals/decide, GET
+ * /screening/reselection-proposals and GET /screening/outcomes (in
+ * handleScreenerResearchRoutes, after /screening/controls, before
+ * /screening/goal-screen) — bringing the pinned array to 203 entries.
+ * Issue #1278 (#1173 R5) added one more — POST
+ * /screener/report/regenerate (in handleScreenerResearchRoutes, after
+ * /screener/report.pdf, before /screener/report.xlsx) — bringing the
+ * pinned array to 204 entries.
+ * Issue #1361 (consolidation C5) added two more — GET
+ * /trading/options/comparison/outcomes and POST
+ * /trading/options/comparison (in handleEtradeOptionsRoutes, after
+ * /trading/options/compare, before /trading/options/recommend) —
+ * bringing the pinned array to 206 entries.
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -43,6 +99,7 @@ const HANDLER_FILE: Record<string, string> = {
   "handleAdsRevenueReferralsRoutes": "adsRevenueReferrals.ts",
   "handleReferralsAdsRoutes": "adsRevenueReferrals.ts",
   "handleAuditRoutes": "audit.ts",
+  "handleDataProviderRoutes": "dataProviders.ts",
   "handleAutopilotRoutes": "autopilot.ts",
   "handleMemoryResetRoutes": "memoryReset.ts",
   "handlePaymentsRoutes": "payments.ts",
@@ -67,6 +124,7 @@ const EXPECTED_DELEGATIONS = [
   "handleSchemaRoutes",
   "handleAdsRevenueReferralsRoutes",
   "handleAuditRoutes",
+  "handleDataProviderRoutes",
   "handleAutopilotRoutes",
   "handleMemoryResetRoutes",
   "handleReferralsAdsRoutes",
@@ -93,9 +151,12 @@ const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: endsWith(\"/trading/reports/confirm\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/email\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/webhook\")",
+  "handleReportsRoutes :: endsWith(\"/reports/research/browse\")",
+  "handleReportsRoutes :: endsWith(\"/runs\")",
   "handleReportsRoutes :: endsWith(\"/reports\")",
   "handleReportsRoutes :: === \"/reports\"",
   "handleReportsRoutes :: === \"/api/reports\"",
+  "handleReportsRoutes :: endsWith(\"/reports/semantic-search\")",
   "handleMcpChatNlqRoutes :: endsWith(\"/mcp\")",
   "handleMcpChatNlqRoutes :: === \"/chat\"",
   "handleMcpChatNlqRoutes :: === \"/api/chat\"",
@@ -110,7 +171,10 @@ const EXPECTED_INVENTORY = [
   "handleAuditRoutes :: endsWith(\"/audit\")",
   "handleAuditRoutes :: endsWith(\"/audit\")",
   "handleAuditRoutes :: endsWith(\"/audit/event\")",
+  "handleDataProviderRoutes :: === \"/data-providers\"",
+  "handleDataProviderRoutes :: === \"/data-providers/\"",
   "handleAutopilotRoutes :: endsWith(\"/autopilot\")",
+  "handleAutopilotRoutes :: endsWith(\"/autopilot/jobs\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/state\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/kill-switch\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/limits\")",
@@ -132,6 +196,9 @@ const EXPECTED_INVENTORY = [
   "handlePaymentsRoutes :: endsWith(\"/payments/webhook\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/wallet\")",
   "handleAgenticPaymentsRoutes :: includes(\"/payments/agentic/wallet\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/record\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/budget-state\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/payments\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/auto-approve-limit\")",
   "handleAgenticPaymentsRoutes :: includes(\"/payments/agentic/auto-approve-limit\")",
   "handlePremiumRoutes :: includes(\"/premium/options-scan\")",
@@ -151,12 +218,15 @@ const EXPECTED_INVENTORY = [
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/portfolio-risk/evaluate\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/portfolio-risk/correlation\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/portfolio-risk/size\")",
+  "handleEtradeBrokerRoutes :: endsWith(\"/etrade/portfolio-risk/bundle\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/think/evaluate\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/hedge/analyze\")",
+  "handleEtradeBrokerRoutes :: endsWith(\"/etrade/portfolio-repair/analyze\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/orders\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/orders/remote\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/orders/cancel\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/email/inbound\")",
+  "handleTradingIntegrationsRoutes :: endsWith(\"/trading/email/approve-link\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/slack/event\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/slack/interaction\")",
   "handleTradingIntegrationsRoutes :: endsWith(\"/trading/slack/command\")",
@@ -170,19 +240,26 @@ const EXPECTED_INVENTORY = [
   "handleEtradeBrokerActivityRoutes :: includes(\"/etrade/alerts/\")",
   "handleEtradeBrokerActivityRoutes :: includes(\"/etrade/alerts/\")",
   "handleEtradeBrokerActivityRoutes :: endsWith(\"/etrade/lookup\")",
+  "handleEtradeBrokerActivityRoutes :: endsWith(\"/trading/setup-catalog\")",
+  "handleEtradeBrokerActivityRoutes :: endsWith(\"/learnings\")",
+  "handleEtradeBrokerActivityRoutes :: endsWith(\"/learnings\")",
+  "handleEtradeBrokerActivityRoutes :: endsWith(\"/reflection/run\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/options/latest\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/chains\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/strategy\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/expire-dates\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/scans\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/scans/diff\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/discovery-runs\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/iv-history\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/profiles\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/profiles\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/llm-ideas\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/compare\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/compare\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/comparison/outcomes\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/comparison\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/recommend\")",
-  "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/catalog\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/catalog\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/strategies\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/best-trade\")",
@@ -190,6 +267,8 @@ const EXPECTED_INVENTORY = [
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/screen\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/unified\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/trading/options/config\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/options/strategy-reviews\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/options/strategy-reviews/decide\")",
   "handleWatchlistsRoutes :: endsWith(\"/etrade/watchlists\")",
   "handleWatchlistsRoutes :: endsWith(\"/etrade/watchlist/details\")",
   "handleWatchlistsRoutes :: endsWith(\"/etrade/watchlist/create\")",
@@ -214,14 +293,47 @@ const EXPECTED_INVENTORY = [
   "handleFossCompareScreenRoutes :: endsWith(\"/yfinance/screen\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/latest\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/report.pdf\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screener/report/regenerate\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screener/report.xlsx\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screener/report.csv\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen/report.pdf\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen/report.xlsx\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen/report.csv\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/options/report.xlsx\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/options/report.csv\")",
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.pdf\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/research/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/run\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/scheduled-tick\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/latest\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/history\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/research/track-record\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/weights\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/weights/run\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/generate\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/evaluate\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/evaluations\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/approvals\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/verdicts\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/approve\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/approve/decide\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/gate\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/start\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/advance\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/settings\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/settings\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/evaluate\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/activity\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/controls\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/controls\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/goals\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/goals/decide\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/reselection-proposals\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/outcomes\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/screening/backtest\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules\")",
   "handleSchedulesRoutes :: endsWith(\"/api/schedules\")",
   "handleSchedulesRoutes :: === \"/schedules\"",
@@ -230,13 +342,21 @@ const EXPECTED_INVENTORY = [
   "handleSchedulesRoutes :: includes(\"/schedules/cancel/\")",
   "handleSchedulesRoutes :: includes(\"/schedules/\")",
   "handleSchedulesRoutes :: includes(\"/schedules/\")",
+  "handleSchedulesRoutes :: includes(\"/schedules/\")",
+  "handleSchedulesRoutes :: endsWith(\"/pause\")",
+  "handleSchedulesRoutes :: includes(\"/schedules/\")",
+  "handleSchedulesRoutes :: endsWith(\"/resume\")",
+  "handleSchedulesRoutes :: includes(\"/schedules/\")",
+  "handleSchedulesRoutes :: endsWith(\"/trigger\")",
+  "handleSchedulesRoutes :: includes(\"/schedules/\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules/create\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-screen\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-renew\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-options-analysis\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-retention\")",
-  "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-iv-collection\")"
+  "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-iv-collection\")",
+  "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-discovery\")"
 ];
 
 function routeRequestBody(orchSrc: string): string {

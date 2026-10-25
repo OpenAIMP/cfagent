@@ -21,10 +21,19 @@ import type {
   ScreenedStockItem,
   ETradeQuote,
 } from "../../types";
-import { DatabaseORM } from "../../orm";
+import { DatabaseORM, requireOrm } from "../../orm";
 import { ETradeService } from "../../services/etrade";
-import { executeNaturalLanguageQuery, type NLQSchedulingPort } from "../../agents/nlq";
+import { executeNaturalLanguageQuery, planNLQ, type NLQSchedulingPort } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
+import {
+  channelPlanRefusal,
+  type ChannelNlqDeps,
+  type ChannelPrincipal,
+} from "../channels/intake";
+import {
+  approvePreviewedOrder,
+  cancelPreviewedOrder,
+} from "../channels/approval";
 import { getVoiceConfig, getTradingConstraints } from "../../config/etapiConfig";
 import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
 
@@ -130,14 +139,21 @@ export class ETradeVoiceTradingService {
    *  contexts with no hosting agent; scheduling turns then fail
    *  honestly instead of claiming success. */
   private schedulingPort?: NLQSchedulingPort;
+  /** Issue #1262 Phase 1: the resolved channel principal (voice adopts
+   *  the shared ChannelIntake contract type; behaviour unchanged — the
+   *  voice principal is the session login at tier "trade"). */
+  private principal?: ChannelPrincipal;
 
   constructor(
     envOrOrm: Env | DatabaseORM,
     ormOrEnv?: DatabaseORM | Env,
     private sessionId: string = "voice_agent_session",
-    schedulingPort?: NLQSchedulingPort
+    schedulingPort?: NLQSchedulingPort,
+    principal?: ChannelPrincipal,
+    private nlqDeps?: ChannelNlqDeps
   ) {
     this.schedulingPort = schedulingPort;
+    this.principal = principal;
     if (envOrOrm instanceof DatabaseORM || (envOrOrm && ("initializeSchema" in (envOrOrm as any) || "watchlists" in (envOrOrm as any)))) {
       this.orm = envOrOrm as DatabaseORM;
       this.env = ormOrEnv as Env;
@@ -155,8 +171,15 @@ export class ETradeVoiceTradingService {
     const cleanTranscript = normalizeVoiceTradingTranscript(rawTranscript, this.env);
     const timestamp = new Date().toISOString();
     const userLogin = request.userLogin || this.sessionId;
-    const authorizerDid = `did:user:voice:${userLogin}`;
-    const tradingService = new ETradeService(this.orm, this.env, this.sessionId);
+    const authorizerDid = this.principal?.authorizerDid ?? `did:user:voice:${userLogin}`;
+    // Issue #815: env-preserving construction (the pattern #781's
+    // pass-through sites adopted). ETradeService's orm-first overload
+    // assigns env from its first argument, so an undefined ORM would
+    // silently drop the caller's env for the approval/rejection paths
+    // that run before handleVoiceNLQ's requireOrm gate.
+    const tradingService = this.orm
+      ? new ETradeService(this.orm, this.env, this.sessionId)
+      : new ETradeService(this.env, undefined, this.sessionId);
 
     // 0. Conversational Open-Ended Single-Word Prompt (e.g. "Find", "Search", "Help", "Explore")
     if (/^(find|search|help|lookup|show me|explore|menu)$/i.test(cleanTranscript.trim())) {
@@ -210,18 +233,31 @@ export class ETradeVoiceTradingService {
     tradingService: ETradeService,
     timestamp: string
   ): Promise<VoiceTradingTurnResponse> {
-    let targetTrade: any = null;
-
-    if (this.orm?.trades) {
-      if (specifiedOrderId) {
-        targetTrade = this.orm.trades.findById(specifiedOrderId);
-      } else {
-        const pending = this.orm.trades.findMany({ where: { status: "previewed" }, orderBy: "created_at DESC", limit: 1 });
-        if (pending.length > 0) targetTrade = pending[0];
-      }
+    // Issue #1262 Phase 3: approval runs through the shared engine
+    // (trade-tier gate + draft lookup + execute/fallback). Voice
+    // principals are session logins at trade tier, so the gate passes
+    // exactly as before; the spoken rendering below is unchanged.
+    const outcome = await approvePreviewedOrder({
+      trades: this.orm?.trades ?? null,
+      executor: tradingService,
+      principal: this.principal,
+      authorizerDid,
+      userLogin: this.sessionId,
+      orderId: specifiedOrderId,
+      timestamp,
+    });
+    if (outcome.kind === "tier_refused") {
+      return {
+        success: false,
+        spokenText: outcome.reason,
+        displayMarkdown: `⚠️ **Voice Approval Refused**: ${outcome.reason}`,
+        actionType: "approval",
+        orderId: specifiedOrderId,
+        proposerDid: AGENT_DIDS.TRADING,
+        timestamp,
+      };
     }
-
-    if (!targetTrade || targetTrade.status !== "previewed") {
+    if (outcome.kind === "not_found" || outcome.kind === "not_previewed") {
       const spoken = "I could not find an active pending order preview awaiting authorization. Any previous orders may have already been executed or cancelled.";
       return {
         success: false,
@@ -235,42 +271,20 @@ export class ETradeVoiceTradingService {
       };
     }
 
-    // Execute order on genuine E*TRADE REST API with verified human authorizer DID
-    let execRes: any;
-    try {
-      execRes = tradingService.executeOrder(targetTrade.id, authorizerDid, "approved");
-    } catch {
-      execRes = await tradingService.placeOrderRemote({
-        orderId: targetTrade.id,
-        symbol: targetTrade.symbol,
-        action: targetTrade.action,
-        quantity: targetTrade.quantity,
-        orderType: targetTrade.orderType,
-        limitPrice: targetTrade.price,
-        userLogin: this.sessionId,
-      });
-      if (this.orm?.trades) {
-        this.orm.trades.update(targetTrade.id, {
-          status: execRes.success ? "executed" : "rejected",
-          authorizerDid,
-          orderRef: execRes.executionId || execRes.brokerOrderRef,
-          updatedAt: timestamp,
-        });
-      }
-    }
-
-    const isSuccess = execRes.success;
-    const execId = execRes.executionId || execRes.brokerOrderRef || `et_order_${Date.now()}`;
+    const targetTrade = outcome.trade;
+    const isSuccess = outcome.kind === "executed";
+    const execId = outcome.execId ?? `et_order_${Date.now()}`;
+    const execMessage = outcome.kind === "failed" ? outcome.message : undefined;
 
     const spokenText = isSuccess
       ? tuneFinancialPronunciation(
           `Order ${targetTrade.id} has been successfully executed on E*TRADE. Broker reference is ${execId}. Your trade to ${targetTrade.action} ${targetTrade.quantity} shares of ${targetTrade.symbol} has been placed.`
         )
-      : `E*TRADE order execution failed. The broker returned: ${execRes.message || "Unknown rejection"}. No capital was moved.`;
+      : `E*TRADE order execution failed. The broker returned: ${execMessage || "Unknown rejection"}. No capital was moved.`;
 
     const displayMarkdown = isSuccess
       ? `### ✅ Order Executed on E*TRADE\n\n- **Order ID:** \`${targetTrade.id}\`\n- **Action:** ${targetTrade.action} ${targetTrade.quantity} ${targetTrade.symbol}\n- **Broker Ref:** \`${execId}\`\n- **Total Settled:** $${targetTrade.totalValue.toFixed(2)} USD\n- **Authorizer DID:** \`${authorizerDid}\`\n- **Timestamp:** ${timestamp}`
-      : `### ❌ Order Execution Failed\n\n${execRes.message || "Upstream broker rejected execution."}`;
+      : `### ❌ Order Execution Failed\n\n${execMessage || "Upstream broker rejected execution."}`;
 
     return {
       success: isSuccess,
@@ -294,20 +308,30 @@ export class ETradeVoiceTradingService {
     authorizerDid: string,
     timestamp: string
   ): Promise<VoiceTradingTurnResponse> {
-    let targetTrade: any = null;
-
-    if (this.orm?.trades) {
-      if (specifiedOrderId) {
-        targetTrade = this.orm.trades.findById(specifiedOrderId);
-      } else {
-        const pending = this.orm.trades.findMany({ where: { status: "previewed" }, orderBy: "created_at DESC", limit: 1 });
-        if (pending.length > 0) targetTrade = pending[0];
-      }
+    // Issue #1262 Phase 3: cancellation runs through the shared
+    // engine (preview-tier gate + previewed-only update). The spoken
+    // rendering below is unchanged.
+    const outcome = cancelPreviewedOrder({
+      trades: this.orm?.trades ?? null,
+      principal: this.principal,
+      orderId: specifiedOrderId,
+      lookup: "previewed_only",
+      timestamp,
+    });
+    if (outcome.kind === "tier_refused") {
+      return {
+        success: false,
+        spokenText: outcome.reason,
+        displayMarkdown: `⚠️ **Voice Cancellation Refused**: ${outcome.reason}`,
+        actionType: "rejection",
+        orderId: specifiedOrderId,
+        proposerDid: AGENT_DIDS.TRADING,
+        authorizerDid,
+        timestamp,
+      };
     }
-
-    if (targetTrade && targetTrade.status === "previewed") {
-      this.orm?.trades?.update(targetTrade.id, { status: "rejected", updatedAt: timestamp });
-    }
+    const targetTrade =
+      outcome.kind === "cancelled" || outcome.kind === "not_previewed" ? outcome.trade ?? null : null;
 
     const orderId = targetTrade?.id || specifiedOrderId || "draft";
     const spokenText = tuneFinancialPronunciation(
@@ -339,7 +363,31 @@ export class ETradeVoiceTradingService {
     timestamp: string
   ): Promise<VoiceTradingTurnResponse> {
     try {
-      const orm = this.orm || new DatabaseORM({ exec: () => [] });
+      // Issue #781: NLQ execution reads and writes through the ORM
+      // (watchlists, trade ledger, messages). Without an injected ORM,
+      // fail loud — the throw is caught below and returned as an honest
+      // spoken error. The former stub fallback computed answers against
+      // an empty ledger and discarded every write.
+      const orm = requireOrm(this.orm, "ETradeVoiceTradingService.handleVoiceNLQ");
+      // Issue #1262 Phase 4: the channel seam gate (paid actions refused
+      // for every tier in v1, tier-gated trading actions refused before
+      // anything executes) — voice was the one channel seam missing the
+      // peek gate — and the NLQ call itself is untrusted inbound
+      // content (#880) with the full web-chat deps.
+      if (this.principal) {
+        const peek = await planNLQ(this.env, cleanTranscript, { untrustedContent: true });
+        const refusal = channelPlanRefusal(peek, this.principal);
+        if (refusal) {
+          return {
+            success: false,
+            spokenText: refusal,
+            displayMarkdown: `⚠️ **Voice Request Refused**: ${refusal}`,
+            actionType: "error",
+            proposerDid: AGENT_DIDS.TRADING,
+            timestamp,
+          };
+        }
+      }
       const { plan, result: nlqRes } = await executeNaturalLanguageQuery(
         orm,
         this.sessionId,
@@ -347,7 +395,11 @@ export class ETradeVoiceTradingService {
         this.env,
         this.sessionId,
         authorizerDid,
-        this.schedulingPort ? { schedulingPort: this.schedulingPort } : undefined,
+        {
+          untrustedContent: true,
+          ...this.nlqDeps,
+          schedulingPort: this.nlqDeps?.schedulingPort ?? this.schedulingPort,
+        },
       );
 
       const domain = plan.domain;
@@ -796,7 +848,7 @@ export class ETradeVoiceTradingService {
             `- **Trigger:** **${timeDesc}**\n` +
             `- **Callback:** \`${callback}\`\n` +
             `- **Schedule ID:** \`${schedId}\`\n\n` +
-            `> ⏱️ **Cloudflare Agents Durable Timer**: Persists across worker restarts.\n` +
+            `> ⏱️ **Persistent Background Timer**: Persists across system restarts.\n` +
             `> *To Cancel:* Say *"Cancel schedule ${schedId}"*`;
 
           return {
@@ -817,7 +869,7 @@ export class ETradeVoiceTradingService {
           const displayMarkdown = `### 🛑 Task Schedule Cancelled\n\n` +
             `- **Schedule ID:** \`${schedId}\`\n` +
             `- **Status:** **CANCELLED**\n\n` +
-            `*The timer has been removed from active Cloudflare durable queues.*`;
+            `*The timer has been removed from active background queues.*`;
 
           return {
             success: true,
@@ -935,7 +987,7 @@ export class ETradeVoiceTradingService {
           Object.entries(r).map(([k, v]) => `- **${k}:** ${v}`).join("\n")
         ).join("\n\n");
 
-        const displayMarkdown = `### 💳 Cloudflare Agentic Payments (x402 & MPP)\n\n${nlqRes.summary}\n\n${details}`;
+        const displayMarkdown = `### 💳 Agentic Micropayments (x402 & MPP Protocol)\n\n${nlqRes.summary}\n\n${details}`;
 
         return {
           success: true,
@@ -985,13 +1037,71 @@ export class ETradeVoiceTradingService {
 }
 
 /**
+ * Issue #815: a per-turn voice forwarder. The worker isolate hosting the
+ * WebSocket has no ORM (an ORM wraps a specific Durable Object's
+ * storage.sql), so a voice turn's persistence-backed work is forwarded
+ * to the session user's OrchestratorAgent DO, whose
+ * POST /trading/voice/turn route runs ETradeVoiceTradingService against
+ * the DO's real ORM.
+ */
+export type VoiceTurnForwarder = (
+  request: VoiceTradingTurnRequest
+) => Promise<VoiceTradingTurnResponse>;
+
+/**
+ * Builds the orchestrator voice-turn forwarder for one session user.
+ * The DO instance is keyed by, and the x-user-login header set from,
+ * the worker-verified session identity the caller passes in — never
+ * from caller-asserted input. Throws when the SEARCH_AGENT binding is
+ * unavailable or the DO rejects the turn, so a missing orchestrator
+ * path fails loud instead of falling back to an ORM-less local turn
+ * (the #781 contract).
+ */
+export function createOrchestratorVoiceTurnForwarder(env: Env, userLogin: string): VoiceTurnForwarder {
+  return async (request: VoiceTradingTurnRequest): Promise<VoiceTradingTurnResponse> => {
+    const namespace = env.SEARCH_AGENT;
+    if (!namespace || typeof namespace.idFromName !== "function") {
+      throw new Error(
+        "Voice turns require the SEARCH_AGENT (orchestrator) binding to reach the user's Durable Object ORM; refusing to process the turn without it (issue #815)."
+      );
+    }
+    const response = await namespace.get(namespace.idFromName(userLogin)).fetch(
+      new Request("https://agent.internal/trading/voice/turn", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-login": userLogin,
+        },
+        body: JSON.stringify({
+          transcript: request.transcript ?? request.rawTranscript ?? "",
+        }),
+      })
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(
+        `Orchestrator rejected the voice turn forward (HTTP ${response.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`
+      );
+    }
+    return (await response.json()) as VoiceTradingTurnResponse;
+  };
+}
+
+/**
  * Handle duplex WebSocket voice connection session (compatible with Cloudflare Voice Agent protocol)
+ *
+ * Issue #815: when no ORM is injected but a `forwardTurn` forwarder is
+ * provided (the worker WebSocket route's wiring), each speech turn is
+ * forwarded to the session user's orchestrator DO and executed there
+ * against the real ORM. With an ORM injected, turns execute locally as
+ * before. With neither, NLQ turns keep failing honestly (#781).
  */
 export async function handleVoiceWebSocketConnection(
   ws: WebSocket,
   env: Env,
   orm?: DatabaseORM,
-  sessionId: string = "voice_ws_trader"
+  sessionId: string = "voice_ws_trader",
+  forwardTurn?: VoiceTurnForwarder
 ): Promise<void> {
   const service = new ETradeVoiceTradingService(env, orm, sessionId);
 
@@ -1020,11 +1130,17 @@ export async function handleVoiceWebSocketConnection(
           const userTranscript = msg.transcript || msg.text || "";
           ws.send(JSON.stringify({ type: "status", status: "thinking" }));
 
-          const turnRes = await service.processVoiceTurn({
+          // Issue #815: no local ORM + a forwarder wired (the worker
+          // route) → the turn executes inside the session user's
+          // orchestrator DO against its real ORM, one DO call per turn.
+          const turnRequest: VoiceTradingTurnRequest = {
             transcript: userTranscript,
             sessionId,
             userLogin: sessionId,
-          });
+          };
+          const turnRes = !orm && forwardTurn
+            ? await forwardTurn(turnRequest)
+            : await service.processVoiceTurn(turnRequest);
 
           ws.send(
             JSON.stringify({

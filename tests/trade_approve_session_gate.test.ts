@@ -33,6 +33,7 @@
  * Location target), not the runtime's URL parser.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { makeFakeSessionStore } from "./fake-session-store";
 import { readFileSync } from "node:fs";
 
 // src/server.ts re-exports the agent classes, whose real module graph
@@ -83,14 +84,10 @@ interface ForwardedCall {
 
 function makeEnv(agentResponse: any) {
   const forwarded: ForwardedCall[] = [];
-  const kv = new Map<string, string>();
-  kv.set(SESSION_ID, JSON.stringify({ githubLogin: LOGIN, userId: "149", login: LOGIN }));
+  const { namespace: sessionStoreNs, seed: seedSession } = makeFakeSessionStore();
+  seedSession("sessions", SESSION_ID, { githubLogin: LOGIN, userId: "149", login: LOGIN });
   const env: any = {
-    SESSIONS: {
-      get: async (k: string) => kv.get(k) ?? null,
-      put: async (k: string, v: string) => void kv.set(k, v),
-      delete: async (k: string) => void kv.delete(k),
-    },
+    SESSION_STORE: sessionStoreNs,
     SEARCH_AGENT: {
       idFromName: (name: string) => name,
       get: (id: string) => ({

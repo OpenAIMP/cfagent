@@ -10,6 +10,7 @@
  */
 
 import { fetchAllUsStockListings, type NasdaqStockListing } from "../services/nasdaqListings";
+import { withRetry } from "../services/resilience";
 import type { ETradeQuote } from "../types";
 
 export interface LiveScreenerDeps {
@@ -28,26 +29,32 @@ export interface LiveScreenerDeps {
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+/**
+ * Issue #1181 (#1173 R1): implemented on the shared resilience
+ * executor (services/resilience.ts) under an explicit policy. The
+ * legacy linear schedule (1000ms, 2000ms) equals the exponential
+ * schedule at base 1000 for this 3-attempt shape, so timing and the
+ * error-wrap message are preserved exactly; the policy plumbing is
+ * what changed — one executor for every provider now.
+ */
 export async function withRetries<T>(
   fn: () => Promise<T>,
   source: string,
   symbol?: string
 ): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastError = err;
-      if (attempt < MAX_RETRIES) {
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
-      }
-    }
+  try {
+    return await withRetry(fn, {
+      maxAttempts: MAX_RETRIES,
+      baseDelayMs: RETRY_DELAY_MS,
+      maxDelayMs: RETRY_DELAY_MS * MAX_RETRIES,
+      jitterRatio: 0,
+    }, { label: symbol ? `${source}:${symbol}` : source });
+  } catch (lastError) {
+    throw new Error(
+      `${source} failed after ${MAX_RETRIES} attempts${symbol ? ` for ${symbol}` : ""}: ` +
+        (lastError instanceof Error ? lastError.message : String(lastError))
+    );
   }
-  throw new Error(
-    `${source} failed after ${MAX_RETRIES} attempts${symbol ? ` for ${symbol}` : ""}: ` +
-      (lastError instanceof Error ? lastError.message : String(lastError))
-  );
 }
 
 /**

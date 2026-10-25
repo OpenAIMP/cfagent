@@ -420,6 +420,8 @@ describe("scan provenance (issue #27)", () => {
       evaluated: 18,
       errors: 2,
       withTrades: 18,
+      // Issue #16: no calendars were supplied to this scan.
+      eventCalendar: { covered: 0, total: 20, coveragePct: 0 },
     });
     // And the coverage fields agree with the matrix they summarize.
     expect(result.matrix).toHaveLength(20);
@@ -438,6 +440,8 @@ describe("scan provenance (issue #27)", () => {
       evaluated: 1,
       errors: 0,
       withTrades: 0,
+      // Issue #16: no calendars were supplied to this scan.
+      eventCalendar: { covered: 0, total: 1, coveragePct: 0 },
     });
     expect(result.matrix[0]).toMatchObject({ symbol: "NP1", verdict: "no_pass", gateBucket: "no_fit" });
   });

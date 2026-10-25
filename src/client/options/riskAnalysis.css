@@ -150,49 +150,6 @@
   border-color: var(--color-danger-border);
 }
 
-/* Sub-tabs */
-.risk-tabs-nav {
-  display: flex;
-  padding: 0 1.75rem;
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-sunken);
-  gap: 1.5rem;
-}
-
-.risk-tab-btn {
-  background: none;
-  border: none;
-  padding: 0.85rem 0;
-  color: var(--color-text-muted);
-  font-size: 0.92rem;
-  font-weight: 600;
-  cursor: pointer;
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  transition: color 0.15s ease;
-}
-
-.risk-tab-btn:hover {
-  color: var(--color-text-primary);
-}
-
-.risk-tab-btn.active {
-  color: var(--color-accent);
-}
-
-.risk-tab-btn.active::after {
-  content: "";
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--color-accent);
-  box-shadow: 0 0 10px var(--color-accent);
-}
-
 /* Body */
 .risk-modal-body {
   padding: 1.75rem;
@@ -706,29 +663,5 @@
 }
 
 /* Universal "Risk Analysis" trigger button across tables and cards */
-.strat-card-btn-risk,
-.btn-risk-analysis,
-.flow-btn-risk-analysis {
-  background: var(--color-warning-subtle);
-  border: 1px solid var(--color-warning-border);
-  color: var(--color-warning);
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  transition: all 0.15s ease;
-}
 
-.strat-card-btn-risk:hover,
-.btn-risk-analysis:hover,
-.flow-btn-risk-analysis:hover {
-  background: var(--color-warning-subtle);
-  border-color: var(--color-warning);
-  color: var(--color-warning-subtle);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-glow-warning);
-}
+

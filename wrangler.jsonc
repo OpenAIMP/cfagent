@@ -12,6 +12,13 @@
   // through to it. The `serveStaticAsset` bypass in src/server.ts remains as
   // the safety net for anything that does land here.
   "assets": { "directory": "./dist/", "binding": "ASSETS", "run_worker_first": ["/", "/index.html"] },
+  "workflows": [
+    { "name": "trading-trade-workflow", "binding": "TRADE_WORKFLOW", "class_name": "TradingTradeWorkflow" }
+  ],
+  // Issue #605 — report PDF blobs live in R2 (bucket provisioned by the
+  // owner; reportBlobStore maps screener:*/options:* keys to stocks/*,
+  // options/*). DO storage keeps only metadata pointers.
+  "r2_buckets": [{ "binding": "REPORTS_BUCKET", "bucket_name": "screener" }],
   "ai": { "binding": "AI" },
   "durable_objects": {
     "bindings": [
@@ -29,7 +36,11 @@
       // Issue #319 — ResearchAgent DO (autonomous options research)
       { "name": "RESEARCH_AGENT", "class_name": "ResearchAgent" },
       // Issue #329 — sessions + E*TRADE credentials off KV (no daily read cap)
-      { "name": "SESSION_STORE", "class_name": "SessionStore" }
+      { "name": "SESSION_STORE", "class_name": "SessionStore" },
+      // Issue #680 — ReportAssetAgent DO (single owner for Generate)
+      { "name": "REPORT_ASSET_AGENT", "class_name": "ReportAssetAgent" },
+      // Issue #291 — TradingAgent DO (provider-neutral trading competency)
+      { "name": "TRADING_AGENT", "class_name": "TradingAgent" }
     ]
   },
   "migrations": [
@@ -42,12 +53,15 @@
     // Issue #319 — ResearchAgent
     { "tag": "v5", "new_sqlite_classes": ["ResearchAgent"] },
     // Issue #329 — SessionStore (sessions + credentials)
-    { "tag": "v6", "new_sqlite_classes": ["SessionStore"] }
+    { "tag": "v6", "new_sqlite_classes": ["SessionStore"] },
+    // Issue #680 — ReportAssetAgent
+    { "tag": "v7", "new_sqlite_classes": ["ReportAssetAgent"] },
+    // Issue #291 — TradingAgent
+    { "tag": "v8", "new_sqlite_classes": ["TradingAgent"] }
   ],
-  "kv_namespaces": [
-    { "binding": "SESSIONS", "id": "f169a71089264590baeef28f851ebfc5" },
-    { "binding": "ETRADE_KV", "id": "f169a71089264590baeef28f851ebfc5" }
-  ],
+  // Issue #606 (phase 4 of #415): no KV namespaces remain — sessions and
+  // E*TRADE credentials live in the SessionStore DO (#329), report PDFs
+  // in R2 (#605). The dashboard namespaces are deleted owner-side.
   // Issue #257 (Assessment P1): explicit Workers Logs pipeline. `enabled` is the
   // shorthand for logs.enabled; `invocation_logs` captures one log per
   // invocation (request/response metadata + console output) visible under
@@ -93,16 +107,40 @@
     // cache module's honesty note). 300000 = 5 minutes; 200 entries.
     "AI_SEARCH_CACHE_TTL_MS": "300000",
     "AI_SEARCH_CACHE_MAX_ENTRIES": "200",
-    // Issue #329: sessions and E*TRADE credentials live in the SessionStore
-    // DO. "off" removes KV from those paths entirely - no migration read,
-    // no write fallback, no delete. Unset it for one session TTL if you
-    // need to migrate keys that only exist in KV.
-    "SESSIONS_KV_FALLBACK": "off",
-    "APP_NAME": "AI Search Agent",
+    "APP_NAME": "NextGenTP",
     "MAS_MAX_STEPS": "4",
     "AI_MODEL": "@cf/zai-org/glm-4.7-flash",
     "CF_WALLET_NETWORK": "base-sepolia",
     "CF_WALLET_FACILITATOR": "https://x402.org/facilitator",
-    "_comment_wallet": "Set CF_WALLET_RECIPIENT via: wrangler secret put CF_WALLET_RECIPIENT"
+    "_comment_wallet": "Set CF_WALLET_RECIPIENT via: wrangler secret put CF_WALLET_RECIPIENT",
+    // Issue #945, Wiring Phase 1 enablement (PR #965 merged the code
+    // default-off): GitHub login/session wiring ON in production.
+    // Rollback is removing these two vars (or setting
+    // IAAA_WIRING_ENABLED to "0") and redeploying — no code change.
+    // Google login enabled (owner-authorized; OAuth client + PROD
+    // secrets set). Rollback is removing google from the list below
+    // and redeploying — no code change.
+    "IAAA_WIRING_ENABLED": "1",
+    "IAAA_ENABLED_PROVIDERS": "github,google",
+    // Issue #945, GitHub activation (owner-authorized, updated 2026-10-23
+    // after #1182 stable identity): bootstrap the owner by issuer:subject
+    // entries — platform: entry for the genesis platform-admin grant on the
+    // next wired login, plain entry for tenant-admin in primary (unblocks
+    // E*TRADE PDP). Replaces the retired minted-UUID entry: post-#1182
+    // logins carry derived ids, so the minted entry could never match again.
+    // Tenant stays at the documented
+    // default "primary". Rollback is removing these two vars (or
+    // setting IAAA_PDP_ENABLED to "0") and redeploying — no code
+    // change; granted memberships are NOT deleted by rollback.
+    "IAAA_BOOTSTRAP_ADMINS": "platform:https://github.com:82253453,https://github.com:82253453",
+    "IAAA_PDP_ENABLED": "1",
+    // Issue #1077, real-post test (owner-authorized go-live): social
+    // posting ON + live publishing ON. Daily goal stays DISABLED, so
+    // nothing auto-fires — a live post happens only via manual
+    // trigger. No token → live publish errors honestly, never a
+    // silent dry-run. Rollback is removing these two vars (or setting
+    // them to "0") and redeploying — no code change.
+    "SOCIAL_POSTING_ENABLED": "1",
+    "SOCIAL_LIVE_PUBLISHING": "1"
   }
 }

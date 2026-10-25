@@ -7,7 +7,7 @@
 import { OptionsDataAgent } from "./optionsDataAgent";
 import { StrategyRiskAgent, type StrategyScreenFilter } from "./strategyRiskAgent";
 import { RecommendationAgent, type BestTradePick, type RankedStrategy, type RiskProfile } from "./recommendationAgent";
-import type { StrategyCandidate, StrategyRequest } from "./strategyEngine";
+import type { EventCalendarInfo, StrategyCandidate, StrategyRequest } from "./strategyEngine";
 import { DEFAULT_MAX_DTE, MAX_EXPIRATIONS_PER_SYMBOL, MAX_SCAN_SYMBOLS as DEFAULT_MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
 import { getOpportunityScannerConfig, type EtapiFitGateConfig } from "../../config/etapiConfig";
 import { defaultRegistry } from "./strategies/catalog";
@@ -404,6 +404,11 @@ export interface ScanCoverage {
   evaluated: number;
   errors: number;
   withTrades: number;
+  /** Event-calendar coverage for this run (issue #16): how many of the
+   *  scanned names carried live earnings/dividend calendar facts. A
+   *  name without supplied coverage was judged with event risk
+   *  unverified — the count is reported, never hidden. */
+  eventCalendar: { covered: number; total: number; coveragePct: number };
 }
 
 export interface OpportunityScanResult {
@@ -449,6 +454,12 @@ export interface OpportunityScanResult {
    *  comparable across sessions. Null when no profile was applied; the
    *  full profile object rides in requestSnapshot.profile. */
   profileRef: ProfileRef | null;
+  /** The generated PDF report's storage key when the producing flow
+   *  rendered one before the run was saved (issue #1239): the scan
+   *  history projection carries it so the run can offer its download.
+   *  Optional — most producers render the report after saving the
+   *  scan, and their summaries simply lack it (absent = no key). */
+  pdfKey?: string;
   /** When this result was generated, ISO 8601 (issue #27). */
   generatedAt: string;
   /** The scan-model version that produced this result (issue #27);
@@ -462,6 +473,66 @@ export interface OpportunityScanResult {
   /** Coverage accounting (issue #27): how much of the requested
    *  universe was actually judged. */
   coverage: ScanCoverage;
+  /** Issue #1290 (#1173 R6): set when coverage is partial — the run
+   *  publishes as a *qualified partial* (the options mirror of the
+   *  stock #462 doctrine): never presented as a complete scan, and
+   *  never a failure while something evaluated. Zero evaluated is
+   *  turned into a coded failure by the scheduled gate (SCREEN_003). */
+  partial?: OptionsPartialQualification;
+}
+
+/**
+ * Issue #1290: qualification metadata for an options scan that could
+ * not judge its whole requested universe. Built once, at the scan
+ * result's single assembly point, and carried on the result into the
+ * summary, the PDF banner, and the scheduled gate — replacing the
+ * pre-R6 state where partiality existed only as a console warning in
+ * the scheduled flow.
+ */
+export interface OptionsPartialQualification {
+  /** Underlyings actually evaluated (coverage.evaluated). */
+  evaluatedCount: number;
+  /** Underlyings requested (coverage.considered). */
+  consideredCount: number;
+  /** Symbols skipped with an error (coverage.errors). */
+  coverageErrors: number;
+  /** Symbols never attempted (universe cap / truncation). */
+  truncatedCount: number;
+  /** Dominant skip reason across the skipped symbols, when any. */
+  topSkipReason?: string;
+  /** How many skipped symbols carried that reason. */
+  topSkipCount?: number;
+}
+
+/** Pure builder for the qualification above: undefined when coverage
+ *  is complete (evaluated == considered) or the universe was empty. */
+export function optionsPartialQualification(
+  coverage: ScanCoverage,
+  skipped: Array<{ reason?: unknown }>
+): OptionsPartialQualification | undefined {
+  if (coverage.considered <= 0 || coverage.evaluated >= coverage.considered) {
+    return undefined;
+  }
+  const reasonCounts = new Map<string, number>();
+  for (const entry of skipped) {
+    const reason = typeof entry?.reason === "string" && entry.reason ? entry.reason : null;
+    if (reason) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+  }
+  let topSkipReason: string | undefined;
+  let topSkipCount = 0;
+  for (const [reason, count] of reasonCounts) {
+    if (count > topSkipCount) {
+      topSkipReason = reason;
+      topSkipCount = count;
+    }
+  }
+  return {
+    evaluatedCount: coverage.evaluated,
+    consideredCount: coverage.considered,
+    coverageErrors: coverage.errors,
+    truncatedCount: coverage.truncated,
+    ...(topSkipReason ? { topSkipReason, topSkipCount } : {}),
+  };
 }
 
 const TARGET_FACTOR: Record<StrategyRequest["thesis"], number> = baseOppConfig.targetFactors;
@@ -480,25 +551,40 @@ export type ExpectedMoveContract = Pick<
   "strikePrice" | "impliedVolatility" | "expirationDate" | "symbol"
 >;
 
+/** A resolved expected-move estimate (issue #25; the window fields
+ *  added for issue #533): the pct the scanner has always computed,
+ *  plus the chosen contract's IV and expiry and the window length, so
+ *  a consumer that derives a target from the estimate can disclose
+ *  exactly which horizon and IV produced it. */
+export interface ExpectedMoveEstimate {
+  /** IV × sqrt(windowDays/365) — the 1-sigma move to the window expiry, as a fraction of spot. */
+  pct: number;
+  /** Implied volatility of the chosen most-ATM contract. */
+  atmIv: number;
+  /** Expiration date of the chosen contract (the window's end). */
+  windowExpiry: string;
+  /** Days from `now` to the window expiry (ceil, UTC). */
+  windowDays: number;
+}
+
 /**
- * Estimate a symbol's expected move to expiry as a fraction of spot
- * (issue #25): IV × sqrt(days/365) from the most at-the-money contract
- * in the chain — the 1-sigma move the chain itself implies. Pure and
- * exported for direct unit testing.
+ * Estimate a symbol's expected move to expiry (issue #25): IV ×
+ * sqrt(days/365) from the most at-the-money contract in the chain —
+ * the 1-sigma move the chain itself implies. Pure and exported for
+ * direct unit testing.
  *
  * Only contracts with a usable IV (> 0) and a parseable expirationDate
  * qualify. The most-ATM contract wins (min |strike − spot|); ties break
  * deterministically by earliest expirationDate, then lowest strike,
  * then symbol. Days are counted from `now` to the chosen expiry (UTC
  * midnight). Returns null when no contract qualifies or the chosen
- * expiry is today/past — callers then fall back to legacy percentage
- * targets for the symbol and disclose that they did.
+ * expiry is today/past.
  */
-export function estimateExpectedMovePct(
+export function estimateExpectedMove(
   contracts: ReadonlyArray<ExpectedMoveContract>,
   spotPrice: number,
   now: Date,
-): number | null {
+): ExpectedMoveEstimate | null {
   if (!Number.isFinite(spotPrice) || spotPrice <= 0) return null;
   let best: { contract: ExpectedMoveContract; distance: number; expiryMs: number } | null = null;
   for (const contract of contracts) {
@@ -524,8 +610,26 @@ export function estimateExpectedMovePct(
   if (best === null) return null;
   const days = Math.ceil((best.expiryMs - now.getTime()) / 86_400_000);
   if (days <= 0) return null;
-  const pct = (best.contract.impliedVolatility as number) * Math.sqrt(days / 365);
-  return Number.isFinite(pct) && pct > 0 ? pct : null;
+  const atmIv = best.contract.impliedVolatility as number;
+  const pct = atmIv * Math.sqrt(days / 365);
+  if (!Number.isFinite(pct) || pct <= 0) return null;
+  return { pct, atmIv, windowExpiry: best.contract.expirationDate, windowDays: days };
+}
+
+/**
+ * The expected-move percentage alone (issue #25) — delegates to
+ * estimateExpectedMove so there is exactly one selection algorithm.
+ * Scanner callers that get null fall back to legacy percentage targets
+ * for the symbol and disclose that they did; discovery derivation
+ * (issue #533) consumes estimateExpectedMove directly and abstains on
+ * null instead — it never takes the legacy fallback.
+ */
+export function estimateExpectedMovePct(
+  contracts: ReadonlyArray<ExpectedMoveContract>,
+  spotPrice: number,
+  now: Date,
+): number | null {
+  return estimateExpectedMove(contracts, spotPrice, now)?.pct ?? null;
 }
 
 /**
@@ -735,6 +839,9 @@ export class OpportunityScanner {
       /** Fit-gate overrides for this call (issue #24), merged over the
        *  config defaults from getOpportunityScannerConfig(). */
       fitGate?: Partial<FitGateParams>;
+      /** Issue #738: max symbols to scan. Defaults to MAX_SCAN_SYMBOLS (20)
+       *  — the schedule passes its maxItems (100) to scan the full universe. */
+      maxSymbols?: number;
       /** Saved strategy profile to run under (issue #28): its
        *  StrategyRequest-level fields fill the template wherever the
        *  caller did not declare the field explicit (see
@@ -754,10 +861,30 @@ export class OpportunityScanner {
        *  result's `generatedAt` is stamped from this instant instead of
        *  the wall clock. */
       now?: Date;
+      /** Per-name earnings/dividend calendar facts (issue #16),
+       *  pre-fetched by the caller from the calendar service
+       *  (src/services/eventCalendar.ts). The scanner never fetches.
+       *  Names absent from the map — or present with covered: false —
+       *  are treated as unverified by the engine, and every scanned
+       *  name counts toward coverage.eventCalendar either way. */
+      eventCalendarBySymbol?: Record<string, EventCalendarInfo>;
     } = {}
   ): Promise<OpportunityScanResult> {
     const unique = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
-    const batch = unique.slice(0, MAX_SCAN_SYMBOLS);
+    // Issue #738: respect the caller's maxSymbols instead of the hardcoded
+    // 20-symbol cap. The schedule asks for 100; truncating to 20 then failing
+    // the run for "incomplete universe" is self-inflicted.
+    const maxSymbols = options.maxSymbols ?? MAX_SCAN_SYMBOLS;
+    const batch = unique.slice(0, maxSymbols);
+    // Issue #16: per-run event-calendar coverage over the scanned batch,
+    // reported in the result's coverage (and disclosed in assumptions
+    // when the caller supplied calendars at all).
+    const eventCalendarCovered = batch.filter((s) => options.eventCalendarBySymbol?.[s]?.covered).length;
+    const eventCalendarCoverage = {
+      covered: eventCalendarCovered,
+      total: batch.length,
+      coveragePct: batch.length ? Math.round((eventCalendarCovered / batch.length) * 1000) / 10 : 0,
+    };
     // Saved strategy profile (issue #28): the profile is the BASE layer
     // of this scan — everything downstream (request building, target
     // resolution, the fit gate, the provenance snapshot) runs on the
@@ -793,11 +920,18 @@ export class OpportunityScanner {
       ...scanTargetAssumptions(effectiveTemplate),
       ...(overrideAssumption ? [overrideAssumption] : []),
       ...(strategyProfile ? [profileDisclosure(strategyProfile, appliedProfileFields, profileGateApplied)] : []),
+      ...(options.eventCalendarBySymbol
+        ? [`Earnings/dividend calendar coverage: ${eventCalendarCoverage.covered} of ${eventCalendarCoverage.total} names (${eventCalendarCoverage.coveragePct}%). Names without coverage were judged with event risk unverified.`]
+        : []),
     ];
     // The stated target and the per-name overrides are scan-level scoping
     // metadata, not request fields: strip them so per-symbol
-    // StrategyRequests stay exactly StrategyRequest-shaped.
-    const { statedTarget: _statedTarget, perSymbol: _perSymbol, ...requestTemplate } = effectiveTemplate;
+    // StrategyRequests stay exactly StrategyRequest-shaped. A
+    // template-level eventCalendar is stripped for a different reason
+    // (issue #16): calendar facts belong to one name and must never
+    // leak across the batch — per-symbol calendars arrive only via
+    // options.eventCalendarBySymbol.
+    const { statedTarget: _statedTarget, perSymbol: _perSymbol, eventCalendar: _templateEventCalendar, ...requestTemplate } = effectiveTemplate;
     const resolvedStrategies = new Set(defaultRegistry.resolveMany(requestTemplate.allowedStrategies).ids);
     const scanTheses = new Set([
       requestTemplate.thesis,
@@ -821,6 +955,15 @@ export class OpportunityScanner {
       candidate.minDte === band.minDte && candidate.maxDte === band.maxDte
     ) === index);
 
+    // Issue #1204: ONE subrequest budget for the whole scan. Snapshots
+    // are fetched per symbol over a shared screener, so without a
+    // shared ledger each symbol would re-fan-out up to
+    // maxExpirationsPerSymbol chain fetches and the batch as a whole
+    // would trip the Worker per-invocation subrequest cap — the
+    // 100-of-100 failure mode. Symbols past the budget are deferred:
+    // their snapshot carries the named budget reason, which surfaces
+    // below as the skip reason.
+    const fetchBudget = this.data.createFetchBudget();
     const outcomes = await mapLimit(batch, CONCURRENCY, async (symbol): Promise<{ opportunity: OpportunityRow | null; matrix: ScanMatrixRow }> => {
       const skippedMatrixRow = (reason: string): ScanMatrixRow => ({
         symbol,
@@ -836,7 +979,7 @@ export class OpportunityScanner {
         gateReasons: [],
       });
       try {
-        const snapshot = await this.data.loadSnapshot({ ...requestTemplate, maxDte: dataMaxDte, expirationDteBands, symbol });
+        const snapshot = await this.data.loadSnapshot({ ...requestTemplate, maxDte: dataMaxDte, expirationDteBands, symbol, fetchBudget });
         const price = snapshot.contracts[0]?.underlyingPrice;
         if (!price) {
           const reason = snapshot.validationError || snapshot.screen.fetchErrors?.[0]?.reason || "No eligible option contracts";
@@ -867,6 +1010,7 @@ export class OpportunityScanner {
           symbol,
           targetPrice,
           thesis: override?.thesis ?? requestTemplate.thesis,
+          eventCalendar: options.eventCalendarBySymbol?.[symbol],
         };
         const built = this.risk.buildStrategies(snapshot.contracts, request);
         const { matched, rejected } = this.risk.screenStrategies(built.candidates, options.strategyFilter);
@@ -964,6 +1108,18 @@ export class OpportunityScanner {
     // scanner performs no I/O; persistence lives behind the
     // ScanRunStore seam (src/trading/options/scanRunStore.ts).
     const skippedRows = matrix.filter((m) => m.verdict === "skipped").length;
+    const coverage: ScanCoverage = {
+      considered: unique.length,
+      scanned: batch.length,
+      truncated: Math.max(0, unique.length - batch.length),
+      evaluated: matrix.length - skippedRows,
+      errors: skippedRows,
+      withTrades: opportunities.length,
+      eventCalendar: eventCalendarCoverage,
+    };
+    // Issue #1290: stamp the qualified-partial marker at the single
+    // assembly point so every surface downstream inherits it.
+    const partial = optionsPartialQualification(coverage, skipped);
     return {
       scanned: batch.length,
       withTrades: opportunities.length,
@@ -1004,14 +1160,8 @@ export class OpportunityScanner {
         targetFactors: { ...baseOppConfig.targetFactors },
         targetEmMultiples: { ...baseOppConfig.targetEmMultiples },
       },
-      coverage: {
-        considered: unique.length,
-        scanned: batch.length,
-        truncated: Math.max(0, unique.length - batch.length),
-        evaluated: matrix.length - skippedRows,
-        errors: skippedRows,
-        withTrades: opportunities.length,
-      },
+      coverage,
+      ...(partial ? { partial } : {}),
     };
   }
 }

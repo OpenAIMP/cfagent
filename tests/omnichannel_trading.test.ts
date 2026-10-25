@@ -4,6 +4,7 @@ import { MockSqlStorage } from "./mock-sql";
 import { DynamicMarketScreener } from "../src/trading/screener";
 import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
 import { ETradeEmailTradingService } from "../src/trading/email/agent";
+import { issueApprovalLink } from "../src/trading/channels/signedLinks";
 import {
   ETradeSlackTradingService,
   verifySlackSignature,
@@ -156,8 +157,14 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
       expect(result.orderId).toBeDefined();
       expect(result.responseSubject).toContain("HITL Action Required");
       expect(result.responseHtml).toContain("Order Preview Awaiting Human Authorization");
-      expect(result.responseHtml).toContain("APPROVE " + result.orderId);
+      // Issue #1262 Phase 5: the preview no longer instructs a bare
+      // APPROVE reply — that reply is refused. Without a trade-tier
+      // principal this preview carries no signed link (only the
+      // Trading Hub button), and says so.
+      expect(result.responseHtml).not.toContain("APPROVE " + result.orderId);
       expect(result.responseHtml).toContain("Review & Approve on Trading Hub");
+      expect(result.responseHtml).toContain("Email approval links are issued only to trade-tier senders");
+      expect(result.responseText).toContain("email approval links are issued only to trade-tier senders");
       expect(result.responseHtml).toContain("did:agent:openaimp:trading");
 
       // Verify the order was drafted in the ORM SQLite ledger in 'previewed' status
@@ -169,8 +176,18 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
       expect(savedTrade?.action).toBe("BUY");
     });
 
-    it("executes order upon receiving human approval email reply 'APPROVE <orderId>'", async () => {
-      const emailService = new ETradeEmailTradingService(mockEnv, orm, sessionId);
+    it("executes order upon receiving a signed approval link; a bare 'APPROVE <orderId>' is refused (Phase 5)", async () => {
+      // The signed-link flow verifies the token against the principal
+      // map, so the test env maps the sender at trade tier and carries
+      // a link secret (the #149 pattern).
+      const linkEnv: Env = {
+        ...mockEnv,
+        CHANNEL_EMAIL_PRINCIPALS: JSON.stringify({
+          "human.trader@example.com": { login: "human.trader", tier: "trade" },
+        }),
+        CHANNEL_APPROVAL_LINK_SECRET: "test-link-secret-1262",
+      };
+      const emailService = new ETradeEmailTradingService(linkEnv, orm, sessionId);
 
       // 1. Create a pending draft order in the ledger
       const draftOrderId = "ord_email_test_12345";
@@ -188,12 +205,31 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
         updatedAt: new Date().toISOString(),
       });
 
-      // 2. Simulate human sending approval email
-      const approvalPayload: InboundEmailPayload = {
+      // 2. A bare APPROVE no longer executes — it is refused with the
+      // link flow, and the draft stays previewed.
+      const bareRefusal = await emailService.processInboundEmail({
         from: "human.trader@example.com",
         to: "trade@agent.openaimp.com",
         subject: `Re: HITL Action Required: Preview BUY 5 AAPL [${draftOrderId}]`,
         text: `APPROVE ${draftOrderId}`,
+      });
+      expect(bareRefusal.success).toBe(false);
+      expect(bareRefusal.responseText).toMatch(/signed link/i);
+      expect(orm.trades.findById(draftOrderId)?.status).toBe("previewed");
+
+      // 3. Simulate human sending approval with a valid signed link
+      const issued = await issueApprovalLink(linkEnv, {
+        orderId: draftOrderId,
+        login: "human.trader",
+        address: "human.trader@example.com",
+        baseUrl: "https://agent.openaimp.com",
+      });
+      expect(issued).not.toBeNull();
+      const approvalPayload: InboundEmailPayload = {
+        from: "human.trader@example.com",
+        to: "trade@agent.openaimp.com",
+        subject: `Re: HITL Action Required: Preview BUY 5 AAPL [${draftOrderId}]`,
+        text: `APPROVE ${draftOrderId}\n${issued!.url}`,
       };
 
       const result = await emailService.processInboundEmail(approvalPayload);
@@ -248,16 +284,42 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
     });
 
     it("rejects approval gracefully when no pending preview exists", async () => {
-      const emailService = new ETradeEmailTradingService(mockEnv, orm, sessionId);
+      const linkEnv: Env = {
+        ...mockEnv,
+        CHANNEL_EMAIL_PRINCIPALS: JSON.stringify({
+          "human.trader@example.com": { login: "human.trader", tier: "trade" },
+        }),
+        CHANNEL_APPROVAL_LINK_SECRET: "test-link-secret-1262",
+      };
+      const emailService = new ETradeEmailTradingService(linkEnv, orm, sessionId);
 
-      const invalidPayload: InboundEmailPayload = {
+      // A bare APPROVE for a nonexistent id is refused by the link
+      // gate before any ledger lookup (Phase 5).
+      const bareRefusal = await emailService.processInboundEmail({
         from: "human.trader@example.com",
         to: "trade@agent.openaimp.com",
         subject: "Re: Approve",
         text: "APPROVE ord_non_existent_id",
-      };
+      });
+      expect(bareRefusal.success).toBe(false);
+      expect(bareRefusal.actionType).toBe("approval");
+      expect(bareRefusal.responseSubject).toContain("Approval Refused");
 
-      const result = await emailService.processInboundEmail(invalidPayload);
+      // A valid signed link for a nonexistent id reaches the engine,
+      // which reports no pending preview (the pre-Phase-5 behaviour).
+      const issued = await issueApprovalLink(linkEnv, {
+        orderId: "ord_non_existent_id",
+        login: "human.trader",
+        address: "human.trader@example.com",
+        baseUrl: "https://agent.openaimp.com",
+      });
+      expect(issued).not.toBeNull();
+      const result = await emailService.processInboundEmail({
+        from: "human.trader@example.com",
+        to: "trade@agent.openaimp.com",
+        subject: "Re: Approve",
+        text: `APPROVE ord_non_existent_id\n${issued!.url}`,
+      });
 
       expect(result.success).toBe(false);
       expect(result.actionType).toBe("approval");
@@ -330,6 +392,9 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
     });
 
     it("handles Slack app_mention quote command returning Block Kit card", async () => {
+            vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }),
+      );
       const slackService = new ETradeSlackTradingService(mockEnv, orm, sessionId);
       const mentionPayload = {
         type: "event_callback",
@@ -359,6 +424,9 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
     });
 
     it("handles Slack app_mention market screener command returning Block Kit card", async () => {
+            vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }),
+      );
       const slackService = new ETradeSlackTradingService(mockEnv, orm, sessionId);
       const mentionPayload = {
         type: "event_callback",
@@ -419,6 +487,9 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
     });
 
     it("drafts order and sends Slack Block Kit card with interactive approval buttons", async () => {
+            vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }),
+      );
       const slackService = new ETradeSlackTradingService(mockEnv, orm, sessionId);
       const mentionPayload = {
         type: "event_callback",

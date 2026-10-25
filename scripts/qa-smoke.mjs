@@ -62,23 +62,39 @@ async function main() {
     record("A2A agent card", false, err.message);
   }
 
-  // 3. ScheduledAgent DO is reachable (via server scheduled endpoint or status)
-  //    We check the wrangler-deployed DO bindings indirectly: if the worker
-  //    boots without binding errors, the health check above already passed.
-  //    A deeper check hits the A2A RPC path for scheduled-agent if exposed.
+  // 3. A2A dispatch gate is up (issue #1097).
+  //    The old check probed POST /a2a/scheduled-agent, but scheduled-agent
+  //    is not an A2A agent: it has no agent card, no catalog entry, no
+  //    handleA2A, and its hyphenated name cannot match the edge route
+  //    pattern (^/a2a/(\w+)$). Its 503 was the #291 A5 edge-auth gate
+  //    failing closed on an unset A2A_API_TOKEN — and with the token set,
+  //    the same unauthenticated probe would return 401 and still fail,
+  //    so the old check could never pass. This probe instead exercises
+  //    the gate itself on a real agent path (/a2a/search) with no
+  //    credentials, mirroring the search check's 401-means-alive rule:
+  //    401 = gate up and enforcing auth (pass); 503 = dispatch not
+  //    configured in production (visible skip, not a failure — enabling
+  //    dispatch is a separate owner decision to set A2A_API_TOKEN);
+  //    404 = not exposed via /a2a yet (skip); anything else non-ok
+  //    (e.g. 500) = fail. This check deliberately does NOT claim
+  //    ScheduledAgent reachability: that DO is cron-driven with no
+  //    public HTTP surface, so no deploy-time HTTP probe can observe it.
   try {
-    const { res } = await fetchJson(`${BASE_URL}/a2a/scheduled-agent`, {
+    const { res } = await fetchJson(`${BASE_URL}/a2a/search`, {
       method: "POST",
-      body: JSON.stringify({ method: "listGoals", params: {} }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: "qa-gate", method: "search.query", params: {} }),
     });
-    // 404 = not exposed via A2A yet (acceptable); 500 = binding broken (fail)
-    if (res.status === 404) {
-      skip("scheduled-agent A2A", "not exposed via /a2a yet");
+    if (res.status === 401) {
+      record("A2A dispatch gate", true, "gate up, auth required");
+    } else if (res.status === 503) {
+      skip("A2A dispatch gate", "A2A dispatch not configured in production");
+    } else if (res.status === 404) {
+      skip("A2A dispatch gate", "not exposed via /a2a yet");
     } else {
-      record("scheduled-agent A2A", res.ok, `status=${res.status}`);
+      record("A2A dispatch gate", res.ok, `status=${res.status}`);
     }
   } catch (err) {
-    record("scheduled-agent A2A", false, err.message);
+    record("A2A dispatch gate", false, err.message);
   }
 
   // 4. Search agent responds (core capability)

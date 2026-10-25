@@ -20,7 +20,8 @@ import type {
   OptionScreenResult,
   ScreenedOptionContractItem,
 } from "../../types";
-import { DynamicOptionsScreener } from "../optionsScreener";
+import { DynamicOptionsScreener, createSubrequestBudget, type SubrequestBudget } from "../optionsScreener";
+import { DEFAULT_SUBREQUEST_BUDGET } from "../../config/etapiConfig";
 import type { StrategyRequest } from "./strategyEngine";
 import { buildCalibratedOptionChains } from "./calibratedOptionChains";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
@@ -46,7 +47,16 @@ export interface OptionsDataSnapshot {
 export type SnapshotParams = Pick<
   StrategyRequest,
   "symbol" | "minDte" | "maxDte" | "minVolume" | "minOpenInterest" | "maxSpreadPct" | "maxQuoteAgeSeconds" | "contractLimit" | "dataMode"
-> & Pick<OptionScreenerFilter, "expirationDteBands">;
+> & Pick<OptionScreenerFilter, "expirationDteBands"> & {
+    /**
+     * Issue #1204: shared per-scan subrequest budget. Callers that
+     * snapshot many symbols inside one invocation (the opportunity
+     * scanner) pass ONE budget so chain fetches stop at the budget
+     * instead of tripping the Worker subrequest cap mid-scan. Omit
+     * for a fresh per-call budget.
+     */
+    fetchBudget?: SubrequestBudget;
+  };
 
 const DEMO_DISABLED_ERROR =
   "Calibrated demo mode is not enabled in this deployment. Production serves live broker data only; generated chains require the dev/demo gate (demo.calibratedChains / CFAGENT_DEMO_CALIBRATED_CHAINS).";
@@ -56,6 +66,15 @@ export class OptionsDataAgent {
   readonly capability = "Options data & single-contract screener";
 
   constructor(private readonly screener: DynamicOptionsScreener) {}
+
+  /**
+   * Issue #1204: mint a fresh subrequest budget at this agent's
+   * configured limit. The optional chain covers screener test doubles
+   * that carry no config; production screeners always do.
+   */
+  createFetchBudget(): SubrequestBudget {
+    return createSubrequestBudget(this.screener.config?.subrequestBudget ?? DEFAULT_SUBREQUEST_BUDGET);
+  }
 
   screen(filter: OptionScreenerFilter): Promise<OptionScreenResult> {
     return this.screener.screenOptions(filter);
@@ -81,7 +100,7 @@ export class OptionsDataAgent {
     }
 
     // Live path — broker chains only, never a generated fallback (issue #65).
-    const result = await this.screener.screenOptions(filter);
+    const result = await this.screener.screenOptions(filter, params.fetchBudget);
     return this.toSnapshot(symbol, result, "live");
   }
 

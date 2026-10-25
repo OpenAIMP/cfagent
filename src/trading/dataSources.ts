@@ -30,7 +30,7 @@ export const DATA_SOURCES: DataSource[] = [
       "Bid/ask, 52-week high/low, P/E, market cap",
       "Options chains (via options service)",
     ],
-    notes: "Primary quote source. OAuth via ETRADE_KV; honest failure when unavailable.",
+    notes: "Primary quote source. OAuth via SessionStore DO; honest failure when unavailable.",
   },
   {
     id: "yahoo",

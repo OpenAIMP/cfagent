@@ -1,4 +1,8 @@
-name: Deploy AI Search Agent
+name: Deploy NextGenTP
+
+# Runner pin: ubuntu-24.04 everywhere below. ubuntu-latest began migrating
+# toward Ubuntu 26 and segfaulted deploys (exit 139, #596). Pin until a
+# runner migration is a deliberate, tested change.
 
 on:
   push:
@@ -20,12 +24,15 @@ jobs:
   # ── Step 1: read environment.config.json or input to determine target environment ──
   load-environment:
     name: Load Active Environment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       target_env: ${{ steps.read-env.outputs.target_env }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            environment.config.json
 
       - name: Read Active Environment from Config or Input
         id: read-env
@@ -41,7 +48,10 @@ jobs:
 
   # ── Step 2: build & deploy using secrets from the GitHub Environment ──
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # Backstop for the secret-push steps: a hung Cloudflare API call is bounded
+    # per attempt (see put_secret) and the whole job must never sit for hours.
+    timeout-minutes: 30
     name: Build & Deploy [${{ needs.load-environment.outputs.target_env }}]
     needs: load-environment
     environment: ${{ needs.load-environment.outputs.target_env }}
@@ -130,6 +140,33 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: npx wrangler deploy
 
+  # ── Step 2b: sync Worker secrets (issue #590) ─────────────────────────
+  # A separate, non-blocking job on purpose: the Worker code is already
+  # deployed when this runs, so a Cloudflare secrets blip must not read as
+  # "the code deploy failed", and tag release / QA must not wait on it.
+  sync-secrets:
+    runs-on: ubuntu-24.04
+    name: Sync Worker secrets [${{ needs.load-environment.outputs.target_env }}]
+    needs: [load-environment, deploy]
+    environment: ${{ needs.load-environment.outputs.target_env }}
+    timeout-minutes: 20
+    continue-on-error: true
+    env:
+      APP_ENV: ${{ needs.load-environment.outputs.target_env }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/ci/put-secret.sh
+
+      - name: Start secret sync summary
+        run: |
+          echo "## Worker secrets — $APP_ENV" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Code deploy \`${{ github.sha }}\` is already live; this job only refreshes Worker secrets." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Set core secrets on Cloudflare Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
@@ -144,19 +181,25 @@ jobs:
           S_SCREENER_SLACK_CHANNEL: ${{ secrets.SCREENER_SLACK_CHANNEL }}
           S_SCREENER_EMAIL_TO: ${{ secrets.SCREENER_EMAIL_TO }}
         run: |
+          set -euo pipefail
+          source scripts/ci/put-secret.sh
+
           GH_ID="$S_GH_CLIENT_ID"
           if [ -z "$GH_ID" ]; then GH_ID="$S_GITHUB_CLIENT_ID"; fi
-
           GH_SEC="$S_GH_CLIENT_SECRET"
           if [ -z "$GH_SEC" ]; then GH_SEC="$S_GITHUB_CLIENT_SECRET"; fi
 
-          if [ -n "$GH_ID" ]; then printf "%s" "$GH_ID" | npx wrangler secret put GITHUB_CLIENT_ID; fi
-          if [ -n "$GH_SEC" ]; then printf "%s" "$GH_SEC" | npx wrangler secret put GITHUB_CLIENT_SECRET; fi
-          if [ -n "$S_APP_BASE_URL" ]; then printf "%s" "$S_APP_BASE_URL" | npx wrangler secret put APP_BASE_URL; fi
-          if [ -n "$S_SESSION_SECRET" ]; then printf "%s" "$S_SESSION_SECRET" | npx wrangler secret put SESSION_SECRET; fi
-          if [ -n "$S_DASHBOARD_API_KEY" ]; then printf "%s" "$S_DASHBOARD_API_KEY" | npx wrangler secret put DASHBOARD_API_KEY_IS_A2A_TOKEN; fi
-          if [ -n "$S_SCREENER_SLACK_CHANNEL" ]; then printf "%s" "$S_SCREENER_SLACK_CHANNEL" | npx wrangler secret put SCREENER_SLACK_CHANNEL; fi
-          if [ -n "$S_SCREENER_EMAIL_TO" ]; then printf "%s" "$S_SCREENER_EMAIL_TO" | npx wrangler secret put SCREENER_EMAIL_TO; fi
+          # Auth/session secrets are required: an absent value is a
+          # configuration failure, not a reason to skip the push.
+          require_secret GITHUB_CLIENT_ID "$GH_ID"
+          require_secret GITHUB_CLIENT_SECRET "$GH_SEC"
+          require_secret APP_BASE_URL "$S_APP_BASE_URL"
+          require_secret SESSION_SECRET "$S_SESSION_SECRET"
+          require_secret DASHBOARD_API_KEY_IS_A2A_TOKEN "$S_DASHBOARD_API_KEY"
+
+          # Notification targets are genuinely optional; absence is reported.
+          optional_secret SCREENER_SLACK_CHANNEL "$S_SCREENER_SLACK_CHANNEL"
+          optional_secret SCREENER_EMAIL_TO "$S_SCREENER_EMAIL_TO"
 
       - name: Set E*TRADE secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
@@ -176,6 +219,9 @@ jobs:
           S_ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
           S_ETRADE_BASE_URL: ${{ secrets.ETRADE_BASE_URL }}
         run: |
+          set -euo pipefail
+          source scripts/ci/put-secret.sh
+
           TARGET_KEY="$S_ET_API_KEY"
           if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ETRADE_API_KEY"; fi
           if [ -z "$TARGET_KEY" ]; then TARGET_KEY="$S_ET_PROD_API_KEY"; fi
@@ -203,29 +249,24 @@ jobs:
           echo "Key length: ${#TARGET_KEY}"
           echo "Secret length: ${#TARGET_SEC}"
 
-          if [ -n "$TARGET_KEY" ]; then
-            printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_API_KEY
-            if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
-              printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_PROD_API_KEY
-            else
-              printf "%s" "$TARGET_KEY" | npx wrangler secret put ET_SANDBOX_API_KEY
-            fi
+          # Without broker credentials the screener and every order path are
+          # dead, so an empty E*TRADE key is a hard failure.
+          require_secret ET_API_KEY "$TARGET_KEY"
+          if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
+            require_secret ET_PROD_API_KEY "$TARGET_KEY"
+          else
+            require_secret ET_SANDBOX_API_KEY "$TARGET_KEY"
           fi
 
-          if [ -n "$TARGET_SEC" ]; then
-            printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_API_SECRET
-            if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
-              printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_PROD_API_SECRET
-            else
-              printf "%s" "$TARGET_SEC" | npx wrangler secret put ET_SANDBOX_API_SECRET
-            fi
+          require_secret ET_API_SECRET "$TARGET_SEC"
+          if [ "$ACTIVE_ENV_NAME" = "PROD" ]; then
+            require_secret ET_PROD_API_SECRET "$TARGET_SEC"
+          else
+            require_secret ET_SANDBOX_API_SECRET "$TARGET_SEC"
           fi
 
-          if [ -n "$TARGET_URL" ]; then
-            printf "%s" "$TARGET_URL" | npx wrangler secret put ET_BASE_URL
-          fi
-
-          printf "%s" "$ACTIVE_ENV_NAME" | npx wrangler secret put APP_ENV
+          require_secret ET_BASE_URL "$TARGET_URL"
+          require_secret APP_ENV "$ACTIVE_ENV_NAME"
 
       - name: Set Payment Gateway secrets on Cloudflare Worker [${{ needs.load-environment.outputs.target_env }}]
         env:
@@ -241,21 +282,60 @@ jobs:
           LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
           MPP_SECRET_KEY: ${{ secrets.MPP_SECRET_KEY }}
         run: |
-          if [ -n "$STRIPE_SECRET_KEY" ]; then printf "%s" "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY; fi
-          if [ -n "$STRIPE_WEBHOOK_SECRET" ]; then printf "%s" "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET; fi
-          if [ -n "$PAYPAL_CLIENT_ID" ]; then printf "%s" "$PAYPAL_CLIENT_ID" | npx wrangler secret put PAYPAL_CLIENT_ID; fi
-          if [ -n "$PAYPAL_CLIENT_SECRET" ]; then printf "%s" "$PAYPAL_CLIENT_SECRET" | npx wrangler secret put PAYPAL_CLIENT_SECRET; fi
-          if [ -n "$PAYPAL_ENVIRONMENT" ]; then printf "%s" "$PAYPAL_ENVIRONMENT" | npx wrangler secret put PAYPAL_ENVIRONMENT; fi
-          if [ -n "$LEMONSQUEEZY_API_KEY" ]; then printf "%s" "$LEMONSQUEEZY_API_KEY" | npx wrangler secret put LEMONSQUEEZY_API_KEY; fi
-          if [ -n "$LEMONSQUEEZY_STORE_ID" ]; then printf "%s" "$LEMONSQUEEZY_STORE_ID" | npx wrangler secret put LEMONSQUEEZY_STORE_ID; fi
-          if [ -n "$LEMONSQUEEZY_WEBHOOK_SECRET" ]; then printf "%s" "$LEMONSQUEEZY_WEBHOOK_SECRET" | npx wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET; fi
-          if [ -n "$MPP_SECRET_KEY" ]; then printf "%s" "$MPP_SECRET_KEY" | npx wrangler secret put MPP_SECRET_KEY; fi
+          set -euo pipefail
+          source scripts/ci/put-secret.sh
+
+          # Gateways differ per deployment, so each key stays optional — but
+          # absence is now a warning plus a summary line, never a silent skip.
+          optional_secret STRIPE_SECRET_KEY "$STRIPE_SECRET_KEY"
+          optional_secret STRIPE_WEBHOOK_SECRET "$STRIPE_WEBHOOK_SECRET"
+          optional_secret PAYPAL_CLIENT_ID "$PAYPAL_CLIENT_ID"
+          optional_secret PAYPAL_CLIENT_SECRET "$PAYPAL_CLIENT_SECRET"
+          optional_secret PAYPAL_ENVIRONMENT "$PAYPAL_ENVIRONMENT"
+          optional_secret LEMONSQUEEZY_API_KEY "$LEMONSQUEEZY_API_KEY"
+          optional_secret LEMONSQUEEZY_STORE_ID "$LEMONSQUEEZY_STORE_ID"
+          optional_secret LEMONSQUEEZY_WEBHOOK_SECRET "$LEMONSQUEEZY_WEBHOOK_SECRET"
+          optional_secret MPP_SECRET_KEY "$MPP_SECRET_KEY"
+
+      - name: Set Google OAuth secrets on Cloudflare Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          S_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          S_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          source scripts/ci/put-secret.sh
+      
+          optional_secret GOOGLE_CLIENT_ID "$S_GOOGLE_CLIENT_ID"
+          optional_secret GOOGLE_CLIENT_SECRET "$S_GOOGLE_CLIENT_SECRET"
+          
+
+      - name: Set Threads secrets on Cloudflare Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          S_THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          source scripts/ci/put-secret.sh
+
+          optional_secret THREADS_ACCESS_TOKEN "$S_THREADS_ACCESS_TOKEN"
+
+      - name: Finish secret sync summary
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "All configured secrets synced." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Secret sync failed — see the annotation above. The deployed code is unaffected; re-run this job after fixing the Cloudflare/GitHub secret." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # ── Step 3: tag the deployed commit (issue #321) ──
   # Tags every successful deploy for rollback and release tracking.
   # Format: v0.1.<patch> auto-incrementing. Milestones bump minor/major manually.
   tag-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Tag Release
     needs: deploy
     permissions:
@@ -285,10 +365,66 @@ jobs:
           git tag -a "$TAG" -m "Deploy ${{ github.sha }} to production" ${{ github.sha }}
           git push origin "$TAG"
           echo "Tagged $TAG"
+          # Hand the computed tags to the release step (issue #321 follow-up):
+          # PREVIOUS_TAG scopes the generated notes to this deploy only.
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "PREVIOUS_TAG=$LATEST" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_TAG:-}" ]; then
+            echo "::error title=Release not published::RELEASE_TAG is empty; the tag step did not export it"
+            exit 1
+          fi
+          # Idempotent: a re-run of the same commit keeps the existing notes.
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; leaving its notes untouched."
+            exit 0
+          fi
+          workdir="$(mktemp -d)"
+          generated="$workdir/generated.md"
+          notes="$workdir/notes.md"
+
+          # Ask GitHub for exactly the commit list `--generate-notes` would
+          # print, scoped to this deploy. A failure here costs the commit list,
+          # never the release: the curated changelog is the point of the step.
+          generate_args=(-f tag_name="$RELEASE_TAG")
+          if [ -n "${PREVIOUS_TAG:-}" ]; then
+            generate_args+=(-f previous_tag_name="$PREVIOUS_TAG")
+          fi
+          if ! gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              "${generate_args[@]}" -q .body > "$generated"; then
+            echo "::warning title=Generated notes unavailable::gh api generate-notes failed; publishing the curated changelog only"
+            : > "$generated"
+          fi
+
+          # Curated entries on top, generated commits below, changelog link last.
+          # Composition lives in the script (not inline bash) so section matching
+          # and ordering are pinned by tests/release_notes_script.test.ts.
+          node scripts/ci/release-notes.mjs \
+            --tag "$RELEASE_TAG" \
+            --changelog CHANGELOG.md \
+            --generated "$generated" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out "$notes"
+
+          if [ ! -s "$notes" ]; then
+            echo "::error title=Release not published::no release notes could be composed for $RELEASE_TAG"
+            exit 1
+          fi
+
+          # One create with the finished body: `--generate-notes` cannot be
+          # combined with --notes-file, and create-then-edit left a window where
+          # a cancelled run published a release without its changelog.
+          gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file "$notes"
+          echo "Published $RELEASE_TAG with the curated changelog and this deploy's commit list."
 
   # ── Step 4: post-deploy QA smoke test (ported from cfpay) ──
   qa-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Post-deploy QA
     needs: deploy
     permissions:
