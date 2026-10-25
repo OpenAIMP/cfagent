@@ -268,6 +268,7 @@ describe("issue #815: worker email export routes through the orchestrator DO", (
       // #1262 Phase 5: the approval travels as a signed link, so the
       // env carries the link secret the issuance + verification read.
       CHANNEL_APPROVAL_LINK_SECRET: "test-link-secret-1262",
+      SERVICE_USER_LOGIN: OWNER_INSTANCE,
       EMAIL: {
         send: vi.fn(async (message: ReadableStream<Uint8Array>) => {
           sentMail.push(await new Response(message).text());
@@ -346,6 +347,7 @@ describe("issue #815: worker email export routes through the orchestrator DO", (
       AI_SEARCH_ENDPOINT: "https://ai-search.internal",
       ETRADE_ENVIRONMENT: "sandbox",
       EMAIL_AGENT_ADDRESS: "trade@agent.openaimp.com",
+      SERVICE_USER_LOGIN: OWNER_INSTANCE,
       SEARCH_AGENT: {
         idFromName: (name: string) => name,
         get: () => ({ fetch: async () => Response.json({ error: "do unavailable" }, { status: 503 }) }),
