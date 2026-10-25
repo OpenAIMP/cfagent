@@ -8,6 +8,7 @@
  * the FOSS compare/screen delegation and before the task schedules block):
  *   GET         /screener/latest                    (issue #212/#261)
  *   GET         /screener/report.pdf                (issue #269)
+ *   POST        /screener/report/regenerate         (issue #1278, #1173 R5)
  *   GET         /options/report.pdf                 (issue #361)
  *   POST        /research/run                       (issue #319, manual)
  *   POST        /research/scheduled-tick            (issue #319/#354, daily)
@@ -136,6 +137,31 @@ export async function handleScreenerResearchRoutes(
         });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to load report" }, { status: 500 });
+      }
+    }
+
+    // Issue #1278 (#1173 R5): regenerate the latest run's PDF (the
+    // recovery path for a run whose PDF generation failed). No
+    // re-screen — the ScreenerAgent re-runs the report pipeline for
+    // its stored latest run and records the outcome on it.
+    if (path.endsWith("/screener/report/regenerate") && request.method === "POST") {
+      try {
+        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
+        if (!ownerLogin) return unauthenticatedResponse();
+        const agent = ctx.getScreenerAgent(ownerLogin);
+        const out = await agent.regenerateLatestReport();
+        if (!out.timestamp) {
+          return Response.json({ error: out.pdfError || "No screener run to regenerate" }, { status: 404 });
+        }
+        return Response.json({
+          pdfStatus: out.pdfStatus,
+          pdfKey: out.pdfKey,
+          pdfError: out.pdfError,
+          timestamp: out.timestamp,
+          reportUrl: out.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(out.pdfKey)}` : undefined,
+        }, { status: out.pdfStatus === "generated" ? 200 : 502 });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to regenerate report" }, { status: 500 });
       }
     }
 
