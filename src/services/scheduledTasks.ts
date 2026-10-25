@@ -609,7 +609,15 @@ export class ScheduledTasksService {
           `${options.universe || "NASDAQ100"} stock screen`
         );
         if (guard.blocked) {
-          return { success: false, taskType: "market_screen", error: guard.error, timestamp };
+          // Issue #1369 (stock twin of #1358): a blocked run is a
+          // failure, not a quiet return — throw so the catch below
+          // runs the full failure path (audit + session message +
+          // screener.failed bus event). The episode alert itself
+          // stays deduped inside the guard; the per-run notice here
+          // is never deduped. The guard sits before the sharded
+          // dispatch, so blocked sharded runs notify here too and
+          // never submit a shard chain.
+          throw new Error(guard.error);
         }
       }
       // Issue #1355: sharded execution. The monolithic path below is
