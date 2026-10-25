@@ -15,8 +15,9 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CSS_PATH = join(ROOT, "src", "client", "tokens.css");
 const TS_PATH = join(ROOT, "src", "client", "designTokens.ts");
 const BEGIN = "/* BEGIN GENERATED TOKENS — scripts/gen-design-tokens.mjs — do not edit by hand */";
@@ -45,12 +46,13 @@ const css = readFileSync(CSS_PATH, "utf8").replace(/\/\*[\s\S]*?\*\//g, ""); // 
 const generated = {
   dark: extractMap(css, '[data-theme="dark"]'),
   light: extractMap(css, '[data-theme="light"]'),
+  "high-contrast": extractMap(css, '[data-theme="high-contrast"]'),
 };
 
 const section = [
   BEGIN,
   "/** Semantic --color-* values per theme, generated from tokens.css. */",
-  `export const generatedThemeTokens: Record<"dark" | "light", Record<string, string>> = ${JSON.stringify(generated, null, 2)};`,
+  `export const generatedThemeTokens: Record<\"dark\" | \"light\" | \"high-contrast\", Record<string, string>> = ${JSON.stringify(generated, null, 2)};`,
   END,
 ].join("\n");
 

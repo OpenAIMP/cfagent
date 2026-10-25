@@ -1,11 +1,19 @@
 /**
  * Shared screener pipeline (issue #259).
  *
- * Single entry point for ALL stock screening — manual ("Run stock screen")
- * and scheduled (5-min autonomous). Reusability is a core architecture
- * tenet: trigger-specific code lives in the trigger (endpoint handler /
- * scheduled job); everything else — universe acquisition, screening,
- * result shaping — lives here, exactly once.
+ * The shared pipeline helper library used by ScreenerAgent: universe
+ * acquisition, screening and result shaping live here, exactly once,
+ * and both the manual and scheduled stock-screen paths run through
+ * ScreenerAgent into it. It is NOT itself an entry point — the entry
+ * points are the REST routes (POST /api/etrade/screen,
+ * POST /api/foss/screen), the NLQ port, and the autonomousMarketScreen
+ * schedule callback, and since issue #959 every one of them validates
+ * its criteria through the single shared schema module,
+ * src/trading/screeningSchemas.ts, before anything reaches this
+ * pipeline. (The original #259 header claimed this module was the one
+ * entry point through which every stock screen flows; that was never
+ * true of the routes, the NLQ port, or the schedules, and the claim
+ * is corrected here under #959.)
  *
  * Capability union (all preserved, none lost):
  * - Manual: full listings universe (6,629), user filters (search/limit/
@@ -19,13 +27,29 @@
  * (via screenWithQuotes); this module unifies everything above it.
  */
 
-import { DynamicMarketScreener, inferSectorFromCompanyName } from "./screener";
+import { DynamicMarketScreener, inferSectorFromCompanyName, resolveStockSector } from "./screener";
 import {
   fetchTechnologySymbols,
   fetchLiveQuotes,
   withRetries,
   type LiveScreenerDeps,
 } from "./liveScreener";
+import { DEFAULT_PIPELINE_POLICY, type RetryPolicy } from "../services/pipelinePolicy";
+import { withRetry } from "../services/resilience";
+import {
+  YFINANCE_MARKET_UNIVERSE,
+  getCuratedStockBySymbol,
+  type CuratedStockSecurity,
+} from "../config/curatedStockUniverse";
+import type {
+  DataProvider,
+  DataRunContext,
+} from "./dataProviders/contract";
+import type {
+  CapabilityRouteRecord,
+  ProviderConfigRecord,
+} from "./dataProviders/providerConfigStore";
+import type { DataProviderRegistry } from "./dataProviders/registry";
 import { computeScreeningIndicators } from "./screeningIndicators";
 import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
 import type { YahooTechnicals } from "./yahooHistory";
@@ -41,6 +65,7 @@ import {
 } from "../services/nasdaqListings";
 import type {
   ETradeQuote,
+  FossQuote,
   ScreenedStockItem,
   StockScreenerFilter,
   StockScreenResult,
@@ -113,7 +138,15 @@ export interface OpportunityStock {
 // Universe acquisition — the ONLY stage that varies by trigger.
 // ---------------------------------------------------------------------------
 
-export type UniverseMode = "all-listings" | "live-quotes" | "etrade-only";
+export type UniverseMode = "all-listings" | "live-quotes" | "etrade-only" | "yahoo";
+
+/**
+ * Issue #1007: which data provider feeds a run. A provider changes
+ * data provenance only — never semantics, scoring, result shape, or
+ * persistence. Recorded on ScreenerRunResult and in the canonical
+ * report body so every run states which provider produced it.
+ */
+export type StockScreenProvider = "etrade" | "yahoo";
 
 export interface AcquireUniverseOptions {
   mode: UniverseMode;
@@ -121,16 +154,29 @@ export interface AcquireUniverseOptions {
   config?: ScreenerConfig;
   /** all-listings: exchange scope filter ("ALL" or exchange code). */
   exchange?: string;
-  /** live-quotes / etrade-only: pre-filtered listings (default: tech-keyword filter). */
+  /** live-quotes / etrade-only / yahoo: pre-filtered listings (default: tech-keyword filter; yahoo: the curated Yahoo universe). */
   symbols?: NasdaqStockListing[];
-  /** live-quotes / etrade-only: cap on symbols quoted (default 50). */
+  /** live-quotes / etrade-only / yahoo: cap on symbols quoted (default 50). */
   maxSymbols?: number;
   /** live-quotes / etrade-only: E*TRADE fetcher (required for these modes). */
   liveDeps?: LiveScreenerDeps;
+  /** yahoo: Yahoo fetcher (required for that mode) — the data-source adapter seam. */
+  yahooDeps?: YahooScreenerDeps;
+  /**
+   * all-listings: Nasdaq universe fetcher (the platform nasdaq
+   * provider, bound by bindNasdaqUniverseDeps). When absent, the
+   * listings module is called directly — the screenLive trigger
+   * path (screener.ts) carries no platform context, so the direct
+   * default stays for dep-less callers; the screener-agent screen
+   * path and the #1355 feed shard always bind it.
+   */
+  universeDeps?: NasdaqUniverseDeps;
 }
 
 export interface AcquiredUniverse {
   quotes: ETradeQuote[];
+  /** Issue #1007: the provider that produced these quotes. */
+  provider?: StockScreenProvider;
   discovery: {
     mode: "all_us_listings" | "live_quotes";
     candidateCount: number;
@@ -171,6 +217,357 @@ export interface PartialQuoteQualification {
 }
 
 /**
+ * Issue #1317: Yahoo acquisition, moved here from the deleted
+ * src/trading/yahooDataSource.ts (the pipeline's yahoo-mode helpers
+ * are pipeline logic — retry policy, curated universe, pipeline
+ * quote shape — not platform adapter logic, which must not retry or
+ * convert). Behaviour is byte-identical to the moved module; only
+ * the data source changed: production deps are now bound over the
+ * platform yahoo provider (bindYahooScreenerDeps) instead of a
+ * directly-injected YahooFinanceProvider, so every Yahoo fetch in a
+ * run is captured (E1) and outcome-tracked (E7) under the run id.
+ *
+ * Honesty rules (carried from #913/#916, previously enforced inside
+ * the retired YFinanceMarketScreener):
+ * - Only a genuinely live provider quote (provenance === "live",
+ *   price > 0) may enter the pipeline. The provider's static/generated
+ *   sync fallback is not live data and is never re-stamped as a Yahoo
+ *   quote here.
+ * - A failed lookup yields NO row for that symbol — never a substitute
+ *   quote. If every lookup fails the caller (acquireUniverse, yahoo
+ *   mode) fails the run visibly; there is no silent fallback to
+ *   another provider's data.
+ *
+ * YFinance's indicator work survives as adapter internals: the RSI-14
+ * and MACD values YahooFinanceProvider computes from daily history
+ * (computeRsi14 / computeMacd in fossResearch.ts) ride through as DATA
+ * fields on the adapted quote (rsi, macdSignal) where the pipeline can
+ * consume them — the pipeline's RSI filter reads the quote's RSI, and
+ * screenWithQuotes surfaces the MACD signal on the screened row.
+ */
+
+/** Provider id recorded in canonical-report provenance for Yahoo runs. */
+export const YAHOO_PROVIDER_ID = "yahoo" as const;
+
+/** Source label stamped on every adapted quote (its provenance). */
+export const YAHOO_QUOTE_SOURCE = "Yahoo Finance";
+
+/**
+ * The Yahoo provider seam — mirrors LiveScreenerDeps: an injected
+ * per-symbol live-quote fetcher. Production binds the platform yahoo
+ * provider (bindYahooScreenerDeps); tests bind fixtures.
+ */
+export interface YahooScreenerDeps {
+  /** Fetch a live Yahoo quote for a symbol. Throws on failure. */
+  fetchYahooQuote: (symbol: string) => Promise<FossQuote>;
+  /** Issue #1184 (#1173 R2): batch quote fetcher (one request per
+   *  symbol chunk). Optional — providers without it keep the
+   *  per-symbol path for everything. */
+  fetchYahooBatchQuotes?: (symbols: string[]) => Promise<FossQuote[]>;
+  /** Issue #1181 (#1173 R1): retry policy for per-symbol fetches.
+   *  Defaults to the pipeline policy's acquisition policy — the
+   *  Yahoo path's first retry coverage (it previously had none). */
+  retryPolicy?: RetryPolicy;
+  /** Test seam: sleep implementation for the retry executor. */
+  retrySleep?: (ms: number) => Promise<void>;
+}
+
+/** Bind a YahooFinanceProvider-shaped object as pipeline deps. */
+export function yahooDepsFromProvider(provider: {
+  getQuote: (symbol: string) => Promise<FossQuote>;
+  getQuotes?: (symbols: string[]) => Promise<FossQuote[]>;
+}): YahooScreenerDeps {
+  return {
+    fetchYahooQuote: (symbol) => provider.getQuote(symbol),
+    ...(typeof provider.getQuotes === "function"
+      ? { fetchYahooBatchQuotes: (symbols: string[]) => provider.getQuotes!(symbols) }
+      : {}),
+  };
+}
+
+/**
+ * Issue #1317: bind the platform yahoo provider to the pipeline seam
+ * — the E2 bindETradeScreenerDeps pattern for Yahoo. The provider's
+ * getQuote/getQuotesBatch results are FossQuote rows (P1 parity: the
+ * envelope wraps by reference); the run context rides along so every
+ * quote the run acquires is captured under the run's id. The batch
+ * dep exists only when the provider offers getQuotesBatch (the FOSS
+ * adapter offers it only when the wrapped provider has getQuotes),
+ * so providers without batch keep the per-symbol path.
+ */
+export function bindYahooScreenerDeps(
+  provider: DataProvider,
+  runContext: DataRunContext
+): YahooScreenerDeps {
+  return {
+    fetchYahooQuote: async (symbol: string) =>
+      (await provider.getQuote!(symbol, runContext)).result as FossQuote,
+    ...(typeof provider.getQuotesBatch === "function"
+      ? {
+          fetchYahooBatchQuotes: async (symbols: string[]) =>
+            (await provider.getQuotesBatch!(symbols, runContext)).result as FossQuote[],
+        }
+      : {}),
+  };
+}
+
+/**
+ * The Nasdaq universe seam — mirrors YahooScreenerDeps: an injected
+ * listings fetcher. Production binds the platform nasdaq provider
+ * (bindNasdaqUniverseDeps); tests bind fixtures.
+ */
+export interface NasdaqUniverseDeps {
+  /** Fetch the full listings directory. Throws on failure. */
+  fetchListings: () => Promise<NasdaqStockListing[]>;
+}
+
+/**
+ * Issue #1368: bind the platform nasdaq provider to the pipeline
+ * seam — the E2 bindETradeScreenerDeps pattern for Nasdaq. The
+ * provider's getScreenUniverse result is the listings array (the
+ * envelope wraps by reference); the run context rides along so every
+ * universe the run acquires is captured under the run's id.
+ */
+export function bindNasdaqUniverseDeps(
+  provider: DataProvider,
+  runContext: DataRunContext
+): NasdaqUniverseDeps {
+  return {
+    fetchListings: async () =>
+      (await provider.getScreenUniverse!(runContext)).result as NasdaqStockListing[],
+  };
+}
+
+/**
+ * Issue #1368: resolve the universe provider from the platform
+ * route table — the screenUniverse route's primary assignment
+ * (seeded: nasdaq, freemium, no gap-fill). The route must name
+ * nasdaq as primary, nasdaq's config must be enabled (state and
+ * flag), and the registry must hold a screenUniverse-capable
+ * nasdaq adapter. Anything else throws — no silent substitution,
+ * no fallback to another provider.
+ */
+export function nasdaqUniverseProviderFromRoute(
+  registry: DataProviderRegistry,
+  configs: readonly ProviderConfigRecord[],
+  routes: readonly CapabilityRouteRecord[]
+): DataProvider {
+  const route = routes.find((r) => r.capability === "screenUniverse");
+  if (!route || route.primaryProviderId !== "nasdaq") {
+    throw new Error(
+      "Nasdaq-mode universe resolution failed: the screenUniverse route does not name nasdaq as primary."
+    );
+  }
+  const config = configs.find((c) => c.id === "nasdaq");
+  if (!config || config.lifecycleState !== "enabled" || !config.enabled) {
+    throw new Error(
+      "Nasdaq-mode universe resolution failed: the nasdaq provider is not enabled (lifecycle state and flag)."
+    );
+  }
+  const provider = registry.get("nasdaq");
+  if (!provider || !provider.capabilities.includes("screenUniverse")) {
+    throw new Error(
+      "Nasdaq-mode universe resolution failed: no screenUniverse-capable nasdaq adapter is registered."
+    );
+  }
+  return provider;
+}
+
+/**
+ * Issue #1317: resolve the yahoo-mode quote provider from the
+ * platform route table — the quotes route's gap-fill assignment
+ * (seeded: etrade primary, yahoo gap-fill). The full resolveRoute
+ * cannot serve yahoo mode: it throws when the route's etrade primary
+ * is unservable, and a Yahoo-provider run must never construct the
+ * broker service (#1007). So this helper reads the same route table
+ * directly: the route must name yahoo as gap-fill, yahoo's config
+ * must be enabled (state and flag), and the registry must hold a
+ * quotes-capable yahoo adapter. Anything else throws — no silent
+ * substitution, no fallback to another provider.
+ */
+export function yahooQuoteProviderFromRoute(
+  registry: DataProviderRegistry,
+  configs: readonly ProviderConfigRecord[],
+  routes: readonly CapabilityRouteRecord[]
+): DataProvider {
+  const route = routes.find((r) => r.capability === "quotes");
+  if (!route || route.gapFillProviderId !== "yahoo") {
+    throw new Error(
+      "Yahoo-mode quote resolution failed: the quotes route does not name yahoo as gap-fill."
+    );
+  }
+  const config = configs.find((c) => c.id === "yahoo");
+  if (!config || config.lifecycleState !== "enabled" || !config.enabled) {
+    throw new Error(
+      "Yahoo-mode quote resolution failed: the yahoo provider is not enabled (lifecycle state and flag)."
+    );
+  }
+  const provider = registry.get("yahoo");
+  if (!provider || !provider.capabilities.includes("quotes")) {
+    throw new Error(
+      "Yahoo-mode quote resolution failed: no quotes-capable yahoo adapter is registered."
+    );
+  }
+  return provider;
+}
+
+/**
+ * Adapt one live Yahoo provider quote to the pipeline quote shape.
+ * Returns null when the quote is not genuinely live Yahoo data
+ * (provenance !== "live" or no positive price) — the caller skips the
+ * symbol rather than screening fabricated data.
+ */
+export function yahooQuoteToPipelineQuote(
+  live: FossQuote,
+  base?: CuratedStockSecurity
+): ETradeQuote | null {
+  if (!live || live.provenance !== "live" || !(live.price > 0)) return null;
+  const symbol = (live.symbol || base?.symbol || "").toUpperCase();
+  if (!symbol) return null;
+  const prevClose =
+    live.previousClose ||
+    Number((live.price - live.change).toFixed(2));
+  const change = Number((live.price - prevClose).toFixed(2));
+  const changePercent =
+    prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+  return {
+    symbol,
+    companyName: live.companyName || base?.companyName || symbol,
+    sector: base?.sector,
+    lastPrice: live.price,
+    price: live.price,
+    change,
+    changePercent,
+    bid: live.bid || live.price,
+    ask: live.ask || live.price,
+    volume: live.volume || 0,
+    open: live.open || live.price,
+    high: live.high || live.price,
+    low: live.low || live.price,
+    previousClose: prevClose,
+    peRatio: live.trailingPE,
+    // Yahoo reports market cap in raw dollars; the pipeline's
+    // evaluator normalizes magnitudes itself (screener.ts).
+    marketCap: live.marketCap,
+    // Indicator DATA fields: real RSI-14 / MACD from Yahoo history,
+    // computed by the provider. Absent when history was insufficient —
+    // never estimated here.
+    rsi: live.rsi14,
+    macdSignal: live.macdSignal,
+    quoteStatus: "LIVE",
+    source: YAHOO_QUOTE_SOURCE,
+    timestamp: live.timestamp || new Date().toISOString(),
+  };
+}
+
+/**
+ * Fetch live Yahoo quotes for a symbol list (concurrency-batched like
+ * liveScreener.fetchLiveQuotes). Symbols whose lookup fails or is not
+ * genuinely live are SKIPPED — no fallback data is substituted. The
+ * caller decides what an empty/short result means (acquireUniverse's
+ * yahoo mode fails the run when nothing quoted, and qualifies a
+ * partial set exactly like the E*TRADE path).
+ */
+/** Symbols per batch-endpoint request (issue #1184). */
+const YAHOO_BATCH_CHUNK = 50;
+
+export async function fetchYahooQuotes(
+  symbols: string[],
+  deps: YahooScreenerDeps
+): Promise<ETradeQuote[]> {
+  const policy = deps.retryPolicy ?? DEFAULT_PIPELINE_POLICY.retry.acquisition;
+  const bySymbol = new Map<string, ETradeQuote>();
+
+  // Issue #1184 (#1173 R2): batch first — one request per chunk of
+  // 50 replaces 2–3 requests per symbol (the burst Yahoo throttled
+  // to 25% success on 2026-10-23). A failed chunk (after the shared
+  // acquisition policy's retries) falls back to per-symbol fetches
+  // for its symbols; symbols a batch response omits do the same.
+  if (deps.fetchYahooBatchQuotes) {
+    for (let i = 0; i < symbols.length; i += YAHOO_BATCH_CHUNK) {
+      const chunk = symbols.slice(i, i + YAHOO_BATCH_CHUNK);
+      try {
+        const batch = await withRetry(
+          () => deps.fetchYahooBatchQuotes!(chunk),
+          policy,
+          { label: `yahoo-batch:${chunk.length}`, sleep: deps.retrySleep }
+        );
+        for (const live of batch) {
+          const adapted = yahooQuoteToPipelineQuote(
+            live,
+            getCuratedStockBySymbol(live.symbol)
+          );
+          if (adapted) bySymbol.set(adapted.symbol.toUpperCase(), adapted);
+        }
+      } catch (err) {
+        console.warn(
+          `[yahooAcquisition] batch quote chunk failed (${chunk.length} symbols); falling back per-symbol:`,
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+  }
+
+  const missing = symbols.filter((s) => !bySymbol.has(s.toUpperCase()));
+  const quotes: ETradeQuote[] = [];
+  const CONCURRENCY = 10;
+  for (let i = 0; i < missing.length; i += CONCURRENCY) {
+    const batch = missing.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(async (symbol) => {
+        // Issue #1181 (#1173 R1): every symbol fetch retries under
+        // the shared acquisition policy (exponential backoff) — the
+        // parity the E*TRADE path always had. A symbol is dropped
+        // only after its attempts are exhausted; the partial-quote
+        // qualification in acquireUniverse reports it as before.
+        return withRetry(
+          async () => {
+            const live = await deps.fetchYahooQuote(symbol);
+            const adapted = yahooQuoteToPipelineQuote(
+              live,
+              getCuratedStockBySymbol(symbol)
+            );
+            if (!adapted) {
+              throw new Error(
+                `Yahoo Finance returned no live quote for ${symbol}`
+              );
+            }
+            return adapted;
+          },
+          policy,
+          { label: `yahoo:${symbol}`, sleep: deps.retrySleep }
+        );
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") quotes.push(r.value);
+    }
+  }
+  for (const q of quotes) bySymbol.set(q.symbol.toUpperCase(), q);
+  // Input order, batch and per-symbol results merged.
+  return symbols
+    .map((s) => bySymbol.get(s.toUpperCase()))
+    .filter((q): q is ETradeQuote => !!q);
+}
+
+/**
+ * The Yahoo provider's default universe: the curated market universe
+ * (the membership the retired engine screened), expressed as pipeline
+ * listings. Membership only — prices always come from live quotes.
+ */
+export function yahooUniverseListings(): NasdaqStockListing[] {
+  return YFINANCE_MARKET_UNIVERSE.map((item) => ({
+    symbol: item.symbol,
+    companyName: item.companyName,
+    exchange: item.exchange,
+    change: 0,
+    changePercent: 0,
+    marketCap: item.marketCap,
+    sector: item.sector,
+  }));
+}
+
+/**
  * Acquire the screening universe. Manual uses all-listings; the scheduled
  * job uses live-quotes. Returns quotes ready for screenWithQuotes plus
  * discovery metadata for the UI.
@@ -178,6 +575,71 @@ export interface PartialQuoteQualification {
 export async function acquireUniverse(
   opts: AcquireUniverseOptions
 ): Promise<AcquiredUniverse> {
+  // Issue #1007: yahoo mode — Yahoo Finance as a data-source adapter
+  // inside this pipeline. Quotes arrive already adapted to the
+  // pipeline quote shape with RSI/MACD as data fields (helpers above,
+  // moved from yahooDataSource.ts in #1317); production deps are
+  // bound over the platform yahoo provider (bindYahooScreenerDeps),
+  // so every fetch is captured and outcome-tracked under the run id.
+  // Everything downstream (screenUniverse, shaping, persistence) is
+  // identical to the E*TRADE path. Honest failure: if Yahoo returns
+  // no live quote the run FAILS — there is no fallback to E*TRADE
+  // data and no fabricated row. A partial set is qualified exactly
+  // like the E*TRADE path's partial (issue #462).
+  if (opts.mode === "yahoo") {
+    if (!opts.yahooDeps) {
+      throw new Error("yahoo mode requires yahooDeps.fetchYahooQuote");
+    }
+    const cfg = opts.config ?? DEFAULT_SCREENER_CONFIG;
+    const symbols = opts.symbols ?? yahooUniverseListings();
+    const maxSymbols = opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols;
+    const limited = maxSymbols > 0 ? symbols.slice(0, maxSymbols) : symbols;
+    if (limited.length === 0) {
+      throw new Error("The selected Yahoo universe contains no listings; no static symbols were substituted.");
+    }
+    const quotes = await fetchYahooQuotes(
+      limited.map((l) => l.symbol),
+      opts.yahooDeps
+    );
+    const quotedSymbols = new Set(quotes.map((q) => q.symbol.toUpperCase()));
+    const failed = limited
+      .map((l) => l.symbol)
+      .filter((s) => !quotedSymbols.has(s.toUpperCase()));
+    if (quotes.length === 0) {
+      throw new Error(
+        `Yahoo Finance unavailable: no live quotes returned (0 of ${limited.length} symbols quoted` +
+          (failed.length > 0 ? ` (failed: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""})` : "") +
+          `). No fallback data substituted.`
+      );
+    }
+    const partial: PartialQuoteQualification | undefined =
+      failed.length > 0
+        ? {
+            quotedCount: quotes.length,
+            requestedCount: limited.length,
+            failedSymbols: failed,
+            failureReasons: { "yahoo-unavailable": failed.length },
+            failureSamples: failed
+              .slice(0, 3)
+              .map((s) => `${s}: yahoo-unavailable (Yahoo Finance returned no live quote)`),
+          }
+        : undefined;
+    return {
+      quotes,
+      provider: "yahoo",
+      ...(partial ? { partial } : {}),
+      discovery: {
+        mode: "live_quotes",
+        candidateCount: symbols.length,
+        listingCount: quotes.length,
+        message: partial
+          ? `Partial screen — qualified results: Yahoo Finance quoted ${quotes.length} of ${limited.length} symbols ` +
+            `(${failed.length} unavailable: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""}). Screen ran on the quoted subset only; no fallback data substituted.`
+          : `Yahoo Finance live quotes; ${quotes.length} of ${limited.length} symbols quoted.`,
+      },
+    };
+  }
+
   if (opts.mode === "live-quotes") {
     if (!opts.liveDeps) {
       throw new Error("live-quotes mode requires liveDeps.fetchETradeQuote");
@@ -192,6 +654,7 @@ export async function acquireUniverse(
     );
     return {
       quotes,
+      provider: "etrade",
       discovery: {
         mode: "live_quotes",
         candidateCount: symbols.length,
@@ -320,9 +783,9 @@ export async function acquireUniverse(
         symbol: listing.symbol,
         companyName: live.companyName || listing.companyName,
         // E*TRADE quote payloads do not reliably include sector. The
-        // dynamically fetched Nasdaq listing row does, so preserve that
-        // classification for sector filtering without a static symbol map.
-        sector: live.sector || listing.sector,
+        // dynamically fetched Nasdaq listing row does, and resolveStockSector
+        // provides curated/inferred enrichment.
+        sector: resolveStockSector(listing.symbol, live.companyName || listing.companyName, live.sector || listing.sector),
         source: "E*TRADE live",
         quoteStatus: "LIVE",
       } as ETradeQuote);
@@ -446,6 +909,15 @@ export async function acquireUniverse(
       // Issue #462: with zero quotes there is no screen to qualify — fail
       // honestly with the full diagnostics. (A partial set, by contrast,
       // returns qualified results below instead of failing.)
+      // Issue #902/#907: if ANY auth failures occurred and no quotes were
+      // returned, the root cause is auth (batch-omitted are secondary to the
+      // auth failure). Throw BusinessError with AUTH_002 instead of the
+      // technical "OAuth access token is missing".
+      const authFailures = failureReasons["auth"] ?? 0;
+      if (authFailures > 0) {
+        const { BusinessError } = await import("../errors/errorAspects");
+        throw new BusinessError("AUTH_002", { failedCount: failed.length, authFailures });
+      }
       throw new Error(
         `E*TRADE unavailable: no live quotes returned (${quotes.length} of ${limited.length} symbols quoted` +
           (failed.length > 0 ? ` (failed: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""})` : "") +
@@ -466,6 +938,7 @@ export async function acquireUniverse(
         : undefined;
     return {
       quotes,
+      provider: "etrade",
       ...(partial ? { partial } : {}),
       discovery: {
         mode: "live_quotes",
@@ -488,7 +961,7 @@ export async function acquireUniverse(
   try {
     listings =
       DynamicMarketScreener.getTestListingsFixture() ??
-      (await fetchAllUsStockListings());
+      (await (opts.universeDeps?.fetchListings() ?? fetchAllUsStockListings()));
     if (!DynamicMarketScreener.getTestListingsFixture() && (!listings || listings.length === 0)) {
       throw new Error("The live listings directory returned no symbols; no static universe was substituted.");
     }
@@ -688,7 +1161,7 @@ export function toScannedStock(
     // Issue #269: default technicals; attachTechnicals() fills from Yahoo.
     technicals: EMPTY_TECHNICALS,
     peRatio: quote.peRatio ?? null,
-    sector: quote.sector,
+    sector: resolveStockSector(quote.symbol, quote.companyName, quote.sector),
   };
 }
 

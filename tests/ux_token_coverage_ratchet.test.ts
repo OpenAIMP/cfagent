@@ -3,22 +3,37 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * UX token coverage ratchet (Phase 2 of #137, issue #470).
+ * UX token coverage gate (Phase 2 of #137, issue #470; completed in
+ * Phase 6, #476).
  *
  * Raw color literals (hex + rgb/hsl functional notation) may only live in
- * the token sources (src/client/tokens.css and the generated section of
- * src/client/designTokens.ts). Everywhere else in src/client the counts can
- * only go DOWN:
- *
- * - tests/ux_token_coverage_ratchet.json pins the per-file ceiling measured
- *   by the Phase 0 baseline (scripts/token-coverage.mjs, #468).
- * - A file exceeding its ceiling, or a new file with any raw literal, fails.
- * - When a migration slice lowers a file's count, lower its ceiling in the
- *   same PR. Phase 6 (#476) deletes the allowlist entirely.
+ * the token sources (src/client/tokens.css and src/client/designTokens.ts).
+ * The Phase 2–6 ratchet drove the count from the Phase 0 baseline of 3,105
+ * to ZERO; the per-file ceiling allowlist was deleted when it reached zero
+ * (its history lives in git and in plans/UX/baseline/). Any raw literal
+ * anywhere else in src/client now fails outright — add a token instead.
  *
  * Also pinned: theme-class selectors (.dark/.light/.theme-*) are banned in
  * CSS outside tokens.css — `data-theme` is the sanctioned mechanism
- * (legacy adapters themselves are removed in Phase 4, #474).
+ * (legacy adapters themselves were removed in Phase 4, #474).
+ *
+ * Named colors (#677): CSS named-color keywords (white, crimson, …) are
+ * raw literals too, but unlike hex they collide with ordinary words, so
+ * the scan is scoped to where style values are actually written:
+ *   - CSS files: declaration values of color-bearing properties (plus
+ *     custom-property definitions, whose values are style values);
+ *   - TS/TSX: string values of color-bearing properties inside inline
+ *     `style={{ … }}` objects, and SVG presentation attributes
+ *     (fill/stroke/stop-color/…).
+ * A name counts only as a standalone value word (identifier boundaries on
+ * both sides), so token names (var(--color-purple-subtle)), class names,
+ * and tone identifiers never match. Value keywords that are not named
+ * colors — transparent, currentColor, inherit, unset, none — are absent
+ * from the keyword list by design and are never flagged. Detached object
+ * literals are NOT scanned in TS/TSX: a data record's `color: "purple"`
+ * field (e.g. a saved-filter preset naming a tone) is syntactically
+ * identical to a style entry, and the hex gate's bluntness is not safe
+ * to repeat here — style values enter TS/TSX through the style prop.
  */
 
 const ROOT = join(__dirname, "..");
@@ -38,6 +53,85 @@ function stripComments(text: string): string {
 const HEX_RE = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b/g;
 const FN_RE = /\b(?:rgba?|hsla?)\([^)]*\)/g;
 const THEME_CLASS_RE = /(^|[\s,>+~])\.(?:dark|light|theme-dark|theme-light)(?=[\s{.:,#\[]|$)/m;
+
+// The CSS named-color keywords (CSS Color 4), minus `transparent` — a
+// <color> keyword the gate treats as a value keyword, not a literal (see
+// the header comment). Mirrors NAMED_COLORS in scripts/token-coverage.mjs.
+const NAMED_COLORS =
+  "aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen".split(
+    " ",
+  );
+const NAMED_COLOR_RE = new RegExp(`(?<![\\w-])(?:${NAMED_COLORS.join("|")})(?![\\w-])`, "gi");
+
+// Color-bearing properties whose values may carry a named color. Shorthand
+// properties (border, background, box-shadow, …) are included: the value
+// scan looks for standalone named-color words anywhere in the value.
+const COLOR_KEBAB_PROPS = new Set(
+  "color background background-color border-color border-top-color border-right-color border-bottom-color border-left-color outline-color text-decoration-color caret-color accent-color column-rule-color fill stroke stop-color flood-color lighting-color box-shadow text-shadow border border-top border-right border-bottom border-left outline column-rule".split(" "),
+);
+const COLOR_CAMEL_PROPS = new Set(
+  "color background backgroundColor borderColor borderTopColor borderRightColor borderBottomColor borderLeftColor outlineColor textDecorationColor caretColor accentColor columnRuleColor fill stroke stopColor floodColor lightingColor boxShadow textShadow border borderTop borderRight borderBottom borderLeft outline columnRule".split(" "),
+);
+const COLOR_JSX_ATTR_RE =
+  /\b(?:fill|stroke|stop-color|stopColor|flood-color|floodColor|lighting-color|lightingColor)\s*=\s*(?:\{\s*)?(["'])([^"']*)\1/g;
+
+function countNamedInCss(text: string): number {
+  let n = 0;
+  for (const m of text.matchAll(/(--[\w-]+|[a-zA-Z-]+)\s*:\s*([^;{}]+)[;}]/g)) {
+    const prop = m[1].toLowerCase();
+    if (!(prop.startsWith("--") || COLOR_KEBAB_PROPS.has(prop))) continue;
+    n += (m[2].match(NAMED_COLOR_RE) ?? []).length;
+  }
+  return n;
+}
+
+// Brace-balanced spans of inline `style={{ … }}` objects in TS/TSX source.
+function styleSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const m of text.matchAll(/style\s*=\s*\{\{/g)) {
+    const start = text.indexOf("{", m.index);
+    let depth = 0;
+    let i = start;
+    for (; i < text.length; i += 1) {
+      if (text[i] === "{") depth += 1;
+      else if (text[i] === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    spans.push([start, i]);
+  }
+  return spans;
+}
+
+function countNamedInTs(text: string): number {
+  let n = 0;
+  const spans = styleSpans(text);
+  for (const m of text.matchAll(/(["']?)([A-Za-z][\w-]*)\1\s*:\s*(["'`])([^"'`]*)\3/g)) {
+    const prop = m[2];
+    const isColorProp =
+      COLOR_CAMEL_PROPS.has(prop) || COLOR_KEBAB_PROPS.has(prop.toLowerCase()) || prop.startsWith("--");
+    if (!isColorProp) continue;
+    if (!spans.some(([a, b]) => m.index >= a && m.index <= b)) continue;
+    n += (m[4].match(NAMED_COLOR_RE) ?? []).length;
+  }
+  for (const m of text.matchAll(COLOR_JSX_ATTR_RE)) {
+    n += (m[2].match(NAMED_COLOR_RE) ?? []).length;
+  }
+  return n;
+}
+
+function scanNamedColors(): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const file of walk(CLIENT_DIR)) {
+    const rel = relative(ROOT, file).split("\\").join("/");
+    if (TOKEN_SOURCES.has(rel)) continue;
+    const text = stripComments(readFileSync(file, "utf8"));
+    const n = rel.endsWith(".css") ? countNamedInCss(text) : countNamedInTs(text);
+    if (n > 0) counts.set(rel, n);
+  }
+  return counts;
+}
 
 function* walk(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {
@@ -59,29 +153,23 @@ function scan(): Map<string, number> {
   return counts;
 }
 
-const allowlist = JSON.parse(readFileSync(join(ROOT, "tests", "ux_token_coverage_ratchet.json"), "utf8")) as Record<string, number>;
-
-describe("UX token coverage ratchet (#470)", () => {
-  it("no file exceeds its raw-color ceiling and no unlisted file has raw colors", () => {
+describe("UX token coverage gate (#470, #476)", () => {
+  it("no raw color literals anywhere in src/client outside the token sources", () => {
     const counts = scan();
     const violations: string[] = [];
     for (const [file, n] of counts) {
-      const ceiling = allowlist[file];
-      if (ceiling === undefined) violations.push(`${file}: ${n} raw color literals, no allowlist entry (add tokens, not literals)`);
-      else if (n > ceiling) violations.push(`${file}: ${n} raw color literals exceeds ceiling ${ceiling}`);
+      violations.push(`${file}: ${n} raw color literals (add tokens, not literals)`);
     }
     expect(violations).toEqual([]);
   });
 
-  it("allowlist ceilings are never above the measured counts plus zero slack for removed files", () => {
-    const counts = scan();
-    for (const [file, ceiling] of Object.entries(allowlist)) {
-      const current = counts.get(file) ?? 0;
-      // A ceiling may equal the current count (not yet migrated) — but it may
-      // not exceed it by invention: ceilings come from the baseline or a
-      // lowered value recorded by a migration PR.
-      expect(ceiling, `${file} ceiling`).toBeGreaterThanOrEqual(current);
+  it("no CSS named-color literals as style values in src/client outside the token sources", () => {
+    const counts = scanNamedColors();
+    const violations: string[] = [];
+    for (const [file, n] of counts) {
+      violations.push(`${file}: ${n} named-color literals (use the paired token, not a named color)`);
     }
+    expect(violations).toEqual([]);
   });
 
   it("no theme-class selectors in CSS outside tokens.css", () => {
@@ -92,5 +180,42 @@ describe("UX token coverage ratchet (#470)", () => {
       if (THEME_CLASS_RE.test(readFileSync(file, "utf8"))) offenders.push(rel);
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("no dangling var() references (#492 follow-up)", () => {
+  it("every var(--x) used in src/client names a defined custom property", () => {
+    // A var() pointing at an undefined custom property silently invalidates
+    // the declaration in every theme (the legacy --theme-* family and
+    // --color-border/--shadow-xl strays purged in the #492 Table slice).
+    // Definitions are collected from CSS files and from TS/TSX inline
+    // style objects ("--x": value). Names ending in "-" are dynamic
+    // template prefixes (var(--color-${tone})) and are skipped.
+    const defined = new Set<string>();
+    const used = new Map<string, string[]>();
+    const DEF_RE = /(--[a-z0-9-]+)\s*:/g;
+    const USE_RE = /var\((--[a-z0-9-]+)/g;
+    for (const file of walk(CLIENT_DIR)) {
+      const rel = relative(ROOT, file).split("\\").join("/");
+      const raw = readFileSync(file, "utf8");
+      if (rel.endsWith(".css")) {
+        for (const m of raw.matchAll(DEF_RE)) defined.add(m[1]);
+      } else {
+        for (const m of raw.matchAll(/["'](--[a-z0-9-]+)["']\s*:/g)) defined.add(m[1]);
+      }
+      const text = stripComments(raw);
+      for (const m of text.matchAll(USE_RE)) {
+        const name = m[1];
+        if (name.endsWith("-")) continue;
+        const list = used.get(name) ?? [];
+        list.push(rel);
+        used.set(name, list);
+      }
+    }
+    const dangling: string[] = [];
+    for (const [name, files] of used) {
+      if (!defined.has(name)) dangling.push(`${name} (used in ${[...new Set(files)].slice(0, 3).join(", ")})`);
+    }
+    expect(dangling).toEqual([]);
   });
 });

@@ -25,6 +25,9 @@ import {
 import { ETradeSlackTradingService } from "../trading";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
+import { runWithRouting } from "../models/router";
+import { getWorkersAIModel } from "../agents/model";
+import { generateText } from "ai";
 import type { ScreenerAgent } from "../agents/screener-agent";
 import type { Env } from "../types";
 import type { DatabaseORM } from "../orm";
@@ -34,7 +37,7 @@ import {
   cfpaySendEmail,
   cfpaySendEmailWithAttachments,
 } from "../services/cfpayA2A";
-import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
+import { deliverScreenerToSlack, deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
 
 export interface ScreenerPublisherDeps {
   env: Env;
@@ -49,15 +52,36 @@ interface ScreenerPdf {
   fileName: string;
 }
 
-/** Fetch this run's PDF, never another concurrent run's latest PDF. */
-async function fetchScreenerPdf(deps: ScreenerPublisherDeps, pdfKey?: string): Promise<ScreenerPdf | null> {
+/** Fetch this run's PDF, never another concurrent run's latest PDF.
+ * #333: errors are logged, not swallowed — a null return means "no PDF
+ * stored", never "something broke silently". */
+export async function fetchScreenerPdf(
+  deps: ScreenerPublisherDeps,
+  pdfKey?: string,
+  pdfStatus?: "generated" | "failed" | "skipped",
+  pdfError?: string
+): Promise<ScreenerPdf | null> {
   try {
     const ns = (deps.env as any).SCREENER_AGENT;
-    if (!ns) return null;
+    if (!ns) {
+      console.warn("[ScreenerPublishers] SCREENER_AGENT binding missing — cannot fetch PDF.");
+      return null;
+    }
+    // Issue #822: if PDF generation failed, log the reason and do NOT fall back
+    // to a stale PDF. The failure is already recorded in the result.
+    if (pdfStatus === "failed") {
+      console.error(`[ScreenerPublishers] PDF generation failed for this run: ${pdfError || "unknown"}. Skipping attachment (not falling back to stale).`);
+      return null;
+    }
+    if (!pdfKey) {
+      console.warn("[ScreenerPublishers] No pdfKey on event — skipping PDF attachment.");
+      return null;
+    }
     const agentName = deps.userLogin === "default_trader" ? "default" : `screener:${deps.userLogin}`;
     const agent = ns.get(ns.idFromName(agentName)) as unknown as ScreenerAgent;
-    return pdfKey ? await agent.getPdfByKey(pdfKey) : await agent.getLatestPdf();
-  } catch {
+    return await agent.getPdfByKey(pdfKey);
+  } catch (err) {
+    console.warn("[ScreenerPublishers] fetchScreenerPdf failed:", err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -194,6 +218,36 @@ export function registerScreenerPublishers(
   );
 }
 
+/**
+ * Issue #218: LLM-generated digest of screener opportunities.
+ * Best-effort — returns null if the model is unavailable. The structured
+ * delivery path stays deterministic; this only adds a human-readable lead.
+ */
+export async function generateScreenerDigest(
+  env: Env,
+  event: ScreenerCompletedEvent
+): Promise<string | null> {
+  if (event.opportunities.length === 0) return null;
+  const summary = event.opportunities.slice(0, 5).map(
+    (o) => `${o.symbol} (${o.companyName}) — ${o.signal}, momentum ${o.momentumScore.toFixed(0)}, $${o.lastPrice.toFixed(2)} (${o.changePercent >= 0 ? "+" : ""}${o.changePercent.toFixed(2)}%)`
+  ).join("\n");
+  const prompt = `Summarize these screener results in one sentence for a trader. ` +
+    `Lead with the count and the top names. Be specific, no hype.\n\n` +
+    `Universe: ${event.universe || "TECH"}\n${summary}`;
+  try {
+    const { result } = await runWithRouting("summarize", async (modelName) => {
+      const { text } = await generateText({
+        model: getWorkersAIModel(env, modelName),
+        prompt,
+      });
+      return text.trim();
+    });
+    return result || null;
+  } catch {
+    return null;
+  }
+}
+
 function formatOpportunities(
   event: ScreenerCompletedEvent
 ): { text: string; html: string } {
@@ -209,6 +263,7 @@ function formatOpportunities(
   const scanned = event.expectedCount && event.expectedCount > event.totalScanned
     ? `Scanned ${event.totalScanned} of ${event.expectedCount} ${universe} stocks, ${event.matchedCount} matched.`
     : `Scanned ${event.totalScanned} ${universe} stocks, ${event.matchedCount} matched.`;
+  const filterLine = event.filterSummary ? `Criteria: ${event.filterSummary}` : null;
   // Issue #462: a partial quote set yields a qualified partial report — the
   // qualification rides every delivery so it never reads as a complete screen.
   const partialLine = event.partial
@@ -219,9 +274,26 @@ function formatOpportunities(
   const text = [
     `📊 Market Screen — ${universe}${sectorLabel} · ${triggerLabel}`,
     scanned,
+    ...(filterLine ? [filterLine] : []),
     ...(partialLine ? [partialLine] : []),
+    // Issue #728: rejection breakdown — when few or zero match, show why.
+    ...(event.rejections?.length
+      ? [
+          `Rejections: ${Object.entries(
+            event.rejections.reduce((acc: Record<string, number>, r) => {
+              // Group by the gate: take the first clause before " (" or " for".
+              const gate = r.reason.split(" (")[0].split(" for ")[0].trim();
+              acc[gate] = (acc[gate] || 0) + 1;
+              return acc;
+            }, {})
+          )
+            .sort((a, b) => b[1] - a[1])
+            .map(([gate, n]) => `${n} ${gate}`)
+            .join(", ")}`,
+        ]
+      : []),
     ``,
-    ...lines,
+    ...(event.opportunities.length > 0 ? lines : ["No standout opportunities met the screening criteria."]),
     ``,
     `_Completed ${event.timestamp}_`,
   ].join("\n");
@@ -238,11 +310,16 @@ function formatOpportunities(
   const html = [
     `<h2>📊 Market Screen — ${universe}${sectorLabel} · ${triggerLabel}</h2>`,
     `<p>${scanned}</p>`,
+    ...(filterLine ? [`<p><b>Criteria:</b> ${event.filterSummary}</p>`] : []),
     ...(partialLine ? [`<p><b>${partialLine}</b></p>`] : []),
-    `<table border="1" cellpadding="6" cellspacing="0">`,
-    `<tr><th>Symbol</th><th>Company</th><th>Signal</th><th>Momentum</th><th>Price</th><th>Change</th></tr>`,
-    htmlRows,
-    `</table>`,
+    ...(event.opportunities.length > 0
+      ? [
+          `<table border="1" cellpadding="6" cellspacing="0">`,
+          `<tr><th>Symbol</th><th>Company</th><th>Signal</th><th>Momentum</th><th>Price</th><th>Change</th></tr>`,
+          htmlRows,
+          `</table>`,
+        ]
+      : [`<p><i>No standout opportunities met the screening criteria.</i></p>`]),
     `<p><i>Completed ${event.timestamp}</i></p>`,
   ].join("\n");
   return { text, html };
@@ -255,46 +332,38 @@ async function publishCompleted(
   const { text, html } = formatOpportunities(event);
   const plainText = text.replace(/\*/g, "");
 
+  // Issue #218: prepend an LLM-generated digest (best-effort).
+  const digest = await generateScreenerDigest(deps.env, event);
+  const textWithDigest = digest ? `💡 ${digest}\n\n${text}` : text;
+
   // 1. Resolve the exact run's PDF before sending one A2A Slack file
   // notification. Sending a separate summary and then a file generated a
   // duplicate pair of Slack messages for each screen.
   const cfpay = getCfpayConfig(deps.env);
-  const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
-  const pdf = await fetchScreenerPdf(deps, event.pdfKey);
+  const slackChannel = event.slackChannel || (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
+  const pdf = await fetchScreenerPdf(deps, event.pdfKey, event.pdfStatus, event.pdfError);
   const reportUrl = `${deps.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf${event.pdfKey ? `?key=${encodeURIComponent(event.pdfKey)}` : ""}`;
+  const plainTextWithDigest = digest ? `💡 ${digest}\n\n${plainText}` : plainText;
   const slackBody = pdf || cfpay
-    ? plainText
-    : `${plainText}${event.pdfKey ? `\n\n📄 PDF report: ${reportUrl}` : ""}`;
-  if (cfpay) {
-    const delivery = await deliverScreenerToSlackA2A(deps.env, {
-      text: plainText,
-      channel: slackChannel,
-      ...(pdf ? {
-        pdf: {
-          ...pdf,
-          title: `Market Screen — ${event.universe || "TECH"} ${event.timestamp.slice(0, 10)}`,
-          comment: plainText,
-        },
-      } : {}),
-    });
-    if (!delivery.ok) {
-      console.warn("[ScreenerPublishers] Slack A2A delivery failed:", delivery.error);
-    }
-  } else if (deps.env.SLACK_BOT_TOKEN || deps.env.SLACK_WEBHOOK_URL) {
-    try {
-      if (pdf && deps.env.SLACK_BOT_TOKEN) {
-        await deliverPdfToSlack(deps, pdf, event, plainText);
-      } else {
-        const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
-        await slack.postSlackMessage({ text: slackBody, channel: slackChannel } as any);
-      }
-    } catch (err) {
-      console.warn("[ScreenerPublishers] Slack publish failed:", err instanceof Error ? err.message : String(err));
-    }
+    ? plainTextWithDigest
+    : `${plainTextWithDigest}${event.pdfKey ? `\n\n📄 PDF report: ${reportUrl}` : ""}`;
+  const slackDelivery = await deliverScreenerToSlack(deps.env, {
+    text: slackBody,
+    channel: slackChannel,
+    ...(pdf ? {
+      pdf: {
+        ...pdf,
+        title: `Market Screen — ${event.universe || "TECH"} ${event.timestamp.slice(0, 10)}`,
+        comment: plainTextWithDigest,
+      },
+    } : {}),
+  });
+  if (!slackDelivery.ok) {
+    console.warn("[ScreenerPublishers] Slack delivery failed:", slackDelivery.error);
   }
 
   // 2. Email — try cfpay via A2A first, fall back to local.
-  const emailTo = (deps.env as any).SCREENER_EMAIL_TO;
+  const emailTo = event.emailTo || (deps.env as any).SCREENER_EMAIL_TO;
   if (emailTo) {
     let emailOk = false;
     if (cfpay) {
@@ -338,7 +407,7 @@ async function publishCompleted(
   }
 
   // 3. Webhook
-  const webhookUrl = (deps.env as any).OUTBOUND_WEBHOOK_URL;
+  const webhookUrl = event.webhookUrl || (deps.env as any).OUTBOUND_WEBHOOK_URL;
   if (webhookUrl) {
     try {
       const webhook = new ETradeWebhookService(deps.orm, deps.env, deps.userLogin);
@@ -368,11 +437,14 @@ async function publishFailed(
   const text = `⚠️ Market Screen FAILED — ${event.universe || "TECH"}${event.sector && event.sector !== "ALL" ? ` · ${event.sector}` : ""} · ${triggerLabel}\nError: ${event.error}\n_Time: ${event.timestamp}_`;
 
   const cfpay = getCfpayConfig(deps.env);
-  const slackChannel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
+  const slackChannel = event.slackChannel || (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
+  let attempted = false;
   if (cfpay) {
-    const result = await deliverScreenerToSlackA2A(deps.env, { text });
+    attempted = true;
+    const result = await deliverScreenerToSlackA2A(deps.env, { text, channel: slackChannel });
     if (!result.ok) console.warn("[ScreenerPublishers] Slack A2A failure-notify failed:", result.error);
   } else if (deps.env.SLACK_BOT_TOKEN || deps.env.SLACK_WEBHOOK_URL) {
+    attempted = true;
     try {
       const slack = new ETradeSlackTradingService(deps.env, deps.orm, deps.userLogin);
       await slack.postSlackMessage({ text, channel: slackChannel } as any);
@@ -381,8 +453,25 @@ async function publishFailed(
     }
   }
 
-  const webhookUrl = (deps.env as any).OUTBOUND_WEBHOOK_URL;
+  const emailTo = event.emailTo || (deps.env as any).SCREENER_EMAIL_TO;
+  if (emailTo) {
+    attempted = true;
+    if (cfpay) {
+      const r = await cfpaySendEmail(cfpay, emailTo, `⚠️ Market Screen FAILED — ${event.universe || "TECH"}`, text);
+      if (!r.ok) console.warn("[ScreenerPublishers] cfpay Email failure-notify failed:", r.error);
+    } else {
+      try {
+        const email = new ETradeEmailTradingService(deps.env, deps.orm, deps.userLogin);
+        await email.sendOutboundEmail(emailTo, `⚠️ Market Screen FAILED — ${event.universe || "TECH"}`, `<p>${text}</p>`, text);
+      } catch (err) {
+        console.warn("[ScreenerPublishers] Email failure-notify failed:", err instanceof Error ? err.message : String(err));
+      }
+    }
+  }
+
+  const webhookUrl = event.webhookUrl || (deps.env as any).OUTBOUND_WEBHOOK_URL;
   if (webhookUrl) {
+    attempted = true;
     try {
       const webhook = new ETradeWebhookService(deps.orm, deps.env, deps.userLogin);
       await webhook.dispatchOutboundWebhook(
@@ -392,6 +481,29 @@ async function publishFailed(
       );
     } catch (err) {
       console.warn("[ScreenerPublishers] Webhook failure-notify failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // Issue #424: with no channel configured the failure used to vanish
+  // silently — the exact complaint behind the issue. Audit the skip so
+  // the silence is on the record and diagnosable.
+  if (!attempted) {
+    try {
+      deps.orm?.events?.create({
+        id: crypto.randomUUID(),
+        sessionId: deps.userLogin,
+        type: "screener.failure_notify_skipped",
+        agent: "orchestrator",
+        payload: {
+          sector: event.sector,
+          universe: event.universe,
+          error: event.error,
+          reason: "no notification channel configured",
+        },
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      // Non-critical audit insertion error
     }
   }
 }

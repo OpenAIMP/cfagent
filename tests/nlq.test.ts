@@ -412,7 +412,9 @@ describe("Natural Language Query (NLQ) Engine", () => {
       expect(order?.orderAction).toBe("BUY");
       expect(order?.orderType).toBe("LIMIT");
       expect(order?.relativePriceOffsetPercent).toBe(-30);
-      expect(order?.limitPrice).toBeGreaterThan(0);
+      // #913/#920: the parser derives NO price — relative orders are priced
+      // at execution from a live E*TRADE quote or refused.
+      expect(order?.limitPrice).toBeUndefined();
     });
 
     it("plans order previews with relative discounts accurately via planNLQ", async () => {

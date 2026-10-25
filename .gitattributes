@@ -1,0 +1,10 @@
+# Shell scripts run under bash in CI. A CRLF checkout turns the shebang and
+# `set -euo pipefail` lines into syntax errors, so force LF for them.
+*.sh text eol=lf
+
+# Node scripts under scripts/ are run directly (`node scripts/...`) and one is
+# imported by vitest. Vite's SSR transform prepends imports to the module, so a
+# CRLF checkout leaves the shebang line unrecognized and the suite dies with
+# "SyntaxError: Invalid or unexpected token" (seen on a Windows checkout with
+# core.autocrlf=true). Keep them LF like the shell scripts.
+*.mjs text eol=lf

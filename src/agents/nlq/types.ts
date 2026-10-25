@@ -1,6 +1,6 @@
 import { type OptionsStrategyDeps } from "../nlqOptionsStrategy";
 import type { ProfileRef, ScanRunStore } from "../../trading";
-import type { AgentScheduleItem, OptionScreenRejection, StockScreenLedger, StockScreenResult } from "../../types";
+import type { AgentScheduleItem, OptionScreenRejection, StockScreenerFilter, StockScreenLedger, StockScreenResult } from "../../types";
 import { NLQPlan } from "./schema";
 export interface NLQValidationResult {
   validated: boolean;
@@ -33,6 +33,9 @@ export interface NLQQueryResult {
   /** Issue #27: id of the persisted scan run (options_opportunities
    *  only, when the caller threaded a ScanRunStore through). */
   scanRunId?: string;
+  /** Issue #14: id of the persisted discovery run (options_discovery
+   *  only, when the caller threaded a discovery runner through). */
+  discoveryRunId?: string;
   /** Issue #27: whether the scan run was persisted; false means a
    *  store was supplied but its save failed (the scan still succeeded). */
   persisted?: boolean;
@@ -78,10 +81,67 @@ export interface NLQSchedulingPort {
   listSchedules(): Promise<AgentScheduleItem[]>;
 }
 
+/** The service-run shape the stock-screen port returns: the fields of
+ *  the ScreenerAgent's run result the NLQ envelope is built from
+ *  (structural — the agent's ScreenerRunResult satisfies it). */
+export interface NLQStockScreenRunResult {
+  timestamp: string;
+  universe: string;
+  sector: string;
+  success: boolean;
+  totalScanned: number;
+  matchedCount: number;
+  filterSummary?: string;
+  discoveryMessage: string;
+  error?: string;
+  pdfKey?: string;
+  rejections?: Array<{ symbol: string; reason: string }>;
+  allStocks: Array<{
+    symbol: string;
+    companyName: string;
+    sector?: string;
+    lastPrice: number;
+    changePercent: number;
+    source: string;
+  }>;
+  opportunities: Array<{ symbol: string }>;
+}
+
+/**
+ * Issue #982: narrow port over the stock screening service — the
+ * ScreenerAgent pipeline the REST /etrade/screen route delegates to
+ * (issue #261). The orchestrator binds its getScreenerAgent stub into
+ * this shape and injects it through the NLQ execution deps, so NLQ
+ * stock screens run through the same service (and persist like REST
+ * runs) instead of the executor's local listings screener. Contexts
+ * without a port (e.g. the MCP facade, the synchronous executor —
+ * a Durable Object call is async-only, the #109 constraint) keep the
+ * pre-#982 behaviour, exactly as store-less scan contexts do (#27).
+ */
+export interface NLQStockScreenPort {
+  runScreen(req: {
+    filters: StockScreenerFilter;
+    userLogin: string;
+  }): Promise<NLQStockScreenRunResult>;
+}
+
+/** Issue #1077 Phase 5b slice 2: narrow port over the durable social
+ *  brief store — the NLQ executor's only write path for briefs. The
+ *  orchestrator binds it from SESSION_STORE for the trusted agent
+ *  /nlq route; contexts without a port (MCP facade, Slack, async
+ *  jobs, the webhook-forwarded route) get honest failures from the
+ *  executor instead of fabricated success. */
+export interface NLQSocialBriefPort {
+  setBrief(req: { date: string; text: string }): Promise<void>;
+}
+
 /** Execution deps for executeNLQQueryAsync: the options-strategy deps
- *  plus the optional scheduling port (issue #109). */
+ *  plus the optional scheduling port (issue #109) and the optional
+ *  stock-screen port (issue #982). */
 export interface NLQExecutionDeps extends OptionsStrategyDeps {
   schedulingPort?: NLQSchedulingPort;
+  stockScreenPort?: NLQStockScreenPort;
+  socialBriefPort?: NLQSocialBriefPort;
 }
 
 export interface NLQPlanOptions {
@@ -89,4 +149,13 @@ export interface NLQPlanOptions {
   skipLLM?: boolean;
   context?: string;
   validateWithLLM?: boolean;
+  /**
+   * #767/#862: the question is untrusted inbound content (e.g. an external
+   * email body). The LLM planner and validator then apply instruction/data
+   * separation: a system rule that delimited content is data, never
+   * instructions, and the question is wrapped in untrusted-content
+   * delimiters. Trusted channels (chat/MCP) leave this unset and their
+   * prompt assembly is unchanged.
+   */
+  untrustedContent?: boolean;
 }

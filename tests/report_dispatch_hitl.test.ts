@@ -103,11 +103,11 @@ describe("Issue #277 — report-dispatch HITL setting (server-owned)", () => {
     vi.restoreAllMocks();
   });
 
-  it("defaults OFF: GET reports {enabled:false}", async () => {
+  it("defaults ON (#1144, owner decision 2026-10-23): GET reports {enabled:true}", async () => {
     const { agent } = seedAgent(makeEnv());
     const res = await get(agent, "/trading/settings/report-dispatch-hitl");
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toEqual({ enabled: false });
+    expect((await res.json()) as any).toEqual({ enabled: true });
   });
 
   it("POST rejects a non-boolean value with 400", async () => {
@@ -124,9 +124,10 @@ describe("Issue #277 — report-dispatch HITL setting (server-owned)", () => {
     expect(((await (await get(agent, "/trading/settings/report-dispatch-hitl")).json()) as any).enabled).toBe(false);
   });
 
-  it("HITL OFF: email dispatch sends immediately (today's behavior), no pending row", async () => {
+  it("HITL OFF: email dispatch sends immediately (opted out), no pending row", async () => {
     const emailSend = vi.fn(async () => true);
     const { agent, sql } = seedAgent(makeEnv({ EMAIL: { send: emailSend } }));
+    await setHitl(agent, false);
     const res = await post(agent, "/trading/reports/email", EMAIL_BODY);
     expect(res.status).toBe(200);
     const json = (await res.json()) as any;
@@ -136,10 +137,11 @@ describe("Issue #277 — report-dispatch HITL setting (server-owned)", () => {
     expect(pendingRows(sql)).toHaveLength(0);
   });
 
-  it("HITL OFF: webhook dispatch sends immediately (today's behavior), no pending row", async () => {
+  it("HITL OFF: webhook dispatch sends immediately (opted out), no pending row", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }) as any);
     vi.stubGlobal("fetch", fetchMock);
     const { agent, sql } = seedAgent(makeEnv());
+    await setHitl(agent, false);
     const res = await post(agent, "/trading/reports/webhook", WEBHOOK_BODY);
     expect(res.status).toBe(200);
     const json = (await res.json()) as any;

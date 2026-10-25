@@ -12,6 +12,15 @@
 
 import { computeRsi14, computeMacd } from "../services/fossResearch";
 import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
+import { getCachedQuote, setCachedQuote } from "../services/quoteCache";
+import { DEFAULT_PIPELINE_POLICY, type RetryPolicy } from "../services/pipelinePolicy";
+import { withRetry } from "../services/resilience";
+
+/** Issue #1184 (#1173 R2): retry seam for the history leg. */
+export interface YahooHistoryRetryOptions {
+  retryPolicy?: RetryPolicy;
+  retrySleep?: (ms: number) => Promise<void>;
+}
 
 export interface YahooDailyBar {
   date: string;
@@ -42,20 +51,49 @@ const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 /**
- * Fetch ~3 months of daily bars (need 26+ for MACD). Returns null on failure —
- * the caller treats missing history as "indicator unavailable", never as zero.
+ * Fetch ~3 months of daily bars (need 26+ for MACD), retrying the
+ * query1→query2 pair under the shared acquisition policy (issue
+ * #1184: before this, a Yahoo throttle storm zeroed MACD/Gap for an
+ * entire run while quote-carried RSI masked the outage). Returns
+ * null on failure — the caller treats missing history as "indicator
+ * unavailable", never as zero.
  */
 export async function fetchYahooDailyHistory(
+  symbol: string,
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG,
+  retryOpts?: YahooHistoryRetryOptions
+): Promise<YahooDailyBar[] | null> {
+  const clean = symbol.toUpperCase().trim();
+  try {
+    return await withRetry(
+      async () => {
+        const bars = await fetchYahooDailyHistoryOnce(symbol, config);
+        if (!bars) throw new Error(`Yahoo history unavailable for ${clean}`);
+        return bars;
+      },
+      retryOpts?.retryPolicy ?? DEFAULT_PIPELINE_POLICY.retry.acquisition,
+      { label: `yahoo-history:${clean}`, sleep: retryOpts?.retrySleep }
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function fetchYahooDailyHistoryOnce(
   symbol: string,
   config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
 ): Promise<YahooDailyBar[] | null> {
   const clean = symbol.toUpperCase().trim();
+  const cacheKey = `yahoo:bars:${clean}`;
+  const cached = getCachedQuote<YahooDailyBar[]>(cacheKey);
+  if (cached && cached.length >= 5) return cached;
+
   const range = config.yahoo.historyRange;
   const urls = [
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(clean)}?interval=1d&range=${range}`,
     `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(clean)}?interval=1d&range=${range}`,
   ];
-  for (const url of urls) {
+  for (const [urlIdx, url] of urls.entries()) {
     try {
       const res = await fetch(url, {
         headers: { "User-Agent": UA, Accept: "application/json" },
@@ -63,7 +101,8 @@ export async function fetchYahooDailyHistory(
       });
       if (!res.ok) {
         // Issue #295: Log non-OK responses for diagnostics (was silent).
-        console.warn(`[YahooHistory] ${clean}: HTTP ${res.status} from ${url.includes('query1') ? 'query1' : 'query2'}`);
+        // (Host label by index, not URL substring matching — CodeQL.)
+        console.warn(`[YahooHistory] ${clean}: HTTP ${res.status} from ${urlIdx === 0 ? 'query1' : 'query2'}`);
         continue;
       }
       const data = (await res.json().catch(() => ({}))) as any;
@@ -88,7 +127,10 @@ export async function fetchYahooDailyHistory(
           volume: quote.volume?.[i] ?? 0,
         });
       }
-      if (bars.length >= 5) return bars;
+      if (bars.length >= 5) {
+        setCachedQuote(cacheKey, bars);
+        return bars;
+      }
       console.warn(`[YahooHistory] ${clean}: Only ${bars.length} bars (need 5+)`);
     } catch (err) {
       // Issue #295: Log fetch errors for diagnostics (was silent).
@@ -165,7 +207,9 @@ export function computeTechnicals(
 export async function fetchTechnicalsBatch(
   symbols: string[],
   concurrency?: number,
-  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
+  config: ScreenerConfig = DEFAULT_SCREENER_CONFIG,
+  onBatch?: (completed: number, total: number) => void | Promise<void>,
+  retryOpts?: YahooHistoryRetryOptions
 ): Promise<Map<string, YahooTechnicals>> {
   const out = new Map<string, YahooTechnicals>();
   const conc = concurrency ?? config.yahoo.fetchConcurrency;
@@ -173,11 +217,17 @@ export async function fetchTechnicalsBatch(
     const batch = symbols.slice(i, i + conc);
     const results = await Promise.all(
       batch.map(async (sym) => {
-        const bars = await fetchYahooDailyHistory(sym, config);
+        const bars = await fetchYahooDailyHistory(sym, config, retryOpts);
         return computeTechnicals(sym, bars, config);
       })
     );
     for (const t of results) out.set(t.symbol, t);
+    // Issue #624: optional progress hook (e.g. task heartbeats during
+    // long batches); absent for existing callers.
+    if (onBatch) await onBatch(Math.min(i + conc, symbols.length), symbols.length);
+    if (i + conc < symbols.length) {
+      await new Promise((r) => setTimeout(r, 60));
+    }
   }
   return out;
 }

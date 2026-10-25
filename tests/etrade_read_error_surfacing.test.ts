@@ -22,6 +22,7 @@
  * string; one test pins the opposite.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { makeFakeSessionStore } from "./fake-session-store";
 
 import { ETradeRestClient } from "../src/trading/etrade/client";
 import { ETradeService } from "../src/services/etrade";
@@ -88,6 +89,7 @@ function makeKv() {
 /** Env WITH sandbox consumer credentials configured. */
 function makeEnv(overrides: Record<string, unknown> = {}): Env {
   const kv = makeKv();
+  const { namespace: sessionStoreNs } = makeFakeSessionStore();
   return {
     APP_NAME: "cfagent-test",
     APP_BASE_URL: "https://agent.openaimp.com",
@@ -95,7 +97,7 @@ function makeEnv(overrides: Record<string, unknown> = {}): Env {
     ET_API_KEY: FAKE_KEY,
     ET_API_SECRET: FAKE_SECRET,
     ET_BASE_URL: "https://apisb.etrade.com/v1",
-    SESSIONS: kv,
+    SESSION_STORE: sessionStoreNs,
     ETRADE_KV: kv,
     SEARCH_AGENT: {} as any,
     AGENT_SESSIONS: {} as any,
@@ -109,12 +111,13 @@ function makeEnv(overrides: Record<string, unknown> = {}): Env {
 /** Env with NO E*TRADE consumer credentials at all. */
 function makeBareEnv(): Env {
   const kv = makeKv();
+  const { namespace: sessionStoreNs } = makeFakeSessionStore();
   return {
     APP_NAME: "cfagent-test",
     APP_BASE_URL: "https://agent.openaimp.com",
     APP_ENV: "TEST",
     ET_BASE_URL: "https://apisb.etrade.com/v1",
-    SESSIONS: kv,
+    SESSION_STORE: sessionStoreNs,
     ETRADE_KV: kv,
     SEARCH_AGENT: {} as any,
     AGENT_SESSIONS: {} as any,
@@ -245,11 +248,18 @@ describe("fetchQuote — lastError contract (#168)", () => {
     expect(client.getLastError()).toContain("no quote data");
   });
 
-  it("HTTP 200 with a quote but no usable price sets lastError", async () => {
+  it("HTTP 200 with a quote but zero price returns the quote as-is with NO error (#809)", async () => {
     const client = await makeAuthedClient();
     okJson({ QuoteResponse: { QuoteData: [{ Product: { symbol: "AAPL" } }] } });
-    expect(await client.fetchQuote("AAPL")).toBeNull();
-    expect(client.getLastError()).toContain("no positive trade or bid price");
+    // #809 (commit ad6534e) removed the price>0 gate: E*TRADE data is
+    // presented as-is — zero prices are real when the market is closed, and
+    // the caller decides how to handle them. This supersedes the #168-era
+    // rejection this test pinned before ("no positive trade or bid price").
+    const quote = await client.fetchQuote("AAPL");
+    expect(quote).not.toBeNull();
+    expect(quote!.symbol).toBe("AAPL");
+    expect(quote!.lastPrice).toBe(0);
+    expect(client.getLastError()).toBeFalsy();
   });
 
   it("success returns the quote with NO error, and clears a prior failure", async () => {

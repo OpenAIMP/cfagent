@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import type { ThemeMode } from "../theme";
 import { StockSearchBar } from "./StockSearchBar";
+import { Badge, type BadgeTone } from "./ui";
 import { MarketStatusPill } from "./MarketStatusPill";
 import { adjustFontScale, getStoredFontScale } from "../typography";
+import { BRAND } from "../branding";
 
 export type NavTabId =
   | "trading"
@@ -28,7 +30,8 @@ export type NavTabId =
   | "payments"
   | "referrals"
   | "ads"
-  | "revenue";
+  | "revenue"
+  | "social";
 
 export type NavLayoutMode = "left" | "top";
 
@@ -36,6 +39,15 @@ export function isTabActive(itemTabId: NavTabId, currentTab: NavTabId): boolean 
   if (itemTabId === currentTab) return true;
   if ((itemTabId === "autopilot" || itemTabId === "trading") && (currentTab === "autopilot" || currentTab === "trading")) return true;
   if ((itemTabId === "order" || itemTabId === "orders") && (currentTab === "order" || currentTab === "orders")) return true;
+  // C2 (consolidation #1151, issue #1246): ONE screening nav entry —
+  // the legacy screening tab ids (deep links) all read as the
+  // Screening hub being active.
+  if (
+    itemTabId === "screeners" &&
+    (currentTab === "scanner" || currentTab === "options" || currentTab === "reports" || currentTab === "schedules")
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -46,9 +58,20 @@ export interface NavItemDef {
   category: "Execution" | "Intelligence" | "Playbooks" | "Platform";
   badge?: string;
   badgeType?: "pro" | "live" | "ai" | "mcp" | "new";
+
   icon: (props: { active?: boolean; className?: string }) => React.ReactNode;
   description: string;
 }
+
+/** Nav item badge kinds -> Badge tones (#492). */
+const NAV_BADGE_TONES: Record<string, BadgeTone> = {
+  live: "danger",
+  pro: "success",
+  ai: "purple",
+  mcp: "info",
+  new: "accent",
+  default: "neutral",
+};
 
 export interface NavigationMenuProps {
   layout: NavLayoutMode;
@@ -103,6 +126,7 @@ export const DEFAULT_VISIBLE_NAV_TABS: Record<string, boolean> = {
   referrals: true,
   ads: true,
   revenue: true,
+  social: true,
 };
 
 export const NAV_TAB_PRESETS: Record<string, Record<string, boolean>> = {
@@ -289,6 +313,15 @@ export const NavIcons = {
       <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
     </svg>
   ),
+  Social: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="12" r="3" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
+      <circle cx="17" cy="6" r="3" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
+      <circle cx="17" cy="18" r="3" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
+      <line x1="8.5" y1="10.5" x2="14.5" y2="7.5" />
+      <line x1="8.5" y1="13.5" x2="14.5" y2="16.5" />
+    </svg>
+  ),
   LayoutSidebar: () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -410,53 +443,21 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
     icon: NavIcons.Options,
     description: "Options flows, dark pool prints, institutional sweeps, blocks, and insider disclosures",
   },
-  {
-    id: "options",
-    label: "Auto Options Research",
-    shortLabel: "Options",
-    category: "Execution",
-    badge: "AI",
-    badgeType: "ai",
-    icon: NavIcons.Bot,
-    description: "Auto options-screening engine, ranking, thesis configuration & comparison workflows",
-  },
-  {
-    id: "scanner",
-    label: "Strategy/Symbol Scanner",
-    shortLabel: "Scanner",
-    category: "Execution",
-    badge: "AI",
-    badgeType: "ai",
-    icon: NavIcons.Scanner,
-    description: "Best strategy for a name, or names that fit your strategy — across the full strategy catalog",
-  },
-
   // Intelligence (Market Scans, AI Copilot, Voice & Alerts)
   {
+    // C2 (consolidation #1151, issue #1246): ONE screening nav entry.
+    // The former Auto Options Research, Strategy/Symbol Scanner,
+    // Reports, and Schedules entries are gone — those surfaces are
+    // tabs of this hub, and their legacy tab ids still deep-link
+    // into it (they read as active on this entry via isTabActive).
     id: "screeners",
-    label: "Multi-Asset Screeners",
-    shortLabel: "Screeners",
+    label: "Screening",
+    shortLabel: "Screening",
     category: "Intelligence",
     badge: "Multi",
     badgeType: "pro",
     icon: NavIcons.Screeners,
-    description: "Screen equities, options, crypto, futures, and indices across connected market data providers",
-  },
-  {
-    id: "reports",
-    label: "Reports",
-    shortLabel: "Reports",
-    category: "Intelligence",
-    icon: NavIcons.Screeners,
-    description: "View and search persisted screener reports from scheduled and manual runs",
-  },
-  {
-    id: "schedules",
-    label: "Schedules",
-    shortLabel: "Schedules",
-    category: "Intelligence",
-    icon: NavIcons.Screeners,
-    description: "Manage automated screener schedules: view, pause, cancel, and create new",
+    description: "The one screening hub: stock + options screening, the strategy scanner, IV history, goal screens, reports, schedules, proposal review, and the recommendation track record",
   },
   {
     id: "research",
@@ -520,12 +521,12 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
   },
   {
     id: "nlq",
-    label: "Database Explorer",
-    shortLabel: "Database",
+    label: "Records & Ledger Explorer",
+    shortLabel: "Records",
     category: "Playbooks",
-    badge: "ORM",
+    badge: "Ledger",
     icon: NavIcons.Database,
-    description: "Natural language SQLite query engine, schema inspector & table data browser",
+    description: "Natural language records analytics, enterprise schema inspector & data browser",
   },
 
   // Platform
@@ -569,6 +570,16 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
     category: "Platform",
     icon: NavIcons.Revenue,
     description: "Platform monetization engine, ad network yield, CPM/CPC metrics, and ledger",
+  },
+  {
+    id: "social",
+    label: "Social Posting",
+    shortLabel: "Social",
+    category: "Platform",
+    badge: "New",
+    badgeType: "new",
+    icon: NavIcons.Social,
+    description: "Today's social brief editor, manual daily-post trigger, pending approvals, and per-channel token health",
   },
 ];
 
@@ -623,7 +634,7 @@ export function NavigationMenu({
   if (layout === "left") {
     return (
       <aside
-        className={`nextgentp-sidebar algonexus-sidebar ${collapsed ? "collapsed" : ""}`}
+        className={`app-sidebar nextgentp-sidebar ${collapsed ? "collapsed" : ""}`}
         aria-label="Sidebar Navigation"
       >
         {/* Brand Header */}
@@ -632,8 +643,8 @@ export function NavigationMenu({
             <NavIcons.NextGenLogo />
             {!collapsed && (
               <div className="brand-text-block">
-                <span className="brand-main-title">NextGenTP</span>
-                <span className="brand-sub-badge">Trading Platform</span>
+                <span className="brand-main-title">{BRAND.name}</span>
+                <span className="brand-sub-badge">{BRAND.tagline}</span>
               </div>
             )}
           </div>
@@ -673,14 +684,14 @@ export function NavigationMenu({
                   </span>
                   {!collapsed && <span className="item-label">{item.label}</span>}
                   {!collapsed && item.badge && (
-                    <span className={`item-badge badge-${item.badgeType || "default"}`}>
+                    <Badge size="sm" uppercase tone={NAV_BADGE_TONES[item.badgeType || "default"]}>
                       {item.badge}
-                    </span>
+                    </Badge>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <Badge size="sm" tone="danger" title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
-                      </span>
+                      </Badge>
                     )}
                   {active && <span className="active-pill-bar" />}
                 </button>
@@ -712,7 +723,7 @@ export function NavigationMenu({
                     </span>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
                       </span>
                     )}
@@ -746,7 +757,7 @@ export function NavigationMenu({
                     </span>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
                       </span>
                     )}
@@ -780,7 +791,7 @@ export function NavigationMenu({
                     </span>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "#e5484d", color: "#fff" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
                       </span>
                     )}
@@ -796,14 +807,15 @@ export function NavigationMenu({
 
   // 2. TOP NAV BAR LAYOUT (Two-tier institutional layout with dedicated full menu bar)
   return (
-    <div className="nextgentp-top-nav-container" aria-label="Top Navigation">
+    <div className="app-top-header nextgentp-top-nav-container" aria-label="Top Navigation">
       {/* Tier 1: Brand, Status Badges, Stock Search, Quick Trade & Profile Controls */}
       <div className="top-nav-utility-bar">
         {/* Brand & Market Badges */}
         <div className="top-nav-brand-section">
           <div className="top-brand" onClick={() => onSelectTab("autopilot")}>
             <NavIcons.NextGenLogo />
-            <span className="top-brand-name">NextGenTP</span>
+            <span className="top-brand-name">{BRAND.name}</span>
+            <span className="brand-badge-pill">{BRAND.badge}</span>
           </div>
 
           {/* Institutional Market Status */}

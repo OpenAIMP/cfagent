@@ -1,0 +1,137 @@
+/**
+ * Issue #291 slice T3b — the durable trade approval workflow.
+ *
+ * Pins: the flow settles exactly once from an explicit decision event
+ * (approve and reject), expires WITHOUT settling when no decision
+ * arrives, refuses anonymous decisions through the shared settle core,
+ * and the deployment wiring (wrangler binding, server export, class
+ * shape, agent doors' guards) stays in place.
+ */
+
+import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { ThinkWorkflow } from "@cloudflare/think/workflows";
+import {
+  runTradeApprovalFlow,
+  TradingTradeWorkflow,
+  TRADE_APPROVAL_TIMEOUT,
+  type TradeApprovalStep,
+} from "../src/agents/trading-trade-workflow";
+import { TradingAgent } from "../src/agents/trading-agent";
+import { TradingPlatformRegistry } from "../src/trading";
+import type { Env } from "../src/types";
+
+const executions: any[] = [];
+TradingPlatformRegistry.register("fakeflow291" as any, () => ({
+  platformId: "fakeflow291",
+  name: "Fake Flow 291",
+  getStatus: async () => ({}),
+  getQuote: async () => ({}),
+  getAccounts: async () => [],
+  getPositions: async () => ({ account: {}, positions: [] }),
+  previewOrder: async (params: any) => ({ id: "draft-flow", ...params }),
+  executeOrder: async (orderId: string, authorizerDid: string, decision: string) => {
+    executions.push({ orderId, authorizerDid, decision });
+    return { orderId, status: decision === "approved" ? "placed" : "cancelled", authorizerDid };
+  },
+}) as any);
+
+const env = {
+  TRADING_AGENT_PROVIDERS: "fakeflow291",
+  TRADING_AGENT_DEFAULT_PROVIDER: "fakeflow291",
+} as unknown as Env;
+
+function fakeStep(payload: unknown, opts: { timeout?: boolean } = {}): TradeApprovalStep {
+  return {
+    waitForEvent: async () => {
+      if (opts.timeout) throw new Error("waitForEvent timed out");
+      return { payload } as any;
+    },
+    do: async (_name: string, fn: () => Promise<unknown>) => fn(),
+  };
+}
+
+describe("trade approval flow (#291 T3b)", () => {
+  it("settles an approved decision exactly once, with the authorizer verified by the core", async () => {
+    executions.length = 0;
+    const outcome = await runTradeApprovalFlow(
+      env,
+      { orderId: "draft-flow", provider: "fakeflow291", userLogin: "default_trader" },
+      fakeStep({ decision: "approved", authorizerDid: "did:web:venus" }),
+    );
+    expect(outcome.status).toBe("settled");
+    if (outcome.status === "settled") {
+      expect(outcome.decision).toBe("approved");
+      expect((outcome.result as any).status).toBe("placed");
+    }
+    expect(executions).toEqual([
+      { orderId: "draft-flow", authorizerDid: "did:web:venus", decision: "approved" },
+    ]);
+    expect(TRADE_APPROVAL_TIMEOUT).toBe("24 hours");
+  });
+
+  it("settles a rejection through the same door (draft cancelled, nothing placed)", async () => {
+    executions.length = 0;
+    const outcome = await runTradeApprovalFlow(
+      env,
+      { orderId: "draft-flow", provider: "fakeflow291", userLogin: "default_trader" },
+      fakeStep({ decision: "rejected", authorizerDid: "did:web:venus", reason: "too big" }),
+    );
+    expect(outcome.status).toBe("settled");
+    expect(executions).toEqual([
+      { orderId: "draft-flow", authorizerDid: "did:web:venus", decision: "rejected" },
+    ]);
+  });
+
+  it("expires without settling when no decision arrives", async () => {
+    executions.length = 0;
+    const outcome = await runTradeApprovalFlow(
+      env,
+      { orderId: "draft-flow", provider: "fakeflow291", userLogin: "default_trader" },
+      fakeStep(null, { timeout: true }),
+    );
+    expect(outcome).toEqual({ status: "expired", orderId: "draft-flow" });
+    expect(executions).toHaveLength(0);
+  });
+
+  it("an anonymous decision event cannot settle — the core refuses it", async () => {
+    executions.length = 0;
+    const err: any = await runTradeApprovalFlow(
+      env,
+      { orderId: "draft-flow", provider: "fakeflow291", userLogin: "default_trader" },
+      fakeStep({ decision: "approved", authorizerDid: "" }),
+    ).catch((e) => e);
+    expect(err.code).toBe("invalid_input");
+    expect(executions).toHaveLength(0);
+  });
+});
+
+describe("trade workflow wiring (#291 T3b)", () => {
+  it("the workflow class extends ThinkWorkflow and is exported from the entrypoint", () => {
+    expect(TradingTradeWorkflow.prototype).toBeInstanceOf(ThinkWorkflow);
+    const server = fs.readFileSync(path.join(__dirname, "../src/server.ts"), "utf8");
+    expect(server).toContain('export { TradingTradeWorkflow } from "./agents/trading-trade-workflow"');
+  });
+
+  it("wrangler binds TRADE_WORKFLOW to the workflow class", () => {
+    const wrangler = fs.readFileSync(path.join(__dirname, "../wrangler.jsonc"), "utf8");
+    expect(wrangler).toContain('"binding": "TRADE_WORKFLOW"');
+    expect(wrangler).toContain('"class_name": "TradingTradeWorkflow"');
+  });
+
+  it("the agent doors guard their inputs before touching the workflow runtime", async () => {
+    const agent: any = Object.create(TradingAgent.prototype);
+    agent.env = {} as Env;
+    const noOrder: any = await agent.startTradeApproval({}).catch((e: any) => e);
+    expect(noOrder.code).toBe("invalid_input");
+    const unconfigured: any = await agent
+      .startTradeApproval({ orderId: "draft-flow" })
+      .catch((e: any) => e);
+    expect(unconfigured.code).toBe("internal_error");
+    const anon: any = await agent
+      .decideTradeApproval({ workflowId: "wf-1", decision: "approved" })
+      .catch((e: any) => e);
+    expect(anon.code).toBe("invalid_input");
+  });
+});

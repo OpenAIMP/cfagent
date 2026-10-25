@@ -1,0 +1,158 @@
+/**
+ * Issue #992: Chat-turn helpers (message text, turn tools, turn derivation, grounding) — extracted from
+ * OrchestratorAgent (src/agents/orchestrator.ts) with no behaviour
+ * change. The class keeps state/lifecycle ownership and composes
+ * these functions through the context builder in orchestrator.ts;
+ * each function receives its dependencies explicitly via
+ * ChatTurnHelpersContext.
+ */
+
+import type { ToolSet } from "ai";
+import type { AgentContext } from "agents";
+import type { DatabaseORM } from "../../orm";
+import type {
+  AgentName,
+  AsyncJobRecord,
+  AsyncJobSubmission,
+  Env,
+} from "../../types";
+import { VectorMemory } from "../../memory/vector-memory";
+import { McpSystemFacade } from "../../patterns/facade";
+import { createAgentMcpTools } from "../mcpAdapter";
+
+/**
+ * Ports the chat-turn helper functions receive from the class. The
+ * Think lifecycle itself (beforeTurn/onChatResponse/onChatError and
+ * the pending-turn state) stays in OrchestratorAgent; these helpers
+ * are the pure-ish computations those hooks compose.
+ */
+export interface ChatTurnHelpersContext {
+  env: Env;
+  ensureTables: () => AgentContext["storage"]["sql"];
+  getOrm: () => DatabaseORM;
+  sessionKey: () => string;
+  audit: (type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) => void;
+  submitAsyncJob: (job: AsyncJobSubmission) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>;
+  getAsyncJob: (jobId: string) => AsyncJobRecord | undefined;
+  listAsyncJobs: (limit?: number) => AsyncJobRecord[];
+  getMessages: () => Promise<any[]>;
+  activeTurnMetadata: unknown;
+}
+
+export function extractMessageText(message: unknown): string {
+  if (!message || typeof message !== "object") return "";
+  const m = message as { content?: unknown; text?: unknown; parts?: Array<{ type?: string; text?: string }> };
+
+  if (typeof m.content === "string" && m.content.trim()) {
+    return m.content.trim();
+  }
+
+  if (Array.isArray(m.parts) && m.parts.length > 0) {
+    const extracted = m.parts
+      .filter((p) => p && p.type === "text" && typeof p.text === "string")
+      .map((p) => p.text)
+      .join("")
+      .trim();
+    if (extracted) return extracted;
+  }
+
+  if (typeof m.text === "string" && m.text.trim()) {
+    return m.text.trim();
+  }
+
+  return "";
+}
+
+/**
+ * The per-turn McpToolContext construction the AIChatAgent-era
+ * runAgenticChatTurn performed inline (Facade + async-job ports +
+ * audit), now shared by getTools for every Think-driven turn.
+ */
+export function createTurnTools(ctx: ChatTurnHelpersContext, requestId: string): ToolSet {
+  const orm = ctx.getOrm();
+  const sessionId = ctx.sessionKey();
+  const facade = new McpSystemFacade(ctx.env, orm, sessionId);
+  return createAgentMcpTools({
+    env: ctx.env,
+    orm,
+    sessionId,
+    requestId,
+    facade,
+    submitJob: (job) => ctx.submitAsyncJob(job),
+    getJob: (jobId) => ctx.getAsyncJob(jobId),
+    listJobs: () => ctx.listAsyncJobs().map(({ result: _result, ...job }) => job),
+    audit: (type: string, agent: any, payload: Record<string, unknown>) =>
+      ctx.audit(type, agent, payload),
+  });
+}
+
+/**
+ * Issue #686: derive the turn inputs for a turn Think drives
+ * itself (the WebSocket chat protocol, saveMessages admissions) —
+ * the recovery the AIChatAgent-era onChatMessage performed from
+ * its in-memory message array: the user text from the submitted
+ * session message,
+ * sourceTab / userLogin from the client-stamped message metadata
+ * (falling back to Think's persisted turn metadata), and recent
+ * history from the turn's model messages.
+ */
+export async function deriveTurn(ctx: ChatTurnHelpersContext, turnCtx: { messages?: any[] }): Promise<{
+  userText: string;
+  userLogin: string;
+  sourceTab?: string;
+  isAutoOptionsResearchRequest: boolean;
+  recentTurns: Array<{ role?: string; content: string }>;
+}> {
+  const sessionId = ctx.sessionKey();
+  const uiMessages = await ctx.getMessages();
+  const lastUser = [...uiMessages].reverse().find((m: any) => m?.role === "user");
+  const userText = extractMessageText(lastUser);
+  const metadata = ((lastUser as any)?.metadata ?? ctx.activeTurnMetadata ?? {}) as {
+    sourceTab?: string;
+    userLogin?: string;
+  };
+  const recentTurns = (turnCtx.messages ?? []).slice(-6).map((m: any) => ({
+    role: m?.role as string | undefined,
+    content:
+      typeof m?.content === "string"
+        ? m.content
+        : Array.isArray(m?.content)
+          ? m.content
+              .filter((p: any) => p && p.type === "text" && typeof p.text === "string")
+              .map((p: any) => p.text)
+              .join("")
+          : "",
+  }));
+  return {
+    userText,
+    userLogin: metadata.userLogin || sessionId,
+    sourceTab: metadata.sourceTab,
+    isAutoOptionsResearchRequest: metadata.sourceTab === "E*TRADE · Auto Options Research",
+    recentTurns,
+  };
+}
+
+/** Grounding for the turn prompt: session facts + best-effort vector recall. */
+export async function assembleGrounding(ctx: ChatTurnHelpersContext, userText: string): Promise<{ memoryContext: string; vectorContext: string }> {
+  const sql = ctx.ensureTables();
+  const activeMemories = Array.from(
+    sql.exec("SELECT key, value FROM mas_memory ORDER BY updated_at DESC LIMIT 8")
+  ) as Array<{ key: string; value: string }>;
+  const memoryContext = activeMemories.length > 0
+    ? `\nActive Persistent Memory (SQLite Session Facts):\n` + activeMemories.map((m) => `- ${m.key}: "${m.value}"`).join("\n")
+    : "";
+  let vectorContext = "";
+  const vectorizeBinding = (ctx.env as any).VECTOR_MEMORY;
+  if (userText && userText.trim().length > 0 && ctx.env.AI && vectorizeBinding) {
+    try {
+      const vm = new VectorMemory(ctx.env.AI, vectorizeBinding, undefined);
+      const chunks = await vm.recallForPlan(userText);
+      if (chunks.length > 0) {
+        vectorContext = `\nRelevant past outcomes (vector memory, most similar first):\n${VectorMemory.brief(chunks)}`;
+      }
+    } catch (err) {
+      console.warn("[VectorMemory] recall failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+  return { memoryContext, vectorContext };
+}

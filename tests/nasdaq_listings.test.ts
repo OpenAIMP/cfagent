@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAllUsStockListings } from "../src/services/nasdaqListings";
+import { __resetQuoteCache } from "../src/services/quoteCache";
 
 describe("dynamic all-exchange stock listings", () => {
+  // #411: fetchAllUsStockListings is cached in memory; each case stubs its
+  // own fetcher, so every case must start from a cold cache.
+  beforeEach(() => { __resetQuoteCache(); });
   it("loads and normalizes Nasdaq, NYSE, and AMEX rows without a static ticker universe", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));

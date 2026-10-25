@@ -1,11 +1,15 @@
-import React, { useState, useRef, useEffect } from "react";
-import { OptionsDataDownloadDropdown } from "./options/optionsDataExporter";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { OptionsDataDownloadDropdown } from "./options/OptionsDataDownloadDropdown";
 import {
   NAVIGATION_ITEMS,
   DEFAULT_VISIBLE_NAV_TABS,
   NAV_TAB_PRESETS,
 } from "./components/NavigationMenu";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
+import { ApiKeysPanel } from "./ApiKeysPanel";
+import { DataProvidersPanel } from "./DataProvidersPanel";
+import { IaaaAdminPanel } from "./IaaaAdminPanel";
+import { PillGroup, Button } from "./components/ui";
 import {
   AdBannerConfig,
   getStoredAdBannerConfig,
@@ -56,6 +60,7 @@ export interface SettingsMenuProps {
   // System & appearance preferences
   theme?: string;
   onCycleTheme?: () => void;
+  onSelectTheme?: (theme: "light" | "dark" | "high-contrast" | "system") => void;
   currentLayout?: "left" | "top";
   onToggleLayout?: (layout: "left" | "top") => void;
   accountMode?: "paper" | "live";
@@ -68,8 +73,9 @@ export interface SettingsMenuProps {
   autoRefreshEnabled?: boolean;
   autoRefreshInterval?: number;
   onToggleAutoRefresh?: (enabled: boolean, interval?: number) => void;
-  // Issue #277: optional HITL confirmation for research-report dispatch
-  // (POST /trading/reports/email|webhook). Default OFF = autonomous.
+  // Issue #277: HITL confirmation for research-report dispatch
+  // (POST /trading/reports/email|webhook). Default ON (#1144) = held
+  // for confirmation; the toggle opts out to autonomous dispatch.
   reportDispatchHitl?: boolean;
   onToggleReportDispatchHitl?: (enabled: boolean) => void;
   // Issue #277: pending report-dispatch confirmations for review.
@@ -113,6 +119,7 @@ export function SettingsMenu({
   defaultSymbol = "NVDA",
   theme = "auto",
   onCycleTheme,
+  onSelectTheme,
   currentLayout = "left",
   onToggleLayout,
   accountMode,
@@ -191,6 +198,53 @@ export function SettingsMenu({
 
   // Local state for Ad / Sponsor banner configuration
   const [localAdConfig, setLocalAdConfig] = useState<AdBannerConfig>(() => getStoredAdBannerConfig());
+  // #1274: login-provider display + request access. /api/me reports
+  // provider {id, name, issuer} only for wired sessions with a known
+  // issuer; a failed or provider-less response simply shows no line
+  // (legacy sessions keep the previous display, unchanged).
+  const [loginProviderName, setLoginProviderName] = useState<string | null>(null);
+  const [accessRequestStatus, setAccessRequestStatus] = useState<string>("");
+  const [requestingAccess, setRequestingAccess] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    globalThis
+      .fetch("/api/me")
+      .then((r) => r.json())
+      .then((data: unknown) => {
+        if (cancelled) return;
+        const provider = (data as { provider?: { name?: unknown } } | null)?.provider;
+        if (provider && typeof provider.name === "string" && provider.name !== "") {
+          setLoginProviderName(provider.name);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const requestAdminAccess = useCallback(async () => {
+    setRequestingAccess(true);
+    setAccessRequestStatus("");
+    try {
+      const res = await globalThis.fetch("/api/iaaa/access-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestedRole: "tenant-admin" }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (res.status === 201) {
+        setAccessRequestStatus("Access requested — pending admin approval.");
+      } else if (res.status === 409) {
+        setAccessRequestStatus("You already have a pending access request.");
+      } else {
+        setAccessRequestStatus(data.error || "Access request was not submitted.");
+      }
+    } catch {
+      setAccessRequestStatus("Access request was not submitted.");
+    } finally {
+      setRequestingAccess(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (adBannerConfig) {
@@ -414,6 +468,7 @@ export function SettingsMenu({
     } else {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("open-etrade-diagnostics"));
+        window.dispatchEvent(new CustomEvent("sync-etrade-api"));
       }
       setLocalDiagLoading(true);
       fetch(`/api/etrade/diagnostics`, {
@@ -431,6 +486,36 @@ export function SettingsMenu({
         .finally(() => {
           setLocalDiagLoading(false);
         });
+    }
+  };
+
+  const onStartOAuth = () => {
+    setIsPinned(false);
+    setIsHovered(false);
+    if (handleStartOAuth) {
+      handleStartOAuth();
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("start-etrade-oauth"));
+    }
+  };
+
+  const onRenewOAuth = () => {
+    setIsPinned(false);
+    setIsHovered(false);
+    if (handleRenewOAuth) {
+      handleRenewOAuth();
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("renew-etrade-oauth"));
+    }
+  };
+
+  const onRevokeOAuth = () => {
+    setIsPinned(false);
+    setIsHovered(false);
+    if (handleRevokeOAuth) {
+      handleRevokeOAuth();
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("revoke-etrade-oauth"));
     }
   };
 
@@ -566,7 +651,7 @@ export function SettingsMenu({
                       type="button"
                       className="btn-menu-action renew"
                       disabled={oauthLoading}
-                      onClick={handleRenewOAuth}
+                      onClick={onRenewOAuth}
                     >
                       🔑 Renew Token
                     </button>
@@ -575,7 +660,7 @@ export function SettingsMenu({
                     type="button"
                     className="btn-menu-action disconnect"
                     disabled={oauthLoading}
-                    onClick={handleRevokeOAuth}
+                    onClick={onRevokeOAuth}
                   >
                     🔌 Disconnect
                   </button>
@@ -585,12 +670,25 @@ export function SettingsMenu({
                   type="button"
                   className="btn-menu-action connect"
                   disabled={oauthLoading}
-                  onClick={handleStartOAuth}
+                  onClick={onStartOAuth}
                 >
                   {oauthLoading ? "Connecting…" : "⚡ Connect E*TRADE"}
                 </button>
               )}
             </div>
+            {effectiveMsg && (
+              <div className="etrade-menu-msg-banner">
+                <span>{effectiveMsg}</span>
+                <button
+                  type="button"
+                  className="etrade-menu-msg-dismiss"
+                  onClick={clearMsg}
+                  title="Dismiss message"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Tuning & Options Data Download (Single Horizontal Line) */}
@@ -639,35 +737,23 @@ export function SettingsMenu({
 
             <div className="settings-prefs-stack">
               {/* Theme Settings */}
-              {onCycleTheme && (
+              {(onCycleTheme || onSelectTheme) && (
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Theme:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${theme === "light" ? "active" : ""}`}
-                      onClick={() => onCycleTheme()}
-                      title="Light Theme"
-                    >
-                      ☀️ Light
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${theme === "dark" ? "active" : ""}`}
-                      onClick={() => onCycleTheme()}
-                      title="Dark Theme"
-                    >
-                      🌙 Dark
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${theme !== "light" && theme !== "dark" ? "active" : ""}`}
-                      onClick={() => onCycleTheme()}
-                      title="System / Auto Theme"
-                    >
-                      🖥️ Auto
-                    </button>
-                  </div>
+                  <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Theme"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "light", label: "Light", icon: "☀️", tooltip: "Light Theme" },
+                      { id: "dark", label: "Dark", icon: "🌙", tooltip: "Dark Theme" },
+                      { id: "high-contrast", label: "Contrast", icon: "◐", tooltip: "High Contrast Theme" },
+                      { id: "system", label: "Auto", icon: "🖥️", tooltip: "System / Auto Theme" },
+                    ]}
+                    value={(theme as "light" | "dark" | "high-contrast" | "system") ?? "system"}
+                    onChange={(next) => (onSelectTheme ? onSelectTheme(next) : onCycleTheme?.())}
+                  />
                 </div>
               )}
 
@@ -675,45 +761,20 @@ export function SettingsMenu({
               <div className="settings-pref-row">
                 <span className="pref-row-lbl">Font Size:</span>
                 <div className="settings-pref-btn-group font-size-controls-group">
-                  <button
-                    type="button"
-                    className="btn-pref-pill step-btn"
-                    onClick={() => {
-                      const next = adjustFontScale(-0.05);
-                      setFontScale(next);
-                    }}
-                    title="Decrease application font size"
-                    disabled={fontScale <= 0.75}
-                  >
-                    A-
-                  </button>
+                  <Button size="sm" variant="secondary" onClick={() => { const next = adjustFontScale(-0.05); setFontScale(next); }} title="Decrease application font size" disabled={fontScale <= 0.75}>A-</Button>
                   <span className="font-scale-pct" title="Current font scale level">
                     {Math.round(fontScale * 100)}%
                   </span>
-                  <button
-                    type="button"
-                    className="btn-pref-pill step-btn"
-                    onClick={() => {
-                      const next = adjustFontScale(0.05);
-                      setFontScale(next);
-                    }}
-                    title="Increase application font size"
-                    disabled={fontScale >= 1.5}
-                  >
-                    A+
-                  </button>
+                  <Button size="sm" variant="secondary" onClick={() => { const next = adjustFontScale(0.05); setFontScale(next); }} title="Increase application font size" disabled={fontScale >= 1.5}>A+</Button>
                   <span className="font-controls-divider" aria-hidden="true" />
-                  {FONT_SCALE_PRESETS.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className={`btn-pref-pill ${Math.abs(fontScale - p.scale) < 0.03 ? "active" : ""}`}
-                      onClick={() => handleFontScaleChange(p.scale)}
-                      title={`Scale to ${p.label} (${p.pct})`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+                  <PillGroup
+                    ariaLabel="Font size presets"
+                    size="sm"
+                    variant="default"
+                    options={FONT_SCALE_PRESETS.map((p) => ({ id: p.id, label: p.label, tooltip: `Scale to ${p.label} (${p.pct})` }))}
+                    value={FONT_SCALE_PRESETS.find((p) => Math.abs(fontScale - p.scale) < 0.03)?.id ?? ""}
+                    onChange={(id) => { const preset = FONT_SCALE_PRESETS.find((p) => p.id === id); if (preset) handleFontScaleChange(preset.scale); }}
+                  />
                 </div>
               </div>
 
@@ -721,24 +782,18 @@ export function SettingsMenu({
               {onToggleLayout && (
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Navigation:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${currentLayout === "top" ? "active" : ""}`}
-                      onClick={() => onToggleLayout("top")}
-                      title="Switch to Top Nav Bar"
-                    >
-                      ⊞ Top Menu
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${currentLayout === "left" ? "active" : ""}`}
-                      onClick={() => onToggleLayout("left")}
-                      title="Switch to Left Sidebar"
-                    >
-                      ⊟ Left Sidebar
-                    </button>
-                  </div>
+                  <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Navigation layout"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "top", label: "Top Menu", icon: "⊞", tooltip: "Switch to Top Nav Bar" },
+                      { id: "left", label: "Left Sidebar", icon: "⊟", tooltip: "Switch to Left Sidebar" },
+                    ]}
+                    value={currentLayout ?? "top"}
+                    onChange={(layout) => onToggleLayout?.(layout)}
+                  />
                 </div>
               )}
 
@@ -746,65 +801,50 @@ export function SettingsMenu({
               {onToggleAccountMode && (
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Policy Mode:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${accountMode === "paper" ? "active" : ""}`}
-                      onClick={() => accountMode !== "paper" && onToggleAccountMode()}
-                      title="Simulated paper money"
-                    >
-                      🧪 Paper
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${accountMode === "live" ? "active" : ""}`}
-                      onClick={() => accountMode !== "live" && onToggleAccountMode()}
-                      title="Live brokerage execution"
-                    >
-                      🔴 Live Real
-                    </button>
-                  </div>
+                  <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Policy account mode"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "paper", label: "Paper", icon: "🧪", tooltip: "Simulated paper money" },
+                      { id: "live", label: "Live Real", icon: "🔴", tooltip: "Live brokerage execution" },
+                    ]}
+                    value={accountMode ?? "paper"}
+                    onChange={(mode) => { if (mode !== accountMode) onToggleAccountMode?.(); }}
+                  />
                 </div>
               )}
 
               {/* Centralized Auto-Refresh Settings */}
               <div className="settings-pref-row">
                 <span className="pref-row-lbl">Auto-Refresh:</span>
-                <div className="settings-pref-btn-group">
-                  <button
-                    type="button"
-                    className={`btn-pref-pill ${!effectiveAutoRefreshEnabled ? "active" : ""}`}
-                    onClick={() => handleSetAutoRefresh(false)}
-                    title="Pause automatic background refresh"
-                  >
-                    ⏹ OFF
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn-pref-pill ${effectiveAutoRefreshEnabled ? "active" : ""}`}
-                    onClick={() => handleSetAutoRefresh(true)}
-                    title="Enable automatic background refresh"
-                  >
-                    ▶ ON
-                  </button>
-                </div>
+                <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Auto-refresh"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "off", label: "OFF", icon: "⏹", tooltip: "Pause automatic background refresh" },
+                      { id: "on", label: "ON", icon: "▶", tooltip: "Enable automatic background refresh" },
+                    ]}
+                    value={effectiveAutoRefreshEnabled ? "on" : "off"}
+                    onChange={(v) => handleSetAutoRefresh(v === "on")}
+                  />
               </div>
 
               {effectiveAutoRefreshEnabled && (
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Cadence:</span>
                   <div className="settings-pref-btn-group">
-                    {[10, 15, 30, 60, 120, 300].map((sec) => (
-                      <button
-                        key={sec}
-                        type="button"
-                        className={`btn-pref-pill ${effectiveAutoRefreshInterval === sec ? "active" : ""}`}
-                        onClick={() => handleSetAutoRefresh(true, sec)}
-                        title={`Auto-refresh every ${sec < 60 ? `${sec} seconds` : `${sec / 60} min`}`}
-                      >
-                        {sec < 60 ? `${sec}s` : `${sec / 60}m`}
-                      </button>
-                    ))}
+                    <PillGroup
+                    ariaLabel="Auto-refresh cadence"
+                    size="sm"
+                    variant="default"
+                    options={[10, 15, 30, 60, 120, 300].map((sec) => ({ id: String(sec), label: sec < 60 ? `${sec}s` : `${sec / 60}m`, tooltip: `Auto-refresh every ${sec < 60 ? `${sec} seconds` : `${sec / 60} min`}` }))}
+                    value={String(effectiveAutoRefreshInterval)}
+                    onChange={(v) => handleSetAutoRefresh(true, Number(v))}
+                  />
                   </div>
                 </div>
               )}
@@ -813,24 +853,18 @@ export function SettingsMenu({
               {onToggleReportDispatchHitl && (
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Report dispatch HITL:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${!reportDispatchHitl ? "active" : ""}`}
-                      onClick={() => onToggleReportDispatchHitl(false)}
-                      title="Send research reports autonomously (current behavior)"
-                    >
-                      ⏹ Autonomous
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${reportDispatchHitl ? "active" : ""}`}
-                      onClick={() => onToggleReportDispatchHitl(true)}
-                      title="Hold research reports for human confirmation before dispatch"
-                    >
-                      ✅ Require confirmation
-                    </button>
-                  </div>
+                  <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Report dispatch confirmation"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "auto", label: "Autonomous", icon: "⏹", tooltip: "Send research reports autonomously (current behavior)" },
+                      { id: "confirm", label: "Require confirmation", icon: "✅", tooltip: "Hold research reports for human confirmation before dispatch" },
+                    ]}
+                    value={reportDispatchHitl ? "confirm" : "auto"}
+                    onChange={(v) => onToggleReportDispatchHitl?.(v === "confirm")}
+                  />
                 </div>
               )}
 
@@ -848,35 +882,14 @@ export function SettingsMenu({
                             {item.kind === "email" ? "📧" : "🔗"} {item.detail}
                           </span>
                           <div className="settings-pref-btn-group">
-                            <button
-                              type="button"
-                              className="btn-pref-pill"
-                              onClick={() => onDecideReportConfirmation(item.confirmationId, "approved")}
-                              title={`Approve and dispatch (ID ${item.confirmationId})`}
-                            >
-                              ✅ Approve
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-pref-pill"
-                              onClick={() => onDecideReportConfirmation(item.confirmationId, "rejected")}
-                              title={`Reject (ID ${item.confirmationId})`}
-                            >
-                              ❌ Reject
-                            </button>
+                            <Button size="sm" variant="primary" onClick={() => onDecideReportConfirmation(item.confirmationId, "approved")} title={`Approve and dispatch (ID ${item.confirmationId})`}>✅ Approve</Button>
+                            <Button size="sm" variant="danger" onClick={() => onDecideReportConfirmation(item.confirmationId, "rejected")} title={`Reject (ID ${item.confirmationId})`}>❌ Reject</Button>
                           </div>
                         </div>
                       ))
                     )}
                     {onRefreshReportConfirmations && (
-                      <button
-                        type="button"
-                        className="btn-pref-pill"
-                        onClick={() => onRefreshReportConfirmations()}
-                        title="Refresh the pending confirmations list"
-                      >
-                        ⟳ Refresh
-                      </button>
+                      <Button size="sm" variant="secondary" onClick={() => onRefreshReportConfirmations()} title="Refresh the pending confirmations list">⟳ Refresh</Button>
                     )}
                   </div>
                 </div>
@@ -954,86 +967,68 @@ export function SettingsMenu({
 
             <div className="settings-pref-row">
               <span className="pref-row-lbl">Workspace Banners:</span>
-              <div className="settings-pref-btn-group">
-                <button
-                  type="button"
-                  className={`btn-pref-pill ${!effectiveAdConfig.enabled ? "active" : ""}`}
-                  onClick={() => handleToggleAdMaster(false)}
-                  title="Disable all promotional banners and ads across workspace tabs (Clean UI)"
-                >
-                  ⏹ OFF (Clean)
-                </button>
-                <button
-                  type="button"
-                  className={`btn-pref-pill ${effectiveAdConfig.enabled ? "active" : ""}`}
-                  onClick={() => handleToggleAdMaster(true)}
-                  title="Enable promotional banners and customize placements"
-                >
-                  ▶ ON
-                </button>
-              </div>
+              <PillGroup
+                    className="settings-pref-btn-group"
+                    ariaLabel="Workspace banners"
+                    size="sm"
+                    variant="default"
+                    options={[
+                      { id: "off", label: "OFF (Clean)", icon: "⏹", tooltip: "Disable all promotional banners and ads across workspace tabs (Clean UI)" },
+                      { id: "on", label: "ON", icon: "▶", tooltip: "Enable promotional banners and customize placements" },
+                    ]}
+                    value={effectiveAdConfig.enabled ? "on" : "off"}
+                    onChange={(v) => handleToggleAdMaster(v === "on")}
+                  />
             </div>
 
             {effectiveAdConfig.enabled && (
               <div className="settings-ads-suboptions">
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Sponsor Spotlight:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${!effectiveAdConfig.showSponsorSpotlight ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showSponsorSpotlight", false)}
-                    >
-                      OFF
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${effectiveAdConfig.showSponsorSpotlight ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showSponsorSpotlight", true)}
-                    >
-                      ON
-                    </button>
-                  </div>
+                  <PillGroup
+                      className="settings-pref-btn-group"
+                      ariaLabel="Sponsor Spotlight"
+                      size="sm"
+                      variant="default"
+                      options={[
+                        { id: "off", label: "OFF" },
+                        { id: "on", label: "ON" },
+                      ]}
+                      value={effectiveAdConfig.showSponsorSpotlight ? "on" : "off"}
+                      onChange={(v) => handleToggleAdOption("showSponsorSpotlight", v === "on")}
+                    />
                 </div>
 
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Ad Network Strip:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${!effectiveAdConfig.showAdNetworkStrip ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showAdNetworkStrip", false)}
-                    >
-                      OFF
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${effectiveAdConfig.showAdNetworkStrip ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showAdNetworkStrip", true)}
-                    >
-                      ON
-                    </button>
-                  </div>
+                  <PillGroup
+                      className="settings-pref-btn-group"
+                      ariaLabel="Ad Network Strip"
+                      size="sm"
+                      variant="default"
+                      options={[
+                        { id: "off", label: "OFF" },
+                        { id: "on", label: "ON" },
+                      ]}
+                      value={effectiveAdConfig.showAdNetworkStrip ? "on" : "off"}
+                      onChange={(v) => handleToggleAdOption("showAdNetworkStrip", v === "on")}
+                    />
                 </div>
 
                 <div className="settings-pref-row">
                   <span className="pref-row-lbl">Google Ad Units:</span>
-                  <div className="settings-pref-btn-group">
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${!effectiveAdConfig.showGoogleAdUnits ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showGoogleAdUnits", false)}
-                    >
-                      OFF
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn-pref-pill ${effectiveAdConfig.showGoogleAdUnits ? "active" : ""}`}
-                      onClick={() => handleToggleAdOption("showGoogleAdUnits", true)}
-                    >
-                      ON
-                    </button>
-                  </div>
+                  <PillGroup
+                      className="settings-pref-btn-group"
+                      ariaLabel="Google Ad Units"
+                      size="sm"
+                      variant="default"
+                      options={[
+                        { id: "off", label: "OFF" },
+                        { id: "on", label: "ON" },
+                      ]}
+                      value={effectiveAdConfig.showGoogleAdUnits ? "on" : "off"}
+                      onChange={(v) => handleToggleAdOption("showGoogleAdUnits", v === "on")}
+                    />
                 </div>
               </div>
             )}
@@ -1087,11 +1082,43 @@ export function SettingsMenu({
                   <span>Internal W3C DID Cryptographic Stamping</span>
                 </div>
                 <div className="etrade-provenance-row">
-                  <strong>Database:</strong>
-                  <span>Durable Objects + SQLite (<code>mas_trades</code>, <code>mas_events</code>)</span>
+                  <strong>Ledger Architecture:</strong>
+                  <span>Institutional Execution Ledger &amp; Audit Trail</span>
                 </div>
               </div>
             </details>
+          </div>
+
+          {/* API Keys (issue #180): per-user keys for external MCP clients */}
+          <div className="etrade-panel-section settings-api-keys-section">
+            <div className="section-label-row">
+              <span>API Keys</span>
+              <small>MCP transport access for external clients</small>
+            </div>
+            <ApiKeysPanel />
+          </div>
+
+          {/* Data Providers (issue #1180, epic #1116 E4): provisioning
+              lifecycle admin over the E3 lifecycle API (#1170) */}
+          <div className="etrade-panel-section settings-data-providers-section">
+            <div className="section-label-row">
+              <span>Data Providers</span>
+              <small>Provisioning lifecycle for market-data providers</small>
+            </div>
+            <DataProvidersPanel />
+          </div>
+
+          {/* IAAA Admin (issue #945, IAAA-UI v1: READ-ONLY): the
+              caller's own memberships, genesis status, and recent
+              tenant audit events. The server gates this to live
+              platform admins; anyone else sees a plain "not an
+              admin" state. No mutation UI exists in v1. */}
+          <div className="etrade-panel-section settings-iaaa-admin-section">
+            <div className="section-label-row">
+              <span>IAAA Admin</span>
+              <small>Read-only memberships, genesis &amp; audit</small>
+            </div>
+            <IaaaAdminPanel />
           </div>
 
           {/* User Account & Session */}
@@ -1108,6 +1135,17 @@ export function SettingsMenu({
                 <div className="settings-user-details">
                   <span className="settings-user-name">{userName || userLogin}</span>
                   <span className="settings-user-login">@{userLogin}</span>
+                  {loginProviderName && (
+                    <span className="settings-user-login">Logged in via {loginProviderName}</span>
+                  )}
+                  <button type="button" disabled={requestingAccess} onClick={() => void requestAdminAccess()}>
+                    Request admin access
+                  </button>
+                  {accessRequestStatus && (
+                    <span className="settings-user-login" role="status">
+                      {accessRequestStatus}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

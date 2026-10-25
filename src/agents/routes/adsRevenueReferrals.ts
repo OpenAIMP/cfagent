@@ -367,9 +367,73 @@ export async function handleReferralsAdsRoutes(
   }
 
   // Sponsored Ads & Marketplace endpoint
+  // Seed default sponsor offers when the table is empty (the orchestrator's
+  // table-creation seed only runs on first creation — an existing-but-empty
+  // table never gets seeded).
+  function ensureAdsSeeded(sql: SqlStorage): void {
+    try {
+      const count = Array.from(
+        sql.exec("SELECT COUNT(*) AS count FROM mas_ads")
+      ) as Array<{ count: number }>;
+      if ((count[0]?.count ?? 0) > 0) return;
+      const now = new Date().toISOString();
+      const seedAds = [
+        {
+          id: "ad_workers_ai",
+          title: "Cloudflare Workers AI",
+          tagline: "Run state-of-the-art models (GLM-4.7, Llama 3.3) on serverless GPUs with zero cold starts.",
+          sponsor: "Cloudflare",
+          badge: "FLAGSHIP PARTNER",
+          url: "https://developers.cloudflare.com/workers-ai/",
+          cta_text: "Deploy in 60s →",
+          accent_color: "#f38020",
+        },
+        {
+          id: "ad_ai_search",
+          title: "Cloudflare AI Search",
+          tagline: "Build enterprise RAG pipelines with native auto-chunking, Vectorize indexes, and real-time semantic retrieval.",
+          sponsor: "Cloudflare AI",
+          badge: "FEATURED TOOL",
+          url: "https://developers.cloudflare.com/ai-search/",
+          cta_text: "Explore Docs →",
+          accent_color: "#38bdf8",
+        },
+        {
+          id: "ad_durable_objects",
+          title: "Durable Objects SQLite",
+          tagline: "Strongly consistent transactional databases running natively at the edge for stateful AI agents.",
+          sponsor: "Cloudflare Platform",
+          badge: "INFRASTRUCTURE",
+          url: "https://developers.cloudflare.com/durable-objects/",
+          cta_text: "Learn More →",
+          accent_color: "#a855f7",
+        },
+        {
+          id: "ad_openaimp",
+          title: "OpenAIMP Agent Studio",
+          tagline: "Scale autonomous multi-agent workflows with real-time LLM Judge routing and persistent memory.",
+          sponsor: "OpenAIMP",
+          badge: "SPONSOR",
+          url: "https://agent.openaimp.com",
+          cta_text: "Join Program →",
+          accent_color: "#10b981",
+        },
+      ];
+      for (const ad of seedAds) {
+        sql.exec(
+          "INSERT OR IGNORE INTO mas_ads (id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)",
+          ad.id, ad.title, ad.tagline, ad.sponsor, ad.badge, ad.url, ad.cta_text, ad.accent_color, now
+        );
+      }
+    } catch {
+      // Ignore if seeding fails
+    }
+  }
+
   if (path.endsWith("/ads")) {
     if (request.method === "GET") {
       try {
+        ensureAdsSeeded(sql);
         // Increment impressions on fetch
         sql.exec("UPDATE mas_ads SET impressions = impressions + 1");
         const raw = Array.from(

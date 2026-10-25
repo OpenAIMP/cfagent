@@ -134,12 +134,12 @@ describe("#151 — source pins", () => {
   });
 
   it("the order-preview pill derives via orderPreviewCardPresentation, not the executed-or-pending binary", () => {
-    const chat = src("client/Chat.tsx");
+    const chat = src("client/chat/ToolResultView.tsx");
     expect(chat).toContain("orderPreviewCardPresentation(status)");
     expect(chat).not.toContain('? "EXECUTED" : "Awaiting Approval"');
   });
 
   it("no placeholder order ID is presented as a reserved E*TRADE order", () => {
-    expect(src("client/Chat.tsx")).not.toContain("ord_preview");
+    expect(src("client/chat/ToolResultView.tsx")).not.toContain("ord_preview");
   });
 });

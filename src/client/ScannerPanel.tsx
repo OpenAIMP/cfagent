@@ -62,6 +62,7 @@
 import { useCallback, useEffect, useState } from "react";
 import "./scannerPanel.css";
 import { StrategyLibraryModal } from "./options/StrategyLibraryModal";
+import { resolveCatalogStrategyLabels } from "./options/strategyLibrary";
 import { parseSymbolList } from "./accountApi";
 import {
   createProfile,
@@ -75,6 +76,7 @@ import {
   type OpportunityScanResponse,
   type OpportunityScanResult,
   type ScanMode,
+  type ScanRunDetail,
   type ScanRunDiffResult,
   type ScanRunSummary,
   type StrategyProfile,
@@ -88,6 +90,11 @@ import type {
   ScanTargetSource,
   ScanTypeRollup,
 } from "../trading/options/opportunityScanner";
+import {
+  downloadScanExport,
+  scanExportRunFromResult,
+  scanExportRunFromStored,
+} from "./runExport";
 import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import type { ExpectedIvDirection, OptionThesis } from "../trading/options/strategyEngine";
 import type { UnifiedOptionsRequest } from "../trading/options/unifiedOptionsService";
@@ -628,7 +635,7 @@ export function MatrixBoard({
   );
 }
 
-export function ScanResultsView({ result, runContext, onPreviewTrade }: { result: OpportunityScanResponse; runContext: ScanRunContext; onPreviewTrade?: (ctx: TradeOrderContext) => void }) {
+export function ScanResultsView({ result, runContext, onPreviewTrade, storedRun }: { result: OpportunityScanResponse; runContext: ScanRunContext; onPreviewTrade?: (ctx: TradeOrderContext) => void; storedRun?: ScanRunDetail | null }) {
   const mode = runContext.mode;
   const { gate, evaluated, scanned, skipped } = scanCounts(result);
   const generatedAt = result.generatedAt || result.meta?.generatedAt;
@@ -639,25 +646,68 @@ export function ScanResultsView({ result, runContext, onPreviewTrade }: { result
   const matrix = result.matrix ?? [];
   const typeRollup = result.typeRollup ?? [];
 
+  // Issue #126 (PR-C): result-set downloads of THIS run (the one
+  // being viewed), beside the PDF report. When the view shows a
+  // stored run from history, the export is built from that stored
+  // run — never from the latest run or the live form state.
+  const exportRun = storedRun
+    ? scanExportRunFromStored(storedRun)
+    : scanExportRunFromResult(result);
+  const exportButtonStyle = {
+    fontSize: "0.8rem",
+    padding: "0.35rem 0.75rem",
+    borderRadius: "4px",
+    border: "1px solid var(--color-accent)",
+    color: "var(--color-accent)",
+    background: "transparent",
+    cursor: "pointer",
+  } as const;
+
   return (
     <div className="scp-results">
       <div className="scp-results-head">
         <strong>Mode: {MODE_LABELS[mode]}</strong>
-        <a
-          href={result.reportUrl || "/api/options/report.pdf"}
-          download
-          style={{
-            fontSize: "0.8rem",
-            padding: "0.35rem 0.75rem",
-            borderRadius: "4px",
-            border: "1px solid var(--color-accent)",
-            color: "var(--color-accent)",
-            textDecoration: "none",
-            marginLeft: "auto",
-          }}
+        <button
+          type="button"
+          className="scanner-export-csv"
+          style={exportButtonStyle}
+          onClick={() => downloadScanExport(exportRun, "results-csv")}
+          title="Download this run's result rows as CSV"
         >
-          📄 Download PDF report
-        </a>
+          ⬇ CSV results
+        </button>
+        <button
+          type="button"
+          className="scanner-export-json"
+          style={exportButtonStyle}
+          onClick={() => downloadScanExport(exportRun, "run-json")}
+          title="Download this run's full stored result as JSON"
+        >
+          ⬇ JSON run
+        </button>
+        {/* Issue #126 (PR-D): the PDF link exists only when THIS run
+            has its own reportUrl. The previous keyless fallback
+            ("/api/options/report.pdf" with no key) serves the LATEST
+            run's PDF — a viewed historical run silently downloaded a
+            different run's report, the wrong-run class #297 fixed
+            for the stock screener. No reportUrl → no PDF link. */}
+        {result.reportUrl && (
+          <a
+            href={result.reportUrl}
+            download
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px solid var(--color-accent)",
+              color: "var(--color-accent)",
+              textDecoration: "none",
+              marginLeft: "auto",
+            }}
+          >
+            📄 Download PDF report
+          </a>
+        )}
         {result.profileRef && (
           <span className="scp-badge scp-badge-profile">Profile: {result.profileRef.name} v{result.profileRef.version}</span>
         )}
@@ -945,10 +995,10 @@ interface CatalogStrategy {
 }
 
 const THESIS_COLORS: Record<string, string> = {
-  bullish: "var(--color-success, #30a46c)",
-  bearish: "var(--color-danger, #e5484d)",
-  range_bound: "var(--color-warning, #d4a017)",
-  large_move: "#8b5cf6",
+  bullish: "var(--color-success)",
+  bearish: "var(--color-danger)",
+  range_bound: "var(--color-warning)",
+  large_move: "var(--color-purple)",
 };
 
 function StrategyCatalogBrowser() {
@@ -962,7 +1012,9 @@ function StrategyCatalogBrowser() {
       const res = await fetch("/api/trading/options/catalog");
       if (!res.ok) return;
       const data = (await res.json()) as { strategies?: CatalogStrategy[] };
-      setStrategies(data.strategies ?? []);
+      // Issue #1334: never render a label-less entry — resolve labels
+      // by id from the client library as a backstop.
+      setStrategies(resolveCatalogStrategyLabels(data.strategies ?? []));
       setLoaded(true);
     } catch {
       // Catalog unavailable — browser stays empty.
@@ -978,7 +1030,7 @@ function StrategyCatalogBrowser() {
   const theses = ["all", "bullish", "bearish", "range_bound", "large_move"];
 
   return (
-    <div style={{ margin: "1rem 0", border: "1px solid var(--theme-border)", borderRadius: 6, padding: "0.75rem" }}>
+    <div style={{ margin: "1rem 0", border: "1px solid var(--color-border-medium)", borderRadius: 6, padding: "0.75rem" }}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -998,8 +1050,8 @@ function StrategyCatalogBrowser() {
                   marginRight: "0.4rem",
                   padding: "0.2rem 0.6rem",
                   borderRadius: 12,
-                  border: "1px solid var(--theme-border)",
-                  background: filter === t ? "var(--theme-hover)" : "none",
+                  border: "1px solid var(--color-border-medium)",
+                  background: filter === t ? "var(--color-surface-hover)" : "none",
                   fontWeight: filter === t ? 700 : 400,
                   fontSize: "0.8rem",
                   cursor: "pointer",
@@ -1011,9 +1063,9 @@ function StrategyCatalogBrowser() {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "0.5rem" }}>
             {filtered.map((st) => (
-              <div key={st.id} style={{ border: "1px solid var(--theme-border)", borderRadius: 4, padding: "0.5rem", fontSize: "0.8rem" }}>
+              <div key={st.id} style={{ border: "1px solid var(--color-border-medium)", borderRadius: 4, padding: "0.5rem", fontSize: "0.8rem" }}>
                 <div style={{ fontWeight: 700 }}>{st.label}</div>
-                <div style={{ color: "var(--theme-text-muted)", margin: "0.25rem 0" }}>{st.description}</div>
+                <div style={{ color: "var(--color-text-muted)", margin: "0.25rem 0" }}>{st.description}</div>
                 <div>
                   {st.theses.map((th) => (
                     <span
@@ -1025,8 +1077,8 @@ function StrategyCatalogBrowser() {
                         borderRadius: 10,
                         fontSize: "0.7rem",
                         fontWeight: 600,
-                        color: THESIS_COLORS[th] ?? "var(--theme-text-muted)",
-                        border: `1px solid ${THESIS_COLORS[th] ?? "var(--theme-border)"}`,
+                        color: THESIS_COLORS[th] ?? "var(--color-text-muted)",
+                        border: `1px solid ${THESIS_COLORS[th] ?? "var(--color-border-medium)"}`,
                       }}
                     >
                       {th.replace("_", " ")}
@@ -1066,7 +1118,9 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         const res = await fetch("/api/trading/options/catalog");
         if (!res.ok) return;
         const data = (await res.json()) as { strategies?: CatalogStrategy[] };
-        setStrategyCatalog(data.strategies ?? []);
+        // Issue #1334: same backstop as the browser list — the modal
+        // renders `label`, so a label-less entry must never reach it.
+        setStrategyCatalog(resolveCatalogStrategyLabels(data.strategies ?? []));
         setCatalogLoaded(true);
       } catch {
         // Catalog unavailable — multi-select stays empty.
@@ -1100,6 +1154,10 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
   const [historyError, setHistoryError] = useState("");
   const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
   const [historicalNote, setHistoricalNote] = useState<string | null>(null);
+  // The stored run currently being viewed (issue #126 PR-C): the
+  // results view's CSV/JSON exports target THIS run. Set by viewRun,
+  // cleared whenever a fresh scan result replaces the view.
+  const [viewedRun, setViewedRun] = useState<ScanRunDetail | null>(null);
   const [rerunNote, setRerunNote] = useState("");
   const [diffResult, setDiffResult] = useState<ScanRunDiffResult | null>(null);
   const [diffError, setDiffError] = useState("");
@@ -1151,6 +1209,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
     // A fresh run replaces whatever the results area showed — a
     // stored run's banner or a diff must never linger over it.
     setHistoricalNote(null);
+    setViewedRun(null);
     setRerunNote("");
     setDiffResult(null);
     setDiffError("");
@@ -1179,6 +1238,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
       const run = await getScanRun(activeEnv, userLogin, summary.id);
       const stored = run.result;
       setResult(stored);
+      setViewedRun(run);
       setRunContext({
         mode: stored.mode,
         profileLabel: stored.profileRef ? `${stored.profileRef.name} v${stored.profileRef.version}` : null,
@@ -1222,6 +1282,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         setResult(scan);
         setRunContext(context);
         setHistoricalNote(null);
+        setViewedRun(null);
         setDiffResult(null);
         setDiffError("");
         setRerunNote(
@@ -1358,7 +1419,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
   return (
     <section className="scp-panel" id="section-opportunity-scanner" style={{ scrollMarginTop: 80 }}>
       <div className="scp-header">
-        <h3>📈 Opportunity Scanner</h3>
+        <h3>📈 Strategy/Symbol Scanner</h3>
         <span className="scp-asof">{activeEnv} environment</span>
       </div>
       <StrategyCatalogBrowser />
@@ -1479,7 +1540,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
             </div>
           )}
           {result && rerunNote && <div className="scp-note" role="note">{rerunNote}</div>}
-          {result && runContext && <ScanResultsView result={result} runContext={runContext} onPreviewTrade={onPreviewTrade} />}
+          {result && runContext && <ScanResultsView result={result} runContext={runContext} onPreviewTrade={onPreviewTrade} storedRun={viewedRun} />}
         </>
       )}
 

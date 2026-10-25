@@ -17,6 +17,7 @@
  * never performed).
  */
 import { describe, it, expect, vi } from "vitest";
+import { makeFakeSessionStore } from "./fake-session-store";
 
 vi.mock("@cloudflare/ai-chat", () => {
   return {
@@ -72,14 +73,10 @@ interface ForwardedCall {
 
 function makeEnv() {
   const forwarded: ForwardedCall[] = [];
-  const kv = new Map<string, string>();
-  kv.set(SESSION_ID, JSON.stringify({ githubLogin: LOGIN, userLogin: LOGIN }));
+  const { namespace: sessionStoreNs, seed: seedSession } = makeFakeSessionStore();
+  seedSession("sessions", SESSION_ID, { githubLogin: LOGIN, userLogin: LOGIN });
   const env: any = {
-    SESSIONS: {
-      get: async (k: string) => kv.get(k) ?? null,
-      put: async (k: string, v: string) => void kv.set(k, v),
-      delete: async (k: string) => void kv.delete(k),
-    },
+    SESSION_STORE: sessionStoreNs,
     SEARCH_AGENT: {
       idFromName: (name: string) => name,
       get: (id: string) => ({

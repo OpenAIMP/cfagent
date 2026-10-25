@@ -331,6 +331,10 @@ describe("handleReferralsAdsRoutes behavior", () => {
 
   it("GET /ads bumps impressions, then lists mapped rows", async () => {
     const sql = makeSql((query) => {
+      // Since 362bcac the handler first probes the table (ensureAdsSeeded);
+      // a non-empty count skips seeding, so the flow under test is
+      // COUNT -> UPDATE impressions -> SELECT listing (#730).
+      if (query.startsWith("SELECT COUNT")) return [{ count: 1 }];
       if (query.startsWith("UPDATE mas_ads")) return [];
       return query.includes("mas_ads")
         ? [{ id: "ad_1", title: "T", tagline: "tg", sponsor: "S", badge: "PROMOTED", url: "https://u", cta_text: "Go", accent_color: "#fff", impressions: 11, clicks: 2, created_at: "2026-01-01" }]
@@ -340,7 +344,33 @@ describe("handleReferralsAdsRoutes behavior", () => {
     const body = (await res!.json()) as any;
     expect(body.count).toBe(1);
     expect(body.ads[0]).toMatchObject({ id: "ad_1", ctaText: "Go", impressions: 11 });
-    expect((sql.exec as any).mock.calls[0][0]).toBe("UPDATE mas_ads SET impressions = impressions + 1");
+    // Contract (#730): the impressions UPDATE runs, and it runs BEFORE the
+    // listing SELECT so listed rows reflect post-bump counts. The position
+    // of the seeding probe is not pinned — it is read-only.
+    const queries = (sql.exec as any).mock.calls.map((c: any[]) => String(c[0]));
+    const updateIdx = queries.indexOf("UPDATE mas_ads SET impressions = impressions + 1");
+    const selectIdx = queries.findIndex((q: string) => q.startsWith("SELECT id, title, tagline"));
+    expect(updateIdx).toBeGreaterThanOrEqual(0);
+    expect(selectIdx).toBeGreaterThan(updateIdx);
+  });
+
+  it("GET /ads seeds the default sponsor offers when the table is empty (362bcac)", async () => {
+    const sql = makeSql((query) => {
+      if (query.startsWith("SELECT COUNT")) return [{ count: 0 }];
+      if (query.startsWith("SELECT id, title")) {
+        return [{ id: "ad_workers_ai", title: "Cloudflare Workers AI", tagline: "tg", sponsor: "Cloudflare", badge: "FLAGSHIP PARTNER", url: "https://u", cta_text: "Go", accent_color: "#f38020", impressions: 1, clicks: 0, created_at: "2026-01-01" }];
+      }
+      return [];
+    });
+    const { res } = await callB("GET", "/ads", undefined, baseCtx({ ensureTables: () => sql }));
+    const body = (await res!.json()) as any;
+    expect(body.count).toBe(1);
+    expect(body.ads[0].id).toBe("ad_workers_ai");
+    const queries = (sql.exec as any).mock.calls.map((c: any[]) => String(c[0]));
+    // The 4 default offers are inserted on read, and impressions still
+    // bump on the same fetch.
+    expect(queries.filter((q: string) => q.startsWith("INSERT OR IGNORE INTO mas_ads")).length).toBe(4);
+    expect(queries).toContain("UPDATE mas_ads SET impressions = impressions + 1");
   });
 
   it("POST /ads validates, inserts, and audits", async () => {

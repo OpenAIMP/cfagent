@@ -1,0 +1,115 @@
+/**
+ * Issue #590: the deploy job died with exit 139 (SIGSEGV) in
+ * "Set core secrets on Cloudflare Worker". The retry wrapper added for
+ * #560/#561 called itself instead of the wrangler secret command, so bash
+ * recursed until it crashed — and the body existed three times, once per
+ * secret step.
+ *
+ * These assertions pin the follow-up shape: one shared helper instead of
+ * three drifting copies, secrets in their own non-blocking job so a
+ * Cloudflare blip cannot read as a code-deploy failure, and a fail-closed
+ * rule for secrets the deployment cannot run without.
+ */
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+
+const workflow = readFileSync(
+  new URL("../.github/workflows/deploy.yml", import.meta.url),
+  "utf-8"
+);
+const helper = readFileSync(
+  new URL("../scripts/ci/put-secret.sh", import.meta.url),
+  "utf-8"
+);
+
+/** Any `wrangler <subcommand> put "$name"` invocation. */
+const BROKER_PUT = /npx wrangler [a-z-]+ put "\$name"/;
+
+function section(start: string, end: string): string {
+  const from = workflow.indexOf(start);
+  const to = workflow.indexOf(end, from + start.length);
+  expect(from, `missing section start: ${start}`).toBeGreaterThan(-1);
+  expect(to, `missing section end: ${end}`).toBeGreaterThan(from);
+  return workflow.slice(from, to);
+}
+
+describe("deploy.yml — secret sync (#590)", () => {
+  it("keeps no inline wrapper: every secret step sources the shared helper", () => {
+    expect(workflow).not.toContain("put_secret() {");
+    // Five steps: core, E*TRADE, gateways, Google OAuth, Threads.
+    expect(workflow.match(/source scripts\/ci\/put-secret\.sh/g) ?? []).toHaveLength(5);
+  });
+
+  it("runs secrets in their own non-blocking job after the code deploy", () => {
+    const job = section("\n  sync-secrets:", "\n  # ── Step 3:");
+    expect(job).toContain("continue-on-error: true");
+    expect(job).toContain("needs: [load-environment, deploy]");
+    expect(job).toContain("timeout-minutes: 20");
+  });
+
+  it("keeps the code deploy job free of secret pushes", () => {
+    const deploy = section("\n  deploy:", "\n  # ── Step 2b:");
+    expect(deploy).toContain("npx wrangler deploy");
+    expect(deploy).not.toContain("source scripts/ci/put-secret.sh");
+  });
+
+  it("fails when an expected secret is empty and reports optional absences", () => {
+    // Hard dependencies: without these the app cannot authenticate or boot.
+    expect(workflow).toContain("require_secret GITHUB_CLIENT_ID");
+    expect(workflow).toContain("require_secret GITHUB_CLIENT_SECRET");
+    expect(workflow).toContain("require_secret SESSION_SECRET");
+    expect(workflow).toContain("require_secret ET_API_KEY");
+    expect(workflow).toContain("require_secret ET_API_SECRET");
+    // Optional, but never silently skipped.
+    expect(workflow).toContain('optional_secret SCREENER_SLACK_CHANNEL "$S_SCREENER_SLACK_CHANNEL"');
+    // The old silent-skip idiom must be gone from every call site.
+    expect(workflow).not.toMatch(/if \[ -n "\$[A-Z_]+" \]; then printf/);
+  });
+});
+
+describe("deploy.yml — Threads secret sync", () => {
+  it("pushes the Threads token the social publisher reads", () => {
+    // src/agents/social/publisher.ts resolves threads' credential from
+    // THREADS_ACCESS_TOKEN. A token the Worker reads but CI never pushes is a
+    // channel that can never publish, so the push is pinned beside the read.
+    expect(workflow).toMatch(
+      /S_THREADS_ACCESS_TOKEN:\s*\$\{\{\s*secrets\.THREADS_ACCESS_TOKEN\s*\}\}/
+    );
+    expect(workflow).toMatch(
+      /optional_secret THREADS_ACCESS_TOKEN "\$S_THREADS_ACCESS_TOKEN"/
+    );
+  });
+});
+
+describe("scripts/ci/put-secret.sh (#590)", () => {
+  it("pushes through the broker with a bounded, backed-off retry", () => {
+    expect(helper).toMatch(BROKER_PUT);
+    expect(helper).toContain("timeout 90");
+    expect(helper).toContain("max=3");
+    expect(helper).toContain("backoff=$((attempts * 10))");
+  });
+
+  it("refuses an empty value instead of pushing one", () => {
+    expect(helper).toContain('payload="$(cat)"');
+    expect(helper).toMatch(/if \[ -z "\$payload" \]/);
+    expect(helper).toContain("refusing to push an empty");
+  });
+
+  it("names the failing secret in the check annotation", () => {
+    expect(helper).toMatch(/::error title=[^:]+::\$name/);
+  });
+
+  it("defines each helper exactly once", () => {
+    for (const fn of ["put_secret()", "require_secret()", "optional_secret()", "summary()"]) {
+      expect(helper.split(fn).length - 1, fn).toBe(1);
+    }
+  });
+
+  it("writes pushed, missing and skipped secrets to the job summary", () => {
+    // Every outcome is recorded: a green job never hides an absent secret.
+    expect(helper).toContain("pushed");
+    expect(helper).toContain("missing");
+    expect(helper).toContain("not configured (skipped)");
+    expect(helper).toContain("GITHUB_STEP_SUMMARY");
+  });
+});

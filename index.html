@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Enterprise Multi-Agent Assistant powered by Cloudflare Agents, Workers AI, RAG Knowledge Search, and SQLite persistence.">
-  <title>AI Multi-Agent Assistant</title>
+  <meta name="description" content="NextGenTP: Institutional Multi-Agent Options &amp; Equity Trading Platform. Deterministic policy enforcement, real-time options screening, and autonomous multi-agent execution.">
+  <title>NextGenTP — Institutional Multi-Agent Trading Platform</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -16,14 +16,12 @@
       }
       // Kept in parity with runtime validators by bootstrap tests.
       var savedTheme = read('nextgentp_theme');
-      var theme = savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system' ? savedTheme : 'system';
+      var theme = savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system' || savedTheme === 'high-contrast' ? savedTheme : 'system';
       var systemDark = false;
       try { systemDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) {}
       var effective = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
       root.setAttribute('data-theme', effective);
       root.setAttribute('data-theme-preference', theme);
-      root.classList.toggle('dark', effective === 'dark');
-      root.classList.toggle('light', effective === 'light');
       root.style.colorScheme = effective;
 
       var savedScale = read('nextgentp_font_scale');

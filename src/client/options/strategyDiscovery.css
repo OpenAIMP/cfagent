@@ -5121,8 +5121,31 @@
   font-size: 0.7rem;
   font-weight: 600;
   color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-medium);
   text-transform: capitalize;
+}
+/* Issue #275: direction tags are color-coded by direction. */
+.strat-thesis-tag.dir-bullish {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+.strat-thesis-tag.dir-bearish {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+.strat-thesis-tag.dir-range_bound {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+.strat-thesis-tag.dir-large_move {
+  color: var(--color-info);
+  border-color: var(--color-info);
+}
+.strat-library-directions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
 }
 .strat-library-card.selected {
   outline: 2px solid var(--color-accent);
@@ -5133,11 +5156,349 @@
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-medium);
 }
 .strat-modal-footer .primary {
   background: var(--color-accent);
   color: var(--color-text-inverse);
   border: none;
   font-weight: 600;
+}
+
+/* ==========================================================================
+   DISCOVERY RUNS — persisted scheduled/manual discovery run review
+   (issue #126, PR-F). Read-only record stream, visually distinct from
+   the interactive discovery above it. Semantic tokens only.
+   ========================================================================== */
+
+.discovery-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-surface-foreground);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--card-padding);
+  font-family: var(--font-sans);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.discovery-runs-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.discovery-runs-header h3 {
+  margin: 0;
+  font-size: var(--font-size-title-sm);
+}
+
+.discovery-runs-header p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm);
+  max-width: 46rem;
+}
+
+.discovery-runs-error {
+  border: 1px solid var(--color-danger);
+  background: var(--color-danger-subtle);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-body-sm);
+}
+
+.discovery-runs-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.discovery-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+.discovery-run-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body-sm);
+  color: var(--color-text-primary);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.discovery-run-item[aria-pressed="true"] {
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent);
+}
+
+.discovery-run-meta {
+  color: var(--color-text-muted);
+}
+
+.discovery-run-viewing {
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent);
+}
+
+.discovery-run-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-3);
+}
+
+.discovery-run-detail-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.discovery-run-detail-head h4 {
+  margin: 0;
+  font-size: var(--font-size-body-lg);
+}
+
+.discovery-run-detail-head p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.discovery-downloads {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.discovery-outcome {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--color-surface-raised);
+}
+
+.discovery-outcome-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--font-size-body-lg);
+}
+
+.discovery-outcome-source {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+}
+
+.discovery-view-line,
+.discovery-screen-line,
+.discovery-counts-line {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.discovery-outcome-error {
+  border: 1px solid var(--color-danger);
+  background: var(--color-danger-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-body-sm);
+}
+
+/* Issue #533: an abstention is an honest non-result, not a failure —
+   same alert-box idiom as the failure box, warning tokens. */
+.discovery-outcome-abstained {
+  border: 1px solid var(--color-warning);
+  background: var(--color-warning-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-body-sm);
+}
+
+/* Issue #533: the DERIVED block — the full derivation travels with
+   every derived target so it is never read as a configured view. */
+.discovery-derived-line {
+  margin: 0;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Issue #534: the constraint line — the stored constraint set shown
+   in place of a view line on every no-view outcome, so what
+   constrained the run (and that no view did) is always visible. A
+   neutral record box, distinct from the DERIVED block. */
+.discovery-constraint-line {
+  margin: 0;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.discovery-run-detail-head p.discovery-run-profile {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Issue #534: the run-level NO-VIEW note in the detail head. */
+.discovery-run-detail-head p.discovery-run-noview {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.discovery-best {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border: 1px solid var(--color-success);
+  background: var(--color-success-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-body-sm);
+}
+
+.discovery-best-label {
+  font-weight: var(--font-weight-bold);
+}
+
+.discovery-best-blockers {
+  color: var(--color-text-muted);
+}
+
+.discovery-ranked-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+.discovery-ranked-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-size: var(--font-size-body-sm);
+}
+
+.discovery-ranked-row.best {
+  border-color: var(--color-success);
+}
+
+.discovery-ranked-rank {
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent);
+}
+
+.discovery-ranked-name {
+  font-weight: var(--font-weight-semibold);
+}
+
+.discovery-ranked-meta {
+  color: var(--color-text-muted);
+}
+
+.discovery-ranked-empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+/* Issue #126: "Schedule this discovery" capture strip — the confirm
+   panel snapshots the exact view (symbol, thesis, target) before a
+   saved-request discovery schedule is created from it. */
+.strat-schedule-capture {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+
+.strat-schedule-capture-hint {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-sm, 0.8125rem);
+}
+
+.strat-schedule-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 0.75rem);
+  width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md, 10px);
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+}
+
+.strat-schedule-confirm-summary {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body, 0.9rem);
+}
+
+.strat-schedule-confirm-controls {
+  display: flex;
+  gap: var(--space-4, 1rem);
+  flex-wrap: wrap;
+}
+
+.strat-schedule-confirm-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 0.25rem);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption, 0.78rem);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.strat-schedule-confirm-controls input,
+.strat-schedule-confirm-controls select {
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body-sm, 0.8125rem);
+  padding: var(--space-1-5, 0.375rem) var(--space-2, 0.5rem);
+}
+
+.strat-schedule-confirm-actions {
+  display: flex;
+  gap: var(--space-2-5, 0.625rem);
 }

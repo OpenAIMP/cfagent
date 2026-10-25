@@ -110,7 +110,7 @@ export class ETradeService {
   }
 
   /**
-   * Async broker status that includes live KV token validity & midnight ET expiry check
+   * Async broker status that includes live token validity (SessionStore) & midnight ET expiry check
    */
   async getStatusAsync(): Promise<ETradeBrokerStatus> {
     return this.platform.getStatus();
@@ -136,9 +136,17 @@ export class ETradeService {
 
   /**
    * Real-time dynamic equity quote with live feed enrichment
+   *
+   * Issue #1133: `options.includeRawResponse` is forwarded verbatim to
+   * the REST client's hook of the same name (via fetchQuoteRemote) —
+   * when set, the returned quote carries the parsed wire payload as
+   * `raw`. Unset (every existing caller), behaviour is unchanged.
    */
-  async getQuoteAsync(symbol: string): Promise<ETradeQuote> {
-    return this.fetchQuoteRemote(symbol);
+  async getQuoteAsync(
+    symbol: string,
+    options?: { includeRawResponse?: boolean }
+  ): Promise<ETradeQuote> {
+    return this.fetchQuoteRemote(symbol, options);
   }
 
   /**
@@ -398,8 +406,16 @@ export class ETradeService {
 
   /**
    * Real E*TRADE REST API: Fetch live market quote with OAuth 1.0a
+   *
+   * Issue #1133: `options.includeRawResponse` is forwarded to
+   * fetchQuoteDetailed; when set, a live quote carries the parsed wire
+   * payload as `raw`. The sandbox fallback path (platform.getQuote)
+   * has no wire payload and never carries `raw`.
    */
-  async fetchQuoteRemote(symbol: string): Promise<ETradeQuote> {
+  async fetchQuoteRemote(
+    symbol: string,
+    options?: { includeRawResponse?: boolean }
+  ): Promise<ETradeQuote> {
     const cleanSym = symbol.trim().toUpperCase();
     const envConfig = this.client.getEnvConfig();
     let quoteError: unknown;
@@ -409,7 +425,7 @@ export class ETradeService {
       // the shared getLastError() after the await attributed one symbol's
       // failure to another. fetchQuoteDetailed returns the error with the
       // result; nothing is read from shared instance state.
-      const { quote: live, error } = await this.client.fetchQuoteDetailed(cleanSym);
+      const { quote: live, error } = await this.client.fetchQuoteDetailed(cleanSym, options);
       if (live && live.lastPrice > 0) {
         const isStub =
           (live.lastPrice === 577.51 || live.companyName.toUpperCase().includes("GOOGLE INC")) &&
@@ -449,7 +465,7 @@ export class ETradeService {
    * Returns the quotes E*TRADE actually returned; callers diff against the
    * request to find symbols the broker omitted (no substitute data).
    */
-  async fetchQuotesRemote(symbols: string[]): Promise<ETradeQuote[]> {
+  async fetchQuotesRemote(symbols: string[], trace?: any, onWireResponse?: (symbols: string[], payload: unknown) => void): Promise<ETradeQuote[]> {
     const clean = Array.from(
       new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))
     );
@@ -457,6 +473,17 @@ export class ETradeService {
     // Sandbox keeps its explicit per-symbol mock behaviour: the batch
     // endpoint has no sandbox fixture, so do not pretend it quoted anything.
     if (!this.client.getEnvConfig().isLive) return [];
+    // Issue #816: pass trace only when provided (keeps #495 test pin stable).
+    // Issue #1157 (E2): the client's onWireResponse hook is forwarded
+    // the same way — options are passed only when at least one is
+    // actually supplied, so existing callers see the exact call
+    // shapes they always have.
+    if (trace || onWireResponse) {
+      return this.client.fetchQuotes(clean, {
+        ...(trace ? { trace } : {}),
+        ...(onWireResponse ? { onWireResponse } : {}),
+      });
+    }
     return this.client.fetchQuotes(clean);
   }
 

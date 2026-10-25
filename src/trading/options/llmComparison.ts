@@ -87,6 +87,7 @@ function comparisonPrompt(
   riskProfile: RiskProfile,
   contracts: ScreenedOptionContractItem[],
   candidates: StrategyCandidate[],
+  humanFeedback?: string,
 ): string {
   const payload = {
     request: {
@@ -105,7 +106,8 @@ function comparisonPrompt(
     screenedOptionContracts: compactContracts(contracts),
     quantGeneratedCandidates: compactCandidates(candidates),
   };
-  const instruction = "Rank every supplied quantGeneratedCandidates entry exactly once, from best to worst. Use only their candidateId values. Give each a distinct reasoned score from 0 to 100 and concise rationale and risks. The score is your independent qualitative ranking, not the quantScore.";
+  const instruction = "Rank every supplied quantGeneratedCandidates entry exactly once, from best to worst. Use only their candidateId values. Give each a distinct reasoned score from 0 to 100 and concise rationale and risks. The score is your independent qualitative ranking, not the quantScore." +
+    (humanFeedback ? `\n\nHuman review history (weigh alongside quant signals):\n${humanFeedback}` : "");
   return `${instruction}
 
 Return only valid JSON matching:
@@ -170,6 +172,7 @@ async function generateSelections(
   riskProfile: RiskProfile,
   contracts: ScreenedOptionContractItem[],
   candidates: StrategyCandidate[],
+  humanFeedback?: string,
 ): Promise<LlmCandidateResponse> {
   const resolvedModel = resolveAiModelName(env, "optionsComparison");
   if (candidates.length === 0) return { model: resolvedModel, ranked: [] };
@@ -177,7 +180,7 @@ async function generateSelections(
     model: getWorkersAIModel(env, "optionsComparison"),
     temperature: 0,
     system: LLM_SYSTEM_PROMPT,
-    prompt: comparisonPrompt(request, riskProfile, contracts, candidates),
+    prompt: comparisonPrompt(request, riskProfile, contracts, candidates, humanFeedback),
   });
   return {
     model: resolvedModel,
@@ -191,6 +194,46 @@ export function rankCandidatesWithLlm(
   riskProfile: RiskProfile,
   contracts: ScreenedOptionContractItem[],
   candidates: StrategyCandidate[],
+  humanFeedback?: string,
 ): Promise<LlmCandidateResponse> {
-  return generateSelections(env, request, riskProfile, contracts, candidates);
+  return generateSelections(env, request, riskProfile, contracts, candidates, humanFeedback);
+}
+
+/**
+ * Issue #707: build the human-feedback context from recent review decisions.
+ * Returns null when there's no decision history to inject.
+ */
+export function buildHumanFeedbackContext(
+  reviews: Array<{ label: string; decision: string }>
+): string | null {
+  const decided = reviews.filter((r) => r.decision === "approved" || r.decision === "rejected");
+  if (decided.length === 0) return null;
+  const approved = decided.filter((r) => r.decision === "approved").map((r) => r.label);
+  const rejected = decided.filter((r) => r.decision === "rejected").map((r) => r.label);
+  const lines: string[] = [];
+  if (approved.length > 0) lines.push(`Approved (${approved.length}): ${approved.slice(0, 5).join("; ")}`);
+  if (rejected.length > 0) lines.push(`Rejected (${rejected.length}): ${rejected.slice(0, 5).join("; ")}`);
+  return lines.join("\n");
+}
+
+/**
+ * Issue #775: build reflection feedback context from learnings.
+ * The weekly reflection job proposes adjustments like "Boost X in LLM ranking
+ * priors" — this surfaces them to the LLM so the Act step actually acts.
+ */
+export function buildReflectionFeedbackContext(
+  learnings: Array<{ observation: string; confidence: number }>
+): string | null {
+  const reflectionLearnings = learnings.filter((l) =>
+    l.observation.includes("Proposed:")
+  );
+  if (reflectionLearnings.length === 0) return null;
+  const lines = reflectionLearnings
+    .filter((l) => l.confidence >= 0.6)
+    .map((l) => {
+      const proposed = l.observation.split("Proposed:")[1]?.trim() || l.observation;
+      return `- ${proposed} (confidence ${(l.confidence * 100).toFixed(0)}%)`;
+    });
+  if (lines.length === 0) return null;
+  return `Weekly reflection adjustments (apply alongside quant signals):\n${lines.join("\n")}`;
 }

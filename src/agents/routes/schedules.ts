@@ -18,6 +18,11 @@
  *   POST        /schedules/trigger-options-analysis
  *   POST        /schedules/trigger-retention      (issue #255)
  *   POST        /schedules/trigger-iv-collection  (issue #15)
+ *   POST        /schedules/trigger-discovery      (issue #126)
+ *   POST        /schedules/:id/pause               (issue #273)
+ *   POST        /schedules/:id/resume              (issue #273)
+ *   POST        /schedules/:id/trigger             (issue #273)
+ *   PUT         /schedules/:id                     (issue #273)
  *
  * The handler ends with an explicit `return null` - never undefined.
  *
@@ -35,8 +40,23 @@ import type { AgentContext, Schedule, ScheduleCriteria } from "agents";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { getStoredTokens, isTokenExpiredEt } from "../../security/etradeOAuth";
 import { runStorageRetention } from "../../security/storageRetention";
-import { SqlIvHistoryStore, SqlScanRunStore, UNIVERSES } from "../../trading";
+import {
+  buildSchedulePayload,
+  SqlDiscoveryRunStore,
+  SqlIvHistoryStore,
+  SqlScanRunStore,
+  SqlStrategyProfileStore,
+} from "../../trading";
 import { ScheduledTasksService } from "../../services/scheduledTasks";
+import {
+  SqlPausedScheduleStore,
+  pausedRecordToListItem,
+  resolveScheduleUpdate,
+  scheduleToPausedRecord,
+  type PausedScheduleRecord,
+  type ResolvedScheduleTiming,
+  type ScheduleDefinitionLike,
+} from "../../services/scheduleManagement";
 import type { DatabaseORM } from "../../orm";
 import type { AgentName, Env } from "../../types";
 
@@ -84,6 +104,14 @@ export interface SchedulesRouteContext {
   getScreenerExecutionContext(): Promise<ScreenerExecutionContext | undefined>;
   /** ORM accessor (owner: OrchestratorAgent.getOrm - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
+  /** Issue #1123 S5b: follow-up bridge for screener runs triggered
+   *  through the schedule routes (optional — hosts without it keep
+   *  the service's event-bus behavior). */
+  scheduleScreenerFollowups?: (
+    outcome: import("../../services/screenerFollowups").ScreenerRunOutcome,
+    userLogin: string,
+    chainReport?: boolean,
+  ) => Promise<void>;
   /** Scheduled market screen (owner: OrchestratorAgent.autonomousMarketScreen - was `this.autonomousMarketScreen`). */
   autonomousMarketScreen(payload?: {
     sector?: string;
@@ -93,6 +121,13 @@ export interface SchedulesRouteContext {
     trigger?: "manual" | "scheduled";
     userLogin?: string;
     environment?: ETradeEnvironment;
+    emailTo?: string;
+    slackChannel?: string;
+    webhookUrl?: string;
+    pushToSlack?: boolean;
+    filters?: import("../../types").StockScreenerFilter;
+    provider?: import("../../trading").StockScreenProvider;
+    stageChain?: import("../../types").StageChainConfig;
   }): Promise<void>;
   /** E*TRADE token renewal (owner: OrchestratorAgent.autoRenewETradeTokens - was `this.autoRenewETradeTokens`). */
   autoRenewETradeTokens(payload?: { userLogin?: string; env?: string }): Promise<void>;
@@ -100,6 +135,30 @@ export interface SchedulesRouteContext {
   creatableScheduleCallbacks: readonly string[];
   /** Account-scoped callback set (owner: orchestrator.ts module const ACCOUNT_SCOPED_SCHEDULE_CALLBACKS). */
   accountScopedScheduleCallbacks: ReadonlySet<string>;
+  /** Manual dispatch of a schedule's own callback (owner: OrchestratorAgent — a dynamic this[callback] invocation), used by POST /schedules/:id/trigger (#273). */
+  runScheduleCallback(callback: string, payload: unknown): Promise<void>;
+}
+
+/**
+ * Issue #1170 (E3): the runScheduleCallback closure that used to be
+ * built inline in OrchestratorAgent.routeRequest's schedules
+ * context now lives here with the routes it serves (the #992
+ * extraction pattern — this is what keeps orchestrator.ts inside
+ * its size budget as new dispatch blocks land). Behaviour is
+ * identical to the inline closure: resolve the named method on the
+ * host, refuse non-callables with the same error, invoke with the
+ * host as `this`.
+ */
+export function makeRunScheduleCallback(
+  host: unknown
+): SchedulesRouteContext["runScheduleCallback"] {
+  return async (callback: string, payload: unknown) => {
+    const fn = (host as Record<string, unknown>)[callback];
+    if (typeof fn !== "function") {
+      throw new Error(`Schedule callback '${callback}' is not callable on the orchestrator.`);
+    }
+    await (fn as (p: unknown) => Promise<void>).call(host, payload);
+  };
 }
 
 /**
@@ -116,6 +175,39 @@ export async function handleSchedulesRoutes(
   sessionId: string,
   ctx: SchedulesRouteContext
 ): Promise<Response | null> {
+    // Issue #273 helpers: the paused-job store lives in the agent's own
+    // SQLite (see services/scheduleManagement.ts); subpath ids come from
+    // the /schedules/<id>/<action> shape via regex (not a counted
+    // route condition).
+    const pausedStore = () => new SqlPausedScheduleStore(ctx.agentCtx.storage.sql);
+    const subpathId = (p: string): string => {
+      const m = p.match(/\/schedules\/([^/]+)\//);
+      if (!m) return "";
+      try {
+        return decodeURIComponent(m[1]);
+      } catch {
+        return m[1];
+      }
+    };
+    const timingFromDefinition = (def: {
+      type: string;
+      cron?: string;
+      intervalSeconds?: number;
+      time?: number;
+    }): ResolvedScheduleTiming | null => {
+      if (def.type === "cron" && def.cron) return { type: "cron", cron: def.cron };
+      if (def.type === "interval" && def.intervalSeconds)
+        return { type: "interval", intervalSeconds: def.intervalSeconds };
+      if ((def.type === "scheduled" || def.type === "delayed") && def.time !== undefined)
+        return { type: def.type, time: def.time };
+      return null;
+    };
+    const armFromTiming = (timing: ResolvedScheduleTiming, callback: string, payload: unknown) => {
+      if (timing.type === "cron") return ctx.schedule(timing.cron, callback, payload, { idempotent: true });
+      if (timing.type === "interval") return ctx.scheduleEvery(timing.intervalSeconds, callback, payload);
+      return ctx.schedule(new Date(timing.time * 1000), callback, payload);
+    };
+
     // List all schedules (supports ?type=cron|interval|delayed|scheduled)
     if ((path.endsWith("/schedules") || path.endsWith("/api/schedules") || path === "/schedules" || path === "/api/schedules") && request.method === "GET") {
       try {
@@ -128,9 +220,22 @@ export async function handleSchedulesRoutes(
         const schedules = await ctx.listSchedules(
           typeParam ? { type: typeParam as ScheduleCriteria["type"] } : undefined
         );
+        // Issue #273: paused jobs are cancelled SDK schedules, so they
+        // are merged back in from the paused store (flagged `paused`,
+        // no next run) — pausing never makes a job vanish from the UI.
+        let pausedItems: ReturnType<typeof pausedRecordToListItem>[] = [];
+        try {
+          pausedItems = pausedStore()
+            .list()
+            .filter((r) => !typeParam || r.type === typeParam)
+            .map(pausedRecordToListItem);
+        } catch {
+          pausedItems = [];
+        }
         return Response.json({
-          count: schedules.length,
-          schedules,
+          count: schedules.length + pausedItems.length,
+          schedules: [...schedules, ...pausedItems],
+          creatableCallbacks: [...ctx.creatableScheduleCallbacks],
           timestamp: new Date().toISOString(),
         });
       } catch (err: any) {
@@ -156,7 +261,15 @@ export async function handleSchedulesRoutes(
         if (!scheduleId) {
           return Response.json({ error: "Schedule ID is required" }, { status: 400 });
         }
-        const cancelled = await ctx.cancelSchedule(scheduleId);
+        let cancelled = await ctx.cancelSchedule(scheduleId);
+        if (!cancelled) {
+          // Issue #273: deleting a paused job deletes its stored record.
+          try {
+            cancelled = pausedStore().remove(scheduleId);
+          } catch {
+            cancelled = false;
+          }
+        }
         ctx.audit("schedule.cancelled", "orchestrator", { scheduleId, success: cancelled });
         return Response.json({ scheduleId, cancelled });
       } catch (err: any) {
@@ -170,11 +283,158 @@ export async function handleSchedulesRoutes(
         const scheduleId = path.split("/schedules/").pop() || "";
         const schedule = await ctx.getScheduleById(scheduleId);
         if (!schedule) {
+          // Issue #273: a paused job resolves from the paused store.
+          // The lookup degrades to the plain 404 if the store is
+          // unavailable — it must never mask the not-found answer.
+          let paused: PausedScheduleRecord | undefined;
+          try {
+            paused = pausedStore().get(scheduleId);
+          } catch {
+            paused = undefined;
+          }
+          if (paused) return Response.json(pausedRecordToListItem(paused));
           return Response.json({ error: `Schedule '${scheduleId}' not found` }, { status: 404 });
         }
         return Response.json(schedule);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to get schedule" }, { status: 500 });
+      }
+    }
+
+    // Pause a schedule (POST /api/schedules/:id/pause) — issue #273.
+    // The SDK schedule is cancelled, but its full definition is kept in
+    // the paused store so the job stays listed (status: paused) and can
+    // be resumed or edited in place.
+    if (path.includes("/schedules/") && path.endsWith("/pause") && request.method === "POST") {
+      try {
+        const scheduleId = subpathId(path);
+        if (!scheduleId) {
+          return Response.json({ error: "Schedule ID is required" }, { status: 400 });
+        }
+        const store = pausedStore();
+        const already = store.get(scheduleId);
+        if (already) {
+          return Response.json({ success: true, schedule: pausedRecordToListItem(already) });
+        }
+        const schedule = await ctx.getScheduleById(scheduleId);
+        if (!schedule) {
+          return Response.json({ error: `Schedule '${scheduleId}' not found` }, { status: 404 });
+        }
+        const record = scheduleToPausedRecord(schedule, new Date().toISOString());
+        store.save(record);
+        await ctx.cancelSchedule(scheduleId);
+        ctx.audit("schedule.paused", "orchestrator", { scheduleId, callback: schedule.callback });
+        return Response.json({ success: true, schedule: pausedRecordToListItem(record) });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to pause schedule" }, { status: 500 });
+      }
+    }
+
+    // Resume a paused schedule (POST /api/schedules/:id/resume) — #273.
+    if (path.includes("/schedules/") && path.endsWith("/resume") && request.method === "POST") {
+      try {
+        const scheduleId = subpathId(path);
+        if (!scheduleId) {
+          return Response.json({ error: "Schedule ID is required" }, { status: 400 });
+        }
+        const store = pausedStore();
+        const record = store.get(scheduleId);
+        if (!record) {
+          return Response.json({ error: `Schedule '${scheduleId}' is not paused` }, { status: 404 });
+        }
+        const timing = timingFromDefinition(record);
+        if (!timing) {
+          return Response.json({ error: `Paused schedule '${scheduleId}' has an incomplete definition and cannot be resumed` }, { status: 500 });
+        }
+        const schedule = await armFromTiming(timing, record.callback, record.payload);
+        store.remove(scheduleId);
+        ctx.audit("schedule.resumed", "orchestrator", { scheduleId, newScheduleId: schedule?.id, callback: record.callback });
+        return Response.json({ success: true, previousId: scheduleId, schedule });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to resume schedule" }, { status: 500 });
+      }
+    }
+
+    // Trigger a schedule's callback now (POST /api/schedules/:id/trigger) — #273.
+    if (path.includes("/schedules/") && path.endsWith("/trigger") && request.method === "POST") {
+      try {
+        const scheduleId = subpathId(path);
+        if (!scheduleId) {
+          return Response.json({ error: "Schedule ID is required" }, { status: 400 });
+        }
+        if (pausedStore().get(scheduleId)) {
+          return Response.json(
+            { success: false, error: "Schedule is paused — resume it before triggering." },
+            { status: 409 }
+          );
+        }
+        const schedule = await ctx.getScheduleById(scheduleId);
+        if (!schedule) {
+          return Response.json({ error: `Schedule '${scheduleId}' not found` }, { status: 404 });
+        }
+        const payload =
+          schedule.payload && typeof schedule.payload === "object"
+            ? { ...(schedule.payload as Record<string, unknown>), trigger: "manual" }
+            : schedule.payload;
+        await ctx.runScheduleCallback(schedule.callback, payload);
+        ctx.audit("schedule.triggered", "orchestrator", { scheduleId, callback: schedule.callback });
+        return Response.json({ success: true, scheduleId, callback: schedule.callback });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to trigger schedule" }, { status: 500 });
+      }
+    }
+
+    // Update a schedule (PUT /api/schedules/:id) — issue #273: change
+    // the cron/interval and/or payload atomically (cancel + recreate
+    // under the hood; paused jobs update in place in the paused store).
+    if (path.includes("/schedules/") && request.method === "PUT") {
+      try {
+        const scheduleId = path.split("/schedules/").pop() || "";
+        if (!scheduleId) {
+          return Response.json({ error: "Schedule ID is required" }, { status: 400 });
+        }
+        const body = (await request.json().catch(() => ({}))) as any;
+        const store = pausedStore();
+        const paused = store.get(scheduleId);
+        if (paused) {
+          const resolution = resolveScheduleUpdate(paused, body, Date.now());
+          if (!resolution.ok) {
+            return Response.json({ success: false, error: resolution.error }, { status: 400 });
+          }
+          const updated: PausedScheduleRecord = {
+            id: paused.id,
+            callback: paused.callback,
+            payload: resolution.payload,
+            type: resolution.timing.type,
+            pausedAt: paused.pausedAt,
+            ...(resolution.timing.type === "cron" ? { cron: resolution.timing.cron } : {}),
+            ...(resolution.timing.type === "interval" ? { intervalSeconds: resolution.timing.intervalSeconds } : {}),
+            ...(resolution.timing.type === "scheduled" || resolution.timing.type === "delayed"
+              ? { time: resolution.timing.time }
+              : {}),
+          };
+          store.save(updated);
+          ctx.audit("schedule.updated", "orchestrator", { scheduleId, callback: paused.callback, paused: true });
+          return Response.json({ success: true, schedule: pausedRecordToListItem(updated) });
+        }
+        const existing = await ctx.getScheduleById(scheduleId);
+        if (!existing) {
+          return Response.json({ error: `Schedule '${scheduleId}' not found` }, { status: 404 });
+        }
+        const resolution = resolveScheduleUpdate(
+          existing as unknown as ScheduleDefinitionLike,
+          body,
+          Date.now()
+        );
+        if (!resolution.ok) {
+          return Response.json({ success: false, error: resolution.error }, { status: 400 });
+        }
+        await ctx.cancelSchedule(scheduleId);
+        const schedule = await armFromTiming(resolution.timing, existing.callback, resolution.payload);
+        ctx.audit("schedule.updated", "orchestrator", { scheduleId, newScheduleId: schedule?.id, callback: existing.callback });
+        return Response.json({ success: true, previousId: scheduleId, schedule });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to update schedule" }, { status: 500 });
       }
     }
 
@@ -228,39 +488,36 @@ export async function handleSchedulesRoutes(
         }
         const { userLogin: _untrustedUserLogin, environment: _untrustedEnvironment, ...safePayload } =
           payload && typeof payload === "object" ? payload : {};
-        const universe = typeof safePayload.universe === "string" ? safePayload.universe : undefined;
-        if (universe && !(universe in UNIVERSES)) {
-          return Response.json({ success: false, error: `Unknown screening universe '${universe}'.` }, { status: 400 });
+        // Issue #959 (screening consolidation S1): criteria validation
+        // and payload assembly live in ONE shared builder —
+        // buildSchedulePayload in src/trading/screeningSchemas.ts —
+        // used identically by this route, the trigger routes below, and
+        // the NLQ scheduling executor, so the same criteria arm the same
+        // payload through every door. The builder reproduces this
+        // route's historical checks and error strings (universe,
+        // symbols, the three discovery input models, maxItems) and
+        // stamps identity from the trusted context only.
+        let screeningPayload: unknown;
+        if (ctx.accountScopedScheduleCallbacks.has(callback)) {
+          const built = buildSchedulePayload(callback, safePayload, {
+            userLogin: trustedUserLogin || undefined,
+            environment: trustedEnvironment || undefined,
+            trigger: "scheduled",
+          });
+          if (!built.ok) {
+            return Response.json({ success: false, error: built.error }, { status: 400 });
+          }
+          // Creation policy (route-level, unchanged): a stock schedule
+          // must name its universe explicitly. The shared builder
+          // deliberately does not require one — the trigger and NLQ
+          // paths rely on the market-screen service's own default.
+          if (callback === "autonomousMarketScreen" && safePayload.universe === undefined) {
+            return Response.json({ success: false, error: "Stock schedules require one explicit universe." }, { status: 400 });
+          }
+          screeningPayload = built.value;
+        } else {
+          screeningPayload = payload;
         }
-        if (universe === "ALL") {
-          return Response.json({ success: false, error: "Choose one specific universe for a scheduled screen." }, { status: 400 });
-        }
-        if (callback === "autonomousMarketScreen" && !universe) {
-          return Response.json({ success: false, error: "Stock schedules require one explicit universe." }, { status: 400 });
-        }
-        if (safePayload.symbols !== undefined &&
-            (!Array.isArray(safePayload.symbols) || safePayload.symbols.some((symbol: unknown) => typeof symbol !== "string" || !/^[A-Z0-9./-]{1,16}$/i.test(symbol)))) {
-          return Response.json({ success: false, error: "symbols must be an array of valid ticker strings." }, { status: 400 });
-        }
-        if (ctx.accountScopedScheduleCallbacks.has(callback) && safePayload.maxItems !== undefined &&
-            (!Number.isSafeInteger(safePayload.maxItems) || safePayload.maxItems < 0 || safePayload.maxItems > 10000)) {
-          return Response.json({ success: false, error: "maxItems must be a whole number from 0 to 10000." }, { status: 400 });
-        }
-        const effectiveUniverse = universe ||
-          (callback === "autonomousOptionsAnalysis" && (!safePayload.symbols || safePayload.symbols.length === 0) ? "NASDAQ100" : undefined);
-        const defaultMaxItems = effectiveUniverse
-          ? UNIVERSES[effectiveUniverse as keyof typeof UNIVERSES].defaultMaxSymbols
-          : (safePayload.symbols?.length || 0);
-        const screeningPayload = ctx.accountScopedScheduleCallbacks.has(callback)
-          ? {
-              ...safePayload,
-              ...(effectiveUniverse ? { universe: effectiveUniverse } : {}),
-              maxItems: safePayload.maxItems ?? defaultMaxItems,
-              ...(trustedUserLogin ? { userLogin: trustedUserLogin } : {}),
-              ...(trustedEnvironment ? { environment: trustedEnvironment } : {}),
-              trigger: "scheduled",
-            }
-          : payload;
 
         // No fabricated success (#111): this route never invents a
         // schedule id or reports success for a schedule that does not
@@ -306,7 +563,15 @@ export async function handleSchedulesRoutes(
         const userLogin = request.headers.get("x-user-login") || undefined;
         const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
         const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD" ? rawEnvironment : undefined;
-        await ctx.autonomousMarketScreen({ ...body, userLogin, environment, trigger: "manual" });
+        // Issue #959: trigger bodies validate through the same shared
+        // schedule builder as schedule creation — identity keys in the
+        // body are stripped and re-stamped from the trusted context.
+        const { userLogin: _bodyLogin, environment: _bodyEnv, ...triggerCriteria } = body ?? {};
+        const built = buildSchedulePayload("autonomousMarketScreen", triggerCriteria, { userLogin, environment, trigger: "manual" }, { applyCreationDefaults: false });
+        if (!built.ok) {
+          return Response.json({ success: false, error: built.error }, { status: 400 });
+        }
+        await ctx.autonomousMarketScreen(built.value);
         return Response.json({ success: true, message: "Autonomous market screen triggered" });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger market screen" }, { status: 500 });
@@ -338,20 +603,29 @@ export async function handleSchedulesRoutes(
         const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD"
           ? rawEnvironment
           : context?.environment;
-        const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin, new SqlScanRunStore(ctx.agentCtx.storage.sql));
-        const result = await service.autonomousOptionsAnalysis({ ...body, userLogin, environment, trigger: "manual" });
+        const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin, new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env });
+        // Issue #959: validate through the shared schedule builder.
+        const { userLogin: _bodyLogin, environment: _bodyEnv, ...triggerCriteria } = body ?? {};
+        const built = buildSchedulePayload("autonomousOptionsAnalysis", triggerCriteria, { userLogin: userLogin || undefined, environment, trigger: "manual" }, { applyCreationDefaults: false });
+        if (!built.ok) {
+          return Response.json({ success: false, error: built.error }, { status: 400 });
+        }
+        const result = await service.autonomousOptionsAnalysis(built.value as any);
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger options analysis" }, { status: 500 });
       }
     }
 
-    // Nightly mas_messages retention pass (issue #255, part of #143).
-    // The Worker's scheduled() handler fires this at the 0 4 * * * cron.
+    // Nightly retention pass (issue #255, part of #143; extended to
+    // mas_events + mas_memory by issue #786). The Worker's scheduled()
+    // handler fires this at the 0 4 * * * cron.
     if (path.endsWith("/schedules/trigger-retention") && request.method === "POST") {
       try {
         const result = runStorageRetention(ctx.getOrm(), {
           retentionDays: ctx.env.MAS_MESSAGES_RETENTION_DAYS,
+          eventsRetentionDays: ctx.env.MAS_EVENTS_RETENTION_DAYS,
+          memoryRetentionDays: ctx.env.MAS_MEMORY_RETENTION_DAYS,
         });
         return Response.json({ success: true, ...result });
       } catch (err: any) {
@@ -375,12 +649,61 @@ export async function handleSchedulesRoutes(
           ctx.getOrm(),
           userLogin,
           new SqlScanRunStore(ctx.agentCtx.storage.sql),
-          new SqlIvHistoryStore(ctx.agentCtx.storage.sql)
+          new SqlIvHistoryStore(ctx.agentCtx.storage.sql),
+          undefined,
+          undefined,
+          ctx.scheduleScreenerFollowups
         );
         const result = await service.collectDailyIvHistory({ ...body, userLogin, environment });
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger IV collection" }, { status: 500 });
+      }
+    }
+
+    // Trigger scheduled strategy discovery immediately on demand
+    // (issue #126) — re-runs the body's SAVED StrategyRequests verbatim
+    // through the discovery pipeline and persists the run as a
+    // "manual-trigger" discovery run. An account identity is required:
+    // runs are per-user records and execute under the owner's E*TRADE
+    // session (mirrors trigger-iv-collection's 401). Issue #533: a body
+    // carrying inputModel "profile-derived" (+ profileId and symbols
+    // or watchlistName) flows through the same call — the service
+    // branches on the discriminator — and abstentions ride back in the
+    // result data alongside failures. Issue #534: a body carrying
+    // inputModel "no-view" (+ constraintSets) flows through the same
+    // call the same way.
+    if (path.endsWith("/schedules/trigger-discovery") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const context = await ctx.getScreenerExecutionContext();
+        const userLogin = request.headers.get("x-user-login") || context?.userLogin;
+        if (!userLogin) return Response.json({ success: false, error: "An authenticated E*TRADE account is required." }, { status: 401 });
+        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
+        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD"
+          ? rawEnvironment
+          : context?.environment;
+        const service = new ScheduledTasksService(
+          ctx.env,
+          ctx.getOrm(),
+          userLogin,
+          new SqlScanRunStore(ctx.agentCtx.storage.sql),
+          undefined,
+          new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
+          new SqlStrategyProfileStore(ctx.agentCtx.storage.sql),
+          ctx.scheduleScreenerFollowups
+        );
+        // Issue #959: validate through the shared schedule builder
+        // (the service's own derivation validation still runs inside).
+        const { userLogin: _bodyLogin, environment: _bodyEnv, ...triggerCriteria } = body ?? {};
+        const built = buildSchedulePayload("autonomousStrategyDiscovery", triggerCriteria, { userLogin, environment, trigger: "manual" }, { applyCreationDefaults: false });
+        if (!built.ok) {
+          return Response.json({ success: false, error: built.error }, { status: 400 });
+        }
+        const result = await service.autonomousStrategyDiscovery(built.value as any);
+        return Response.json(result);
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to trigger strategy discovery" }, { status: 500 });
       }
     }
   return null;

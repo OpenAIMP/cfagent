@@ -16,6 +16,7 @@ import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import type { SupportedGateway } from "../services/payments";
 import { AGENT_DIDS, createDidAttestation, getUserDid } from "../agents/did";
 import { executeNaturalLanguageQuery } from "../agents/nlq";
+import { registerDraftOwner } from "../payments/draftOwners";
 import {
   ETradeMarketScanCommand,
   ETradeGetQuoteCommand,
@@ -221,7 +222,12 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
   });
 
   async execute(input: any, context: McpToolContext) {
-    const amount = Number(input.amount) || 10;
+    // #524: an omitted or unparseable amount is a validation error, never
+    // a silent $10 charge.
+    const amount = Number(input.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("amount is required and must be a positive number");
+    }
     const currency = (input.currency || "USD").toUpperCase();
     // No invented customer name (issue #514), matching the create route.
     const customer = (input.customer || "").trim();
@@ -262,6 +268,11 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
       createdAt: now,
       updatedAt: now,
     });
+
+    // Issue #932: record this instance as the draft's owner so a gateway
+    // settlement webhook (received by the shared system_webhook_receiver
+    // instance) can be routed back here.
+    await registerDraftOwner(context.env, draftId, context.sessionId);
 
     context.audit("payment.awaiting_confirmation", "payments", {
       draftId,

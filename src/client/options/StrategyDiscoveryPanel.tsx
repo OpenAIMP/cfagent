@@ -21,10 +21,14 @@ import {
   type RealizedUnrealizedPnl,
 } from "./strategyDiscoveryEngine";
 import {
+  buildStrategyRequest,
   fetchServerDiscovery,
   fetchServerCatalog,
   type ServerCatalogResult,
+  type ServerDiscoveryInputs,
 } from "./serverDiscovery";
+import { etToUtcCron } from "./cronTime";
+import { buildDiscoveryCaptureSubmission } from "../scheduledOptionsManager/payloadBuilders";
 import {
   STRATEGY_LIBRARY,
   type StrategyDefinition,
@@ -38,7 +42,7 @@ import { UniversalChart } from "../components/UniversalChart";
 import { LlmStrategyEvalModal, type StrategyToEvaluate } from "./LlmStrategyEvalModal";
 import { RiskAnalysisModal } from "./RiskAnalysisModal";
 import type { RiskSubject } from "./riskManagementEngine";
-import { OptionsDataDownloadDropdown } from "./optionsDataExporter";
+import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 import { StrategyLibraryModal, type StrategyInfo } from "./StrategyLibraryModal";
@@ -659,21 +663,100 @@ export function StrategyDiscoveryPanel({
   const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
   const [discoveryDataSource, setDiscoveryDataSource] = useState<"live" | "calibrated-demo" | "unavailable">("unavailable");
 
+  // The inputs an interactive discovery run sends RIGHT NOW (issue #29).
+  // The scheduled-discovery capture (issue #126) builds its saved request
+  // from this exact same object, so a schedule re-runs the view on screen
+  // verbatim — never a re-derived approximation of it.
+  const currentDiscoveryInputs = (): ServerDiscoveryInputs => ({
+    symbol: activeSymbol,
+    currentPrice: quote.price,
+    sentiment,
+    targetPrice,
+    budget: budget ?? 100000,
+    minRewardRisk: minRewardRiskRatio ?? 0,
+    expiration: selectedExpiration,
+    bias: optimizationBias,
+    dataMode: dataTab === "demo" ? "calibrated-demo" : "live",
+  });
+
+  // Issue #126: "Schedule this discovery" — capture the current view as a
+  // saved request on a durable schedule (backend: POST /api/schedules/create
+  // with the autonomousStrategyDiscovery callback). The cadence is chosen
+  // here, at capture time; the request itself is snapshotted when the
+  // confirm strip opens and its symbol/thesis/target are shown before
+  // anything is created, so nobody schedules a view they cannot see.
+  const [scheduleCaptureOpen, setScheduleCaptureOpen] = useState(false);
+  const [capturedRequest, setCapturedRequest] = useState<ReturnType<typeof buildStrategyRequest> | null>(null);
+  const [captureScheduleType, setCaptureScheduleType] = useState<"interval" | "cron" | "delayed" | "scheduled">("interval");
+  const [captureIntervalSeconds, setCaptureIntervalSeconds] = useState(3600);
+  const [captureCron, setCaptureCron] = useState(() =>
+    etToUtcCron({ hour: 9, minute: 30, daysOfWeek: "1-5" })
+  );
+  const [captureDelaySeconds, setCaptureDelaySeconds] = useState(1800);
+  const [captureDate, setCaptureDate] = useState("");
+  const [captureSubmitting, setCaptureSubmitting] = useState(false);
+  const [captureError, setCaptureError] = useState("");
+
+  const openScheduleCapture = () => {
+    setCapturedRequest(buildStrategyRequest(currentDiscoveryInputs()));
+    setCaptureError("");
+    setScheduleCaptureOpen(true);
+  };
+
+  const handleCreateDiscoverySchedule = async () => {
+    if (!capturedRequest) return;
+    setCaptureError("");
+    // S8 (consolidation #958): the create body is built by the one
+    // schedule payload-builder module (the S7 builders), not
+    // hand-assembled here — same saved-request payload, same cadence
+    // keys, same one-shot date error; the payload now also carries
+    // the trigger: "scheduled" stamp the route applied server-side.
+    const built = buildDiscoveryCaptureSubmission({
+      request: capturedRequest,
+      environment: activeEnv,
+      scheduleType: captureScheduleType,
+      intervalSeconds: captureIntervalSeconds,
+      cronExpression: captureCron,
+      delaySeconds: captureDelaySeconds,
+      scheduledDate: captureDate,
+    });
+    if ("error" in built) {
+      setCaptureError(built.error);
+      return;
+    }
+    const body = built.requestBody;
+    setCaptureSubmitting(true);
+    try {
+      const res = await fetch("/api/schedules/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-environment": activeEnv,
+          ...(userLogin ? { "x-user-login": userLogin } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data.success) {
+        setScheduleCaptureOpen(false);
+        showToast(
+          `🗓 Scheduled this discovery view (${capturedRequest.symbol} · ${capturedRequest.thesis} · target $${capturedRequest.targetPrice}) — manage it under Schedules.`
+        );
+      } else {
+        setCaptureError(data.error || `Failed to create schedule (${res.status})`);
+      }
+    } catch (err: any) {
+      setCaptureError(err?.message || "Failed to create schedule");
+    } finally {
+      setCaptureSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     setIsDiscovering(true);
     setDiscoveryError("");
-    fetchServerDiscovery({
-      symbol: activeSymbol,
-      currentPrice: quote.price,
-      sentiment,
-      targetPrice,
-      budget: budget ?? 100000,
-      minRewardRisk: minRewardRiskRatio ?? 0,
-      expiration: selectedExpiration,
-      bias: optimizationBias,
-      dataMode: dataTab === "demo" ? "calibrated-demo" : "live",
-    })
+    fetchServerDiscovery(currentDiscoveryInputs())
       .then((res) => {
         if (!cancelled) {
           setDiscoveredStrategies(res.strategies);
@@ -1507,7 +1590,7 @@ export function StrategyDiscoveryPanel({
       {activeView === "discovery" && (
         <div className="strat-discovery-view">
           {dataTab === "demo" && (
-            <div style={{ margin: "0 0 12px", padding: "10px 14px", borderRadius: 10, background: "rgba(240,180,41,0.13)", border: "1px solid rgba(240,180,41,0.45)", color: "#f5cf6b", fontSize: "0.85rem", fontWeight: 600 }}>
+            <div style={{ margin: "0 0 12px", padding: "10px 14px", borderRadius: 10, background: "var(--color-warning-subtle)", border: "1px solid var(--color-warning-border)", color: "var(--color-warning-text)", fontSize: "0.85rem", fontWeight: 600 }}>
               ⚠ DEMO DATA — the strategies below are built on calibrated (generated) option chains for development/demo. This is not live market data.
             </div>
           )}
@@ -1744,6 +1827,120 @@ export function StrategyDiscoveryPanel({
             </div>
           </div>
 
+          {/* Issue #126: schedule this exact view as a saved-request discovery schedule */}
+          <div className="strat-schedule-capture">
+            {!scheduleCaptureOpen ? (
+              <>
+                <button
+                  type="button"
+                  className="strat-action-chip"
+                  onClick={openScheduleCapture}
+                  title="Create a durable schedule that re-runs this exact discovery view and stores the results"
+                >
+                  🗓 Schedule this discovery
+                </button>
+                <span className="strat-schedule-capture-hint">
+                  Re-runs the view above (symbol, sentiment, target, budget) on a schedule; results land in Discovery runs.
+                </span>
+              </>
+            ) : capturedRequest ? (
+              <div className="strat-schedule-confirm" role="group" aria-label="Confirm scheduled discovery">
+                <p className="strat-schedule-confirm-summary">
+                  Schedule THIS view: <strong>{capturedRequest.symbol}</strong> — {capturedRequest.thesis} · target{" "}
+                  <strong>${capturedRequest.targetPrice.toFixed(2)}</strong> by {capturedRequest.targetDate} · max loss{" "}
+                  ${capturedRequest.maxPlannedLoss.toLocaleString()} · min R:R {capturedRequest.minRewardRisk} ·{" "}
+                  {capturedRequest.dataMode === "calibrated-demo" ? "calibrated-demo chains" : "live chains"}
+                </p>
+                <div className="strat-schedule-confirm-controls">
+                  <label>
+                    Cadence
+                    <select
+                      value={captureScheduleType}
+                      onChange={(e) => setCaptureScheduleType(e.target.value as typeof captureScheduleType)}
+                      aria-label="Schedule cadence type"
+                    >
+                      <option value="interval">Interval</option>
+                      <option value="cron">Cron (UTC)</option>
+                      <option value="delayed">Delayed (once)</option>
+                      <option value="scheduled">One-shot date</option>
+                    </select>
+                  </label>
+                  {captureScheduleType === "interval" && (
+                    <label>
+                      Every (seconds)
+                      <input
+                        type="number"
+                        min={60}
+                        step={60}
+                        value={captureIntervalSeconds}
+                        onChange={(e) => setCaptureIntervalSeconds(Number(e.target.value))}
+                        aria-label="Interval seconds"
+                      />
+                    </label>
+                  )}
+                  {captureScheduleType === "cron" && (
+                    <label>
+                      Cron (UTC)
+                      <input
+                        type="text"
+                        value={captureCron}
+                        onChange={(e) => setCaptureCron(e.target.value)}
+                        aria-label="Cron expression"
+                      />
+                    </label>
+                  )}
+                  {captureScheduleType === "delayed" && (
+                    <label>
+                      Delay (seconds)
+                      <input
+                        type="number"
+                        min={1}
+                        step={60}
+                        value={captureDelaySeconds}
+                        onChange={(e) => setCaptureDelaySeconds(Number(e.target.value))}
+                        aria-label="Delay seconds"
+                      />
+                    </label>
+                  )}
+                  {captureScheduleType === "scheduled" && (
+                    <label>
+                      Run at
+                      <input
+                        type="datetime-local"
+                        value={captureDate}
+                        onChange={(e) => setCaptureDate(e.target.value)}
+                        aria-label="One-shot date and time"
+                      />
+                    </label>
+                  )}
+                </div>
+                {captureError && (
+                  <div className="strat-discovery-message error" role="alert">
+                    {captureError}
+                  </div>
+                )}
+                <div className="strat-schedule-confirm-actions">
+                  <button
+                    type="button"
+                    className="strat-action-chip highlight"
+                    onClick={handleCreateDiscoverySchedule}
+                    disabled={captureSubmitting}
+                  >
+                    {captureSubmitting ? "Scheduling…" : "✓ Create schedule"}
+                  </button>
+                  <button
+                    type="button"
+                    className="strat-action-chip"
+                    onClick={() => setScheduleCaptureOpen(false)}
+                    disabled={captureSubmitting}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           {/* Discovered Strategies Grid */}
           <div className="strat-cards-grid">
             {isDiscovering && discoveredStrategies.length === 0 && (
@@ -1910,8 +2107,8 @@ export function StrategyDiscoveryPanel({
                           })),
                         });
                       }}
-                      title={`Evaluate ${strat.name} with AI / LLM`}
-                      aria-label={`Evaluate ${strat.name} with LLM`}
+                      title={`Evaluate ${strat.name} with AI Engine`}
+                      aria-label={`Evaluate ${strat.name} with AI`}
                     >
                       <span className="strat-icon">🧠</span>
                       <span className="strat-icon-tooltip">AI Eval</span>
@@ -2065,7 +2262,7 @@ export function StrategyDiscoveryPanel({
                   });
                 }}
               >
-                🧠 Evaluate with LLM
+                🧠 Evaluate with AI
               </button>
               <button
                 type="button"
@@ -3019,13 +3216,13 @@ export function StrategyDiscoveryPanel({
                           }
 
                           // Heatmap color shading
-                          let cellBg = "rgba(255, 255, 255, 0.03)";
+                          let cellBg = "var(--color-muted)";
                           if (cell.pnlDollar > 0) {
                             const intensity = Math.min(0.7, 0.12 + (cell.pnlDollar / (matrix2dData.maxPnl || 1)) * 0.58);
-                            cellBg = `rgba(16, 185, 129, ${intensity})`;
+                            cellBg = `color-mix(in srgb, var(--color-success) ${Math.round(intensity * 100)}%, transparent)`;
                           } else if (cell.pnlDollar < 0) {
                             const intensity = Math.min(0.7, 0.12 + (Math.abs(cell.pnlDollar) / (Math.abs(matrix2dData.minPnl) || 1)) * 0.58);
-                            cellBg = `rgba(239, 68, 68, ${intensity})`;
+                            cellBg = `color-mix(in srgb, var(--color-danger) ${Math.round(intensity * 100)}%, transparent)`;
                           }
 
                           return (
@@ -3491,7 +3688,7 @@ export function StrategyDiscoveryPanel({
         </div>
       )}
 
-      {/* Workers AI LLM Strategy Evaluation & Options Data Export Modal */}
+      {/* Neural Strategy LLM Evaluation & Options Data Export Modal */}
       <LlmStrategyEvalModal
         isOpen={Boolean(evaluatingStrategy)}
         onClose={() => setEvaluatingStrategy(null)}
