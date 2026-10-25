@@ -11,14 +11,17 @@
 
 import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import type { OptionScreenResult, ScreenedOptionContractItem } from "../types";
+import type { OptionsPartialQualification } from "./options/opportunityScanner";
 
 
 /** Print palette (#473): named print mirrors of the semantic text roles —
  *  same scale as screenerReportPdf — instead of scattered rgb literals. */
 const PRINT_INK: [number, number, number] = [0.15, 0.15, 0.15];
 const PRINT_MUTED: [number, number, number] = [0.4, 0.4, 0.4];
+const PRINT_NOTE: [number, number, number] = [0.45, 0.45, 0.45];
 const PRINT_FAINT: [number, number, number] = [0.5, 0.5, 0.5];
 const PRINT_HAIRLINE: [number, number, number] = [0.7, 0.7, 0.7];
+const PRINT_WARNING: [number, number, number] = [0.75, 0.45, 0];
 
 const MARGIN = 48;
 const PAGE_W = 612; // Letter
@@ -42,11 +45,25 @@ function ensureSpace(ctx: Ctx, needed: number): void {
   if (ctx.y - needed < MARGIN) newPage(ctx);
 }
 
+function cleanForPdf(str: string): string {
+  return String(str ?? "")
+    .replace(/Δ/g, "Delta ")
+    .replace(/→/g, "->")
+    .replace(/←/g, "<-")
+    .replace(/•/g, "*")
+    .replace(/—/g, "-")
+    .replace(/–/g, "-")
+    .replace(/“|”/g, '"')
+    .replace(/‘|’/g, "'")
+    .replace(/[^\x20-\x7E\xA0-\xFF]/g, " ");
+}
+
 function text(
   ctx: Ctx,
-  str: string,
+  rawStr: string,
   opts: { size?: number; bold?: boolean; color?: [number, number, number]; x?: number } = {}
 ): void {
+  const str = cleanForPdf(rawStr);
   const size = opts.size ?? 10;
   const font = opts.bold ? ctx.bold : ctx.font;
   ensureSpace(ctx, size + 4);
@@ -78,54 +95,138 @@ function formatContract(c: ScreenedOptionContractItem): string {
   if (c.expirationDate) parts.push(c.expirationDate);
   if (c.strikePrice) parts.push(`$${c.strikePrice}`);
   if (c.optionType) parts.push(c.optionType);
-  if (c.delta !== undefined) parts.push(`Δ${c.delta.toFixed(2)}`);
+  if (c.delta !== undefined) parts.push(`d${c.delta.toFixed(2)}`);
   if (c.impliedVolatility !== undefined) parts.push(`IV${(c.impliedVolatility * 100).toFixed(0)}%`);
   return parts.join(" ");
 }
 
 /**
+ * Issue #1290 (#1173 R6): the qualified-partial banner lines for an
+ * options scan whose coverage was partial — the options mirror of the
+ * stock PDF's "PARTIAL SCREEN — QUALIFIED RESULTS" block (#462).
+ * Returns null when the run was complete (no qualification stamped).
+ */
+export function optionsPartialBanner(
+  partial: OptionsPartialQualification | undefined
+): [string, string] | null {
+  if (!partial) return null;
+  const heading = "PARTIAL SCAN — QUALIFIED RESULTS";
+  const counts =
+    `${partial.evaluatedCount} of ${partial.consideredCount} underlyings evaluated; ` +
+    `${partial.coverageErrors} quote/chain failures, ${partial.truncatedCount} truncated.` +
+    (partial.topSkipReason ? ` Top skip reason: ${partial.topSkipReason}.` : "") +
+    " Results below cover the evaluated subset only.";
+  return [heading, counts];
+}
+
+/**
  * Generate a PDF report for an options scan result.
  */
-export async function generateOptionsPdf(result: OptionScreenResult): Promise<Uint8Array> {
+export async function generateOptionsPdf(result: OptionScreenResult | any): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
 
   const ctx: Ctx = { doc, font, bold, page: doc.addPage([PAGE_W, PAGE_H]), y: PAGE_H - MARGIN };
 
+  const scannedAt = result.scannedAt || result.generatedAt || result.timestamp || new Date().toISOString();
+  const underlyingsScanned = result.totalUnderlyingsScanned ?? result.scanned ?? 0;
+  const contractsEvaluated = result.totalContractsEvaluated ?? result.withTrades ?? 0;
+  const matched = result.matchedCount ?? (result.contracts ? result.contracts.length : (result.opportunities ? result.opportunities.length : 0));
+  const thesis = result.thesis || (result.mode ? String(result.mode) : "Bullish");
+  const riskProfile = result.riskProfile || "Balanced";
+  const universeLabel = (result.universe || (result.symbols && result.symbols.length > 0 ? result.symbols.slice(0, 5).join(", ") : "Options Universe")).replace(/_/g, " ");
+
   // Header
-  text(ctx, "Options Scanner Report", { size: 18, bold: true });
-  text(ctx, `Generated: ${result.scannedAt}`, { size: 9, color: PRINT_MUTED });
+  text(ctx, `Options Scanner Report — ${universeLabel}`, { size: 16, bold: true });
+  text(ctx, `Thesis: ${thesis.toUpperCase()}  •  Risk Profile: ${riskProfile}  •  Generated: ${scannedAt}`, { size: 9, color: PRINT_MUTED });
+
+  // Active Criteria Box
+  ensureSpace(ctx, 16);
+  const activeCriteria = result.filterSummary || `Thesis ${thesis}, risk profile ${riskProfile}, live E*TRADE chains`;
+  text(ctx, `Active Criteria: ${activeCriteria}`, { size: 9, bold: true, color: PRINT_INK });
   rule(ctx);
+
+  // Partial scan notice (issue #1290): a qualified partial is never
+  // presented as a complete scan on the artifact itself.
+  const partialBanner = optionsPartialBanner((result as any).partial);
+  if (partialBanner) {
+    text(ctx, partialBanner[0], { size: 12, bold: true, color: PRINT_WARNING });
+    text(ctx, partialBanner[1], { size: 9 });
+    rule(ctx);
+  }
 
   // Summary
-  text(ctx, "Summary", { size: 14, bold: true });
-  text(ctx, `Underlyings scanned: ${result.totalUnderlyingsScanned}`);
-  text(ctx, `Contracts evaluated: ${result.totalContractsEvaluated}`);
-  text(ctx, `Matched: ${result.matchedCount}`);
-  if (result.filterSummary) {
-    text(ctx, `Filter: ${result.filterSummary}`, { size: 9 });
-  }
+  text(ctx, "Summary", { size: 12, bold: true });
+  text(ctx, `Underlyings scanned: ${underlyingsScanned}   Contracts evaluated: ${contractsEvaluated}   Matched: ${matched}`);
   rule(ctx);
 
-  // Contracts
-  text(ctx, `Matched Contracts (${result.contracts.length})`, { size: 14, bold: true });
-  ctx.y -= 4;
+  // Contracts or Opportunities
+  if (Array.isArray(result.contracts) && result.contracts.length > 0) {
+    text(ctx, `Matched Contracts (${result.contracts.length})`, { size: 12, bold: true });
+    ctx.y -= 4;
 
-  for (const contract of result.contracts.slice(0, 50)) {
-    ensureSpace(ctx, 28);
-    text(ctx, formatContract(contract), { size: 9, bold: true });
-    if (contract.bid && contract.ask) {
-      text(ctx, `  Bid/Ask: $${contract.bid.toFixed(2)} / $${contract.ask.toFixed(2)}`, { size: 8, color: PRINT_MUTED });
+    for (const contract of result.contracts.slice(0, 50)) {
+      ensureSpace(ctx, 28);
+      text(ctx, formatContract(contract), { size: 9, bold: true });
+      if (contract.bid && contract.ask) {
+        text(ctx, `  Bid/Ask: $${contract.bid.toFixed(2)} / $${contract.ask.toFixed(2)}`, { size: 8, color: PRINT_MUTED });
+      }
+      ctx.y -= 2;
     }
-    ctx.y -= 2;
+
+    if (result.contracts.length > 50) {
+      text(ctx, `... and ${result.contracts.length - 50} more`, { size: 9, color: PRINT_FAINT });
+    }
+    rule(ctx);
+  } else if (Array.isArray(result.opportunities) && result.opportunities.length > 0) {
+    text(ctx, `Opportunities (${result.opportunities.length})`, { size: 12, bold: true });
+    ctx.y -= 4;
+
+    for (const opp of result.opportunities.slice(0, 50)) {
+      ensureSpace(ctx, 28);
+      const symbol = opp.symbol || "N/A";
+      const pick = opp.pick;
+      const pickName = pick?.strategyName || pick?.strategyType || "Strategy";
+      const price = opp.underlyingPrice !== undefined ? `$${opp.underlyingPrice.toFixed(2)}` : "";
+      const score = opp.score !== undefined ? `Score: ${opp.score}` : "";
+      const bucket = opp.gateBucket ? `[${String(opp.gateBucket).toUpperCase()}]` : "";
+      text(ctx, `${symbol} - ${pickName} ${price} ${bucket}`.trim(), { size: 9, bold: true });
+      const detail = pick?.description || pick?.reasoning || score;
+      if (detail) {
+        text(ctx, `  ${detail}`, { size: 8, color: PRINT_MUTED });
+      }
+      ctx.y -= 2;
+    }
+
+    if (result.opportunities.length > 50) {
+      text(ctx, `... and ${result.opportunities.length - 50} more`, { size: 9, color: PRINT_FAINT });
+    }
+    rule(ctx);
+  } else {
+    text(ctx, "No matching contracts or opportunities found.", { size: 10, color: PRINT_MUTED });
+    rule(ctx);
   }
 
-  if (result.contracts.length > 50) {
-    text(ctx, `... and ${result.contracts.length - 50} more`, { size: 9, color: PRINT_FAINT });
-  }
+  // Methodology footer
+  ensureSpace(ctx, 40);
+  text(ctx, "Methodology", { size: 10, bold: true });
+  text(ctx, "* Quotes: E*TRADE live option chains. Standard Greeks via Black-Scholes.", { size: 7.5, color: PRINT_NOTE });
+  text(ctx, "* Multi-leg strategy discovery: risk-bounded payoff evaluations per defined risk profile.", { size: 7.5, color: PRINT_NOTE });
 
-  return await doc.save() as Uint8Array;
+  // Page numbers across all pages
+  const pages = doc.getPages();
+  pages.forEach((p, i) => {
+    p.drawText(`Page ${i + 1} of ${pages.length}`, {
+      x: PAGE_W - MARGIN - 60,
+      y: 20,
+      size: 8,
+      font,
+      color: rgb(...PRINT_FAINT),
+    });
+  });
+
+  return (await doc.save()) as Uint8Array;
 }
 
 /**
@@ -136,8 +237,14 @@ export async function generateOptionsPdf(result: OptionScreenResult): Promise<Ui
  * options-scan_{universe}_{schedule}_{timestamp}_{jobId}.pdf
  * The schedule and jobId are appended by the caller when available.
  */
-export function optionsPdfFileName(result: OptionScreenResult): string {
-  const ts = new Date(result.scannedAt).toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z";
+export function optionsPdfFileName(result: OptionScreenResult | any): string {
+  const dateStr = result.scannedAt || result.generatedAt || result.timestamp || new Date().toISOString();
+  let ts: string;
+  try {
+    ts = new Date(dateStr).toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z";
+  } catch {
+    ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z";
+  }
   const r = result as unknown as Record<string, unknown>;
   const u = String(r.universe || "options").toLowerCase().replace(/_/g, "-");
   const schedule = String(r.schedule || r.trigger || "adhoc");

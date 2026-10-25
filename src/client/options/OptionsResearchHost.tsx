@@ -1,0 +1,67 @@
+/**
+ * S8 (consolidation, umbrella #958): the options research host —
+ * the "Symbol research / Autonomous runs" toggle over
+ * OptionsResearchPanel and ResearchRunsPanel (issue #319: one
+ * research-run surface for manual + scheduled runs). Extracted
+ * verbatim from ETradeTradingHub, where it wrapped the hub's
+ * "options" subtab, so the one screening hub (ScreenersHub) hosts
+ * the identical surface; the Trading Hub's options subtab is now a
+ * redirect into the hub.
+ */
+import { useState } from "react";
+import { OptionsResearchPanel } from "./OptionsResearchPanel";
+import { ResearchRunsPanel } from "./ResearchRunsPanel";
+import type { TradeOrderContext } from "../trading/tradeOrderContext";
+
+export interface OptionsResearchHostProps {
+  activeEnv: "TEST" | "PROD";
+  userLogin?: string;
+  onPreviewTrade?: (ctx: TradeOrderContext) => void;
+  onJobStateChange?: (state: "idle" | "running" | "ready") => void;
+  onSendPrompt?: (prompt: string, sourceTab?: string) => void;
+  /** C2 (consolidation #1151, issue #1246): switch to the hosting
+   *  hub's Schedules tab (threaded into OptionsResearchPanel). */
+  onOpenSchedules?: () => void;
+}
+
+export function OptionsResearchHost({
+  activeEnv,
+  userLogin,
+  onPreviewTrade,
+  onJobStateChange,
+  onSendPrompt,
+  onOpenSchedules,
+}: OptionsResearchHostProps) {
+  const [researchRunsView, setResearchRunsView] = useState<"symbol" | "runs">("symbol");
+  return (
+    <>
+      {/* Issue #319: one research-run surface for manual + scheduled runs. */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <button
+          onClick={() => setResearchRunsView("symbol")}
+          style={{ fontWeight: researchRunsView === "symbol" ? 700 : 400 }}
+        >
+          Symbol research
+        </button>
+        <button
+          onClick={() => setResearchRunsView("runs")}
+          style={{ fontWeight: researchRunsView === "runs" ? 700 : 400 }}
+        >
+          Autonomous runs
+        </button>
+      </div>
+      {researchRunsView === "runs" ? (
+        <ResearchRunsPanel userLogin={userLogin} onSendPrompt={onSendPrompt} />
+      ) : (
+        <OptionsResearchPanel
+          activeEnv={activeEnv}
+          userLogin={userLogin}
+          onPreviewTrade={onPreviewTrade}
+          onJobStateChange={onJobStateChange}
+          onSendPrompt={onSendPrompt}
+          onOpenSchedules={onOpenSchedules}
+        />
+      )}
+    </>
+  );
+}

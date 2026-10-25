@@ -156,13 +156,11 @@ export function extractOrderParameters(question: string): {
     orderType = "LIMIT";
   }
 
-  // If relative offset is given, compute baseline limit price from curated stock if available
-  if (relativePriceOffsetPercent !== undefined && limitPrice === undefined) {
-    const curated = getCuratedStockBySymbol(symbol);
-    if (curated?.defaultPrice && curated.defaultPrice > 0) {
-      limitPrice = Number((curated.defaultPrice * (1 + relativePriceOffsetPercent / 100)).toFixed(2));
-    }
-  }
+  // #913/#920: a relative offset is NEVER priced here. The limit price is
+  // derived at execution time from a LIVE E*TRADE quote, and execution
+  // refuses the order when no live quote is available. (This block used to
+  // derive the price from the static curated `defaultPrice` table — an
+  // unlabeled static price on a production order path.)
 
   return {
     orderAction,

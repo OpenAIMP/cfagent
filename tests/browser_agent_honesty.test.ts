@@ -17,7 +17,8 @@ vi.mock("@cloudflare/ai-chat", () => {
 
 import { ETradeBrowserService } from "../src/services/browserAgent";
 import { BrowserScreenshotCommand } from "../src/mcp/cloudflareAgentCommands";
-import { SlackAgent } from "../src/agents/slackAgent";
+import { ETradeSlackTradingService } from "../src/trading/slack/agent";
+import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import type { TransactionSnapData } from "../src/types";
 
@@ -257,11 +258,6 @@ describe("Issue #120: Browser Agent honesty", () => {
   describe("/snap handler user-facing message", () => {
     it("tells the user nothing was delivered when Slack is not configured", async () => {
       const sql = new MockSqlStorage();
-      const ctx = {
-        id: { toString: () => "T0123456789" },
-        storage: { sql },
-        waitUntil: vi.fn(),
-      };
       const envNoSlack = {
         APP_BASE_URL: "https://agent.openaimp.com",
         ETRADE_ENVIRONMENT: "sandbox",
@@ -269,14 +265,16 @@ describe("Issue #120: Browser Agent honesty", () => {
         SEARCH_AGENT: {} as any,
       } as any;
 
-      const slackAgent = new SlackAgent(ctx as any, envNoSlack);
+      // Issue #1262 Phase 2: the retired SlackAgent.handleSlashCommand
+      // is gone; /snap runs through the single service.
+      const slackService = new ETradeSlackTradingService(envNoSlack, new DatabaseORM(sql), "T0123456789", undefined);
       const formData = new FormData();
       formData.append("command", "/snap");
       formData.append("text", "SPY");
       formData.append("user_id", "U_SNAP");
       formData.append("channel_id", "C_SNAP");
 
-      const response = await slackAgent.handleSlashCommand(formData);
+      const response = await slackService.processSlackCommand(formData);
       expect(response.status).toBe(200);
       const json = (await response.json()) as any;
       expect(json.text).toContain("Not delivered");

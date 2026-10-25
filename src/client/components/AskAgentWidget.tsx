@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import type { NavTabId } from "./NavigationMenu";
 import { TextInput } from "./ui";
+import { BRAND } from "../branding";
 
 export interface AskAgentWidgetProps {
   onAskAgent: (prompt: string) => void;
@@ -46,7 +47,7 @@ export const TAB_QUICK_PROMPTS: Record<string, Array<{ label: string; prompt: st
     { label: "⚠️ Beta & Downside", prompt: "Evaluate portfolio beta exposure, concentration risk, and downside protection." },
   ],
   ledger: [
-    { label: "📜 Order History", prompt: "Show recent executed trade orders from the SQLite mas_trades ledger." },
+    { label: "📜 Order History", prompt: "Show recent executed trade orders from the institutional order ledger." },
     { label: "🛡️ Attestation Proofs", prompt: "Verify cryptographic W3C DID attestations for recently filled trades." },
   ],
   screeners: [
@@ -109,7 +110,7 @@ export function AskAgentWidget({
     {
       id: "welcome",
       role: "agent",
-      text: "👋 Hi! I am your NextGenTP Agent Copilot. Ask me about real-time market data, options flows, autopilot limits, or trading workflows.",
+      text: `👋 Hi! I am your ${BRAND.copilotName}. Ask me about real-time market data, options flows, autopilot limits, or trading workflows.`,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
@@ -245,7 +246,7 @@ export function AskAgentWidget({
               type="button"
               className={`ask-agent-pill-btn minimized ${isOpen ? "active" : ""}`}
               onClick={() => setIsOpen((prev) => !prev)}
-              title="NextGenTP Agent Copilot (Click to open)"
+              title={`${BRAND.copilotName} (Click to open)`}
               aria-expanded={isOpen}
               aria-label="Open Agent Copilot"
             >
@@ -272,7 +273,7 @@ export function AskAgentWidget({
               type="button"
               className={`ask-agent-pill-btn ${isOpen ? "active" : ""}`}
               onClick={() => setIsOpen((prev) => !prev)}
-              title="Ask NextGenTP Agent Copilot"
+              title={`Ask ${BRAND.copilotName}`}
               aria-expanded={isOpen}
               aria-label="Open Ask Agent Copilot"
             >
@@ -309,7 +310,7 @@ export function AskAgentWidget({
               </div>
               <div className="agent-header-titles">
                 <div className="agent-main-title">
-                  <span>NextGenTP Agent Copilot</span>
+                  <span>{BRAND.copilotName}</span>
                   <span className="agent-ai-badge">AI 2.0</span>
                 </div>
                 <div className="agent-sub-title">
@@ -407,7 +408,7 @@ export function AskAgentWidget({
 
           {/* Footer info bar */}
           <div className="ask-agent-footer-bar">
-            <span>Powered by NextGenTP Multi-Agent Intelligence</span>
+            <span>Powered by {BRAND.name} Multi-Agent Intelligence</span>
             <button
               type="button"
               className="open-full-chat-link"

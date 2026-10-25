@@ -58,14 +58,16 @@ describe("Think conformance (issue #542)", () => {
   it("Think adopters in src are exactly the designated roles (new adopters update this pin deliberately)", () => {
     const adopters = listTsFiles(path.join(ROOT, "src"))
       .filter((f) => read(path.relative(ROOT, f)).includes('from "@cloudflare/think"'))
-      .map((f) => path.relative(ROOT, f));
+      .map((f) => path.relative(ROOT, f).replace(/\\/g, "/"));
     // ResearchAgent (the designated Think role) + OrchestratorAgent
     // itself since the step-4 cutover (issue #686 — the step-3 shadow
     // in orchestrator-think.ts was absorbed and deleted). Updated
-    // deliberately for #686.
+    // deliberately for #686. TradingAgent added deliberately for
+    // issue #291 (the trading competency as a Think agent).
     expect(adopters).toEqual([
       "src/agents/orchestrator.ts",
       "src/agents/research-agent.ts",
+      "src/agents/trading-agent.ts",
     ]);
   });
 
@@ -74,6 +76,30 @@ describe("Think conformance (issue #542)", () => {
     expect(server).toMatch(
       /export\s*\{\s*ResearchAgent\s*\}\s*from\s*"\.\/agents\/research-agent"/
     );
+  });
+
+  it("TradingAgent extends Think with the framework overrides (issue #291)", () => {
+    const src = read("src/agents/trading-agent.ts");
+    expect(src).toMatch(/import\s*\{\s*Think\s*\}\s*from\s*"@cloudflare\/think"/);
+    expect(src).toMatch(/export\s+class\s+TradingAgent\s+extends\s+Think</);
+    expect(src).toContain("getModel()");
+    expect(src).toContain("getSystemPrompt()");
+    expect(src).toContain("getTools()");
+  });
+
+  it("the Worker exports TradingAgent as a Durable Object class (issue #291)", () => {
+    const server = read("src/server.ts");
+    expect(server).toMatch(
+      /export\s*\{\s*TradingAgent\s*\}\s*from\s*"\.\/agents\/trading-agent"/
+    );
+  });
+
+  it("wrangler binds TRADING_AGENT to TradingAgent with a SQLite migration (issue #291)", () => {
+    const wrangler = read("wrangler.jsonc");
+    expect(wrangler).toMatch(
+      /"name":\s*"TRADING_AGENT",\s*"class_name":\s*"TradingAgent"/
+    );
+    expect(wrangler).toMatch(/"new_sqlite_classes":\s*\[[^\]]*"TradingAgent"/);
   });
 
   it("wrangler binds RESEARCH_AGENT to ResearchAgent with a SQLite migration", () => {
@@ -86,11 +112,14 @@ describe("Think conformance (issue #542)", () => {
 
   it("the orchestrator dispatches research through the Think agent", () => {
     const orchestrator = read("src/agents/orchestrator.ts");
+    // The dispatch call itself lives in the extracted researchPublish
+    // module (#992 subset 2); the class wires that module in.
+    const researchPublish = read("src/agents/orchestrator/researchPublish.ts");
     // Per-tenant instance resolution off the DO binding…
     expect(orchestrator).toContain("this.env.RESEARCH_AGENT");
     expect(orchestrator).toContain("research:${login}");
     // …and the agent-tool dispatch that runs the Think turn.
-    expect(orchestrator).toContain("runAgentTool(ResearchAgent");
+    expect(researchPublish).toContain("runAgentTool(ResearchAgent");
   });
 
   it("the test stub is acknowledged: vite aliases @cloudflare/think only for tests", () => {

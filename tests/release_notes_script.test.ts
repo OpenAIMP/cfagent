@@ -111,6 +111,29 @@ describe("release-notes — section body shape", () => {
     expect(body).toBe("First tagged release.");
   });
 
+  it("terminates the section at a well-formed HTML comment line", () => {
+    const md = "## [Unreleased]\n\n- one\n\n<!-- markdownlint-disable -->\n\n- two\n";
+    const body = extractSection(md, "v0.0.1")!.body;
+    expect(body).toBe("- one");
+  });
+
+  it("terminates the section at an unterminated HTML comment line (#854)", () => {
+    // Per the HTML spec `<!--` opens a comment that runs to `-->` or end of
+    // input, so `<!-- oops` is still a comment line — the old `<!--.*-->`
+    // tag filter missed it and leaked raw comment text into release notes.
+    const md = "## [Unreleased]\n\n- one\n\n<!-- oops, unterminated\n\n- two\n";
+    const body = extractSection(md, "v0.0.1")!.body;
+    expect(body).toBe("- one");
+    expect(body).not.toContain("unterminated");
+  });
+
+  it("does not terminate on a comment with trailing text", () => {
+    // A line that is not *only* a comment keeps the old pass-through behavior.
+    const md = "## [Unreleased]\n\n- one\n<!-- note --> keep me\n";
+    const body = extractSection(md, "v0.0.1")!.body;
+    expect(body).toContain("keep me");
+  });
+
   it("normalizes CRLF changelogs", () => {
     const crlf = CHANGELOG.replace(/\n/g, "\r\n");
     const body = extractSection(crlf, "v0.2.0")!.body;

@@ -1,5 +1,5 @@
 import { getActiveLearnings, recordLearning } from "./learnings";
-import { listStrategyReviews } from "./strategyReviews";
+import { listStrategyReviews, recordStrategyCandidates } from "./strategyReviews";
 
 /**
  * Issue #705: scheduled reflection job — the agent reads its own track record.
@@ -8,6 +8,18 @@ import { listStrategyReviews } from "./strategyReviews";
  * computes per-domain performance deltas, and writes reflection records as
  * learnings. Proposed behavioral adjustments go through HITL before taking
  * effect — the agent proposes, the human disposes.
+ *
+ * Failure handling (issue #784): persistence failures are never silent.
+ * Every store operation that fails is logged via console.error with
+ * context, and failures are counted onto the run result — failed learning
+ * writes in `learningsFailed`, failed analysis sections in
+ * `analysisFailures` (both present only when > 0, so the happy-path
+ * result shape is unchanged). The already-ran guard fails OPEN by
+ * deliberate choice: if the guard read fails we log it and run anyway —
+ * failing closed would silently disable the learning loop for as long as
+ * the read is broken, the same silent-loss class this handling exists to
+ * prevent. A genuinely broken store still surfaces, because the run's
+ * own writes then fail and are counted.
  */
 
 export interface ReflectionFinding {
@@ -18,10 +30,103 @@ export interface ReflectionFinding {
   proposedAdjustment: string;
 }
 
+/** Reserved pseudo-symbol for reflection-proposed review candidates (#753). */
+export const REFLECTION_REVIEW_SYMBOL = "REFLECTION";
+
+/**
+ * Issue #753: a finding is actionable for the strategy-review queue iff
+ * one of its evidence refs names a concrete strategy family
+ * (`mas_strategy_reviews:<family>`, not `:all`) — i.e. the boost /
+ * down-weight findings. The overall-rate diagnostic and stale-learning
+ * housekeeping propose process follow-ups, not strategy candidates,
+ * and never enter the queue. Returns the family, or null.
+ */
+export function reflectionFindingFamily(f: ReflectionFinding): string | null {
+  for (const ref of f.evidenceRefs) {
+    const m = /^mas_strategy_reviews:(.+)$/.exec(ref);
+    if (m && m[1] !== "all") return m[1];
+  }
+  return null;
+}
+
+/**
+ * Issue #753: route actionable reflection findings into the #653 review
+ * store as pending candidates, so the human gate sees them (the agent
+ * proposes, the human disposes — nothing is auto-approved). Candidates
+ * sit under the REFLECTION pseudo-symbol with their real family in the
+ * label, so decision feedback aggregates under the family per #653's
+ * design. The rationale carries the observation, the proposed
+ * adjustment, the evidence refs, and the reflection confidence;
+ * quant_status is honestly "unverified". Dedup: a still-pending
+ * candidate for the same family is not duplicated. Best-effort per
+ * finding — a store failure is logged and skipped, never thrown.
+ * Returns the number of candidates created.
+ */
+export function createReflectionReviewCandidates(
+  sql: any,
+  findings: ReflectionFinding[]
+): number {
+  let created = 0;
+  let pending: ReturnType<typeof listStrategyReviews> | null = null;
+  for (const f of findings) {
+    const family = reflectionFindingFamily(f);
+    if (!family) continue;
+    const candidateId = `reflection:${f.domain}:${family}`;
+    try {
+      if (pending === null) pending = listStrategyReviews(sql, "pending");
+      if (
+        pending.some(
+          (r) => r.symbol === REFLECTION_REVIEW_SYMBOL && r.candidateId === candidateId
+        )
+      ) {
+        continue;
+      }
+      recordStrategyCandidates(sql, REFLECTION_REVIEW_SYMBOL, [
+        {
+          id: candidateId,
+          label: `${family} (reflection proposal)`,
+          rank: 0,
+          rationale:
+            `${f.observation} Proposed: ${f.proposedAdjustment} | ` +
+            `Evidence: ${f.evidenceRefs.join(", ")} | ` +
+            `Reflection confidence: ${f.confidence.toFixed(2)}`,
+          quantStatus: "unverified",
+        },
+      ]);
+      created++;
+      pending.push({
+        id: "",
+        symbol: REFLECTION_REVIEW_SYMBOL,
+        candidateId,
+        label: "",
+        rank: 0,
+        rationale: "",
+        quantStatus: "unverified",
+        decision: "pending",
+        decidedAt: null,
+        createdAt: "",
+      });
+    } catch (err) {
+      console.error(
+        `[Reflection] Failed to create review candidate for family "${family}"; finding remains recorded as a learning:`,
+        err
+      );
+    }
+  }
+  return created;
+}
+
 export function runReflection(
   sql: any,
   now: Date = new Date()
-): { findings: ReflectionFinding[]; learningsRecorded: number; skipped?: string } {
+): {
+  findings: ReflectionFinding[];
+  learningsRecorded: number;
+  learningsFailed?: number;
+  analysisFailures?: number;
+  reviewCandidatesCreated?: number;
+  skipped?: string;
+} {
   // Weekly guard: only fire on Sunday, and not if a reflection learning
   // was already recorded this week.
   if (now.getUTCDay() !== 0) {
@@ -35,9 +140,13 @@ export function runReflection(
     if (recent.length > 0 && new Date(recent[0].createdAt) >= weekStart) {
       return { findings: [], learningsRecorded: 0, skipped: "already ran this week" };
     }
-  } catch {}
+  } catch (err) {
+    // Deliberate fail-open (see header): proceed, but never silently.
+    console.error("[Reflection] Already-ran guard check failed; proceeding (fail-open by design, #784):", err);
+  }
 
   const findings: ReflectionFinding[] = [];
+  let analysisFailures = 0;
 
   // 1. Strategy review decisions → approval patterns.
   try {
@@ -88,7 +197,10 @@ export function runReflection(
         });
       }
     }
-  } catch {}
+  } catch (err) {
+    analysisFailures++;
+    console.error("[Reflection] Strategy-review analysis failed; continuing without review findings:", err);
+  }
 
   // 2. Check for stale learnings that may need re-validation.
   try {
@@ -106,10 +218,14 @@ export function runReflection(
         });
       }
     }
-  } catch {}
+  } catch (err) {
+    analysisFailures++;
+    console.error("[Reflection] Stale-learning analysis failed; continuing without staleness findings:", err);
+  }
 
   // 3. Record findings as learnings (source: reflection).
   let learningsRecorded = 0;
+  let learningsFailed = 0;
   for (const f of findings) {
     try {
       recordLearning(sql, {
@@ -120,18 +236,60 @@ export function runReflection(
         source: "reflection",
       });
       learningsRecorded++;
-    } catch {}
+    } catch (err) {
+      learningsFailed++;
+      console.error(
+        `[Reflection] Failed to persist learning (domain "${f.domain}", evidence ${f.evidenceRefs.join(", ") || "none"}):`,
+        err
+      );
+    }
   }
 
-  // 4. Record the run itself so next week's guard sees it.
+  // 3.5. Issue #753: route actionable findings into the strategy-review
+  // queue so the human gate sees them. Best-effort by design (per-finding
+  // failures are logged inside the wiring); a wiring-level failure is
+  // logged here and never breaks the run — findings remain recorded as
+  // learnings either way.
+  let reviewCandidatesCreated = 0;
+  try {
+    reviewCandidatesCreated = createReflectionReviewCandidates(sql, findings);
+  } catch (err) {
+    console.error(
+      "[Reflection] Review-candidate wiring failed; findings remain recorded as learnings:",
+      err
+    );
+  }
+
+  // 4. Record the run itself so next week's guard sees it. The persisted
+  // summary counts only what landed; failures are named in it too when
+  // any occurred, so the record itself never overclaims.
+  let metaObservation = `Weekly reflection completed: ${findings.length} findings, ${learningsRecorded} learnings recorded.`;
+  if (learningsFailed > 0 || analysisFailures > 0) {
+    const parts: string[] = [];
+    if (learningsFailed > 0) parts.push(`${learningsFailed} learning write(s) failed`);
+    if (analysisFailures > 0) parts.push(`${analysisFailures} analysis section(s) failed`);
+    metaObservation = `Weekly reflection completed: ${findings.length} findings, ${learningsRecorded} learnings recorded, ${parts.join(", ")}.`;
+  }
   try {
     recordLearning(sql, {
       domain: "reflection_meta",
-      observation: `Weekly reflection completed: ${findings.length} findings, ${learningsRecorded} learnings recorded.`,
+      observation: metaObservation,
       confidence: 1.0,
       source: "reflection",
     });
-  } catch {}
+  } catch (err) {
+    learningsFailed++;
+    console.error(
+      "[Reflection] Failed to persist the reflection run-meta learning; the already-ran guard will not see this run:",
+      err
+    );
+  }
 
-  return { findings, learningsRecorded };
+  return {
+    findings,
+    learningsRecorded,
+    ...(learningsFailed > 0 ? { learningsFailed } : {}),
+    ...(analysisFailures > 0 ? { analysisFailures } : {}),
+    ...(reviewCandidatesCreated > 0 ? { reviewCandidatesCreated } : {}),
+  };
 }

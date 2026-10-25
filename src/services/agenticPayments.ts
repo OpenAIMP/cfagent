@@ -65,7 +65,7 @@ import { AGENT_DIDS } from "../agents/did";
 import { verifyOnChainClaim, type X402ClaimVerifier } from "./x402Verifier";
 import { consumeStoreKey, createStoreKv, type DoNamespaceLike } from "../security/durableKv";
 
-// Fallback replay guard used only when no KV namespace is bound.
+// Fallback replay guard used only when no SessionStore namespace is bound.
 const consumedTxHashes = new Set<string>();
 
 /**

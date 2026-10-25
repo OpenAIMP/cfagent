@@ -36,7 +36,7 @@ import {
   buildProfileDerivedPayload,
   parseDerivedSymbols,
   profileDerivationBlockReason,
-} from "../src/client/options/ScheduledOptionsManager";
+} from "../src/client/ScheduledOptionsManager";
 import { etToUtcCron } from "../src/client/options/cronTime";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

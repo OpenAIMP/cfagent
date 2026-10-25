@@ -18,6 +18,31 @@
  * SDK-free: storage is injected, so the agent (DO storage) and tests
  * (in-memory) share this exact code. Claiming is safe because the
  * owning DO instance is serialized per account.
+ *
+ * Issue #792 determination (RSI-Data C9 — parallel persistence
+ * idioms): the blob substrate is ACCEPTED, deliberately. This ledger
+ * is the screener's per-instance operational lifecycle store — one
+ * JSON record per run, in the same ctx.storage keyspace as the run
+ * artifacts it identifies (screener:latest / screener:history /
+ * screener:pdf:*). It is the logical mirror of the research task
+ * ledger (#577), which keeps the same key/value idiom inside
+ * ResearchAgent's DO SQLite because that agent's storage world is
+ * SQL; the screener's storage world is ctx.storage, so the ledger
+ * sits natively here. The agent's own DO SQLite (its ORM) would buy
+ * nothing this store needs — access is single-record get/put plus
+ * prefix enumeration, with no cross-record queries or joins — and
+ * would separate the task record from the run blobs it names. This
+ * is not a second source of truth for run RESULTS: the canonical
+ * report home is the orchestrator's store (#783); the ledger holds
+ * lifecycle, idempotency and identity only. The reap discipline is
+ * the bound on growth and is sufficient: the orchestrator's
+ * six-hourly maintenance (#618) sweeps active records whose
+ * heartbeat aged past 30 minutes to failed → escalated (never
+ * auto-rerun) and prunes terminal records past the #635 retention
+ * tiers (90 days completed/cancelled, 365 days failed/escalated;
+ * active records are never pruned). Lifecycle writes from runScreen
+ * are best-effort-warn by design: a ledger failure must never fail
+ * the screen itself.
  */
 
 export type ScreenerTaskStatus =

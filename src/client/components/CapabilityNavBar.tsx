@@ -1,3 +1,4 @@
+import { BRAND } from "../branding";
 import React from "react";
 import { TabHoverItem } from "../TabHoverItem";
 
@@ -43,17 +44,57 @@ export function CapabilityNavBar({
   rightContent,
   className = "",
 }: CapabilityNavBarProps) {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    const enabledTabs = tabs.filter((t) => !t.disabled);
+    const currentIndex = enabledTabs.findIndex((t) => t.id === activeTabId);
+    if (currentIndex === -1 && enabledTabs.length > 0) {
+      onTabChange(enabledTabs[0].id);
+      return;
+    }
+
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      nextIndex = (currentIndex + 1) % enabledTabs.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      nextIndex = (currentIndex - 1 + enabledTabs.length) % enabledTabs.length;
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      event.preventDefault();
+      nextIndex = enabledTabs.length - 1;
+    } else {
+      return;
+    }
+
+    const nextTab = enabledTabs[nextIndex];
+    if (nextTab && nextTab.id !== activeTabId) {
+      onTabChange(nextTab.id);
+      const nextBtn = document.getElementById(`cap-tab-${nextTab.id}`);
+      nextBtn?.focus();
+    }
+  };
+
   return (
     <header className={`capability-nav-bar ${className}`}>
-      <nav className="capability-tabs-strip" role="tablist" aria-label={ariaLabel}>
+      <nav
+        className="capability-tabs-strip"
+        role="tablist"
+        aria-label={ariaLabel}
+        onKeyDown={handleKeyDown}
+      >
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
 
           const tabButton = (
             <button
               type="button"
+              id={`cap-tab-${tab.id}`}
               role="tab"
               aria-selected={isActive}
+              aria-controls={`screener-tabpanel-${tab.id}`}
               tabIndex={isActive ? 0 : -1}
               disabled={tab.disabled}
               className={`capability-tab-btn ${isActive ? "active" : ""} ${tab.disabled ? "disabled" : ""}`}
@@ -115,7 +156,7 @@ export function CopilotTriggerButton({
       onClick={() => {
         window.dispatchEvent(new CustomEvent("open-ask-agent", { detail: { prompt } }));
       }}
-      title="Open NextGenTP AI Agent Copilot with contextual prompts"
+      title={`Open ${BRAND.copilotName} with contextual prompts`}
     >
       <span style={{ fontSize: "0.85rem" }}>🤖</span>
       <span>{label}</span>

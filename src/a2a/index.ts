@@ -6,6 +6,7 @@ export * from "./agent-cards";
 
 import { A2A_CARDS, A2A_CARD_PATHS, getAgentCard } from "./agent-cards";
 import { catalogAgent } from "../orchestrate";
+import { timingSafeEqual } from "../security/webhookSecurity";
 
 /**
  * Route an incoming A2A request to the right DO stub.
@@ -27,6 +28,29 @@ export async function handleA2A(request: Request, env: any): Promise<Response> {
   }
 
   if (request.method === "POST") {
+    // Edge auth (#291 A5, cfpay parity): A2A dispatch requires a bearer
+    // token (env A2A_API_TOKEN), compared timing-safely. FAIL CLOSED —
+    // an unset token disables dispatch entirely (503) rather than
+    // serving it unauthenticated; a missing/wrong token is a 401.
+    // Discovery (GET cards above) stays public. This gate sits ahead of
+    // agent resolution so unauthenticated callers learn nothing about
+    // which agents exist.
+    const expected = (env as any).A2A_API_TOKEN as string | undefined;
+    if (!expected) {
+      return Response.json(
+        { jsonrpc: "2.0", id: null, error: { code: -32001, message: "A2A dispatch is not configured" } },
+        { status: 503 },
+      );
+    }
+    const authHeader = request.headers.get("authorization") ?? "";
+    const presented = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    if (!presented || !timingSafeEqual(presented, expected)) {
+      return Response.json(
+        { jsonrpc: "2.0", id: null, error: { code: -32002, message: "Unauthorized" } },
+        { status: 401 },
+      );
+    }
+
     const match = path.match(/^\/a2a\/(\w+)$/);
     if (!match) return new Response("Not found", { status: 404 });
     const entry = catalogAgent(match[1]);
@@ -39,7 +63,43 @@ export async function handleA2A(request: Request, env: any): Promise<Response> {
     if (typeof stub.handleA2A !== "function") {
       return new Response("Agent does not expose handleA2A", { status: 500 });
     }
-    return stub.handleA2A(request);
+
+    // Agents implement handleA2A(body, origin) and return a collected
+    // { text, data } outcome (cfpay pattern): a Request cannot cross the
+    // DO RPC boundary, so the body is parsed HERE at the edge and the
+    // wire shape is built here too. (Passing the raw Request, the
+    // original port, could never execute over RPC.)
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json(
+        { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } },
+        { status: 400 },
+      );
+    }
+    const outcome = (await stub.handleA2A(body, url.origin)) as {
+      text?: string;
+      data?: unknown;
+    };
+    const id =
+      body && typeof body === "object" && "id" in body ? (body as any).id : null;
+    return Response.json({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        artifacts: [
+          {
+            parts: [
+              { kind: "text", text: outcome?.text ?? "" },
+              ...(outcome?.data !== undefined
+                ? [{ kind: "data", data: outcome.data }]
+                : []),
+            ],
+          },
+        ],
+      },
+    });
   }
 
   return new Response("Method not allowed", { status: 405 });

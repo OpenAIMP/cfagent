@@ -323,7 +323,7 @@ function draftThesis(
  */
 const PMCC_LONG_LEG_MIN_DTE = 180;
 
-function structuresForOutlook(
+export function structuresForOutlook(
   outlook: Outlook,
   ownershipAllowed: boolean,
   pmccEnabled: boolean
@@ -356,7 +356,7 @@ interface BuiltStructure {
   pmcc?: TradeCard["pmcc"];
 }
 
-function pickExpiry(
+export function pickExpiry(
   expiries: ProviderChainExpiry[],
   minDte: number,
   targetMin: number,
@@ -370,7 +370,7 @@ function pickExpiry(
   return inTarget ?? viable[0];
 }
 
-function findLeg(
+export function findLeg(
   expiry: ProviderChainExpiry,
   optionType: "call" | "put",
   strikeFilter: (strike: number, spot: number) => boolean,
@@ -387,7 +387,7 @@ function findLeg(
   return cands[0] ?? null;
 }
 
-function toResearchLeg(leg: ProviderChainLeg, quantity: number, quoteTs: number): ResearchLeg {
+export function toResearchLeg(leg: ProviderChainLeg, quantity: number, quoteTs: number): ResearchLeg {
   return {
     optionType: leg.optionType,
     strike: leg.strike,
@@ -403,7 +403,7 @@ function toResearchLeg(leg: ProviderChainLeg, quantity: number, quoteTs: number)
   };
 }
 
-function buildStructure(
+export function buildStructure(
   name: string,
   chain: ChainSnapshot,
   spot: number,

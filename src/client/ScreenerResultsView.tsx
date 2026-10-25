@@ -12,7 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { downloadScreenExport } from "./screenerExport";
+import { downloadScreenExport } from "./runExport";
 
 export interface StockTechnicalsData {
   rsi14: number | null;
@@ -55,6 +55,14 @@ export interface ScreenerResultData {
   reportUrl?: string;
   /** Durable, per-run PDF key returned by ScreenerAgent. */
   pdfKey?: string;
+  /** Issue #912: PDF generation status for error surfacing. */
+  pdfStatus?: "generated" | "failed" | "skipped";
+  pdfError?: string;
+  /** Durable, per-run XLSX key returned by ScreenerAgent. */
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed" | "skipped";
+  xlsxError?: string;
+  xlsxUrl?: string;
   trigger: "manual" | "scheduled";
   sector: string;
   success: boolean;
@@ -91,6 +99,23 @@ export interface ScreenerResultData {
     requestedCount: number;
     failedSymbols: string[];
     failureReasons: Record<string, number>;
+  };
+  /** Issue #816: quote pipeline trace for observability. */
+  quoteTrace?: {
+    traceId: string;
+    symbolCount: number;
+    batchCount: number;
+    quotesReceived: number;
+    quotesFailed: number;
+    failuresByCategory: Record<string, number>;
+    batches: Array<{
+      batchIndex: number;
+      symbolCount: number;
+      httpStatus: number | null;
+      quotesReceived: number;
+      failures: Array<{ symbol: string; category: string; detail: string }>;
+      durationMs: number;
+    }>;
   };
   error?: string;
 }
@@ -331,13 +356,16 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
   const reportUrl = result.reportUrl || (result.pdfKey
     ? `/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}`
     : undefined);
+  const xlsxUrl = result.xlsxUrl || (result.xlsxKey
+    ? `/api/screener/report.xlsx?key=${encodeURIComponent(result.xlsxKey)}`
+    : (result.pdfKey ? `/api/screener/report.xlsx?key=${encodeURIComponent(result.pdfKey)}` : undefined));
   const opps = useSortable(result.opportunities, "screenScore");
   const all = useSortable(result.allStocks ?? [], "screenScore");
 
   // Issue #125 (PR-B) / #126: result-set downloads of THIS run (the one
   // being viewed), beside the PDF report. A failed run produced no
   // result set, so it offers none; partial runs export with their #462
-  // qualification carried into the file (see screenerExport.ts).
+  // qualification carried into the file (see runExport.ts).
   const exportButtonStyle = {
     fontSize: "0.8rem",
     padding: "0.35rem 0.75rem",
@@ -400,6 +428,38 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             📄 Download PDF report
           </a>
         )}
+        {xlsxUrl && (
+          <a
+            href={xlsxUrl}
+            download
+            className="screener-download-xlsx"
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px solid var(--color-accent)",
+              color: "var(--color-accent)",
+              textDecoration: "none",
+            }}
+          >
+            📊 Download XLSX report
+          </a>
+        )}
+        {/* Issue #912: surface PDF generation failure instead of silent missing button. */}
+        {!reportUrl && result.pdfStatus === "failed" && (
+          <span
+            title={result.pdfError || "PDF generation failed"}
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px solid var(--color-danger)",
+              color: "var(--color-danger)",
+            }}
+          >
+            ⚠️ PDF failed: {result.pdfError ? result.pdfError.slice(0, 50) : "unknown error"}
+          </span>
+        )}
       </div>
       <div style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
         {/* Issue #421: no sector claim when none was selected ("ALL"). */}
@@ -433,6 +493,42 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           {result.partial.failedSymbols.length} unavailable ({result.partial.failedSymbols.slice(0, 5).join(", ")}
           {result.partial.failedSymbols.length > 5 ? "…" : ""}). Results cover the quoted subset only; no fallback data substituted.
         </div>
+      )}
+
+      {/* Issue #816: Quote Pipeline trace section */}
+      {result.quoteTrace && (
+        <details
+          style={{
+            fontSize: "0.85rem",
+            border: "1px solid var(--color-border-subtle)",
+            borderRadius: "4px",
+            padding: "0.75rem",
+            marginBottom: "0.5rem",
+            background: "var(--color-surface-sunken)",
+          }}
+        >
+          <summary style={{ cursor: "pointer", fontWeight: 700, color: "var(--color-text-primary)" }}>
+            🔍 Quote Pipeline: {result.quoteTrace.quotesReceived} of {result.quoteTrace.symbolCount} quoted
+            {result.quoteTrace.quotesFailed > 0 && (
+              <span style={{ color: "var(--color-warning)", marginLeft: "0.5rem" }}>
+                ({result.quoteTrace.quotesFailed} failed)
+              </span>
+            )}
+          </summary>
+          <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+            <div>Trace ID: <code>{result.quoteTrace.traceId}</code></div>
+            <div>Batches: {result.quoteTrace.batchCount} · Received: {result.quoteTrace.quotesReceived} · Failed: {result.quoteTrace.quotesFailed}</div>
+            {Object.entries(result.quoteTrace.failuresByCategory).filter(([_, v]) => v > 0).length > 0 && (
+              <div style={{ marginTop: "0.25rem" }}>
+                Failures by category:{" "}
+                {Object.entries(result.quoteTrace.failuresByCategory)
+                  .filter(([_, v]) => v > 0)
+                  .map(([k, v]) => `${k}: ${v}`)
+                  .join(", ")}
+              </div>
+            )}
+          </div>
+        </details>
       )}
 
       {!result.success ? (

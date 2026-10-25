@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
-import { OptionsDataDownloadDropdown } from "./options/optionsDataExporter";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { OptionsDataDownloadDropdown } from "./options/OptionsDataDownloadDropdown";
 import {
   NAVIGATION_ITEMS,
   DEFAULT_VISIBLE_NAV_TABS,
@@ -7,6 +7,8 @@ import {
 } from "./components/NavigationMenu";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
 import { ApiKeysPanel } from "./ApiKeysPanel";
+import { DataProvidersPanel } from "./DataProvidersPanel";
+import { IaaaAdminPanel } from "./IaaaAdminPanel";
 import { PillGroup, Button } from "./components/ui";
 import {
   AdBannerConfig,
@@ -71,8 +73,9 @@ export interface SettingsMenuProps {
   autoRefreshEnabled?: boolean;
   autoRefreshInterval?: number;
   onToggleAutoRefresh?: (enabled: boolean, interval?: number) => void;
-  // Issue #277: optional HITL confirmation for research-report dispatch
-  // (POST /trading/reports/email|webhook). Default OFF = autonomous.
+  // Issue #277: HITL confirmation for research-report dispatch
+  // (POST /trading/reports/email|webhook). Default ON (#1144) = held
+  // for confirmation; the toggle opts out to autonomous dispatch.
   reportDispatchHitl?: boolean;
   onToggleReportDispatchHitl?: (enabled: boolean) => void;
   // Issue #277: pending report-dispatch confirmations for review.
@@ -195,6 +198,53 @@ export function SettingsMenu({
 
   // Local state for Ad / Sponsor banner configuration
   const [localAdConfig, setLocalAdConfig] = useState<AdBannerConfig>(() => getStoredAdBannerConfig());
+  // #1274: login-provider display + request access. /api/me reports
+  // provider {id, name, issuer} only for wired sessions with a known
+  // issuer; a failed or provider-less response simply shows no line
+  // (legacy sessions keep the previous display, unchanged).
+  const [loginProviderName, setLoginProviderName] = useState<string | null>(null);
+  const [accessRequestStatus, setAccessRequestStatus] = useState<string>("");
+  const [requestingAccess, setRequestingAccess] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    globalThis
+      .fetch("/api/me")
+      .then((r) => r.json())
+      .then((data: unknown) => {
+        if (cancelled) return;
+        const provider = (data as { provider?: { name?: unknown } } | null)?.provider;
+        if (provider && typeof provider.name === "string" && provider.name !== "") {
+          setLoginProviderName(provider.name);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const requestAdminAccess = useCallback(async () => {
+    setRequestingAccess(true);
+    setAccessRequestStatus("");
+    try {
+      const res = await globalThis.fetch("/api/iaaa/access-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestedRole: "tenant-admin" }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (res.status === 201) {
+        setAccessRequestStatus("Access requested — pending admin approval.");
+      } else if (res.status === 409) {
+        setAccessRequestStatus("You already have a pending access request.");
+      } else {
+        setAccessRequestStatus(data.error || "Access request was not submitted.");
+      }
+    } catch {
+      setAccessRequestStatus("Access request was not submitted.");
+    } finally {
+      setRequestingAccess(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (adBannerConfig) {
@@ -418,6 +468,7 @@ export function SettingsMenu({
     } else {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("open-etrade-diagnostics"));
+        window.dispatchEvent(new CustomEvent("sync-etrade-api"));
       }
       setLocalDiagLoading(true);
       fetch(`/api/etrade/diagnostics`, {
@@ -435,6 +486,36 @@ export function SettingsMenu({
         .finally(() => {
           setLocalDiagLoading(false);
         });
+    }
+  };
+
+  const onStartOAuth = () => {
+    setIsPinned(false);
+    setIsHovered(false);
+    if (handleStartOAuth) {
+      handleStartOAuth();
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("start-etrade-oauth"));
+    }
+  };
+
+  const onRenewOAuth = () => {
+    setIsPinned(false);
+    setIsHovered(false);
+    if (handleRenewOAuth) {
+      handleRenewOAuth();
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("renew-etrade-oauth"));
+    }
+  };
+
+  const onRevokeOAuth = () => {
+    setIsPinned(false);
+    setIsHovered(false);
+    if (handleRevokeOAuth) {
+      handleRevokeOAuth();
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("revoke-etrade-oauth"));
     }
   };
 
@@ -570,7 +651,7 @@ export function SettingsMenu({
                       type="button"
                       className="btn-menu-action renew"
                       disabled={oauthLoading}
-                      onClick={handleRenewOAuth}
+                      onClick={onRenewOAuth}
                     >
                       🔑 Renew Token
                     </button>
@@ -579,7 +660,7 @@ export function SettingsMenu({
                     type="button"
                     className="btn-menu-action disconnect"
                     disabled={oauthLoading}
-                    onClick={handleRevokeOAuth}
+                    onClick={onRevokeOAuth}
                   >
                     🔌 Disconnect
                   </button>
@@ -589,12 +670,25 @@ export function SettingsMenu({
                   type="button"
                   className="btn-menu-action connect"
                   disabled={oauthLoading}
-                  onClick={handleStartOAuth}
+                  onClick={onStartOAuth}
                 >
                   {oauthLoading ? "Connecting…" : "⚡ Connect E*TRADE"}
                 </button>
               )}
             </div>
+            {effectiveMsg && (
+              <div className="etrade-menu-msg-banner">
+                <span>{effectiveMsg}</span>
+                <button
+                  type="button"
+                  className="etrade-menu-msg-dismiss"
+                  onClick={clearMsg}
+                  title="Dismiss message"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Tuning & Options Data Download (Single Horizontal Line) */}
@@ -988,8 +1082,8 @@ export function SettingsMenu({
                   <span>Internal W3C DID Cryptographic Stamping</span>
                 </div>
                 <div className="etrade-provenance-row">
-                  <strong>Database:</strong>
-                  <span>Durable Objects + SQLite (<code>mas_trades</code>, <code>mas_events</code>)</span>
+                  <strong>Ledger Architecture:</strong>
+                  <span>Institutional Execution Ledger &amp; Audit Trail</span>
                 </div>
               </div>
             </details>
@@ -1002,6 +1096,29 @@ export function SettingsMenu({
               <small>MCP transport access for external clients</small>
             </div>
             <ApiKeysPanel />
+          </div>
+
+          {/* Data Providers (issue #1180, epic #1116 E4): provisioning
+              lifecycle admin over the E3 lifecycle API (#1170) */}
+          <div className="etrade-panel-section settings-data-providers-section">
+            <div className="section-label-row">
+              <span>Data Providers</span>
+              <small>Provisioning lifecycle for market-data providers</small>
+            </div>
+            <DataProvidersPanel />
+          </div>
+
+          {/* IAAA Admin (issue #945, IAAA-UI v1: READ-ONLY): the
+              caller's own memberships, genesis status, and recent
+              tenant audit events. The server gates this to live
+              platform admins; anyone else sees a plain "not an
+              admin" state. No mutation UI exists in v1. */}
+          <div className="etrade-panel-section settings-iaaa-admin-section">
+            <div className="section-label-row">
+              <span>IAAA Admin</span>
+              <small>Read-only memberships, genesis &amp; audit</small>
+            </div>
+            <IaaaAdminPanel />
           </div>
 
           {/* User Account & Session */}
@@ -1018,6 +1135,17 @@ export function SettingsMenu({
                 <div className="settings-user-details">
                   <span className="settings-user-name">{userName || userLogin}</span>
                   <span className="settings-user-login">@{userLogin}</span>
+                  {loginProviderName && (
+                    <span className="settings-user-login">Logged in via {loginProviderName}</span>
+                  )}
+                  <button type="button" disabled={requestingAccess} onClick={() => void requestAdminAccess()}>
+                    Request admin access
+                  </button>
+                  {accessRequestStatus && (
+                    <span className="settings-user-login" role="status">
+                      {accessRequestStatus}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

@@ -238,7 +238,7 @@ describe("screenerPipeline — acquireUniverse live-quotes", () => {
       liveDeps: {
         fetchETradeQuote: async () => { throw new Error("E*TRADE Session Expired [HTTP 401]"); },
       },
-    })).rejects.toThrow("failure reasons: auth=2");
+    })).rejects.toThrow("E*TRADE connection expired. Please reconnect your account in Settings.");
   });
 
   it("returns a qualified partial result when only part of the universe quotes (#462)", async () => {
