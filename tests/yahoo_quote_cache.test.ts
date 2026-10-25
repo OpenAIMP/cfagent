@@ -66,7 +66,14 @@ describe("Yahoo quote cache (#411)", () => {
     const second = await provider.getQuote("NVDA");
     expect(first.provenance).toBe("live");
     expect(first.price).toBe(129);
-    expect(second).toEqual(first);
+    // #930: the repeat is still served from cache (one chart fetch), but
+    // it is stamped "cached" with its age — never bare "live" — while the
+    // values stay identical to the fresh fetch.
+    expect(second.provenance).toBe("cached");
+    expect((second as any).fromCache).toBe(true);
+    expect(typeof (second as any).cacheAgeMs).toBe("number");
+    expect(second.price).toBe(first.price);
+    expect(second.timestamp).toBe(first.timestamp);
     expect(chartFetches).toBe(1);
   });
 

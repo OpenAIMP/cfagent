@@ -60,7 +60,11 @@ export function EtapiConfigModal({
     { id: "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", name: "DeepSeek R1 Distill Qwen 32B", provider: "workers-ai", contextWindow: 65536, supportsTools: false, supportsStreaming: true, category: "reasoning" },
   ]);
   const [selectedDefaultModel, setSelectedDefaultModel] = useState("@cf/zai-org/glm-4.7-flash");
-  const [selectedFallbackModel, setSelectedFallbackModel] = useState("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+  // #930: no failover-model selector — the old failover key was consumed by no LLM
+  // call path. reasoningModel is carried verbatim (not edited here) so a
+  // save does not silently change it; the initial value is the current
+  // baseline default, replaced by the loaded config when present.
+  const [savedReasoningModel, setSavedReasoningModel] = useState("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
   const [selectedIdeasModel, setSelectedIdeasModel] = useState("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
   const [selectedComparisonModel, setSelectedComparisonModel] = useState("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
   const [selectedNlqModel, setSelectedNlqModel] = useState("@cf/zai-org/glm-4.7-flash");
@@ -129,7 +133,7 @@ export function EtapiConfigModal({
         setAvailableModels(cfg.ai.availableModels);
       }
       if (cfg.ai.defaultModel) setSelectedDefaultModel(cfg.ai.defaultModel);
-      if (cfg.ai.fallbackModel) setSelectedFallbackModel(cfg.ai.fallbackModel);
+      if (cfg.ai.reasoningModel) setSavedReasoningModel(cfg.ai.reasoningModel);
       if (cfg.ai.taskModels) {
         if (cfg.ai.taskModels.optionsIdeas) setSelectedIdeasModel(cfg.ai.taskModels.optionsIdeas);
         if (cfg.ai.taskModels.optionsComparison) setSelectedComparisonModel(cfg.ai.taskModels.optionsComparison);
@@ -228,9 +232,8 @@ export function EtapiConfigModal({
         },
         ai: {
           defaultModel: selectedDefaultModel,
-          fallbackModel: selectedFallbackModel,
           fastModel: selectedDefaultModel,
-          reasoningModel: selectedFallbackModel,
+          reasoningModel: savedReasoningModel,
           availableModels,
           taskModels: {
             optionsIdeas: selectedIdeasModel,
@@ -719,23 +722,6 @@ export function EtapiConfigModal({
                     <Select id="etapi-selected-default-model"
                       value={selectedDefaultModel}
                       onChange={(e) => setSelectedDefaultModel(e.target.value)}
-
-                    >
-                      {availableModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} [{m.category.toUpperCase()}]
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-
-                  <div>
-                    <label htmlFor="etapi-selected-fallback-model" style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
-                      Fallback Resilience Model:
-                    </label>
-                    <Select id="etapi-selected-fallback-model"
-                      value={selectedFallbackModel}
-                      onChange={(e) => setSelectedFallbackModel(e.target.value)}
 
                     >
                       {availableModels.map((m) => (
