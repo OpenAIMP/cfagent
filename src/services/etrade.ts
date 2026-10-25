@@ -178,6 +178,16 @@ export class ETradeService {
     }
     const curated = getCuratedStockBySymbol(cleanSym);
     if (curated) {
+      // Issue #922 ([#913 S4]): in the live environment a curated-table
+      // hit is NOT served as a STATIC_FALLBACK quote — the sync quote path
+      // fails explicit instead, so no curated static price, no fresh
+      // timestamp over static data, and no substitute numbers are served.
+      // Non-live environments keep the labeled simulated path below.
+      if (envConfig.isLive) {
+        throw new Error(
+          `E*TRADE live quote unavailable for ${cleanSym}: no live quote was returned and the curated static price is not served in the live environment (issue #922)`
+        );
+      }
       const price = curated.defaultPrice ?? 100.0;
       return {
         symbol: cleanSym,
