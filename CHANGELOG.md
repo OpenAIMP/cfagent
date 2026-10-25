@@ -19,6 +19,10 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Scheduled stock report artifacts (#1209):** preserve PDF, XLSX, and CSV keys plus generation statuses/errors through scheduled run records, and carry CSV into the follow-up delivery pipeline so report availability is visible in UI and file delivery channels.
+
 ### Added
 
 - **Calibration dashboard (#654, parent #648, backend #17):** new `GET /research/track-record/calibration` route (same x-user-login → ResearchAgent pattern as the track-record route; 503 when the binding is missing) serving a dashboard built from the #340 track record's recorded evaluations — overall hit rate, per-thesis, per-strategy (structure), per-regime, and per-month tables — via a new `buildCalibrationFromTrackRecord` in the #17 calibration module (shared low-sample threshold of 20; only a scored direction counts as evaluated, unscored ideas count as pending, never as misses). New primitives-only `CalibrationDashboard` panel mounted in the Track Record tab above the outcomes panel: read-only by construction (no money action exists to gate), low-sample rows flagged, empty state when nothing is evaluated, server errors shown verbatim. Scope note: portfolio-context adjustments are NOT shown — they need #17's opt-in position context, which is not built; the per-regime table is recorded market context, not a portfolio modifier, and the panel says so. Pins: mapper, route, and component tests; thin-router inventory entry. #cpo-dhmp

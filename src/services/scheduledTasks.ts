@@ -587,8 +587,14 @@ export class ScheduledTasksService {
     provider?: string;
     expectedCount?: number;
     pdfKey?: string;
+    pdfStatus?: "generated" | "failed" | "skipped";
+    pdfError?: string;
     xlsxKey?: string;
+    xlsxStatus?: "generated" | "failed" | "skipped";
+    xlsxError?: string;
     csvKey?: string;
+    csvStatus?: "generated" | "failed" | "skipped";
+    csvError?: string;
     /** Issue #1355: true when this result came from the sharded path. */
     sharded?: boolean;
     /** Issue #1355: the submitted chain's id (sharded runs only). */
@@ -738,7 +744,14 @@ export class ScheduledTasksService {
           provider: result.provider,
           expectedCount: result.expectedCount,
           pdfKey: result.pdfKey,
+          pdfStatus: result.pdfStatus,
+          pdfError: result.pdfError,
+          xlsxKey: result.xlsxKey,
+          xlsxStatus: result.xlsxStatus,
+          xlsxError: result.xlsxError,
           csvKey: result.csvKey,
+          csvStatus: result.csvStatus,
+          csvError: result.csvError,
           notifications: {
             slack: options.pushToSlack !== false,
             email: Boolean(options.emailTo),

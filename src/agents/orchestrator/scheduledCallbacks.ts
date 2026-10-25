@@ -183,7 +183,14 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
         // per-symbol data table. Already shaped by the shared pipeline.
         allStocks: res.data?.allStocks || [],
         pdfKey: res.data?.pdfKey,
+        pdfStatus: res.data?.pdfStatus,
+        pdfError: res.data?.pdfError,
+        xlsxKey: res.data?.xlsxKey,
+        xlsxStatus: res.data?.xlsxStatus,
+        xlsxError: res.data?.xlsxError,
         csvKey: res.data?.csvKey,
+        csvStatus: res.data?.csvStatus,
+        csvError: res.data?.csvError,
         // Issue #1355: a queued sharded chain has no outcome yet —
         // last_runs records the chain id, and the canonical row is
         // skipped (the chain's store shards write the per-format
