@@ -1,364 +1,142 @@
-# UX Token Architecture & Primitive Conformance Exceptions Report (Exceptions 01)
+# Comprehensive UX & Multi-Tier Architectural Anti-Drift Framework
 
-**Document Version:** 1.1.0  
+**Document Version:** 2.0.0
 **Date:** 2026-10-25  
-**Status:** Architecture Audit & Exception Tracking  
+**Status:** Approved Architecture & Security Anti-Drift Specification
 **Target Application:** NextGenTP / AI Search Agent (`ai-search-agent`)  
-**Scope:** `src/client/` UI Component Hierarchy (85 TSX/JSX files analyzed)  
+**Scope:** Client UX, Edge Gateway, Agentic Orchestration, Data Tier, Infrastructure, and Security Architecture
 **Governing Architecture Standards:**
+- **Master Enterprise Architecture Standards:** `docs/architecture/standards/standards.md`
 - **UX Architecture Specification:** `docs/agents/ux-architecture.md`
-- **UX Token Architecture & Theme Plan:** `docs/plans/UX/ux-token-architecture-plan.md`
 - **UX Assessment 01:** `docs/architecture/UX/assessment-01.md`
-- **Composable UI Directive & Pin:** Issue #492, `tests/ui_primitives_inventory.test.ts`
-- **Theme-Consistency Verification Directive:** Issue #491
+- **Security Assessment 01:** `docs/architecture/security/assessment/assessment-01.md`
+- **Standards Conformance Assessment:** `docs/architecture/standards/assessment/assessment-01.md`
 
 ---
 
-## Executive Summary
+## Executive Summary & Anti-Drift Imperative
 
-As defined in the NextGenTP UX Token Architecture (`DESIGN.md`, `docs/plans/UX/ux-token-architecture-plan.md`, and Issue #492), all user interface surfaces across the application must be assembled from shared, composable primitives located in `src/client/components/ui/` (`Button`, `TextInput`, `Select`, `Table`, `Card`, `Badge`, `PillGroup`, `Notice`, `Modal`, `Tabs`, `Spinner`, `EmptyState`, etc.). 
+Software systems experience **drift**—gradual, unplanned divergence from design system tokens, component architectures, security boundaries, and tier abstractions—when developer or autonomous agent changes bypass enforced abstraction layers.
 
-While Phase 6 of the UX Token Architecture plan enforced zero raw hex color literals via `tests/ux_token_coverage_ratchet.test.ts`, **a major architectural gap remains**: numerous domain panels and components render JSX using raw HTML controls (`<button>`, `<input>`, `<select>`, `<textarea>`, `<table>`, `<th>`, `<td>`, `<tr>`) or hand-rolled container boxes (`style={{ border: "...", borderRadius: "..." }}`) **without importing or using any `src/client/components/ui/` primitive**.
+When a UI panel renders a raw `<button>` with custom inline styles (`style={{ padding: "8px 12px" }}`) instead of importing `<Button>` from `src/client/components/ui/`, **UX drift** occurs. When an API route executes direct SQL queries or business logic instead of delegating to domain services or stateful Durable Objects, **architecture drift** occurs. When sub-agents execute tools with ambient orchestrator privileges or outbound webhooks dispatch requests without IP range validation, **security drift** occurs.
 
-This issue was highlighted in **Issue #1337 / #1382**, where the rebased gate caught `SocialPostingPanel.tsx` rendering interactive JSX without importing any `ui/` primitive. This report presents a comprehensive audit of all 85 TSX/JSX files in `src/client/`, identifying every non-conforming component exception across the application, analyzing the impact on dark/light/system theme consistency and WCAG AA accessibility, and setting out a prioritized remediation roadmap and automated anti-drift governance framework.
-
----
-
-## Audit Methodology & Classification
-
-Every `.tsx` and `.jsx` file in `src/client/` (excluding `src/client/components/ui/` itself) was audited using AST and regex static analysis for:
-1. **Import of UI primitives:** Direct or barrel imports from `components/ui` or `components/ui/*`.
-2. **Raw HTML Control Rendering:** Direct usage of `<button>`, `<input>`, `<select>`, `<textarea>`, `<table>`, `<th>`, `<td>`, `<tr>`, `<form>`, or `<dialog>`.
-3. **Custom Layout / Component Re-implementation:** Custom inline style styling for cards (`border`, `borderRadius`, `padding`), badges/pills (`borderRadius: 999px` / `pill` classes), modals (`position: fixed`, `zIndex`), or tabs.
-
-### Summary Audit Statistics
-- **Total `src/client/` TSX/JSX Files Audited:** 85 files
-- **Fully Compliant Components (Importing UI Primitives):** 28 files (33%)
-- **Bypassing UI Primitives (Import UI Primitives BUT still render raw HTML controls):** 16 files (19%)
-- **Non-Compliant Exception Files (Zero UI Primitive Imports + Raw Controls/Containers):** 28 files (33%)
-- **Utility / Non-UI Container Files (No UI Primitive Imports & No Raw Controls):** 13 files (15%)
+This document defines the comprehensive anti-drift framework for NextGenTP across all system tiers, detailing root causes, existing active controls, and mandatory future CI/CD gates required to permanently eliminate drift.
 
 ---
 
-## Category 1: Non-Compliant Component Exceptions (Zero UI Primitive Imports)
+## 1. Root Causes of Drift Across Tiers
 
-The following **28 components** render interactive UI controls, tabular data, or card/badge containers without importing a single primitive from `src/client/components/ui/`.
+### A. Client & UX Tier
+* **Primitive Bypassing:** Out of 85 TSX/JSX components in `src/client/`, **28 zero-primitive exceptions** and **16 partial exceptions** render raw HTML controls (`<button>`, `<input>`, `<select>`, `<textarea>`, `<table>`) with hand-rolled inline styles instead of importing composable UI primitives from `src/client/components/ui/`.
+* **Density Variable Disconnect:** Custom inline styles ignore CSS density tokens (`--control-height`, `--input-padding`, `--table-row-height`, `--card-padding`), breaking compact/comfortable density mode toggles across panels.
+* **Accessibility & Focus Ring Omission:** Raw HTML controls lack WAI-ARIA live regions (`aria-live="polite"`), modal focus trapping, and uniform focus rings (`var(--color-focus-ring)`).
+* **Ad-Hoc Spacing:** Inline pixel styling bypasses standardized spacing tokens (`var(--space-*)`, `var(--radius-*)`).
 
-### 1. Social Posting & Goals
-* **`src/client/SocialPostingPanel.tsx`** (257 lines) — *Primary reference exception from #1382*
-  - **Raw Controls Found:** `<button>`, `<textarea>`
-  - **Custom Layouts:** Hand-coded border/radius card boxes for goal and pending approval items (`border: 1px solid var(--color-border-medium)`, `borderRadius: 8`).
-  - **Target Primitives:** `Button`, `TextInput` (or `Field`), `Card`, `Badge`.
+### B. Application & Edge Gateway Tier
+* **"Fat Routers":** Business logic and validation logic accumulating in HTTP route handlers (`src/server.ts`) rather than delegating to domain services or Durable Objects.
+* **Schema Duplication:** Ad-hoc interface definitions in frontend components diverging from backend database schemas.
 
-* **`src/client/ScheduledGoalsPanel.tsx`** (182 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`
-  - **Custom Layouts:** Ad-hoc card containers with custom inline padding.
-  - **Target Primitives:** `Button`, `TextInput`, `Card`.
+### C. Agentic AI & Autonomous Workflows Tier
+* **Ambient Privilege Escalation:** Sub-agents executing tools under the full system authority of the orchestrator rather than receiving scoped, capability-bound execution tokens.
+* **Uncapped Loop Execution:** Autonomous multi-step loops lacking deterministic step caps (`MAS_MAX_STEPS`) or execution timeouts.
+* **Unguarded Consequential Actions:** High-consequence agent actions (trades, financial drafts, social posting) attempting direct execution without version-bound Human-In-The-Loop (HITL) approval cards.
 
-* **`src/client/SchedulesPanel.tsx`** (463 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`
-  - **Custom Layouts:** Custom schedule card boxes and action rows.
-  - **Target Primitives:** `Button`, `TextInput`, `Card`, `Badge`.
+### D. Data & Information Governance Tier
+* **Manual SQL Tenant Parameterization:** Relying on developer discipline to manually append `WHERE tenant_id = ?` to SQL queries, creating potential cross-tenant state leaks.
+* **Fragmented Lifecycle Purging:** Independent data stores (SQLite DOs, Vectorize vector memory, R2 object buckets) lacking a single, unified GDPR / Right-To-Be-Forgotten (RTBF) cascading purge interface.
 
-### 2. Core Chat & Workspace Components
-* **`src/client/chat/AgentChatTabContent.tsx`** (574 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`
-  - **Custom Layouts:** Hand-styled action cards, prompt suggestion pills, custom status badges.
-  - **Target Primitives:** `Button`, `TextInput`, `Card`, `Badge`, `PillGroup`.
-
-* **`src/client/chat/ToolResultView.tsx`** (455 lines)
-  - **Raw Controls Found:** `<button>`
-  - **Custom Layouts:** Hand-styled JSON tool output boxes, collapsible headers, action buttons.
-  - **Target Primitives:** `Button`, `Card`, `Badge`.
-
-* **`src/client/chat/tabs/ReferralsTab.tsx`** (591 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`, `<select>`
-  - **Custom Layouts:** Custom referral link cards, payout status badges, input fields.
-  - **Target Primitives:** `Button`, `TextInput`, `Select`, `Card`, `Badge`.
-
-* **`src/client/chat/tabs/RevenueTab.tsx`** (567 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`, `<select>`, `<table>`, `<th>`, `<td>`, `<tr>`
-  - **Custom Layouts:** Un-tokenized data tables for transactions and earnings summary.
-  - **Target Primitives:** `Button`, `TextInput`, `Select`, `Table`, `Card`.
-
-### 3. Navigation & Platform Chrome
-* **`src/client/components/CapabilityNavBar.tsx`** (166 lines)
-  - **Raw Controls Found:** `<button>`
-  - **Custom Layouts:** Direct `<button>` elements for top tab navigation.
-  - **Target Primitives:** `SegmentedControl` or `Tabs`.
-
-* **`src/client/components/NavigationMenu.tsx`** (936 lines)
-  - **Raw Controls Found:** `<button>`
-  - **Custom Layouts:** Hand-crafted drawer, menu items, pills, status indicators.
-  - **Target Primitives:** `Button`, `Badge`, `PillGroup`.
-
-* **`src/client/components/StockSearchBar.tsx`** (669 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`
-  - **Custom Layouts:** Search input with absolute-positioned clear/submit buttons and ticker badges.
-  - **Target Primitives:** `TextInput`, `Button`, `Badge`.
-
-* **`src/client/components/MarketTickerTape.tsx`** (262 lines)
-  - **Raw Controls Found:** `<button>`
-  - **Custom Layouts:** Ticker scroll buttons and symbol cards.
-  - **Target Primitives:** `Button`, `Badge`.
-
-* **`src/client/components/PartnerDealsModal.tsx`** (234 lines)
-  - **Raw Controls Found:** `<button>`
-  - **Custom Layouts:** Hand-coded modal backdrop and dialog (`position: fixed`, `zIndex: 1000`), custom deal cards.
-  - **Target Primitives:** `Modal`, `Card`, `Button`, `Badge`.
-
-* **`src/client/components/AskAgentWidget.tsx`** (425 lines)
-  - **Raw Controls Found:** `<button>`
-  - **Custom Layouts:** Floating chat widget trigger and popup container.
-  - **Target Primitives:** `Button`, `Card`, `TextInput`.
-
-### 4. Options & Screener Research Surfaces
-* **`src/client/ScannerPanel.tsx`** (1,767 lines) — *Major domain panel*
-  - **Raw Controls Found:** `<button>`, `<input>`, `<select>`, `<table>`, `<th>`, `<td>`, `<tr>`
-  - **Custom Layouts:** 1,700+ lines of custom scanner forms, universe filters, results tables, and run control buttons.
-  - **Target Primitives:** `Button`, `TextInput`, `Select`, `Table`, `Card`, `Badge`.
-
-* **`src/client/ScreenerResultsView.tsx`** (694 lines)
-  - **Raw Controls Found:** `<button>`, `<table>`, `<th>`, `<td>`, `<tr>`
-  - **Custom Layouts:** Hand-built result tables, pagination buttons, CSV/PDF export triggers.
-  - **Target Primitives:** `Table`, `Button`, `Badge`.
-
-* **`src/client/ScreeningReviewPanel.tsx`** (648 lines)
-  - **Raw Controls Found:** `<button>`
-  - **Custom Layouts:** Review cards, approval buttons.
-  - **Target Primitives:** `Button`, `Card`, `Notice`.
-
-* **`src/client/IvHistoryPanel.tsx`** (172 lines)
-  - **Raw Controls Found:** `<button>`, `<select>`, `<table>`, `<th>`, `<td>`, `<tr>`
-  - **Custom Layouts:** IV history filter controls and tabular historical IV data.
-  - **Target Primitives:** `Button`, `Select`, `Table`, `Card`.
-
-* **`src/client/options/RawContractsScreener.tsx`** (691 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`, `<select>`, `<table>`, `<th>`, `<td>`, `<tr>`
-  - **Custom Layouts:** Options contract grid, filter row, strike/expiration pickers.
-  - **Target Primitives:** `Button`, `TextInput`, `Select`, `Table`, `Card`.
-
-* **`src/client/options/ResearchRunsPanel.tsx`** (448 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`, `<table>`, `<th>`, `<td>`, `<tr>`
-  - **Custom Layouts:** Historical research run listing and status tags.
-  - **Target Primitives:** `Button`, `TextInput`, `Table`, `Badge`.
-
-* **`src/client/options/LlmOptionsIdeasPanel.tsx`** (391 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`, `<textarea>`, `<table>`, `<th>`, `<td>`, `<tr>`
-  - **Custom Layouts:** Strategy idea prompt box, strike table, evaluation buttons.
-  - **Target Primitives:** `Button`, `TextInput`, `Table`, `Card`.
-
-* **`src/client/options/LlmStrategyEvalModal.tsx`** (432 lines)
-  - **Raw Controls Found:** `<button>`, `<textarea>`
-  - **Custom Layouts:** Custom modal overlay, evaluation criteria textarea, evaluation score badges.
-  - **Target Primitives:** `Modal`, `Button`, `TextInput`, `Card`, `Badge`.
-
-* **`src/client/options/flows/OptionsFlowsHub.tsx`** (921 lines)
-  - **Raw Controls Found:** `<button>`, `<table>`, `<th>`, `<td>`, `<tr>`
-  - **Custom Layouts:** Institutional options flow feed, sentiment filter buttons, flow summary table.
-  - **Target Primitives:** `Button`, `Table`, `Card`, `Badge`, `PillGroup`.
-
-* **`src/client/options/OptionsDataDownloadDropdown.tsx`** (149 lines)
-  - **Raw Controls Found:** `<button>`
-  - **Custom Layouts:** Custom dropdown trigger and menu container.
-  - **Target Primitives:** `Button`, `Select`.
-
-* **`src/client/options/ScreeningActivityPanel.tsx`** (183 lines)
-  - **Raw Controls Found:** `<button>`
-  - **Custom Layouts:** Activity feed cards and trigger controls.
-  - **Target Primitives:** `Button`, `Card`, `Badge`.
-
-### 5. Risk, Autopilot & Workflows
-* **`src/client/PortfolioRiskPanel.tsx`** (568 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`, `<select>`, `<textarea>`, `<table>`, `<th>`, `<td>`, `<tr>`
-  - **Custom Layouts:** Risk breakdown matrix, position table, hedge recommendation cards.
-  - **Target Primitives:** `Button`, `TextInput`, `Select`, `Table`, `Card`, `Badge`.
-
-* **`src/client/components/AutopilotControlCenter.tsx`** (1,585 lines) — *Major domain panel*
-  - **Raw Controls Found:** `<button>`, `<input>`, `<select>`, `<table>`
-  - **Custom Layouts:** Policy configuration forms, trade auto-repair tables, execution toggle buttons.
-  - **Target Primitives:** `Button`, `TextInput`, `Select`, `Table`, `Card`, `Badge`, `Notice`.
-
-* **`src/client/WorkflowsHub.tsx`** (1,935 lines) — *Major domain panel*
-  - **Raw Controls Found:** `<button>`, `<input>`, `<table>`, `<th>`, `<td>`, `<tr>`
-  - **Custom Layouts:** Workflow catalog cards, trigger forms, execution history tables.
-  - **Target Primitives:** `Button`, `TextInput`, `Table`, `Card`, `Badge`.
-
-### 6. Admin, Developer & Utility Panels
-* **`src/client/McpApiExplorer.tsx`** (778 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`, `<select>`, `<textarea>`
-  - **Custom Layouts:** Tool catalog picker, JSON payload editor, execution response viewer.
-  - **Target Primitives:** `Button`, `TextInput`, `Select`, `Card`, `Badge`.
-
-* **`src/client/MemoryBrowser.tsx`** (114 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`
-  - **Custom Layouts:** Memory search bar, memory key/value row buttons.
-  - **Target Primitives:** `Button`, `TextInput`, `Card`.
-
-* **`src/client/ResearchReportActions.tsx`** (167 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`, `<textarea>`
-  - **Custom Layouts:** Report sharing modal/card, export parameter inputs.
-  - **Target Primitives:** `Button`, `TextInput`, `Card`.
+### E. Security & DevSecOps Tier
+* **Outbound SSRF Vectors:** External webhook dispatchers initiating outgoing HTTP requests without rejecting loopback, private, or Cloudflare metadata IP ranges.
+* **Bypassed PDP Seams:** Authorization checks performed ad-hoc in endpoints rather than evaluated through a central Policy Decision Point (`iaaaPdpSeam.ts`).
+* **Environment Instability:** Non-deterministic CI builds resulting from unpinned runner environments or stale branch bases.
 
 ---
 
-## Category 2: Mixed / Partial Conformance Components (Incomplete Primitive Adoption)
+## 2. Active Anti-Drift Controls in Codebase
 
-The following **16 components** import primitives from `src/client/components/ui/`, but still contain leftover raw HTML controls (`<button>`, `<input>`, `<table>`, etc.) instead of fully leveraging the primitive suite.
+The platform currently enforces automated anti-drift gates across multiple tiers:
 
-| Component Path | UI Primitives Imported | Remaining Raw HTML Controls / Issues | Remediation Required |
+| Tier | Active Anti-Drift Control | Implementation Location | Enforcement Mechanism |
 |---|---|---|---|
-| `src/client/ApiKeysPanel.tsx` | `Card`, `Button`, `TextInput`, `Table`, `Badge` | Raw `<button>` for key deletion | Replace inline delete buttons with `<Button variant="danger" size="sm">` |
-| `src/client/Chat.tsx` | `Card`, `Button`, `TextInput`, `Notice`, `Select` | Raw `<button>` in quick prompts & model pickers | Convert quick prompt tags to `<Button>` or `<PillGroup>` |
-| `src/client/DataProvidersPanel.tsx` | `Card`, `Button`, `Badge`, `Notice` | Raw `<input>` for API key entries | Replace raw `<input>` with `<TextInput>` |
-| `src/client/ETradeDynamicMenu.tsx` | `Button`, `Badge` | Raw `<button>` in sub-navigation menus | Standardize with `<Button>` or `SegmentedControl` |
-| `src/client/ETradeTradingHub.tsx` | `Card`, `Button`, `TextInput`, `Select`, `Table`, `Badge`, `Modal` | Raw `<table>` in account balance overview | Replace raw `<table>` with `<Table>` primitive |
-| `src/client/FossResearchHub.tsx` | `Card`, `Button`, `Badge`, `Notice` | Raw `<button>` in topic filters | Convert topic filters to `<PillGroup>` |
-| `src/client/IaaaAdminPanel.tsx` | `Card`, `Button`, `TextInput`, `Select`, `Table`, `Badge` | Raw `<button>` in row actions | Replace with `<Button size="sm">` |
-| `src/client/ReportsPanel.tsx` | `Card`, `Button`, `Table`, `Badge`, `Modal` | Raw `<button>` in report download links | Replace with `<Button variant="outline">` |
-| `src/client/ScreenersHub.tsx` | `Card`, `Button`, `TextInput`, `Select`, `Table`, `Badge`, `Modal` | Raw `<button>` in universe selection | Standardize with `<Button>` and `<PillGroup>` |
-| `src/client/chat/tabs/AdsTab.tsx` | `Card`, `Button`, `Badge` | Raw `<input>` in ad configuration | Replace with `<TextInput>` |
-| `src/client/chat/tabs/ResearchRunDetail.tsx` | `Card`, `Button`, `Table`, `Badge` | Raw `<button>` in tab switching | Replace with `<Tabs>` primitive |
-| `src/client/chat/tabs/ResearchTrackRecord.tsx` | `Card`, `Button`, `Table`, `Badge` | Raw `<button>` in time range filters | Replace with `<SegmentedControl>` |
-| `src/client/options/AutonomousOptionsRuns.tsx` | `Card`, `Button`, `Table`, `Badge` | Raw `<button>` in refresh controls | Replace with `<Button>` |
-| `src/client/options/DiscoveryRunsPanel.tsx` | `Card`, `Button`, `Table`, `Badge` | Raw `<button>` in run detail expands | Replace with `<Button size="sm">` |
-| `src/client/options/EtapiConfigModal.tsx` | `Modal`, `Button`, `TextInput`, `Card` | Raw `<button>` in test connection | Replace with `<Button>` |
-| `src/client/options/OptionsResearchPanel.tsx` | `Card`, `Button`, `Select`, `Badge`, `Modal` | Raw `<table>` in strike comparison | Replace with `<Table>` primitive |
+| **UX** | **Zero Raw Color Literal Gate** | `tests/ux_token_coverage_ratchet.test.ts` | Fails CI if raw hex/rgb/hsl colors are added outside `tokens.css`. |
+| **UX** | **Design Token Parity Script** | `scripts/gen-design-tokens.mjs --check` | Runs in `npm run check`; verifies `tokens.css` matches `designTokens.ts`. |
+| **UX** | **UI Primitives Inventory Pin** | `tests/ui_primitives_inventory.test.ts` | Pin test verifying `src/client/components/ui/` primitive exports. |
+| **UX** | **Theme Parity Matrix** | `tests/theme_preferences.test.ts` | Asserts theme token resolution for Light, Dark, System, and High-Contrast. |
+| **Edge** | **Thin Router Inventory Pin** | `tests/thin_router_inventory.test.ts` | Enforces thin route handlers delegating to services/DOs. |
+| **Data** | **Single-Source Schema Pin** | `tests/schema_single_source.test.ts` | Prevents frontend/backend schema drift. |
+| **Data** | **Zero KV Security Dependency** | `src/security/sessionStore.ts` | Stores session tokens in SQLite DOs rather than unencrypted KV. |
+| **Security**| **Constant-Time Crypto Verification** | `src/security/session.ts` | HMAC-SHA256 signature verification via `crypto.subtle.verify`. |
+| **Agentic**| **Judge Model Intent Routing** | `src/agents/judge.ts` | Dual-agent LLM Judge classifies intent and validates tool safety. |
+| **Agentic**| **Deterministic Step Caps & HITL** | `src/agents/mas.ts`, `social_approval.ts` | Enforces `MAS_MAX_STEPS` and explicit approval cards for actions. |
+| **DevOps**  | **Pre-Merge Rebase & Test Gate** | `scripts/verify-before-merge.sh` | Mandates rebase onto `origin/main` and runs full `npm run check`. |
+| **DevOps**  | **Pinned Runner Environment** | `.github/workflows/` | Pins runner OS to `ubuntu-24.04` across all CI pipelines. |
 
 ---
 
-## Category 3: Compliant Components (Best Practices Reference)
+## 3. Mandatory Future Controls to Ensure Zero Drift
 
-The following **12 components** (and sub-sections) properly import and consistently use primitives from `src/client/components/ui/` as intended by the UX architecture:
-
-1. `src/client/options/StrategyDiscoveryPanel.tsx`
-2. `src/client/options/StrategyLibraryModal.tsx`
-3. `src/client/options/RiskAnalysisModal.tsx`
-4. `src/client/options/flows/FlowFiltersSidebar.tsx`
-5. `src/client/options/flows/FlowTradeDetailModal.tsx`
-6. `src/client/scheduledOptionsManager/ScheduleFormModal.tsx`
-7. `src/client/scheduledOptionsManager/SchedulesSection.tsx`
-8. `src/client/scheduledOptionsManager/DiscoveryFormSections.tsx`
-9. `src/client/scheduledOptionsManager/ThesisRiskFields.tsx`
-10. `src/client/scheduledOptionsManager/NotificationFields.tsx`
-11. `src/client/scheduledOptionsManager/CadenceFields.tsx`
-12. `src/client/components/PartnerDealsModal.tsx` *(uses Modal primitive, though contains minor card raw elements)*
-
----
-
-## Category 4: Utility & Container Components (Exempt)
-
-The following **13 components** do not import UI primitives because they serve as pure layout wrappers, charting canvases, text formatters, or top-level entry points:
-
-1. `src/client/LlmOptionsIdeasPanel.tsx` (Re-exporter / host)
-2. `src/client/OptionsResearchPanel.tsx` (Re-exporter / host)
-3. `src/client/ScreeningOutcomesPanel.tsx` (Host wrapper)
-4. `src/client/SettingsMenu.tsx` (Menu state container)
-5. `src/client/TabHoverItem.tsx` (Hover interaction wrapper)
-6. `src/client/chat/MarkdownContent.tsx` (Markdown AST renderer)
-7. `src/client/chat/ReasoningView.tsx` (Collapsible text stream)
-8. `src/client/chat/renderInlineFormatted.tsx` (Text formatting utility)
-9. `src/client/chat/tabs/EndpointsTab.tsx` (Static endpoint listing)
-10. `src/client/components/MarketStatusPill.tsx` (Lightweight status pill)
-11. `src/client/components/UniversalChart.tsx` (Canvas/SVG chart container)
-12. `src/client/main.tsx` (App mount entrypoint)
-13. `src/client/options/flows/FlowSummaryDualBars.tsx` (SVG/CSS bar chart)
-
----
-
-## Architectural & UX Impact Analysis
-
-Bypassing `src/client/components/ui/` primitives introduces systematic UX, accessibility, and maintenance defects across the product:
-
-1. **Broken Density Responsiveness (`compact` vs `comfortable`):**
-   - Design tokens such as `--control-height`, `--input-padding`, `--table-row-height`, and `--card-padding` are built directly into `primitives.css` and `src/client/components/ui/` components.
-   - Domain panels rendering raw `<button>` and `<input>` elements with fixed pixel inline styles (`style={{ padding: "8px 12px" }}`) ignore density toggles, causing visual misalignment in compact mode.
-
-2. **Dark / Light / System Theme Drift:**
-   - Raw `<button>` and `<select>` controls rely on browser native defaults or ad-hoc `var(--color-...)` bindings without proper focus rings (`var(--color-focus-ring)`), hover states, or disabled opacity layers.
-   - Custom card boxes (`border: 1px solid var(--color-border-medium)`) miss surface elevation tokens (`var(--color-surface-raised)`, `var(--color-surface-sunken)`), leading to flat contrast in high-contrast or light themes.
-
-3. **WCAG 2.2 AA Accessibility Non-Compliance:**
-   - **Target Size (WCAG 2.5.8):** Small raw `<button>` elements in `ScannerPanel.tsx` and `MemoryBrowser.tsx` lack the minimum 24×24px / 44×44px click target padding guaranteed by `<Button>`.
-   - **Keyboard Navigation (WAI-ARIA 1.2):** Custom modals in `PartnerDealsModal.tsx` and `LlmStrategyEvalModal.tsx` lack focus trapping and Escape key listeners, which are automatically provided by `<Modal>`.
-   - **Form Labelling & Errors:** Raw `<input>` and `<select>` controls lack `aria-invalid`, `aria-describedby`, and associated `<Field>` label binding.
-
----
-
-## Prioritized Remediation Roadmap
-
-To achieve complete composable UX primitive conformance (fulfilling Issues #492, #1337, and #1382), refactoring should proceed in four distinct phases:
+To permanently eliminate drift across all tiers, the following automated controls MUST be put in place:
 
 ```
-Phase 1: High-Visibility & Reference Exceptions (Immediate)
-  ├── Refactor SocialPostingPanel.tsx (#1382 reference) to full UI primitives
-  ├── Refactor NavigationMenu.tsx & CapabilityNavBar.tsx
-  └── Refactor StockSearchBar.tsx & PartnerDealsModal.tsx
-
-Phase 2: Core Workspace & Chat Components (Short-Term)
-  ├── Refactor AgentChatTabContent.tsx & ToolResultView.tsx
-  ├── Refactor ReferralsTab.tsx & RevenueTab.tsx
-  └── Complete partial primitive conversion in Chat.tsx & ETradeTradingHub.tsx
-
-Phase 3: High-Volume Domain Panels (Mid-Term)
-  ├── Refactor ScannerPanel.tsx (1,767 lines) & ScreenerResultsView.tsx
-  ├── Refactor WorkflowsHub.tsx (1,935 lines) & AutopilotControlCenter.tsx (1,585 lines)
-  └── Refactor PortfolioRiskPanel.tsx & McpApiExplorer.tsx
-
-Phase 4: Automated CI Enforcement Pin (Final)
-  └── Extend tests/ui_primitives_inventory.test.ts or add a new Vitest pin
-      that flags any TSX component rendering raw <button>, <input>, <select>, 
-      <textarea>, or <table> controls outside src/client/components/ui/.
+                  ┌─────────────────────────────────────────────────────────┐
+                  │          Comprehensive Anti-Drift Control Architecture  │
+                  └────────────────────────────┬────────────────────────────┘
+                                               │
+        ┌──────────────────────────────────────┼──────────────────────────────────────┐
+        ▼                                      ▼                                      ▼
+┌──────────────────────────────┐    ┌──────────────────────────────┐    ┌──────────────────────────────┐
+│ UX & Accessibility Controls  │    │ Data & Security Controls     │    │ Agentic & Architecture Gates │
+│ • AST Primitive CI Ratchet   │    │ • Central Tenant Repo Wrapper│    │ • Scoped Delegation Tokens   │
+│ • Playwright axe-core Gate   │    │ • Outbound Webhook SSRF List │    │ • OpenTelemetry APM Export   │
+│ • Density Token Audit Check  │    │ • Unified GDPR Purge API     │    │ • CloudEvents Wrapper Schema │
+└──────────────────────────────┘    └──────────────────────────────┘    └──────────────────────────────┘
 ```
 
----
+### 1. AST-Based UI Primitive Usage Ratchet (UX Tier)
+* **Control:** Extend `tests/ui_primitives_inventory.test.ts` with an AST scanner that fails CI if any TSX component outside `src/client/components/ui/` renders raw `<button>`, `<input>`, `<select>`, `<textarea>`, or `<table>` controls without an explicit exception entry.
+* **Ratchet Mechanism:** Maintain a JSON exception allowlist that ratchets downward; any PR adding a new raw HTML control fails build gates automatically.
 
-## Automated Governance & Anti-Drift Framework
+### 2. Automated WCAG 2.2 AA Accessibility CI Gate (UX / Accessibility Tier)
+* **Control:** Integrate `@axe-core/playwright` into Playwright test pipelines to evaluate color contrast, modal focus trapping, minimum touch target sizes ($24\times24\text{px}$ minimum / $44\times44\text{px}$ recommended), and ARIA live announcements on every build.
 
-To guarantee that **UX drift**, **architecture drift**, and **standards drift** do not recur as the codebase evolves, NextGenTP employs an automated, multi-layered anti-drift framework embedded directly into CI/CD workflows and developer pre-commit hooks.
+### 3. Centralized Repository-Level Tenant Context Wrapper (Data / Security Tier)
+* **Control:** Wrap DO SQLite statement execution in a mandatory repository interface requiring `TenantContext`. Eliminates ad-hoc `WHERE tenant_id = ?` additions and guarantees 100% data isolation at the ORM layer.
 
-### 1. How to Ensure UX Drift Does Not Happen in the Future
+### 4. Outbound Webhook SSRF IP Allowlisting (Security Tier)
+* **Control:** Implement IP range validation in `webhookSecurity.ts` rejecting non-routable, loopback (`127.0.0.1`), private RFC1918 ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), and Cloudflare internal metadata IPs (`169.254.169.254`).
 
-* **Automated Vitest Ratchet & Inventory Pins:**
-  - **Zero Raw Color Literal Gate:** `tests/ux_token_coverage_ratchet.test.ts` acts as a hard zero-tolerance gate that fails CI if any raw color literal (hex, rgb, hsl) is introduced outside designated token sources (`tokens.css`, `designTokens.ts`).
-  - **UI Primitives Inventory Pin:** `tests/ui_primitives_inventory.test.ts` enforces that all reusable components in `src/client/components/ui/` are exported, tested, and inventoried.
-  - **Ratcheted Primitive Usage Gate (Next Step):** Extend `tests/ui_primitives_inventory.test.ts` with a ratcheted allowlist for raw HTML controls (`<button>`, `<input>`, `<select>`, `<table>`). Any PR introducing a new raw HTML element in domain panels will fail CI automatically unless it imports from `components/ui/`.
-* **Automated Token Mirror Synchronization:**
-  - `scripts/gen-design-tokens.mjs --check` runs in `npm run check` and CI. It parses `tokens.css` and ensures `designTokens.ts` remains 100% in sync, preventing TypeScript/CSS token drift.
-* **Density & Theme Verification:**
-  - Pre-paint theme bootstrap script (`appearance-bootstrap` in `index.html`) guarantees zero-FOUC theme application.
-  - Automated Vitest tests (`tests/theme_preferences.test.ts`) assert that dark, light, system, and high-contrast modes resolve consistently across tabs and localStorage.
+### 5. Cryptographically Scoped Agent Delegation Tokens (Agentic Tier)
+* **Control:** Replace ambient orchestrator permissions with short-lived (60s), signed HMAC invocation tokens passed to sub-agents, explicitly declaring authorized tool capabilities and spend limits.
 
-### 2. How to Ensure Architecture Drift Does Not Happen in the Future
+### 6. Unified Cross-Tier GDPR / RTBF Purge API (Data Tier)
+* **Control:** Implement a dedicated `POST /api/v1/privacy/purge-tenant` endpoint executing transactional deletions across DO SQLite tables, purging associated R2 object blobs (`REPORTS_BUCKET`), and deleting Vectorize embeddings by tenant metadata filter.
 
-* **Automated Structural Inventory Pins:**
-  - **Thin Router Pin (`tests/thin_router_inventory.test.ts`):** Enforces that API routes remain thin delegators to service logic and DOs rather than monoliths.
-  - **Class & Schema Inventory Pins (`tests/orchestrator_class_inventory.test.ts`, `tests/schema_single_source.test.ts`):** Pin key architectural interfaces and prevent ad-hoc schema duplication across frontend and backend boundaries.
-* **Strict Layer Separation Enforcement:**
-  - Architectural guidance (`docs/agents/ux-architecture.md`) mandates strict separation: Presentation Layer $\rightarrow$ Interaction Layer $\rightarrow$ Application API $\rightarrow$ Agent Orchestration $\rightarrow$ Persistent DO/KV Services.
-  - CI static analysis checks prevent client components from bypassing the interaction API layer or calling backend state directly.
-* **Pre-Merge Rebase & Gate Script (`scripts/verify-before-merge.sh`):**
-  - Requires developers/agents to rebase onto `origin/main` and pass all structural checks (`npm run check`) prior to merging any pull request.
+### 7. OpenTelemetry (OTLP) APM / SIEM Telemetry Export (Ops Tier)
+* **Control:** Configure OTLP exporters in `wrangler.jsonc` to stream Workers Observability traces and IAAA audit events to an external APM/SIEM platform (Datadog/Honeycomb/Grafana) for continuous operational monitoring.
 
-### 3. How to Ensure Standards Drift Does Not Happen in the Future
-
-* **Automated WCAG 2.2 AA Accessibility Audits:**
-  - Integrate `@axe-core/playwright` into the Playwright frontend verification pipeline to automatically test color contrast, ARIA roles, focus management, and touch target sizes ($24\times24\text{px}$ minimum / $44\times44\text{px}$ recommended) on every UI build.
-* **Agentic Security & OWASP Action Transparency (ASI-02 / ASI-03):**
-  - All consequential actions (trades, social posts, schedule mutations) require version-bound Approval Cards displaying exact payloads, cost exposure, and expiration timestamps.
-  - Static tests verify that backend authorization remains authoritative and that client disabling of buttons is treated purely as visual feedback, not security control.
-* **AGENTS.md & GitOps Delivery Protocol:**
-  - `AGENTS.md` and `docs/agents/gitops.md` govern agent role boundaries and delivery rules. Agents are programmatically required to execute `npm run check` and run pre-commit verification steps before submitting code.
+### 8. CloudEvents Standard Envelope Wrapper (Integration Tier)
+* **Control:** Standardize asynchronous WebSocket and Cloudflare Workflow event payloads to adhere strictly to the CloudEvents v1.0 specification schema (`id`, `source`, `specversion`, `type`, `data`).
 
 ---
 
-## Conclusion & Verification Plan
+## 4. Summary Matrix of Anti-Drift Architecture
 
-This report documents all 44 exception files (28 zero-primitive exceptions + 16 partial exceptions) currently bypassing UX primitives and sets forth the automated governance mechanisms preventing drift.
+| Domain / Tier | Primary Cause of Drift | Current Active Controls | Required Future Controls |
+|---|---|---|---|
+| **UX / Client** | Raw HTML elements, inline styles, un-tokenized spacing | `ux_token_coverage_ratchet`, `gen-design-tokens.mjs --check` | AST Primitive Usage Ratchet, `@axe-core` WCAG 2.2 AA Gate |
+| **Edge Gateway** | Fat route handlers, inline business logic | `thin_router_inventory.test.ts` | API Contract OpenAPI / Zod AST Verification Gate |
+| **Agentic AI** | Ambient permissions, uncapped execution loops | `MAS_MAX_STEPS`, Judge Router, Payments HITL | Cryptographically Scoped Sub-Agent Delegation Tokens |
+| **Data Tier** | Manual SQL `tenant_id` filtering, un-cascaded deletes | `schema_single_source.test.ts`, SQLite DOs | Central Repository Tenant Wrapper, Unified RTBF Purge API |
+| **Security** | Un-whitelisted webhooks, bypassed PDP seams | HMAC signatures, Constant-time crypto, Gitleaks | Outbound Webhook SSRF IP Range Filtering |
+| **DevOps / Infra**| Stale bases, unpinned CI environments | `verify-before-merge.sh`, `ubuntu-24.04` pin | Automated OpenTelemetry (OTLP) APM / SIEM Export |
 
-### Verification Commands
-Future refactoring PRs must verify compliance with:
+---
+
+## Conclusion & Verification Commands
+
+All future platform enhancements must maintain compliance with these anti-drift controls and pass mandatory verification commands before merging:
 - `npm run check`
 - `npx vitest run tests/ui_primitives_inventory.test.ts`
 - `npx vitest run tests/ux_token_coverage_ratchet.test.ts`
-- `npx vitest run tests/theme_preferences.test.ts`
+- `npx vitest run tests/thin_router_inventory.test.ts`
+- `npx vitest run tests/schema_single_source.test.ts`
