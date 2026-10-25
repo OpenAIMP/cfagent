@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getDiscoveryConfig } from "../src/config/etapiConfig";
-import type { YahooDailyBar } from "../src/trading/yahooHistory";
+import type { YahooDailyBar } from "../src/trading/technicals";
 import type { IvStats } from "../src/trading/options/ivHistoryStore";
 import {
   characterizeName,

@@ -4,7 +4,7 @@ import {
   getDiscoveryConfig,
   getOpportunityScannerConfig,
 } from "../src/config/etapiConfig";
-import type { YahooDailyBar } from "../src/trading/yahooHistory";
+import type { YahooDailyBar } from "../src/trading/technicals";
 import {
   characterizeName,
   type NameCharacterization,

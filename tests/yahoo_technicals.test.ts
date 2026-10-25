@@ -8,7 +8,7 @@ import {
   computeTechnicals,
   classifyGap,
   type YahooDailyBar,
-} from "../src/trading/yahooHistory";
+} from "../src/trading/technicals";
 
 function bars(n: number, startClose = 100, drift = 0.5): YahooDailyBar[] {
   return Array.from({ length: n }, (_, i) => {
