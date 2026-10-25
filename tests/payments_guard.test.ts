@@ -175,6 +175,15 @@ describe("PaymentsAgent guard persistence (#161)", () => {
     }
   });
 
+  it("budgetCheck() permits scheduled and pipeline operations (#1391)", async () => {
+    const ctx = makeCtx();
+    const agent = new (PaymentsAgent as any)(ctx, makeLedgerEnv());
+    for (const op of ["social.publish", "pipeline:social-daily", "qa.run_sweep", "search.opportunity_hunt"]) {
+      const verdict = await agent.budgetCheck({ operation: op, amountCents: 1 });
+      expect(verdict.allowed, `operation ${op} should be allowed by budgetCheck`).toBe(true);
+    }
+  });
+
   it("processPaidRequest persists spend: second payment breaching the daily cap is denied", async () => {
     vi.stubGlobal("fetch", async () =>
       Response.json({ isValid: true })
