@@ -1,6 +1,7 @@
 import { Agent } from "agents";
 import type { Env } from "../types";
-import type { CompiledChain } from "../orchestrate";
+import type { CompiledChain, CompiledChainStep } from "../orchestrate";
+import type { ChainRunResult } from "../mcp/goalChainCommands";
 import {
   approveSynthesizedInList,
   markSynthesizedFired,
@@ -14,6 +15,7 @@ import {
 } from "../agentic/chainGovernance";
 import {
   auditBlockedChainFiring,
+  auditSuccessfulChainFiring,
   CHAIN_EXECUTE_OPERATION,
   decideChainFiring,
   materializeSynthesizedRecord,
@@ -76,6 +78,32 @@ import type { DoNamespaceLike } from "../security/durableKv";
 // bespoke fire check and parallel social tick were retired with this
 // change, so there is exactly one scheduler for social posts.
 
+/** Rebuild the compiled chain a synthesized record was made from. */
+function chainFromRecord(record: SynthesizedSchedule): CompiledChain {
+  return {
+    goal: record.goal,
+    steps: record.steps,
+    budgetCents: record.budgetCents,
+    budgetCapCents: record.budgetCapCents,
+    recurrence: record.kind,
+    reusesStoredReport: record.reusesStoredReport,
+  };
+}
+
+/** Shard job ids from an executor run's leg results, in leg order. */
+function shardProvenanceOf(run: ChainRunResult): string[] {
+  const out: string[] = [];
+  for (const leg of run.legs) {
+    const result = leg.result as { shardJobIds?: unknown } | undefined;
+    if (result && Array.isArray(result.shardJobIds)) {
+      for (const id of result.shardJobIds) {
+        if (typeof id === "string" && !out.includes(id)) out.push(id);
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Test/production overrides for onCron. Production passes none: the
  * social brief is read from the durable brief store for the firing
@@ -102,6 +130,16 @@ export interface ScheduledAgentCronOpts {
   halted?: boolean;
   /** Sql for the global-halt read + blocked-firing audit (callers with D1 access only). */
   sql?: any;
+  /**
+   * #1523 (Lane 2): leg executor for governed chain firings
+   * (e.g. `createChainLegExecutor` bound to a DO/SQL runtime by
+   * the caller that owns it). Absent, the branch keeps lane 1
+   * behavior exactly: descriptor only, no legs claimed. Present,
+   * legs run AFTER the governed decision and the PaymentsAgent
+   * budget check above, and BEFORE the descriptor is created —
+   * so a failed run stamps nothing and leaves the goal due.
+   */
+  chainExecutor?: (step: CompiledChainStep) => Promise<unknown>;
 }
 
 export class ScheduledAgent extends Agent<Env> {
@@ -380,15 +418,22 @@ export class ScheduledAgent extends Agent<Env> {
         }
 
         if (goal.operation === CHAIN_EXECUTE_OPERATION) {
-          // #1517 (Lane 1): a materialized chain goal fires ONLY
-          // through the governed decision. The budget check above
-          // already ran for this goal; this branch adds the record
-          // lookup + governed gate before any job descriptor is
-          // created. A governed-true firing creates a descriptor
-          // exactly like every other goal — leg execution / shard
-          // submission is the next lane, not smuggled in here. Both
-          // the goal and the record are stamped so the due window
-          // fires once; a blocked firing leaves both unstamped.
+          // #1517 (Lane 1) + #1523 (Lane 2): a materialized chain
+          // goal fires ONLY through the governed decision. The
+          // budget check above already ran for this goal; this
+          // branch adds the record lookup + governed gate, then —
+          // when the caller supplied a leg executor — runs the
+          // chain's legs for real BEFORE any job descriptor is
+          // created. A failed run stamps nothing and leaves the
+          // goal due; a successful run creates the descriptor
+          // exactly like every other goal, stamps goal + record
+          // so the due window fires once, and (with sql) writes
+          // the #755 success audit lane 1 left open. No executor
+          // supplied = lane 1 behavior exactly: descriptor only,
+          // no legs claimed. Ordering note: legs run before the
+          // descriptor, so a descriptor-creation failure after a
+          // successful run leaves the legs run but unstamped —
+          // the tick error names it, and the next tick retries.
           const records = await this.getSynthesized();
           const record = records.find((r) => r.id === goal.id);
           if (!record) {
@@ -417,6 +462,25 @@ export class ScheduledAgent extends Agent<Env> {
             tick.jobsSkipped++;
             continue;
           }
+          let runResult: ChainRunResult | null = null;
+          if (opts?.chainExecutor) {
+            runResult = await this.executeChainForRecord(
+              chainFromRecord(record),
+              opts.chainExecutor,
+            );
+            if (!runResult.ok) {
+              const failed = runResult.legs.filter(
+                (l) => l.status === "failed" || l.status === "blocked",
+              );
+              tick.errors.push(
+                `${goal.id}: chain execution failed (${failed
+                  .map((l) => `${l.capabilityId}: ${l.detail}`)
+                  .join("; ")})`,
+              );
+              tick.jobsSkipped++;
+              continue;
+            }
+          }
           const { createJob } = await import("../orchestrate");
           await createJob(env, {
             goalId: goal.id,
@@ -433,6 +497,26 @@ export class ScheduledAgent extends Agent<Env> {
           );
           goal.lastRun = now.toISOString();
           tick.jobsCreated++;
+          // Success audit only when every leg completed or was
+          // submitted to the rails: a run with unimplemented legs
+          // (e.g. deliver awaiting the serve hook) has no complete
+          // outcome to attest yet, so no row is written for it.
+          if (runResult && opts?.sql && runResult.legs.every(
+            (l) => l.status === "completed" || l.status === "submitted",
+          )) {
+            try {
+              auditSuccessfulChainFiring(
+                opts.sql,
+                record,
+                shardProvenanceOf(runResult),
+                now,
+              );
+            } catch (err) {
+              tick.errors.push(
+                `${goal.id}: success audit failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
           continue;
         }
 
@@ -657,25 +741,50 @@ export class ScheduledAgent extends Agent<Env> {
   }
 
   /**
-   * Issue #1517 (Lane 1): fire ONE one-shot synthesized record
-   * directly. Recurring records are refused here — they must
-   * materialize first and fire via `onCron`, so there is exactly
-   * one firing path per kind. The governed decision runs before
-   * the PaymentsAgent budget check and before any job descriptor
-   * is created; a blocked or budget-rejected firing consumes
-   * nothing and leaves `firedAt` unset, so it can be retried. A
-   * successful firing consumes the record (`firedAt` set) and
-   * returns the job descriptor id — leg execution / shard
-   * submission is the next lane.
+   * Run a record's chain through a caller-supplied leg executor.
+   * The caller (onCron branch / fireSynthesizedSchedule) already
+   * ran the governed decision and the PaymentsAgent budget check,
+   * so `runChain`'s per-leg budgetCheck passes through here — it
+   * must not re-gate work that is already approved and checked.
+   */
+  private async executeChainForRecord(
+    chain: CompiledChain,
+    chainExecutor: (step: CompiledChainStep) => Promise<unknown>,
+  ): Promise<ChainRunResult> {
+    const { runChain } = await import("../mcp/goalChainCommands");
+    return runChain(chain, {
+      executeLeg: chainExecutor,
+      budgetCheck: async () => true,
+    });
+  }
+
+  /**
+   * Issue #1517 (Lane 1) + #1523 (Lane 2): fire ONE one-shot
+   * synthesized record directly. Recurring records are refused
+   * here — they must materialize first and fire via `onCron`, so
+   * there is exactly one firing path per kind. The governed
+   * decision runs before the PaymentsAgent budget check and
+   * before any job descriptor is created; a blocked or
+   * budget-rejected firing consumes nothing and leaves `firedAt`
+   * unset, so it can be retried. With a supplied leg executor,
+   * legs run after the budget check and before the descriptor —
+   * an executor failure likewise consumes nothing. A successful
+   * firing consumes the record (`firedAt` set) and returns the
+   * job descriptor id plus the run result.
    */
   async fireSynthesizedSchedule(
     id: string,
-    opts?: { halted?: boolean; sql?: any },
+    opts?: {
+      halted?: boolean;
+      sql?: any;
+      chainExecutor?: (step: CompiledChainStep) => Promise<unknown>;
+    },
   ): Promise<{
     fired: boolean;
     reason: string;
     jobId?: string;
     record: SynthesizedSchedule;
+    execution?: ChainRunResult;
   }> {
     const records = await this.getSynthesized();
     const record = records.find((r) => r.id === id);
@@ -719,6 +828,26 @@ export class ScheduledAgent extends Agent<Env> {
         record,
       };
     }
+    let execution: ChainRunResult | undefined;
+    if (opts?.chainExecutor) {
+      execution = await this.executeChainForRecord(
+        chainFromRecord(record),
+        opts.chainExecutor,
+      );
+      if (!execution.ok) {
+        const failed = execution.legs.filter(
+          (l) => l.status === "failed" || l.status === "blocked",
+        );
+        return {
+          fired: false,
+          reason: `chain execution failed: ${failed
+            .map((l) => `${l.capabilityId}: ${l.detail}`)
+            .join("; ")}`,
+          record,
+          execution,
+        };
+      }
+    }
     const { createJob } = await import("../orchestrate");
     const job = await createJob(this.env, {
       goalId: record.id,
@@ -730,11 +859,30 @@ export class ScheduledAgent extends Agent<Env> {
     await this.saveSynthesized(
       records.map((r) => (r.id === id ? updated : r)),
     );
+    if (
+      execution &&
+      opts?.sql &&
+      execution.legs.every(
+        (l) => l.status === "completed" || l.status === "submitted",
+      )
+    ) {
+      try {
+        auditSuccessfulChainFiring(
+          opts.sql,
+          record,
+          shardProvenanceOf(execution),
+          now,
+        );
+      } catch {
+        /* Firing stands; an audit failure must not unconsume it. */
+      }
+    }
     return {
       fired: true,
       reason: decision.reason,
       jobId: job.jobId,
       record: updated,
+      execution,
     };
   }
 

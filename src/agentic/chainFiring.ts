@@ -51,6 +51,7 @@ import {
   attributeChainRun,
   versionChain,
   chainRunAuditRecord,
+  recordChainRunAudit,
 } from "./chainGovernance";
 import { recordBlockedAdaptation } from "../services/adaptationAudit";
 import type { SynthesizedSchedule } from "./jobSynthesis";
@@ -128,6 +129,41 @@ export function decideChainFiring(
     return { fire: false, reason: "no cron" };
   }
   return { fire: false, reason: "not due" };
+}
+
+/**
+ * Write a successful executor run through the shipped #755 audit
+ * path (#1523, Lane 2 — closes lane 1's "no audit row for a
+ * successful firing" gap, but ONLY when a run actually happened:
+ * the caller passes the executor's shard provenance, and the
+ * outcome "completed" attests the legs the executor ran, never a
+ * descriptor-only firing). Returns the audit row id. Throws if
+ * the chain cannot be versioned.
+ */
+export function auditSuccessfulChainFiring(
+  sql: any,
+  record: SynthesizedSchedule,
+  shardProvenance: string[],
+  now: Date = new Date(),
+): string {
+  const chain: CompiledChain = {
+    goal: record.goal,
+    steps: record.steps,
+    budgetCents: record.budgetCents,
+    budgetCapCents: record.budgetCapCents,
+    recurrence: record.kind,
+    reusesStoredReport: record.reusesStoredReport,
+  };
+  const version = versionChain(record.id, chain, 1, {
+    createdAt: now.toISOString(),
+  });
+  const attribution = attributeChainRun(version, {
+    goal: record.goal,
+    shardProvenance,
+    outcome: "completed",
+    runAt: now.toISOString(),
+  });
+  return recordChainRunAudit(sql, attribution, now);
 }
 
 /**
