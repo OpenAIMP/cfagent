@@ -184,8 +184,8 @@ describe("capability registry (#1395)", () => {
     expect(vectorRecall?.verification).toBeNull();
   });
 
-  it("no composed-chain or goal-compiler MCP tool exists yet (Phase 5)", () => {
-    expect(MCP_CHAIN_STATUS.chainTool).toBe("planned");
-    expect(MCP_CHAIN_STATUS.goalTool).toBe("planned");
+  it("composed-chain and goal-compiler MCP tools ship with Phase 5 (#1466)", () => {
+    expect(MCP_CHAIN_STATUS.chainTool).toBe("shipped");
+    expect(MCP_CHAIN_STATUS.goalTool).toBe("shipped");
   });
 });
