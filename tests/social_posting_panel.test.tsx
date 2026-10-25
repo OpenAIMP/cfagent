@@ -26,6 +26,7 @@ import {
   getTokenHealth,
   listPendingApprovals,
   saveBrief,
+  listPosts,
 } from "../src/client/socialPostingApi";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -110,6 +111,7 @@ interface StubState {
   approvals?: unknown[];
   goals?: unknown[];
   tokenChannels?: unknown;
+  posts?: unknown[];
   failAll?: boolean;
 }
 
@@ -128,6 +130,25 @@ function installFetch(state: StubState, calls: FetchCall[]) {
     calls.push({ method, url, body });
     if (state.failAll) {
       return Response.json({ error: "Store unavailable." }, { status: 500 });
+    }
+    if (url.startsWith("/api/social/posts")) {
+      return Response.json({
+        ok: true,
+        date: "2026-10-24",
+        posts: state.posts ?? [
+          {
+            channel: "threads",
+            draftId: "draft-threads-1",
+            date: "2026-10-24",
+            status: "posted",
+            text: "Hello Threads post",
+            platformPostId: "th_post_12345",
+            submissionEndpoint: "https://graph.threads.net/v1.0/me/threads_publish",
+            postUrl: "https://www.threads.net/t/th_post_12345",
+            createdAtMs: 1792849200000,
+          },
+        ],
+      });
     }
     if (url.startsWith("/api/social/brief")) {
       if (method === "POST") return Response.json({ ok: true, date: "2026-10-24" });
@@ -355,4 +376,71 @@ describe("SocialPostingPanel", () => {
     // pattern) instead of invented data or a silent empty state.
     expect(container.textContent).toContain("Store unavailable.");
   });
+
+  it("listPosts API retrieves submitted posts for the date (#1391)", async () => {
+    const calls: FetchCall[] = [];
+    installFetch({ brief: null, approvals: [] }, calls);
+    const data = await listPosts("2026-10-24");
+    expect(data.ok).toBe(true);
+    expect(data.posts).toHaveLength(1);
+    expect(data.posts[0].channel).toBe("threads");
+    expect(data.posts[0].submissionEndpoint).toBe("https://graph.threads.net/v1.0/me/threads_publish");
+    expect(data.posts[0].postUrl).toBe("https://www.threads.net/t/th_post_12345");
+  });
+
+  it("renders submitted post URL and submission endpoint in the UI (#1391)", async () => {
+    installFetch({
+      brief: "Test brief",
+      posts: [
+        {
+          channel: "threads",
+          draftId: "draft-th-1",
+          date: "2026-10-24",
+          status: "posted",
+          text: "Live Threads post content",
+          platformPostId: "th_post_99999",
+          submissionEndpoint: "https://graph.threads.net/v1.0/me/threads_publish",
+          postUrl: "https://www.threads.net/t/th_post_99999",
+          createdAtMs: 1792849200000,
+        },
+      ],
+    }, []);
+    await renderPanel();
+
+    expect(container.textContent).toContain("Submitted posts");
+    expect(container.textContent).toContain("Threads");
+    expect(container.textContent).toContain("POSTED");
+    expect(container.textContent).toContain("https://graph.threads.net/v1.0/me/threads_publish");
+
+    const link = container.querySelector('a[href="https://www.threads.net/t/th_post_99999"]');
+    expect(link).not.toBeNull();
+    expect(link?.textContent).toBe("https://www.threads.net/t/th_post_99999");
+    expect(link?.getAttribute("target")).toBe("_blank");
+  });
+
+  it("renders dry run note when a post has no live postUrl (#1391)", async () => {
+    installFetch({
+      brief: "Dry run brief",
+      posts: [
+        {
+          channel: "x",
+          draftId: "draft-x-1",
+          date: "2026-10-24",
+          status: "dry-run-posted",
+          text: "Dry run X post",
+          platformPostId: null,
+          submissionEndpoint: "https://api.twitter.com/2/tweets",
+          postUrl: null,
+          createdAtMs: 1792849200000,
+        },
+      ],
+    }, []);
+    await renderPanel();
+
+    expect(container.textContent).toContain("X");
+    expect(container.textContent).toContain("DRY-RUN-POSTED");
+    expect(container.textContent).toContain("Dry run (simulated — not submitted to live platform)");
+    expect(container.textContent).toContain("https://api.twitter.com/2/tweets");
+  });
 });
+
