@@ -25,6 +25,7 @@ import { withX402, type X402Config } from "agents/x402";
 import { z } from "zod";
 import { optionScreenerFilterFields } from "../trading";
 import type { Env } from "../types";
+import { getServiceUserLogin } from "../security/serviceIdentity";
 import { AGENT_DIDS } from "../agents/did";
 
 // ---------------------------------------------------------------------------
@@ -111,8 +112,7 @@ export class OptionsScannerMCP extends McpAgent<Env> {
         const queued = await this.forwardToOrchestrator(
           "/api/trading/options/screen",
           "POST",
-          input,
-          "default_trader",
+          input
         ) as { jobId: string; status: "queued"; statusUrl: string };
         if (!queued.jobId || queued.status !== "queued") {
           throw new Error("Paid screening request was not accepted as a background job.");
@@ -218,10 +218,14 @@ export class OptionsScannerMCP extends McpAgent<Env> {
     path: string,
     method: "GET" | "POST",
     body?: Record<string, unknown>,
-    userLogin = "default_trader",
   ): Promise<unknown> {
     const id = this.env.SEARCH_AGENT.idFromName(this.ctx.id.toString());
-    const headers = new Headers({ "x-user-login": userLogin });
+    const headers = new Headers();
+    // Issue #1185 / #700: the scanner asserts no identity of its own.
+    // It forwards under the configured service identity when one
+    // exists and asserts none otherwise — never a synthetic login.
+    const serviceLogin = getServiceUserLogin(this.env);
+    if (serviceLogin) headers.set("x-user-login", serviceLogin);
     if (body) headers.set("Content-Type", "application/json");
     const response = await this.env.SEARCH_AGENT.get(id).fetch(
       new Request(new URL(path, "https://agent.internal"), {
@@ -283,8 +287,7 @@ export class OptionsScannerMCP extends McpAgent<Env> {
           type: "CF_WALLET_SCANNER_PAID",
           agent: "payments",
           payload,
-        },
-        "default_trader",
+        }
       );
     } catch (err) {
       console.error(

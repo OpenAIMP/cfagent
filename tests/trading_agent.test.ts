@@ -29,7 +29,7 @@ import { AGENT_CARDS } from "../src/a2a/agent-cards";
 import { OPERATION_CATALOG } from "../src/orchestrate";
 import type { Env } from "../src/types";
 
-const env = {} as Env;
+const env = { SERVICE_USER_LOGIN: "svc-trader" } as Env;
 
 const CANNED_SCREEN = {
   totalScanned: 3,
@@ -129,7 +129,7 @@ describe("TradingAgent surfaces stay in sync (#291 anti-drift)", () => {
 
 describe("TradingAgent execution path (#291)", () => {
   it("stock screening executes against a fake provider — no broker named", async () => {
-    const result: any = await executeTradingService(env, fakeConfig as any, {
+    const result: any = await executeTradingService(env, fakeConfig as any, { userLogin: "alice",
       serviceId: "stock_screening",
       input: { provider: "fake291", filter: { minPrice: 10 } },
     });
@@ -138,7 +138,7 @@ describe("TradingAgent execution path (#291)", () => {
   });
 
   it("the default provider is used when none is named", async () => {
-    const result: any = await executeTradingService(env, fakeConfig as any, {
+    const result: any = await executeTradingService(env, fakeConfig as any, { userLogin: "alice",
       serviceId: "stock_screening",
       input: {},
     });
@@ -147,7 +147,7 @@ describe("TradingAgent execution path (#291)", () => {
 
   it("a provider that is not enabled is refused before resolution", async () => {
     await expect(
-      executeTradingService(env, TRADING_AGENT_CONFIG_BASELINE, {
+      executeTradingService(env, TRADING_AGENT_CONFIG_BASELINE, { userLogin: "alice",
         serviceId: "stock_screening",
         input: { provider: "fake291" },
       }),
@@ -155,14 +155,14 @@ describe("TradingAgent execution path (#291)", () => {
   });
 
   it("an enabled but unregistered provider fails honestly", () => {
-    expect(() => resolveTradingPlatform(env, fakeConfig as any, "ghost291")).toThrow(
+    expect(() => resolveTradingPlatform(env, fakeConfig as any, "ghost291", "alice")).toThrow(
       /no platform is registered/,
     );
   });
 
   it("a provider without screening support fails honestly", async () => {
     await expect(
-      executeTradingService(env, fakeConfig as any, {
+      executeTradingService(env, fakeConfig as any, { userLogin: "alice",
         serviceId: "stock_screening",
         input: { provider: "noscreen291" },
       }),
@@ -174,7 +174,7 @@ describe("TradingAgent execution path (#291)", () => {
       executeTradingService(
         env,
         { ...fakeConfig, enabledServices: ["options_screening"] } as any,
-        { serviceId: "stock_screening", input: {} },
+        { userLogin: "alice", serviceId: "stock_screening", input: {} },
       ),
     ).rejects.toThrow(/disabled by configuration/);
   });
@@ -203,7 +203,7 @@ describe("TradingAgent A2A door (#291)", () => {
     const result = await dispatchTradingA2A(env, fakeConfig as any, {
       operation: "trading.screen_stocks",
       provider: "fake291",
-    });
+    }, "alice");
     expect(result.ok).toBe(true);
     expect(result.service).toBe("stock_screening");
     expect((result.result as any).matchedCount).toBe(1);
@@ -212,10 +212,10 @@ describe("TradingAgent A2A door (#291)", () => {
   it("unknown operations and missing operations return errors, never throw", async () => {
     const unknown = await dispatchTradingA2A(env, fakeConfig as any, {
       operation: "trading.nope",
-    });
+    }, "alice");
     expect(unknown.ok).toBe(false);
     expect(unknown.error).toMatch(/Unknown operation/);
-    const empty = await dispatchTradingA2A(env, fakeConfig as any, { hello: 1 });
+    const empty = await dispatchTradingA2A(env, fakeConfig as any, { hello: 1 }, "alice");
     expect(empty.ok).toBe(false);
   });
 
@@ -264,9 +264,12 @@ describe("TradingAgent A2A outcome + instance unification (#291 A1/A2)", () => {
   it("one instance name per user across every door", async () => {
     const { tradingAgentName } = await import("../src/agents/trading-agent");
     // The A2A dispatcher resolves idFromName("trading") from the URL —
-    // the default user's instance must be exactly that name.
-    expect(tradingAgentName("default_trader")).toBe("trading");
-    expect(tradingAgentName("alice")).toBe("trading:alice");
+    // the SERVICE identity's instance must be exactly that name (issue
+    // #1185: the bare name keys off the configured service login, and
+    // only that login).
+    expect(tradingAgentName("svc-trader", "svc-trader")).toBe("trading");
+    expect(tradingAgentName("alice", "svc-trader")).toBe("trading:alice");
+    expect(tradingAgentName("svc-trader")).toBe("trading:svc-trader");
   });
 
   it("the edge dispatcher parses the body, calls handleA2A(body, origin), and shapes text+data parts", async () => {    const { handleA2A } = await import("../src/a2a/index");
@@ -320,33 +323,33 @@ describe("TradingAgent A2A outcome + instance unification (#291 A1/A2)", () => {
 
 describe("TradingAgent stable error tokens + dispatch logging (#291 A3/A6)", () => {
   it("each classified failure carries its stable token on the A2A surface", async () => {
-    const missing = await dispatchTradingA2A(env, fakeConfig as any, { hello: 1 });
+    const missing = await dispatchTradingA2A(env, fakeConfig as any, { hello: 1 }, "alice");
     expect(missing.code).toBe("missing_operation");
     const unknown = await dispatchTradingA2A(env, fakeConfig as any, {
       operation: "trading.nope",
-    });
+    }, "alice");
     expect(unknown.code).toBe("unknown_operation");
     const notEnabled = await dispatchTradingA2A(env, TRADING_AGENT_CONFIG_BASELINE, {
       operation: "trading.screen_stocks",
       provider: "fake291",
-    });
+    }, "alice");
     expect(notEnabled.code).toBe("provider_not_enabled");
     const unsupported = await dispatchTradingA2A(env, fakeConfig as any, {
       operation: "trading.screen_stocks",
       provider: "noscreen291",
-    });
+    }, "alice");
     expect(unsupported.code).toBe("provider_unsupported");
     const disabled = await dispatchTradingA2A(
       env,
       { ...fakeConfig, enabledServices: ["options_screening"] } as any,
       { operation: "trading.screen_stocks", provider: "fake291" },
-    );
+    "alice");
     expect(disabled.code).toBe("service_disabled");
     const invalid = await dispatchTradingA2A(env, fakeConfig as any, {
       operation: "trading.screen_stocks",
       provider: "fake291",
       filter: { minPrice: "not-a-number" },
-    });
+    }, "alice");
     expect(invalid.code).toBe("invalid_input");
     // Every dispatch result carries the correlation id.
     for (const r of [missing, unknown, notEnabled, unsupported, disabled, invalid]) {
@@ -357,7 +360,7 @@ describe("TradingAgent stable error tokens + dispatch logging (#291 A3/A6)", () 
 
   it("the execution path throws typed errors with the same tokens", async () => {
     const { TradingServiceError } = await import("../src/agents/trading-agent");
-    const err: any = await executeTradingService(env, fakeConfig as any, {
+    const err: any = await executeTradingService(env, fakeConfig as any, { userLogin: "alice",
       serviceId: "nope",
       input: {},
     }).catch((e) => e);
@@ -383,7 +386,7 @@ describe("TradingAgent stable error tokens + dispatch logging (#291 A3/A6)", () 
         env,
         { ...fakeConfig, enabledServices: [...fakeConfig.enabledServices, "exploding"] } as any,
         { operation: "trading.explode" },
-      );
+      "alice");
       expect(result.ok).toBe(false);
       expect(result.code).toBe("internal_error");
       expect(result.error).not.toMatch(/hunter2|secret internals/);
@@ -399,7 +402,7 @@ describe("TradingAgent stable error tokens + dispatch logging (#291 A3/A6)", () 
       lines.push(args.map(String).join(" "));
     };
     try {
-      await executeTradingService(env, fakeConfig as any, {
+      await executeTradingService(env, fakeConfig as any, { userLogin: "alice",
         serviceId: "stock_screening",
         input: { provider: "fake291" },
         door: "rpc",
@@ -490,7 +493,7 @@ describe("TradingAgent options screening service (#291 T2)", () => {
       operation: "trading.screen_options",
       provider: "fake291",
       symbols: ["AAPL"],
-    });
+    }, "alice");
     expect(result.ok).toBe(false);
     expect(result.code).toBe("provider_unsupported");
   });
@@ -500,7 +503,7 @@ describe("TradingAgent options screening service (#291 T2)", () => {
       env,
       { ...fakeConfig, enabledServices: ["stock_screening"] } as any,
       { operation: "trading.screen_options", provider: "fake291" },
-    );
+    "alice");
     expect(result.ok).toBe(false);
     expect(result.code).toBe("service_disabled");
   });
@@ -515,7 +518,7 @@ describe("TradingAgent options screening service (#291 T2)", () => {
         env,
         { enabledProviders: ["etrade"], defaultProvider: "etrade", enabledServices: ["options_screening"] } as any,
         { operation: "trading.screen_options", symbols: ["AAPL"], limit: 5 },
-      );
+      "alice");
       // The gate passed: the failure mode must NOT be the provider gate.
       // (With an empty test env the pipeline itself answers or fails
       // downstream — either way the service was actually invoked.)
@@ -570,7 +573,7 @@ describe("TradingAgent stock trading + approval door (#291 T3)", () => {
       quantity: 3,
       orderType: "LIMIT",
       limitPrice: 150,
-    });
+    }, "alice");
     expect(result.ok).toBe(true);
     expect(result.result.status).toBe("pending_approval");
     expect(result.result.proposal.id).toBe("draft-291");
@@ -665,7 +668,7 @@ describe("TradingAgent options trading service (#291 T4)", () => {
     const svc = TRADING_SERVICE_REGISTRY.find((s) => s.id === "options_trading");
     expect(svc!.access).toBe("action");
     expect(svc!.toolName).toBe("trade_options");
-    const result: any = await dispatchTradingA2A(env, optConfig as any, spread);
+    const result: any = await dispatchTradingA2A(env, optConfig as any, spread, "alice");
     expect(result.ok).toBe(true);
     expect(result.result.status).toBe("pending_approval");
     expect(result.result.proposal.id).toBe("opt-draft-291");
@@ -678,7 +681,7 @@ describe("TradingAgent options trading service (#291 T4)", () => {
 
   it("rejects a leg-less options order as invalid_input at the schema layer", async () => {
     const { optionLegs: _drop, ...legless } = spread;
-    const result = await dispatchTradingA2A(env, optConfig as any, legless);
+    const result = await dispatchTradingA2A(env, optConfig as any, legless, "alice");
     expect(result.ok).toBe(false);
     expect(result.code).toBe("invalid_input");
   });
@@ -752,14 +755,18 @@ describe("TradingAgent read surface (#291 T5a)", () => {
     await alice.getStatus();
     const root = await agentNamed("trading");
     await root.getStatus();
-    expect(factoryLogins).toEqual(["alice", "default_trader"]);
+    // Issue #1185: the bare instance's platform user is the configured
+    // service identity (SERVICE_USER_LOGIN in the shared test env).
+    expect(factoryLogins).toEqual(["alice", "svc-trader"]);
   });
 
   it("tradingAgentUserLogin inverts tradingAgentName", async () => {
     const { tradingAgentUserLogin, tradingAgentName } = await import("../src/agents/trading-agent");
-    expect(tradingAgentUserLogin(tradingAgentName("default_trader"))).toBe("default_trader");
-    expect(tradingAgentUserLogin(tradingAgentName("bob"))).toBe("bob");
-    expect(tradingAgentUserLogin("trading")).toBe("default_trader");
+    expect(tradingAgentUserLogin(tradingAgentName("svc-trader", "svc-trader"), "svc-trader")).toBe("svc-trader");
+    expect(tradingAgentUserLogin(tradingAgentName("bob", "svc-trader"), "svc-trader")).toBe("bob");
+    expect(tradingAgentUserLogin("trading", "svc-trader")).toBe("svc-trader");
+    // No service identity configured: the bare name encodes no login.
+    expect(tradingAgentUserLogin("trading")).toBeNull();
   });
 
   it("options data reads pass through, and platforms without them get provider_unsupported (#291 T5b)", async () => {
