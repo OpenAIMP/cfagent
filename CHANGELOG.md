@@ -19,6 +19,8 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **Unrestricted PR automation (#1551):** `auto-merge-trusted.yml` uses the existing short-lived GitHub App token for all PRs, including drafts and workflow changes; drafts are labeled and auto-merge is enabled when they become ready. Policy Gate now runs on drafts, and the auto-update workflow updates draft branches. Gitops and active agent instructions permit parallel issue work by default while retaining each PR's required checks and post-merge verification. #CTO-mbshr
+
 - **Data foundation layer, slice 0: halt mirror (#1548):** port-first data layer (R1–R9) with a Drizzle ORM D1 adapter, migration 0001 for `agent_governance` (halt rows only, append-only, tenant-scoped), a synchronous halt-set mirror writer (SET mirrors first, CLEAR writes the durable object first, so partial failure leaves the tick-facing read halted), and the ScheduledAgent tick consulting `HaltRead` with the governed predicate still the decision-maker. Includes the one-time halt seed from `mas_settings` at cutover (second run is a no-op, never on boot). ADR 0002. Retention: `agent_governance` rows are long-lived audit history. #CAIO-quns
 
 - **D1 AgentDB binding (#1546):** `wrangler.jsonc` now binds the owner-created D1 database `agentdb` as `AGENT_DB` — the shared cross-agent query surface. No tables, migrations, or code changes in this step; DO storage stays authoritative for execution state. #CAIO-quns

@@ -42,7 +42,7 @@ describe("auto-update-prs-app.yml workflow configuration", () => {
     expect(workflowContent).toContain("github.paginate(github.rest.pulls.list");
     expect(workflowContent).toContain("github.rest.pulls.updateBranch");
     expect(workflowContent).not.toContain("github.rest.actions.createWorkflowDispatch");
-    expect(workflowContent).toContain("if (pr.draft) continue;");
+    expect(workflowContent).not.toContain("if (pr.draft) continue;");
   });
 
   it("skips Dependabot PRs to prevent exponential CI workflow thrash on reference-only PRs", () => {

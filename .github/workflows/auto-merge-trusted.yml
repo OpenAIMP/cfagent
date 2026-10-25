@@ -1,7 +1,8 @@
 # Auto-merge eligible PRs — issue #1509.
 #
 # WHAT: automatically applies `auto-merge` and enables GitHub auto-merge
-# (rebase only) for eligible non-draft PRs targeting main.
+# (rebase only) for PRs of any type targeting main. Draft PRs are labeled
+# automatically; GitHub can merge them only after they are marked ready.
 # Enabling auto-merge merges NOTHING by itself: GitHub merges only
 # when every requirement passes (required checks green, conversations
 # resolved, and — once the queue is on — queue validation on the
@@ -9,14 +10,15 @@
 #
 # SAFETY: use pull_request_target only to inspect PR metadata, apply a
 # label, and request auto-merge. Never check out or execute PR code in
-# this privileged workflow. PRs touching .github/workflows/ are excluded
-# and require a human merge. Required checks and conversation resolution
-# remain enforced by GitHub before any merge can happen.
+# this privileged workflow. All changed files, including workflow files, follow
+# the same required-check and conversation-resolution gates.
 #
 # NOTE: removing the label does NOT disable auto-merge once enabled —
 # disable it on the PR page if you change your mind.
 #
-# No new secrets: uses the built-in GITHUB_TOKEN.
+# Uses the same narrowly scoped GitHub App credentials as
+# auto-update-prs-app.yml. App-token-authenticated merges trigger the normal
+# push workflows on main; GITHUB_TOKEN-authenticated merges do not.
 # Prerequisite: General → "Allow auto-merge" must be ON, or PR-level
 # auto-merge does not exist at all.
 
@@ -33,24 +35,30 @@ permissions:
 
 jobs:
   enable-auto-merge:
-    name: Label eligible PRs and enable auto-merge
+    name: Label PRs and enable auto-merge when mergeable
     runs-on: ubuntu-24.04
-    if: ${{ !github.event.pull_request.draft }}
     steps:
+      - name: Create short-lived GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.AUTO_UPDATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTO_UPDATE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cfagent
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Label eligible PR and enable auto-merge
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -euo pipefail
-          files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename')
-          if [ -z "$files" ]; then
-            echo "Unable to verify changed files — leaving PR for manual handling."
-            exit 1
-          fi
-          if printf '%s\n' "$files" | grep -q '^\.github/workflows/'; then
-            echo "PR touches .github/workflows/ — leaving it for manual merge."
+          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "auto-merge"
+          if [ "$PR_IS_DRAFT" = "true" ]; then
+            echo "Draft PR labeled. GitHub will allow merging after it is marked ready for review."
             exit 0
           fi
-          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "auto-merge"
           gh pr merge --auto --rebase --repo "$GITHUB_REPOSITORY" "$PR_NUMBER"

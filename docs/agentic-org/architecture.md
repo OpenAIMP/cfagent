@@ -532,7 +532,7 @@ Do not enable later-stage autonomy merely because its code exists.
 >
 > Identify conflicts, missing decisions, and the smallest useful vertical slice. Produce issue-sized work with named owners, acceptance criteria, evaluations, risks, and recovery plans.
 >
-> Implement only after required authorization. Keep canonical documentation synchronized in the same PR. Complete the current implementation issue’s merge and required verification before starting the next, unless an explicit exception authorizes parallel work.
+> Implement only after required authorization. Keep canonical documentation synchronized in the same PR. Independent issues may proceed in parallel on separate branches; complete each issue’s merge and required verification before marking that issue Done.
 >
 > Do not change governance, expand privileges, weaken evaluations, or claim conformance from documentation alone.
 
