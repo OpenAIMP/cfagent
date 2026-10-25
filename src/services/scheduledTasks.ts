@@ -40,6 +40,11 @@ import {
 } from "../trading";
 import { getOpportunityScannerConfig } from "../config/etapiConfig";
 import { tagOpportunitiesWithDirection, ETradeSlackTradingService } from "../trading";
+// Issue #1291: the scheduled path's unified scan result is an
+// OpportunityScanResult, not the OptionScreenResult the workbook
+// generator reads — adapt at this seam (XLSX only; the CSV call below
+// is untouched by this slice).
+import { adaptOpportunityScanToOptionScreenResult } from "../trading";
 import type { ScanRunStore } from "../trading";
 import type { ETradeCaptureDeps } from "../trading";
 import type {
@@ -1361,7 +1366,9 @@ export class ScheduledTasksService {
       // (own failure domain; recorded, never fatal).
       try {
         const screenerAgent = this.getScreenerAgent(userLogin);
-        const stored = await (screenerAgent as any).generateAndStoreOptionsXlsx(response.data);
+        const stored = await (screenerAgent as any).generateAndStoreOptionsXlsx(
+          adaptOpportunityScanToOptionScreenResult(response.data),
+        );
         optionsXlsxKey = stored.key;
         optionsXlsxFile = stored.fileName;
         const data = await (screenerAgent as any).getOptionsXlsxByKey(stored.key);
