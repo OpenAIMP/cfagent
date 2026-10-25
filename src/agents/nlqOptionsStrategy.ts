@@ -27,6 +27,8 @@ import {
 } from "../services/discoveryService";
 import type { DiscoveryModeRequest } from "../services/researchDiscovery";
 import type { FitDiscoveryRunner } from "../services/fitDiscoveryRunner";
+import type { ComparisonNlqRunner } from "../services/comparisonNlqRunner";
+import type { ProductionComparisonResult } from "../services/comparisonRunner";
 import type { Outlook } from "../services/researchGates";
 import type { GoalKind } from "../services/goalScenarioStore";
 import { validateStrategyRequest, type StrategyScreenFilter } from "../trading";
@@ -35,7 +37,7 @@ import { parseScanRequestTemplate } from "../trading";
 export { buildTypeRollup } from "../trading";
 export type { StrategyTypeRollup } from "../trading";
 
-export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities" | "options_discovery" | "options_fit_discovery";
+export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities" | "options_discovery" | "options_fit_discovery" | "options_comparison";
 
 /**
  * Issue #1162 (epic #1096 Phase 6; deferred from Phase 2): a parsed
@@ -521,7 +523,21 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
   const profileName = detectProfileName(question);
 
   return {
-    action: scope ? "options_opportunities" : isBest ? "options_best_trade" : "options_strategies",
+    // #1257 comparison surfacing: a single-symbol question that names
+    // comparison arms (llm / quant / hybrid) and strategy keywords
+    // claims the three-way comparison action. Scoped questions stay
+    // scans (comparison needs one snapshot), arm-less compare
+    // questions stay strategies questions, and a symbol-less claim
+    // still claims it — the runner then fails clearly ("comparison
+    // needs a symbol") rather than silently answering a different
+    // question.
+    action: scope
+      ? "options_opportunities"
+      : !scope && /\bcompare\b/i.test(question) && /\b(llm|quant|hybrid)\b/i.test(question) && hasStrategyKeywords
+        ? "options_comparison"
+        : isBest
+          ? "options_best_trade"
+          : "options_strategies",
     filters: {
       request, riskProfile, strategyFilter, targetPriceInferred: false, thesisInferred, scope: scope ?? undefined,
       mode,
@@ -617,6 +633,12 @@ export interface OptionsStrategyDeps {
    *  the same discipline — rather than silently answering a
    *  different question. */
   fitDiscoveryRunner?: FitDiscoveryRunner;
+  /** #1257 comparison surfacing: the three-way comparison runner
+   *  (createComparisonRunner's return shape). When absent, an
+   *  options_comparison action fails with an availability error —
+   *  the same discipline — rather than silently answering a
+   *  different question. */
+  comparisonRunner?: ComparisonNlqRunner;
 }
 
 /**
@@ -644,6 +666,83 @@ async function resolveStrategyProfile(
   return { profile };
 }
 
+/**
+ * #1257 comparison surfacing: the three-way comparison NLQ action.
+ * Runs the same comparison as POST /trading/options/comparison
+ * through the threaded runner (never a degraded quant-only run:
+ * the runner itself refuses without an environment for LLM
+ * generation). The assumed-target derivation mirrors the
+ * single-name strategies path so a compare question without a
+ * stated target still runs; the event calendar is NOT attached —
+ * the comparison route does not use one, and route/NLQ parity
+ * matters more than calendar annotations here.
+ */
+async function runComparisonAction(
+  etrade: {
+    fetchQuoteRemote(symbol: string): Promise<{ lastPrice: number }>;
+  },
+  filters: OptionsStrategyIntent["filters"] | undefined,
+  deps?: OptionsStrategyDeps,
+): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; comparison?: ProductionComparisonResult }> {
+  const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
+  if (!filters?.request?.symbol) {
+    return fail("Comparison needs a symbol — ask about one name, e.g. \"compare llm vs quant strategies for NVDA\".");
+  }
+  if (!deps?.comparisonRunner) {
+    return fail("Three-way comparison is unavailable in this context: no comparison runner is configured.");
+  }
+  const request = { ...filters.request } as Partial<StrategyRequest>;
+  let assumedTarget = false;
+  if (request.targetPrice === undefined) {
+    try {
+      const quote = await etrade.fetchQuoteRemote(request.symbol!);
+      const factor = request.thesis === "bearish" ? 0.95 : request.thesis === "large_move" ? 1.1 : request.thesis === "range_bound" ? 1 : 1.05;
+      request.targetPrice = Number((quote.lastPrice * factor).toFixed(2));
+      assumedTarget = true;
+    } catch {
+      return fail(`No target price given and a quote for ${request.symbol} was unavailable. Add one, e.g. "target $260".`);
+    }
+  }
+  const validationError = validateStrategyRequest(request);
+  if (validationError) return fail(validationError);
+  const outcome = await deps.comparisonRunner.run({
+    request: request as StrategyRequest,
+    riskProfile: filters.riskProfile,
+    strategyFilter: filters.strategyFilter,
+  });
+  if (!outcome.ok || !outcome.result) {
+    return fail(outcome.error ?? "Comparison failed.");
+  }
+  const { artifact, generationNotes } = outcome.result;
+  const arms = ["llm", "quant", "hybrid"] as const;
+  const counts = arms.map((arm) => `${arm} ranked ${artifact.arms[arm].ranked.length}`).join(", ");
+  const shared = artifact.overlap.sharedStructures.length
+    ? ` Shared structures: ${artifact.overlap.sharedStructures.join(", ")}.`
+    : "";
+  const ledgerNote = outcome.ledgerPersisted
+    ? ` Ledger run ${artifact.runId}.`
+    : ` Run ${artifact.runId} was not persisted to the ledger (no ledger configured in this context).`;
+  const summary = `Compared LLM / quant / hybrid generators for ${request.symbol} (${counts}). No winner is declared — arms accumulate ledger track records.${shared}${assumedTarget ? ` Target price assumed at $${request.targetPrice} (${request.thesis}).` : ""} Model: ${generationNotes.model ?? "none"}; cited ${generationNotes.citedCount}, dropped ${generationNotes.droppedCount}.${ledgerNote}`;
+  const rows = arms.flatMap((arm) =>
+    artifact.arms[arm].ranked.slice(0, 3).map((candidate, index) => ({
+      arm,
+      rank: index + 1,
+      structure: candidate.structure,
+      strategy: candidate.label,
+      status: candidate.status,
+      compositeScore: candidate.score ?? null,
+      provenance: candidate.provenance,
+    })),
+  );
+  return {
+    count: arms.reduce((total, arm) => total + artifact.arms[arm].ranked.length, 0),
+    status: "compared",
+    summary,
+    rows,
+    comparison: outcome.result,
+  };
+}
+
 export async function runOptionsStrategyAction(
   etrade: {
     client: ConstructorParameters<typeof DynamicOptionsScreener>[0];
@@ -654,13 +753,16 @@ export async function runOptionsStrategyAction(
   action: OptionsStrategyAction,
   filters: OptionsStrategyIntent["filters"] | undefined,
   deps?: OptionsStrategyDeps,
-): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean; typeRollup?: StrategyTypeRollup[] | ScanTypeRollup[]; profileRef?: ProfileRef | null; discoveryRunId?: string }> {
+): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean; typeRollup?: StrategyTypeRollup[] | ScanTypeRollup[]; profileRef?: ProfileRef | null; discoveryRunId?: string; comparison?: ProductionComparisonResult }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
   if (action === "options_fit_discovery") {
     return runFitDiscoveryAction(filters, deps);
   }
   if (action === "options_discovery") {
     return runDiscoveryAction(etrade, filters, deps);
+  }
+  if (action === "options_comparison") {
+    return runComparisonAction(etrade, filters, deps);
   }
   if (action === "options_opportunities" || !filters?.request?.symbol) {
     if (filters && !filters.scope) {
