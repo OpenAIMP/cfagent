@@ -118,7 +118,7 @@ describe("live transport through publishWithPublisher", () => {
       text: "Hello test.",
       transport: createFetchSocialTransport(fetchStub as never),
     });
-    expect(result).toEqual({ ok: false, error: "publish failed for x: HTTP 401" });
+    expect(result).toEqual({ ok: false, error: "publish failed for x: HTTP 401 — unauthorized" });
     expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 
@@ -133,7 +133,7 @@ describe("live transport through publishWithPublisher", () => {
       text: "Hello test.",
       transport: createFetchSocialTransport(fetchStub as never),
     });
-    expect(result).toEqual({ ok: false, error: "publish failed for threads: HTTP 500" });
+    expect(result).toEqual({ ok: false, error: "publish failed for threads: HTTP 500 — boom" });
     expect(fetchStub).toHaveBeenCalledTimes(2);
   });
 
