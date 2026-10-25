@@ -64,8 +64,18 @@ function installFetch(state: PanelStubState = {}) {
     calls.push({ url, method, body });
 
     if (url.startsWith("/api/foss/quote")) {
-      // No usable price → the panel keeps its default quote for the symbol.
-      return Response.json({});
+      // Issue #924 (pin-rule update in the same PR): the panel no longer
+      // falls back to a hardcoded preset when the quote fetch carries no
+      // price — an empty quote payload now means "Quote unavailable" and
+      // no discovery run. This harness pins schedule capture, not quote
+      // failure, so it stubs a realistic LIVE quote; the unavailable path
+      // is pinned by tests/strategy_discovery_default_quotes_924.test.tsx.
+      return Response.json({
+        lastPrice: 180.0,
+        change: 1.5,
+        changePercent: 0.84,
+        companyName: "NVIDIA Corporation",
+      });
     }
     if (url.startsWith("/api/trading/options/config")) {
       return Response.json({});
