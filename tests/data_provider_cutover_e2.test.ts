@@ -22,7 +22,7 @@
  *    through the adapter (captures carry the run id that becomes the
  *    persisted scan-run id); without deps the scan output is
  *    identical and nothing is captured.
- *  - The stock screener's liveDeps binding (bindETradeScreenerDeps)
+ *  - The stock screener's quote binding (bindEtradeQuoteDeps)
  *    routes batch + single quotes through the adapter with the run
  *    context and the QuoteTrace plumbing preserved.
  *
@@ -35,7 +35,8 @@ import { makeFakeSessionStore } from "./fake-session-store";
 import { ETradeRestClient } from "../src/trading/etrade/client";
 import { ETradeService } from "../src/services/etrade";
 import { storeAccessTokens } from "../src/security/etradeOAuth";
-import { createETradeDataProvider, bindETradeScreenerDeps } from "../src/trading/dataProviders/adapters";
+import { createETradeDataProvider } from "../src/trading/dataProviders/adapters";
+import { bindEtradeQuoteDeps } from "../src/trading/screenerPipeline";
 import { bootstrapDataProviders } from "../src/trading/dataProviders/providerConfigStore";
 import {
   listProviderConfigs,
@@ -603,20 +604,25 @@ describe("UnifiedOptionsService platform cutover (issue #1157)", () => {
 // C — stock screener deps binding
 // ---------------------------------------------------------------------------
 
-describe("bindETradeScreenerDeps (issue #1157)", () => {
+describe("bindEtradeQuoteDeps (issues #1157, #1356)", () => {
   it("binds batch + single quotes to the adapter: captures land under the run context, the QuoteTrace reaches the batch call, and results carry no raw", async () => {
     const sql = freshSql();
     const deps = captureDeps(sql);
     const surface = fakeETradeSurface();
     const traceSentinel = { traceId: "trace-stock" };
-    const liveDeps = bindETradeScreenerDeps(
-      surface as any,
-      deps,
-      { runId: "run-stock", userLogin: "trader1" },
-      traceSentinel as any
-    );
+    // #1356: the E2 binding is now the pipeline's QuoteScreenerDeps
+    // binding over an adapter constructed with the same capture +
+    // QuoteTrace options the retired bindETradeScreenerDeps took.
+    const provider = createETradeDataProvider(surface as any, {
+      capture: deps,
+      trace: traceSentinel as any,
+    });
+    const quoteDeps = bindEtradeQuoteDeps(provider, {
+      runId: "run-stock",
+      userLogin: "trader1",
+    });
 
-    const quotes = await liveDeps.fetchETradeQuotes(BATCH_SYMBOLS);
+    const quotes = await quoteDeps.fetchQuotes!(BATCH_SYMBOLS);
     expect(quotes.map((q) => q.symbol)).toEqual(BATCH_SYMBOLS);
     // The existing trace plumbing reaches the service batch call.
     expect(surface.batchCalls).toHaveLength(1);
@@ -628,7 +634,7 @@ describe("bindETradeScreenerDeps (issue #1157)", () => {
     expect(captures.every((c) => c.capability === "quotes")).toBe(true);
     expect(captures.every((c) => c.rawKind === "provider-response")).toBe(true);
 
-    const single = await liveDeps.fetchETradeQuote("AAPL");
+    const single = await quoteDeps.fetchQuote("AAPL");
     expect(single.symbol).toBe("AAPL");
     expect((single as any).raw).toBeUndefined();
     captures = listCapturesByRun(sql, "default", "run-stock");
