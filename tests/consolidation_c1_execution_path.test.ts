@@ -651,32 +651,124 @@ describe("C1 R1: screening routes (goal-screen + backtest)", () => {
     beforeEach(() => {
       const closes = Array.from({ length: 60 }, (_, i) => 100 + i);
       const timestamps = closes.map((_, i) => 1767225600 + i * 86400);
+      // #923: the backtest route resolves history through the platform,
+      // whose Yahoo verification runs the conformance kit (quote, bars,
+      // fundamentals) against the live provider — the stub must serve
+      // realistic live payloads for every leg, not just bars. A
+      // meta-less chart stub now correctly fails verification (the
+      // provider no longer falls back to a profile), which degrades
+      // history to undefined and trades to zero.
       vi.stubGlobal(
         "fetch",
-        vi.fn(async () => ({
-          ok: true,
-          status: 200,
-          json: async () => ({
-            chart: {
-              result: [
-                {
-                  timestamp: timestamps,
-                  indicators: {
-                    quote: [
-                      {
-                        close: closes,
-                        open: closes,
-                        high: closes,
-                        low: closes,
-                        volume: closes.map(() => 1000),
+        vi.fn(async (input: any) => {
+          const url = String(input);
+          if (url.includes("fc.yahoo.com")) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({}),
+              text: async () => "",
+              headers: { get: (h: string) => (h === "set-cookie" ? "A1=dummy; path=/" : null) },
+            };
+          }
+          if (url.includes("getcrumb")) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({}),
+              text: async () => "dummy-crumb",
+              headers: { get: (_h: string) => null },
+            };
+          }
+          if (url.includes("/v10/finance/quoteSummary/")) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                quoteSummary: {
+                  result: [
+                    {
+                      price: { longName: "Test Corporation", marketCap: { raw: 1e12 } },
+                      summaryDetail: {
+                        trailingPE: { raw: 25 },
+                        forwardPE: { raw: 22 },
+                        marketCap: { raw: 1e12 },
+                        fiftyTwoWeekHigh: { raw: 160 },
+                        fiftyTwoWeekLow: { raw: 90 },
+                        dividendYield: { raw: 0.01 },
                       },
-                    ],
-                  },
+                      defaultKeyStatistics: {
+                        enterpriseValue: { raw: 1.1e12 },
+                        pegRatio: { raw: 1.2 },
+                        priceToBook: { raw: 10 },
+                        beta: { raw: 1.1 },
+                      },
+                      financialData: {
+                        targetMeanPrice: { raw: 170 },
+                        targetHighPrice: { raw: 190 },
+                        targetLowPrice: { raw: 140 },
+                        recommendationKey: "buy",
+                        recommendationMean: { raw: 2.0 },
+                        numberOfAnalystOpinions: { raw: 20 },
+                        profitMargins: { raw: 0.3 },
+                        operatingMargins: { raw: 0.35 },
+                        returnOnEquity: { raw: 0.4 },
+                        totalRevenue: { raw: 5e10 },
+                        grossProfits: { raw: 3e10 },
+                        ebitda: { raw: 2e10 },
+                        freeCashflow: { raw: 1e10 },
+                      },
+                    },
+                  ],
                 },
-              ],
-            },
-          }),
-        }))
+              }),
+              text: async () => "",
+              headers: { get: (_h: string) => null },
+            };
+          }
+          const chartSym = url.split("/v8/finance/chart/")[1]?.split("?")[0] || "ZZC1";
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              chart: {
+                result: [
+                  {
+                    meta: {
+                      symbol: decodeURIComponent(chartSym),
+                      longName: "Test Corporation",
+                      currency: "USD",
+                      regularMarketPrice: 159,
+                      regularMarketPreviousClose: 158,
+                      chartPreviousClose: 158,
+                      regularMarketVolume: 60000,
+                      regularMarketDayHigh: 160,
+                      regularMarketDayLow: 157,
+                      fiftyTwoWeekHigh: 160,
+                      fiftyTwoWeekLow: 90,
+                      bid: 158.9,
+                      ask: 159.1,
+                    },
+                    timestamp: timestamps,
+                    indicators: {
+                      quote: [
+                        {
+                          close: closes,
+                          open: closes,
+                          high: closes,
+                          low: closes,
+                          volume: closes.map(() => 1000),
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            }),
+            text: async () => "",
+            headers: { get: (_h: string) => null },
+          };
+        })
       );
     });
     afterEach(() => vi.unstubAllGlobals());
