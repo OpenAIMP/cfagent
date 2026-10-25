@@ -17,7 +17,7 @@ import { FossResearchService } from "../services/fossResearch";
  */
 export class FossGetQuoteCommand implements IMcpToolCommand {
   readonly name = "foss_get_quote";
-  readonly description = "Retrieve market quote, bid/ask spread, 24h change, and volume using FOSS engines (Yahoo Finance or Alpaca Market Data v2). The result carries `provenance` (live/static/generated): when a live fetch fails the quote falls back to non-live FOSS data and says so — never present a non-live quote as live provider data.";
+  readonly description = "Retrieve market quote, bid/ask spread, 24h change, and volume using FOSS engines (Yahoo Finance or Alpaca Market Data v2). Live-only (#923): the result carries `provenance` 'live'; when a live fetch fails the command throws an explicit unavailable error — no static or generated substitute is served.";
 
   readonly jsonSchema = {
     type: "object" as const,
@@ -47,7 +47,7 @@ export class FossGetQuoteCommand implements IMcpToolCommand {
  */
 export class FossFundamentalsCommand implements IMcpToolCommand {
   readonly name = "foss_company_fundamentals";
-  readonly description = "Extract comprehensive company fundamentals, valuation ratios (P/E, PEG, Price-to-Book, Beta), 52-week statistics, and analyst targets via Yahoo Finance FOSS. The result carries `provenance` (live/static/generated): non-live fundamentals include formula-estimated analyst fields and must not be presented as live analyst data.";
+  readonly description = "Extract comprehensive company fundamentals, valuation ratios (P/E, PEG, Price-to-Book, Beta), 52-week statistics, and analyst targets via Yahoo Finance FOSS. Live-only (#923): the result carries `provenance` 'live'; when live fundamentals cannot be fetched the command throws an explicit unavailable error — no profile or formula-estimated analyst fields are served.";
 
   readonly jsonSchema = {
     type: "object" as const,
@@ -75,7 +75,7 @@ export class FossFundamentalsCommand implements IMcpToolCommand {
  */
 export class FossHistoricalBarsCommand implements IMcpToolCommand {
   readonly name = "foss_historical_bars";
-  readonly description = "Query historical OHLCV pricing bars, VWAP, and volume series for equities and crypto. Every bar carries `provenance` (live/generated): when the provider fetch fails the series is synthetically generated from the FOSS profile and labelled generated — not historical market data.";
+  readonly description = "Query historical OHLCV pricing bars, VWAP, and volume series for equities and crypto. Live-only (#923): every bar carries `provenance` 'live'; when the provider fetch fails the command throws an explicit unavailable error — no synthetic bars are served.";
 
   readonly jsonSchema = {
     type: "object" as const,
@@ -108,7 +108,7 @@ export class FossHistoricalBarsCommand implements IMcpToolCommand {
  */
 export class FossMarketResearchCommand implements IMcpToolCommand {
   readonly name = "foss_market_research";
-  readonly description = "Generate an autonomous equity research report synthesizing quoting, valuation, technical RSI/MACD indicators, analyst targets, and cryptographic W3C Agent DID attestation. The report carries `provenance` (weakest of its inputs) — a non-live report is based on static/generated FOSS data, its target is a profile estimate (not analyst consensus), and its attestation binds that provenance into the signed payload.";
+  readonly description = "Generate an autonomous equity research report synthesizing quoting, valuation, technical RSI/MACD indicators, analyst targets, and cryptographic W3C Agent DID attestation. Live-only (#923): the report carries `provenance` 'live' and its attestation binds that provenance into the signed payload; when any live input cannot be fetched the command throws an explicit unavailable error — no non-live report is assembled.";
 
   readonly jsonSchema = {
     type: "object" as const,
