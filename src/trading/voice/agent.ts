@@ -25,7 +25,6 @@ import { DatabaseORM, requireOrm } from "../../orm";
 import { ETradeService } from "../../services/etrade";
 import { executeNaturalLanguageQuery, type NLQSchedulingPort } from "../../agents/nlq";
 import { AGENT_DIDS } from "../../agents/did";
-import type { ChannelPrincipal } from "../channels/intake";
 import { getVoiceConfig, getTradingConstraints } from "../../config/etapiConfig";
 import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
 
@@ -131,20 +130,14 @@ export class ETradeVoiceTradingService {
    *  contexts with no hosting agent; scheduling turns then fail
    *  honestly instead of claiming success. */
   private schedulingPort?: NLQSchedulingPort;
-  /** Issue #1262 Phase 1: the resolved channel principal (voice adopts
-   *  the shared ChannelIntake contract type; behaviour unchanged — the
-   *  voice principal is the session login at tier "trade"). */
-  private principal?: ChannelPrincipal;
 
   constructor(
     envOrOrm: Env | DatabaseORM,
     ormOrEnv?: DatabaseORM | Env,
     private sessionId: string = "voice_agent_session",
-    schedulingPort?: NLQSchedulingPort,
-    principal?: ChannelPrincipal
+    schedulingPort?: NLQSchedulingPort
   ) {
     this.schedulingPort = schedulingPort;
-    this.principal = principal;
     if (envOrOrm instanceof DatabaseORM || (envOrOrm && ("initializeSchema" in (envOrOrm as any) || "watchlists" in (envOrOrm as any)))) {
       this.orm = envOrOrm as DatabaseORM;
       this.env = ormOrEnv as Env;
@@ -162,7 +155,7 @@ export class ETradeVoiceTradingService {
     const cleanTranscript = normalizeVoiceTradingTranscript(rawTranscript, this.env);
     const timestamp = new Date().toISOString();
     const userLogin = request.userLogin || this.sessionId;
-    const authorizerDid = this.principal?.authorizerDid ?? `did:user:voice:${userLogin}`;
+    const authorizerDid = `did:user:voice:${userLogin}`;
     // Issue #815: env-preserving construction (the pattern #781's
     // pass-through sites adopted). ETradeService's orm-first overload
     // assigns env from its first argument, so an undefined ORM would

@@ -33,12 +33,6 @@ import {
   ETradeSlackTradingService,
   ETradeVoiceTradingService,
 } from "../../trading";
-import {
-  parseAuthenticationResults,
-  resolvePrincipal,
-  slackPrincipalLinkStoreFromEnv,
-  type ChannelPrincipal,
-} from "../../trading";
 import type { TransactionSnapData } from "../../types";
 import type { Env } from "../../types";
 import type { DatabaseORM } from "../../orm";
@@ -80,35 +74,8 @@ export async function handleTradingIntegrationsRoutes(
   if (path.endsWith("/trading/email/inbound") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as any;
-      // Issue #1262 Phase 1: identity is the RESOLVED channel principal,
-      // never a fallback literal. Two entry shapes reach this route:
-      // (a) the session-authenticated simulator (server.ts requireAuth
-      // forwards to the caller's OWN instance with x-user-login set to
-      // the verified session login): the session IS the principal, at
-      // trade tier. (b) the Cloudflare email forward, which asserts no
-      // identity header: resolve from the payload — sender →
-      // CHANNEL_EMAIL_PRINCIPALS, gated by Authentication-Results.
-      // Unmapped (null) still constructs the service so the sender gets
-      // an explicit refusal reply; it runs nothing.
-      const headerLogin = request.headers.get("x-user-login");
-      let principal: ChannelPrincipal | null;
-      if (headerLogin) {
-        principal = {
-          userLogin: headerLogin,
-          authorizerDid: `did:user:email:${typeof body.from === "string" && body.from ? body.from : headerLogin}`,
-          tier: "trade",
-        };
-      } else {
-        principal = await resolvePrincipal(ctx.env, {
-          channel: "email",
-          channelUserId: typeof body.from === "string" ? body.from : "",
-          text: `${body.subject || ""}\n${body.text || body.html || ""}`,
-          authProof: parseAuthenticationResults(
-            typeof body.authenticationResults === "string" ? body.authenticationResults : undefined
-          ),
-        });
-      }
-      const emailService = new ETradeEmailTradingService(ctx.env, ctx.getOrm(), sessionId, principal);
+      const userLogin = request.headers.get("x-user-login") || sessionId || "email_trader";
+      const emailService = new ETradeEmailTradingService(ctx.env, ctx.getOrm(), userLogin);
       const result = await emailService.processInboundEmail(body);
       ctx.audit("trading.email_processed", "trading", { actionType: result.actionType, from: result.from, orderId: result.orderId });
       return Response.json(result);
@@ -121,40 +88,8 @@ export async function handleTradingIntegrationsRoutes(
   if (path.endsWith("/trading/slack/event") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as any;
-      // Issue #1262 Phase 1: identity is the RESOLVED channel principal
-      // (connect-code link store: team_id + user_id → login). The
-      // session-authenticated test simulator is the only forwarder that
-      // sets x-user-login (to the verified session login, routed to the
-      // caller's own instance): a session principal at trade tier. The
-      // public webhook forward asserts no identity header. The
-      // url_verification handshake carries no user and is answered by
-      // the service directly. Unlinked (null) still constructs the
-      // service so the user gets an explicit refusal — and can run the
-      // `link` DM command — but nothing executes.
-      const headerLogin = request.headers.get("x-user-login");
-      const slackLinks = slackPrincipalLinkStoreFromEnv(ctx.env);
-      let principal: ChannelPrincipal | null | undefined;
-      if (body.type === "url_verification") {
-        principal = undefined;
-      } else if (headerLogin) {
-        principal = {
-          userLogin: headerLogin,
-          authorizerDid: `did:user:slack:${body.event?.user || "unknown"}`,
-          tier: "trade",
-        };
-      } else {
-        principal = await resolvePrincipal(
-          ctx.env,
-          {
-            channel: "slack",
-            channelUserId: typeof body.event?.user === "string" ? body.event.user : "",
-            channelScopeId: typeof body.team_id === "string" ? body.team_id : "",
-            text: typeof body.event?.text === "string" ? body.event.text : "",
-          },
-          { slackLinks }
-        );
-      }
-      const slackService = new ETradeSlackTradingService(ctx.env, ctx.getOrm(), sessionId, principal, slackLinks);
+      const userLogin = request.headers.get("x-user-login") || sessionId || "slack_trader";
+      const slackService = new ETradeSlackTradingService(ctx.env, ctx.getOrm(), userLogin);
       const result = await slackService.processSlackEvent(body);
       ctx.audit("trading.slack_event", "trading", { actionType: result.actionType, handled: result.handled });
       return Response.json(result);
@@ -167,21 +102,8 @@ export async function handleTradingIntegrationsRoutes(
   if (path.endsWith("/trading/slack/interaction") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as any;
-      // Issue #1262 Phase 1: same link-store resolution as events — a
-      // button click is an approval attempt and is gated on the
-      // clicker's own linked principal inside the service.
-      const slackLinks = slackPrincipalLinkStoreFromEnv(ctx.env);
-      const principal = await resolvePrincipal(
-        ctx.env,
-        {
-          channel: "slack",
-          channelUserId: typeof body.user?.id === "string" ? body.user.id : "",
-          channelScopeId: typeof body.team?.id === "string" ? body.team.id : typeof body.team_id === "string" ? body.team_id : "",
-          text: "",
-        },
-        { slackLinks }
-      );
-      const slackService = new ETradeSlackTradingService(ctx.env, ctx.getOrm(), sessionId, principal, slackLinks);
+      const userLogin = request.headers.get("x-user-login") || sessionId || "slack_trader";
+      const slackService = new ETradeSlackTradingService(ctx.env, ctx.getOrm(), userLogin);
       const result = await slackService.processSlackInteraction(body);
       ctx.audit("trading.slack_interaction", "trading", { actionId: result.actionId, orderId: result.orderId, status: result.status });
       return Response.json(result);
@@ -222,14 +144,8 @@ export async function handleTradingIntegrationsRoutes(
   if (path.endsWith("/trading/voice/turn") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as any;
-      // Issue #1262 Phase 1: voice adopts the ChannelIntake contract
-      // type only — the principal is the session login (every entry to
-      // this route is session-authenticated in server.ts), tier "trade",
-      // behaviour unchanged.
-      const userLogin = request.headers.get("x-user-login") || sessionId;
-      const principal =
-        (await resolvePrincipal(ctx.env, { channel: "voice", channelUserId: userLogin, text: "" })) ?? undefined;
-      const voiceService = new ETradeVoiceTradingService(ctx.env, ctx.getOrm(), userLogin, ctx.nlqSchedulingPort(), principal);
+      const userLogin = request.headers.get("x-user-login") || sessionId || "voice_trader";
+      const voiceService = new ETradeVoiceTradingService(ctx.env, ctx.getOrm(), userLogin, ctx.nlqSchedulingPort());
       const result = await voiceService.processVoiceTurn({
         ...body,
         sessionId: userLogin,
@@ -244,10 +160,8 @@ export async function handleTradingIntegrationsRoutes(
 
   // Omnichannel Trading Channel: Voice Trading Welcome Greeting
   if (path.endsWith("/trading/voice/greeting") && request.method === "GET") {
-    const userLogin = request.headers.get("x-user-login") || sessionId;
-    const principal =
-      (await resolvePrincipal(ctx.env, { channel: "voice", channelUserId: userLogin, text: "" })) ?? undefined;
-    const voiceService = new ETradeVoiceTradingService(ctx.env, ctx.getOrm(), userLogin, undefined, principal);
+    const userLogin = request.headers.get("x-user-login") || sessionId || "voice_trader";
+    const voiceService = new ETradeVoiceTradingService(ctx.env, ctx.getOrm(), userLogin);
     return Response.json(voiceService.getWelcomeGreeting());
   }
 

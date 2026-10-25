@@ -93,7 +93,6 @@ const PINNED_STAR_REEXPORTS = [
   "./email/agent",
   "./slack/agent",
   "./voice/agent",
-  "./channels/intake",
   "./etrade/quoteTrace",
   "./quotePolicies",
 ];

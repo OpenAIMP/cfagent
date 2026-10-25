@@ -17,13 +17,8 @@
  *    worker email export → SEARCH_AGENT forward → DO route → service
  *    transitions the seeded ledger row to "executed".
  *  - The forward is addressed to the worker's established owner
- *    instance — never an instance derived from the (caller-controlled)
- *    sender address. #1262 Phase 1 supersedes the identity half of the
- *    original pin: the forward no longer asserts an identity header;
- *    it carries the sender + Authentication-Results, and the DO route
- *    resolves the channel principal (sender map + DKIM/SPF gate). The
- *    APPROVE below therefore runs as a mapped trade-tier principal
- *    whose message passed DKIM.
+ *    instance with the identity header set by the worker — never an
+ *    instance derived from the (caller-controlled) sender address.
  *  - A voice NLQ turn over the WebSocket reads real data via the
  *    per-turn DO forwarder (seeded store + screener fixtures).
  *  - If the orchestrator path is unavailable, both entry points keep
@@ -216,12 +211,11 @@ function seedPreviewedTrade(orm: DatabaseORM, session: string, id: string) {
   });
 }
 
-function rawEmailMessage(from: string, subject: string, text: string, authResults?: string) {
+function rawEmailMessage(from: string, subject: string, text: string) {
   const mime = [
     `From: ${from}`,
     "To: trade@agent.openaimp.com",
     `Subject: ${subject}`,
-    ...(authResults ? [`Authentication-Results: ${authResults}`] : []),
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=utf-8",
     "",
@@ -257,10 +251,6 @@ describe("issue #815: worker email export routes through the orchestrator DO", (
       AI_SEARCH_ENDPOINT: "https://ai-search.internal",
       ETRADE_ENVIRONMENT: "sandbox",
       EMAIL_AGENT_ADDRESS: "trade@agent.openaimp.com",
-      // #1262 Phase 1: the sender is a mapped trade-tier principal.
-      CHANNEL_EMAIL_PRINCIPALS: JSON.stringify({
-        "human.trader@example.com": { login: "owner-login", tier: "trade" },
-      }),
       EMAIL: {
         send: vi.fn(async (message: ReadableStream<Uint8Array>) => {
           sentMail.push(await new Response(message).text());
@@ -272,26 +262,20 @@ describe("issue #815: worker email export routes through the orchestrator DO", (
     const message = rawEmailMessage(
       "human.trader@example.com",
       "Re: HITL Action Required: Preview BUY 5 AAPL [ord_815_email_1]",
-      "APPROVE ord_815_email_1",
-      // #1262 Phase 1: the trade tier requires a DKIM (or SPF) pass on
-      // this exact message.
-      "mx.openaimp.com; dkim=pass header.d=example.com; spf=pass smtp.mailfrom=example.com"
+      "APPROVE ord_815_email_1"
     );
     await (worker as any).email(message, env, {});
 
     // The persistence work travelled the SEARCH_AGENT channel to the
     // DO-side inbound-email route, addressed to the worker's established
-    // owner instance — the instance is NOT derived from the
-    // caller-controlled sender address. #1262 Phase 1: the forward
-    // asserts NO identity header; it carries the sender and the
-    // Authentication-Results, and the DO route resolves the principal.
+    // owner instance — the identity header is set by the worker, and the
+    // instance is NOT derived from the caller-controlled sender address.
     expect(forwarded).toHaveLength(1);
     expect(forwarded[0].pathname).toBe("/trading/email/inbound");
     expect(forwarded[0].id).toBe(OWNER_INSTANCE);
-    expect(forwarded[0].userLogin).toBeNull();
+    expect(forwarded[0].userLogin).toBe(OWNER_INSTANCE);
     expect(forwarded[0].body.from).toBe("human.trader@example.com");
     expect(forwarded[0].body.text).toContain("APPROVE ord_815_email_1");
-    expect(forwarded[0].body.authenticationResults).toContain("dkim=pass");
 
     // The approval transitioned the ACTUAL seeded row.
     expect(orm.trades.findById("ord_815_email_1")?.status).toBe("executed");

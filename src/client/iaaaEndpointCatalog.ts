@@ -578,17 +578,6 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: POST /api/trading/slack/test",
   },
   {
-    id: "trading-slack-link",
-    method: "POST",
-    path: "/api/trading/slack/link",
-    aliases: [],
-    kind: "http",
-    auth: "session",
-    authNote:
-      "requireAuth; confirms a Slack connect code (#1262 Phase 1) — binds the code's Slack user (team_id + user_id) to the SESSION's login at tier trade. Self-binding only; the login is never taken from the request body.",
-    source: "src/server.ts branch: POST /api/trading/slack/link",
-  },
-  {
     id: "trading-voice-turn",
     method: "POST",
     path: "/api/trading/voice/turn",
