@@ -162,6 +162,7 @@ export class ScheduledAgent extends Agent<Env> {
         });
 
         if (!budgetOk.allowed) {
+          tick.errors.push(`${goal.id}: budget check rejected: ${budgetOk.reason ?? "disallowed"}`);
           tick.jobsSkipped++;
           continue;
         }
@@ -290,6 +291,9 @@ export class ScheduledAgent extends Agent<Env> {
             // not-fired tick (except posting disabled) — delivery is
             // independent of the day's brief, and a noBrief tick can
             // still carry undelivered backlog.
+            if (isForced || (result.reason && result.reason !== "noBrief")) {
+              tick.errors.push(`${goal.id}: skipped (${result.reason ?? "not fired"})`);
+            }
             tick.jobsSkipped++;
           } else {
             for (const r of result.publish.results) {
