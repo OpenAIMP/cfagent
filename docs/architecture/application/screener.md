@@ -38,7 +38,7 @@ flowchart TB
     subgraph Agents ["3. Agentic Layer & Pipelines"]
         A_Screener["ScreenerAgent (Durable DO)"]
         A_Research["ResearchAgent / ResearchPipeline"]
-        A_Options["OptionsAgentPipeline"]
+        A_Options["Panel pipeline (kernel)"]
         A_Report["ReportAssetAgent"]
     end
 
@@ -193,7 +193,7 @@ The screening ecosystem coordinates specialist agents operating under distinct s
 | **`ResearchAgent`** | Deep Agent / Task Coordinator | Stateful Durable Object | `OpportunityScanner`, `StrategyEngine`, `researchPipeline` | Evaluates market anomalies, constructs multi-leg setup proposals, drives research workbooks. | Draft-only authority (`proposal_only_not_promoted`); strictly non-binding proposals. |
 | **`ScheduledAgent`** | Cron Orchestrator | Ephemeral / Scheduled Worker | `scheduledTasks.ts`, `ScreenerAgent` RPC | Triggers recurring screening jobs according to configured cron expressions. | Subject to subrequest limit cap (1,000/run); bounded execution timeout. |
 | **`ReportAssetAgent`** | Service / Specialist Agent | Ephemeral Worker Binding | `screenerReportPdf.ts`, `optionsReportXlsx.ts`, KV/R2 Bindings | Renders PDF and XLSX executive summary documents and writes to persistent storage. | Returns `null` safely if storage bindings are unconfigured (`#680`). |
-| **`OptionsAgentPipeline`** | UI Discovery Specialist | Ephemeral API Service | `serverDiscovery.ts`, `unifiedOptionsService.ts` | Powers single-symbol options strategy ranking in the UI Options Discovery tab. | Read-only discovery calculations; deprecated in favor of `researchDiscovery` (#1096). |
+| **`runPanelPipeline`** | UI Discovery Specialist | Ephemeral API Service | `serverDiscovery.ts`, `unifiedOptionsService.ts` | Powers single-symbol options strategy ranking in the UI Options Discovery tab via the Recommendation Kernel panel configuration. | Read-only discovery calculations; the `OptionsAgentPipeline` class was retired in the #1256 remainder (its run mapping moved verbatim to `panelPipeline.ts`). |
 | **`EvaluatorAgent`** | Evaluator / Quality Gate | Ephemeral Execution Service | `mas_outcomes`, Falsification Rules Engine | Evaluates historical screening outcomes against realized market outcomes; computes CVaR. | Cannot modify evaluation rubrics or bypass baseline gates. |
 | **`ImprovementAgent`** | RSI Improvement Agent | Isolated Sandbox Agent | Champion/Challenger Gate, Backtest Simulator | Proposes candidate screening heuristics, indicator weights, and setup rules in isolation. | Strictly prohibited from directly touching production risk limits or live execution code. |
 
