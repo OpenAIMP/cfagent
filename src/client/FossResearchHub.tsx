@@ -1276,15 +1276,15 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <div className="quote-detail-grid">
                     <div className="detail-item">
                       <span className="lbl">Bid</span>
-                      <span className="val">${yfinanceQuote.bid.toFixed(2)}</span>
+                      <span className="val">{yfinanceQuote.bid !== undefined ? `$${yfinanceQuote.bid.toFixed(2)}` : "—"}</span>
                     </div>
                     <div className="detail-item">
                       <span className="lbl">Ask</span>
-                      <span className="val">${yfinanceQuote.ask.toFixed(2)}</span>
+                      <span className="val">{yfinanceQuote.ask !== undefined ? `$${yfinanceQuote.ask.toFixed(2)}` : "—"}</span>
                     </div>
                     <div className="detail-item">
                       <span className="lbl">Spread</span>
-                      <span className="val">${(yfinanceQuote.ask - yfinanceQuote.bid).toFixed(2)}</span>
+                      <span className="val">{yfinanceQuote.ask !== undefined && yfinanceQuote.bid !== undefined ? `$${(yfinanceQuote.ask - yfinanceQuote.bid).toFixed(2)}` : "—"}</span>
                     </div>
                     <div className="detail-item">
                       <span className="lbl">Open</span>
@@ -1343,15 +1343,15 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <div className="quote-detail-grid">
                     <div className="detail-item">
                       <span className="lbl">NBBO Bid</span>
-                      <span className="val">${alpacaQuote.bid.toFixed(2)} ({alpacaQuote.bidSize} shs)</span>
+                      <span className="val">{alpacaQuote.bid !== undefined ? `$${alpacaQuote.bid.toFixed(2)}` : "—"} ({alpacaQuote.bidSize} shs)</span>
                     </div>
                     <div className="detail-item">
                       <span className="lbl">NBBO Ask</span>
-                      <span className="val">${alpacaQuote.ask.toFixed(2)} ({alpacaQuote.askSize} shs)</span>
+                      <span className="val">{alpacaQuote.ask !== undefined ? `$${alpacaQuote.ask.toFixed(2)}` : "—"} ({alpacaQuote.askSize} shs)</span>
                     </div>
                     <div className="detail-item">
                       <span className="lbl">Spread</span>
-                      <span className="val">${(alpacaQuote.ask - alpacaQuote.bid).toFixed(2)}</span>
+                      <span className="val">{alpacaQuote.ask !== undefined && alpacaQuote.bid !== undefined ? `$${(alpacaQuote.ask - alpacaQuote.bid).toFixed(2)}` : "—"}</span>
                     </div>
                     <div className="detail-item">
                       <span className="lbl">VWAP</span>
