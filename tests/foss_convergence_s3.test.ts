@@ -430,7 +430,7 @@ describe("S3 (d) — no production caller executes the retired engine path", () 
   it("the trading barrel no longer exports the retired engine", () => {
     const barrel = readFileSync("src/trading/index.ts", "utf8");
     expect(barrel).not.toContain("yfinanceScreener");
-    expect(barrel).toContain("yahooDataSource");
+    expect(barrel).not.toContain("yahooDataSource");
   });
 });
 

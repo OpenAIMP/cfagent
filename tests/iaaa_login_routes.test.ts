@@ -1,13 +1,15 @@
 /**
  * #945 Google-as-plugin — generic provider routes in server.ts.
  *
- * Additive routes /auth/login/<providerId> and
- * /auth/callback/<providerId> dispatch through the provider
- * registry. The exact /auth/login, /auth/callback, and /login
- * GitHub behaviour is asserted unchanged. Uses the worker-fetch
- * harness pattern from tests/api_chat_auth.test.ts (mocked agent
- * SDK entry points, fake session namespace, mocked fetch for
- * provider HTTP calls — never a live provider).
+ * Routes /auth/login/<providerId> and /auth/callback/<providerId>
+ * dispatch through the provider registry. Since #1254 PR-B they
+ * are the ONLY login routes: the exact /auth/login + /auth/callback
+ * GitHub branches are deleted (pinned below as static-assets
+ * fall-through), and the /login page behaviour is asserted
+ * unchanged. Uses the worker-fetch harness pattern from
+ * tests/api_chat_auth.test.ts (mocked agent SDK entry points,
+ * fake session namespace, mocked fetch for provider HTTP calls —
+ * never a live provider).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeFakeSessionStore } from "./fake-session-store";
@@ -116,15 +118,22 @@ describe("generic provider login routes", () => {
     expect(params.get("state")).toBeTruthy();
   });
 
-  it("the exact /auth/login route still dispatches to github, unchanged", async () => {
+  it("the deleted exact /auth/login and /auth/callback paths fall through to static assets (#1254 PR-B)", async () => {
     const { env } = makeEnv({
       IAAA_WIRING_ENABLED: "1",
       IAAA_ENABLED_PROVIDERS: "github,google",
       GITHUB_CLIENT_ID: "fake-github-client-id",
+      ASSETS: {
+        fetch: async (r: Request) =>
+          new Response(`ASSET:${new URL(r.url).pathname}`, { status: 200 }),
+      },
     });
-    const res = await worker.fetch(req("/auth/login"), env);
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location") ?? "").toContain("github.com/login/oauth/authorize");
+    const login = await worker.fetch(req("/auth/login"), env);
+    expect(login.status).toBe(200);
+    expect(await login.text()).toBe("ASSET:/auth/login");
+    const callback = await worker.fetch(req("/auth/callback"), env);
+    expect(callback.status).toBe(200);
+    expect(await callback.text()).toBe("ASSET:/auth/callback");
   });
 
   it("/auth/callback/google rejects a bad state with 403 before any upstream call", async () => {
@@ -194,16 +203,17 @@ describe("composable /login page", () => {
     expect(html).not.toContain("/auth/login/google");
   });
 
-  it("wiring off → no-arg page keeps the exact legacy anchor block and intro, byte for byte", async () => {
+  it("wiring off → no-arg page renders the focused GitHub login button and subtitle", async () => {
     const { env } = makeEnv();
     const res = await worker.fetch(req("/login"), env);
     const html = await res.text();
     expect(html).toContain(
-      "<p>Sign in with your GitHub account to research and trade with human-approved, audit-logged workflows.</p>"
+      '<p class="subtitle">Sign in with your GitHub account to access your trading workspace.</p>'
     );
-    // The legacy anchor block, verbatim (indentation included).
-    expect(html).toContain('<a href="/auth/login" class="btn">\n      <svg viewBox="0 0 16 16"');
-    expect(html).toContain("\n      Sign in with GitHub\n    </a>");
+    // The sleek GitHub anchor block
+    expect(html).toContain('<a href="/auth/login" class="btn btn-github">');
+    expect(html).toContain("<span>Sign in with GitHub</span>");
+    expect(html).toContain('<span class="btn-arrow" aria-hidden="true">&rarr;</span>');
   });
 
   it("wiring on with google enabled → one button per enabled provider", async () => {

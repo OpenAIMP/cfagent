@@ -60,10 +60,16 @@ describe("ensureStrategyScanSchedule (#275)", () => {
     expect(when).toBe("35 * * * *");
     expect(callback).toBe("autonomousOptionsAnalysis");
     // No allowedStrategies restriction: the full strategy catalog.
+    // Consolidation C3 (#1277): the payload is now the shared
+    // builder's record (buildSchedulePayload) — it adds the
+    // creation-default maxItems stamp (the UNIVERSES NASDAQ100
+    // default the options service applied itself at run time when
+    // maxItems was absent, so the armed run is unchanged).
     expect(payload).toEqual({
       userLogin: "venus",
       environment: "PROD",
       universe: "NASDAQ100",
+      maxItems: 100,
       trigger: "scheduled",
     });
     expect(payload.allowedStrategies).toBeUndefined();

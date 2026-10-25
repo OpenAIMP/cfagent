@@ -4,10 +4,11 @@
  * completeWiredLogin (src/security/iaaaLogin.ts) parameterizes the
  * binding/session/audit/post-login flow over a normalized profile
  * { subject, loginKey, displayName, avatarUrl } + issuer. GitHub's
- * handleGithubCallbackWired delegates to it, so GitHub behaviour is
- * unchanged; this file covers the generic tail directly and through
- * a factory-built (fake) adapter, using in-memory stores and a fake
- * session namespace — no network, no live provider.
+ * factory-built adapter delegates to it (the GitHub-specific wired
+ * callback was deleted in #1254), so GitHub behaviour runs through
+ * this same tail; this file covers the generic tail directly and
+ * through a factory-built (fake) adapter, using in-memory stores
+ * and a fake session namespace — no network, no live provider.
  */
 import { describe, expect, it } from "vitest";
 import { makeFakeSessionStore } from "./fake-session-store";

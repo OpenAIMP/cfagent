@@ -278,7 +278,7 @@ describe("S8 render pins", () => {
       root.render(<ScreenersHub activeEnv="PROD" userLogin="tester" initialTab="options" />);
     });
     expect(container.textContent).toContain("Strategy Discovery & Payoff Analyzer");
-    expect(container.textContent).toContain("LLM Idea Experiment & Exporter");
+    expect(container.textContent).toContain("AI Strategy Ideas & Exporter");
   });
 
   it("the hub renders IV history under its iv-history tab", async () => {

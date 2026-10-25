@@ -1,30 +1,35 @@
 /**
- * #1254 PR-A — CHARACTERIZATION pins for the GitHub login flow.
+ * #1254 — CHARACTERIZATION pins for the GitHub login flow.
  *
- * These pins capture the CURRENT (pre-refactor) externally visible
- * behaviour of GitHub login, at the route level (src/server.ts
- * dispatch, unmodified) and at the registry level (providers.ts):
+ * Written for PR-A against the pre-refactor behaviour, at the
+ * route level (src/server.ts dispatch) and the registry level
+ * (providers.ts); PR-A kept every pin green while GitHub moved
+ * onto the factory. PR-B (this re-pin, disclosed on the PR)
+ * deletes the exact /auth/login + /auth/callback branches and
+ * the wiring-off legacy flow, so the pins now capture the
+ * post-deletion reality:
  *
- * - the exact authorize redirect (URL, parameter order and set,
- *   state mechanics) for the wiring-off start, the wiring-on exact
- *   route, and the wiring-on generic /auth/login/github route;
- * - the legacy (wiring-off) callback: session record fields exactly
- *   as today, the upstream token/profile request shapes (the legacy
- *   path is frozen by its server.ts importer, so its wire shape is
- *   part of its contract), and its styled error pages;
- * - the wired (registry) callback: session record fields (legacy +
- *   Slice 1/2 fields), the binding write, the login success/failure
+ * - the authorize redirect lives only on the generic
+ *   /auth/login/github route and carries
+ *   redirect_uri=/auth/callback/github (PR-A's legacy override
+ *   is gone with the app registration repointed);
+ * - the exact legacy paths fall through the whole auth dispatch
+ *   to the static-assets handler (env.ASSETS.fetch) — they are
+ *   ordinary asset paths now, in both wiring modes, and a stray
+ *   callback hit creates no session and makes no upstream call;
+ * - wiring OFF refuses the generic routes with the same 403
+ *   every plugin provider gets — no legacy fallback anywhere;
+ * - the wired callback runs on /auth/callback/github: session
+ *   record fields, the binding write, the login success/failure
  *   audit events, and the minimal error pages byte for byte;
- * - logout: redirect, cookie clearing, session deletion, and the
- *   wiring-on logout audit event.
+ * - logout is unchanged (it was never part of the deleted flow).
  *
- * Scoping note: for the WIRED path the upstream token-request body
- * format is deliberately NOT pinned — rationalizing that exchange
- * onto the shared oauth2 core is the point of #1254 PR-A. What is
- * pinned is everything a user, a session record, an audit log, or
- * an error page can observe. Every pin in this file passes on
- * pristine main BEFORE the refactor; the refactor must keep them
- * all green without editing this file.
+ * Pins that still describe true behaviour are byte-identical to
+ * PR-A's file. The deleted legacy-callback pins (legacy session
+ * shape, JSON token exchange, styled error pages) described a
+ * flow that no longer exists; the profile-header contract they
+ * carried for the legacy fetch is pinned for the factory fetch
+ * by tests/login_profile_headers_hotfix_p1265.test.ts.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeFakeSessionStore } from "./fake-session-store";
@@ -80,6 +85,12 @@ function makeEnv(overrides: Record<string, unknown> = {}) {
     SESSION_SECRET: "test-session-secret",
     GITHUB_CLIENT_ID: GH_ID,
     GITHUB_CLIENT_SECRET: GH_SECRET,
+    // The terminal dispatch is the static-assets handler; the
+    // stub makes fall-through observable (asset body per path).
+    ASSETS: {
+      fetch: async (r: Request) =>
+        new Response(`ASSET:${new URL(r.url).pathname}`, { status: 200 }),
+    },
     ...overrides,
   };
   return { env: env as unknown as Env, store };
@@ -157,10 +168,12 @@ describe("github authorize redirect (characterization)", () => {
   const EXPECTED_PREFIX =
     "https://github.com/login/oauth/authorize?" +
     `client_id=${GH_ID}` +
-    "&redirect_uri=https%3A%2F%2Fagent.test%2Fauth%2Fcallback" +
+    "&redirect_uri=https%3A%2F%2Fagent.test%2Fauth%2Fcallback%2Fgithub" +
     "&scope=read%3Auser&state=";
 
-  async function expectGithubRedirect(res: Response, env: Env) {
+  it("wiring ON: /auth/login/github redirects to GitHub with the generic callback and no response_type", async () => {
+    const { env } = makeEnv({ IAAA_WIRING_ENABLED: "1" });
+    const res = await worker.fetch(req("/auth/login/github"), env);
     expect(res.status).toBe(302);
     const location = res.headers.get("Location") ?? "";
     expect(location.startsWith(EXPECTED_PREFIX)).toBe(true);
@@ -170,29 +183,13 @@ describe("github authorize redirect (characterization)", () => {
     const state = params.get("state")!;
     expect(state.split(".")).toHaveLength(3);
     expect(await verifyState(env, state)).toBe(true);
-    return location;
-  }
+  });
 
-  it("wiring OFF: /auth/login redirects to GitHub with the legacy callback and no response_type", async () => {
+  it("wiring OFF: /auth/login/github is the generic 403, never a legacy fallback", async () => {
     const { env } = makeEnv();
-    const res = await worker.fetch(req("/auth/login"), env);
-    await expectGithubRedirect(res, env);
-  });
-
-  it("wiring ON: /auth/login produces the identical redirect shape", async () => {
-    const { env } = makeEnv({ IAAA_WIRING_ENABLED: "1" });
-    const off = await worker.fetch(req("/auth/login"), makeEnv().env);
-    const on = await worker.fetch(req("/auth/login"), env);
-    const strip = (r: Response) =>
-      (r.headers.get("Location") ?? "").replace(/&state=.*$/, "");
-    expect(strip(on)).toBe(strip(off));
-    await expectGithubRedirect(on, env);
-  });
-
-  it("wiring ON: /auth/login/github (generic route) produces the identical redirect shape", async () => {
-    const { env } = makeEnv({ IAAA_WIRING_ENABLED: "1" });
     const res = await worker.fetch(req("/auth/login/github"), env);
-    await expectGithubRedirect(res, env);
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("IAAA login wiring is disabled");
   });
 
   it("registry: github is an oauth2 provider with the GitHub issuer and display name", () => {
@@ -205,120 +202,37 @@ describe("github authorize redirect (characterization)", () => {
   });
 });
 
-describe("legacy callback, wiring OFF (characterization)", () => {
-  async function legacyCallback(env: Env, extra = "") {
-    const state = await createState(env);
-    return worker.fetch(
-      req(`/auth/callback?code=legacy-code&state=${encodeURIComponent(state)}${extra}`),
-      env
-    );
-  }
-
-  it("success: legacy session fields exactly, JSON token exchange, GitHub profile headers", async () => {
-    const { env, store } = makeEnv();
-    const calls = stubGithub({});
-    const res = await legacyCallback(env);
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/");
-    const cookie = res.headers.get("Set-Cookie") ?? "";
-    expect(cookie).toContain("session_id=");
-    expect(cookie).toContain("HttpOnly");
-
-    const sessions = sessionEntries(store);
-    expect(sessions).toHaveLength(1);
-    const session = sessions[0][1];
-    expect(Object.keys(session).sort()).toEqual([
-      "createdAt",
-      "githubAvatar",
-      "githubLogin",
-      "githubName",
-    ]);
-    expect(session.githubLogin).toBe("octocat");
-    expect(session.githubAvatar).toBe("https://avatars.example/4242");
-    expect(session.githubName).toBe("Octo Cat");
-    expect(typeof session.createdAt).toBe("number");
-    // No binding and no audit material on the legacy path.
-    expect([...store.keys()].some((k) => k.includes("iaaa-binding:"))).toBe(false);
-    expect(auditEvents(store)).toHaveLength(0);
-
-    const tokenCall = calls.find((c) => c.url === TOKEN_URL)!;
-    expect(tokenCall.method).toBe("POST");
-    expect(tokenCall.headers["Accept"]).toBe("application/json");
-    expect(tokenCall.headers["Content-Type"]).toBe("application/json");
-    expect(JSON.parse(tokenCall.body)).toEqual({
-      client_id: GH_ID,
-      client_secret: GH_SECRET,
-      code: "legacy-code",
-    });
-    const profileCall = calls.find((c) => c.url === PROFILE_URL)!;
-    expect(profileCall.headers["Authorization"]).toBe("Bearer fake-access-token");
-    expect(profileCall.headers["Accept"]).toBe("application/vnd.github+json");
-    expect(profileCall.headers["User-Agent"]).toBe("ai-search-agent");
+describe("deleted exact legacy paths (PR-B fall-through)", () => {
+  it("exact /auth/login falls through to the static-assets handler in both wiring modes", async () => {
+    for (const overrides of [{}, { IAAA_WIRING_ENABLED: "1" }]) {
+      const { env } = makeEnv(overrides);
+      const res = await worker.fetch(req("/auth/login"), env);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("ASSET:/auth/login");
+    }
   });
 
-  it("provider error parameter → 400 on the styled legacy error page", async () => {
-    const { env } = makeEnv();
-    const res = await worker.fetch(req("/auth/callback?error=access_denied"), env);
-    expect(res.status).toBe(400);
-    const body = await res.text();
-    expect(body).toContain("GitHub authentication was cancelled or failed: access_denied");
-    expect(body).toContain("Return to Sign In");
-  });
-
-  it("missing code/state → 400 styled page", async () => {
-    const { env } = makeEnv();
-    const res = await worker.fetch(req("/auth/callback"), env);
-    expect(res.status).toBe(400);
-    const body = await res.text();
-    expect(body).toContain("Missing required authorization code or state parameter");
-    expect(body).toContain("Return to Sign In");
-  });
-
-  it("bad state → 403 styled page and zero upstream calls", async () => {
-    const { env } = makeEnv();
-    const calls = stubGithub({});
-    const res = await worker.fetch(req("/auth/callback?code=x&state=bogus"), env);
-    expect(res.status).toBe(403);
-    const body = await res.text();
-    expect(body).toContain("Invalid or expired OAuth state session. Please try signing in again.");
-    expect(body).toContain("Return to Sign In");
-    expect(calls).toHaveLength(0);
-  });
-
-  it("token endpoint HTTP failure → 502 styled page with the upstream status", async () => {
-    const { env } = makeEnv();
-    stubGithub({ tokenStatus: 502, tokenBody: { error: "bad" } });
-    const res = await legacyCallback(env);
-    expect(res.status).toBe(502);
-    expect(await res.text()).toContain("Token exchange failed with upstream status 502");
-  });
-
-  it("token 200 with an error payload → 400 styled page with the provider description", async () => {
-    const { env } = makeEnv();
-    stubGithub({
-      tokenBody: {
-        error: "bad_verification_code",
-        error_description: "The code passed is incorrect or expired.",
-      },
-    });
-    const res = await legacyCallback(env);
-    expect(res.status).toBe(400);
-    expect(await res.text()).toContain("The code passed is incorrect or expired.");
-  });
-
-  it("profile fetch failure → 502 styled page naming GitHub", async () => {
-    const { env } = makeEnv();
-    stubGithub({ profileStatus: 500, profileBody: {} });
-    const res = await legacyCallback(env);
-    expect(res.status).toBe(502);
-    expect(await res.text()).toContain("Failed to fetch user profile from GitHub");
+  it("exact /auth/callback falls through in both wiring modes: no session, no upstream call", async () => {
+    for (const overrides of [{}, { IAAA_WIRING_ENABLED: "1" }]) {
+      const { env, store } = makeEnv(overrides);
+      const calls = stubGithub({});
+      const state = await createState(env);
+      const res = await worker.fetch(
+        req(`/auth/callback?code=stray-code&state=${encodeURIComponent(state)}`),
+        env
+      );
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("ASSET:/auth/callback");
+      expect(calls).toHaveLength(0);
+      expect(sessionEntries(store)).toHaveLength(0);
+    }
   });
 });
 
-describe("wired callback, wiring ON (characterization)", () => {
+describe("wired callback on /auth/callback/github (characterization)", () => {
   const WIRED = { IAAA_WIRING_ENABLED: "1" };
 
-  async function wiredCallback(env: Env, path = "/auth/callback", code = "wired-code") {
+  async function wiredCallback(env: Env, path = "/auth/callback/github", code = "wired-code") {
     const state = await createState(env);
     return worker.fetch(
       req(`${path}?code=${code}&state=${encodeURIComponent(state)}`),
@@ -372,16 +286,13 @@ describe("wired callback, wiring ON (characterization)", () => {
     expect(events[0].correlationId).toBe(sessionKey.replace("sessions:", ""));
   });
 
-  it("success via the generic /auth/callback/github route: same wired session shape", async () => {
-    const { env, store } = makeEnv(WIRED);
-    stubGithub({});
-    const res = await wiredCallback(env, "/auth/callback/github");
-    expect(res.status).toBe(302);
-    const sessions = sessionEntries(store);
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0][1].providerIssuer).toBe("https://github.com");
-    expect(sessions[0][1].providerSubject).toBe("4242");
-    expect(sessions[0][1].githubLogin).toBe("octocat");
+  it("wiring OFF: the generic callback route is the generic 403 with zero upstream calls", async () => {
+    const { env } = makeEnv();
+    const calls = stubGithub({});
+    const res = await worker.fetch(req("/auth/callback/github?code=x&state=bogus"), env);
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("IAAA login wiring is disabled");
+    expect(calls).toHaveLength(0);
   });
 
   it("null profile name falls back to the login in the session", async () => {
@@ -394,7 +305,7 @@ describe("wired callback, wiring ON (characterization)", () => {
 
   it("provider error parameter → 400, minimal error page byte for byte", async () => {
     const { env } = makeEnv(WIRED);
-    const res = await worker.fetch(req("/auth/callback?error=access_denied"), env);
+    const res = await worker.fetch(req("/auth/callback/github?error=access_denied"), env);
     expect(res.status).toBe(400);
     expect(await res.text()).toBe(
       minimalPage("GitHub authentication was cancelled or failed: access_denied")
@@ -403,7 +314,7 @@ describe("wired callback, wiring ON (characterization)", () => {
 
   it("missing code/state → 400, minimal error page byte for byte", async () => {
     const { env } = makeEnv(WIRED);
-    const res = await worker.fetch(req("/auth/callback"), env);
+    const res = await worker.fetch(req("/auth/callback/github"), env);
     expect(res.status).toBe(400);
     expect(await res.text()).toBe(
       minimalPage("Missing required authorization code or state parameter")
@@ -413,7 +324,7 @@ describe("wired callback, wiring ON (characterization)", () => {
   it("bad state → 403, minimal error page byte for byte, zero upstream calls", async () => {
     const { env } = makeEnv(WIRED);
     const calls = stubGithub({});
-    const res = await worker.fetch(req("/auth/callback?code=x&state=bogus"), env);
+    const res = await worker.fetch(req("/auth/callback/github?code=x&state=bogus"), env);
     expect(res.status).toBe(403);
     expect(await res.text()).toBe(
       minimalPage("Invalid or expired OAuth state session. Please try signing in again.")
