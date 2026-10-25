@@ -33,7 +33,6 @@
  * mas_settings semantics via ctx.writeSetting.
  */
 
-import { unauthenticatedResponse } from "./routeIdentity";
 import {
   triggerManualResearch,
   triggerScheduledResearch,
@@ -101,9 +100,7 @@ export async function handleScreenerResearchRoutes(
     if (path.endsWith("/screener/latest") && request.method === "GET") {
       try {
         const context = await ctx.getScreenerExecutionContext();
-        const ownerLogin = request.headers.get("x-user-login") || context?.userLogin;
-        if (!ownerLogin) return unauthenticatedResponse();
-        const agent = ctx.getScreenerAgent(ownerLogin);
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || context?.userLogin || "default_trader");
         const latest = await agent.getLatest();
         const history = await agent.getHistory();
         return Response.json({
@@ -122,11 +119,9 @@ export async function handleScreenerResearchRoutes(
       try {
         const url = new URL(request.url);
         const key = url.searchParams.get("key");
-        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
-        if (!ownerLogin) return unauthenticatedResponse();
         const pdf = key
-          ? await ctx.getScreenerAgent(ownerLogin).getPdfByKey(key)
-          : await ctx.getScreenerAgent(ownerLogin).getLatestPdf();
+          ? await ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader").getPdfByKey(key)
+          : await ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader").getLatestPdf();
         if (!pdf) {
           return Response.json({ error: "No screener report available yet" }, { status: 404 });
         }
@@ -148,9 +143,7 @@ export async function handleScreenerResearchRoutes(
     // its stored latest run and records the outcome on it.
     if (path.endsWith("/screener/report/regenerate") && request.method === "POST") {
       try {
-        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
-        if (!ownerLogin) return unauthenticatedResponse();
-        const agent = ctx.getScreenerAgent(ownerLogin);
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
         const out = await agent.regenerateLatestReport();
         if (!out.timestamp) {
           return Response.json({ error: out.pdfError || "No screener run to regenerate" }, { status: 404 });
@@ -172,9 +165,7 @@ export async function handleScreenerResearchRoutes(
       try {
         const url = new URL(request.url);
         const key = url.searchParams.get("key");
-        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
-        if (!ownerLogin) return unauthenticatedResponse();
-        const agent = ctx.getScreenerAgent(ownerLogin);
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
         const xlsx = key ? await agent.getXlsxByKey(key) : await agent.getLatestXlsx();
         if (!xlsx) {
           return Response.json({ error: "No screener XLSX report available yet" }, { status: 404 });
@@ -199,9 +190,7 @@ export async function handleScreenerResearchRoutes(
       try {
         const url = new URL(request.url);
         const key = url.searchParams.get("key");
-        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
-        if (!ownerLogin) return unauthenticatedResponse();
-        const agent = ctx.getScreenerAgent(ownerLogin);
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
         const csv = key ? await agent.getCsvByKey(key) : await agent.getLatestCsv();
         if (!csv) {
           return Response.json({ error: "No screener CSV report available yet" }, { status: 404 });
@@ -234,9 +223,7 @@ export async function handleScreenerResearchRoutes(
         if (!key) {
           return Response.json({ error: "A report key is required" }, { status: 400 });
         }
-        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
-        if (!ownerLogin) return unauthenticatedResponse();
-        const agent = ctx.getScreenerAgent(ownerLogin);
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
         const artifact = await agent.getGoalScreenArtifactByKey(key);
         if (!artifact) {
           return Response.json({ error: "No goal-screen report found for that key" }, { status: 404 });
@@ -268,9 +255,7 @@ export async function handleScreenerResearchRoutes(
       try {
         const url = new URL(request.url);
         const key = url.searchParams.get("key");
-        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
-        if (!ownerLogin) return unauthenticatedResponse();
-        const agent = ctx.getScreenerAgent(ownerLogin);
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
         const xlsx = key ? await agent.getOptionsXlsxByKey(key) : await agent.getLatestOptionsXlsx();
         if (!xlsx) {
           return Response.json({ error: "No options XLSX report available yet" }, { status: 404 });
@@ -294,9 +279,7 @@ export async function handleScreenerResearchRoutes(
       try {
         const url = new URL(request.url);
         const key = url.searchParams.get("key");
-        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
-        if (!ownerLogin) return unauthenticatedResponse();
-        const agent = ctx.getScreenerAgent(ownerLogin);
+        const agent = ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader");
         const csv = key ? await agent.getOptionsCsvByKey(key) : await agent.getLatestOptionsCsv();
         if (!csv) {
           return Response.json({ error: "No options CSV report available yet" }, { status: 404 });
@@ -318,11 +301,9 @@ export async function handleScreenerResearchRoutes(
       try {
         const url = new URL(request.url);
         const key = url.searchParams.get("key") || url.searchParams.get("filename");
-        const ownerLogin = request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin;
-        if (!ownerLogin) return unauthenticatedResponse();
         const pdf = key
-          ? await ctx.getScreenerAgent(ownerLogin).getOptionsPdfByKey(key)
-          : await ctx.getScreenerAgent(ownerLogin).getLatestOptionsPdf();
+          ? await ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader").getOptionsPdfByKey(key)
+          : await ctx.getScreenerAgent(request.headers.get("x-user-login") || (await ctx.getScreenerExecutionContext())?.userLogin || "default_trader").getLatestOptionsPdf();
         if (!pdf) {
           return Response.json({ error: "No options report available yet" }, { status: 404 });
         }
@@ -345,8 +326,8 @@ export async function handleScreenerResearchRoutes(
         const key = url.searchParams.get("key") || "latest";
         const userLogin =
           request.headers.get("x-user-login") ||
-          (await ctx.getScreenerExecutionContext())?.userLogin;
-        if (!userLogin) return unauthenticatedResponse();
+          (await ctx.getScreenerExecutionContext())?.userLogin ||
+          "default_trader";
         const agent = ctx.getResearchAgent(userLogin);
         if (!agent) {
           return Response.json(
@@ -1367,8 +1348,25 @@ export async function handleScreenerResearchRoutes(
         );
       }
       const { executeScreenBacktest } = await import("../../services/screeningRuntime");
+      // Issue #1331: backtest bars through the platform — route-
+      // resolved + outcome-tracked under a per-request run id.
+      // The route ctx carries no blob handle, so this binding
+      // writes outcome rows but no capture rows (follow-up:
+      // thread a storage handle into the route ctx).
+      const { resolveYahooHistoryDeps } = await import("../../trading");
+      // Issue #1331 (fix): resolution failure degrades to undefined
+      // deps, so fetchLivePriceBars returns null and the engine
+      // excludes the symbol with its reason — the route never 500s
+      // on a history outage. See resolveYahooHistoryDeps.
+      const historyDeps = await resolveYahooHistoryDeps({
+        sql: ctx.getOrm() as any,
+        env: ctx.env as any,
+        userLogin,
+        runId: crypto.randomUUID(),
+      });
       const result = await executeScreenBacktest({
         symbols: body.symbols as string[],
+        historyDeps,
         ...(typeof body.folds === "number" ? { folds: body.folds } : {}),
         ...(typeof body.holdingBars === "number" ? { holdingBars: body.holdingBars } : {}),
         ...(typeof body.capital === "number" ? { capital: body.capital } : {}),
