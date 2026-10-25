@@ -198,7 +198,8 @@ export interface ETradeDataProviderOptions {
  */
 type ETradeRawChainSurface = {
   getOptionChains(
-    params: OptionsChainRequest & { includeRawResponse?: boolean }
+    params: OptionsChainRequest & { includeRawResponse?: boolean },
+    requestBudget?: import("../interfaces").OptionRequestBudget
   ): Promise<ETradeOptionChain | null>;
 };
 
@@ -295,7 +296,8 @@ export function createETradeDataProvider(
     },
     getOptionsChain: async (
       request: OptionsChainRequest,
-      runContext?: DataRunContext
+      runContext?: DataRunContext,
+      requestBudget?: import("../interfaces").OptionRequestBudget
     ) => {
       const params = {
         symbol: request.symbol,
@@ -311,7 +313,7 @@ export function createETradeDataProvider(
         return tag(
           "etrade",
           "optionsChains",
-          await service.getOptionChains(params)
+          await (requestBudget ? service.getOptionChains(params, requestBudget) : service.getOptionChains(params))
         );
       }
       const ctx = resolveRunContext(runContext);
@@ -327,11 +329,18 @@ export function createETradeDataProvider(
         },
         () =>
           capture
-            ? (service as ETradeDataSurface & ETradeRawChainSurface).getOptionChains({
-                ...params,
-                includeRawResponse: true,
-              })
-            : service.getOptionChains(params)
+            ? (requestBudget
+                ? (service as ETradeDataSurface & ETradeRawChainSurface).getOptionChains({
+                    ...params,
+                    includeRawResponse: true,
+                  }, requestBudget)
+                : (service as ETradeDataSurface & ETradeRawChainSurface).getOptionChains({
+                    ...params,
+                    includeRawResponse: true,
+                  }))
+            : requestBudget
+              ? service.getOptionChains(params, requestBudget)
+              : service.getOptionChains(params)
       );
       if (!capture) {
         return tag("etrade", "optionsChains", chain);
@@ -454,13 +463,16 @@ export function createETradeDataProvider(
     },
     getOptionExpiryDates: async (
       symbol: string,
-      runContext?: DataRunContext
+      runContext?: DataRunContext,
+      requestBudget?: import("../interfaces").OptionRequestBudget
     ) => {
       if (!capture && !outcomeRecorder) {
         return tag(
           "etrade",
           "optionsChains",
-          await service.getOptionExpireDates(symbol)
+          await (requestBudget
+            ? service.getOptionExpireDates(symbol, undefined, requestBudget)
+            : service.getOptionExpireDates(symbol))
         );
       }
       const ctx = resolveRunContext(runContext);
@@ -474,7 +486,9 @@ export function createETradeDataProvider(
           tenantId: ctx.tenantId,
           userLogin: ctx.userLogin,
         },
-        () => service.getOptionExpireDates(symbol)
+        () => requestBudget
+          ? service.getOptionExpireDates(symbol, undefined, requestBudget)
+          : service.getOptionExpireDates(symbol)
       );
       if (!capture) {
         return tag("etrade", "optionsChains", dates);

@@ -255,12 +255,16 @@ function createPlatformOptionsClient(
   return new Proxy(client, {
     get(target, prop) {
       if (prop === "getOptionChains") {
-        return async (params: OptionsChainRequest) =>
-          (await provider.getOptionsChain!(params, runContext)).result;
+        return async (params: OptionsChainRequest, requestBudget?: import("../interfaces").OptionRequestBudget) =>
+          (await (requestBudget
+            ? provider.getOptionsChain!(params, runContext, requestBudget)
+            : provider.getOptionsChain!(params, runContext))).result;
       }
       if (prop === "getOptionExpireDates") {
-        return async (symbol: string) =>
-          (await provider.getOptionExpiryDates!(symbol, runContext)).result;
+        return async (symbol: string, expiryType?: string, requestBudget?: import("../interfaces").OptionRequestBudget) =>
+          (await (requestBudget
+            ? provider.getOptionExpiryDates!(symbol, runContext, requestBudget)
+            : provider.getOptionExpiryDates!(symbol, runContext))).result;
       }
       const value = Reflect.get(target, prop);
       return typeof value === "function" ? value.bind(target) : value;

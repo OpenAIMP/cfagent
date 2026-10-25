@@ -598,15 +598,17 @@ export class ETradeService {
     noOfStrikes?: number;
     includeWeekly?: boolean;
     chainType?: "CALL" | "PUT" | "CALLPUT";
-  }): Promise<ETradeOptionChain | null> {
-    return this.client.getOptionChains(params);
+  }, requestBudget?: import("../trading").OptionRequestBudget): Promise<ETradeOptionChain | null> {
+    return requestBudget ? this.client.getOptionChains(params, requestBudget) : this.client.getOptionChains(params);
   }
 
   /**
    * Real E*TRADE REST API: Get Option Expire Dates with OAuth 1.0a
    */
-  async getOptionExpireDates(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]> {
-    return this.client.getOptionExpireDates(symbol, expiryType);
+  async getOptionExpireDates(symbol: string, expiryType?: string, requestBudget?: import("../trading").OptionRequestBudget): Promise<ETradeOptionExpireDate[]> {
+    return requestBudget
+      ? this.client.getOptionExpireDates(symbol, expiryType, requestBudget)
+      : this.client.getOptionExpireDates(symbol, expiryType);
   }
 
   // Issue #155 note: this class's existing getLastError() (below)

@@ -35,7 +35,18 @@ import { ETradeError, ETradeErrorCode } from "../../aspects/errorCodes";
 import { AGENT_DIDS, getUserDid } from "../../agents/did";
 import { RemoteMcpClient } from "../../services/mcpClient";
 import { etradeOrderKind, etradePriceType, toETradeInstruments, validateTradingOrderLegs } from "./optionOrders";
-import type { TradingOrderLeg } from "../interfaces";
+import type { OptionRequestBudget, TradingOrderLeg } from "../interfaces";
+
+function fetchOptionRequest(
+  requestUrl: string,
+  init: RequestInit,
+  requestBudget?: OptionRequestBudget
+): Promise<Response> {
+  if (requestBudget && !requestBudget.tryConsume()) {
+    throw new Error("Subrequest budget exhausted before E*TRADE option fetch.");
+  }
+  return fetch(requestUrl, init);
+}
 export type ETradeMarketMoverCategory = "gainers" | "losers" | "active";
 
 function firstQuoteData(data: any): any {
@@ -59,6 +70,9 @@ export interface ETradeQuoteResult {
 }
 
 export class ETradeRestClient {
+  /** Marks that option methods charge the supplied limiter per actual fetch attempt. */
+  readonly supportsOptionRequestBudget = true;
+
   // Issue #155/#168: lastError is the failure signal for read calls.
   // Read methods clear it on entry, set it on EVERY failure return
   // (missing credentials/params, HTTP error, exception, payload-less
@@ -2397,7 +2411,7 @@ export class ETradeRestClient {
     includeWeekly?: boolean;
     chainType?: "CALL" | "PUT" | "CALLPUT";
     includeRawResponse?: boolean;
-  }): Promise<ETradeOptionChain | null> {
+  }, requestBudget?: OptionRequestBudget): Promise<ETradeOptionChain | null> {
     // Issue #155: lastError is the failure signal for this call. It is
     // cleared on entry and set on EVERY failure return below, so a null
     // result with lastError set means "upstream failure" and a null
@@ -2432,25 +2446,25 @@ export class ETradeRestClient {
     let authHeader = await this.generateOAuthHeader("GET", url);
 
     try {
-      let res = await fetch(url, {
+      let res = await fetchOptionRequest(url, {
         method: "GET",
         headers: {
           Authorization: authHeader,
           Accept: "application/json",
         },
-      });
+      }, requestBudget);
 
       if (!res.ok && (res.status === 404 || res.status === 400)) {
         url = fallbackUrl;
         assertSandboxUrlSafety(url, envConfig.isLive);
         authHeader = await this.generateOAuthHeader("GET", url);
-        res = await fetch(url, {
+        res = await fetchOptionRequest(url, {
           method: "GET",
           headers: {
             Authorization: authHeader,
             Accept: "application/json",
           },
-        });
+        }, requestBudget);
       }
 
       if (!res.ok) {
@@ -2540,7 +2554,7 @@ export class ETradeRestClient {
    * Market API: Get Option Expire Dates
    * GET /v1/market/optionexpiredate
    */
-  async getOptionExpireDates(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]> {
+  async getOptionExpireDates(symbol: string, expiryType?: string, requestBudget?: OptionRequestBudget): Promise<ETradeOptionExpireDate[]> {
     // Issue #155: same lastError contract as getOptionChains — cleared
     // on entry, set on every failure return, so an empty result with
     // lastError set means "upstream failure" and an empty result
@@ -2567,25 +2581,25 @@ export class ETradeRestClient {
     let authHeader = await this.generateOAuthHeader("GET", url);
 
     try {
-      let res = await fetch(url, {
+      let res = await fetchOptionRequest(url, {
         method: "GET",
         headers: {
           Authorization: authHeader,
           Accept: "application/json",
         },
-      });
+      }, requestBudget);
 
       if (!res.ok && (res.status === 404 || res.status === 400)) {
         url = fallbackUrl;
         assertSandboxUrlSafety(url, envConfig.isLive);
         authHeader = await this.generateOAuthHeader("GET", url);
-        res = await fetch(url, {
+        res = await fetchOptionRequest(url, {
           method: "GET",
           headers: {
             Authorization: authHeader,
             Accept: "application/json",
           },
-        });
+        }, requestBudget);
       }
 
       if (!res.ok) {

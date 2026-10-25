@@ -22,6 +22,11 @@ import type {
   ETradeOptionExpireDate,
 } from "../types";
 
+/** Optional invocation-wide limiter for outbound option API fetch attempts. */
+export interface OptionRequestBudget {
+  tryConsume(): boolean;
+}
+
 export type TradingPlatformId = "etrade" | "alpaca" | "foss" | "sandbox";
 /** Asset classes with implemented order forms and broker routing. Extend this union with a dedicated order adapter when a new market is added. */
 export type TradeAssetClass = "equity" | "options";
@@ -112,8 +117,8 @@ export interface ITradingPlatform {
     includeWeekly?: boolean;
     chainType?: "CALL" | "PUT" | "CALLPUT";
     includeRawResponse?: boolean;
-  }): Promise<ETradeOptionChain | null>;
-  getOptionExpireDates?(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]>;
+  }, requestBudget?: OptionRequestBudget): Promise<ETradeOptionChain | null>;
+  getOptionExpireDates?(symbol: string, expiryType?: string, requestBudget?: OptionRequestBudget): Promise<ETradeOptionExpireDate[]>;
   /**
    * The broker client's last recorded error, if any (issue #155 pattern:
    * read on the SAME instance that made the call). Optional — platforms

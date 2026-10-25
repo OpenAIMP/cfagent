@@ -11,16 +11,14 @@ import { OptionsDataAgent } from "../src/trading/options/optionsDataAgent";
 import { OpportunityScanner } from "../src/trading/options/opportunityScanner";
 
 /**
- * Issue #1204: the options chain path fanned out unbounded — per symbol,
- * 1 expire-dates call + up to maxExpirationsPerSymbol (default 100) chain
- * calls — so a 100-symbol scheduled scan attempted ~1,100–1,600 HTTP
- * subrequests in one Worker invocation, tripped the per-invocation
- * subrequest cap, and failed 100 of 100 underlyings (Slack evidence
- * 2026-10-23 11:20 EDT: "Too many subrequests by single Worker
- * invocation"). These tests pin the fix: a per-scan subrequest budget —
- * fetches stop at the budget, remaining symbols are DEFERRED with a
- * named reason (never misreported as broker failures, never retried
- * inside the same invocation), and the scan evaluates what fit.
+ * Issue #1204 introduced a shared per-scan ledger, but it counted
+ * logical provider calls. Each E*TRADE call can issue a second `.json`
+ * fetch on HTTP 400/404, so the ledger could still exceed the Worker
+ * request limit (#1545, matching the 100-symbol Slack failure). These
+ * tests pin the fix: the budget is charged at each actual fetch attempt,
+ * including fallbacks; remaining symbols are deferred with a named
+ * reason (never misreported as provider failures or retried), and the
+ * scan evaluates the coverage that fit.
  */
 
 function expiryAtDte(dte: number): ETradeOptionExpireDate {
@@ -72,12 +70,14 @@ function makeCountingClient() {
   const calls = { expireDates: 0, chains: 0, total: 0 };
   const client = {
     lastError: undefined as string | undefined,
-    getOptionExpireDates: vi.fn(async (_symbol: string) => {
+    getOptionExpireDates: vi.fn(async (_symbol: string, _expiryType?: string, budget?: { tryConsume(): boolean }) => {
+      if (budget && !budget.tryConsume()) return [];
       calls.expireDates++;
       calls.total++;
       return expiries;
     }),
-    getOptionChains: vi.fn(async (params: { symbol: string; expiryYear?: number; expiryMonth?: number; expiryDay?: number }) => {
+    getOptionChains: vi.fn(async (params: { symbol: string; expiryYear?: number; expiryMonth?: number; expiryDay?: number }, budget?: { tryConsume(): boolean }) => {
+      if (budget && !budget.tryConsume()) return null;
       calls.chains++;
       calls.total++;
       const expiry = params.expiryYear
@@ -93,14 +93,42 @@ function symbols(n: number): string[] {
   return Array.from({ length: n }, (_, i) => `S${String(i).padStart(3, "0")}`);
 }
 
-describe("config: subrequest budget (#1204)", () => {
+describe("config: actual-fetch budget (#1545)", () => {
   it("ships a conservative default under the Workers per-invocation cap", () => {
     const cfg = getScreenerConfig();
-    expect(cfg.subrequestBudget).toBe(500);
+    expect(cfg.subrequestBudget).toBe(400);
   });
 });
 
-describe("DynamicOptionsScreener subrequest budget (#1204)", () => {
+describe("DynamicOptionsScreener actual-fetch budget (#1545)", () => {
+  it("counts each actual fetch attempt, including an API fallback attempt", async () => {
+    const expiries = [expiryAtDte(20)];
+    const attempts = { total: 0 };
+    const client = {
+      supportsOptionRequestBudget: true,
+      lastError: undefined as string | undefined,
+      getOptionExpireDates: async (_symbol: string, _expiryType: string | undefined, budget: { tryConsume(): boolean }) => {
+        if (!budget.tryConsume()) return [];
+        attempts.total++;
+        return expiries;
+      },
+      getOptionChains: async (params: { symbol: string }, budget: { tryConsume(): boolean }) => {
+        if (!budget.tryConsume()) return null;
+        attempts.total++;
+        // The first .json fallback would be a second real fetch attempt.
+        if (!budget.tryConsume()) return null;
+        attempts.total++;
+        return makeChain(params.symbol, expiries[0]);
+      },
+    } as unknown as ETradeRestClient;
+    const result = await new DynamicOptionsScreener(client, { subrequestBudget: 2 })
+      .screenOptions({ underlyingSymbols: ["AAA"], minDte: 0, maxDte: 90 });
+
+    expect(attempts.total).toBe(2);
+    expect(result.totalContractsEvaluated).toBe(0);
+    expect(result.fetchErrors?.some((error) => error.reason === SUBREQUEST_BUDGET_DEFERRED_REASON)).toBe(true);
+  });
+
   it("never issues more fetches than the budget, and still evaluates the symbols that fit", async () => {
     const { client, calls } = makeCountingClient();
     const screener = new DynamicOptionsScreener(client, { subrequestBudget: 25 });
@@ -175,7 +203,7 @@ describe("DynamicOptionsScreener subrequest budget (#1204)", () => {
   });
 });
 
-describe("OpportunityScanner under the subrequest budget (#1204)", () => {
+describe("OpportunityScanner under the actual-fetch budget (#1545)", () => {
   it("evaluates early symbols and skips deferred ones with the budget reason instead of failing the universe", async () => {
     const { client, calls } = makeCountingClient();
     const screener = new DynamicOptionsScreener(client, { subrequestBudget: 25 });

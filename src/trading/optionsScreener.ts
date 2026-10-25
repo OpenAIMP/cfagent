@@ -82,16 +82,31 @@ export const SUBREQUEST_BUDGET_DEFERRED_REASON =
  * ledger is shared across every per-symbol call of one scan (the
  * opportunity scanner snapshots symbols one by one over one screener
  * instance), so the bound applies to the scan, not to each symbol.
- * Spend is recorded synchronously at issue time, before the fetch's
- * first await, so pooled concurrency cannot overspend it.
+ * The E*TRADE client charges it synchronously at each outbound fetch,
+ * including any .json fallback, so concurrent calls cannot overspend.
  */
 export interface SubrequestBudget {
   readonly limit: number;
   used: number;
+  exhausted: boolean;
+  tryConsume(): boolean;
 }
 
 export function createSubrequestBudget(limit: number): SubrequestBudget {
-  return { limit: Math.max(0, Math.floor(limit)), used: 0 };
+  const budget: SubrequestBudget = {
+    limit: Math.max(0, Math.floor(limit)),
+    used: 0,
+    exhausted: false,
+    tryConsume() {
+      if (budget.used >= budget.limit) {
+        budget.exhausted = true;
+        return false;
+      }
+      budget.used += 1;
+      return true;
+    },
+  };
+  return budget;
 }
 
 /** Runs `fn` over `items` with at most `limit` in-flight executions, preserving order. */
@@ -332,9 +347,8 @@ export class DynamicOptionsScreener {
     // Issue #1204: budget gate. A symbol that cannot afford even its
     // expire-dates fetch is deferred — no fetch is issued for it, and
     // the deferral is reported under its own name, never as an
-    // upstream failure. Spend is recorded synchronously at issue time
-    // (before the first await) so the symbol/expiry pools cannot
-    // overspend the shared ledger.
+    // upstream failure. The client charges at the fetch boundary before
+    // awaiting the network, so the symbol/expiry pools cannot overspend.
     if (budget.used >= budget.limit) {
       return {
         chains: [],
@@ -343,13 +357,20 @@ export class DynamicOptionsScreener {
         deferred: true,
       };
     }
-    budget.used += 1;
     let expirations: Array<{ year: number; month: number; day: number }> = [];
     let expirationError: string | null = null;
     try {
-      expirations = await client.getOptionExpireDates(symbol);
+      if (client.supportsOptionRequestBudget) {
+        expirations = await client.getOptionExpireDates(symbol, undefined, budget);
+      } else if (budget.tryConsume()) {
+        // Compatibility for injected providers without a wire-level limiter.
+        expirations = await client.getOptionExpireDates(symbol);
+      }
     } catch (err) {
       expirationError = err instanceof Error ? err.message : "Expiration date fetch failed.";
+    }
+    if (budget.exhausted) {
+      return { chains: [], fetchErrors: [{ symbol, reason: SUBREQUEST_BUDGET_DEFERRED_REASON }], expirationsTruncated: 0, deferred: true };
     }
 
     const now = new Date();
@@ -380,8 +401,14 @@ export class DynamicOptionsScreener {
           deferred: true,
         };
       }
-      budget.used += 1;
-      const chain = await client.getOptionChains({ symbol }).catch(() => null);
+      const chain = await (client.supportsOptionRequestBudget
+        ? client.getOptionChains({ symbol }, budget)
+        : budget.tryConsume()
+          ? client.getOptionChains({ symbol })
+          : Promise.resolve(null)).catch(() => null);
+      if (budget.exhausted) {
+        return { chains: [], fetchErrors: [{ symbol, reason: SUBREQUEST_BUDGET_DEFERRED_REASON }], expirationsTruncated: 0, deferred: true };
+      }
       if (chain) return { chains: [chain], fetchErrors: [], expirationsTruncated: 0, deferred: false };
       return {
         chains: [],
@@ -404,14 +431,13 @@ export class DynamicOptionsScreener {
     ])).values()).sort((a, b) => Date.UTC(a.year, a.month - 1, a.day) - Date.UTC(b.year, b.month - 1, b.day));
     const requested = uniqueSelected.slice(0, this.config.maxExpirationsPerSymbol);
     const expirationsTruncated = uniqueSelected.length - requested.length;
-    // Issue #1204: only the expirations the remaining budget can pay
-    // for are fetched; the rest are deferred and reported as such.
-    // The spend for the whole batch is recorded synchronously, before
-    // the pooled fetches start, so concurrent symbols cannot overspend.
+    // Use the remaining budget to cap the planned batch. The client
+    // enforces the hard limit at each actual fetch attempt, including a
+    // fallback; pooled symbols cannot overspend even if an attempt uses
+    // more than one request.
     const affordable = Math.max(0, Math.min(requested.length, budget.limit - budget.used));
     const toFetch = requested.slice(0, affordable);
     const deferredExpirations = requested.length - toFetch.length;
-    budget.used += toFetch.length;
     if (toFetch.length === 0) {
       return {
         chains: [],
@@ -420,16 +446,25 @@ export class DynamicOptionsScreener {
         deferred: true,
       };
     }
-    const chains = await mapLimit(toFetch, this.config.expiryFetchConcurrency, (expiry) =>
-      client.getOptionChains({
+    const chains = await mapLimit(toFetch, this.config.expiryFetchConcurrency, (expiry) => {
+      const params = {
         symbol,
         expiryYear: expiry.year,
         expiryMonth: expiry.month,
         expiryDay: expiry.day,
         includeWeekly: true,
-      }).catch(() => null),
-    );
+      };
+      const request = client.supportsOptionRequestBudget
+        ? client.getOptionChains(params, budget)
+        : budget.tryConsume()
+          ? client.getOptionChains(params)
+          : Promise.resolve(null);
+      return request.catch(() => null);
+    });
     const fetched = chains.filter((chain): chain is ETradeOptionChain => Boolean(chain));
+    if (budget.exhausted && fetched.length === 0) {
+      return { chains: [], fetchErrors: [{ symbol, reason: SUBREQUEST_BUDGET_DEFERRED_REASON }], expirationsTruncated, deferred: true };
+    }
     if (fetched.length === 0) {
       return {
         chains: [],
@@ -454,7 +489,15 @@ export class DynamicOptionsScreener {
         reason: `${deferredExpirations} of ${requested.length} expiration fetches deferred (subrequest budget exhausted).`,
       });
     }
-    return { chains: fetched, fetchErrors, expirationsTruncated, deferred: deferredExpirations > 0 };
+    if (budget.exhausted && deferredExpirations === 0 && fetched.length < toFetch.length) {
+      fetchErrors.push({ symbol, reason: SUBREQUEST_BUDGET_DEFERRED_REASON });
+    }
+    return {
+      chains: fetched,
+      fetchErrors,
+      expirationsTruncated,
+      deferred: deferredExpirations > 0 || budget.exhausted,
+    };
   }
 
   fetchChainForSymbolSync(symbol: string): ETradeOptionChain | null {
