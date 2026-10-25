@@ -9,6 +9,12 @@ import {
   type ScreeningAssetClass,
 } from "./screeningAdapters";
 import type { ScreenedStockItem } from "../types";
+import {
+  StockCriteriaPanel,
+  defaultStockCriteria,
+  stockCriteriaToFilter,
+  type StockCriteriaState,
+} from "./StockCriteriaPanel";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "./components/CapabilityNavBar";
 import { ScreenerResultsView } from "./ScreenerResultsView";
 import { RunDetailView, type RunDetailConfirmation } from "./RunDetailView";
@@ -292,6 +298,14 @@ export function ScreenersHub({
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [trend, setTrend] = useState("all");
+  // Issue #1496 (#940-B): stock criteria panel state. All toggles default
+  // off, so existing run behavior is unchanged until the user opts in.
+  const [stockCriteria, setStockCriteria] = useState<StockCriteriaState>(defaultStockCriteria);
+  // Run request object sent with the last stock run, for the panel's view.
+  // (The request body, not just the filter: it also carries universe and
+  // minScore, and exchange as a plain string — hence Record, not
+  // StockScreenerFilter. The panel reads only its seven managed keys.)
+  const [lastSentStockFilters, setLastSentStockFilters] = useState<Record<string, unknown> | null>(null);
   const [rows, setRows] = useState<ScreenRow[]>([]);
   // Issue #261: manual run result for the unified ScreenerResultsView.
   const [universe, setUniverse] = useState("TECH");
@@ -435,7 +449,13 @@ export function ScreenersHub({
           gainersOnly: trend === "gainers" || undefined,
           losersOnly: trend === "losers" || undefined,
         } : {}),
+        // Issue #1496 (#940-B): enabled panel criteria only; a toggled-off
+        // criterion is absent, never sent as a null/zero the engine would
+        // misread. All seven fields genuinely filter on the manual path
+        // (evaluateUniverse), on both providers.
+        ...stockCriteriaToFilter(stockCriteria),
       };
+      setLastSentStockFilters(filters);
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -1073,6 +1093,11 @@ export function ScreenersHub({
             {providerSupportsFilter(activeProvider, assetClass, "limit") && (
               <label className="options-field"><span>Max results</span><input type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)} /></label>
             )}
+            <StockCriteriaPanel
+              criteria={stockCriteria}
+              onChange={setStockCriteria}
+              lastSentFilters={lastSentStockFilters}
+            />
             <div className="options-form-footer">
               <button type="submit" disabled={loading || !endpoint}>{loading ? "Screening…" : "Run stock screen"}</button>
             </div>
