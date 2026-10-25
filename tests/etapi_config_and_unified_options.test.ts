@@ -167,7 +167,7 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
       ETRADE_ENVIRONMENT: "sandbox",
     };
 
-    const service = new UnifiedOptionsService(mockEnv as Env);
+    const service = new UnifiedOptionsService(mockEnv as Env, "test-user");
     const result = await service.execute({
       action: "screen",
       symbol: "NVDA",
@@ -215,7 +215,7 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
       APP_ENV: "PROD",
       ETRADE_ENVIRONMENT: "live",
     };
-    const service = new UnifiedOptionsService(mockEnv as Env);
+    const service = new UnifiedOptionsService(mockEnv as Env, "test-user");
     const configResult = await service.execute({
       action: "config",
     });
@@ -333,7 +333,7 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
   });
 
   it("handles unified action: catalog serving 74 registered strategies across omnichannel formats", async () => {
-    const service = new UnifiedOptionsService({} as Env);
+    const service = new UnifiedOptionsService({} as Env, "test-user");
     const catalogResult = await service.execute({
       action: "catalog",
     });
@@ -366,7 +366,7 @@ describe("ETAPI Externalized Configuration & Unified Options Service", () => {
       MSFT: scanChainFixture("MSFT", 100, expiry),
     });
 
-    const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env);
+    const service = new UnifiedOptionsService({ ETRADE_ENVIRONMENT: "sandbox" } as Env, "test-user");
     const fitResult = await service.execute({
       action: "opportunities",
       symbols: ["NVDA", "AMD"],

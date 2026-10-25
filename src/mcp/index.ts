@@ -270,7 +270,7 @@ export async function readMCPResource(
     }
     case "etrade://portfolio/positions": {
       const { ETradeService } = await import("../services/etrade");
-      const etrade = new ETradeService(orm);
+      const etrade = new ETradeService(orm, undefined, sessionId);
       const holdings = etrade.getPositions();
       return {
         uri,
