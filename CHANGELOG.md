@@ -21,6 +21,8 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Default auto-merge for eligible PRs (#1509):** automatically apply the `auto-merge` label and enable rebase auto-merge for non-draft PRs targeting `main`, excluding PRs that modify workflows; require Policy Gate in the `protectmain` ruleset. #CPO-dhmp
+
 - **NLQ fit rewire with real falsification evidence (#1256, parent #1151):** the NLQ strategy-direction fit path now runs through the kernel ranking path carrying genuine falsification evidence from the fit's own gate record (`buildFitFalsificationEvidence`) — evidenced fits keep qualified/watchlist status through falsify, evidence-less fits still demote, no placeholder evidence, no falsify exemption. #COO-spr9
 
 - **IAAA #945 assurance review filed as a document (DRAFT, not adopted):** `docs/architecture/security/iaaa-945-assurance-review.md` — CISO assurance review of the #947 Phase 0 spec against epic #945 §§3–7: verdict is adopt subject to the §4 clarifications, not unconditionally; §2 assessment stale (frozen at main `975c3ed`); genesis/bootstrap, delegation cost budget, scoped re-delegation, and approval proposal-binding gaps named with required negative tests; provider recommendation Option A, fallback Option B, Option C not recommended. Filed in the repo per owner directive 2026-10-25; not posted to any issue. #CISO-bhdm
