@@ -8,6 +8,7 @@ import {
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../../services/agenticPayments";
 import { ETradeBrowserService } from "../../services/browserAgent";
 import { ETradeService } from "../../services/etrade";
+import { createComparisonRunner } from "../../services/comparisonNlqRunner";
 import { FossResearchService } from "../../services/fossResearch";
 import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
 import { UnifiedOptionsService, ETradeSlackTradingService, describeFlowProvenance, getDynamicLiveFlowItems, isNonLivePricingQuoteStatus, nonLivePricingNotice } from "../../trading";
@@ -1732,12 +1733,18 @@ async function executeNLQQueryAsyncCore(
       };
     }
 
-    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities" || action === "options_discovery" || action === "options_fit_discovery") {
+    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities" || action === "options_discovery" || action === "options_fit_discovery" || action === "options_comparison") {
       const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined, {
         scanRunStore: deps?.scanRunStore,
         profileStore: deps?.profileStore,
         discoveryRunner: deps?.discoveryRunner,
         fitDiscoveryRunner: deps?.fitDiscoveryRunner,
+        // #1257 comparison surfacing: the runner is built from the
+        // session's E*TRADE client + environment + orm ledger sink.
+        // The runner itself refuses without env, and reports
+        // non-persistence without a ledger — never a degraded
+        // quant-only run.
+        comparisonRunner: createComparisonRunner({ client: etrade.client, env, ledgerSql: orm }),
         // Issue #28: profile resolution is scoped to the session's
         // login — the same fallback chain the ETradeService above uses.
         userLogin: deps?.userLogin ?? login,
@@ -1745,7 +1752,7 @@ async function executeNLQQueryAsyncCore(
       return {
         plan,
         domain: "trading",
-        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : action === "options_discovery" ? "etrade_options_discovery" : action === "options_fit_discovery" ? "etrade_options_fit_discovery" : "etrade_options_strategies",
+        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : action === "options_discovery" ? "etrade_options_discovery" : action === "options_fit_discovery" ? "etrade_options_fit_discovery" : action === "options_comparison" ? "etrade_options_comparison" : "etrade_options_strategies",
         count: res.count,
         status: res.status,
         summary: res.summary,

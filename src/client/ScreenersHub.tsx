@@ -11,6 +11,7 @@ import {
 import type { ScreenedStockItem } from "../types";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "./components/CapabilityNavBar";
 import { ScreenerResultsView } from "./ScreenerResultsView";
+import { RunDetailView, type RunDetailConfirmation } from "./RunDetailView";
 import { ScannerPanel } from "./ScannerPanel";
 import { GoalScreenPanel } from "./GoalScreenPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -120,6 +121,10 @@ interface ScreenRun {
   timestamp: string;
   pdfKey?: string;
   reportUrl?: string;
+  pdfStatus?: "generated" | "failed" | "skipped";
+  pdfError?: string;
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed" | "skipped";
   trigger?: "manual" | "scheduled";
   universe?: string;
   sector: string;
@@ -344,6 +349,36 @@ export function ScreenersHub({
   // Issue #125: which retained run the results view shows (null = latest).
   const [selectedAutoTs, setSelectedAutoTs] = useState<string | null>(null);
   const selectedAutoRun = resolveSelectedRun(autoRuns, selectedAutoTs) ?? autoRuns[0];
+
+  // Issue #1326: delivery confirmations for the selected run, joined
+  // exactly server-side via its canonical row (run_id =
+  // `screener:<timestamp>`). Re-fetched whenever the selection changes.
+  const [runConfirmations, setRunConfirmations] = useState<RunDetailConfirmation[]>([]);
+  const [runConfirmationsLoading, setRunConfirmationsLoading] = useState(false);
+  useEffect(() => {
+    const ts = selectedAutoRun?.timestamp;
+    if (!ts) {
+      setRunConfirmations([]);
+      return;
+    }
+    let cancelled = false;
+    setRunConfirmationsLoading(true);
+    fetch(`/api/trading/reports/confirmations?runId=${encodeURIComponent(`screener:${ts}`)}`)
+      .then((res) => (res.ok ? res.json() : { confirmations: [] }))
+      .then((data: unknown) => {
+        const list = (data as { confirmations?: unknown } | null)?.confirmations;
+        if (!cancelled) setRunConfirmations(Array.isArray(list) ? (list as RunDetailConfirmation[]) : []);
+      })
+      .catch(() => {
+        if (!cancelled) setRunConfirmations([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRunConfirmationsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAutoRun?.timestamp]);
 
   const loadAuto = useCallback(async () => {
     try {
@@ -873,6 +908,15 @@ export function ScreenersHub({
                   <ScreenerResultsView
                     result={{ ...selectedAutoRun, trigger: selectedAutoRun.trigger ?? "scheduled" }}
                   />
+                  {selectedAutoRun && (
+                    <div style={{ marginTop: "0.75rem" }}>
+                      <RunDetailView
+                        run={selectedAutoRun}
+                        confirmations={runConfirmations}
+                        confirmationsLoading={runConfirmationsLoading}
+                      />
+                    </div>
+                  )}
                 </div>
               </>
             )}

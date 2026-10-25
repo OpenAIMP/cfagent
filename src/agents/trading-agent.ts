@@ -41,6 +41,7 @@ import type { Env } from "../types";
 import {
   TradingPlatformRegistry,
   UnifiedOptionsService,
+  type ExpectedTradeTerms,
   type ITradingPlatform,
   type TradingPlatformId,
 } from "../trading";
@@ -677,6 +678,13 @@ export interface TradeApprovalDecision {
   decision: "approved" | "rejected";
   authorizerDid: string;
   reason?: string;
+  /**
+   * Issue #1393 (invariant 5): the approval's frozen proposal terms.
+   * When present, the settle core forwards them to the platform,
+   * which refuses execution if the current draft no longer matches.
+   * Absent, settle keeps its historical orderId-only behaviour.
+   */
+  expectedTerms?: ExpectedTradeTerms;
 }
 
 export interface SettleTradingOrderInput {
@@ -685,6 +693,7 @@ export interface SettleTradingOrderInput {
   orderId: string;
   authorizerDid: string;
   decision: "approved" | "rejected";
+  expectedTerms?: ExpectedTradeTerms;
 }
 
 /**
@@ -740,7 +749,7 @@ export async function settleTradingOrder(
         `Provider "${platform.platformId}" does not support order execution.`,
       );
     }
-    const result = await platform.executeOrder(input.orderId, input.authorizerDid, input.decision);
+    const result = await platform.executeOrder(input.orderId, input.authorizerDid, input.decision, input.expectedTerms);
     logTradingDispatch({
       correlationId,
       door,
@@ -977,6 +986,7 @@ export class TradingAgent extends Think<Env> {
     authorizerDid: string;
     decision: "approved" | "rejected";
     reason?: string;
+    expectedTerms?: ExpectedTradeTerms;
   }): Promise<{ workflowId: string; delivered: true }> {
     if (!input?.workflowId || typeof input.workflowId !== "string") {
       throw new TradingServiceError("invalid_input", "decideTradeApproval requires a workflowId.");
@@ -999,6 +1009,7 @@ export class TradingAgent extends Think<Env> {
         decision: input.decision,
         authorizerDid: input.authorizerDid,
         reason: input.reason,
+        expectedTerms: input.expectedTerms,
       },
     });
     return { workflowId: input.workflowId, delivered: true };
