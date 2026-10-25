@@ -285,3 +285,112 @@ describe("Issue #277 — source pins (no fabricated surfaces)", () => {
     expect(chat).not.toContain("localStorage.getItem(\"cfagent_report_dispatch_hitl");
   });
 });
+
+describe("Issue #1324 — pending-review queue list (Reports)", () => {
+  const seedScreenerRow = (sql: MockSqlStorage, overrides: Record<string, unknown> = {}) => {
+    const id = (overrides.id as string) ?? "rc_screener1";
+    const createdAt =
+      (overrides.createdAt as string) ?? new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const delivery = {
+      outcome: {
+        kind: "stock",
+        universe: "SP100",
+        matchedCount: 3,
+        totalScanned: 100,
+        reportUrl: "https://agent.openaimp.com/api/screener/report.pdf?key=abc",
+      },
+      userLogin: "user1",
+      channel: "slack",
+      artifacts: [
+        { key: "pdf1", fileName: "screener-report.pdf" },
+        { key: "xlsx1", fileName: "screener-report.xlsx" },
+      ],
+      displayName: "SP100 screen",
+    };
+    sql.exec(
+      "INSERT INTO mas_report_confirmations (id, kind, payload_json, status, created_at, report_id) VALUES (?, ?, ?, ?, ?, ?)",
+      id,
+      "screener",
+      JSON.stringify({ delivery }),
+      "pending",
+      createdAt,
+      null
+    );
+    return id;
+  };
+
+  const listPending = async (agent: OrchestratorAgent) => {
+    const res = await get(agent, "/trading/reports/pending");
+    expect(res.status).toBe(200);
+    return (await res.json()) as any;
+  };
+
+  it("pending items carry expiresAt = createdAt + 24h TTL", async () => {
+    const { agent, sql } = seedAgent(makeEnv());
+    await setHitl(agent, true);
+    const id = ((await (await post(agent, "/trading/reports/email", EMAIL_BODY)).json()) as any)
+      .confirmationId as string;
+    const json = await listPending(agent);
+    const item = json.pending.find((p: any) => p.confirmationId === id);
+    expect(item).toBeDefined();
+    const row = pendingRows(sql).find((r: any) => r.id === id);
+    const expected = new Date(new Date(String(row.created_at)).getTime() + 24 * 60 * 60 * 1000).toISOString();
+    expect(item.expiresAt).toBe(expected);
+  });
+
+  it("screener items carry artifacts, channel, displayName, and the report link", async () => {
+    const { agent, sql } = seedAgent(makeEnv());
+    await get(agent, "/trading/reports/pending");
+    const id = seedScreenerRow(sql);
+    const json = await listPending(agent);
+    const item = json.pending.find((p: any) => p.confirmationId === id);
+    expect(item).toBeDefined();
+    expect(item.kind).toBe("screener");
+    expect(item.artifacts).toEqual(["screener-report.pdf", "screener-report.xlsx"]);
+    expect(item.channel).toBe("slack");
+    expect(item.displayName).toBe("SP100 screen");
+    expect(item.reportUrl).toBe("https://agent.openaimp.com/api/screener/report.pdf?key=abc");
+  });
+
+  it("email items carry their fileName as the artifact", async () => {
+    const { agent } = seedAgent(makeEnv());
+    await setHitl(agent, true);
+    const id = ((await (await post(agent, "/trading/reports/email", EMAIL_BODY)).json()) as any)
+      .confirmationId as string;
+    const json = await listPending(agent);
+    const item = json.pending.find((p: any) => p.confirmationId === id);
+    expect(item.artifacts).toEqual(["report.xlsx"]);
+  });
+
+  it("expired pending rows leave the queue, marked expired with an audit row", async () => {
+    const { agent, sql } = seedAgent(makeEnv());
+    await get(agent, "/trading/reports/pending");
+    const id = seedScreenerRow(sql, {
+      id: "rc_old",
+      createdAt: "2000-01-01T00:00:00.000Z",
+    });
+    const json = await listPending(agent);
+    expect(json.pending.find((p: any) => p.confirmationId === id)).toBeUndefined();
+    const row = pendingRows(sql).find((r: any) => r.id === id);
+    expect(row.status).toBe("expired");
+    const audits = Array.from(
+      sql.exec("SELECT * FROM mas_events WHERE type = ?", "research_report.confirmation_expired")
+    ) as any[];
+    expect(audits.some((a: any) => JSON.parse(a.payload).confirmationId === id)).toBe(true);
+  });
+
+  it("existing summary fields are unchanged (no regression)", async () => {
+    const { agent } = seedAgent(makeEnv());
+    await setHitl(agent, true);
+    const id = ((await (await post(agent, "/trading/reports/email", EMAIL_BODY)).json()) as any)
+      .confirmationId as string;
+    const json = await listPending(agent);
+    const item = json.pending.find((p: any) => p.confirmationId === id);
+    expect(item).toMatchObject({
+      confirmationId: id,
+      kind: "email",
+      detail: "analyst@example.com · report.xlsx",
+    });
+    expect(typeof item.createdAt).toBe("string");
+  });
+});
