@@ -37,7 +37,7 @@ const DEFAULT_PARTNER_DEALS: PartnerDeal[] = [
   {
     id: "ad_ai_search",
     title: "Enterprise Vector Knowledge Engine",
-    tagline: "Build institutional RAG pipelines with native auto-chunking, dense embeddings, and real-time semantic retrieval.",
+    tagline: "Build institutional knowledge pipelines with native auto-chunking, dense embeddings, and real-time semantic retrieval.",
     sponsor: "Enterprise Intelligence Network",
     badge: "FEATURED TOOL",
     url: "https://agent.openaimp.com/docs",

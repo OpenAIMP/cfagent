@@ -1,0 +1,354 @@
+/**
+ * Shard execution (issue #1355): one mas_async_jobs row's work.
+ *
+ * This module executes a single shard. It does NOT own a job
+ * model, a retry implementation, or a report pipeline:
+ *   - retry is withRetry under the pipeline policy (the bucket
+ *     comes from SHARD_RETRY_BUCKET in shardJobs.ts);
+ *   - PDF generation is runReportPipeline (ReportAssetAgent, the
+ *     #680/#914 single owner);
+ *   - XLSX/CSV generation is the existing trading generator +
+ *     the reportBlobStore seam (the persistRun blocks' pattern);
+ *   - store is orm.storeCanonicalReport + a blob read-back;
+ *   - serve/deliver are NOT executed here — serve is the existing
+ *     followup.report job, deliver the existing followup.deliver
+ *     jobs, both planned by the completion hooks.
+ * Sibling datasets are read from sibling rows' result_json (the
+ * chain's shared state), never from memory — a Worker restart
+ * between shards loses nothing.
+ */
+
+import type { DatabaseORM } from "../orm";
+import type { ETradeService } from "./etrade";
+import type { ShardChainContext } from "../types";
+import type { ShardPayload, ShardRow } from "./shardJobs";
+import {
+  assessFeedGate,
+  chainRowsFromSql,
+  SHARD_RETRY_BUCKET,
+  shardProvenanceIds,
+} from "./shardJobs";
+import { resolvePipelinePolicy } from "./pipelinePolicy";
+import { withRetry } from "./resilience";
+
+export interface ShardExecutorDeps {
+  sql: {
+    exec: (query: string, ...params: unknown[]) => Iterable<Record<string, unknown>>;
+  };
+  env: Record<string, unknown>;
+  orm: DatabaseORM;
+  /** Durable Object storage: the blob seam + capture deps. */
+  storage: any;
+  createETradeService: (userLogin: string, environment?: string) => ETradeService;
+  sessionId: string;
+  /**
+   * Issue #1368: test seam for the nasdaq feed shard — the listings
+   * fetcher the platform nasdaq adapter wraps. Production leaves it
+   * unset and the shard uses the listings module, exactly as before.
+   */
+  fetchListings?: () => Promise<unknown>;
+}
+
+function chainRows(deps: ShardExecutorDeps, chainId: string): ShardRow[] {
+  return chainRowsFromSql(deps.sql, chainId, deps.sessionId);
+}
+
+/** Latest completed sibling result for (stage, shardKey), or null. */
+function siblingResult(
+  deps: ShardExecutorDeps,
+  chainId: string,
+  stage: string,
+  shardKey: string
+): any | null {
+  const rows = chainRows(deps, chainId).filter(
+    (r) => r.stage === stage && r.shardKey === shardKey && r.status === "completed"
+  );
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  return (rows[0].result ?? null) as any;
+}
+
+async function symbolsForUniverse(chain: ShardChainContext, listings: any[]): Promise<string[]> {
+  const { UNIVERSES, resolveUniverse } = await import("../trading");
+  const universeDef = (UNIVERSES as any)[chain.universe];
+  const maxSymbols = chain.maxItems ?? universeDef?.defaultMaxSymbols ?? 0;
+  const resolved = resolveUniverse(chain.universe as any, listings);
+  const syms = resolved.map((s: any) => (typeof s === "string" ? s : s.symbol));
+  return maxSymbols > 0 ? syms.slice(0, maxSymbols) : syms;
+}
+
+/**
+ * Issue #1368: the nasdaq feed shard acquires through the platform
+ * nasdaq adapter (the feedEtrade precedent: bootstrap this chain's
+ * platform store, bind the adapter with capture deps, mint nothing —
+ * the chain id IS the run id, so the listings capture is run-linked
+ * to the chain). The return shape is unchanged ({ listings }), so
+ * the etrade shard's sibling consumption is untouched; the retry
+ * policy, bucket, and label are unchanged — only the fetch goes
+ * through the adapter. The listings module stays the adapter's
+ * fetcher; deps.fetchListings is the offline test seam only.
+ */
+async function feedNasdaq(deps: ShardExecutorDeps, chain: ShardChainContext): Promise<{ listings: unknown }> {
+  const { bootstrapDataProviders, createNasdaqDataProvider } = await import("../trading");
+  bootstrapDataProviders(deps.sql as any);
+  const fetchListings =
+    deps.fetchListings ?? (await import("./nasdaqListings")).fetchAllUsStockListings;
+  const adapter = createNasdaqDataProvider(fetchListings as never, {
+    capture: { sql: deps.sql as any, blobStorage: deps.storage as any, env: deps.env as any },
+  });
+  const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
+  const listings = await withRetry(
+    () =>
+      adapter
+        .getScreenUniverse!({ runId: chain.chainId, userLogin: chain.userLogin })
+        .then((r) => r.result),
+    policy,
+    { label: "shard.feed.nasdaq" }
+  );
+  return { listings };
+}
+
+async function feedEtrade(
+  deps: ShardExecutorDeps,
+  chain: ShardChainContext
+): Promise<{ quotes: unknown }> {
+  const nasdaq = siblingResult(deps, chain.chainId, "feed", "nasdaq");
+  if (!nasdaq?.listings) {
+    throw new Error("Feed shard etrade blocked: nasdaq shard has no completed listings result.");
+  }
+  const symbols = await symbolsForUniverse(chain, nasdaq.listings);
+  const { bootstrapDataProviders } = await import("../trading");
+  const { bindETradeScreenerDeps } = await import("../trading");
+  bootstrapDataProviders(deps.sql as any);
+  const service = deps.createETradeService(chain.userLogin, chain.environment);
+  const liveDeps = bindETradeScreenerDeps(
+    service as any,
+    { sql: deps.sql, blobStorage: deps.storage, env: deps.env } as any,
+    { runId: chain.chainId, userLogin: chain.userLogin } as any
+  );
+  const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
+  if (!liveDeps.fetchETradeQuotes) {
+    throw new Error("Feed shard etrade blocked: the bound E*TRADE deps expose no quote fetcher.");
+  }
+  const fetchQuotes = liveDeps.fetchETradeQuotes;
+  const quotes = await withRetry(() => fetchQuotes(symbols), policy, {
+    label: "shard.feed.etrade",
+  });
+  return { quotes };
+}
+
+async function feedYahoo(
+  deps: ShardExecutorDeps,
+  chain: ShardChainContext
+): Promise<{ gapFillQuotes: unknown; technicals: unknown }> {
+  const nasdaq = siblingResult(deps, chain.chainId, "feed", "nasdaq");
+  const etrade = siblingResult(deps, chain.chainId, "feed", "etrade");
+  if (!nasdaq?.listings) {
+    throw new Error("Feed shard yahoo blocked: nasdaq shard has no completed listings result.");
+  }
+  if (!etrade?.quotes) {
+    throw new Error("Feed shard yahoo blocked: etrade shard has no completed quotes result.");
+  }
+  const symbols = await symbolsForUniverse(chain, nasdaq.listings);
+  const quoted = new Set(
+    ((etrade.quotes as any[]) || []).map((q: any) => String(q.symbol).toUpperCase())
+  );
+  const missing = symbols.filter((s) => !quoted.has(s.toUpperCase()));
+  const { YahooFinanceProvider } = await import("./fossResearch");
+  const { yahooQuoteToPipelineQuote, fetchTechnicalsBatch } = await import("../trading");
+  const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
+  const provider = new YahooFinanceProvider(deps.env as any);
+  const gapFill = await withRetry(
+    async () =>
+      (missing.length ? await provider.getQuotes(missing) : [])
+        .map((q) => yahooQuoteToPipelineQuote(q))
+        .filter(Boolean),
+    policy,
+    { label: "shard.feed.yahoo.quotes" }
+  );
+  const technicalsMap = await fetchTechnicalsBatch(symbols);
+  return {
+    gapFillQuotes: gapFill,
+    technicals: [...technicalsMap.entries()].map(([symbol, t]) => ({ ...t, symbol })),
+  };
+}
+
+async function generateAssemble(
+  deps: ShardExecutorDeps,
+  chain: ShardChainContext
+): Promise<Record<string, unknown>> {
+  // Completeness gate, enforced at execution too (not only at
+  // planning): a manually retried assemble must still refuse a
+  // partial feed, naming every blocker.
+  const rows = chainRows(deps, chain.chainId);
+  const gate = assessFeedGate(rows);
+  if (!gate.ready) {
+    const names = gate.blockedBy.map((b) => `${b.shardKey} (${b.reason})`).join(", ");
+    throw new Error(`Assembly blocked by feed shard(s): ${names} — no partial report.`);
+  }
+  const etrade = siblingResult(deps, chain.chainId, "feed", "etrade");
+  const yahoo = siblingResult(deps, chain.chainId, "feed", "yahoo");
+  const etradeQuotes = ((etrade?.quotes ?? []) as any[]) || [];
+  const gapFill = ((yahoo?.gapFillQuotes ?? []) as any[]) || [];
+  const quotes = [...etradeQuotes, ...gapFill];
+  const technicalsMap = new Map(
+    (((yahoo?.technicals ?? []) as any[]) || []).map((t: any) => [t.symbol, t])
+  );
+  const {
+    DynamicMarketScreener,
+    screenUniverse,
+    buildAllStocks,
+    attachFactorGrades,
+    attachTechnicals,
+    selectStandouts,
+    toOpportunityStock,
+  } = await import("../trading");
+  const screener = new DynamicMarketScreener();
+  const screenResult = screenUniverse(
+    screener,
+    { quotes, provider: "etrade" } as any,
+    { sector: "ALL" } as any
+  );
+  const allStocks = attachTechnicals(
+    attachFactorGrades(buildAllStocks(quotes, screenResult.stocks)),
+    technicalsMap as any
+  );
+  const opportunities = selectStandouts(screenResult.stocks, chain.maxItems ?? 5).map((s) =>
+    toOpportunityStock(s)
+  );
+  return {
+    opportunities,
+    allStocks,
+    totalScanned: screenResult.totalScanned,
+    matchedCount: screenResult.matchedCount,
+    universe: chain.universe,
+    timestamp: chain.timestamp,
+    provider: "sharded",
+  };
+}
+
+async function generatePdf(
+  deps: ShardExecutorDeps,
+  chain: ShardChainContext
+): Promise<{ format: string; key: string; fileName: string }> {
+  const dataset = siblingResult(deps, chain.chainId, "generate", "assemble");
+  if (!dataset) throw new Error("Generate shard pdf blocked: assemble shard has no completed result.");
+  const { runReportPipeline } = await import("./unifiedReportPipeline");
+  const { screenerPdfFileName } = await import("../trading");
+  // PDF generation is owned by ReportAssetAgent (#680/#914): this
+  // shard delegates to runReportPipeline, it never calls the
+  // generator directly.
+  const out = await runReportPipeline(
+    deps.env as { REPORTS_BUCKET?: unknown; REPORT_ASSET_AGENT?: unknown },
+    deps.storage as any,
+    {
+      type: "screener",
+      trigger: chain.trigger ?? "scheduled",
+      result: dataset,
+      userLogin: chain.userLogin,
+      title: `Market screen — ${chain.universe}`,
+      summary: `Scanned ${dataset.totalScanned} symbols, ${dataset.matchedCount} matched.`,
+      timestamp: chain.timestamp,
+    }
+  );
+  if (out.pdfStatus !== "generated" || !out.pdfKey) {
+    throw new Error(out.pdfError || "PDF generation failed in the report pipeline.");
+  }
+  return { format: "pdf", key: out.pdfKey, fileName: screenerPdfFileName(dataset) };
+}
+
+async function generateTabular(
+  deps: ShardExecutorDeps,
+  chain: ShardChainContext,
+  format: "xlsx" | "csv"
+): Promise<{ format: string; key: string; fileName: string }> {
+  const dataset = siblingResult(deps, chain.chainId, "generate", "assemble");
+  if (!dataset) {
+    throw new Error(`Generate shard ${format} blocked: assemble shard has no completed result.`);
+  }
+  const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.generate];
+  const prefix = format === "xlsx" ? "screener:xlsx:" : "screener:csv:";
+  const key = `${prefix}${crypto.randomUUID().slice(0, 8)}`;
+  const { putReportPdf } = await import("./reportBlobStore");
+  const { fileName, bytes } = await withRetry(
+    async () => {
+      if (format === "xlsx") {
+        const { generateScreenerXlsx, screenerXlsxFileName } = await import("../trading");
+        return { fileName: screenerXlsxFileName(dataset), bytes: generateScreenerXlsx(dataset) };
+      }
+      const { generateScreenerCsv, screenerCsvFileName } = await import("../trading");
+      return {
+        fileName: screenerCsvFileName(dataset),
+        bytes: new TextEncoder().encode(generateScreenerCsv(dataset)),
+      };
+    },
+    policy,
+    { label: `shard.generate.${format}` }
+  );
+  // The blob store is the generate leg's store: putReportPdf writes
+  // the bytes (R2 when bound, DO storage otherwise) under the
+  // per-run key. The mas_reports row is the store shard's job.
+  // Content type follows the goal-screen pattern (explicit per
+  // format), not persistRun's PDF default.
+  await putReportPdf(
+    deps.env as any,
+    deps.storage as any,
+    key,
+    fileName,
+    bytes,
+    format === "csv"
+      ? "text/csv"
+      : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  );
+  return { format, key, fileName };
+}
+
+async function storeFormat(
+  deps: ShardExecutorDeps,
+  chain: ShardChainContext,
+  inputs: Record<string, unknown>
+): Promise<{ format: string; key: string; reportId: string }> {
+  const format = String(inputs.format ?? "");
+  const key = String(inputs.key ?? "");
+  const fileName = String(inputs.fileName ?? "");
+  if (!format || !key) throw new Error("Store shard requires format + key inputs.");
+  // Serve-side honesty: the blob must read back, or the store
+  // shard fails — a mas_reports row must never point at bytes
+  // that are not there.
+  const { getReportPdf } = await import("./reportBlobStore");
+  const stored = await getReportPdf(deps.env as any, deps.storage as any, key);
+  if (!stored) throw new Error(`Store shard ${format} blocked: blob ${key} is not readable.`);
+  const provenance = shardProvenanceIds(chainRows(deps, chain.chainId));
+  const row = deps.orm.storeCanonicalReport({
+    runId: `screener:${chain.chainId}`,
+    generationId: `screener:${chain.chainId}:${format}`,
+    title: `Market screen — ${chain.universe} (${format})`,
+    source: "screener",
+    summary: `Sharded screen: ${chain.universe}, ${format} report, ${provenance.length} shards.`,
+    body: { format, key, fileName, universe: chain.universe, chainId: chain.chainId, shardIds: provenance },
+    createdAt: chain.timestamp,
+  });
+  return { format, key, reportId: row?.reportId ?? `screener:${chain.chainId}:${format}` };
+}
+
+/**
+ * Execute one shard.execute row's payload. Throws on failure —
+ * the executor records the failure and the chain stops (a failed
+ * feed shard additionally audits the assembly blocker by name).
+ */
+export async function executeShardJob(
+  deps: ShardExecutorDeps,
+  payload: ShardPayload
+): Promise<unknown> {
+  const { shard, chain } = payload;
+  if (shard.stage === "feed" && shard.key === "nasdaq") return feedNasdaq(deps, chain);
+  if (shard.stage === "feed" && shard.key === "etrade") return feedEtrade(deps, chain);
+  if (shard.stage === "feed" && shard.key === "yahoo") return feedYahoo(deps, chain);
+  if (shard.stage === "generate" && shard.key === "assemble") return generateAssemble(deps, chain);
+  if (shard.stage === "generate" && shard.key === "pdf") return generatePdf(deps, chain);
+  if (shard.stage === "generate" && (shard.key === "xlsx" || shard.key === "csv")) {
+    return generateTabular(deps, chain, shard.key);
+  }
+  if (shard.stage === "store") return storeFormat(deps, chain, payload.inputs ?? {});
+  throw new Error(`Unsupported shard: ${shard.stage}/${shard.key}`);
+}

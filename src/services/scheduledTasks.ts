@@ -8,7 +8,7 @@
  * - Persistent scheduled task reminders with SQLite auditing.
  */
 
-import type { Env, ScheduledTaskResult, TradeRecord, ScreenedStockItem } from "../types";
+import type { Env, ScheduledTaskResult, StageChainConfig, TradeRecord, ScreenedStockItem } from "../types";
 import { DatabaseORM } from "../orm";
 import { codedMessage } from "../errors/errorAspects";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
@@ -62,6 +62,8 @@ import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "./tradingWebhooks";
 import { ScreenerEventBus } from "../events/screenerEvents";
 import { screenerOutcomeFromEvent } from "./screenerFollowups";
+import { recordJobOutcome } from "./jobOutcomes";
+import { storeReportStage } from "./unifiedReportPipeline";
 import { registerScreenerPublishers } from "../events/screenerPublishers";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
 import { getEventCalendarCoverage, getSymbolEventCalendar } from "./eventCalendar";
@@ -83,6 +85,11 @@ export interface AutonomousOptionsAnalysisOptions {
   environment?: string;
   trigger?: "manual" | "scheduled";
   userLogin?: string;
+  /** Consolidation C4 (#1329): per-record stage-chain config — in
+   *  chain mode the run bridges fully (bridge deliver jobs carry the
+   *  adopted PDF; direct Slack/email delivery is suppressed so the
+   *  artifact is delivered exactly once). Absent ⇒ direct path. */
+  stageChain?: StageChainConfig;
 }
 
 export interface AutonomousStrategyDiscoveryOptions {
@@ -115,6 +122,13 @@ export interface AutonomousStrategyDiscoveryOptions {
   /** The arming schedule's id, when the caller knows it (recorded as
    *  run provenance; the SDK callback path supplies none). */
   scheduleId?: string;
+  /** Consolidation C4 (#1329): per-record stage-chain config — a
+   *  completed discovery run bridges generate + serve (canonical
+   *  report adoption); delivery stays on the run's direct path
+   *  (deliverViaChain=false). Absent ⇒ unbridged. Failed runs do not
+   *  bridge: their existing failure-notice path is channel-divergent
+   *  from the bridge's, and suppressing it would risk a lost notice. */
+  stageChain?: StageChainConfig;
 }
 
 /**
@@ -147,9 +161,9 @@ export class ScheduledTasksService {
     private strategyProfileStore?: StrategyProfileStore,
     /** Issue #1123 S5b: the follow-up bridge. When the host wires it,
      *  screener events join the tracked job pipeline instead of the
-     *  private event bus (stock chains fully; options record-only —
-     *  chainReport=false — because their delivery stays on the #223
-     *  direct path). */
+     *  private event bus (stock chains fully; options bridge fully in
+     *  chain mode — C4 #1329 — and record-only otherwise, because
+     *  unchained options delivery stays on the #223 direct path). */
     private followupScheduler?: (
       outcome: import("./screenerFollowups").ScreenerRunOutcome,
       userLogin: string,
@@ -161,7 +175,14 @@ export class ScheduledTasksService {
      *  same storage the injected scanRunStore is built over).
      *  Forwarded to UnifiedOptionsService; absent, scheduled scans
      *  run exactly as before (raw client, no capture). */
-    private platformDeps?: ETradeCaptureDeps
+    private platformDeps?: ETradeCaptureDeps,
+    /** Issue #1355: async-job submission port for sharded chains.
+     *  Wired by the orchestrator to submitAsyncJob; absent, a
+     *  sharded run fails honestly instead of running unsharded
+     *  under a sharded label. */
+    private shardSubmit?: (
+      spec: import("../types").AsyncJobSubmission
+    ) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>
   ) {}
 
   /**
@@ -191,6 +212,33 @@ export class ScheduledTasksService {
       userLogin === "default_trader" ? "default" : `screener:${userLogin}`
     );
     return (this.env as any).SCREENER_AGENT.get(id);
+  }
+
+  /**
+   * Issue #1333: discovery outcomes into the job-outcome sink.
+   * Guarded on platformDeps.sql and never throwing — a sink failure
+   * must not fail the discovery run.
+   */
+  private recordDiscoveryOutcome(input: {
+    id: string;
+    trigger: "manual" | "scheduled";
+    status: "completed" | "failed" | "partial";
+    scanned?: number;
+    matched?: number;
+    codedError?: string;
+    createdAt?: string;
+  }): void {
+    try {
+      const sql = this.platformDeps?.sql;
+      if (!sql) return;
+      recordJobOutcome(sql, {
+        kind: "discovery",
+        origin: "discovery",
+        ...input,
+      });
+    } catch (err) {
+      console.warn("[ScheduledTasksService] discovery outcome record failed:", err instanceof Error ? err.message : String(err));
+    }
   }
 
   /**
@@ -263,10 +311,15 @@ export class ScheduledTasksService {
       // deliveries → notifications) exactly like an interactive
       // screen. The bus remains for hosts that don't wire the bridge.
       if (this.followupScheduler) {
+        // Consolidation C4 (#1329): a chained event bridges fully —
+        // options in chain mode, and any screener event carrying a
+        // stage-chain config. Unchained options events stay
+        // record-only (chainReport=false); their delivery stays on
+        // the #223 direct path.
         await this.followupScheduler(
           screenerOutcomeFromEvent(event),
           this.userLogin,
-          event.type.startsWith("screener."),
+          Boolean((event as { stageChain?: unknown }).stageChain) || event.type.startsWith("screener."),
         );
         return;
       }
@@ -364,6 +417,130 @@ export class ScheduledTasksService {
    * Runs an autonomous market screen via ScreenerAgent (#261).
    * One agent owns all screening; E*TRADE-only data with honest failure.
    */
+  /**
+   * Issue #1355: scheduled stock screen as sharded jobs. This
+   * branch does NOT run the screen — it submits the chain's first
+   * shard (feed.nasdaq) through the orchestrator's async-job
+   * submission port, and the executor's completion hooks advance
+   * the chain (nasdaq → etrade → yahoo → assemble → pdf/xlsx/csv
+   * → store → serve → deliver). The monolithic path below is
+   * untouched when the flag is absent; off runs keep today's
+   * behaviour exactly.
+   *
+   * Composition supersedes the single-provider option here: the
+   * feed shards fetch nasdaq (universe) + etrade (quotes) + yahoo
+   * (gap-fill quotes for symbols etrade missed + history
+   * technicals), and assemble merges them — the same dataset the
+   * monolithic path screens, with per-element provenance.
+   *
+   * No screener.completed event is published at submission: the
+   * run has no outcome yet, and publishing one would make the
+   * follow-up bridge record a second main job + a second report
+   * chain (double delivery). The chain IS the record — its
+   * completion announces via the tracked pipeline's delivered
+   * notifications, and its store shards write the mas_reports
+   * rows. The caller (scheduledCallbacks) records last_runs with
+   * the chain id and skips the canonical-row write, which the
+   * store shards own.
+   *
+   * Requires the shard-submit port (wired by the orchestrator to
+   * submitAsyncJob). Without it the run fails honestly instead of
+   * running unsharded under a sharded label.
+   */
+  private async autonomousMarketScreenSharded(
+    options: {
+      sector?: string;
+      universe?: string;
+      maxItems?: number;
+      userLogin?: string;
+      environment?: "TEST" | "PROD";
+      trigger?: "manual" | "scheduled";
+      emailTo?: string;
+      slackChannel?: string;
+      webhookUrl?: string;
+      pushToSlack?: boolean;
+      filters?: import("../types").StockScreenerFilter;
+      stageChain?: import("../types").StageChainConfig;
+    },
+    userLogin: string,
+    timestamp: string
+  ): Promise<ReturnType<ScheduledTasksService["autonomousMarketScreen"]>> {
+    const universe = (options.universe as any) || "TECH";
+    const sector = options.sector || options.filters?.sector || "ALL";
+    if (!this.shardSubmit) {
+      return {
+        success: false,
+        taskType: "market_screen",
+        error: "Sharded runs require the async-job submission port; run unsharded or configure the host.",
+        timestamp,
+      } as any;
+    }
+    try {
+      const { planFeedStart } = await import("./shardJobs");
+      const channels = [
+        ...(options.emailTo ? ["email"] : []),
+        ...(options.pushToSlack !== false ? ["slack"] : []),
+        ...(options.webhookUrl ? ["webhook"] : []),
+      ] as import("../types").AsyncJobChannel[];
+      const chainId = crypto.randomUUID();
+      const submitted = await this.shardSubmit(
+        planFeedStart({
+          chainId,
+          universe,
+          userLogin,
+          environment: options.environment,
+          trigger: options.trigger || "scheduled",
+          maxItems: options.maxItems,
+          timestamp,
+          channels,
+          emailTo: options.emailTo,
+          slackChannel: options.slackChannel,
+          webhookUrl: options.webhookUrl,
+          stageChain: options.stageChain,
+        })
+      );
+      this.audit("screener.sharded_chain_submitted", {
+        sector,
+        universe,
+        chainId,
+        jobId: submitted.jobId,
+      });
+      return {
+        success: true,
+        taskType: "market_screen",
+        data: {
+          totalScanned: 0,
+          matchedCount: 0,
+          opportunities: [],
+          allStocks: [],
+          sector,
+          universe,
+          provider: "sharded",
+          sharded: true,
+          chainId,
+          notifications: {
+            slack: options.pushToSlack !== false,
+            email: Boolean(options.emailTo),
+            webhook: Boolean(options.webhookUrl),
+          },
+        },
+        timestamp,
+      } as any;
+    } catch (err: any) {
+      this.audit("screener.screen_failed", {
+        sector: sector || "ALL",
+        error: err.message,
+        sharded: true,
+      });
+      return {
+        success: false,
+        taskType: "market_screen",
+        error: err.message || "Market screener execution error",
+        timestamp,
+      } as any;
+    }
+  }
+
   async autonomousMarketScreen(options: {
     sector?: string;
     universe?: string;
@@ -383,6 +560,11 @@ export class ScheduledTasksService {
      *  payload — carried onto the run's events so the follow-up
      *  bridge stamps the run's stage jobs. */
     stageChain?: import("../types").StageChainConfig;
+    /** Issue #1355: run this scheduled screen as sharded jobs
+     *  (feed → generate → store → serve → deliver) instead of the
+     *  monolithic runScreen path. Absent/false keeps today's
+     *  behaviour exactly. */
+    sharded?: boolean;
   } = {}): Promise<ScheduledTaskResult<{
     totalScanned: number;
     matchedCount: number;
@@ -394,6 +576,12 @@ export class ScheduledTasksService {
     provider?: string;
     expectedCount?: number;
     pdfKey?: string;
+    xlsxKey?: string;
+    csvKey?: string;
+    /** Issue #1355: true when this result came from the sharded path. */
+    sharded?: boolean;
+    /** Issue #1355: the submitted chain's id (sharded runs only). */
+    chainId?: string;
     notifications?: {
       slack?: boolean;
       email?: boolean;
@@ -423,6 +611,12 @@ export class ScheduledTasksService {
         if (guard.blocked) {
           return { success: false, taskType: "market_screen", error: guard.error, timestamp };
         }
+      }
+      // Issue #1355: sharded execution. The monolithic path below is
+      // untouched when the flag is absent — off runs keep today's
+      // behaviour exactly.
+      if (options.sharded) {
+        return this.autonomousMarketScreenSharded(options, userLogin, timestamp);
       }
       // Issue #261/#270: delegate screening to ScreenerAgent (E*TRADE-only).
       // Issue #421: pass the sector through unset when none was chosen —
@@ -481,6 +675,9 @@ export class ScheduledTasksService {
         xlsxKey: result.xlsxKey,
         xlsxStatus: result.xlsxStatus,
         xlsxError: result.xlsxError,
+        csvKey: result.csvKey,
+        csvStatus: result.csvStatus,
+        csvError: result.csvError,
         deliveryId: `${options.trigger || "scheduled"}:${result.universe}:${timestamp.slice(0, 16)}`,
         sector: result.sector || options.sector || "ALL",
         totalScanned: result.totalScanned,
@@ -517,6 +714,7 @@ export class ScheduledTasksService {
           provider: result.provider,
           expectedCount: result.expectedCount,
           pdfKey: result.pdfKey,
+          csvKey: result.csvKey,
           notifications: {
             slack: options.pushToSlack !== false,
             email: Boolean(options.emailTo),
@@ -597,6 +795,12 @@ export class ScheduledTasksService {
     emailTo?: string;
     slackChannel?: string;
     pushToSlack?: boolean;
+    /** Consolidation C4 (#1329): per-record stage-chain config — a
+     *  completed goal screen bridges generate + serve (canonical
+     *  report adoption); delivery stays on the run's direct path
+     *  (deliverViaChain=false, Phase 6 HITL delivery unchanged).
+     *  Absent ⇒ unbridged. */
+    stageChain?: StageChainConfig;
   } = {}): Promise<ScheduledTaskResult<{
     taskId: string;
     status?: string;
@@ -681,6 +885,30 @@ export class ScheduledTasksService {
       });
       if (out.result?.status === "failed") {
         throw new Error("Goal-driven screen failed on every requested asset class.");
+      }
+      // Consolidation C4 (#1329): chain identity + serve stage for a
+      // completed goal screen. Delivery is NOT chained — the run's
+      // direct Phase 6 delivery (incl. its HITL posture) stays
+      // untouched, and a bridge failure never fails the run.
+      if (options.stageChain && this.followupScheduler) {
+        try {
+          await this.followupScheduler(
+            {
+              kind: "goal",
+              trigger,
+              success: true,
+              thesis: `Goal screen — ${out.result?.goalKind ?? "goal"}`,
+              pdfKeys: [],
+              canonicalReportId: out.canonicalReportId,
+              deliverViaChain: false,
+              stageChain: options.stageChain,
+            },
+            userLogin,
+            true,
+          );
+        } catch (bridgeErr) {
+          console.warn("[ScheduledTasksService] Goal bridge failed (canonical row kept):", bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr));
+        }
       }
       return {
         success: true,
@@ -933,7 +1161,12 @@ export class ScheduledTasksService {
           "options screen"
         );
         if (guard.blocked) {
-          return { success: false, taskType: "options_analysis", error: guard.error, timestamp };
+          // Issue #1358: a blocked run is a failure, not a quiet
+          // return — throw so the catch below runs the full failure
+          // path (audit + session message + Slack notice + bus
+          // event). The episode alert itself stays deduped inside
+          // the guard; the per-run notice here is never deduped.
+          throw new Error(guard.error);
         }
       }
       if (options.trigger === "scheduled") {
@@ -1066,6 +1299,9 @@ export class ScheduledTasksService {
       let optionsXlsxKey: string | undefined;
       let optionsXlsx: Uint8Array | undefined;
       let optionsXlsxFile: string | undefined;
+      let optionsCsvKey: string | undefined;
+      let optionsCsv: Uint8Array | undefined;
+      let optionsCsvFile: string | undefined;
       // Issue #914: Use the unified report pipeline (delegates to
       // ReportAssetAgent per #680, single owner for PDF generation).
       try {
@@ -1114,6 +1350,18 @@ export class ScheduledTasksService {
       } catch (xlsxErr) {
         console.warn("[ScheduledTasksService] Options XLSX generation/storage failed:", xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr));
       }
+      // Issue #1346: generate + store the options CSV (own failure
+      // domain; recorded, never fatal).
+      try {
+        const screenerAgent = this.getScreenerAgent(userLogin);
+        const stored = await (screenerAgent as any).generateAndStoreOptionsCsv(response.data);
+        optionsCsvKey = stored.key;
+        optionsCsvFile = stored.fileName;
+        const data = await (screenerAgent as any).getOptionsCsvByKey(stored.key);
+        if (data) optionsCsv = data.bytes;
+      } catch (csvErr) {
+        console.warn("[ScheduledTasksService] Options CSV generation/storage failed:", csvErr instanceof Error ? csvErr.message : String(csvErr));
+      }
       const reportUrl = optionsPdfKey
         ? `${this.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/options/report.pdf?key=${encodeURIComponent(optionsPdfKey)}`
         : undefined;
@@ -1137,15 +1385,26 @@ export class ScheduledTasksService {
           opportunities: response.data?.opportunities ?? [],
           pdfKey: optionsPdfKey,
           xlsxKey: optionsXlsxKey,
+          csvKey: optionsCsvKey,
+          csvUrl: optionsCsvKey
+            ? `/api/options/report.csv?key=${encodeURIComponent(optionsCsvKey)}`
+            : undefined,
           reportUrl,
           report: typeof response.toWebhook === "function" ? response.toWebhook() : response.data,
         },
         createdAt: timestamp,
       });
 
+      // Consolidation C4 (#1329): chain mode suppresses the direct
+      // Slack/email/webhook delivery below — the bridge's deliver jobs
+      // carry the adopted PDF instead, so the artifact is delivered
+      // exactly once. Audit + session message stay (they are the run's
+      // record, not delivery channels).
+      const chainMode = Boolean(options.stageChain);
+
       // One A2A file operation creates one Slack notification with the
       // summary attached, avoiding the old text-plus-file duplicate pair.
-      if (shouldNotifySlack) {
+      if (shouldNotifySlack && !chainMode) {
         const slackChannel = options.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL || (this.env as any).SLACK_CHANNEL;
         const slackPayload = response.toSlack();
         const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
@@ -1165,6 +1424,11 @@ export class ScheduledTasksService {
               fileName: optionsXlsxFile,
               title: optionsXlsxFile,
             }] } : {}),
+            ...(optionsCsv && optionsCsvFile ? { files: [{
+              bytes: optionsCsv,
+              fileName: optionsCsvFile,
+              title: optionsCsvFile,
+            }] } : {}),
           });
           notifications.slack = delivery.ok;
           if (!delivery.ok) console.warn("[ScheduledTasksService] Slack A2A PDF delivery failed:", delivery.error);
@@ -1179,7 +1443,7 @@ export class ScheduledTasksService {
       // 2. Push Email if recipient is specified or environment configured
       // Issue #303: Try cfpay via A2A first, fall back to local.
       const targetEmail = options.emailTo || (this.env as any).OPTIONS_EMAIL_TO || (this.env as any).SCREENER_EMAIL_TO;
-      if (targetEmail) {
+      if (targetEmail && !chainMode) {
         const cfpay = getCfpayConfig(this.env);
         let emailOk = false;
         if (cfpay) {
@@ -1248,7 +1512,7 @@ export class ScheduledTasksService {
 
       // 3. Push Webhook if target URL is specified or default configured
       const targetWebhookUrl = options.webhookUrl || this.env.OUTBOUND_WEBHOOK_URL;
-      if (targetWebhookUrl) {
+      if (targetWebhookUrl && !chainMode) {
         try {
           const webhookService = new ETradeWebhookService(this.orm, this.env, this.userLogin);
           const webhookPayload = { ...response.toWebhook(), reportUrl };
@@ -1294,8 +1558,11 @@ export class ScheduledTasksService {
       }
 
       // Issue #223: put the run on the screener event bus, mirroring the
-      // stock screen (#210). Delivery above stays on the direct A2A path;
-      // the event is the lifecycle record subscribers consume.
+      // stock screen (#210). In chain mode (#1329) the event carries
+      // the PDF key + stage-chain config so the bridge can plan the
+      // serve/deliver stages; unchained, delivery stays on the direct
+      // A2A path and the event is the lifecycle record subscribers
+      // consume.
       await this.publishScreenerEvent({
         type: "options.completed",
         timestamp,
@@ -1307,6 +1574,9 @@ export class ScheduledTasksService {
         symbols,
         summary: response.summary,
         reportUrl,
+        pdfKey: optionsPdfKey,
+        pdfStatus: optionsPdfKey ? "generated" : undefined,
+        stageChain: options.stageChain,
         opportunities: (response.data?.opportunities || []).slice(0, 10).map((row: any) => ({
           symbol: row.symbol,
           strategy: row.pick?.best?.candidate?.type,
@@ -1344,7 +1614,7 @@ export class ScheduledTasksService {
             id: crypto.randomUUID(),
             sessionId: this.userLogin,
             role: "assistant",
-            content: `⚠️ Scheduled Options Intelligence failed for ${symbols.join(", ")}: ${err.message || "Scheduled options analysis failed"}`,
+            content: `⚠️ Scheduled Options Intelligence failed for ${symbols.join(", ") || options.universe || "NASDAQ100"}: ${err.message || "Scheduled options analysis failed"}`,
             agent: "orchestrator",
             createdAt: timestamp,
           });
@@ -1353,7 +1623,10 @@ export class ScheduledTasksService {
         }
       }
 
-      if (shouldNotifySlack) {
+      // Consolidation C4 (#1329): in chain mode the bridge's failure
+      // notifications cover the failure, so the direct notice is
+      // suppressed (same exactly-once rule as the success path).
+      if (shouldNotifySlack && !options.stageChain) {
         const failure = await deliverScreenerToSlackA2A(this.env, {
           channel: options.slackChannel,
           text: `⚠️ Scheduled Options Screen FAILED — ${options.universe || symbols.join(", ") || "NASDAQ100"} (${targetThesis})\nError: ${err.message || "Scheduled options analysis failed"}\n_Time: ${timestamp}_`,
@@ -1369,6 +1642,7 @@ export class ScheduledTasksService {
         universe: options.universe,
         thesis: targetThesis,
         error: err.message || "Scheduled options analysis failed",
+        stageChain: options.stageChain,
       });
 
       return {
@@ -1509,6 +1783,16 @@ export class ScheduledTasksService {
         ...(runId ? { runId } : {}),
         error,
       });
+      // Issue #1333: discovery outcomes into the job-outcome sink.
+      this.recordDiscoveryOutcome({
+        id: runId ?? `discovery:${timestamp}:${symbols.join(",")}`,
+        trigger: options.trigger || "scheduled",
+        status: "failed",
+        scanned: requests.length,
+        matched: 0,
+        codedError: error,
+        createdAt: timestamp,
+      });
       await this.notifyStrategyDiscoveryFailure({ error, symbols, trigger: options.trigger });
       if (this.orm?.messages) {
         try {
@@ -1603,6 +1887,14 @@ export class ScheduledTasksService {
         status,
       });
 
+      await this.persistDiscoveryCanonicalAndBridge({
+        run,
+        summary: `Strategy discovery (saved-request) ${status}: ${requests.length - failures.length} of ${requests.length} requests produced results.`,
+        symbols,
+        options,
+        timestamp,
+      });
+
       if (status === "failed") {
         return await fail(
           `Every saved discovery request failed (${failures.map((f) => `${f.symbol}: ${f.error}`).join("; ")})`,
@@ -1621,6 +1913,16 @@ export class ScheduledTasksService {
         failedCount: failures.length,
         trigger: options.trigger || "scheduled",
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+      // Issue #1333: discovery outcomes into the job-outcome sink.
+      this.recordDiscoveryOutcome({
+        id: run.id,
+        trigger: options.trigger || "scheduled",
+        status: status === "completed" ? "completed" : "partial",
+        scanned: requests.length,
+        matched: requests.length - failures.length,
+        codedError: failures.length > 0 ? failures.map((f) => `${f.symbol}: ${f.error}`).join("; ") : undefined,
+        createdAt: timestamp,
       });
 
       if (this.orm?.messages) {
@@ -1658,6 +1960,67 @@ export class ScheduledTasksService {
     } catch (err: any) {
       return await fail(err?.message || "Scheduled strategy discovery failed");
     }
+  }
+
+  /**
+   * Consolidation C4 (#1329): persist the canonical mas_reports row
+   * for a discovery run and, when the run carries stageChain, bridge
+   * it (generate + serve stages; delivery stays on the run's direct
+   * path via deliverViaChain=false). Called right after the detail
+   * save, before the status is judged — so even a failed run gains
+   * its canonical row (the detail prune can never erase it from
+   * GET /api/runs). Failed runs do NOT bridge: their failure-notice
+   * path is channel-divergent from the bridge's, and suppressing it
+   * would risk a lost notice. A bridge failure never fails the run
+   * itself — it is logged, and the canonical row is the record.
+   */
+  private async persistDiscoveryCanonicalAndBridge(args: {
+    run: { id: string; status: DiscoveryRunStatus; inputModel: string };
+    summary: string;
+    symbols: string[];
+    options: AutonomousStrategyDiscoveryOptions;
+    timestamp: string;
+  }): Promise<string | undefined> {
+    let reportId: string | undefined;
+    if (this.orm) {
+      const stored = await storeReportStage(this.orm, {
+        runId: `discovery:${args.run.id}`,
+        generationId: `discovery:${args.run.id}`,
+        title: `Strategy discovery — ${args.run.inputModel}`,
+        source: "discovery",
+        summary: args.summary,
+        body: {
+          discoveryRunId: args.run.id,
+          status: args.run.status,
+          inputModel: args.run.inputModel,
+          symbols: args.symbols,
+          trigger: args.options.trigger || "scheduled",
+        },
+        createdAt: args.timestamp,
+      });
+      reportId = stored?.reportId;
+    }
+    if (args.run.status !== "failed" && args.options.stageChain && this.followupScheduler) {
+      try {
+        await this.followupScheduler(
+          {
+            kind: "discovery",
+            trigger: args.options.trigger || "scheduled",
+            success: true,
+            thesis: `Strategy discovery (${args.run.inputModel}) — ${args.symbols.join(", ")}`,
+            pdfKeys: [],
+            canonicalReportId: reportId,
+            deliverViaChain: false,
+            stageChain: args.options.stageChain,
+          },
+          this.userLogin,
+          true,
+        );
+      } catch (bridgeErr) {
+        console.warn("[ScheduledTasksService] Discovery bridge failed (canonical row kept):", bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr));
+      }
+    }
+    return reportId;
   }
 
   /**
@@ -1804,6 +2167,15 @@ export class ScheduledTasksService {
         ...(runId ? { runId } : {}),
         ...(abstentions.length > 0 ? { abstained: abstentions } : {}),
         error,
+      });
+      // Issue #1333: profile-derived discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: runId ?? `discovery:profile-derived:${attemptedSymbols.join(",")}`,
+        trigger: options.trigger || "scheduled",
+        status: "failed",
+        scanned: constructedCount,
+        matched: 0,
+        codedError: error,
       });
       await this.notifyStrategyDiscoveryFailure({ error, symbols: attemptedSymbols, trigger: options.trigger, inputModel: "profile-derived" });
       if (this.orm?.messages) {
@@ -2006,6 +2378,14 @@ export class ScheduledTasksService {
         status,
       });
 
+      await this.persistDiscoveryCanonicalAndBridge({
+        run,
+        summary: `Strategy discovery (profile-derived) ${status}: ${completedCount} of ${constructed.length} derived requests produced results.`,
+        symbols,
+        options,
+        timestamp,
+      });
+
       if (status === "failed") {
         const parts = [
           ...failures.map((f) => `${f.symbol}: ${f.error}`),
@@ -2039,6 +2419,16 @@ export class ScheduledTasksService {
         abstained: abstentions,
         trigger: options.trigger || "scheduled",
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+      // Issue #1333: profile-derived discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: run.id,
+        trigger: options.trigger || "scheduled",
+        status,
+        scanned: constructed.length,
+        matched: completedCount,
+        codedError: failures.length > 0 ? failures.map((f) => `${f.symbol}: ${f.error}`).join("; ") : undefined,
+        createdAt: timestamp,
       });
 
       if (this.orm?.messages) {
@@ -2134,6 +2524,15 @@ export class ScheduledTasksService {
         ...(runId ? { runId } : {}),
         ...(abstentions.length > 0 ? { abstained: abstentions } : {}),
         error,
+      });
+      // Issue #1333: no-view discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: runId ?? `discovery:no-view:${symbols.join(",")}`,
+        trigger: options.trigger || "scheduled",
+        status: "failed",
+        scanned: symbols.length,
+        matched: 0,
+        codedError: error,
       });
       await this.notifyStrategyDiscoveryFailure({ error, symbols, trigger: options.trigger, inputModel: "no-view" });
       if (this.orm?.messages) {
@@ -2279,6 +2678,14 @@ export class ScheduledTasksService {
         status,
       });
 
+      await this.persistDiscoveryCanonicalAndBridge({
+        run,
+        summary: `Strategy discovery (no-view) ${status}: ${completedCount} of ${constraintSets.length} constraint sets produced ranked structures.`,
+        symbols,
+        options,
+        timestamp,
+      });
+
       if (status === "failed") {
         const parts = [
           ...failures.map((f) => `${f.symbol}: ${f.error}`),
@@ -2304,6 +2711,16 @@ export class ScheduledTasksService {
         abstained: abstentions,
         trigger: options.trigger || "scheduled",
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+      });
+      // Issue #1333: no-view discovery outcomes into the sink.
+      this.recordDiscoveryOutcome({
+        id: run.id,
+        trigger: options.trigger || "scheduled",
+        status,
+        scanned: constraintSets.length,
+        matched: completedCount,
+        codedError: failures.length > 0 ? failures.map((f) => `${f.symbol}: ${f.error}`).join("; ") : undefined,
+        createdAt: timestamp,
       });
 
       if (this.orm?.messages) {

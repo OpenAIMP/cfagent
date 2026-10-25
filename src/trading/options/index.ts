@@ -9,6 +9,7 @@ import { OptionsDataAgent, type OptionsDataSnapshot } from "./optionsDataAgent";
 import { StrategyRiskAgent, type StrategyScreenFilter, type StrategyRiskReport } from "./strategyRiskAgent";
 import { RecommendationAgent, type BestTradePick, type RankedStrategy, type RiskProfile } from "./recommendationAgent";
 import type { StrategyRecommendationResult, StrategyRequest } from "./strategyEngine";
+import { RecommendationService } from "../../services/recommendationKernel";
 
 export * from "./optionsDataAgent";
 export * from "./strategyRiskAgent";
@@ -40,6 +41,20 @@ export interface PipelineResult {
   bestTrade: BestTradePick;
 }
 
+/**
+ * Consolidation C4 (#1329): the D1 pipeline is now a delegating
+ * adapter over the Recommendation Kernel's panel configuration — it
+ * owns no engine of its own. run() maps the kernel result back to
+ * PipelineResult so the /compare endpoint, scheduled discovery, and
+ * discoveryService keep their exact response shape: snapshot verbatim
+ * from the kernel snapshot, strategies IS the engine build result
+ * the kernel wrapped (full built set, scoreWeights included — the
+ * /compare pool counts generated, not gate-survived), ranked /
+ * riskReports / bestTrade computed via the same agents over the
+ * kernel-passed candidates. The class is retained in C4 (not deleted)
+ * so those call sites migrate without a flag day; retirement of the
+ * adapter itself is #1256 remainder.
+ */
 export class OptionsAgentPipeline {
   readonly data: OptionsDataAgent;
   readonly risk = new StrategyRiskAgent();
@@ -50,20 +65,46 @@ export class OptionsAgentPipeline {
   }
 
   async run(request: StrategyRequest, options: PipelineOptions = {}): Promise<PipelineResult> {
-    const snapshot = await this.data.loadSnapshot(request);
-    const strategies = this.risk.buildStrategies(snapshot.contracts, request);
-    const { matched, rejected } = this.risk.screenStrategies(strategies.candidates, options.strategyFilter);
-    const profile = options.riskProfile ?? "balanced";
-    const ranked = this.recommender.rank(matched, request, profile);
-    const limit = request.candidateLimit ?? ranked.length;
-    const bestTrade = this.recommender.pickBestTrade(matched, request, profile, options.alternatives ?? 3);
+    const panel = await new RecommendationService().discoverPanel({
+      dataAgent: {
+        loadSnapshot: async (params: unknown) => {
+          const s = await this.data.loadSnapshot(params as StrategyRequest);
+          return {
+            symbol: s.symbol,
+            contracts: s.contracts,
+            dataSource: s.dataSource,
+            screen: s.screen,
+            rejections: s.rejections,
+            validationError: s.validationError,
+          };
+        },
+      },
+      riskAgent: this.risk,
+      recommender: this.recommender,
+      request,
+      strategyFilter: options.strategyFilter,
+      riskProfile: options.riskProfile,
+      alternatives: options.alternatives,
+    });
+    const buildResult = panel.legacy?.buildResult;
+    if (!buildResult) {
+      throw new Error("OptionsAgentPipeline: kernel panel run produced no engine build result.");
+    }
+    const snapshot: OptionsDataSnapshot = {
+      symbol: panel.snapshot.symbol,
+      contracts: panel.snapshot.contracts ?? [],
+      dataSource: panel.snapshot.dataSource,
+      screen: panel.snapshot.screen as OptionsDataSnapshot["screen"],
+      rejections: panel.snapshot.rejections as OptionsDataSnapshot["rejections"],
+      validationError: panel.snapshot.validationError,
+    };
     return {
       snapshot,
-      strategies,
-      screenedOut: rejected,
-      ranked: ranked.slice(0, limit),
-      riskReports: ranked.slice(0, limit).map((r) => this.risk.riskReport(r.candidate, request)),
-      bestTrade,
+      strategies: buildResult as unknown as StrategyRecommendationResult,
+      screenedOut: panel.screenedOut,
+      ranked: panel.ranked,
+      riskReports: panel.riskReports as StrategyRiskReport[],
+      bestTrade: panel.bestTrade as BestTradePick,
     };
   }
 }

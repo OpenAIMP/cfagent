@@ -125,7 +125,7 @@ export function proposeWeightAdjustments(
   return proposals;
 }
 
-function isoWeekKey(d: Date): string {
+export function isoWeekKey(d: Date): string {
   // ISO 8601 week: shift to the Thursday of the current week.
   const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   const day = date.getUTCDay() || 7;

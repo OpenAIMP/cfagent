@@ -40,26 +40,21 @@ export interface AssetResult {
 export class ReportAssetAgent extends Agent<Env> {
   /**
    * Generate + store one PDF asset. Returns null on any failure.
+   *
+   * Consolidation C4 (issue #1329, epic #1151): the agent no longer
+   * calls the trading generators directly — it dispatches through the
+   * pipeline's generateReportPdf/getReportFileName (the ONE generator
+   * dispatch, src/services/unifiedReportPipeline.ts), completing the
+   * epic's "report-asset-agent's direct PDF call moves behind
+   * runReportPipeline" item. The agent remains the single owner of
+   * the generate step; the pipeline owns the dispatch.
    */
   async generateAsset(request: AssetRequest): Promise<AssetResult | null> {
     try {
       const { type, data } = request;
-      let bytes: Uint8Array;
-      let fileName: string;
-
-      if (type === "research") {
-        const { generateResearchPdf, researchPdfFileName } = await import("../trading");
-        bytes = await generateResearchPdf(data as any);
-        fileName = request.fileName ?? researchPdfFileName(data as any);
-      } else if (type === "screener") {
-        const { generateScreenerPdf, screenerPdfFileName } = await import("../trading");
-        bytes = await generateScreenerPdf(data as any);
-        fileName = request.fileName ?? screenerPdfFileName(data as any);
-      } else {
-        const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
-        bytes = await generateOptionsPdf(data as any);
-        fileName = request.fileName ?? optionsPdfFileName(data as any);
-      }
+      const { generateReportPdf, getReportFileName } = await import("../services/unifiedReportPipeline");
+      const bytes = await generateReportPdf(type, data);
+      const fileName = request.fileName ?? (await getReportFileName(type, data));
 
       const key =
         request.key ?? `report:pdf:${type}:${crypto.randomUUID().slice(0, 8)}`;
