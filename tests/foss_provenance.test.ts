@@ -31,18 +31,14 @@ import { MockSqlStorage } from "./mock-sql";
 import type { Env } from "../src/types";
 
 /**
- * Issue #117 (audit #115 F10/F11) — the FOSS engine's silent fallback is now
- * labelled. These tests pin the provenance contract:
- * - a failed live fetch NEVER returns provenance "live" or a bare provider
- *   stamp: table tickers are "static", unknown tickers are "generated";
- * - generated bars are stamped per-bar, and the /foss/bars route derives
- *   its `source` from the bars' actual provenance;
- * - the fundamentals chart-meta fallback (formula analyst block) is
- *   "generated", never analyst data;
- * - the research report propagates the weakest provenance, never calls a
- *   non-live target "consensus", labels its technicals heuristic, and binds
- *   the provenance into its DID attestation;
- * - a successful (mocked) live fetch IS provenance "live".
+ * Issue #117 (audit #115 F10/F11) provenance contract, as superseded by
+ * issue #923 (epic #913 S5) — live-only: a failed live fetch now REJECTS
+ * with an explicit unavailable error; no static/generated substitute is
+ * served anywhere. The live pins below are unchanged: a successful
+ * (mocked) live fetch IS provenance "live", the /foss/bars route derives
+ * its `source` from the bars' actual provenance, and a fully live report
+ * may say "consensus" with its provenance bound into the DID attestation.
+ * The former #117 fallback pins are rewritten here as #923 rejection pins.
  */
 
 const CHART_PAYLOAD = {
@@ -170,20 +166,14 @@ describe("provenance helpers (#117)", () => {
 });
 
 describe("Yahoo quote provenance (#117)", () => {
-  it("failed fetch + table ticker -> static, never live, with a note", async () => {
+  it("failed fetch + table ticker -> rejects explicit unavailable, never a static price (#923)", async () => {
     stubFetchDown();
-    const quote = await new YahooFinanceProvider().getQuote("NVDA");
-    expect(quote.provider).toBe("yfinance");
-    expect(quote.provenance).toBe("static");
-    expect(quote.note).toBeTruthy();
-    expect(quote.note).toContain("static");
+    await expect(new YahooFinanceProvider().getQuote("NVDA")).rejects.toThrow(/unavailable/i);
   });
 
-  it("failed fetch + unknown ticker -> generated profile, labelled as such", async () => {
+  it("failed fetch + unknown ticker -> rejects explicit unavailable, never a hash-invented profile (#923)", async () => {
     stubFetchDown();
-    const quote = await new YahooFinanceProvider().getQuote("CUSTOMCORP");
-    expect(quote.provenance).toBe("generated");
-    expect(quote.note).toContain("generated");
+    await expect(new YahooFinanceProvider().getQuote("CUSTOMCORP")).rejects.toThrow(/unavailable/i);
   });
 
   it("successful chart fetch -> live", async () => {
@@ -196,26 +186,21 @@ describe("Yahoo quote provenance (#117)", () => {
 });
 
 describe("Alpaca quote provenance (#117)", () => {
-  it("unconfigured Alpaca returns the profile, stamped static/generated — not live Alpaca data", async () => {
+  it("unconfigured Alpaca rejects — no profile served, static or generated (#923)", async () => {
     stubFetchDown();
     const provider = new AlpacaMarketDataProvider({} as Env);
-    const known = await provider.getQuote("AAPL");
-    expect(known.provider).toBe("alpaca");
-    expect(known.provenance).toBe("static");
-    expect(known.note).toBeTruthy();
-    const unknown = await provider.getQuote("ZZZZUNKNOWN");
-    expect(unknown.provenance).toBe("generated");
+    await expect(provider.getQuote("AAPL")).rejects.toThrow(/unavailable/i);
+    await expect(provider.getQuote("ZZZZUNKNOWN")).rejects.toThrow(/unavailable/i);
   });
 
-  it("configured Alpaca with a failing fetch falls back with non-live provenance", async () => {
+  it("configured Alpaca with a failing fetch rejects — no profile fallback (#923)", async () => {
     stubFetchDown();
     const env = {
       ALPACA_API_KEY_ID: "key",
       ALPACA_API_SECRET_KEY: "secret",
       ALPACA_DATA_URL: "https://data.alpaca.test",
     } as unknown as Env;
-    const quote = await new AlpacaMarketDataProvider(env).getQuote("AAPL");
-    expect(quote.provenance).toBe("static");
+    await expect(new AlpacaMarketDataProvider(env).getQuote("AAPL")).rejects.toThrow(/unavailable/i);
   });
 
   it("configured Alpaca with a successful fetch -> live", async () => {
@@ -237,11 +222,11 @@ describe("Alpaca quote provenance (#117)", () => {
 });
 
 describe("Historical bars provenance (#117)", () => {
-  it("Yahoo fallback bars are generated, per bar", async () => {
+  it("Yahoo failed bars reject — no synthetic bars (#923)", async () => {
     stubFetchDown();
-    const bars = await new YahooFinanceProvider().getHistoricalBars("AAPL", "1D", 30);
-    expect(bars.length).toBe(30);
-    expect(bars.every((b) => b.provenance === "generated")).toBe(true);
+    await expect(new YahooFinanceProvider().getHistoricalBars("AAPL", "1D", 30)).rejects.toThrow(
+      /unavailable/i,
+    );
   });
 
   it("Yahoo live bars are live", async () => {
@@ -251,11 +236,11 @@ describe("Historical bars provenance (#117)", () => {
     expect(bars.every((b) => b.provenance === "live")).toBe(true);
   });
 
-  it("unconfigured Alpaca bars are generated", async () => {
+  it("unconfigured Alpaca bars reject — no synthetic bars (#923)", async () => {
     stubFetchDown();
-    const bars = await new AlpacaMarketDataProvider({} as Env).getHistoricalBars("AAPL", "1D", 30);
-    expect(bars.length).toBe(30);
-    expect(bars.every((b) => b.provenance === "generated")).toBe(true);
+    await expect(
+      new AlpacaMarketDataProvider({} as Env).getHistoricalBars("AAPL", "1D", 30),
+    ).rejects.toThrow(/unavailable/i);
   });
 
   it("configured Alpaca live bars are live", async () => {
@@ -308,14 +293,12 @@ describe("GET /foss/bars route source stamping (#117)", () => {
     return { status: res.status, body: (await res.json()) as any };
   }
 
-  it("fallback bars: provenance generated and source does NOT claim the provider API", async () => {
+  it("failed bars: route returns an explicit 500 unavailable error, no generated bars (#923)", async () => {
     stubFetchDown();
     const { status, body } = await getBars(makeAgent(), "symbol=NVDA&provider=yfinance");
-    expect(status).toBe(200);
-    expect(body.provenance).toBe("generated");
-    expect(body.source).toContain("not live");
-    expect(body.source).not.toBe("Yahoo Finance FOSS Chart API");
-    expect(body.bars.every((b: any) => b.provenance === "generated")).toBe(true);
+    expect(status).toBe(500);
+    expect(body.error).toMatch(/unavailable/i);
+    expect(body.bars).toBeUndefined();
   });
 
   it("live bars: provenance live and source names the provider API", async () => {
@@ -328,60 +311,45 @@ describe("GET /foss/bars route source stamping (#117)", () => {
 });
 
 describe("Fundamentals provenance (#117)", () => {
-  it("failed fetches fall back to the profile: static for table tickers, generated for unknown", async () => {
+  it("failed fetches reject — no profile fundamentals, static or generated (#923)", async () => {
     stubFetchDown();
     const yf = new YahooFinanceProvider();
-    const known = await yf.getFundamentals("MSFT");
-    expect(known.provenance).toBe("static");
-    expect(known.note).toBeTruthy();
-    const unknown = await yf.getFundamentals("CUSTOMCORP");
-    expect(unknown.provenance).toBe("generated");
+    await expect(yf.getFundamentals("MSFT")).rejects.toThrow(/unavailable/i);
+    await expect(yf.getFundamentals("CUSTOMCORP")).rejects.toThrow(/unavailable/i);
   });
 
-  it("chart-meta fallback: formula analyst block is labelled generated, never live analyst data", async () => {
+  it("chart-only fundamentals reject — no formula analyst block (#923)", async () => {
     stubFetchChartOnly();
-    const f = await new YahooFinanceProvider().getFundamentals("NVDA");
-    expect(f.provenance).toBe("generated");
-    expect(f.note).toContain("formula");
-    // The invented values are still present but ride under the generated
-    // label: target = live chart price × 1.15.
-    expect(f.targetMeanPrice).toBeCloseTo(200 * 1.15, 2);
-    expect(f.numberOfAnalystOpinions).toBe(20);
+    await expect(new YahooFinanceProvider().getFundamentals("NVDA")).rejects.toThrow(
+      /unavailable/i,
+    );
   });
 });
 
 describe("Hybrid quote provenance (#117)", () => {
-  it("offline hybrid quote carries the weakest input provenance", async () => {
+  it("offline hybrid quote rejects — no weakest-provenance composite (#923)", async () => {
+    // HYBOFF is never cached live earlier in this file (NVDA is, by the
+    // successful-chart test), so a fetch-down stub genuinely exercises
+    // the failure path instead of the 5-minute live-quote cache.
     stubFetchDown();
     const hybrid = new HybridFossProvider({} as Env);
-    expect((await hybrid.getQuote("NVDA")).provenance).toBe("static");
-    expect((await hybrid.getQuote("CUSTOMCORP")).provenance).toBe("generated");
+    await expect(hybrid.getQuote("HYBOFF")).rejects.toThrow(/unavailable/i);
+    await expect(hybrid.getQuote("CUSTOMCORP")).rejects.toThrow(/unavailable/i);
   });
 });
 
 describe("Research report provenance (#117, F11)", () => {
-  it("offline report: weakest provenance, no 'consensus' claim for the profile target, heuristic technicals, attested provenance", async () => {
+  it("offline report rejects — no non-live report is assembled (#923)", async () => {
     stubFetchDown();
-    const report = await new FossResearchService({} as Env).generateResearchReport("NVDA");
-    // quote static + fundamentals static + generated bars -> generated.
-    expect(report.provenance).toBe("generated");
-    expect(report.quote.provenance).toBe("static");
-    expect(report.fundamentals.provenance).toBe("static");
-    expect(report.bars.every((b) => b.provenance === "generated")).toBe(true);
-    expect(report.aiAnalysis).toContain("Data notice");
-    expect(report.aiAnalysis).toContain("Profile target estimate");
-    expect(report.aiAnalysis).toContain("not live analyst consensus");
-    expect(report.aiAnalysis).not.toContain("Consensus target price");
-    expect(report.technicalSummary.heuristic).toBe(true);
-    expect(report.agentAttestation.provenance).toBe("generated");
-    expect(report.agentAttestation.provenance).toBe(report.provenance);
+    await expect(new FossResearchService({} as Env).generateResearchReport("NVDA")).rejects.toThrow(
+      /unavailable/i,
+    );
   });
 
-  it("sync report path carries the same provenance discipline", () => {
-    const report = new FossResearchService({} as Env).generateResearchReportSync("CUSTOMCORP");
-    expect(report.provenance).toBe("generated");
-    expect(report.aiAnalysis).not.toContain("Consensus target price");
-    expect(report.agentAttestation.provenance).toBe("generated");
+  it("sync report path throws explicit unavailable (#923)", () => {
+    expect(() => new FossResearchService({} as Env).generateResearchReportSync("CUSTOMCORP")).toThrow(
+      /unavailable/i,
+    );
   });
 });
 

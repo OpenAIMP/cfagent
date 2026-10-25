@@ -903,8 +903,9 @@ export interface ETradeBrokerStatus {
 
 /**
  * Data provenance for every FOSS market-data object (issue #117, audit #115
- * findings F10/F11). The FOSS providers fall back to non-live data when a
- * live fetch fails; that fallback is now always labelled, never silent:
+ * findings F10/F11; live-only since #923). The FOSS providers serve live
+ * data or throw explicit unavailable — the non-live values below are the
+ * historical labels, retained so a stale object is never misread as live:
  * - "live": actually fetched from the named provider in this call.
  * - "static": served from the bundled FOSS_MARKET_UNIVERSE table.
  * - "generated": deterministically invented (hash-generated profile for an
@@ -930,8 +931,10 @@ export interface FossQuote {
   lastPrice?: number;
   change: number;
   changePercent: number;
-  bid: number;
-  ask: number;
+  /** #923: present only when the live payload actually carries a bid — never price ± 0.05. */
+  bid?: number;
+  /** #923: present only when the live payload actually carries an ask — never price ± 0.05. */
+  ask?: number;
   bidSize?: number;
   askSize?: number;
   volume: number;
@@ -1061,7 +1064,7 @@ export interface FossProviderStatus {
   provider: "yfinance" | "alpaca" | "hybrid";
   name: string;
   configured: boolean;
-  mode: "live_api" | "foss_open_data" | "simulated_engine";
+  mode: "live_api" | "foss_open_data" | "simulated_engine" | "not_configured";
   capabilities: string[];
 }
 
