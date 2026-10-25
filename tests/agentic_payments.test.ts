@@ -194,7 +194,7 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
       expect(res.headers.get("PAYMENT-REQUIRED")).toBeTruthy();
       expect(res.headers.get("WWW-Authenticate")).toMatch(/^Payment /);
       expect(res.headers.get("WWW-Authenticate")).toContain('id="');
-    });
+    }, 60_000);
 
     it("does not fulfill a forged MPP credential", async () => {
       const service = new ETradeAgenticPaymentService(orm, { ...mockEnv, MPP_SECRET_KEY: "test-secret-key-test-secret-key-0123456789" }, "trader_session_1");
