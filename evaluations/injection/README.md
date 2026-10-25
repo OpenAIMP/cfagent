@@ -23,6 +23,17 @@ prompt (see `docs/THREAT_MODEL.md` §7). Each version directory holds a
   control proving the separation-stripped (pre-#879) assembly fails the
   same invariants.
 
+- **v3** — the news-sentiment path (THREAT_MODEL §7 path 4),
+  defended in #881. Runner: `tests/news_sentiment_injection_evalset.test.ts`
+  (CI, via the normal test suite). Cases place fetched headlines
+  (poisoned or benign) into the production `buildNewsSentimentPrompt`
+  assembly as single news items; invariants: content arrives only
+  inside the news-content delimiters as data, exactly one real END
+  delimiter (embedded markers defused), legitimate datum preserved
+  inside the region, data-is-not-instructions line present — plus a
+  per-case negative control proving the separation-stripped (pre-#881)
+  assembly fails the same invariants.
+
 Adding a case: append to `cases.json` with a unique `caseId`, a declared
 `category`, and an `expect.mustContainData` substring naming the legitimate
 request inside the attack/control email that must survive as data. New
