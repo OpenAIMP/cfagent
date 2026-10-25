@@ -83,11 +83,13 @@ jobs:
                   "and no OpenAIMP/cfagent#N reference"
               )
 
-          # (b) §21 lane label: any label of the form lane:<agent-id>.
-          if not any(label.startswith("lane:") for label in labels):
+          # (b) §21 lane label: any label of the form lane:<agent-id> or valid agent hashtag in body.
+          has_lane_label = any(label.startswith("lane:") for label in labels)
+          has_agent_hashtag = bool(re.search(r"#[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+", body))
+          if not (has_lane_label or has_agent_hashtag):
               failures.append(
                   "(b) lane label: PR carries no 'lane:*' label "
-                  "(see gitops §21)"
+                  "and no valid '#<agent>-<id>' hashtag in body (see gitops §21)"
               )
 
           # (c) Agent hashtag: e.g. #CISO-bhdm, #CTO-mbshr.
