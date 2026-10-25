@@ -12,7 +12,6 @@ description = "Allowlist for test fixtures, documentation samples, and historica
 paths = [
   '''tests/.*''',
   '''docs/.*''',
-  '''\.agents/.*''',
 ]
 commits = [
   "c49ea9c659b03abda1fae3f61f9cb5aef5b2a0ae",

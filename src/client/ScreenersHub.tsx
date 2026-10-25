@@ -12,6 +12,7 @@ import type { ScreenedStockItem } from "../types";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "./components/CapabilityNavBar";
 import { ScreenerResultsView } from "./ScreenerResultsView";
 import { RunDetailView, type RunDetailConfirmation } from "./RunDetailView";
+import { MorningDigest } from "./MorningDigest";
 import { ScannerPanel } from "./ScannerPanel";
 import { GoalScreenPanel } from "./GoalScreenPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -743,6 +744,21 @@ export function ScreenersHub({
           hidden={hubTab !== "stocks"}
           style={hubTab !== "stocks" ? { display: "none" } : undefined}
         >
+          {/* Issue #1328: morning digest above the runs panel — one briefing
+              of last night's runs, linking each entry to its run detail
+              (child 3) and held items to the pending-review queue (child 1). */}
+          <div style={{ marginBottom: "1rem" }}>
+            <MorningDigest
+              runs={autoRuns}
+              onSelectRun={(timestamp) => {
+                setSelectedAutoTs(timestamp);
+                if (typeof document !== "undefined") {
+                  document.getElementById("selected-run-detail")?.scrollIntoView?.({ block: "start" });
+                }
+              }}
+              onViewQueue={() => handleTabChange("reports")}
+            />
+          </div>
           {/* Issue #212: autonomous screener panel — latest scheduled runs. */}
           <div className="screener-feed-callout" style={{ marginBottom: "1rem" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
@@ -893,6 +909,7 @@ export function ScreenersHub({
                 </div>
                 {/* Data panel for selected job */}
                 <div
+                  id="selected-run-detail"
                   aria-label="Selected job run data"
                   style={{
                     border: "1px solid var(--color-border-subtle)",
