@@ -226,8 +226,11 @@ function watchlistsCtx(env: Env, orm: DatabaseORM): WatchlistsRouteContext {
   } as WatchlistsRouteContext;
 }
 
+// Issue #1185: requests model the production session gate — src/server.ts
+// sets x-user-login from the verified session (here, USER, the login the
+// authed env seeds its stored token under); handlers fail closed without it.
 const req = (path: string) =>
-  new Request(`https://agent.internal${path}`, { method: "GET" });
+  new Request(`https://agent.internal${path}`, { method: "GET", headers: { "x-user-login": USER } });
 const urlOf = (path: string) => new URL(`https://agent.internal${path}`);
 
 function failAllFetches(status = 400, body = OAUTH_ERROR_BODY) {

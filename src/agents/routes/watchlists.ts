@@ -25,6 +25,7 @@
  * routeRequest and is passed through the context.
  */
 
+import { unauthenticatedResponse } from "./routeIdentity";
 import { ETradeService } from "../../services/etrade";
 import type { Env } from "../../types";
 import type { DatabaseORM } from "../../orm";
@@ -57,7 +58,8 @@ export async function handleWatchlistsRoutes(
     // List Watchlists (E*TRADE REST + Durable SQLite)
     if (path.endsWith("/etrade/watchlists") && request.method === "GET") {
       try {
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = request.headers.get("x-user-login");
+        if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         let watchlists;
         try {
@@ -93,7 +95,8 @@ export async function handleWatchlistsRoutes(
     if (path.endsWith("/etrade/watchlist/details") && request.method === "GET") {
       try {
         const id = url.searchParams.get("id") || url.searchParams.get("name") || "";
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = request.headers.get("x-user-login");
+        if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const details = await etrade.getWatchlistDetails(id);
         if (!details) {
@@ -119,7 +122,8 @@ export async function handleWatchlistsRoutes(
         const body = (await request.json().catch(() => ({}))) as any;
         const name = (body.name || "Default Watchlist").trim();
         const symbols = Array.isArray(body.symbols) ? body.symbols : [];
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = request.headers.get("x-user-login");
+        if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const res = await etrade.createWatchlist({ name, symbols });
         return Response.json(res);
@@ -135,7 +139,8 @@ export async function handleWatchlistsRoutes(
         const name = (body.name || "Screener Results").trim();
         const symbols = Array.isArray(body.symbols) ? body.symbols : [];
         const items = body.items || [];
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = request.headers.get("x-user-login");
+        if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const res = await etrade.saveScanAsWatchlist(name, symbols, items);
         return Response.json(res);
@@ -149,7 +154,8 @@ export async function handleWatchlistsRoutes(
       try {
         const id = url.searchParams.get("id") || (await request.json().catch(() => ({})) as any)?.id;
         if (!id) return Response.json({ error: "Missing watchlist id" }, { status: 400 });
-        const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
+        const userLogin = request.headers.get("x-user-login");
+        if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
         const deleted = await etrade.deleteWatchlist(id);
         return Response.json({ success: deleted, deletedId: id });
