@@ -17,16 +17,23 @@ updates:
       day: "monday"
       time: "06:30"
       timezone: "America/New_York"
+    open-pull-requests-limit: 1
+    rebase-strategy: "disabled"
     labels:
       - "dependencies"
     groups:
-      npm-minor-patch:
-        update-types:
-          - "minor"
-          - "patch"
+      npm-dependencies:
+        patterns:
+          - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 1
+    rebase-strategy: "disabled"
     labels:
       - "dependencies"
+    groups:
+      actions-dependencies:
+        patterns:
+          - "*"
