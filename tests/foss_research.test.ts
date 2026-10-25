@@ -32,13 +32,13 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   const userDid = "did:user:github:analyst_user";
 
   beforeEach(() => {
-    // #411: hermetic suite — no real network. These tests' assertions are
-    // pinned to the providers' deterministic fallback data (the only path
-    // whose values are stable enough to assert); with live fetch they
-    // intermittently exercised the live Yahoo path instead, whose latency
-    // produced 25s timeouts under suite load. Rejecting fetch makes the
-    // exercised path deterministic. Verified equivalent: the suite passes
-    // 31/31 with outbound fetch fully blocked.
+    // #411: hermetic suite — no real network. #923 (epic #913 S5) removed
+    // the providers' deterministic fallback data, so with fetch blocked
+    // every live FOSS call now rejects with an explicit unavailable error
+    // instead of returning fallback values; the tests below pin that
+    // rejection (live behaviour itself is pinned by the mocked-fetch
+    // suites: foss_provenance, foss_substrate_live_only_p923, and the
+    // data-provider Yahoo/Alpaca suites).
     vi.stubGlobal("fetch", async () => {
       throw new Error(
         "network disabled in foss_research tests (#411): providers must use their deterministic fallback"
@@ -62,45 +62,20 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   // 1. Yahoo Finance Provider (yfinance)
   // =========================================================================
   describe("YahooFinanceProvider", () => {
-    it("fetches market quote for major equity (NVDA)", async () => {
-      const quote = await yfProvider.getQuote("NVDA");
-      expect(quote.symbol).toBe("NVDA");
-      expect(quote.provider).toBe("yfinance");
-      expect(quote.price).toBeGreaterThan(100);
-      expect(quote.trailingPE).toBeGreaterThan(0);
-      expect(quote.marketCap).toBeGreaterThan(1e12);
-      expect(quote.volume).toBeGreaterThan(1e6);
-      expect(typeof quote.currency).toBe("string");
+    it("fetch failure rejects explicit unavailable instead of a fallback quote (#923)", async () => {
+      await expect(yfProvider.getQuote("NVDA")).rejects.toThrow(/unavailable/i);
     });
 
-    it("fetches comprehensive accounting fundamentals (MSFT)", async () => {
-      const fund = await yfProvider.getFundamentals("MSFT");
-      expect(fund.symbol).toBe("MSFT");
-      expect(fund.companyName).toBe("Microsoft Corporation");
-      expect(fund.peForward).toBeGreaterThan(0);
-      expect(fund.pegRatio).toBeGreaterThan(0);
-      expect(fund.profitMargins).toBeGreaterThan(0);
-      expect(fund.recommendationKey).toBeDefined();
-      expect(fund.targetMeanPrice).toBeGreaterThan(300);
-      expect(fund.marketCap).toBeGreaterThan(1e12);
+    it("fetch failure rejects explicit unavailable instead of profile fundamentals (#923)", async () => {
+      await expect(yfProvider.getFundamentals("MSFT")).rejects.toThrow(/unavailable/i);
     });
 
-    it("generates OHLCV historical bars (AAPL)", async () => {
-      const bars = await yfProvider.getHistoricalBars("AAPL", "1D", 30);
-      expect(bars).toBeInstanceOf(Array);
-      expect(bars.length).toBe(30);
-      const firstBar = bars[0];
-      expect(firstBar.open).toBeGreaterThan(0);
-      expect(firstBar.high).toBeGreaterThanOrEqual(firstBar.low);
-      expect(firstBar.volume).toBeGreaterThan(0);
-      expect(firstBar.timestamp).toBeDefined();
+    it("fetch failure rejects explicit unavailable instead of synthetic bars (#923)", async () => {
+      await expect(yfProvider.getHistoricalBars("AAPL", "1D", 30)).rejects.toThrow(/unavailable/i);
     });
 
-    it("generates deterministic fallback for unknown tickers", async () => {
-      const quote = await yfProvider.getQuote("CUSTOMCORP");
-      expect(quote.symbol).toBe("CUSTOMCORP");
-      expect(quote.price).toBeGreaterThan(10);
-      expect(quote.marketCap).toBeGreaterThan(0);
+    it("unknown tickers reject — no hash-invented profile (#923)", async () => {
+      await expect(yfProvider.getQuote("CUSTOMCORP")).rejects.toThrow(/unavailable/i);
     });
   });
 
@@ -108,38 +83,17 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   // 2. Alpaca Market Data Provider
   // =========================================================================
   describe("AlpacaMarketDataProvider", () => {
-    it("fetches Level 1 real-time quote with NBBO bid/ask (AAPL)", async () => {
-      const quote = await alpacaProvider.getQuote("AAPL");
-      expect(quote.symbol).toBe("AAPL");
-      expect(quote.provider).toBe("alpaca");
-      expect(quote.price).toBeGreaterThan(100);
-      expect(quote.bid).toBeDefined();
-      expect(quote.ask).toBeDefined();
-      expect(quote.ask).toBeGreaterThanOrEqual(quote.bid!);
+    it("unconfigured Alpaca quote rejects — no profile quote (#923)", async () => {
+      await expect(alpacaProvider.getQuote("AAPL")).rejects.toThrow(/unavailable/i);
     });
 
-    it("fetches full Level 1/2 market snapshot (NVDA)", async () => {
-      const snapshot = await alpacaProvider.getMarketSnapshot("NVDA");
-      expect(snapshot.symbol).toBe("NVDA");
-      expect(snapshot.latestTrade.price).toBeGreaterThan(0);
-      expect(snapshot.latestQuote.bidPrice).toBeGreaterThan(0);
-      expect(snapshot.latestQuote.askPrice).toBeGreaterThanOrEqual(snapshot.latestQuote.bidPrice);
-      expect(snapshot.nbboSpread).toBeCloseTo(
-        snapshot.latestQuote.askPrice - snapshot.latestQuote.bidPrice,
-        2
-      );
-      expect(snapshot.dailyBar.volume).toBeGreaterThan(0);
-      expect(snapshot.prevDailyBar.close).toBeGreaterThan(0);
+    it("unconfigured Alpaca snapshot rejects — no profile snapshot (#923)", async () => {
+      await expect(alpacaProvider.getMarketSnapshot("NVDA")).rejects.toThrow(/unavailable/i);
     });
 
-    it("supports crypto trading pairs (BTC/USD)", async () => {
-      const btcQuote = await alpacaProvider.getQuote("BTC/USD");
-      expect(btcQuote.symbol).toBe("BTC/USD");
-      expect(btcQuote.price).toBeGreaterThan(10000);
-
-      const btcSnapshot = await alpacaProvider.getMarketSnapshot("BTC/USD");
-      expect(btcSnapshot.symbol).toBe("BTC/USD");
-      expect(btcSnapshot.latestTrade.price).toBeGreaterThan(10000);
+    it("unconfigured Alpaca crypto quote and snapshot reject (#923)", async () => {
+      await expect(alpacaProvider.getQuote("BTC/USD")).rejects.toThrow(/unavailable/i);
+      await expect(alpacaProvider.getMarketSnapshot("BTC/USD")).rejects.toThrow(/unavailable/i);
     });
   });
 
@@ -147,14 +101,8 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   // 3. Hybrid FOSS Provider
   // =========================================================================
   describe("HybridFossProvider (Alpaca Real-Time + YFinance Valuation)", () => {
-    it("blends Alpaca real-time pricing with Yahoo Finance valuation multiples", async () => {
-      const hybridQuote = await hybridProvider.getQuote("GOOGL");
-      expect(hybridQuote.symbol).toBe("GOOGL");
-      expect(hybridQuote.provider).toBe("hybrid");
-      expect(hybridQuote.bid).toBeDefined();
-      expect(hybridQuote.ask).toBeDefined();
-      expect(hybridQuote.trailingPE).toBeGreaterThan(0);
-      expect(hybridQuote.marketCap).toBeGreaterThan(1e12);
+    it("offline hybrid quote rejects — no blended profile quote (#923)", async () => {
+      await expect(hybridProvider.getQuote("GOOGL")).rejects.toThrow(/unavailable/i);
     });
   });
 
@@ -162,36 +110,14 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   // 4. FossResearchService Facade & Autonomous Agent Attestation
   // =========================================================================
   describe("FossResearchService Facade", () => {
-    it("generates an autonomous equity research report with W3C Agent DID attestation", async () => {
-      const report = await researchService.generateResearchReport("NVDA");
-      expect(report.symbol).toBe("NVDA");
-      expect(report.fundamentals.companyName).toBe("NVIDIA Corporation");
-      expect(report.quote.price).toBeGreaterThan(100);
-      expect(report.analystRating).toBe("STRONG BUY");
-      expect(report.fundamentals.targetMeanPrice).toBeGreaterThan(report.quote.price);
-      expect(report.fundamentals.peTrailing).toBeGreaterThan(0);
-      expect(report.fundamentals.pegRatio).toBeGreaterThan(0);
-      expect(report.aiAnalysis).toContain("NVIDIA");
-      expect(report.bars.length).toBeGreaterThanOrEqual(15);
-      expect(report.technicalSummary.rsi14).toBeGreaterThan(0);
-
-      // Verify W3C Agent Cryptographic Attestation
-      expect(report.agentAttestation.did).toBe(AGENT_DIDS.RESEARCH);
-      expect(report.agentAttestation.did).toBe("did:agent:openaimp:research");
-      expect(report.agentAttestation.signature).toMatch(/^sig_/);
+    it("offline research report rejects — no non-live report is assembled (#923)", async () => {
+      await expect(researchService.generateResearchReport("NVDA")).rejects.toThrow(/unavailable/i);
     });
 
-    it("compares multi-ticker valuation metrics across peers", async () => {
-      const comparison = await researchService.compareStocks(["NVDA", "AMD", "MSFT"]);
-      expect(comparison.length).toBe(3);
-      expect(comparison.map(c => c.symbol)).toEqual(["NVDA", "AMD", "MSFT"]);
-
-      const nvda = comparison.find((d) => d.symbol === "NVDA");
-      const amd = comparison.find((d) => d.symbol === "AMD");
-      expect(nvda).toBeDefined();
-      expect(amd).toBeDefined();
-      expect(nvda?.quote.price).toBeGreaterThan(0);
-      expect(amd?.quote.price).toBeGreaterThan(0);
+    it("offline comparison rejects — no profile comparison (#923)", async () => {
+      await expect(researchService.compareStocks(["NVDA", "AMD", "MSFT"])).rejects.toThrow(
+        /unavailable/i,
+      );
     }, 15000);
 
     it("inspects live health status of FOSS data providers", async () => {
@@ -215,67 +141,52 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       audit: () => {},
     });
 
-    it("executes foss_get_quote tool via McpToolFactory", async () => {
-      const result = await McpToolFactory.executeTool("foss_get_quote", {
-        symbol: "TSLA",
-        provider: "hybrid",
-      }, getContext());
-
-      expect(result.symbol).toBe("TSLA");
-      expect(result.price).toBeGreaterThan(0);
-      expect(result.provider).toBeDefined();
+    it("foss_get_quote tool rejects offline — no fallback quote (#923)", async () => {
+      await expect(
+        McpToolFactory.executeTool("foss_get_quote", {
+          symbol: "TSLA",
+          provider: "hybrid",
+        }, getContext()),
+      ).rejects.toThrow(/unavailable/i);
     });
 
-    it("executes foss_company_fundamentals tool via McpToolFactory", async () => {
-      const result = await McpToolFactory.executeTool("foss_company_fundamentals", {
-        symbol: "AAPL",
-      }, getContext());
-
-      expect(result.symbol).toBe("AAPL");
-      expect(result.peTrailing).toBeGreaterThan(0);
-      expect(result.marketCap).toBeGreaterThan(0);
+    it("foss_company_fundamentals tool rejects offline — no profile fundamentals (#923)", async () => {
+      await expect(
+        McpToolFactory.executeTool("foss_company_fundamentals", {
+          symbol: "AAPL",
+        }, getContext()),
+      ).rejects.toThrow(/unavailable/i);
     });
 
-    it("executes foss_historical_bars tool via McpToolFactory", async () => {
-      const result = await McpToolFactory.executeTool("foss_historical_bars", {
-        symbol: "AMZN",
-        period: "1mo",
-        timeframe: "1d",
-      }, getContext());
-
-      expect(result.symbol).toBe("AMZN");
-      expect(result.bars).toBeInstanceOf(Array);
-      expect(result.bars.length).toBeGreaterThan(0);
+    it("foss_historical_bars tool rejects offline — no synthetic bars (#923)", async () => {
+      await expect(
+        McpToolFactory.executeTool("foss_historical_bars", {
+          symbol: "AMZN",
+          period: "1mo",
+          timeframe: "1d",
+        }, getContext()),
+      ).rejects.toThrow(/unavailable/i);
     });
 
-    it("executes foss_market_research tool via McpToolFactory", async () => {
-      const result = await McpToolFactory.executeTool("foss_market_research", {
-        symbol: "PLTR",
-      }, getContext());
-
-      expect(result.symbol).toBe("PLTR");
-      expect(result.agentAttestation.did).toBe(AGENT_DIDS.RESEARCH);
-      expect(result.aiAnalysis).toBeDefined();
-      expect(result.bars.length).toBeGreaterThan(0);
+    it("foss_market_research tool rejects offline — no non-live report (#923)", async () => {
+      await expect(
+        McpToolFactory.executeTool("foss_market_research", {
+          symbol: "PLTR",
+        }, getContext()),
+      ).rejects.toThrow(/unavailable/i);
     });
 
-    it("executes foss_alpaca_snapshot tool via McpToolFactory with audit tracing", async () => {
-      const audits: any[] = [];
+    it("foss_alpaca_snapshot tool rejects offline — no profile snapshot (#923)", async () => {
       const ctx = {
         ...getContext(),
-        audit: (type: string, domain: string, payload: any) => {
-          audits.push({ type, domain, payload });
-        },
+        audit: () => {},
       };
 
-      const result = await McpToolFactory.executeTool("foss_alpaca_snapshot", {
-        symbol: "BTC/USD",
-      }, ctx);
-
-      expect(result.symbol).toBe("BTC/USD");
-      expect(result.latestTrade).toBeDefined();
-      expect(result.latestQuote).toBeDefined();
-      expect(audits.some((a) => a.type === "foss.alpaca.snapshot" && a.domain === "research")).toBe(true);
+      await expect(
+        McpToolFactory.executeTool("foss_alpaca_snapshot", {
+          symbol: "BTC/USD",
+        }, ctx),
+      ).rejects.toThrow(/unavailable/i);
     });
 
     it("executes foss_alpaca_account tool via McpToolFactory with agentic DID audit tracing", async () => {
@@ -371,12 +282,10 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       expect(uris).toContain("foss://providers/status");
     });
 
-    it("reads foss quote resource dynamically", async () => {
-      const res = await readMCPResource("foss://market/quote/NVDA", { orm, sessionId });
-      expect(res.uri).toBe("foss://market/quote/NVDA");
-      const parsed = JSON.parse(res.text);
-      expect(parsed.symbol).toBe("NVDA");
-      expect(parsed.price).toBeGreaterThan(0);
+    it("foss quote resource rejects offline — no fallback quote (#923)", async () => {
+      await expect(readMCPResource("foss://market/quote/NVDA", { orm, sessionId })).rejects.toThrow(
+        /unavailable/i,
+      );
     });
 
     it("reads foss providers status resource", async () => {
@@ -421,39 +330,39 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       expect(plan.researchData?.symbols).toContain("AMD");
     });
 
-    it("executes NLQ research report query and returns formatted rows & summary card", async () => {
+    it("executes NLQ research report query and returns explicit unavailable, no rows (#923)", async () => {
       const plan = await planNLQ(mockEnv, "Run deep research on NVDA");
       const result = executeNLQQuery(orm, sessionId, plan, mockEnv, userDid);
 
       expect(result.domain).toBe("research");
-      expect(result.rows.length).toBeGreaterThan(0);
+      expect(result.count).toBe(0);
+      expect(result.status).toBe("error");
+      expect(result.rows.length).toBe(0);
       expect(result.summary).toContain("NVDA");
-      expect(result.summary).toContain("Target:");
-      // Issue #117: the sync NLQ path serves the FOSS profile, whose rating
-      // is a profile estimate — the summary labels it "Rating:", never
-      // "Consensus:", and carries the non-live disclosure.
-      expect(result.summary).toContain("Rating:");
-      expect(result.summary).not.toContain("Consensus:");
-      expect(result.summary).toContain("not live analyst consensus");
+      expect(result.summary).toMatch(/unavailable/i);
+      expect(result.summary).toMatch(/#923/);
     });
 
-    it("executes NLQ quote query and returns real-time quote metrics", async () => {
+    it("executes NLQ quote query and returns explicit unavailable, no rows (#923)", async () => {
       const plan = await planNLQ(mockEnv, "Get FOSS quote for AAPL on yfinance");
       const result = executeNLQQuery(orm, sessionId, plan, mockEnv, userDid);
 
       expect(result.domain).toBe("research");
-      expect(result.rows[0].symbol).toBe("AAPL");
-      expect(result.rows[0].price).toBeDefined();
+      expect(result.count).toBe(0);
+      expect(result.status).toBe("error");
+      expect(result.rows.length).toBe(0);
+      expect(result.summary).toMatch(/unavailable/i);
     });
 
-    it("executes NLQ comparison query and returns side-by-side valuation grid", async () => {
+    it("executes NLQ comparison query and returns explicit unavailable, no rows (#923)", async () => {
       const plan = await planNLQ(mockEnv, "Compare valuation of NVDA and AMD");
       const result = executeNLQQuery(orm, sessionId, plan, mockEnv, userDid);
 
       expect(result.domain).toBe("research");
-      expect(result.rows.length).toBe(2);
-      expect(result.rows.some((r) => r.symbol === "NVDA")).toBe(true);
-      expect(result.rows.some((r) => r.symbol === "AMD")).toBe(true);
+      expect(result.count).toBe(0);
+      expect(result.status).toBe("error");
+      expect(result.rows.length).toBe(0);
+      expect(result.summary).toMatch(/unavailable/i);
     });
   });
 });
