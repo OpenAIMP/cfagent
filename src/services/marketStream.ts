@@ -9,7 +9,6 @@
  * - Batch HTTP snapshot fallback for non-WebSocket clients
  */
 
-import { FOSS_MARKET_UNIVERSE, StockMarketProfile } from "./fossResearch";
 import type { Env } from "../types";
 
 export interface MarketTickData {
@@ -28,7 +27,7 @@ export interface MarketTickData {
   volume: string;
   isPositive: boolean;
   timestamp: number;
-  source: "Alpaca" | "Yahoo Finance" | "Reference";
+  source: "Alpaca" | "Yahoo Finance";
 }
 
 export type MarketStreamClientMessage =
@@ -37,7 +36,7 @@ export type MarketStreamClientMessage =
   | { type: "ping" };
 
 export type MarketStreamServerMessage =
-  | { type: "snapshot"; quotes: MarketTickData[] }
+  | { type: "snapshot"; quotes: MarketTickData[]; unavailable?: string[] }
   | { type: "tick"; tick: MarketTickData }
   | { type: "ticks"; ticks: MarketTickData[] }
   | { type: "pong"; timestamp: number }
@@ -144,31 +143,39 @@ export async function fetchRealMarketQuote(symbol: string, env?: Env): Promise<M
           const ask = Number(q.ap || 0);
           const price = bid > 0 && ask > 0 ? Number(((bid + ask) / 2).toFixed(2)) : Number(bid || ask || 0);
           if (price > 0) {
-            const baseline = getBaselineMarketTick(norm);
-            const prevClose = baseline.price - baseline.change || price;
-            const change = Number((price - prevClose).toFixed(2));
-            const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
-            const tick: MarketTickData = {
-              symbol: norm,
-              name: baseline.name,
-              type,
-              price,
-              formattedPrice: formatPrice(price),
-              change,
-              formattedChange: formatChangePercent(changePercent),
-              changePercent,
-              bid,
-              ask,
-              formattedBid: formatPrice(bid),
-              formattedAsk: formatPrice(ask),
-              volume: baseline.volume,
-              isPositive: change >= 0,
-              timestamp: Date.now(),
-              source: "Alpaca",
-            };
-            liveMarketCache.set(norm, { tick, expiresAt: Date.now() + 20000 });
-            failedQuoteRetryAfter.delete(norm);
-            return tick;
+            // #929: no static profile values in a live tick. The previous
+            // close comes only from a previous live tick; without one, fall
+            // through to Yahoo Finance, which supplies a live previous
+            // close. Volume is unavailable from the Alpaca latest-quote
+            // payload, so it is rendered as an explicit marker, never a
+            // static profile volume.
+            const prevTick = liveMarketCache.get(norm)?.tick;
+            const prevClose = prevTick ? prevTick.price - prevTick.change : 0;
+            if (prevClose > 0) {
+              const change = Number((price - prevClose).toFixed(2));
+              const changePercent = Number(((change / prevClose) * 100).toFixed(2));
+              const tick: MarketTickData = {
+                symbol: norm,
+                name: norm,
+                type,
+                price,
+                formattedPrice: formatPrice(price),
+                change,
+                formattedChange: formatChangePercent(changePercent),
+                changePercent,
+                bid,
+                ask,
+                formattedBid: formatPrice(bid),
+                formattedAsk: formatPrice(ask),
+                volume: "—",
+                isPositive: change >= 0,
+                timestamp: Date.now(),
+                source: "Alpaca",
+              };
+              liveMarketCache.set(norm, { tick, expiresAt: Date.now() + 20000 });
+              failedQuoteRetryAfter.delete(norm);
+              return tick;
+            }
           }
         }
       }
@@ -201,11 +208,10 @@ export async function fetchRealMarketQuote(symbol: string, env?: Env): Promise<M
         const halfSpread = Math.max(0.01, Number(((price * spreadFraction) / 2).toFixed(2)));
         const bid = Number((price - halfSpread).toFixed(2));
         const ask = Number((price + halfSpread).toFixed(2));
-        const baseline = getBaselineMarketTick(norm);
 
         const tick: MarketTickData = {
           symbol: norm,
-          name: meta.longName || meta.shortName || baseline.name,
+          name: meta.longName || meta.shortName || norm,
           type,
           price,
           formattedPrice: formatPrice(price),
@@ -251,74 +257,15 @@ export async function refreshQuotesInBackground(symbols: string[], env?: Env): P
 }
 
 /**
- * Resolves or deterministically calculates a baseline market quote.
+ * Returns the cached live tick for a symbol, or null when no live tick is
+ * cached. #929: static profile values are never emitted as ticks, and
+ * there is no deterministic fallback for unknown symbols. A symbol with
+ * no live tick is unavailable, not priced.
  */
-export function getBaselineMarketTick(symbol: string): MarketTickData {
+export function getBaselineMarketTick(symbol: string): MarketTickData | null {
   const norm = symbol.toUpperCase().trim();
   const cached = liveMarketCache.get(norm);
-  if (cached) {
-    return cached.tick;
-  }
-
-  // Alias lookup for crypto
-  const altKey = norm === "BTC-USD" ? "BTC/USD" : norm === "ETH-USD" ? "ETH/USD" : norm === "SOL-USD" ? "SOL/USD" : norm;
-  const profile = FOSS_MARKET_UNIVERSE[norm] || FOSS_MARKET_UNIVERSE[altKey];
-  const type = classifyAssetType(norm);
-  const isCrypto = type === "crypto";
-
-  if (profile) {
-    return {
-      symbol: norm,
-      name: profile.name,
-      type,
-      price: profile.price,
-      formattedPrice: formatPrice(profile.price),
-      change: profile.change,
-      formattedChange: formatChangePercent(profile.changePercent),
-      changePercent: profile.changePercent,
-      bid: profile.bid,
-      ask: profile.ask,
-      formattedBid: formatPrice(profile.bid),
-      formattedAsk: formatPrice(profile.ask),
-      volume: formatVolume(profile.volume, isCrypto),
-      isPositive: profile.change >= 0,
-      timestamp: Date.now(),
-      source: "Reference",
-    };
-  }
-
-  // Deterministic fallback for unknown symbols
-  let hash = 0;
-  for (let i = 0; i < norm.length; i++) {
-    hash = (hash << 5) - hash + norm.charCodeAt(i);
-    hash |= 0;
-  }
-  const pos = Math.abs(hash);
-  const price = 50 + (pos % 250) + ((pos % 100) / 100);
-  const changePct = ((pos % 600) - 250) / 100;
-  const change = Number(((price * changePct) / 100).toFixed(2));
-  const spread = Math.max(0.02, Number((price * 0.0008).toFixed(2)));
-  const bid = Number((price - spread / 2).toFixed(2));
-  const ask = Number((price + spread / 2).toFixed(2));
-
-  return {
-    symbol: norm,
-    name: `${norm} Corporation`,
-    type,
-    price,
-    formattedPrice: formatPrice(price),
-    change,
-    formattedChange: formatChangePercent(changePct),
-    changePercent: changePct,
-    bid,
-    ask,
-    formattedBid: formatPrice(bid),
-    formattedAsk: formatPrice(ask),
-    volume: formatVolume(1200000 + (pos % 10000000), isCrypto),
-    isPositive: change >= 0,
-    timestamp: Date.now(),
-    source: "Reference",
-  };
+  return cached ? cached.tick : null;
 }
 
 /** Deterministic test/demo utility; the live WebSocket stream never calls this. */
@@ -363,12 +310,16 @@ export function generateNextTick(prev: MarketTickData): MarketTickData {
 
 /**
  * Batch resolver for market quotes (used by HTTP endpoint and snapshots).
+ * #929: emits only live-cached ticks. Symbols with no live tick are
+ * omitted here; callers report them as unavailable.
  */
 export function getBatchMarketQuotes(symbols: string[]): MarketTickData[] {
-  return symbols.map((sym) => {
+  const quotes: MarketTickData[] = [];
+  for (const sym of symbols) {
     const cached = liveMarketCache.get(sym.toUpperCase().trim());
-    return cached ? cached.tick : getBaselineMarketTick(sym);
-  });
+    if (cached) quotes.push(cached.tick);
+  }
+  return quotes;
 }
 
 /**
@@ -379,11 +330,20 @@ export function handleMarketQuotesHttp(symbols: string[], env?: Env): Response {
   void refreshQuotesInBackground(symbols, env);
 
   const quotes = getBatchMarketQuotes(symbols);
+  const quoted = new Set(quotes.map((quote) => quote.symbol));
+  const unavailable = symbols
+    .map((s) => s.toUpperCase().trim())
+    .filter((s) => s && !quoted.has(s));
   return Response.json(
     {
       quotes,
+      unavailable,
+      dataUnavailable: unavailable.length > 0,
       timestamp: Date.now(),
-      source: Array.from(new Set(quotes.map((quote) => quote.source))).join(" + "),
+      source:
+        quotes.length > 0
+          ? Array.from(new Set(quotes.map((quote) => quote.source))).join(" + ")
+          : "none",
     },
     {
       headers: {
@@ -440,16 +400,20 @@ export async function handleMarketQuotesWebSocket(ws: WebSocket, env?: Env): Pro
 
       if (msg.type === "subscribe" && Array.isArray(msg.symbols)) {
         const newSnapshots: MarketTickData[] = [];
+        const unavailable: string[] = [];
         for (const sym of msg.symbols) {
           const upper = sym.toUpperCase().trim();
           if (!upper) continue;
           subscribed.add(upper);
-          newSnapshots.push(getBatchMarketQuotes([upper])[0]);
+          const found = getBatchMarketQuotes([upper])[0];
+          if (found) newSnapshots.push(found);
+          else unavailable.push(upper);
         }
         ws.send(
           JSON.stringify({
             type: "snapshot",
             quotes: newSnapshots,
+            unavailable,
           })
         );
       } else if (msg.type === "unsubscribe" && Array.isArray(msg.symbols)) {

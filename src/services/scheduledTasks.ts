@@ -699,6 +699,9 @@ export class ScheduledTasksService {
       // Issue #1527: the audit names the run's provider and, for a
       // fallback run, the marker — the fallback is visible in history.
       this.audit("screener.run_completed", {
+        runId: `screener:${result.timestamp || timestamp}`,
+        screenType: "stock",
+        runType: result.trigger || options.trigger || "scheduled",
         sector: result.sector,
         universe: result.universe,
         provider: result.provider,
@@ -796,6 +799,9 @@ export class ScheduledTasksService {
       // path; the audit names the fallback so the failure record
       // shows it was a fallback attempt, not an E*TRADE-live failure.
       this.audit("screener.screen_failed", {
+        runId: `screener:${timestamp}`,
+        screenType: "stock",
+        runType: options.trigger || "scheduled",
         sector: options.sector || "ALL",
         error: err.message,
         ...(providerFallback ? { providerFallback } : {}),
@@ -1211,6 +1217,8 @@ export class ScheduledTasksService {
     const timestamp = new Date().toISOString();
     let symbols: string[] = [];
     const targetThesis = options.thesis || "bullish";
+    const reportRunId = `options_scanner:${timestamp}:${targetThesis}`;
+    let auditRunId = reportRunId;
     const shouldNotifySlack = options.pushToSlack === true ||
       (options.pushToSlack === undefined && Boolean(this.env.SLACK_BOT_TOKEN || getCfpayConfig(this.env)));
 
@@ -1292,8 +1300,9 @@ export class ScheduledTasksService {
         maxSymbols: symbols.length,
         eventCalendarBySymbol: Object.fromEntries(scanCalendarCoverage.bySymbol),
       });
-      if (!response.success) throw new Error(response.summary || "Scheduled options scan failed");
       const scanData = response.data as any;
+      auditRunId = scanData?.scanRunId || reportRunId;
+      if (!response.success) throw new Error(response.summary || "Scheduled options scan failed");
       const scannedCount = Number(scanData?.scanned ?? 0);
       const coverageErrors = Number(scanData?.coverage?.errors ?? 0);
       const truncatedCount = Number(scanData?.truncatedSymbols ?? scanData?.coverage?.truncated ?? 0);
@@ -1440,7 +1449,7 @@ export class ScheduledTasksService {
       // Store the searchable report once before any channel delivery. The
       // PDF remains in ScreenerAgent storage; mas_reports keeps its key/URL
       // and the complete structured scan payload for AI Search.
-      const generationId = `options_scanner:${timestamp}:${targetThesis}`;
+      const generationId = reportRunId;
       const canonical = this.orm?.storeCanonicalReport({
         runId: generationId,
         generationId,
@@ -1605,6 +1614,9 @@ export class ScheduledTasksService {
       }
 
       this.audit("options.scheduled_analysis_completed", {
+        runId: auditRunId,
+        screenType: "options",
+        runType: options.trigger || "scheduled",
         symbols,
         thesis: targetThesis,
         scanned: response.data?.scanned ?? symbols.length,
@@ -1671,6 +1683,9 @@ export class ScheduledTasksService {
       };
     } catch (err: any) {
       this.audit("options.scheduled_analysis_failed", {
+        runId: auditRunId,
+        screenType: "options",
+        runType: options.trigger || "scheduled",
         symbols,
         thesis: targetThesis,
         error: err.message,

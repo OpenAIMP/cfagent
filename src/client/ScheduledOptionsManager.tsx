@@ -229,6 +229,7 @@ export function ScheduledOptionsManager({
       if (res.ok && Array.isArray(data.events)) {
         const filtered = data.events.filter((e: any) =>
           e.type.startsWith("options.") ||
+          e.type.startsWith("screener.") ||
           e.type.startsWith("schedule.") ||
           e.type.includes("scheduled")
         );
