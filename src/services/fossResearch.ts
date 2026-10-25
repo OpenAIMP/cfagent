@@ -33,7 +33,7 @@ import type {
 } from "../types";
 import type { IFossMarketDataProvider } from "../patterns/interfaces";
 import { AGENT_DIDS, createDidAttestationSync } from "../agents/did";
-import { getCachedQuote, setCachedQuote } from "./quoteCache";
+import { getCachedQuoteWithAge, setCachedQuote } from "./quoteCache";
 
 export interface StockMarketProfile {
   symbol: string;
@@ -1568,7 +1568,7 @@ function fossSyncUnavailable(symbol: string, what: string, provider: string): ne
   throw fossLiveUnavailableError(symbol, what, `${provider} sync accessor (use the async accessor)`);
 }
 
-const FOSS_PROVENANCE_RANK: Record<FossDataProvenance, number> = { live: 3, static: 2, generated: 1 };
+const FOSS_PROVENANCE_RANK: Record<FossDataProvenance, number> = { live: 4, cached: 3, static: 2, generated: 1 };
 
 /** Weakest (least-live) of a set — a composite object is only as live as its weakest input (#117). */
 export function weakestFossProvenance(...provenances: FossDataProvenance[]): FossDataProvenance {
@@ -1584,6 +1584,8 @@ export function fossProvenanceNote(provenance: FossDataProvenance, subject: stri
   switch (provenance) {
     case "live":
       return undefined;
+    case "cached":
+      return `${subject} served from the 5-minute in-memory cache — values from an earlier live fetch, not re-fetched in this call.`;
     case "static":
       return `${subject} served from the bundled FOSS static universe table — not fetched live in this call.`;
     case "generated":
@@ -1595,6 +1597,9 @@ export function fossProvenanceNote(provenance: FossDataProvenance, subject: stri
 export function fossBarsSourceLabel(provider: "yfinance" | "alpaca" | "hybrid", provenance: FossDataProvenance): string {
   if (provenance === "live") {
     return provider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API";
+  }
+  if (provenance === "cached") {
+    return "FOSS cached quote (not re-fetched live in this call)";
   }
   return provenance === "static"
     ? "FOSS static universe table (not live market data)"
@@ -1754,8 +1759,20 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
   async getQuote(symbol: string): Promise<FossQuote> {
     const cleanSym = symbol.toUpperCase().trim();
     // #411: serve repeat quotes from the 5-minute in-memory cache.
-    const cachedQuote = getCachedQuote<FossQuote>(`yahoo:${cleanSym}`);
-    if (cachedQuote) return cachedQuote;
+    // #930: a cache hit is stamped "cached" with its age — never bare
+    // "live". Values are unchanged (no substitute numbers); only the
+    // provenance label and age stamp differ from the fresh fetch.
+    const cachedQuote = getCachedQuoteWithAge<FossQuote>(`yahoo:${cleanSym}`);
+    if (cachedQuote) {
+      const ageSeconds = (cachedQuote.ageMs / 1000).toFixed(0);
+      return {
+        ...cachedQuote.value,
+        provenance: "cached",
+        fromCache: true,
+        cacheAgeMs: cachedQuote.ageMs,
+        note: `Quote served from the 5-minute in-memory cache (age ${ageSeconds}s) — values as of ${cachedQuote.value.timestamp}, not re-fetched in this call.`,
+      };
+    }
     const urls = [
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=1d&range=1mo`,
       `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=1d&range=1mo`,

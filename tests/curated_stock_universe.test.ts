@@ -52,14 +52,19 @@ describe("Externalized Curated Stock Universe", () => {
       expect(amex.length).toBeGreaterThanOrEqual(10);
     });
 
-    it("environment.config.json references the externalized universe path", () => {
+    it("environment.config.json advertises no unimplemented curated-universe preference (#930)", () => {
+      // #930: the config keys were dead advertising — no code consumed
+      // curatedUniverseEnabled / curatedUniversePath / providerPreference.
+      // The universe itself still loads via the code import (other tests
+      // in this file prove that); only the config preference is gone.
       const screenerConfig = (envConfig.defaults.etapi.screener as Record<string, any>);
-      expect(screenerConfig.curatedUniversePath).toBe("src/config/curatedStockUniverse.json");
-      expect(screenerConfig.curatedUniverseEnabled).toBe(true);
+      expect(screenerConfig.curatedUniversePath).toBeUndefined();
+      expect(screenerConfig.curatedUniverseEnabled).toBeUndefined();
 
       const stockScreenerConfig = ((envConfig.defaults.etapi as Record<string, any>).stockScreener as Record<string, any>);
-      expect(stockScreenerConfig.curatedUniversePath).toBe("src/config/curatedStockUniverse.json");
-      expect(stockScreenerConfig.curatedUniverseEnabled).toBe(true);
+      expect(stockScreenerConfig.curatedUniversePath).toBeUndefined();
+      expect(stockScreenerConfig.curatedUniverseEnabled).toBeUndefined();
+      expect(stockScreenerConfig.providerPreference).toBeUndefined();
     });
   });
 

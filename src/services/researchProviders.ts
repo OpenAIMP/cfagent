@@ -31,6 +31,7 @@ import {
   type YahooHistoryDeps,
 } from "../trading";
 import { resolveEnvironmentConfig } from "../config/environment";
+import { isDemoCalibratedChainsEnabled } from "../config/demoMode";
 import type { Env, ETradeOptionChain } from "../types";
 import type { NasdaqStockListing } from "./nasdaqListings";
 import type {
@@ -266,6 +267,16 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
       }
     } catch {
       // Fall through to the calibrated path — labeled, never live.
+    }
+    // #928 (parent #913 S10) — calibrated fallback is demo-gated, exactly
+    // like every other calibrated consumer (issue #65). Gate off (PROD
+    // default) => no calibrated chain: fall through to the explicit
+    // unavailable snapshot below, never a substitute number. Gate on =>
+    // calibrated chain as before, provenance "calibrated" (ChainProvenance
+    // has no "calibrated-demo" member; downstream layers map "calibrated"
+    // to the "calibrated-demo" dataSource).
+    if (!isDemoCalibratedChainsEnabled()) {
+      return { symbol, underlyingPrice: 0, asOf: now, provenance: "unavailable", expiries: [] };
     }
     // Calibrated fallback: explicitly synthetic, never an executable quote.
     // Issue #353 — mirror the two live bands: the builder's DTE grid now

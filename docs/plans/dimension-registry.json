@@ -1,0 +1,121 @@
+{
+  "entries": [
+    {
+      "dimension": "Multi-tenant, multi-user, multi-membership, multi-workspace",
+      "evidence": "Epic #945 owns multi-tenant IAAA; membership store, PDP seam, enforcement, gates, and audit exist in src/security/iaaa*. S2 combination matrix green at the contract layer (tests/s2_tenant_isolation_matrix.test.ts, #1422) but S1 enforcement is still pending, so the Phase S exit criteria for a 'supported' marking are not met. End-to-end isolation is not claimed.",
+      "owner": "CISO lane (epic #945)",
+      "status": "extension_ready",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-role, multi-scope authorization",
+      "evidence": "src/security/authorization.ts, iaaaPdpSeam.ts, iaaaEnforcement.ts (#945); exercised by the S2 matrix (#1422) at the contract layer. Not marked supported: S1 enforcement is still pending (observe by default).",
+      "owner": "CISO lane (epic #945)",
+      "status": "extension_ready",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-identity-provider",
+      "evidence": "Google enabled; GitHub OAuth exists (src/security/githubOAuth.ts); Microsoft not started. Architecture decision (Auth0 vs application-owned) still open in docs/plans/IAAA-945-spec.md.",
+      "owner": "CISO lane (epic #945)",
+      "status": "extension_ready",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-authentication-method",
+      "evidence": "Federated login + per-user API keys (cfk_, #180); passkeys/MFA not started; step-up rules live in #945.",
+      "owner": "CISO lane (epic #945)",
+      "status": "partial",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-principal, multi-delegation",
+      "evidence": "src/security/delegation.ts and the IAAA audit chain; S1 ExecutionContext contract on main (#1078) but in observe mode only, so delegation narrowing is not yet enforced end to end.",
+      "owner": "CISO lane (epic #945)",
+      "status": "partial",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-session",
+      "evidence": "Session policy/store in src/security/session*.ts; revocation semantics owned by #945 and not yet verified by a combination test.",
+      "owner": "CISO lane (epic #945)",
+      "status": "partial",
+      "verification": null
+    },
+    {
+      "dimension": "Shared execution context (#1069 \u00a78)",
+      "evidence": "CHANGED vs the 2026-10-22 snapshot (was 'planned'): S1 contract is on main (#1078 merged, src/security/executionContext.ts, EXECUTION_CONTEXT_MODE default observe) and the S2 combination matrix is green (#1422). NOT supported: S1 enforcement flip is still pending on #1078, and the Phase S exit criteria require S1 enforced AND S2 green before any \u00a71/\u00a78 dimension is marked supported.",
+      "owner": "RSI-CAIO (#1070, Phase S)",
+      "status": "partial",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-service, multi-agent, multi-model",
+      "evidence": "Services under src/services/, Think-based agents, model routing in src/models/; the snapshot's 'registration pending' caveat is resolved by the Phase 1 capability registry (#1395), Phase 2 goal compiler (#1362), and the firing (#1517) and chain.run executor (#1523) lanes. Verification is the registry's worked-examples case, which composes feed/generate/store/serve/deliver chains and passes.",
+      "owner": "RSI-CAIO (#1070, #1362)",
+      "status": "supported",
+      "verification": "tests/capability_registry.test.ts :: capability registry (#1395) :: worked examples resolve against the registry"
+    },
+    {
+      "dimension": "Multi-provider (brokerage)",
+      "evidence": "E*TRADE is the only live provider; Public.com is a data-source reference only (src/trading/dataSources.ts). A second-provider vertical slice is F2 and is not started.",
+      "owner": "RSI-CAIO (#1070, F2 pending)",
+      "status": "extension_ready",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-connection, multi-account",
+      "evidence": "CHANGED vs the 2026-10-22 snapshot: the legacy default_trader static-token exception was REMOVED via #1185 (merge 4a31a9b) and replaced by explicit service identity (src/security/serviceIdentity.ts, getServiceUserLogin); the literal string 'default_trader' survives only as a Durable Object instance address (SHARED_ORCHESTRATOR_INSTANCE), explicitly never a login, token key, audit actor, or payer. Per-user E*TRADE token flow documented in #1066; per-tenant/per-user account binding for a second provider is F2.",
+      "owner": "RSI-CAIO (#1070, #1185)",
+      "status": "partial",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-plan, entitlements, metering, budgets",
+      "evidence": "Premium/payment routes and x402/Stripe flows exist; the governed firing path carries a PaymentsAgent budget check (#1517). No coherent commercial dimension yet \u2014 that is Phase F3.",
+      "owner": "RSI-CAIO (#1070, F3 pending)",
+      "status": "extension_ready",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-environment",
+      "evidence": "Sandbox/live on the trading path (S2 matrix pins sandbox-to-live escalation denial, #1422); no platform-wide environment dimension with promotion rules \u2014 that is Phase F4.",
+      "owner": "RSI-CAIO (#1070, F4 pending)",
+      "status": "partial",
+      "verification": null
+    },
+    {
+      "dimension": "Versioned contracts",
+      "evidence": "OpenAPI spec in src/security/openapiSpec.ts; contract versioning policy not defined per dimension.",
+      "owner": "RSI-CAIO (#1070)",
+      "status": "partial",
+      "verification": null
+    },
+    {
+      "dimension": "Tenant-scoped audit and recovery",
+      "evidence": "IAAA audit stores exist (#945) and the S2 matrix verifies every cell's decision on the Slice 5 audit chain (#1422); recovery semantics per tenant are not yet verified by test.",
+      "owner": "CISO lane (epic #945)",
+      "status": "partial",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-currency, multi-language, multi-brand, multi-region, dedicated tenant deployments, agent marketplace, multiple payment processors, cross-organization collaboration",
+      "evidence": "#1069 \u00a79 expansion list; enter only on a concrete requirement, each as its own issue.",
+      "owner": "RSI-CAIO (#1070)",
+      "status": "planned",
+      "verification": null
+    },
+    {
+      "dimension": "Multi-cloud, active-active global writes, arbitrary executable plugins, automatic live-trade/payment provider fallback, every agent protocol, a microservice per capability, shared learning from private tenant data",
+      "evidence": "#1069 \u00a79 'do not adopt by default.' Re-entry requires an owner decision recorded on #1070.",
+      "owner": "Owner decision (#1070)",
+      "status": "out_of_scope",
+      "verification": null
+    }
+  ],
+  "note": "Living record for the #1069 dimension classification (epic #1070, F1 #1423). The plan doc's markdown table is the 2026-10-22 snapshot and is NOT rewritten; this registry supersedes it as the living source. Statuses were seeded 2026-10-25 against main 4bb1ba5 (S2 matrix #1422, lanes #1517/#1523) and must be re-verified against main on every edit. Core rule: a dimension is never 'supported' because an interface or config field exists; supported means a verification reference resolves to a test that passes (see tests/dimension_registry.test.ts). Phase S exit criteria: the \u00a71/\u00a78 dimensions are not marked 'supported' until S1 is enforced (not just observing) AND the S2 matrix is green.",
+  "seedVerifiedAtMain": "4bb1ba5",
+  "source": "docs/plans/multi-dimensional-system-plan-2026-10-22.md",
+  "verificationFormat": "path/to/test.ts :: describe-substring :: it-substring; null when the entry is not 'supported'.",
+  "version": 1
+}

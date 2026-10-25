@@ -40,6 +40,11 @@ import {
 } from "../trading";
 import { getOpportunityScannerConfig } from "../config/etapiConfig";
 import { tagOpportunitiesWithDirection, ETradeSlackTradingService } from "../trading";
+// Issue #1291: the scheduled path's unified scan result is an
+// OpportunityScanResult, not the OptionScreenResult the workbook
+// generator reads — adapt at this seam (XLSX only; the CSV call below
+// is untouched by this slice).
+import { adaptOpportunityScanToOptionScreenResult } from "../trading";
 import type { ScanRunStore } from "../trading";
 import type { ETradeCaptureDeps } from "../trading";
 import type {
@@ -587,8 +592,14 @@ export class ScheduledTasksService {
     provider?: string;
     expectedCount?: number;
     pdfKey?: string;
+    pdfStatus?: "generated" | "failed" | "skipped";
+    pdfError?: string;
     xlsxKey?: string;
+    xlsxStatus?: "generated" | "failed" | "skipped";
+    xlsxError?: string;
     csvKey?: string;
+    csvStatus?: "generated" | "failed" | "skipped";
+    csvError?: string;
     /** Issue #1355: true when this result came from the sharded path. */
     sharded?: boolean;
     /** Issue #1355: the submitted chain's id (sharded runs only). */
@@ -669,6 +680,9 @@ export class ScheduledTasksService {
       // Audit every run (not just ones with hits) so "Recent autonomous
       // actions" shows the full history, including quiet runs.
       this.audit("screener.run_completed", {
+        runId: `screener:${result.timestamp || timestamp}`,
+        screenType: "stock",
+        runType: result.trigger || options.trigger || "scheduled",
         sector: result.sector,
         universe: result.universe,
         totalScanned: result.totalScanned,
@@ -738,7 +752,14 @@ export class ScheduledTasksService {
           provider: result.provider,
           expectedCount: result.expectedCount,
           pdfKey: result.pdfKey,
+          pdfStatus: result.pdfStatus,
+          pdfError: result.pdfError,
+          xlsxKey: result.xlsxKey,
+          xlsxStatus: result.xlsxStatus,
+          xlsxError: result.xlsxError,
           csvKey: result.csvKey,
+          csvStatus: result.csvStatus,
+          csvError: result.csvError,
           notifications: {
             slack: options.pushToSlack !== false,
             email: Boolean(options.emailTo),
@@ -752,6 +773,9 @@ export class ScheduledTasksService {
       // no audit event, no session message — unlike options analysis.
       // Audit and surface them symmetrically.
       this.audit("screener.screen_failed", {
+        runId: `screener:${timestamp}`,
+        screenType: "stock",
+        runType: options.trigger || "scheduled",
         sector: options.sector || "ALL",
         error: err.message,
       });
@@ -1187,6 +1211,8 @@ export class ScheduledTasksService {
     const timestamp = new Date().toISOString();
     let symbols: string[] = [];
     const targetThesis = options.thesis || "bullish";
+    const reportRunId = `options_scanner:${timestamp}:${targetThesis}`;
+    let auditRunId = reportRunId;
     const shouldNotifySlack = options.pushToSlack === true ||
       (options.pushToSlack === undefined && Boolean(this.env.SLACK_BOT_TOKEN || getCfpayConfig(this.env)));
 
@@ -1268,8 +1294,9 @@ export class ScheduledTasksService {
         maxSymbols: symbols.length,
         eventCalendarBySymbol: Object.fromEntries(scanCalendarCoverage.bySymbol),
       });
-      if (!response.success) throw new Error(response.summary || "Scheduled options scan failed");
       const scanData = response.data as any;
+      auditRunId = scanData?.scanRunId || reportRunId;
+      if (!response.success) throw new Error(response.summary || "Scheduled options scan failed");
       const scannedCount = Number(scanData?.scanned ?? 0);
       const coverageErrors = Number(scanData?.coverage?.errors ?? 0);
       const truncatedCount = Number(scanData?.truncatedSymbols ?? scanData?.coverage?.truncated ?? 0);
@@ -1387,7 +1414,9 @@ export class ScheduledTasksService {
       // (own failure domain; recorded, never fatal).
       try {
         const screenerAgent = this.getScreenerAgent(userLogin);
-        const stored = await (screenerAgent as any).generateAndStoreOptionsXlsx(response.data);
+        const stored = await (screenerAgent as any).generateAndStoreOptionsXlsx(
+          adaptOpportunityScanToOptionScreenResult(response.data),
+        );
         optionsXlsxKey = stored.key;
         optionsXlsxFile = stored.fileName;
         const data = await (screenerAgent as any).getOptionsXlsxByKey(stored.key);
@@ -1414,7 +1443,7 @@ export class ScheduledTasksService {
       // Store the searchable report once before any channel delivery. The
       // PDF remains in ScreenerAgent storage; mas_reports keeps its key/URL
       // and the complete structured scan payload for AI Search.
-      const generationId = `options_scanner:${timestamp}:${targetThesis}`;
+      const generationId = reportRunId;
       const canonical = this.orm?.storeCanonicalReport({
         runId: generationId,
         generationId,
@@ -1579,6 +1608,9 @@ export class ScheduledTasksService {
       }
 
       this.audit("options.scheduled_analysis_completed", {
+        runId: auditRunId,
+        screenType: "options",
+        runType: options.trigger || "scheduled",
         symbols,
         thesis: targetThesis,
         scanned: response.data?.scanned ?? symbols.length,
@@ -1645,6 +1677,9 @@ export class ScheduledTasksService {
       };
     } catch (err: any) {
       this.audit("options.scheduled_analysis_failed", {
+        runId: auditRunId,
+        screenType: "options",
+        runType: options.trigger || "scheduled",
         symbols,
         thesis: targetThesis,
         error: err.message,

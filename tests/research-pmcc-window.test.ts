@@ -140,7 +140,12 @@ describe("research PMCC data window (#353)", () => {
       "tester"
     );
     let fetched = 0;
-    (provider as unknown as { etrade: unknown }).etrade = {
+    // #928 same-PR pin update: the stub previously assigned `.etrade`,
+    // a field getChain never reads (the platform field is `platform`), so
+    // this band-selection test passed only via the now demo-gated
+    // calibrated fallback. Wire the stub to `platform` so the test exercises
+    // the live band selection it claims to pin; assertions unchanged.
+    (provider as unknown as { platform: unknown }).platform = {
       getOptionExpireDates: async () =>
         expiryDates([7, 14, 21, 28, 35, 42, 60, 90, 180, 240, 365]),
       getOptionChains: async () => {

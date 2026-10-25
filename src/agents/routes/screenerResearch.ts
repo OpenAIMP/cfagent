@@ -668,6 +668,22 @@ export async function handleScreenerResearchRoutes(
       return Response.json({ trackRecord });
     }
 
+    // Issue #654: calibration dashboard — direction accuracy over the
+    // #340 track record, per thesis, per strategy, per regime, per
+    // month. Measurement only: this reads the recorded evaluations,
+    // never recomputes outcomes and never touches thresholds or
+    // weights (those stay behind #17's reviewed-config rule).
+    if (path.endsWith("/research/track-record/calibration") && request.method === "GET") {
+      const userLogin = request.headers.get("x-user-login") || sessionId;
+      const agent = ctx.getResearchAgent(userLogin);
+      if (!agent) {
+        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
+      }
+      const { buildCalibrationFromTrackRecord } = await import("../../services/calibrationReport");
+      const trackRecord = await agent.getTrackRecord();
+      return Response.json({ calibration: buildCalibrationFromTrackRecord(trackRecord.ideas) });
+    }
+
     // Issue #754: strategy weights — read path. Current weights plus the
     // policy evaluation (weighted vs unweighted win rate + proposals).
     // Measurement surface; reading weights here changes no ranking —

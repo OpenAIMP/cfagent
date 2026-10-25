@@ -30,7 +30,7 @@ export class AlpacaTradingPlatform implements ITradingPlatform {
     const isLive = !this.env.ALPACA_BASE_URL?.includes("paper-api");
 
     return {
-      broker: "etrade" as any,
+      broker: "alpaca",
       name: this.name,
       configured,
       mode: isLive ? "live_oauth" : "sandbox_api",

@@ -329,6 +329,7 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/research/latest\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/history\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/track-record\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/research/track-record/calibration\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/weights\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/weights/run\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates\")",

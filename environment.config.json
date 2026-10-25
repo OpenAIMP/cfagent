@@ -21,14 +21,9 @@
         "highDeltaThreshold": 0.65,
         "highIvThreshold": 0.70,
         "lowIvThreshold": 0.30,
-        "atmBandPct": 0.02,
-        "curatedUniversePath": "src/config/curatedStockUniverse.json",
-        "curatedUniverseEnabled": true
+        "atmBandPct": 0.02
       },
       "stockScreener": {
-        "curatedUniversePath": "src/config/curatedStockUniverse.json",
-        "curatedUniverseEnabled": true,
-        "providerPreference": ["nasdaq_api", "curated_universe", "yahoo_finance"]
       },
       "strategyEngine": {
         "riskFreeRate": 0.04,
@@ -93,7 +88,6 @@
       },
       "ai": {
         "defaultModel": "@cf/zai-org/glm-4.7-flash",
-        "fallbackModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
         "fastModel": "@cf/zai-org/glm-4.7-flash",
         "reasoningModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
         "availableModels": [
