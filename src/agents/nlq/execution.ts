@@ -8,7 +8,7 @@ import {
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../../services/agenticPayments";
 import { ETradeBrowserService } from "../../services/browserAgent";
 import { ETradeService } from "../../services/etrade";
-import { FossResearchService, weakestFossProvenance } from "../../services/fossResearch";
+import { FossResearchService } from "../../services/fossResearch";
 import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
 import { UnifiedOptionsService, ETradeSlackTradingService, describeFlowProvenance, getDynamicLiveFlowItems, isNonLivePricingQuoteStatus, nonLivePricingNotice } from "../../trading";
 import { runOptionsStrategyAction, type OptionsStrategyIntent } from "../nlqOptionsStrategy";
@@ -1003,150 +1003,34 @@ function executeNLQQueryCore(
   }
 
   // Handle FOSS Market Research & Quoting Domain (Yahoo Finance & Alpaca)
+  // Issue #923 (epic #913 S5): the synchronous FOSS accessors are gone —
+  // live FOSS data can only be fetched asynchronously, and the sync NLQ
+  // executor cannot await it. A sync research request therefore returns an
+  // explicit unavailable result (count 0, status "error", no rows, no
+  // numbers) instead of a static/generated profile. The async NLQ entry
+  // serves paid research through the live async report path, and the
+  // /api/foss/* routes serve live quotes, fundamentals, bars, and reports.
   if (plan.domain === "research") {
-    const foss = new FossResearchService(env);
     const sym = plan.researchData?.symbol || plan.terms || "NVDA";
     const action = plan.researchData?.action || "report";
-    const provider = plan.researchData?.provider || "hybrid";
-
-    if (action === "fundamentals") {
-      const f = foss.getFundamentalsSync(sym);
-      // Issue #117: a non-live target is a profile estimate, never "consensus".
-      const targetClause = f.provenance === "live"
-        ? `Consensus Target: $${f.targetMeanPrice?.toFixed(2) || "N/A"} (${f.recommendationKey?.toUpperCase() || "BUY"}).`
-        : `Profile Target Estimate: $${f.targetMeanPrice?.toFixed(2) || "N/A"} (${f.recommendationKey?.toUpperCase() || "BUY"}) — from ${f.provenance} FOSS data, not live analyst consensus.`;
-      return {
-        plan,
-        domain: "research",
-        targetTable: "yfinance_fundamentals",
-        count: 1,
-        summary: `FOSS Fundamental Analysis for ${f.companyName} (${f.symbol}) via Yahoo Finance: Market Cap $${(f.marketCap / 1e9).toFixed(1)}B, Trailing P/E ${f.peTrailing || "N/A"}, Forward P/E ${f.peForward || "N/A"}, PEG ${f.pegRatio || "N/A"}. ${targetClause}`,
-        rows: [
-          {
-            symbol: f.symbol,
-            company: f.companyName,
-            sector: f.sector,
-            marketCap: `$${(f.marketCap / 1e9).toFixed(1)}B`,
-            peTrailing: f.peTrailing || "N/A",
-            peForward: f.peForward || "N/A",
-            pegRatio: f.pegRatio || "N/A",
-            beta: f.beta || "N/A",
-            range52Week: `$${f.fiftyTwoWeekLow.toFixed(2)} - $${f.fiftyTwoWeekHigh.toFixed(2)}`,
-            targetPrice: `$${f.targetMeanPrice?.toFixed(2) || "N/A"}`,
-            analystRating: f.recommendationKey?.toUpperCase() || "BUY",
-            provenance: f.provenance,
-            dataNote: f.note,
-          },
-        ],
-        executedAt,
-      };
-    }
-
-    if (action === "snapshot") {
-      const s = foss.getAlpacaSnapshotSync(sym);
-      return {
-        plan,
-        domain: "research",
-        targetTable: "alpaca_snapshot",
-        count: 1,
-        // Issue #117: the sync snapshot comes from the FOSS profile — only
-        // call it real-time when it was actually fetched live.
-        summary: `Alpaca ${s.provenance === "live" ? "Real-time" : "FOSS Profile (non-live)"} Market Snapshot for ${s.symbol}: Latest Trade $${s.latestTrade.price.toFixed(2)} (${s.latestTrade.size} shs). Best Bid $${s.latestQuote.bidPrice.toFixed(2)} / Ask $${s.latestQuote.askPrice.toFixed(2)}. Daily High $${s.dailyBar.high.toFixed(2)} / Low $${s.dailyBar.low.toFixed(2)}.`,
-        rows: [
-          {
-            symbol: s.symbol,
-            assetClass: s.assetClass,
-            lastPrice: `$${s.latestTrade.price.toFixed(2)}`,
-            bidAskSpread: `$${s.latestQuote.bidPrice.toFixed(2)} / $${s.latestQuote.askPrice.toFixed(2)}`,
-            dayRange: `$${s.dailyBar.low.toFixed(2)} - $${s.dailyBar.high.toFixed(2)}`,
-            volume: s.dailyBar.volume.toLocaleString(),
-            vwap: s.dailyBar.vwap ? `$${s.dailyBar.vwap.toFixed(2)}` : "N/A",
-            provenance: s.provenance,
-            dataNote: s.note,
-          },
-        ],
-        executedAt,
-      };
-    }
-
-    if (action === "quote") {
-      const q = foss.getQuoteSync(sym, provider);
-      return {
-        plan,
-        domain: "research",
-        targetTable: "foss_quote",
-        count: 1,
-        // Issue #117: the sync quote path serves the FOSS profile — a
-        // generated/static price must never be announced as real-time.
-        summary: `${q.provenance === "live" ? "Real-time" : `Non-live FOSS profile (${q.provenance})`} quote for ${q.symbol} (${q.companyName || sym}) via ${q.provider}: $${q.price.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%). Bid: $${q.bid.toFixed(2)} / Ask: $${q.ask.toFixed(2)}.${q.provenance === "live" ? "" : " This price is not live market data."}`,
-        rows: [
-          {
-            symbol: q.symbol,
-            provider: q.provider,
-            price: `$${q.price.toFixed(2)}`,
-            change: `${q.change >= 0 ? "+" : ""}${q.change.toFixed(2)} (${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(2)}%)`,
-            bidAsk: `$${q.bid.toFixed(2)} / $${q.ask.toFixed(2)}`,
-            volume: q.volume.toLocaleString(),
-            provenance: q.provenance,
-            dataNote: q.note,
-          },
-        ],
-        executedAt,
-      };
-    }
-
-    if (action === "compare") {
-      const syms = plan.researchData?.symbols || [sym, "AMD"];
-      const comp = foss.compareStocksSync(syms);
-      const anyNonLive = comp.some(
-        (c) => weakestFossProvenance(c.quote.provenance, c.fundamentals.provenance) !== "live"
-      );
-      return {
-        plan,
-        domain: "research",
-        targetTable: "foss_stock_comparison",
-        count: comp.length,
-        summary: `FOSS Multi-Stock Valuation Comparison across ${comp.map((c) => c.symbol).join(", ")}.${anyNonLive ? " Values include non-live FOSS profile data (see provenance per row) — targets are profile estimates, not analyst consensus." : ""}`,
-        rows: comp.map((c) => ({
-          symbol: c.symbol,
-          company: c.fundamentals.companyName,
-          price: `$${c.quote.price.toFixed(2)}`,
-          peTrailing: c.fundamentals.peTrailing || "N/A",
-          marketCap: `$${(c.fundamentals.marketCap / 1e9).toFixed(1)}B`,
-          analystRating: c.fundamentals.recommendationKey?.toUpperCase() || "BUY",
-          targetPrice: `$${c.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}`,
-          provenance: weakestFossProvenance(c.quote.provenance, c.fundamentals.provenance),
-        })),
-        executedAt,
-      };
-    }
-
-    // Default: full research report
-    const rep = foss.generateResearchReportSync(sym);
+    const targetTable =
+      action === "fundamentals"
+        ? "yfinance_fundamentals"
+        : action === "snapshot"
+          ? "alpaca_snapshot"
+          : action === "quote"
+            ? "foss_quote"
+            : action === "compare"
+              ? "foss_stock_comparison"
+              : "foss_research_report";
     return {
       plan,
       domain: "research",
-      targetTable: "foss_research_report",
-      count: 1,
-      // Issue #117: the rating comes from the FOSS profile on this sync path —
-      // label it "Rating", never "Consensus"; the report's aiAnalysis carries
-      // the full data notice for non-live inputs.
-      summary: `Autonomous Research Synthesis for ${rep.fundamentals.companyName} (${rep.symbol}): Target: $${rep.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}, Rating: ${rep.analystRating}. ${rep.aiAnalysis}`,
-      rows: [
-        {
-          symbol: rep.symbol,
-          company: rep.fundamentals.companyName,
-          price: `$${rep.quote.price.toFixed(2)}`,
-          peRatio: rep.fundamentals.peTrailing || "N/A",
-          marketCap: `$${(rep.fundamentals.marketCap / 1e9).toFixed(1)}B`,
-          analystRating: rep.analystRating,
-          targetPrice: `$${rep.fundamentals.targetMeanPrice?.toFixed(2) || "N/A"}`,
-          rsi14: rep.technicalSummary.rsi14,
-          technicalTrend: rep.technicalSummary.trend50vs200SMA,
-          agentAttestationDid: rep.agentAttestation.did,
-          provenance: rep.provenance,
-        },
-      ],
+      targetTable,
+      count: 0,
+      status: "error",
+      summary: `FOSS ${action} for ${sym} unavailable in the synchronous NLQ executor: live FOSS data requires the asynchronous path (#923 — no static or generated substitute is served). Use the /api/foss/* routes or the asynchronous NLQ executor for live data.`,
+      rows: [],
       executedAt,
     };
   }
