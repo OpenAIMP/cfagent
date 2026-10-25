@@ -1457,6 +1457,11 @@ export class RecommendationService {
         rationale: `${fit.symbol} fit for ${fit.structure} (fitScore ${fit.fitScore}).`,
         builderId: "name-fit",
         fitScore: fit.fitScore,
+        // #1256: genuine falsification evidence from the discovery's
+        // own gate + fit-component evaluation. Absent (undefined) ⇒
+        // the falsify stage demotes the fit to unverified — the
+        // invariant, not a gap.
+        falsificationEvidence: fit.falsificationEvidence,
         source: fit,
       } satisfies KernelCandidate;
     });
