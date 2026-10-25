@@ -319,7 +319,9 @@ describe("options strategy discovery — /api/etrade/options/strategy (#314)", (
       expect((await res.json()).error).toMatch(/strategy request/i);
     }
     const neg = await handleOptionsStrategyRecommend(
-      apiPost("/api/etrade/options/strategy", { ...VALID_STRATEGY_BODY, maxPlannedLoss: -5 }),
+      // Issue #1185: the numeric guard sits behind the identity gate —
+      // the request carries the session-gate header like production traffic.
+      apiPost("/api/etrade/options/strategy", { ...VALID_STRATEGY_BODY, maxPlannedLoss: -5 }, { "x-user-login": "alice" }),
       strategyDeps()
     );
     expect(neg.status).toBe(400);
