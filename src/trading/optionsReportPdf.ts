@@ -11,6 +11,7 @@
 
 import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import type { OptionScreenResult, ScreenedOptionContractItem } from "../types";
+import type { OptionsPartialQualification } from "./options/opportunityScanner";
 
 
 /** Print palette (#473): named print mirrors of the semantic text roles —
@@ -20,6 +21,7 @@ const PRINT_MUTED: [number, number, number] = [0.4, 0.4, 0.4];
 const PRINT_NOTE: [number, number, number] = [0.45, 0.45, 0.45];
 const PRINT_FAINT: [number, number, number] = [0.5, 0.5, 0.5];
 const PRINT_HAIRLINE: [number, number, number] = [0.7, 0.7, 0.7];
+const PRINT_WARNING: [number, number, number] = [0.75, 0.45, 0];
 
 const MARGIN = 48;
 const PAGE_W = 612; // Letter
@@ -99,6 +101,25 @@ function formatContract(c: ScreenedOptionContractItem): string {
 }
 
 /**
+ * Issue #1290 (#1173 R6): the qualified-partial banner lines for an
+ * options scan whose coverage was partial — the options mirror of the
+ * stock PDF's "PARTIAL SCREEN — QUALIFIED RESULTS" block (#462).
+ * Returns null when the run was complete (no qualification stamped).
+ */
+export function optionsPartialBanner(
+  partial: OptionsPartialQualification | undefined
+): [string, string] | null {
+  if (!partial) return null;
+  const heading = "PARTIAL SCAN — QUALIFIED RESULTS";
+  const counts =
+    `${partial.evaluatedCount} of ${partial.consideredCount} underlyings evaluated; ` +
+    `${partial.coverageErrors} quote/chain failures, ${partial.truncatedCount} truncated.` +
+    (partial.topSkipReason ? ` Top skip reason: ${partial.topSkipReason}.` : "") +
+    " Results below cover the evaluated subset only.";
+  return [heading, counts];
+}
+
+/**
  * Generate a PDF report for an options scan result.
  */
 export async function generateOptionsPdf(result: OptionScreenResult | any): Promise<Uint8Array> {
@@ -125,6 +146,15 @@ export async function generateOptionsPdf(result: OptionScreenResult | any): Prom
   const activeCriteria = result.filterSummary || `Thesis ${thesis}, risk profile ${riskProfile}, live E*TRADE chains`;
   text(ctx, `Active Criteria: ${activeCriteria}`, { size: 9, bold: true, color: PRINT_INK });
   rule(ctx);
+
+  // Partial scan notice (issue #1290): a qualified partial is never
+  // presented as a complete scan on the artifact itself.
+  const partialBanner = optionsPartialBanner((result as any).partial);
+  if (partialBanner) {
+    text(ctx, partialBanner[0], { size: 12, bold: true, color: PRINT_WARNING });
+    text(ctx, partialBanner[1], { size: 9 });
+    rule(ctx);
+  }
 
   // Summary
   text(ctx, "Summary", { size: 12, bold: true });

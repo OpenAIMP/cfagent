@@ -179,7 +179,7 @@ export function AgentChatTabContent({
 
       {/* Action Bar */}
       <div className="chat-action-bar">
-        <span className="chat-subtitle">Stateful Durable Object SQLite Session</span>
+        <span className="chat-subtitle">Stateful Distributed Ledger Session</span>
         {messages.length > 0 && (
           <button
             type="button"
@@ -212,7 +212,7 @@ export function AgentChatTabContent({
             <div className="hero-icon">⚡</div>
             <h3>Enterprise Multi-Agent Studio</h3>
             <p>
-              Ask any question about platform capabilities, workflows, algorithmic decisioning, or command tools directly through chat. Your prompt is routed by an <strong>LLM Judge</strong> and orchestrated across specialized sub-agents with Cloudflare Workers AI and transactional SQLite persistence.
+              Ask any question about platform capabilities, workflows, algorithmic decisioning, or command tools directly through chat. Your prompt is routed by an <strong>LLM Judge</strong> and orchestrated across specialized sub-agents with neural strategy intelligence and transactional ledger persistence.
             </p>
             <div className="quick-chips">
               <button
@@ -334,7 +334,7 @@ export function AgentChatTabContent({
                     <span className="author-name">{isUser ? user.name : "Multi-Agent Orchestrator"}</span>
                     {isUser ? (
                       msg.metadata?.sourceTab && <span className="agent-tag">{msg.metadata.sourceTab}</span>
-                    ) : <span className="agent-tag">Workers AI</span>}
+                    ) : <span className="agent-tag">Neural Strategy</span>}
                   </div>
 
                   {reasoningText && <ReasoningView reasoning={reasoningText} />}

@@ -14,7 +14,7 @@ import {
   fetchYahooQuotes,
   yahooDepsFromProvider,
   type YahooScreenerDeps,
-} from "../src/trading/yahooDataSource";
+} from "../src/trading/screenerPipeline";
 import type { FossQuote } from "../src/types";
 
 function liveQuote(symbol: string, price = 100): FossQuote {

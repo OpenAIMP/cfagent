@@ -708,7 +708,7 @@ export function EtapiConfigModal({
                   <span>🧠</span> Workflow Model Selection
                 </h4>
                 <p style={{ margin: "0 0 0.85rem", fontSize: "0.76rem", color: "var(--color-text-muted)" }}>
-                  Configure which Cloudflare Workers AI model is assigned to each specific trading and intelligence workflow.
+                  Configure which neural AI model is assigned to each specific trading and intelligence workflow.
                 </p>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>

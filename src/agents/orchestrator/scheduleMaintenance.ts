@@ -10,6 +10,7 @@
 import type { AgentContext, Schedule, ScheduleOptions } from "agents";
 import type { AgentName } from "../../types";
 import { SqlPausedScheduleStore } from "../../services/scheduleManagement";
+import { buildSchedulePayload } from "../../trading";
 
 /** The screener identity a scheduled run executes as (stored per DO). */
 export type ScreenerExecutionContext = { userLogin: string; environment?: "TEST" | "PROD" };
@@ -116,12 +117,26 @@ export async function ensureStrategyScanSchedule(ctx: ScheduleMaintenanceContext
     // so a missed pause check can only re-arm a job the user can
     // pause again — never duplicate one.
   }
-  await ctx.schedule(
-    ctx.strategyScanCron,
+  // Consolidation C3 (#1277): the baseline arm builds its payload
+  // through the one shared schedule builder, like every other
+  // creation path — the armed record is the builder's record
+  // (including the creation-default maxItems stamp, which is exactly
+  // the UNIVERSES default the options service applies itself when
+  // maxItems is absent, so the run's behavior is unchanged).
+  const built = buildSchedulePayload(
     "autonomousOptionsAnalysis",
-    { userLogin, environment, universe: "NASDAQ100", trigger: "scheduled" },
-    { idempotent: true }
+    { universe: "NASDAQ100" },
+    { userLogin, environment, trigger: "scheduled" }
   );
+  if (!built.ok) {
+    // The baseline criteria are constants; a builder rejection here
+    // is a programming error, surfaced loudly rather than arming a
+    // hand-built fallback payload outside the one capability.
+    throw new Error(`Strategy-scan baseline payload rejected: ${built.error}`);
+  }
+  await ctx.schedule(ctx.strategyScanCron, "autonomousOptionsAnalysis", built.value, {
+    idempotent: true,
+  });
   ctx.audit("schedule.created", "orchestrator", {
     callback: "autonomousOptionsAnalysis",
     scheduleType: "cron",

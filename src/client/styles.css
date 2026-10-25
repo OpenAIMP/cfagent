@@ -9709,8 +9709,8 @@ body {
    Left Sidebar Navigation Styles
    ========================================================================== */
 
-.nextgentp-sidebar,
-.algonexus-sidebar {
+.app-sidebar,
+.nextgentp-sidebar {
   width: 250px !important;
   min-width: 250px !important;
   height: 100vh !important;
@@ -9726,8 +9726,8 @@ body {
   box-sizing: border-box !important;
 }
 
-.nextgentp-sidebar.collapsed,
-.algonexus-sidebar.collapsed {
+.app-sidebar.collapsed,
+.nextgentp-sidebar.collapsed {
   width: 68px !important;
   min-width: 68px !important;
 }
@@ -10219,10 +10219,9 @@ body {
    Top Navigation Bar Layout Styles (NextGenTP)
    ========================================================================== */
 
+.app-top-header,
 .nextgentp-top-header,
-.algonexus-top-header,
-.app-header.nextgentp-top-header,
-.app-header.algonexus-top-header {
+.app-header.nextgentp-top-header {
   flex-shrink: 0 !important;
   min-height: 70px !important;
   height: auto !important;
@@ -10242,6 +10241,7 @@ body {
   box-sizing: border-box !important;
 }
 
+.app-top-nav-container,
 .nextgentp-top-nav-container {
   display: flex !important;
   flex-direction: column !important;
@@ -11837,7 +11837,7 @@ body {
   font-weight: 600;
 }
 
-/* AlgoNexus Executive Performance Ribbon */
+/* NextGenTP Executive Performance Ribbon */
 .autopilot-executive-ribbon {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -11908,7 +11908,7 @@ body {
   color: var(--color-text-muted);
 }
 
-/* AlgoNexus Chart Card */
+/* NextGenTP Chart Card */
 .autopilot-chart-card {
   padding: 1.25rem 1.35rem;
   background: var(--color-card);
@@ -13280,7 +13280,7 @@ body {
 }
 
 /* ==========================================================================
-   Omnichannel Trading Agents (Cloudflare Email & Slack)
+   Omnichannel Trading Agents (Autonomous Email & Slack Desks)
    ========================================================================== */
 .omnichannel-pane {
   margin-top: 1.5rem;

@@ -141,7 +141,7 @@ export const FAQ_QUESTIONS: FaqQuestionItem[] = [
         name: "Method C: Scheduled Opportunity Scanner (Background Automation)",
         badge: "Durable Timers",
         badgeColor: "purple",
-        description: "Configure an autonomous background scan in Auto Options Research → ⏰ Scheduled Screening. Cloudflare Durable Objects execute hourly checks and push top opportunities.",
+        description: "Configure an autonomous background scan in Auto Options Research → ⏰ Scheduled Screening. Autonomous background schedulers execute periodic checks and push top opportunities.",
         actionSteps: [
           "Navigate to ⏰ Schedulers sub-tab.",
           "Enable 'Autonomous Market Opportunity Scanner' across symbol baskets.",

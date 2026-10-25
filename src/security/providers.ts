@@ -37,12 +37,13 @@
  *   legacy fields are unchanged (see iaaaLogin.ts).
  *
  * Registered providers: "github" and "google", both declarative
- * createOidcProvider calls in this module (#1254 PR-A rationalized
- * GitHub onto the factory; its deltas are options, not code). The
- * wiring-off legacy GitHub entry points stay in githubOAuth.ts,
- * frozen by their server.ts importer, until PR-B. No PDP,
- * delegation, or audit wiring lives here. To onboard another
- * provider, see docs/iaaa-provider-onboarding.md.
+ * createOidcProvider calls in this module (#1254 rationalized
+ * GitHub onto the factory; its deltas are options, not code).
+ * #1254 PR-B deleted the wiring-off legacy GitHub flow and the
+ * exact /auth/login + /auth/callback routes: every provider,
+ * GitHub included, is served only by the generic registry routes.
+ * No PDP, delegation, or audit wiring lives here. To onboard
+ * another provider, see docs/iaaa-provider-onboarding.md.
  */
 import type { Env } from "../types";
 import type { AuditStore } from "./iaaaAudit";
@@ -109,15 +110,15 @@ export function createProviderRegistry(): ProviderRegistry {
 /** The production registry, shipped with GitHub and Google registered. */
 export const defaultRegistry: ProviderRegistry = (() => {
   const registry = new ProviderRegistry();
-  // GitHub, rationalized onto the factory in #1254 PR-A: the same
+  // GitHub, rationalized onto the factory in #1254: the same
   // declarative shape as Google, with GitHub's genuine deltas as
   // options — OAuth2 + profile fetch (no ID token), numeric `id`
-  // subject, `login` login key, `avatar_url` avatar, no
-  // response_type on the authorize request, no credentials gate
-  // (its credentials are required core Env config), and — PR-A
-  // only — the redirect path override to the legacy /auth/callback
-  // until the owner repoints the GitHub app registration (PR-B
-  // removes the override and the legacy routes).
+  // subject, `login` login key, `avatar_url` avatar, its versioned
+  // userinfo Accept (#1265), no response_type on the authorize
+  // request, no credentials gate (its credentials are required
+  // core Env config), and the generic /auth/callback/github
+  // redirect (PR-B removed PR-A's legacy-path override together
+  // with the legacy routes and flow).
   registry.registerProvider(
     createOidcProvider({
       providerId: "github",
@@ -133,9 +134,9 @@ export const defaultRegistry: ProviderRegistry = (() => {
       subjectField: "id",
       loginKeyField: "login",
       avatarField: "avatar_url",
+      userinfoAccept: "application/vnd.github+json",
       includeResponseType: false,
       requireConfiguredCredentials: false,
-      redirectPathOverride: "/auth/callback",
     })
   );
   // Google, the worked plugin example: one factory call, no other
@@ -169,6 +170,31 @@ export const defaultRegistry: ProviderRegistry = (() => {
 /** Registry-backed lookups against the default registry. */
 export function getProvider(providerId: string): LoginProvider | null {
   return defaultRegistry.getProvider(providerId);
+}
+
+/**
+ * Issue #1274 — issuer → provider display lookup, registry-backed.
+ * The session carries providerIssuer (set at wired login from the
+ * binding, never from user input); this resolves it to the registered
+ * adapter's id + display name for /api/me. Unknown issuers return
+ * null — the caller omits the provider field rather than guessing.
+ * A future provider needs only a registry entry to display.
+ */
+export function getProviderByIssuer(
+  issuer: unknown,
+): Pick<LoginProvider, "providerId" | "displayName" | "issuer"> | null {
+  if (typeof issuer !== "string" || issuer.trim() === "") return null;
+  for (const id of defaultRegistry.listProviders()) {
+    const provider = defaultRegistry.getProvider(id);
+    if (provider && provider.issuer === issuer) {
+      return {
+        providerId: provider.providerId,
+        displayName: provider.displayName ?? provider.providerId,
+        issuer: provider.issuer,
+      };
+    }
+  }
+  return null;
 }
 
 export function listProviders(): string[] {

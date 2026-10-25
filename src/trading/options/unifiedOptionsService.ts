@@ -773,9 +773,16 @@ export class UnifiedOptionsService {
           // Issue #24: both modes append the fit-gate bucket counts; in
           // strategy-fit mode fitsTotal is already the GATED fit count.
           const gateSegment = ` Gate: ${scanResult.gate.fit} fit, ${scanResult.gate.borderline} borderline, ${scanResult.gate.noFit} no fit.`;
+          // Issue #1290 (#1173 R6): a partial scan says so in the
+          // summary every surface renders (Slack/email/canonical) —
+          // pre-R6 the qualification existed only as a console warning
+          // in the scheduled flow.
+          const partialSegment = scanResult.partial
+            ? ` Partial coverage — qualified partial results: evaluated ${scanResult.partial.evaluatedCount} of ${scanResult.partial.consideredCount} underlyings (${scanResult.partial.coverageErrors} failures, ${scanResult.partial.truncatedCount} truncated).`
+            : "";
           summary = scanResult.mode === "strategy_fit"
-            ? `Opportunity scan across ${scanResult.scanned} symbols (mode: strategy fit): ${scanResult.fitsTotal} of ${scanResult.scanned} names fit.${gateSegment}`
-            : `Opportunity scan across ${scanResult.scanned} symbols: found ${scanResult.withTrades} actionable trade setups. (mode: per-name best)${gateSegment}`;
+            ? `Opportunity scan across ${scanResult.scanned} symbols (mode: strategy fit): ${scanResult.fitsTotal} of ${scanResult.scanned} names fit.${gateSegment}${partialSegment}`
+            : `Opportunity scan across ${scanResult.scanned} symbols: found ${scanResult.withTrades} actionable trade setups. (mode: per-name best)${gateSegment}${partialSegment}`;
           break;
         }
 

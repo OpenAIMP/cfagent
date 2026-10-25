@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import type { NavTabId } from "./NavigationMenu";
 import { Badge, type BadgeTone } from "./ui";
+import { BRAND } from "../branding";
 
 export interface StockTickerItem {
   symbol: string;
@@ -61,7 +62,7 @@ const NAV_SHORTCUTS: NavShortcut[] = [
   { id: "omnichannel", label: "Email & Slack Agents", category: "Intelligence", icon: "✉️" },
   { id: "workflows", label: "Workflows Hub (Playbooks A1..E6)", category: "Playbooks", icon: "🔄" },
   { id: "endpoints", label: "MCP Agent Endpoints & Tools", category: "Playbooks", icon: "🔌" },
-  { id: "nlq", label: "Database Explorer & NLQ Engine", category: "Playbooks", icon: "🗄️" },
+  { id: "nlq", label: "Records & Ledger Explorer", category: "Playbooks", icon: "🗄️" },
   { id: "audit", label: "Audit Trail & Attestation Logs", category: "Platform", icon: "🛡️" },
   { id: "payments", label: "x402 Agent Payments & Balances", category: "Platform", icon: "💳" },
   { id: "referrals", label: "Referrals & Rewards", category: "Platform", icon: "🎁" },
@@ -657,7 +658,7 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
                   <kbd>esc</kbd> to close
                 </span>
               </div>
-              <div className="footer-branding">NextGenTP Global Search</div>
+              <div className="footer-branding">{BRAND.searchName}</div>
             </div>
           </div>
         </div>

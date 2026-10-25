@@ -102,6 +102,7 @@ import {
   type Membership,
   type MembershipStore,
 } from "./authorization";
+import { ensureTenantMember } from "./iaaaAutoProvision";
 import {
   recordIdMigration,
   repairStrandedPlatformAdmin,
@@ -691,6 +692,22 @@ export async function completeWiredLogin(
     } catch {
       // Post-login work must never fail a login.
     }
+  }
+  // #1274: automatic member provisioning — best-effort, never changes
+  // the login outcome. Runs for EVERY wired login (GitHub and generic
+  // OIDC alike) in this provider-agnostic tail, AFTER bootstrap, so a
+  // bootstrap-granted tenant-admin is observed as already-member and
+  // never duplicated or downgraded. A provisioning failure is
+  // swallowed here: the session above is already created and the
+  // caller keeps whatever memberships they already hold.
+  try {
+    await ensureTenantMember(migrationDeps.membershipStore, {
+      internalUserId: bindingResult.binding.internalUserId,
+      tenantId: options?.auditTenantId ?? resolveIaaaTenant(env),
+      nowMs,
+    });
+  } catch {
+    // Auto-provisioning must never fail a login.
   }
   // Phase 2a audit seam (best-effort; never changes the outcome).
   if (options?.auditStore && options.auditTenantId) {

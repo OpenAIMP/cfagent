@@ -39,11 +39,11 @@ Repository policies cannot override higher-priority security requirements, tool 
 2. Every change to `main` MUST arrive through a pull request.
 3. Start each issue from the latest healthy `main`.
 4. Fetch and synchronize before implementation, before requesting final review, and before merge when required.
-5. Use one issue-scoped branch and one focused PR by default.
+5. Use one issue-scoped branch and one focused PR per issue. An agent may hold several issue-scoped branches at once under §20 (parallel delivery); one branch per issue is never waived.
 6. Follow test-driven development for behavior changes.
 7. Resolve required reviews, conversations, and checks before merging.
-8. Merge the current issue into `main` before starting the next issue.
-9. Verify post-merge CI and applicable continuous-delivery checks before moving on.
+8. Merge the current issue into `main` before starting the next issue, unless §20 parallel delivery applies (independent issue, CI-wait window).
+9. Verify post-merge CI and applicable continuous-delivery checks before the issue is Done. Under §20 this verification no longer blocks starting the next independent issue — except that a red post-merge check stops all new-issue work first (§18.2).
 10. If required CI/CD fails, stop feature work and restore a healthy state.
 11. Never bypass checks, weaken tests, or conceal failures to make a PR appear ready.
 12. Never claim completion without links or recorded evidence.
@@ -114,6 +114,7 @@ Before the first change, inspect:
 - Release and deployment process.
 - Existing failing checks and known incidents.
 - Security and secret-management requirements.
+- Existing implementations of any capability you intend to add — this search is part of reconnaissance, not an afterthought (§7, reuse before you build).
 
 Record unresolved access limitations.
 
@@ -208,11 +209,70 @@ Architecture decisions:
 - Split oversized work before implementation.
 - Do not add unrelated improvements.
 - Record discovered work separately.
-- Do not begin the next issue while the current issue remains unmerged or its required pipeline is unhealthy.
+- Do not begin the next issue while the current issue remains unmerged or its required pipeline is unhealthy, unless §20 parallel delivery applies (independent issue, CI-wait window).
 
 If blocked, report the blocker and seek a decision. Do not quietly switch work.
 
+### Sizing guidance (issue #1303)
+
+There is deliberately no line-count limit: a line count misleads across
+code, docs, and tests (a 40-line security rule can be harder to review
+than 400 lines of generated snapshots). Use these two tests instead:
+
+1. Reviewable in one pass: a reviewer can hold the whole change and its
+   tests in mind in a single sitting. If the description needs a tour
+   ("part 1 does X, part 2 does Y, part 3 is unrelated cleanup"), it is
+   more than one PR.
+2. Independently shippable, independently revertible: if the PR mixes
+   two changes that could ship separately, split it. If it cannot be
+   reverted without breaking something else, it is too big.
+
+A PR that fails either test is split BEFORE implementation work starts
+on the oversized half — not after review has already begun.
+
+### Phased work: epics and sub-issues (issue #1303)
+
+Large work ships as phases, not as one PR. The structure is:
+
+- One epic issue holds the goal, the acceptance criteria, and the
+  rollout/rollback. The epic is the only issue that names the whole
+  outcome.
+- Each phase is a sub-issue of the epic with its own scope, acceptance,
+  branch, and PR. Blocking order goes in the sub-issue Dependencies
+  section; dependent phases use §20 stacked PRs where they overlap in
+  time.
+- A phase PR closes only its own sub-issue, never the epic (see §9:
+  closing keywords only when the PR fully resolves the issue). The epic
+  closes only when every sub-issue is closed, with a §15 report covering
+  the whole outcome.
+- One PR per issue (§2 rule 5) is not waived by phasing: related work
+  distributed across sub-issues still ships as one PR per sub-issue.
+  Bundling sub-issues into one PR breaks clean revert, coherent review,
+  and §15 traceability, and stays forbidden.
+
 ***
+
+### Architecture decision records (issue #1309)
+
+Architecture decisions live in `docs/architecture/adr/` as ADRs, not
+only in issue comments (which bury the reasoning). A PR MUST create or
+update an ADR when it:
+
+- makes a decision that is hard to reverse or cross-cutting (identity
+  derivation, provider/framework choice, tier/pricing model, pipeline
+  shape, security boundary), or
+- overturns a decision recorded in an existing ADR.
+
+Routine slices, bug fixes, docs-only conforming edits, and
+configuration changes do not need an ADR. Each ADR is one file,
+`NNNN-short-title.md`, with: Status (proposed → accepted →
+superseded/deprecated), Context, Decision, Consequences, and
+Alternatives considered. ADRs are never deleted or rewritten: a changed
+decision gets a new ADR that supersedes the old one, and the old ADR's
+Status is updated to superseded with a pointer. The issue that makes
+the decision references the ADR, and the ADR references the issue and
+the implementing PR. `docs/architecture/adr/README.md` is the index and
+the template.
 
 ## 6. Branching and synchronization
 
@@ -356,6 +416,17 @@ Run affected tests and required repository checks.
 - Do not claim Red/Green evidence that was not observed.
 
 For prose-only documentation, static configuration, generated output, or other changes where classic TDD does not fit, use appropriate validation and document the exception.
+
+### Reuse before you build
+
+Every change MUST start from what already exists. Locate the capability, then extend it in preference to adding another path beside it. Parallel and near-duplicate implementations are the most expensive rework this repository produces: they drift silently, they disagree at the edges, and every later change must be made twice to stay consistent.
+
+1. **Search before writing.** Look for the behavior you are about to add, its synonyms, its tests, and its documentation (§4). "There was nothing to reuse" is a finding to state, not an assumption to skip.
+2. **Choose in this order: reuse, enhance, optimize, consolidate, extend.** Reuse the surface as it stands; enhance it when the gap is real; optimize it when it is correct but too slow or too blunt; consolidate when several partial implementations already cover the case; extend when the need is genuinely new. A new parallel implementation is the last option, never the first.
+3. **Justify the exception in the PR.** A second implementation of something the repository already does requires an explicit note: the existing surface you found, why extending or consolidating it was not viable, and what keeps the two from drifting. Silence is not a waiver — state it under the PR template's `## Implementation` field (§9).
+4. **A copy is a second source of truth.** Duplicated validation rules, regexes, parsers, prompt text, and config blocks are defects even while they agree. Where a surface must be reached from a context that cannot import it — a client bundle, a separate runtime, a workflow file — extract the shared piece, or pin the copies together with a test that fails when they diverge (§7, the pin rule).
+5. **Consolidate on contact.** A change touching a duplicated implementation MUST fold it into the canonical one when the scope allows. When it does not, open the follow-up issue in the same PR and link it.
+6. **Reviewers enforce this gate.** A PR that adds a parallel implementation without the note in item 3 is sent back, not merged.
 
 ### The pin rule
 
@@ -608,9 +679,9 @@ If a merge queue is required, enqueue the PR. Ensure GitHub Actions workflows ha
 3. Verify applicable delivery or smoke-test results.
 4. Reconcile issue status.
 5. Update local `main` using a fast-forward pull.
-6. Delete the completed branch only when authorized and safe.
+6. Head-branch deletion is automatic: the repo setting "Automatically delete head branches" is ON, so GitHub deletes the head branch on merge. Do not manually delete a branch automation already removed. If auto-delete is ever turned off, fall back to deleting the completed branch only when authorized and safe.
 7. Record the completion summary.
-8. Begin the next issue only after the gate is satisfied.
+8. Begin the next issue only after the gate is satisfied — unless §20 parallel delivery applies, in which case the next independent issue may already be in flight and this gate closes the current issue, not the stream.
 
 If the PR cannot merge, the issue is blocked—not finished.
 
@@ -793,7 +864,7 @@ Workflow changes are security-sensitive and require appropriate review.
 - Keep changes issue-scoped.
 - Respect the sequential completion gate for each assigned delivery stream.
 
-Parallel issue execution requires an explicit exception to this policy. A merge queue does not itself authorize parallel feature work.
+Parallel issue execution is authorized by §20 when its conditions hold — no per-case exception is needed for that case. A merge queue does not itself authorize parallel feature work; §20 is the authorization, the queue (§19.5) is the combination validator. Anything outside §20 still requires an explicit exception.
 
 ### Exception record
 
@@ -1008,6 +1079,196 @@ Manual rebasing does not scale to concurrent lanes: two PRs can each be green on
 
 ***
 
+## 20. Parallel delivery during CI waits
+
+CI waits are machine time, not human time. An agent that finishes a branch
+idles through two waits: PR checks on its branch, then post-merge
+CI/Deploy/CodeQL/Secret Scanning on `main`. When the next issue is
+independent of the in-flight one, that wait is wasted: the next issue needs
+no result from either check run. This section converts those waits into
+implementation time. It relaxes no gate: every merge still requires green
+checks on its own head, branch currency, and conflict-freedom (§11); every
+issue still gets post-merge verification before it is Done (§17.2); and
+§18.2 still preempts everything else.
+
+### What may run in parallel
+
+- While PR A is in CI (checks running), the agent may start issue B:
+  new branch from latest `main`, separate worktree, claim comment naming B
+  and noting A in flight.
+- While post-merge verification for A is running (CI/Deploy/CodeQL/Secret
+  Scanning on `main`), the agent may start issue B the same way.
+- While awaiting a write approval (branch push, PR, merge, comment), the
+  same: start the next independent issue instead of idling.
+- Multiple PRs from one agent may be in CI simultaneously.
+
+### The independence test
+
+All four must hold. If any is uncertain, default to sequential — a wrong
+parallel call costs a rebase plus a full re-gate, which is more than the
+wait it saved.
+
+1. No shared files between the in-flight branches (compare the file lists
+   before starting).
+2. No API, schema, contract, migration, or test-fixture dependency in
+   either direction.
+3. Neither issue's acceptance depends on the other's merge order.
+4. Neither issue is a production activation (flag flip, secret sync,
+   deploy step) — activations stay serial (below).
+
+### What stays serial, always
+
+1. Merges: one rebase merge at a time; each merge only when its own checks
+   are green, its branch is current, and it is conflict-free (§11).
+2. A single issue's own lifecycle: branch → PR → merge → post-merge
+   verification → Done, in that order, for that issue. Parallelism is
+   across issues, never within one issue.
+3. Production activations: flags, secrets, deploys, and any live-behavior
+   flip — one at a time, verified before the next.
+4. Post-merge red (§18.2): a red post-merge check on ANY in-flight issue
+   is the agent's first job. Stop all new-issue work — including
+   implementation on parallel branches — and fix before continuing.
+   Parallelism never queues a red behind new work.
+5. Overlapping files at merge time: if two sibling branches turn out to
+   touch the same files (main moved, scope grew), the later merge updates
+   in place and re-runs the full gate after ANY tree change. Never merge
+   over a stale combination.
+
+### Branch and claim discipline for parallel streams
+
+- One worktree per branch. Never share a worktree between streams: test
+  runs and uncommitted changes collide.
+- Every sibling branch forks from latest `main`, never from a sibling
+  branch — unless the dependency is declared and the stack is explicit, in
+  which case the dependent PR waits for its base and the branches merge in
+  dependency order.
+- The claim comment for each issue names the issue, the branch, and the
+  other in-flight siblings, so other lanes see the whole set (§6).
+- A branch with no PR open is still an in-flight stream. Do not let
+  un-PR'd branches accumulate: open the PR promptly once the local gate
+  is green, so CI starts and the wait becomes productive.
+- No hard cap on in-flight streams, but each must show active progress
+  (branch plus local gate, or open PR). A stale branch with no activity
+  and no PR must be closed or converted to a draft PR with a status
+  comment — a pile of stale branches is the parallel version of the
+  dangling-PR problem (§11).
+
+### Merge-queue interaction (§19.5)
+### Auto-merge and queue discipline (no-wait Phase 1, issue #1298)
+
+Once the merge queue is enabled (§19.5), the agent never waits for the
+merge moment:
+
+- Enable GitHub auto-merge on the PR (rebase strategy, matching §11) as
+  soon as the local gate is green and the PR description is complete.
+  Auto-merge fires only when branch protection is satisfied — required
+  checks green on the queue's combination commit, branch current through
+  the queue — so enabling it early grants nothing and bypasses nothing.
+- The queue, not the agent, chases `main`: it builds the temporary merge
+  commit against current `main` plus earlier queued PRs and runs required
+  checks on it. A PR that fails there never lands; the agent fixes and
+  re-queues instead of merging manually.
+- Manual merge is the fallback only when the queue or auto-merge is
+  unavailable, and then the §11 checklist applies in full (fetch, update
+  in place, re-test on the rebased head, confirm green checks).
+- Never enable auto-merge on a PR whose scope, acceptance, or rollback
+  is not yet written up: auto-merge removes the waiting, not the review.
+
+
+- Where the merge queue is enabled, use it: it validates combinations
+  (a PR against current `main` plus earlier queued PRs) instead of each
+  lane chasing `main` manually.
+- Until the queue is enabled, the manual substitute stands and is not
+  waived by parallelism: update in place, re-test on the rebased head,
+  verify post-merge CI — per merge, per branch.
+
+### Rule of thumb
+
+If the next issue is independent, starting it during a CI wait is the
+default, not the exception. If the next issue is dependent, waiting is
+the work: use the wait to review the in-flight diff, prepare the next
+issue's test plan, or verify post-merge results — do not start dependent
+implementation on a stale base.
+
+### Trusted auto-merge automation (issue #1307, no-wait Phase 1 extension)
+
+Per-PR auto-merge (rebase strategy) above is the manual form of this
+rule: the author enables it once the local gate is green and the PR
+description is complete. The automated form is the `auto-merge-trusted`
+workflow (`.github/workflows/auto-merge-trusted.yml`):
+
+- It enables auto-merge (rebase only) on PRs carrying the `auto-merge`
+  label, and on nothing else. The label is the opt-in: only someone
+  with write access can add it, so no author allowlist is used (PR
+  authors here are the owner's token, so author alone proves nothing).
+- PRs touching `.github/workflows/` are never auto-merged by it.
+- Enabling auto-merge merges nothing by itself: GitHub merges only
+  when every requirement passes (required checks green, conversations
+  resolved, queue validation once the queue is on). Removing the label
+  does not disable an already-enabled auto-merge — disable it on the
+  PR page.
+- Prerequisite: the repo-level General → "Allow auto-merge" switch must
+  be ON, or PR-level auto-merge does not exist at all. Workflow files
+  cannot be written via API (403 workflow scope): the workflow is
+  installed by the owner via the web UI on a branch + PR, never direct
+  to main.
+
+### Auto-merge-safe PRs (issue #1307 extension)
+
+Beyond the label, one class of PR auto-merges without any label: the
+safe PR. A PR is auto-merge-safe iff ALL hold:
+
+- Every changed file is documentation: path ends with `.md` and none
+  is under `public/` (whose HTML is served as assets). Docs-only PRs
+  cannot change runtime behavior, so they are safe to merge as soon as
+  required checks pass.
+- Base branch is `main`, the PR is not a draft, and no conversation is
+  unresolved (GitHub enforces the last two at merge time regardless).
+- It is NOT safe if any file is a workflow, production config
+  (`wrangler.jsonc`), a pinned security module, a migration/schema, or
+  a production activation (flag flip, provider enablement) — those need
+  the label path (deliberate opt-in) or manual merge, never silent
+  auto-merge.
+
+The workflow enables auto-merge for safe PRs on the same rebase-only
+terms as labeled PRs; GitHub still merges only when every requirement
+passes. Test-only, dependency, and config PRs are NOT safe by default
+— promote a class to safe only by amending this list, never by
+assuming it.
+
+***
+
+## 21. Lane labels (issue #1360)
+
+Every issue and PR carries its lane label, so lane ownership is filterable,
+not just visible in prose.
+
+- Scheme: `lane:<agent-id>`. Current labels: `lane:ceo-aimp`,
+  `lane:ciso-bhdm`, `lane:caio-quns`, `lane:cpo-dhmp`, `lane:cdo-mha7`,
+  `lane:cto-mbshr`, `lane:coo-spr9`. Finance has no lane agent ID on record;
+  no finance label exists until one does. A new lane gets its label by the
+  mechanism below — never by inventing a name for an agent that has none.
+- At creation: the creating agent applies its lane label to the issue or PR,
+  alongside the `## Agent #` hashtag (the hashtag stays the human-readable
+  attribution; the label is the filterable one). The hashtag rule is not
+  replaced by labels.
+- Mechanics: labels are applied with the issue-update call's labels
+  parameter. Applying a name that does not exist yet auto-creates the label
+  (default grey, no description) — there is no separate label-creation step.
+  A label update MUST preserve existing labels: always pass the existing
+  label set plus the lane label, never the lane label alone, or topic labels
+  (`bug`, `security`, `epic`, ...) are wiped.
+- Backfill rule: the lane signal is the first `Agent #` hashtag in the
+  issue/PR body, matched case-insensitively against known agent IDs. No
+  hashtag in the body → the item stays unlabeled; never guess a lane from
+  title, author, or topic. Tags matching no known lane agent (`autoclaw`,
+  `muse-cpo-dhmp`, `muse`) stay unlabeled.
+- PRs are labeled exactly like issues (same issue-update path). A PR's lane
+  label is its author's lane, not its reviewer's.
+- Backfill record (2026-10-24): 311 of 1,358 items carried a body hashtag
+  and were labeled; 1,047 stay unlabeled by this rule, not by omission.
+
+***
 ## Instruction to add to `AGENTS.md`
 
-> Follow `docs/engineering/github-agent-policy.md` for all repository work. Work one issue at a time. Every change requires an issue and PR. Synchronize with `main`, use TDD for behavioral changes, resolve required reviews and CI/CD failures, merge the current issue into `main`, and verify post-merge health before starting the next issue. Respect all approval boundaries; if blocked, report the blocker instead of bypassing the policy.
+> Follow `docs/engineering/github-agent-policy.md` for all repository work. Work one issue at a time per delivery stream; §20 authorizes parallel independent streams during CI waits. Every change requires an issue and PR. Synchronize with `main`, use TDD for behavioral changes, resolve required reviews and CI/CD failures, merge the current issue into `main`, and verify post-merge health before the issue is Done. Respect all approval boundaries; if blocked, report the blocker instead of bypassing the policy.

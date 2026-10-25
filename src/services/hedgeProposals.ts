@@ -101,6 +101,25 @@ export interface SpyPutContract {
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
+ * HedgePolicy — the kernel's sole hedge policy (issue #1361, epic
+ * #1151 slice C5; #1257 family rationalization). hedgeProposals was
+ * already the family's one clean engine; re-homing it as a policy
+ * changes no behavior and no HEDGE_POLICY constant — it gives the
+ * bundle (and the kernel) a policy to consume instead of a module
+ * to call. The builder below stays the single implementation.
+ */
+export interface HedgePolicy {
+  build(report: PortfolioRiskReport, spyPut: SpyPutContract | null): HedgeAnalysis;
+}
+
+/** SpyDeltaHedge: beta-weighted-Δ SPY hedge sizing (#54). */
+export const SPY_DELTA_HEDGE_POLICY: HedgePolicy = {
+  build(report: PortfolioRiskReport, spyPut: SpyPutContract | null): HedgeAnalysis {
+    return buildHedgeProposals(report, spyPut);
+  },
+};
+
+/**
  * Pure proposal builder. `spyPut` is the selected live SPY put contract
  * (nearest strike to spot at the target expiry) or null when no live
  * chain contract is available — in which case only the share hedge is
