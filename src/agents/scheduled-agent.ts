@@ -3,11 +3,21 @@ import type { Env } from "../types";
 import type { CompiledChain } from "../orchestrate";
 import {
   approveSynthesizedInList,
+  markSynthesizedFired,
   SYNTHESIZED_SCHEDULES_KEY,
   synthesizeSchedule as synthesizeChainSchedule,
   type SynthesizedSchedule,
 } from "../agentic/jobSynthesis";
-import { killSynthesizedInList } from "../agentic/chainGovernance";
+import {
+  isGovernedHalted,
+  killSynthesizedInList,
+} from "../agentic/chainGovernance";
+import {
+  auditBlockedChainFiring,
+  CHAIN_EXECUTE_OPERATION,
+  decideChainFiring,
+  materializeSynthesizedRecord,
+} from "../agentic/chainFiring";
 import {
   DEFAULT_SCHEDULES,
   isDue,
@@ -80,6 +90,18 @@ export interface ScheduledAgentCronOpts {
   socialSlackPost?: SlackPostFn;
   /** Force evaluation of a specific goal regardless of cron/enabled state (manual trigger). */
   forceGoalId?: string;
+  /**
+   * #1517: global-halt state for governed chain firing. A sql
+   * (Orchestrator `mas_settings`) is preferred when the caller has
+   * one — `isGovernedHalted(sql)` — otherwise pass the halt state
+   * the caller already knows. The bare tick carries neither, so it
+   * enforces the per-record gates (approved/killed/due) and the
+   * budget check; see src/agentic/chainFiring.ts for the disclosed
+   * cross-DO halt limitation.
+   */
+  halted?: boolean;
+  /** Sql for the global-halt read + blocked-firing audit (callers with D1 access only). */
+  sql?: any;
 }
 
 export class ScheduledAgent extends Agent<Env> {
@@ -147,6 +169,12 @@ export class ScheduledAgent extends Agent<Env> {
     };
 
     const goals = await this.getGoals();
+    // #1517: global-halt state for governed chain goals only; other
+    // goals are unaffected. A supplied sql wins over a supplied flag
+    // only when the flag is absent — an explicit halted:true is never
+    // overridden by a sql read.
+    const governedHalted =
+      opts?.halted ?? (opts?.sql ? isGovernedHalted(opts.sql) : false);
 
     for (const goal of goals) {
       const isForced = opts?.forceGoalId === goal.id;
@@ -351,6 +379,63 @@ export class ScheduledAgent extends Agent<Env> {
           continue;
         }
 
+        if (goal.operation === CHAIN_EXECUTE_OPERATION) {
+          // #1517 (Lane 1): a materialized chain goal fires ONLY
+          // through the governed decision. The budget check above
+          // already ran for this goal; this branch adds the record
+          // lookup + governed gate before any job descriptor is
+          // created. A governed-true firing creates a descriptor
+          // exactly like every other goal — leg execution / shard
+          // submission is the next lane, not smuggled in here. Both
+          // the goal and the record are stamped so the due window
+          // fires once; a blocked firing leaves both unstamped.
+          const records = await this.getSynthesized();
+          const record = records.find((r) => r.id === goal.id);
+          if (!record) {
+            tick.errors.push(
+              `${goal.id}: no synthesized record for chain goal — refusing to fire, goal left due`,
+            );
+            tick.jobsSkipped++;
+            continue;
+          }
+          const decision = decideChainFiring(record, now, {
+            halted: governedHalted,
+          });
+          if (!decision.fire) {
+            tick.errors.push(
+              `${goal.id}: chain firing blocked (${decision.reason})`,
+            );
+            if (opts?.sql) {
+              try {
+                auditBlockedChainFiring(opts.sql, record, decision.reason, now);
+              } catch (err) {
+                tick.errors.push(
+                  `${goal.id}: blocked-firing audit failed: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            }
+            tick.jobsSkipped++;
+            continue;
+          }
+          const { createJob } = await import("../orchestrate");
+          await createJob(env, {
+            goalId: goal.id,
+            goalName: goal.name,
+            operation: goal.operation,
+            budgetCents: goal.budgetCents,
+          });
+          await this.saveSynthesized(
+            records.map((r) =>
+              r.id === record.id
+                ? markSynthesizedFired(r, now.toISOString())
+                : r,
+            ),
+          );
+          goal.lastRun = now.toISOString();
+          tick.jobsCreated++;
+          continue;
+        }
+
         const { createJob } = await import("../orchestrate");
         await createJob(env, {
           goalId: goal.id,
@@ -464,10 +549,10 @@ export class ScheduledAgent extends Agent<Env> {
    * Synthesized records live under the `synthesizedSchedules` DO key,
    * NEVER under the `goals` key — `onCron`/`triggerGoal` read only
    * `goals`, so a pending (or approved-but-unmaterialized) record
-   * structurally cannot fire through the existing paths. These
-   * methods create pending records and flip exactly one record to
-   * approved; they never create a goals-list entry, a mas_async_jobs
-   * row, or a shard job (firing/materialization is follow-up work).
+   * structurally cannot fire through the existing paths. Approval
+   * still creates no goals-list entry; the ONLY path from an
+   * approved record to a goals-list entry is the explicit
+   * `materializeSynthesizedSchedule` below (#1517, Lane 1).
    */
   private async getSynthesized(): Promise<SynthesizedSchedule[]> {
     const stored =
@@ -535,6 +620,122 @@ export class ScheduledAgent extends Agent<Env> {
     const updated = killSynthesizedInList(records, id);
     await this.saveSynthesized(updated);
     return updated.find((r) => r.id === id)!;
+  }
+
+  /**
+   * Issue #1517 (Lane 1): materialize ONE approved recurring record
+   * as a goals-list entry. The ONLY transition from synthesized
+   * record to schedulable goal: approval alone creates nothing (see
+   * above), and this method refuses pending, killed, and one-shot
+   * records via `materializeSynthesizedRecord`. Idempotent: a
+   * goal already materialized for this id is returned unchanged,
+   * never duplicated; a goal id already used by a non-chain goal
+   * throws. Materializing creates no job, no async-job row, and no
+   * shard job — the goal fires later, through the governed `onCron`
+   * branch, when its cron is due.
+   */
+  async materializeSynthesizedSchedule(
+    id: string,
+  ): Promise<ScheduledGoal> {
+    const records = await this.getSynthesized();
+    const record = records.find((r) => r.id === id);
+    if (!record) {
+      throw new Error(`Unknown synthesized schedule: ${id}.`);
+    }
+    const goals = await this.getGoals();
+    const existing = goals.find((g) => g.id === id);
+    if (existing) {
+      if (existing.operation !== CHAIN_EXECUTE_OPERATION) {
+        throw new Error(`Goal id already exists for a non-chain goal: ${id}`);
+      }
+      return existing;
+    }
+    const goal = materializeSynthesizedRecord(record);
+    goals.push(goal);
+    await this.saveGoals(goals);
+    return goal;
+  }
+
+  /**
+   * Issue #1517 (Lane 1): fire ONE one-shot synthesized record
+   * directly. Recurring records are refused here — they must
+   * materialize first and fire via `onCron`, so there is exactly
+   * one firing path per kind. The governed decision runs before
+   * the PaymentsAgent budget check and before any job descriptor
+   * is created; a blocked or budget-rejected firing consumes
+   * nothing and leaves `firedAt` unset, so it can be retried. A
+   * successful firing consumes the record (`firedAt` set) and
+   * returns the job descriptor id — leg execution / shard
+   * submission is the next lane.
+   */
+  async fireSynthesizedSchedule(
+    id: string,
+    opts?: { halted?: boolean; sql?: any },
+  ): Promise<{
+    fired: boolean;
+    reason: string;
+    jobId?: string;
+    record: SynthesizedSchedule;
+  }> {
+    const records = await this.getSynthesized();
+    const record = records.find((r) => r.id === id);
+    if (!record) {
+      throw new Error(`Unknown synthesized schedule: ${id}.`);
+    }
+    if (record.kind !== "one-shot") {
+      throw new Error(
+        `Cannot fire synthesized schedule ${id} directly: recurring records must materialize first and fire via onCron (materializeSynthesizedSchedule).`,
+      );
+    }
+    const now = new Date();
+    const halted = opts?.halted ?? (opts?.sql ? isGovernedHalted(opts.sql) : false);
+    const decision = decideChainFiring(record, now, { halted });
+    if (!decision.fire) {
+      if (opts?.sql) {
+        try {
+          auditBlockedChainFiring(opts.sql, record, decision.reason, now);
+        } catch {
+          /* Blocked already; an audit failure must not unblock it. */
+        }
+      }
+      return { fired: false, reason: decision.reason, record };
+    }
+    const paymentsId = this.env.PAYMENTS_AGENT.idFromName("default");
+    const payments = this.env.PAYMENTS_AGENT.get(paymentsId) as unknown as {
+      budgetCheck(req: {
+        operation: string;
+        amountCents: number;
+        agentId?: string;
+      }): Promise<{ allowed: boolean; reason?: string }>;
+    };
+    const budgetOk = await payments.budgetCheck({
+      operation: CHAIN_EXECUTE_OPERATION,
+      amountCents: record.budgetCents,
+    });
+    if (!budgetOk.allowed) {
+      return {
+        fired: false,
+        reason: `budget check rejected: ${budgetOk.reason ?? "disallowed"}`,
+        record,
+      };
+    }
+    const { createJob } = await import("../orchestrate");
+    const job = await createJob(this.env, {
+      goalId: record.id,
+      goalName: record.goal,
+      operation: CHAIN_EXECUTE_OPERATION,
+      budgetCents: record.budgetCents,
+    });
+    const updated = markSynthesizedFired(record, now.toISOString());
+    await this.saveSynthesized(
+      records.map((r) => (r.id === id ? updated : r)),
+    );
+    return {
+      fired: true,
+      reason: decision.reason,
+      jobId: job.jobId,
+      record: updated,
+    };
   }
 
   /**
