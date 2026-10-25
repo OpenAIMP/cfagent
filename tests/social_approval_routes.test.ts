@@ -259,4 +259,78 @@ describe("Slack interaction routing for social approvals", () => {
     // The env without a secret must fail closed at the gate.
     expect(res.status).toBe(503);
   });
+
+  describe("GET /api/social/posts (#1391)", () => {
+    it("requires authentication → 401", async () => {
+      const env = makeEnv();
+      const res = await worker.fetch(req("GET", `/api/social/posts?date=${DATE}`), env);
+      expect(res.status).toBe(401);
+    });
+
+    it("refuses non-GET methods → 405", async () => {
+      const env = makeEnv();
+      const res = await worker.fetch(req("POST", "/api/social/posts", {}, SESSION_ID), env);
+      expect(res.status).toBe(405);
+    });
+
+    it("validates date format → 400 for bad dates", async () => {
+      const env = makeEnv();
+      const res = await worker.fetch(req("GET", "/api/social/posts?date=not-a-date", undefined, SESSION_ID), env);
+      expect(res.status).toBe(400);
+    });
+
+    it("returns posts for date with submissionEndpoint and postUrl", async () => {
+      const env = makeEnv();
+      seedDraft(
+        env,
+        {
+          id: "draft-th-live",
+          date: DATE,
+          channel: "threads",
+          text: "Live post from automated pipeline",
+          status: "posted",
+          platformPostId: "post_th_888",
+          createdAtMs: 1_000,
+          originalLength: 33,
+          truncated: false,
+        },
+        false,
+      );
+      seedDraft(
+        env,
+        {
+          id: "draft-x-dry",
+          date: DATE,
+          channel: "x",
+          text: "Dry run post",
+          status: "dry-run-posted",
+          createdAtMs: 1_000,
+          originalLength: 12,
+          truncated: false,
+        },
+        false,
+      );
+
+      const res = await worker.fetch(req("GET", `/api/social/posts?date=${DATE}`, undefined, SESSION_ID), env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body.ok).toBe(true);
+      expect(body.date).toBe(DATE);
+      expect(body.posts.length).toBeGreaterThanOrEqual(2);
+
+      const th = body.posts.find((p: any) => p.channel === "threads");
+      expect(th).toBeDefined();
+      expect(th.status).toBe("posted");
+      expect(th.platformPostId).toBe("post_th_888");
+      expect(th.submissionEndpoint).toBe("https://graph.threads.net/v1.0/me/threads_publish");
+      expect(th.postUrl).toBe("https://www.threads.net/t/post_th_888");
+
+      const x = body.posts.find((p: any) => p.channel === "x");
+      expect(x).toBeDefined();
+      expect(x.status).toBe("dry-run-posted");
+      expect(x.submissionEndpoint).toBe("https://api.twitter.com/2/tweets");
+      expect(x.postUrl).toBeNull();
+    });
+  });
 });
+
