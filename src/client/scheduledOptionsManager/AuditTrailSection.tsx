@@ -35,6 +35,9 @@ export function AuditTrailSection({ auditLogs, loadingAudit, fetchAudit }: Audit
                 <tr>
                   <th>Timestamp</th>
                   <th>Event Type</th>
+                  <th>Run ID</th>
+                  <th>Screen Type</th>
+                  <th>Run Type</th>
                   <th>Symbols</th>
                   <th>Actionable Setups</th>
                   <th>Dispatched Channels</th>
@@ -45,6 +48,17 @@ export function AuditTrailSection({ auditLogs, loadingAudit, fetchAudit }: Audit
                   const payload = log.payload || {};
                   const isSuccess = !log.type.includes("failed");
                   const notifs = payload.notifications || {};
+                  const callback = String(payload.callback || "");
+                  const screenType = payload.screenType ||
+                    (log.type.startsWith("screener.") || callback.includes("MarketScreen") ? "stock" :
+                      log.type.startsWith("options.") || callback.includes("OptionsAnalysis") ? "options" : null);
+                  const runType = payload.runType || payload.trigger ||
+                    (log.type.startsWith("schedule.") ? "scheduled" : null);
+                  const symbols = Array.isArray(payload.symbols) ? payload.symbols : [];
+                  const actionableSetups = payload.opportunityCount ?? payload.matchedCount ?? payload.withTrades;
+                  const dispatchedChannels = ["slack", "email", "webhook"]
+                    .filter((channel) => Object.prototype.hasOwnProperty.call(notifs, channel))
+                    .map((channel) => `${channel[0].toUpperCase()}${channel.slice(1)}: ${notifs[channel] ? "sent" : "not sent"}`);
 
                   return (
                     <tr key={log.id}>
@@ -53,19 +67,18 @@ export function AuditTrailSection({ auditLogs, loadingAudit, fetchAudit }: Audit
                         <span className={`status-indicator-dot ${isSuccess ? "green" : "red"}`} />
                         <code>{log.type}</code>
                       </td>
+                      <td><code>{payload.runId || "–"}</code></td>
+                      <td>{screenType ? screenType[0].toUpperCase() + screenType.slice(1) : "–"}</td>
+                      <td>{runType ? String(runType).replace(/[-_]/g, " ").replace(/^./, (value: string) => value.toUpperCase()) : "–"}</td>
+                      <td>{symbols.length > 0 ? symbols.join(", ") : "–"}</td>
                       <td>
-                        {Array.isArray(payload.symbols) ? payload.symbols.join(", ") : "–"}
-                      </td>
-                      <td>
-                        <strong style={{ color: payload.withTrades > 0 ? "var(--color-success)" : "var(--color-text-muted)" }}>
-                          {payload.withTrades ?? "–"}
+                        <strong style={{ color: Number(actionableSetups) > 0 ? "var(--color-success)" : "var(--color-text-muted)" }}>
+                          {actionableSetups ?? "–"}
                         </strong>
                       </td>
                       <td>
                         <div style={{ display: "flex", gap: "0.3rem" }}>
-                          {notifs.slack && <span className="chan-badge slack">Slack</span>}
-                          {notifs.email && <span className="chan-badge email">Email</span>}
-                          {notifs.webhook && <span className="chan-badge webhook">Webhook</span>}
+                          {dispatchedChannels.length > 0 ? dispatchedChannels.join(", ") : "–"}
                         </div>
                       </td>
                     </tr>
