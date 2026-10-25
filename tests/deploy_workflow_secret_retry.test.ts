@@ -81,6 +81,17 @@ describe("deploy.yml — Threads secret sync", () => {
   });
 });
 
+describe("deploy.yml — email principals secret sync (#1518)", () => {
+  it("pushes CHANNEL_EMAIL_PRINCIPALS for omnichannel email intake", () => {
+    expect(workflow).toMatch(
+      /S_CHANNEL_EMAIL_PRINCIPALS:\s*\$\{\{\s*secrets\.CHANNEL_EMAIL_PRINCIPALS\s*\}\}/
+    );
+    expect(workflow).toMatch(
+      /optional_secret CHANNEL_EMAIL_PRINCIPALS "\$S_CHANNEL_EMAIL_PRINCIPALS"/
+    );
+  });
+});
+
 describe("scripts/ci/put-secret.sh (#590)", () => {
   it("pushes through the broker with a bounded, backed-off retry", () => {
     expect(helper).toMatch(BROKER_PUT);

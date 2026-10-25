@@ -144,7 +144,8 @@ describe("orchestrator class inventory (#992 standing gate)", () => {
     const lineCount =
       text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
     expect(lineCount).toBeLessThanOrEqual(BUDGET_LINES);
-    expect(statSync(`src/${ORCH}`).size).toBeLessThanOrEqual(BUDGET_BYTES);
+    const byteCount = Buffer.byteLength(text.replace(/\r\n/g, "\n"), "utf8");
+    expect(byteCount).toBeLessThanOrEqual(BUDGET_BYTES);
   });
 
   it("keeps extracted execution out of the class body", () => {
