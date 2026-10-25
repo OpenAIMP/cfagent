@@ -144,6 +144,29 @@ export function listPromotions(sql: any, candidateId: string): Promotion[] {
   return rows.map(rowToPromotion);
 }
 
+/**
+ * Consolidation #1257: the drain gate. The #760 chain is retired
+ * (new starts refused), but in-flight promotions must drain
+ * (advance to completed) or roll back before the retirement PR
+ * deletes this module. This list is the operator-visible check:
+ * the retirement PR merges only when it is empty. Active =
+ * shadow/partial/full; completed and rolled_back are terminal.
+ * Note the #760 store is GLOBAL (no user_login) while challengers
+ * are tenant-scoped — this list is deliberately unscoped, matching
+ * the store it reads.
+ */
+export function listActivePromotions(sql: any): Promotion[] {
+  ensurePromotionsTable(sql);
+  // Filtered in code, not in SQL: the stage set is small and the
+  // in-memory test store only supports equality WHERE clauses.
+  const rows = Array.from(
+    sql.exec(`SELECT * FROM mas_promotions ORDER BY created_at ASC LIMIT 200`)
+  ) as any[];
+  return rows
+    .map(rowToPromotion)
+    .filter((p) => p.stage === "shadow" || p.stage === "partial" || p.stage === "full");
+}
+
 function updatePromotion(
   sql: any,
   promotion: Promotion,
