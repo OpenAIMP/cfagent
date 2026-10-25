@@ -23,7 +23,7 @@
 import {
   parseOptionScreenerFilter,
   parseStockScreenerFilter,
-} from "../trading/screeningSchemas";
+} from "../trading";
 import type { OptionScreenerFilter, StockScreenerFilter } from "../types";
 
 export interface PresetSql {
