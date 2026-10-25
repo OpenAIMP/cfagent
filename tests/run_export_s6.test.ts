@@ -267,7 +267,7 @@ describe("one exporter (#1065 source pins)", () => {
     // .xls — is created by runExport's download helpers only.
     const creators = srcFiles
       .filter((f) => readFileSync(f, "utf8").includes("URL.createObjectURL"))
-      .map((f) => relative(ROOT, f))
+      .map((f) => relative(ROOT, f).replace(/\\/g, "/"))
       .sort();
     expect(creators).toEqual([
       "src/client/AsyncJobsPanel.tsx",
