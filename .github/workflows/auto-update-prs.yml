@@ -27,6 +27,16 @@ jobs:
             for (const pr of prs) {
               if (pr.draft) continue;
 
+              const isDependabot =
+                pr.user?.login === 'dependabot[bot]' ||
+                (pr.user?.login && pr.user.login.includes('dependabot')) ||
+                (pr.head?.ref && pr.head.ref.startsWith('dependabot/'));
+
+              if (isDependabot) {
+                console.log(`Skipping Dependabot PR #${pr.number} (${pr.head.ref}) per reference-only policy.`);
+                continue;
+              }
+
               try {
                 console.log(`Updating PR #${pr.number} (${pr.head.ref})...`);
                 await github.rest.pulls.updateBranch({
