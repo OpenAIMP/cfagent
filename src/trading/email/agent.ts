@@ -1119,9 +1119,10 @@ export async function handleCloudflareEmailMessage(
       "Inbound email trading requires the SEARCH_AGENT (orchestrator) binding to reach the user's Durable Object ORM; refusing to process the email without it (issue #815)."
     );
   }
-  // Issue #1185: the instance constant is the ADDRESS; the identity
-  // asserted on the forward is the configured service identity. With
-  // none configured the forward fails closed (mirrors the worker
+  // Issue #1185: the instance constant is the ADDRESS, not an identity.
+  // The forward asserts no identity header (Issue #1262 Phase 1: the DO
+  // resolves the principal from the payload); the service identity must
+  // still be configured, or the forward fails closed (mirrors the worker
   // scheduled() handler's skip) instead of asserting a synthetic login.
   const serviceLogin = getServiceUserLogin(env);
   if (!serviceLogin) {
@@ -1135,7 +1136,11 @@ export async function handleCloudflareEmailMessage(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-user-login": serviceLogin,
+        // Issue #1262 Phase 1: no identity header is asserted here. The
+        // instance name above is ROUTING (addressing, #815) only; the
+        // caller's identity is resolved inside the DO from the payload
+        // (sender → CHANNEL_EMAIL_PRINCIPALS map + Authentication-
+        // Results) by the channel intake.
       },
       body: JSON.stringify({ from, to, subject, text, html, authenticationResults }),
     })
