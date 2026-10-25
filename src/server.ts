@@ -117,6 +117,12 @@ import {
   AssetClassCategory,
 } from "./trading";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
+// Issue #1387 — the agents SDK resolves sub-agent roots through
+// ctx.exports by constructor.name, so OrchestratorAgent must ALSO be
+// exported under its own name (the SearchAgent alias above cannot
+// satisfy the root-namespace lookup). The alias stays: it is the live
+// orchestrator address and its stored state must not move.
+export { OrchestratorAgent } from "./agents/orchestrator";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
 export { BrowserAgent } from "./agents/browserAgent";
 export { SlackAgent } from "./agents/slackAgent";
