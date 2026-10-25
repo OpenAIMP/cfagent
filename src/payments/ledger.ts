@@ -32,6 +32,7 @@
 
 import type { BudgetGuardState } from "./budget-guard";
 import type { Env, TransactionRecord } from "../types";
+import { getServiceUserLogin, SHARED_ORCHESTRATOR_INSTANCE } from "../security/serviceIdentity";
 
 /** The PaymentsAgent ledger record shape (its RPC surface, unchanged). */
 export interface PaymentRecord {
@@ -46,8 +47,11 @@ export interface PaymentRecord {
 
 /** Canonical orchestrator instance that owns the system ledger —
  *  the same instance cron/scheduled traffic uses (cf.
- *  INBOUND_EMAIL_ORCHESTRATOR_INSTANCE in src/trading/email/agent.ts). */
-export const PAYMENTS_LEDGER_ORCHESTRATOR_INSTANCE = "default_trader";
+ *  INBOUND_EMAIL_ORCHESTRATOR_INSTANCE in src/trading/email/agent.ts).
+ *  This is an ADDRESS (the shared instance name), never an identity:
+ *  ledger forwards assert the configured service identity instead
+ *  (issue #1185). */
+export const PAYMENTS_LEDGER_ORCHESTRATOR_INSTANCE = SHARED_ORCHESTRATOR_INSTANCE;
 
 /** session_id prefix marking a mas_transactions row as PaymentsAgent-origin. */
 export const PAYMENTS_AGENT_SESSION_PREFIX = "payments-agent:";
@@ -205,13 +209,21 @@ function ledgerStub(env: Env): LedgerStub {
 
 async function ledgerFetch(env: Env, path: string, init?: RequestInit): Promise<Response> {
   const stub = ledgerStub(env);
+  // Issue #1185: the forward's identity is the configured service
+  // identity — the instance constant above is only the address.
+  const serviceLogin = getServiceUserLogin(env);
+  if (!serviceLogin) {
+    throw new Error(
+      "payment ledger unavailable: no service identity configured (SERVICE_USER_LOGIN) to forward under"
+    );
+  }
   try {
     return await stub.fetch(
       new Request(new URL(path, "https://agent.internal"), {
         ...init,
         headers: {
           "Content-Type": "application/json",
-          "x-user-login": PAYMENTS_LEDGER_ORCHESTRATOR_INSTANCE,
+          "x-user-login": serviceLogin,
           ...(init?.headers as Record<string, string> | undefined),
         },
       })

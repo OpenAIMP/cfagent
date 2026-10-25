@@ -146,7 +146,9 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
     // Issue #982: the paid tool executes through UnifiedOptionsService
     // (the service the REST routes call); its screen data is the raw
     // screen result the response below is built from.
-    const service = new UnifiedOptionsService(context.env, context.sessionId || "default_trader", undefined, context.orm);
+    // Issue #1185: context.sessionId is the bound caller identity
+    // (post-#180) — used directly, never a synthetic fallback.
+    const service = new UnifiedOptionsService(context.env, context.sessionId, undefined, context.orm);
     const serviceResponse = await service.execute({
       action: "screen",
       channel: "mcp",
