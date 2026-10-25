@@ -851,9 +851,13 @@ async function runFitDiscoveryAction(
       source: c.source,
       status: c.status,
       provenance: c.provenance,
-      maxLoss: money(c.economics.maxLoss),
-      netDebitCredit:
-        c.economics.netCredit > 0
+      // Null economics renders as unverified — never passed through
+      // money(), whose null rendering ("Unlimited") would fabricate
+      // an unlimited-loss claim for an unverified candidate.
+      maxLoss: c.economics ? money(c.economics.maxLoss) : "unverified",
+      netDebitCredit: !c.economics
+        ? "economics unverified"
+        : c.economics.netCredit > 0
           ? `${money(c.economics.netCredit)} credit`
           : `${money(c.economics.netDebit)} debit`,
       worstScenarioPnl: money(c.scenario.worstPnlTotal),
@@ -884,7 +888,7 @@ async function runFitDiscoveryAction(
     status: f.status,
     provenance: f.provenance,
     missingComponents: f.missingComponents.join(", ") || "none",
-    maxLoss: money(f.economics.maxLoss),
+    maxLoss: f.economics ? money(f.economics.maxLoss) : "unverified",
   }));
   const limitations =
     r.limitations.length > 0 ? ` Limitations: ${r.limitations.join(" ")}` : "";
