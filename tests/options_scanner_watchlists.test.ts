@@ -619,7 +619,10 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       }));
       DynamicOptionsScreener.setTestListingsFixture(listings);
 
-      const result = await new DynamicOptionsScreener(client).screenOptions({
+      // This test pins the symbol hard cap specifically; give the test
+      // client enough fetch budget to reach that cap after #1545 lowered
+      // the production default for Workers Free.
+      const result = await new DynamicOptionsScreener(client, { subrequestBudget: 100 }).screenOptions({
         maxUnderlyings: 100,
         contractType: "CALL",
         minDte: 0,
