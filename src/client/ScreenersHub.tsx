@@ -28,6 +28,7 @@ import { ReportsPanel } from "./ReportsPanel";
 import { SchedulesPanel } from "./SchedulesPanel";
 import { ScreeningReviewPanel } from "./ScreeningReviewPanel";
 import { ScreeningOutcomesPanel } from "./ScreeningOutcomesPanel";
+import { CalibrationDashboard } from "./CalibrationDashboard";
 import { OptionsResearchHost } from "./options/OptionsResearchHost";
 import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import "./optionsResearch.css";
@@ -1353,6 +1354,9 @@ export function ScreenersHub({
           hidden={hubTab !== "track-record"}
           style={hubTab !== "track-record" ? { display: "none" } : undefined}
         >
+          <ErrorBoundary label="Calibration dashboard">
+            <CalibrationDashboard userLogin={userLogin} />
+          </ErrorBoundary>
           <ErrorBoundary label="Track Record panel">
             <ScreeningOutcomesPanel userLogin={userLogin} />
           </ErrorBoundary>

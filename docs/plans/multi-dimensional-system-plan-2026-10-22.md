@@ -35,6 +35,21 @@ Security is sequenced first (owner direction, 2026-10-22) because every other di
 | Multi-currency, multi-language, multi-brand, multi-region, dedicated tenant deployments, agent marketplace, multiple payment processors, cross-organization collaboration | Planned / requirement-driven | #1069 §9 expansion list; enter only on a concrete requirement, each as its own issue. |
 | Multi-cloud, active-active global writes, arbitrary executable plugins, automatic live-trade/payment provider fallback, every agent protocol, a microservice per capability, shared learning from private tenant data | **Out of scope** | #1069 §9 "do not adopt by default." Re-entry requires an owner decision recorded on #1070. |
 
+## Living registry (F1, #1423 — added 2026-10-25)
+
+The table above is the **2026-10-22 snapshot** and is not rewritten; it stays
+as the historical record. The living source is
+[`dimension-registry.json`](dimension-registry.json), seeded 2026-10-25
+against main `4bb1ba5` and pinned by `tests/dimension_registry.test.ts`
+(no `supported` without a resolving verification reference; `out_of_scope`
+entries cite the #1070 owner-decision requirement). Seed deltas vs the
+snapshot: shared execution context (§8) moved planned → partial (S1 contract
+on main, S2 matrix green, enforcement still pending — still NOT supported
+per the Phase S exit criteria below), and multi-connection/multi-account
+now records the #1185 removal of the `default_trader` static-token exception
+instead of the snapshot's isolation-debt note. A status change is a registry
+edit, re-verified against main, with its pin test updated in the same PR.
+
 ## Phase S — Security (priority)
 
 ### S1. Validated ExecutionContext contract (#1069 §8)
