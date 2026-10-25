@@ -1,0 +1,14 @@
+# CODEOWNERS — cfagent issue #1487.
+#
+# Owner review is required for the paths that define or enforce
+# policy. This file alone does not block merges: the protectmain
+# ruleset must also enable "Require review from Code Owners"
+# (owner-side setting). Until that setting is on, this file is a
+# review-routing signal, not a gate — record that honestly.
+#
+# Owner: the OpenAIMP account is the repository owner; lane agents
+# work through it, so the owner entry is the account, not a lane.
+
+/.github/workflows/* @OpenAIMP
+/docs/agents/gitops.md @OpenAIMP
+/AGENTS.md @OpenAIMP

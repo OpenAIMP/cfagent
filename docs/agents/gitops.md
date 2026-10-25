@@ -1306,6 +1306,63 @@ not just visible in prose.
 - Backfill record (2026-10-24): 311 of 1,358 items carried a body hashtag
   and were labeled; 1,047 stay unlabeled by this rule, not by omission.
 
+## 22. Enforcement: policy lives in GitHub, not in agent instructions
+
+AGENTS.md and this document state policy; they cannot enforce it.
+An agent can ignore a document, and every lane works through the
+same OpenAIMP account, so GitHub identity alone cannot tell lanes
+apart. Enforcement therefore lives in repository settings and
+required checks, with documents as the specification those checks
+implement.
+
+- **Ruleset (owner-side setting, §19.4).** `main` must be protected
+  by a ruleset that blocks direct pushes, force pushes, and
+  deletions, requires a pull request, requires branches to be up to
+  date, requires the CI/test/build and secret-scanning checks, and
+  runs the merge queue. The bypass list must be empty, except for
+  a documented owner emergency path: an owner bypass is permitted
+  only when it files a restore issue in the same action (§18.1
+  emergency exception), and the bypass is recorded in the ruleset
+  audit log for review. A bypass list that silently includes the
+  owner account is an enforcement hole, not an emergency path.
+- **Policy gate (required check).** `.github/workflows/policy-gate.yml`
+  ("Policy Gate") fails any PR missing a linked issue, a §21 lane
+  label, an agent hashtag, or a CHANGELOG entry under
+  `## [Unreleased]`. The owner must add "Policy Gate" to the
+  ruleset's required checks; until then the workflow runs but does
+  not block merges, and that state must be reported, not described
+  as covered.
+- **Gate protection.** `.github/CODEOWNERS` requires owner review
+  for `.github/workflows/*`, `docs/agents/gitops.md`, and `AGENTS.md`,
+  and the ruleset must enable "Require review from Code Owners".
+  A lane must not be able to weaken the gate in its own PR.
+  PRs touching `.github/workflows/` are never auto-merged
+  (auto-merge-trusted.yml excludes them); they need a human merge.
+- **Detection backstop.** `.github/workflows/main-audit.yml`
+  ("Main Audit", daily + workflow_dispatch) checks every new main
+  commit for an associated merged PR and, on a direct-push commit,
+  files an `[audit] Direct push to main detected` issue naming SHA,
+  author, and committer, and fails the run. It is read-only except
+  for that filing: it never pushes, merges, or reverts. A direct
+  push it finds is reported for a human repair decision, not
+  auto-repaired.
+- **Attribution.** Lane attribution is the §21 lane label plus the
+  agent hashtag in the PR body — not the GitHub user, which is
+  OpenAIMP for every lane. A PR with no label and no hashtag is
+  unattributable, and the policy gate fails it on that ground.
+- **Correction of record (2026-10-25).** Jules did NOT push directly
+  to main. The six cited Jules commits landed via merged PRs
+  (#1006, #1021, #1028, #1061, #1137), each with zero labels and
+  no agent hashtag, #1137 with zero issue refs. The enforcement
+  gap was therefore missing gates and shared-account attribution,
+  not a bypassed branch rule — and this section closes the gate
+  gap, not an imagined push gap. Direct-push detection remains a
+  backstop for genuine direct pushes, whatever their source.
+- **Out of scope for this section.** Lane identity separation
+  (separate GitHub Apps/accounts per lane), Jules access changes,
+  and cfpay branch protection are owner-side actions, tracked
+  separately; this section does not claim them as done.
+
 ***
 ## Instruction to add to `AGENTS.md`
 
