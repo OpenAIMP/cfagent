@@ -13,8 +13,12 @@ vi.mock("agents", () => ({
 describe("#680 report asset agent", () => {
   it("namespaces agent names per user", async () => {
     const { reportAssetAgentName } = await import("../src/agents/report-asset-agent");
-    expect(reportAssetAgentName("default_trader")).toBe("default");
+    // Issue #1185: the bare "default" name belongs to the configured
+    // service identity only — never to a literal login.
+    expect(reportAssetAgentName("svc-reports", "svc-reports")).toBe("default");
+    expect(reportAssetAgentName("alice", "svc-reports")).toBe("assets:alice");
     expect(reportAssetAgentName("alice")).toBe("assets:alice");
+    expect(reportAssetAgentName("default_trader")).toBe("assets:default_trader");
   });
 
   it("generatePdfAsset returns null without the binding (no throw)", async () => {

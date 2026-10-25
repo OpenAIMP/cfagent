@@ -135,9 +135,11 @@ export class ETradeAgenticPaymentService {
   private mppSecretKey?: string;
 
   constructor(
-    private orm?: DatabaseORM,
-    private env?: Env,
-    private sessionId: string = "default_trader",
+    private orm: DatabaseORM | undefined,
+    private env: Env | undefined,
+    // Issue #1185: the instance/session identity is explicit at every
+    // construction site — no synthetic shared default.
+    private sessionId: string,
     private claimVerifier: X402ClaimVerifier = verifyOnChainClaim,
     /**
      * Issue #183: payer-bound mode is used for anonymous premium traffic
@@ -149,6 +151,10 @@ export class ETradeAgenticPaymentService {
      */
     private identityOptions: { payerBound?: boolean } = {}
   ) {
+    // Issue #1185: fail closed — no session identity, no service.
+    if (!this.sessionId) {
+      throw new Error("AgenticPaymentsService requires an explicit sessionId (the verified caller identity; issue #1185: no default identity).");
+    }
     this.network = this.env?.X402_NETWORK || "base-sepolia";
     this.recipient =
       this.env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550";
