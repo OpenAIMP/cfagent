@@ -30,9 +30,7 @@
 import { DynamicMarketScreener, inferSectorFromCompanyName, resolveStockSector } from "./screener";
 import {
   fetchTechnologySymbols,
-  fetchLiveQuotes,
   withRetries,
-  type LiveScreenerDeps,
 } from "./liveScreener";
 import { DEFAULT_PIPELINE_POLICY, type RetryPolicy } from "../services/pipelinePolicy";
 import { withRetry } from "../services/resilience";
@@ -49,7 +47,10 @@ import type {
   CapabilityRouteRecord,
   ProviderConfigRecord,
 } from "./dataProviders/providerConfigStore";
-import type { DataProviderRegistry } from "./dataProviders/registry";
+import {
+  DataProviderNotFoundError,
+  type DataProviderRegistry,
+} from "./dataProviders/registry";
 import { computeScreeningIndicators } from "./screeningIndicators";
 import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
 import type { YahooTechnicals } from "./technicals";
@@ -158,8 +159,14 @@ export interface AcquireUniverseOptions {
   symbols?: NasdaqStockListing[];
   /** live-quotes / etrade-only / yahoo: cap on symbols quoted (default 50). */
   maxSymbols?: number;
-  /** live-quotes / etrade-only: E*TRADE fetcher (required for these modes). */
-  liveDeps?: LiveScreenerDeps;
+  /**
+   * live-quotes / etrade-only: platform quote fetcher (required for
+   * these modes). Bound by bindEtradeQuoteDeps (etrade-only:
+   * E*TRADE or nothing) or bindLiveQuotesQuoteDeps (live-quotes:
+   * E*TRADE primary + Yahoo gap-fill per element). Replaces the
+   * retired broker-shaped LiveScreenerDeps seam (#1356).
+   */
+  quoteDeps?: QuoteScreenerDeps;
   /** yahoo: Yahoo fetcher (required for that mode) — the data-source adapter seam. */
   yahooDeps?: YahooScreenerDeps;
   /**
@@ -253,7 +260,7 @@ export const YAHOO_PROVIDER_ID = "yahoo" as const;
 export const YAHOO_QUOTE_SOURCE = "Yahoo Finance";
 
 /**
- * The Yahoo provider seam — mirrors LiveScreenerDeps: an injected
+ * The Yahoo provider seam — mirrors QuoteScreenerDeps: an injected
  * per-symbol live-quote fetcher. Production binds the platform yahoo
  * provider (bindYahooScreenerDeps); tests bind fixtures.
  */
@@ -287,7 +294,7 @@ export function yahooDepsFromProvider(provider: {
 
 /**
  * Issue #1317: bind the platform yahoo provider to the pipeline seam
- * — the E2 bindETradeScreenerDeps pattern for Yahoo. The provider's
+ * — the E2 platform-binding pattern for Yahoo. The provider's
  * getQuote/getQuotesBatch results are FossQuote rows (P1 parity: the
  * envelope wraps by reference); the run context rides along so every
  * quote the run acquires is captured under the run's id. The batch
@@ -323,7 +330,7 @@ export interface NasdaqUniverseDeps {
 
 /**
  * Issue #1368: bind the platform nasdaq provider to the pipeline
- * seam — the E2 bindETradeScreenerDeps pattern for Nasdaq. The
+ * seam — the E2 platform-binding pattern for Nasdaq. The
  * provider's getScreenUniverse result is the listings array (the
  * envelope wraps by reference); the run context rides along so every
  * universe the run acquires is captured under the run's id.
@@ -412,6 +419,230 @@ export function yahooQuoteProviderFromRoute(
 }
 
 /**
+ * Issue #1356: the platform quote seam — replaces the retired
+ * broker-shaped LiveScreenerDeps. An injected live-quote fetcher
+ * bound over a platform DataProvider (never over a broker service
+ * directly). Production binds the quotes-route provider(s);
+ * tests bind fixtures.
+ */
+export interface QuoteScreenerDeps {
+  /** Fetch a live quote for a symbol. Throws on failure. */
+  fetchQuote: (symbol: string) => Promise<ETradeQuote>;
+  /**
+   * Issue #495 (carried from the retired LiveScreenerDeps batch):
+   * fetch quotes for many symbols in one request. Optional —
+   * providers without it keep the per-symbol path. Returns the
+   * quotes actually served; the caller diffs against the request
+   * to see which symbols are missing.
+   */
+  fetchQuotes?: (symbols: string[]) => Promise<ETradeQuote[]>;
+  /**
+   * Issue #1356: label of the gap-fill provider the live-quotes
+   * composer consults ("Yahoo Finance"), for honest-failure
+   * messages. Absent on the etrade-only binding, which has no
+   * gap-fill by construction.
+   */
+  gapFillLabel?: string;
+}
+
+/**
+ * Issue #1356: resolve the etrade-only quote provider from the
+ * platform route table — the quotes route's primary assignment
+ * (seeded: etrade primary, yahoo gap-fill, freemium). The route
+ * must name etrade as primary, etrade's config must be enabled
+ * (state and flag), and the registry must hold a quotes-capable
+ * etrade adapter. Anything else throws DataProviderNotFoundError —
+ * no silent substitution, no promotion of the gap-fill.
+ */
+export function etradeQuoteProviderFromRoute(
+  registry: DataProviderRegistry,
+  configs: readonly ProviderConfigRecord[],
+  routes: readonly CapabilityRouteRecord[]
+): DataProvider {
+  const route = routes.find((r) => r.capability === "quotes");
+  if (!route || route.primaryProviderId !== "etrade") {
+    throw new DataProviderNotFoundError("quotes");
+  }
+  const config = configs.find((c) => c.id === "etrade");
+  if (!config || config.lifecycleState !== "enabled" || !config.enabled) {
+    throw new DataProviderNotFoundError("quotes");
+  }
+  const provider = registry.get("etrade");
+  if (!provider || !provider.capabilities.includes("quotes")) {
+    throw new DataProviderNotFoundError("quotes");
+  }
+  return provider;
+}
+
+/**
+ * Issue #1356: resolve the live-quotes quote providers from the
+ * platform route table — the quotes route's primary + declared
+ * gap-fill (seeded: etrade primary, yahoo gap-fill, freemium).
+ * The primary must resolve exactly as etradeQuoteProviderFromRoute
+ * resolves it: an unservable primary throws DataProviderNotFoundError
+ * even when the gap-fill could serve — gap-fill is never silently
+ * promoted to primary. An unservable gap-fill is omitted, not fatal:
+ * the composer then serves primary-only.
+ */
+export function quotesProvidersFromRoute(
+  registry: DataProviderRegistry,
+  configs: readonly ProviderConfigRecord[],
+  routes: readonly CapabilityRouteRecord[]
+): { primary: DataProvider; gapFill?: DataProvider } {
+  const primary = etradeQuoteProviderFromRoute(registry, configs, routes);
+  const route = routes.find((r) => r.capability === "quotes")!;
+  let gapFill: DataProvider | undefined;
+  if (route.gapFillProviderId === "yahoo") {
+    const config = configs.find((c) => c.id === "yahoo");
+    const provider = registry.get("yahoo");
+    if (
+      config &&
+      config.lifecycleState === "enabled" &&
+      config.enabled &&
+      provider &&
+      provider.capabilities.includes("quotes")
+    ) {
+      gapFill = provider;
+    }
+  }
+  return gapFill ? { primary, gapFill } : { primary };
+}
+
+/**
+ * Issue #1356: bind one platform quotes provider to the pipeline
+ * seam — the etrade-only binding. The provider's getQuote /
+ * getQuotesBatch results are pipeline quotes (P1 parity: the
+ * envelope wraps by reference); the run context rides along so
+ * every quote the run acquires is captured under the run's id.
+ * The batch dep exists only when the provider offers
+ * getQuotesBatch, so providers without batch keep the per-symbol
+ * path. This binding takes NO gap-fill parameter: etrade-only
+ * means E*TRADE or nothing, by construction.
+ */
+export function bindEtradeQuoteDeps(
+  provider: DataProvider,
+  runContext: DataRunContext
+): QuoteScreenerDeps {
+  return {
+    fetchQuote: async (symbol: string) =>
+      (await provider.getQuote!(symbol, runContext)).result as ETradeQuote,
+    ...(typeof provider.getQuotesBatch === "function"
+      ? {
+          fetchQuotes: async (symbols: string[]) =>
+            (await provider.getQuotesBatch!(symbols, runContext)).result as ETradeQuote[],
+        }
+      : {}),
+  };
+}
+
+/**
+ * Issue #1356: bind the live-quotes composition to the pipeline
+ * seam — E*TRADE primary + Yahoo gap-fill, per element. Each
+ * element is served by the primary when it serves a positive-price
+ * quote; exactly the elements the primary omits, fails, or
+ * zero-prices go to the gap-fill, adapted through
+ * yahooQuoteToPipelineQuote (non-live or non-positive gap-fill
+ * rows are refused, never re-stamped). A gap-fill failure for an
+ * element never masks the primary's error: when nothing serves the
+ * element, the primary's failure is what the caller categorizes.
+ * Provenance is stamped here: primary rows are stamped
+ * "E*TRADE live" / "LIVE" (the adapter's own rows carry the
+ * service's feed label, and the retired leg overwrote it the same
+ * way), gap-fill rows carry yahooQuoteToPipelineQuote's
+ * "Yahoo Finance" / "LIVE". The run context rides along to both
+ * providers so every quote the run acquires is captured under the
+ * run's id.
+ */
+export function bindLiveQuotesQuoteDeps(
+  primary: DataProvider,
+  gapFill: DataProvider | undefined,
+  runContext: DataRunContext
+): QuoteScreenerDeps {
+  const primaryDeps = bindEtradeQuoteDeps(primary, runContext);
+  const gapQuote = gapFill
+    ? async (symbol: string): Promise<ETradeQuote | null> => {
+        try {
+          const row = (await gapFill.getQuote!(symbol, runContext)).result as FossQuote;
+          return yahooQuoteToPipelineQuote(row);
+        } catch {
+          return null;
+        }
+      }
+    : null;
+  const gapQuotes =
+    gapFill && typeof gapFill.getQuotesBatch === "function"
+      ? async (symbols: string[]): Promise<Map<string, ETradeQuote>> => {
+          try {
+            const rows = (await gapFill.getQuotesBatch!(symbols, runContext))
+              .result as FossQuote[];
+            const out = new Map<string, ETradeQuote>();
+            for (const row of rows) {
+              const quote = yahooQuoteToPipelineQuote(row);
+              if (quote) out.set(quote.symbol.toUpperCase(), quote);
+            }
+            return out;
+          } catch {
+            return new Map();
+          }
+        }
+      : null;
+  return {
+    fetchQuote: async (symbol: string) => {
+      try {
+        const prime = await primaryDeps.fetchQuote(symbol);
+        if (prime && prime.lastPrice > 0) {
+          return { ...prime, source: "E*TRADE live", quoteStatus: "LIVE" } as ETradeQuote;
+        }
+        if (gapQuote) {
+          const filled = await gapQuote(symbol);
+          if (filled) return filled;
+        }
+        return prime;
+      } catch (err) {
+        if (gapQuote) {
+          const filled = await gapQuote(symbol);
+          if (filled) return filled;
+        }
+        throw err;
+      }
+    },
+    ...(primaryDeps.fetchQuotes || gapQuotes
+      ? {
+          fetchQuotes: async (symbols: string[]) => {
+            const served = new Map<string, ETradeQuote>();
+            if (primaryDeps.fetchQuotes) {
+              try {
+                const rows = await primaryDeps.fetchQuotes(symbols);
+                for (const row of rows) {
+                  if (row && row.lastPrice > 0) {
+                    served.set(row.symbol.toUpperCase(), {
+                      ...row,
+                      source: "E*TRADE live",
+                      quoteStatus: "LIVE",
+                    } as ETradeQuote);
+                  }
+                }
+              } catch {
+                // Whole-batch primary failure: every element stays
+                // missing for the gap-fill pass below.
+              }
+            }
+            const missing = symbols.filter((s) => !served.has(s.toUpperCase()));
+            if (gapQuotes && missing.length > 0) {
+              const filled = await gapQuotes(missing);
+              for (const [symbol, quote] of filled) served.set(symbol, quote);
+            }
+            return symbols
+              .filter((s) => served.has(s.toUpperCase()))
+              .map((s) => served.get(s.toUpperCase())!);
+          },
+        }
+      : {}),
+    ...(gapFill ? { gapFillLabel: YAHOO_QUOTE_SOURCE } : {}),
+  };
+}
+
+/**
  * Adapt one live Yahoo provider quote to the pipeline quote shape.
  * Returns null when the quote is not genuinely live Yahoo data
  * (provenance !== "live" or no positive price) — the caller skips the
@@ -461,8 +692,8 @@ export function yahooQuoteToPipelineQuote(
 }
 
 /**
- * Fetch live Yahoo quotes for a symbol list (concurrency-batched like
- * liveScreener.fetchLiveQuotes). Symbols whose lookup fails or is not
+ * Fetch live Yahoo quotes for a symbol list (concurrency-batched).
+ * Symbols whose lookup fails or is not
  * genuinely live are SKIPPED — no fallback data is substituted. The
  * caller decides what an empty/short result means (acquireUniverse's
  * yahoo mode fails the run when nothing quoted, and qualifies a
@@ -568,9 +799,11 @@ export function yahooUniverseListings(): NasdaqStockListing[] {
 }
 
 /**
- * Acquire the screening universe. Manual uses all-listings; the scheduled
- * job uses live-quotes. Returns quotes ready for screenWithQuotes plus
- * discovery metadata for the UI.
+ * Acquire the screening universe. Manual uses all-listings; the
+ * screener agent and scheduled runs use etrade-only; live-quotes is
+ * the composed E*TRADE-primary + Yahoo gap-fill mode (#1356).
+ * Returns quotes ready for screenWithQuotes plus discovery metadata
+ * for the UI.
  */
 export async function acquireUniverse(
   opts: AcquireUniverseOptions
@@ -640,26 +873,215 @@ export async function acquireUniverse(
     };
   }
 
+  // Issue #1356: live-quotes mode — E*TRADE primary + Yahoo gap-fill
+  // per element, composed by bindLiveQuotesQuoteDeps. The retired
+  // Nasdaq-listing DELAYED fallback is gone: a symbol neither
+  // provider serves is a categorized failure, never a stale row.
+  // Unlike etrade-only, an empty universe returns empty quotes
+  // (the pre-#1356 live-quotes behaviour for empty input).
   if (opts.mode === "live-quotes") {
-    if (!opts.liveDeps) {
-      throw new Error("live-quotes mode requires liveDeps.fetchETradeQuote");
+    if (!opts.quoteDeps) {
+      throw new Error("live-quotes mode requires quoteDeps.fetchQuote");
     }
-    const symbols =
-      opts.symbols ?? (await fetchTechnologySymbols());
     const cfg = opts.config ?? DEFAULT_SCREENER_CONFIG;
-    const quotes = await fetchLiveQuotes(
-      symbols,
-      opts.liveDeps,
-      opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols
+    const symbols = opts.symbols ?? (await fetchTechnologySymbols());
+    const maxSymbols = opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols;
+    const limited = maxSymbols > 0 ? symbols.slice(0, maxSymbols) : symbols;
+    const gapFillLabel = opts.quoteDeps.gapFillLabel;
+    const providerLabel = gapFillLabel ? `E*TRADE and ${gapFillLabel}` : "E*TRADE";
+    if (limited.length === 0) {
+      return {
+        quotes: [],
+        provider: "etrade",
+        discovery: {
+          mode: "live_quotes",
+          candidateCount: symbols.length,
+          listingCount: 0,
+          message: `E*TRADE-primary live quotes${gapFillLabel ? ` with ${gapFillLabel} gap-fill` : ""}; 0 of 0 symbols quoted.`,
+        },
+      };
+    }
+    const quotes: ETradeQuote[] = [];
+    const quotedSymbols = new Set<string>();
+    const failed: string[] = [];
+    const failureReasons: Record<string, number> = {};
+    const failureSamples: string[] = [];
+    const quoteErrors = new Map<string, unknown>();
+    const listingsBySymbol = new Map(
+      limited.map((listing) => [listing.symbol.toUpperCase(), listing])
     );
+    const CONCURRENCY = Math.min(cfg.acquisition.quoteConcurrency, 5);
+    const BATCH_PAUSE_MS = 500;
+
+    // Provenance-preserving accept: the composer already stamps each
+    // row's source (E*TRADE live / Yahoo Finance). The leg keeps
+    // that stamp and only fills sector/companyName enrichment.
+    const acceptQuote = (
+      listing: NasdaqStockListing,
+      live: ETradeQuote | null
+    ): boolean => {
+      if (!live || !(live.lastPrice > 0)) return false;
+      if (quotedSymbols.has(listing.symbol.toUpperCase())) return true;
+      quotes.push({
+        ...live,
+        symbol: listing.symbol,
+        companyName: live.companyName || listing.companyName,
+        sector: resolveStockSector(listing.symbol, live.companyName || listing.companyName, live.sector || listing.sector),
+        source: live.source || "E*TRADE live",
+        quoteStatus: live.quoteStatus || "LIVE",
+      } as ETradeQuote);
+      quotedSymbols.add(listing.symbol.toUpperCase());
+      return true;
+    };
+
+    const batchSize = Math.max(1, cfg.acquisition.quoteBatchSize);
+    if (opts.quoteDeps.fetchQuotes) {
+      const requestedSymbols = limited.map((listing) => listing.symbol);
+      for (let i = 0; i < requestedSymbols.length; i += batchSize) {
+        const chunk = requestedSymbols.slice(i, i + batchSize);
+        try {
+          const batchQuotes = await withRetries(
+            () => opts.quoteDeps!.fetchQuotes!(chunk),
+            "Live quotes batch"
+          );
+          const bySymbol = new Map(
+            batchQuotes.map((quote) => [
+              String(quote.symbol || "").toUpperCase(),
+              quote,
+            ])
+          );
+          for (const symbol of chunk) {
+            const listing = listingsBySymbol.get(symbol.toUpperCase());
+            const live = bySymbol.get(symbol.toUpperCase());
+            if (!listing) continue;
+            if (!live) {
+              quoteErrors.set(symbol, new Error(`Batch quote omitted ${symbol}`));
+            } else if (!acceptQuote(listing, live)) {
+              quoteErrors.set(
+                symbol,
+                new Error(`No live quote returned for ${symbol} [zero-price(lastPrice=${live.lastPrice})]`)
+              );
+            }
+          }
+        } catch (err) {
+          // Whole-batch failure: remember it per symbol, then let the
+          // per-symbol pass produce the specific error where affordable.
+          for (const symbol of chunk) quoteErrors.set(symbol, err);
+        }
+        // Pace batches to stay under provider rate limits.
+        if (i + batchSize < requestedSymbols.length) {
+          await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
+        }
+      }
+    }
+
+    // Per-symbol pass: covers providers without a batch fetcher and
+    // symbols a successful batch omitted. Bounded by
+    // maxIndividualQuoteRetries so a provider-wide outage cannot
+    // turn one screen into hundreds of requests.
+    const missingSymbols = limited
+      .map((listing) => listing.symbol)
+      .filter((symbol) => !quotedSymbols.has(symbol.toUpperCase()));
+    const retryBudget = Math.max(0, cfg.acquisition.maxIndividualQuoteRetries);
+    const retrySymbols = missingSymbols.slice(0, retryBudget);
+    for (let i = 0; i < retrySymbols.length; i += CONCURRENCY) {
+      const batch = retrySymbols.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map(async (symbol) => {
+          const live = await withRetries(
+            () => opts.quoteDeps!.fetchQuote(symbol),
+            "Live quote",
+            symbol
+          );
+          if (!live || !(live.lastPrice > 0)) {
+            // Preserve the underlying state for diagnostics: distinguish
+            // null (provider returned nothing) from zero-price (empty quote).
+            const detail = !live ? "null-response" : `zero-price(lastPrice=${live.lastPrice})`;
+            throw new Error(`No live quote returned for ${symbol} [${detail}]`);
+          }
+          return { symbol, live };
+        })
+      );
+      for (let j = 0; j < results.length; j++) {
+        const r = results[j];
+        if (r.status === "fulfilled") {
+          const listing = listingsBySymbol.get(batch[j].toUpperCase());
+          if (listing) acceptQuote(listing, r.value.live);
+        } else {
+          quoteErrors.set(batch[j], r.reason);
+        }
+      }
+      // Pace batches to stay under provider rate limits.
+      if (i + CONCURRENCY < retrySymbols.length) {
+        await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
+      }
+    }
+
+    for (const symbol of limited.map((listing) => listing.symbol)) {
+      if (quotedSymbols.has(symbol.toUpperCase())) continue;
+      failed.push(symbol);
+      const reason =
+        quoteErrors.get(symbol) ??
+        new Error(`No live quote returned for ${symbol} [null-response]`);
+      const category = categorizeQuoteFailure(reason);
+      failureReasons[category] = (failureReasons[category] ?? 0) + 1;
+      if (failureSamples.length < 3) {
+        failureSamples.push(`${symbol}: ${category} (${safeQuoteFailure(reason)})`);
+      }
+    }
+    if (failed.length > 0) {
+      console.warn(
+        `[screenerPipeline] Live quote failures: ${failed.length}/${limited.length}. ` +
+          `Reasons: ${JSON.stringify(failureReasons)}. Samples: ${failureSamples.join("; ")}`
+      );
+    }
+    const reasonSummary = Object.entries(failureReasons)
+      .map(([reason, count]) => `${reason}=${count}`)
+      .join(", ");
+    if (quotes.length === 0 && failed.length > 0) {
+      // With zero quotes there is no screen to qualify — fail
+      // honestly with the full diagnostics (mirrors etrade-only,
+      // issue #462/#902/#907: any auth failure makes the root
+      // cause auth, hence AUTH_002).
+      const authFailures = failureReasons["auth"] ?? 0;
+      if (authFailures > 0) {
+        const { BusinessError } = await import("../errors/errorAspects");
+        throw new BusinessError("AUTH_002", { failedCount: failed.length, authFailures });
+      }
+      throw new Error(
+        `Live quotes unavailable: ${providerLabel} returned no live quotes (${quotes.length} of ${limited.length} symbols quoted` +
+          (failed.length > 0 ? ` (failed: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""})` : "") +
+          (reasonSummary ? ` (failure reasons: ${reasonSummary})` : "") +
+          (failureSamples.length > 0 ? ` (diagnostics: ${failureSamples.join("; ")})` : "") +
+          `). No fallback data substituted.`
+      );
+    }
+    const gapFillCount = quotes.filter((q) => q.source === YAHOO_QUOTE_SOURCE).length;
+    const partial: PartialQuoteQualification | undefined =
+      failed.length > 0
+        ? {
+            quotedCount: quotes.length,
+            requestedCount: limited.length,
+            failedSymbols: failed,
+            failureReasons,
+            failureSamples,
+          }
+        : undefined;
     return {
       quotes,
       provider: "etrade",
+      ...(partial ? { partial } : {}),
       discovery: {
         mode: "live_quotes",
         candidateCount: symbols.length,
         listingCount: quotes.length,
-        message: `E*TRADE-primary live quotes with Nasdaq fallback; ${quotes.length} of ${symbols.length} symbols quoted.`,
+        message: partial
+          ? `Partial screen — qualified results: live quotes covered ${quotes.length} of ${limited.length} symbols ` +
+            (gapFillLabel && gapFillCount > 0 ? `(${gapFillLabel} gap-fill covered ${gapFillCount}) ` : "") +
+            `(${failed.length} unavailable: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""}` +
+            (reasonSummary ? `; failure reasons: ${reasonSummary}` : "") +
+            `). Screen ran on the quoted subset only; no fallback data substituted.`
+          : `E*TRADE-primary live quotes${gapFillLabel ? ` with ${gapFillLabel} gap-fill` : ""}; ${quotes.length} of ${limited.length} symbols quoted.`,
       },
     };
   }
@@ -746,8 +1168,8 @@ export async function acquireUniverse(
   // E*TRADE cannot quote a symbol it is skipped; if it cannot quote
   // any, the screen fails honestly instead of presenting fake data.
   if (opts.mode === "etrade-only") {
-    if (!opts.liveDeps) {
-      throw new Error("etrade-only mode requires liveDeps.fetchETradeQuote");
+    if (!opts.quoteDeps) {
+      throw new Error("etrade-only mode requires quoteDeps.fetchQuote");
     }
     const cfg = opts.config ?? DEFAULT_SCREENER_CONFIG;
     const symbols = opts.symbols ?? (await fetchTechnologySymbols());
@@ -800,13 +1222,13 @@ export async function acquireUniverse(
     // The quote endpoint takes a symbol list: a 100-symbol screen is two
     // requests, and per-symbol calls are kept for the stragglers only.
     const batchSize = Math.max(1, cfg.acquisition.quoteBatchSize);
-    if (opts.liveDeps.fetchETradeQuotes) {
+    if (opts.quoteDeps.fetchQuotes) {
       const requestedSymbols = limited.map((listing) => listing.symbol);
       for (let i = 0; i < requestedSymbols.length; i += batchSize) {
         const chunk = requestedSymbols.slice(i, i + batchSize);
         try {
           const batchQuotes = await withRetries(
-            () => opts.liveDeps!.fetchETradeQuotes!(chunk),
+            () => opts.quoteDeps!.fetchQuotes!(chunk),
             "E*TRADE batch quote"
           );
           const bySymbol = new Map(
@@ -856,7 +1278,7 @@ export async function acquireUniverse(
       const results = await Promise.allSettled(
         batch.map(async (symbol) => {
           const live = await withRetries(
-            () => opts.liveDeps!.fetchETradeQuote(symbol),
+            () => opts.quoteDeps!.fetchQuote(symbol),
             "E*TRADE",
             symbol
           );
