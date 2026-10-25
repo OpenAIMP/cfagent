@@ -14,6 +14,7 @@
 
 import { parseStockScreenRequest } from "../../trading";
 import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
+import { isPortfolioContextEnabled } from "../../services/screeningFlags";
 import { publishManualScreenerRun } from "./etradeBroker";
 import type { EtradeBrokerRouteContext } from "./etradeBroker";
 import type { ScreenerAgent } from "../screener-agent";
@@ -53,8 +54,12 @@ export async function executeEtradeScreen(args: {
   validatedFilters: StockScreenValue["filters"];
 }): Promise<Response> {
   const { ctx, sessionId, requestedEnv, userLogin, agent, universe, validatedFilters } = args;
+  // Issue #17: the portfolio-context flag is read here (orchestrator
+  // storage owns mas_settings; the screener agent cannot read it) and
+  // rides the run request — runSharded spreads it onto every shard.
+  const portfolioContext = isPortfolioContextEnabled(ctx.readSettingRaw);
   if (universe === "ALL") {
-    const shards = await agent.runSharded({ trigger: "manual", filters: validatedFilters, userLogin, environment: requestedEnv });
+    const shards = await agent.runSharded({ trigger: "manual", filters: validatedFilters, userLogin, environment: requestedEnv, portfolioContext });
     for (const shard of shards) {
       await publishOrBridge(ctx, userLogin, shard);
     }
@@ -101,6 +106,7 @@ export async function executeEtradeScreen(args: {
       // authenticated account context into the shared manual/scheduled
       // screening pipeline.
       environment: requestedEnv,
+      portfolioContext,
     });
   } catch (screenErr) {
     const error = screenErr instanceof Error ? screenErr.message : String(screenErr);

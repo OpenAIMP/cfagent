@@ -61,6 +61,7 @@ import {
   isScreeningChannelsEnabled,
   isNlqFitDiscoveryEnabled,
   isWeightsV2RankingEnabled,
+  isPortfolioContextEnabled,
   isScreeningScheduledPaused,
   setScreeningSetting,
 } from "../src/services/screeningFlags";
@@ -138,6 +139,22 @@ describe("screening flags (Phase 6)", () => {
     expect(isWeightsV2RankingEnabled(read)).toBe(false);
     expect(isNlqFitDiscoveryEnabled(read)).toBe(true);
     expect(isScreeningScheduledPaused(read)).toBe(false);
+    expect(isPortfolioContextEnabled(read)).toBe(false);
+  });
+
+  it("portfolio context (issue #17): opt-in, off when absent or unreadable", () => {
+    const sql = makeSql();
+    const write = (k: string, v: string) => setSetting(sql, k, v);
+    write("screening.portfolioContext", "true");
+    expect(isPortfolioContextEnabled(settingReadFromSql(sql))).toBe(true);
+    write("screening.portfolioContext", "false");
+    expect(isPortfolioContextEnabled(settingReadFromSql(sql))).toBe(false);
+    expect(isPortfolioContextEnabled(() => null)).toBe(false);
+    expect(
+      isPortfolioContextEnabled(() => {
+        throw new Error("boom");
+      })
+    ).toBe(false);
   });
 
   it("round-trips explicit values; an unknown stage value reads as internal", () => {
