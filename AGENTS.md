@@ -20,9 +20,9 @@ Slack is the primary communication/collaboration mechanism for agents to collabo
 
 In brief:
 
-- Work one issue at a time per delivery stream: issue → branch → PR →
-  merge into `main` → post-merge verification, before that issue is Done
-  (§11). §20 authorizes parallel independent development streams/branches during CICD waits.
+- Work issues in parallel on separate branches by default. Each issue follows
+  issue → branch → PR → merge → post-merge verification before that issue is
+  Done (§11); dependencies and production activations may require ordering.
 - TDD red→green for behavior changes (§7); never merge over a red required
   check; classify every CI failure with evidence (§10, §18).
 - Put your agent hashtag in every issue and PR you create — the `## Agent`
@@ -40,9 +40,9 @@ rebase merge creates a commit CI has never tested. Before merging any PR:
   typecheck plus the full suite on the rebased head, not on an older one.
 - Confirm required checks are green on that head. A green gate expires
   when `main` advances (§18.1); never merge over a red required check.
-- After merging, check post-merge CI on `main` before starting the next
-  issue. If `main` is red, restoring green is the next issue (§18.2);
-  do not merge feature work on top of red `main`.
+- After merging, check post-merge CI on `main` before marking that issue
+  Done. If `main` is red, pause merges until it is healthy (§18.2); unrelated
+  implementation may continue, but do not merge it onto a red `main`.
 - If the PR merged without a CI gate (e.g. API-created PRs, §17.4
   degraded mode), verifying the post-merge CI run is mandatory, not
   optional — it is the only safety net when the gate was bypassed.

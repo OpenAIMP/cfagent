@@ -4,6 +4,11 @@ export interface Env {
   // Issue #605: R2 bucket for report PDF blobs. Optional so the #605 code is
   // safe to merge before the bucket is provisioned (falls back to DO storage).
   REPORTS_BUCKET?: R2Bucket;
+  // Issue #1548 (slice 0): D1 AgentDB binding (PR #1547). Optional
+  // so code is safe before the binding propagates everywhere;
+  // absence means the tick keeps legacy behavior (no cross-DO
+  // halt read). Never a session or credential store.
+  AGENT_DB?: D1Database;
   // Issue #329/#604: session + credential store — the SessionStore Durable
   // Object. Sessions, tokens and API keys live here, not in Workers KV
   // (legacy KV fallback removed in #604; the leftover KV bindings in

@@ -2,7 +2,7 @@ Hashtags are useful for readability, but they are not enough for reliable fleet 
 
 Role-prefixed branches are a good convention—for example, `cto/fix/812-recovery-checkpoints`—but branch names do not establish identity, permissions, or ownership.
 
-Below is a collaboration plan designed for your executive agents and their implementation fleets. It preserves your existing rule: finish the current implementation issue, merge it, and verify required CI/CD before starting the next implementation issue.
+Below is a collaboration plan designed for your executive agents and their implementation fleets. Independent implementation issues may proceed in parallel on separate branches; each issue still requires its own merge and verified CI/CD before it is Done.
 
 # GitHub Collaboration Plan for a Governed RSI Agent Fleet
 
@@ -513,7 +513,7 @@ Required behavior:
 6. Merge through the configured strategy.
 7. Verify required checks on the merged result.
 8. Verify applicable delivery state.
-9. Proceed to the next issue only after the gate passes.
+9. Continue unrelated issues in parallel; the gate determines when its own issue is Done and whether dependent merges may proceed.
 
 If a merge queue is configured, support its temporary integration commits. GitHub Actions workflows need the appropriate `merge_group` trigger for queue checks. [docs.github](https://docs.github.com/enterprise-cloud@latest/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
 
@@ -521,7 +521,7 @@ If a merge queue is configured, support its temporary integration commits. GitHu
 
 When required CI/CD fails:
 
-- Freeze normal feature progression.
+- Pause merging the affected PR and dependent changes; unrelated implementation may continue on separate branches.
 - Classify the failure.
 - Assign bounded remediation.
 - Repair or safely revert.
