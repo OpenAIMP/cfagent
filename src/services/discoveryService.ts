@@ -19,7 +19,7 @@
  * All market access is injected (DiscoveryServiceDeps) so the
  * orchestration is unit-testable end to end; createDiscoveryService
  * wires the production dependencies. Note the pipeline loads its own
- * chain snapshot per expressed name (the OptionsAgentPipeline's
+ * chain snapshot per expressed name (the panel pipeline's
  * contract) — characterization deliberately reads a separate,
  * earlier snapshot so inference never sees the expression's screen.
  */
@@ -62,7 +62,7 @@ import {
   type DiscoveryRiskCaps,
 } from "../trading";
 import { estimateExpectedMove } from "../trading";
-import { OptionsAgentPipeline } from "../trading";
+import { runPanelPipeline } from "../trading";
 import { OptionsDataAgent, type OptionsDataSnapshot } from "../trading";
 import { DynamicOptionsScreener } from "../trading";
 import {
@@ -338,7 +338,6 @@ export function createDiscoveryService(args: {
     : new ETradeService(args.env, undefined, args.userLogin, args.overrideEnv);
   const screener = new DynamicOptionsScreener(etrade.client);
   const dataAgent = new OptionsDataAgent(screener);
-  const pipeline = new OptionsAgentPipeline(screener);
   const ivStore = new SqlIvHistoryStore(args.sql);
   // Referenced so the config load (and its env validation) happens
   // at construction, like the unified service's constructor.
@@ -349,7 +348,7 @@ export function createDiscoveryService(args: {
     ivStatsFor: async (symbol) => computeIvStats(await ivStore.listSeries(symbol)),
     calendarFor: (symbol) => getSymbolEventCalendar(symbol),
     flowFor: (symbol) => fetchRealMarketFlowsForSymbol(symbol),
-    runPipeline: (request) => pipeline.run(request),
+    runPipeline: (request) => runPanelPipeline(screener, request),
     store: new SqlDiscoverySetupStore(args.sql),
     ...(args.alerts
       ? {
