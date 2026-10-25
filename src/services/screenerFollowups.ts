@@ -19,7 +19,22 @@
 
 import type { AsyncJobChannel, AsyncJobSubmission, StageChainConfig } from "../types";
 
-export type ScreenerKind = "stock" | "options";
+/** Consolidation C4 (#1329): discovery + goal runs join the bridge, so
+ *  the outcome kind covers them too. kindLabel (below) names each. */
+export type ScreenerKind = "stock" | "options" | "discovery" | "goal";
+
+export function screenerKindLabel(kind: ScreenerKind): string {
+  switch (kind) {
+    case "stock":
+      return "Stock";
+    case "options":
+      return "Options";
+    case "discovery":
+      return "Discovery";
+    case "goal":
+      return "Goal";
+  }
+}
 
 /** One standout opportunity, as carried for delivery content (S3). */
 export interface ScreenerOutcomeOpportunity {
@@ -46,6 +61,11 @@ export interface ScreenerRunOutcome {
   xlsxKey?: string;
   xlsxStatus?: "generated" | "failed" | "skipped";
   xlsxError?: string;
+  /** Issue #1346: the run's CSV artifact, carried so the serve
+   *  stage adopts it and deliveries attach text + PDF + XLSX + CSV. */
+  csvKey?: string;
+  csvStatus?: "generated" | "failed" | "skipped";
+  csvError?: string;
   reportUrl?: string;
   matchedCount?: number;
   totalScanned?: number;
@@ -67,6 +87,16 @@ export interface ScreenerRunOutcome {
    *  bridge stamps the chain's stage jobs from it; absent = the
    *  fused immediate chain (the degenerate case). */
   stageChain?: StageChainConfig;
+  /** Consolidation C4 (#1329): the canonical mas_reports row this run
+   *  published (discovery/goal runs, whose artifact is the canonical
+   *  row rather than a PDF). The serve stage verifies this row. */
+  canonicalReportId?: string;
+  /** Consolidation C4 (#1329): false when the run's delivery stays on
+   *  its direct path and the chain must NOT plan deliveries (discovery
+   *  chains and goal chains in C4 — the chain covers generate + serve;
+   *  deliver-stage chaining for those callbacks is #1236 remainder for
+   *  C5's delivery convergence). Absent/true = the chain delivers. */
+  deliverViaChain?: boolean;
   error?: string;
 }
 
@@ -160,7 +190,7 @@ export type FollowupDeliverySubmission = Extract<
 /** The report sub-job's result, as consumed by the delivery planner. */
 export interface FollowupReportResult {
   status: "ready" | "skipped" | string;
-  artifacts?: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" }>;
+  artifacts?: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" | "csv" }>;
   reason?: string;
 }
 
@@ -233,7 +263,10 @@ export function planDeliveryFollowups(
   chain?: StageChainPlanContext,
 ): FollowupDeliverySubmission[] {
   if (!config.enabled) return [];
-  const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
+  // Consolidation C4 (#1329): a run whose delivery stays on its direct
+  // path plans no chain deliveries — the chain covers generate + serve.
+  if (outcome.deliverViaChain === false) return [];
+  const kindLabel = screenerKindLabel(outcome.kind);
   const artifacts = reportResult.artifacts ?? [];
   const skipReason = reportResult.status === "skipped"
     ? reportResult.reason || "Report was skipped."
@@ -330,7 +363,7 @@ export function formatLifecycleNotification(
   outcome: ScreenerRunOutcome,
   detail?: string,
 ): string {
-  const kindLabel = outcome.kind === "stock" ? "Stock screen" : "Options screen";
+  const kindLabel = `${screenerKindLabel(outcome.kind)} screen`;
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
   const scopeText = scope ? ` — ${scope}` : "";
   switch (event) {
@@ -356,7 +389,7 @@ export function formatHeldNotification(
   outcome: ScreenerRunOutcome,
   options?: { expiresAtIso?: string },
 ): string {
-  const kindLabel = outcome.kind === "stock" ? "Stock screen" : "Options screen";
+  const kindLabel = `${screenerKindLabel(outcome.kind)} screen`;
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
   const lines = [
     `⏸️ ${kindLabel}${scope ? ` — ${scope}` : ""} completed — delivery held for approval`,
@@ -385,7 +418,7 @@ export function formatUndeliverableNotification(outcome: ScreenerRunOutcome, rea
 
 /** Delivery/notification text for a run outcome (S3; reused by S4). */
 export function formatFollowupDeliveryText(outcome: ScreenerRunOutcome): string {
-  const kindLabel = outcome.kind === "stock" ? "Stock screen" : "Options screen";
+  const kindLabel = `${screenerKindLabel(outcome.kind)} screen`;
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
   const lines: string[] = [
     `📊 ${kindLabel}${scope ? ` — ${scope}` : ""}`,
@@ -458,11 +491,18 @@ export function screenerOutcomeFromEvent(
         kind: "options",
         trigger,
         success: true,
-        pdfKeys: [],
+        // Consolidation C4 (#1329): the options run's PDF key rides
+        // the event now, so a chained options run's serve stage can
+        // adopt the same artifact its direct path used to deliver —
+        // and the chain, not the direct path, delivers in chain mode.
+        pdfKeys: event.pdfKey ? [event.pdfKey] : [],
+        pdfStatus: event.pdfStatus,
+        pdfError: event.pdfError,
         reportUrl: event.reportUrl,
         totalScanned: event.totalScanned,
         thesis: event.thesis,
         summary: event.summary,
+        stageChain: event.stageChain,
       };
     case "options.failed":
       return {
@@ -472,6 +512,7 @@ export function screenerOutcomeFromEvent(
         pdfKeys: [],
         thesis: event.thesis,
         error: event.error,
+        stageChain: event.stageChain,
       };
   }
 }
@@ -510,6 +551,11 @@ export function screenerOutcomeFromRunResult(
       ? result.xlsxStatus
       : undefined,
     xlsxError: typeof result.xlsxError === "string" ? result.xlsxError : undefined,
+    csvKey: typeof result.csvKey === "string" ? result.csvKey : undefined,
+    csvStatus: result.csvStatus === "generated" || result.csvStatus === "failed" || result.csvStatus === "skipped"
+      ? result.csvStatus
+      : undefined,
+    csvError: typeof result.csvError === "string" ? result.csvError : undefined,
     reportUrl,
     matchedCount: asNumber(result.matchedCount),
     totalScanned: asNumber(result.totalScanned) ?? asNumber(result.totalUnderlyingsScanned),
@@ -535,7 +581,7 @@ export function planInitialFollowups(
   chain?: StageChainPlanContext,
 ): FollowupReportSubmission[] {
   if (!config.enabled || !config.reportEnabled || !outcome.success) return [];
-  const kindLabel = outcome.kind === "stock" ? "Stock" : "Options";
+  const kindLabel = screenerKindLabel(outcome.kind);
   const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
   // Consolidation C3 (#1277): in chain mode the report job is the
   // chain's serve stage — deferred by its own delay, with the chain
@@ -566,6 +612,28 @@ export function planInitialFollowups(
         : {}),
     },
   ];
+}
+
+/**
+ * Consolidation C4 (#1329): the chain context of a staged http.request
+ * job — a job submitted as a chain's generate stage (stage +
+ * chain_id on the row) whose payload carries the stageChain config.
+ * Undefined unless all three are present: an unstaged job, or a staged
+ * job without a config, plans the legacy immediate chain. The executor
+ * completion hook resolves this and hands the context to the planners;
+ * only recognized screener completions yield an outcome to plan from,
+ * so a generic http job gains chain identity + generate-stage status
+ * while serve/deliver planning for arbitrary routes remains #1236
+ * remainder (no outcome adapter exists for them).
+ */
+export function resolveHttpJobChain(
+  job: { stage?: string | null; chainId?: string | null },
+  payload: { stageChain?: StageChainConfig },
+): { chainId: string; stageChain: StageChainConfig } | undefined {
+  if (job.stage !== "generate") return undefined;
+  if (typeof job.chainId !== "string" || !job.chainId) return undefined;
+  if (!payload.stageChain || typeof payload.stageChain !== "object") return undefined;
+  return { chainId: job.chainId, stageChain: payload.stageChain };
 }
 
 /** Path recognition for screener main-jobs among http.request jobs. */

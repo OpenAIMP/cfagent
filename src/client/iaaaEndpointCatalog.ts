@@ -568,6 +568,17 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: POST /api/trading/email/inbound",
   },
   {
+    id: "trading-email-approve",
+    method: "GET",
+    path: "/api/trading/email/approve",
+    aliases: [],
+    kind: "http",
+    auth: "public",
+    authNote:
+      "No session: the #149-style signed approval link token is the authorization (#1262 Phase 5 — HMAC + expiry + login binding). The worker verifies the token fast-fail, then forwards to the Orchestrator DO /trading/email/approve-link, which verifies again (signature + expiry + principal-map re-check) and executes through the shared approval engine. A missing, tampered, or expired token renders a failure page and executes nothing.",
+    source: "src/server.ts branch: GET /api/trading/email/approve",
+  },
+  {
     id: "trading-slack-test",
     method: "POST",
     path: "/api/trading/slack/test",
@@ -576,6 +587,17 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     auth: "session",
     authNote: "requireAuth; forwards into the caller's agent.",
     source: "src/server.ts branch: POST /api/trading/slack/test",
+  },
+  {
+    id: "trading-slack-link",
+    method: "POST",
+    path: "/api/trading/slack/link",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote:
+      "requireAuth; confirms a Slack connect code (#1262 Phase 1) — binds the code's Slack user (team_id + user_id) to the SESSION's login at tier trade. Self-binding only; the login is never taken from the request body.",
+    source: "src/server.ts branch: POST /api/trading/slack/link",
   },
   {
     id: "trading-voice-turn",

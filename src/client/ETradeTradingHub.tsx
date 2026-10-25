@@ -2050,7 +2050,7 @@ export function ETradeTradingHub({
               <div className="info-card">
                 <h5>🛡️ Agentic HITL Safety Guarantee</h5>
                 <p>
-                  Every trade initiated by the Multi-Agent System is saved to the SQLite ledger in <code>previewed</code> status.
+                  Every trade initiated by the Multi-Agent System is saved to the institutional ledger in <code>previewed</code> status.
                   No funds are moved, and no order is routed to E*TRADE until you review the order details and click <strong>Approve &amp; Submit</strong>.
                 </p>
                 <div className="safety-bullets">
@@ -2384,7 +2384,7 @@ export function ETradeTradingHub({
       {effectiveSubTab === "ledger" && (
         <Card className="trading-section">
           <div className="ledger-header-row">
-            <h4>📜 E*TRADE Orders Ledger (SQLite mas_trades)</h4>
+            <h4>📜 Order Execution Ledger (Audited Trade Records)</h4>
             <Button
               variant="secondary"
               disabled={ordersLoading}
@@ -3464,7 +3464,7 @@ export function ETradeTradingHub({
                       <div><strong>Trading Agent DID:</strong> <code>{tradingAgentDid}</code></div>
                       <div><strong>Microservice Architecture:</strong> Model Context Protocol (MCP) &amp; OAuth 1.0a REST Client</div>
                       <div><strong>Attestation Mechanism:</strong> Internal W3C DID cryptographic stamping for microservice audit logs (not a third-party brokerage guarantee)</div>
-                      <div><strong>Transactional Ledger:</strong> Persistent Distributed SQLite (tables: <code>mas_trades</code>, <code>mas_events</code>)</div>
+                      <div><strong>Transactional Ledger:</strong> Institutional Execution Ledger (Audited Trades &amp; System Events)</div>
                     </div>
                   </details>
 

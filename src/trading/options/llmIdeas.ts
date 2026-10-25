@@ -1,12 +1,19 @@
 /**
- * @deprecated Issue #29: independent LLM strategy generation over raw chains
- * is retired as a product recommender path. The unified options service no
- * longer calls this module — llm_ideas/llm_evaluate now follow the compare
- * pattern (quant pipeline first; the LLM evaluates its verified candidates).
- * This module remains only for the legacy orchestrator /llm-ideas endpoint
- * and its tests, pending that endpoint's rerouting. Do not wire new product
- * surfaces to it: it has no access to user risk constraints and verifies
- * only that cited contracts exist (SSOT Section 10, findings F-1/F-2).
+ * Consolidation C4 (issue #1329, epic #1151; #1256) — independent LLM
+ * strategy generation over raw chains. CORRECTION OF RECORD (owner
+ * direction 2026-10-23, epic #1151 comment 6376050382; #1256 comment
+ * 6376052469): the former @deprecated marker is withdrawn — llmIdeas
+ * is a permanent, first-class LLM candidate-generation path (quant vs
+ * LLM, LLM on its own), rationalized in C4 as the kernel's
+ * LlmIdeaBuilder CandidateBuilder Strategy (src/services/
+ * recommendationKernel.ts), under the same gates/pricing/falsification/
+ * ranking as the quant builders, with no bypass. Generation here stays
+ * distinct from annotation (llmComparison/strategyReviews, Decorator).
+ *
+ * Honesty limits, unchanged: this module has no access to user risk
+ * constraints and verifies only that cited contracts exist (SSOT
+ * Section 10, findings F-1/F-2); its system prompt forbids quant
+ * inputs by design. The /llm-ideas endpoint contract is preserved.
  */
 import { generateText } from "ai";
 import { z } from "zod";

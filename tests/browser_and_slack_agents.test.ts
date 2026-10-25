@@ -15,6 +15,12 @@ vi.mock("@cloudflare/ai-chat", () => {
 
 import { BrowserAgent } from "../src/agents/browserAgent";
 import { SlackAgent } from "../src/agents/slackAgent";
+import { ETradeSlackTradingService } from "../src/trading/slack/agent";
+import {
+  confirmSlackLink,
+  slackPrincipalLinkStoreFromEnv,
+} from "../src/trading/channels/intake";
+import { makeFakeSessionStore } from "./fake-session-store";
 import { computeHmacSha256Hex } from "../src/services/cryptoUtils";
 import { DatabaseORM } from "../src/orm";
 import { resetRateLimits } from "../src/security/rateLimiter";
@@ -42,6 +48,27 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
     storage: { sql },
     waitUntil: vi.fn(),
   });
+
+  // Issue #1262 Phase 2: SlackAgent.onRequest now resolves the caller's
+  // principal from the Phase 1 link store, so onRequest tests that
+  // expect processing (not a link refusal) must link the test user
+  // first. The link is driven through the real issue + confirm flow
+  // over the repo's fake SessionStore (#604 helper).
+  const linkedEnvFor = async (userId: string, team = teamId): Promise<Env> => {
+    const env = { ...mockEnv, SESSION_STORE: makeFakeSessionStore().namespace } as unknown as Env;
+    const store = slackPrincipalLinkStoreFromEnv(env);
+    const { code } = await store.issueLinkCode(team, userId);
+    const confirmed = await confirmSlackLink(env, code, `trader-${userId.toLowerCase()}`);
+    expect(confirmed.ok).toBe(true);
+    return env;
+  };
+
+  // Issue #1262 Phase 2: the retired SlackAgent.handleSlashCommand /
+  // handleInteraction are gone; direct-call tests drive the single
+  // service instead, with an undefined principal (legacy behaviour:
+  // no tier gates) — the same shape the old handler ran under.
+  const slackService = () =>
+    new ETradeSlackTradingService(mockEnv, orm, teamId, undefined);
 
   // Issue #147: SlackAgent.onRequest requires a valid Slack signature
   // whenever a signing secret is configured. The onRequest tests below
@@ -259,15 +286,13 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
   // =========================================================================
   describe("SlackAgent: Slash Commands, State & Browser Agent Coordination", () => {
     it("handles /help slash command and returns command usage guide", async () => {
-      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
-
       const formData = new FormData();
       formData.append("command", "/help");
       formData.append("text", "");
       formData.append("user_id", "U12345");
       formData.append("channel_id", "C999");
 
-      const response = await slackAgent.handleSlashCommand(formData);
+      const response = await slackService().processSlackCommand(formData);
       expect(response.status).toBe(200);
       const json = await response.json() as any;
       expect(json.text).toContain("E*TRADE Slack Trading Agent Commands");
@@ -277,15 +302,13 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
     });
 
     it("handles /trade slash command, creates draft preview, and renders HITL buttons", async () => {
-      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
-
       const formData = new FormData();
       formData.append("command", "/trade");
       formData.append("text", "buy 25 NVDA at market");
       formData.append("user_id", "U_TRADER_1");
       formData.append("channel_id", "C_TRADES");
 
-      const response = await slackAgent.handleSlashCommand(formData);
+      const response = await slackService().processSlackCommand(formData);
       expect(response.status).toBe(200);
       const json = await response.json() as any;
 
@@ -322,15 +345,13 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
         json: async () => ({ ok: true }),
       } as any);
 
-      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
-
       const formData = new FormData();
       formData.append("command", "/snap");
       formData.append("text", "ord_test_888");
       formData.append("user_id", "U_SNAP_USER");
       formData.append("channel_id", "C_CHANNEL_SNAP");
 
-      const response = await slackAgent.handleSlashCommand(formData);
+      const response = await slackService().processSlackCommand(formData);
       expect(response.status).toBe(200);
       const json = await response.json() as any;
       expect(json.text).toContain("TSLA");
@@ -367,8 +388,6 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
         json: async () => ({ ok: true }),
       } as any);
 
-      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
-
       const interactionPayload = {
         type: "block_actions",
         user: { id: "U_APPROVER", username: "alice_trader" },
@@ -381,19 +400,25 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
         ],
       };
 
-      const response = await slackAgent.handleInteraction(interactionPayload);
-      expect(response.status).toBe(200);
-      const json = await response.json() as any;
-      expect(json.replace_original).toBe(true);
+      // Phase 2: processSlackInteraction returns the result object
+      // (the old handler wrapped it in a Response with
+      // replace_original); the replacement blocks are the same.
+      const result = await slackService().processSlackInteraction(interactionPayload);
+      expect(result.success).toBe(true);
+      expect(result.status).toBe("executed");
+      expect(result.replacementBlocks).toBeDefined();
 
       // Verify trade status updated in DB
       const trade = orm.trades.findById("ord_approve_999");
       expect(trade?.status).toBe("executed");
 
-      // Verify BrowserAgent dispatched the official snap receipt to Slack
+      // Verify BrowserAgent dispatched the snap receipt to Slack.
+      // Phase 2: exactly one snap — the retired SlackAgent handler's
+      // second dispatch (caption "Official execution confirmation
+      // snap for …") is gone; the service's own dispatch remains.
       expect(fetchSpy).toHaveBeenCalled();
       const snapCall = fetchSpy.mock.calls.find((c: any) =>
-        typeof c[1]?.body === "string" && c[1].body.includes("Official execution confirmation snap for AMD")
+        typeof c[1]?.body === "string" && c[1].body.includes("AMD") && c[1].body.includes("EXECUTED")
       );
       expect(snapCall).toBeDefined();
     });
@@ -420,8 +445,6 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
         json: async () => ({ ok: true }),
       } as any);
 
-      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
-
       const interactionPayload = {
         type: "block_actions",
         user: { id: "U_SNAPPER" },
@@ -429,11 +452,13 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
         actions: [{ action_id: "snap_trade", value: "ord_snap_btn_1" }],
       };
 
-      const response = await slackAgent.handleInteraction(interactionPayload);
-      expect(response.status).toBe(200);
-      const json = await response.json() as any;
-      expect(json.response_type).toBe("ephemeral");
-      expect(json.text).toContain("Posted to Slack!");
+      // Phase 2: the single service answers snap_trade directly (the
+      // old handler's ephemeral "Posted to Slack!" wrapper is gone;
+      // the service reports the delivery in its message).
+      const result = await slackService().processSlackInteraction(interactionPayload);
+      expect(result.success).toBe(true);
+      expect(result.message).toContain("GOOGL");
+      expect(result.message).toContain("delivered to Slack");
     });
 
     it("responds to SlackAgent HTTP request routing (/health, URL verification challenge)", async () => {
@@ -538,11 +563,12 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
         json: async () => ({ ok: true }),
       } as any);
 
-      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
+      const slackAgent = new SlackAgent(createMockCtx() as any, await linkedEnvFor("U_HUMAN_APPROVER"));
 
       // Inbound Slack event: user says "approve ord_conv_approve_777"
       const eventBody = JSON.stringify({
         type: "event_callback",
+        team_id: teamId,
         event: {
           type: "app_mention",
           user: "U_HUMAN_APPROVER",
@@ -596,10 +622,11 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
         json: async () => ({ ok: true }),
       } as any);
 
-      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
+      const slackAgent = new SlackAgent(createMockCtx() as any, await linkedEnvFor("U_TRADER_BOB"));
 
       const eventBody = JSON.stringify({
         type: "event_callback",
+        team_id: teamId,
         event: {
           type: "message",
           user: "U_TRADER_BOB",
@@ -645,10 +672,11 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
         json: async () => ({ ok: true }),
       } as any);
 
-      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
+      const slackAgent = new SlackAgent(createMockCtx() as any, await linkedEnvFor("U_SNAP_REQUESTER"));
 
       const eventBody = JSON.stringify({
         type: "event_callback",
+        team_id: teamId,
         event: {
           type: "message",
           user: "U_SNAP_REQUESTER",
@@ -696,10 +724,11 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
         proofSignature: "sig_exec",
       });
 
-      const slackAgent = new SlackAgent(createMockCtx() as any, mockEnv);
+      const slackAgent = new SlackAgent(createMockCtx() as any, await linkedEnvFor("U_TRADER"));
 
       const eventBody = JSON.stringify({
         type: "event_callback",
+        team_id: teamId,
         event: {
           type: "message",
           user: "U_TRADER",

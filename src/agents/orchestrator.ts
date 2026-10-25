@@ -254,10 +254,6 @@ export class OrchestratorAgent extends Think<Env> {
         getOrm: () => this.getOrm(),
         getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin || "default_trader"),
       }),
-      reportDispatchHitlEnabled: () => getReportDispatchHitl(this.reportDispatchContext()),
-      createScreenerConfirmation: (payloadJson: string) =>
-        createReportConfirmation(this.reportDispatchContext(), "screener", payloadJson, null),
-      reportConfirmationTtlMs: () => OrchestratorAgent.REPORT_CONFIRMATION_TTL_MS,
     };
   }
 
@@ -1932,6 +1928,9 @@ export class OrchestratorAgent extends Think<Env> {
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       agentCtx: this.ctx,
       nlqSchedulingPort: () => this.nlqSchedulingPort(),
+      // Issue #1262 Phase 4: channel NLQ deps need DO storage SQL
+      // for the scan/profile stores and discovery runners.
+      getStorageSql: () => this.ctx.storage.sql,
     });
     if (tradingIntegrationsResponse) return tradingIntegrationsResponse;
 

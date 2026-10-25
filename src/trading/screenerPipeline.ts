@@ -162,6 +162,15 @@ export interface AcquireUniverseOptions {
   liveDeps?: LiveScreenerDeps;
   /** yahoo: Yahoo fetcher (required for that mode) — the data-source adapter seam. */
   yahooDeps?: YahooScreenerDeps;
+  /**
+   * all-listings: Nasdaq universe fetcher (the platform nasdaq
+   * provider, bound by bindNasdaqUniverseDeps). When absent, the
+   * listings module is called directly — the screenLive trigger
+   * path (screener.ts) carries no platform context, so the direct
+   * default stays for dep-less callers; the screener-agent screen
+   * path and the #1355 feed shard always bind it.
+   */
+  universeDeps?: NasdaqUniverseDeps;
 }
 
 export interface AcquiredUniverse {
@@ -300,6 +309,68 @@ export function bindYahooScreenerDeps(
         }
       : {}),
   };
+}
+
+/**
+ * The Nasdaq universe seam — mirrors YahooScreenerDeps: an injected
+ * listings fetcher. Production binds the platform nasdaq provider
+ * (bindNasdaqUniverseDeps); tests bind fixtures.
+ */
+export interface NasdaqUniverseDeps {
+  /** Fetch the full listings directory. Throws on failure. */
+  fetchListings: () => Promise<NasdaqStockListing[]>;
+}
+
+/**
+ * Issue #1368: bind the platform nasdaq provider to the pipeline
+ * seam — the E2 bindETradeScreenerDeps pattern for Nasdaq. The
+ * provider's getScreenUniverse result is the listings array (the
+ * envelope wraps by reference); the run context rides along so every
+ * universe the run acquires is captured under the run's id.
+ */
+export function bindNasdaqUniverseDeps(
+  provider: DataProvider,
+  runContext: DataRunContext
+): NasdaqUniverseDeps {
+  return {
+    fetchListings: async () =>
+      (await provider.getScreenUniverse!(runContext)).result as NasdaqStockListing[],
+  };
+}
+
+/**
+ * Issue #1368: resolve the universe provider from the platform
+ * route table — the screenUniverse route's primary assignment
+ * (seeded: nasdaq, freemium, no gap-fill). The route must name
+ * nasdaq as primary, nasdaq's config must be enabled (state and
+ * flag), and the registry must hold a screenUniverse-capable
+ * nasdaq adapter. Anything else throws — no silent substitution,
+ * no fallback to another provider.
+ */
+export function nasdaqUniverseProviderFromRoute(
+  registry: DataProviderRegistry,
+  configs: readonly ProviderConfigRecord[],
+  routes: readonly CapabilityRouteRecord[]
+): DataProvider {
+  const route = routes.find((r) => r.capability === "screenUniverse");
+  if (!route || route.primaryProviderId !== "nasdaq") {
+    throw new Error(
+      "Nasdaq-mode universe resolution failed: the screenUniverse route does not name nasdaq as primary."
+    );
+  }
+  const config = configs.find((c) => c.id === "nasdaq");
+  if (!config || config.lifecycleState !== "enabled" || !config.enabled) {
+    throw new Error(
+      "Nasdaq-mode universe resolution failed: the nasdaq provider is not enabled (lifecycle state and flag)."
+    );
+  }
+  const provider = registry.get("nasdaq");
+  if (!provider || !provider.capabilities.includes("screenUniverse")) {
+    throw new Error(
+      "Nasdaq-mode universe resolution failed: no screenUniverse-capable nasdaq adapter is registered."
+    );
+  }
+  return provider;
 }
 
 /**
@@ -890,7 +961,7 @@ export async function acquireUniverse(
   try {
     listings =
       DynamicMarketScreener.getTestListingsFixture() ??
-      (await fetchAllUsStockListings());
+      (await (opts.universeDeps?.fetchListings() ?? fetchAllUsStockListings()));
     if (!DynamicMarketScreener.getTestListingsFixture() && (!listings || listings.length === 0)) {
       throw new Error("The live listings directory returned no symbols; no static universe was substituted.");
     }
