@@ -1139,7 +1139,7 @@ describe("deleteWatchlist — lastError contract (#244)", () => {
 
 describe("Service forwarding + error hygiene (#168)", () => {
   it("ETradeService.getLastError forwards the new non-options reasons", async () => {
-    const service = new ETradeService(makeBareEnv());
+    const service = new ETradeService(makeBareEnv(), undefined, USER);
     expect(await service.fetchAccountsRemote()).toEqual([]);
     expect(service.getLastError()).toContain("consumer credentials are not configured");
     expect(await service.lookupProduct("apple")).toEqual([]);

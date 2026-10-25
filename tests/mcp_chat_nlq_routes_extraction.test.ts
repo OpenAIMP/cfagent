@@ -177,7 +177,7 @@ describe("handleMcpChatNlqRoutes behavior", () => {
     const url = new URL("https://agent.internal/api/chat");
     const path = "/api/chat";
     const res = await handleMcpChatNlqRoutes(
-      req("POST", path, { messages: [{ role: "user", content: "hi there" }] }),
+      req("POST", path, { messages: [{ role: "user", content: "hi there" }] }, { "x-user-login": "alice" }),
       url,
       path,
       "sess",
@@ -193,8 +193,9 @@ describe("handleMcpChatNlqRoutes behavior", () => {
     expect(runTurn).toHaveBeenCalledTimes(1);
     const args = runTurn.mock.calls[0][0];
     expect(args.userText).toBe("hi there");
-    // No x-user-login header: chatUserLogin falls back to the session id.
-    expect(args.userLogin).toBe("sess");
+    // Issue #1185: chatUserLogin is the verified x-user-login header —
+    // the session id is never promoted to a login.
+    expect(args.userLogin).toBe("alice");
     expect(args.isAutoOptionsResearchRequest).toBe(false);
     // Issue #686: history was read for the judge's recent-turns
     // context (existing history + the current message, as the
@@ -232,7 +233,7 @@ describe("handleMcpChatNlqRoutes behavior", () => {
     });
     const url = new URL("https://agent.internal/api/chat");
     const res = await handleMcpChatNlqRoutes(
-      req("POST", "/api/chat", { messages: [{ role: "user", content: "hi" }] }),
+      req("POST", "/api/chat", { messages: [{ role: "user", content: "hi" }] }, { "x-user-login": "alice" }),
       url,
       "/api/chat",
       "sess",
