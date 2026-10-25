@@ -1183,8 +1183,10 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
     // partial report is never silently produced downstream.
     if (job.capability === "shard.execute" && jobStage === "feed" && jobChainId) {
       let shardKey = "unknown";
+      let failedPayload: import("../../services/shardJobs").ShardPayload | undefined;
       try {
-        const parsed = JSON.parse(job.payload_json) as { shard?: { key?: unknown } };
+        const parsed = JSON.parse(job.payload_json) as import("../../services/shardJobs").ShardPayload;
+        failedPayload = parsed;
         if (typeof parsed?.shard?.key === "string") shardKey = parsed.shard.key;
       } catch {
         shardKey = "unknown";
@@ -1195,9 +1197,29 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         shardKey,
         error: message,
       });
-      console.error(
-        `[OrchestratorAgent] Sharded chain ${jobChainId} blocked: feed shard ${shardKey} failed (${message}) — assembly refused, no partial report.`
-      );
+      if (failedPayload?.chain?.screenType === "options") {
+        // Options have independent symbol shards. Once every symbol has
+        // reached a terminal state, assemble the qualified results even
+        // when one or more symbols exhausted their retries.
+        try {
+          const { planShardAdvance, chainRowsFromSql } = await import("../../services/shardJobs");
+          const rows = chainRowsFromSql(sql, jobChainId, ctx.sessionKey());
+          for (const spec of planShardAdvance({
+            chain: failedPayload.chain,
+            rows,
+            completedStage: "feed",
+            completedKey: shardKey,
+            rootJobId: getAsyncJob(ctx, jobId)?.parentJobId ?? jobId,
+            nowIso: completedAt,
+          })) await submitAsyncJob(ctx, spec);
+        } catch (hookError) {
+          ctx.audit("shard.advance_failed", "orchestrator", { jobId, chainId: jobChainId, error: hookError instanceof Error ? hookError.message : String(hookError) });
+        }
+      } else {
+        console.error(
+          `[OrchestratorAgent] Sharded chain ${jobChainId} blocked: feed shard ${shardKey} failed (${message}) — assembly refused, no partial report.`
+        );
+      }
     }
     console.error(`[OrchestratorAgent] Async job ${jobId} failed:`, error);
     // Issue #1123 S4: a screener main job that fails hard (the route

@@ -652,9 +652,10 @@ export class OrchestratorAgent extends Think<Env> {
         }
         await this.ctx.storage.put(key, { slot });
       }
-      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql), undefined, undefined, undefined, (outcome, schedulerUserLogin, chainReport) => scheduleScreenerFollowups(this.asyncJobsContext(), outcome, schedulerUserLogin, chainReport), {sql:this.ctx.storage.sql,blobStorage:this.ctx.storage,env:this.env});
-      const res = await service.autonomousOptionsAnalysis({ ...payload, userLogin, environment });
+      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql), undefined, undefined, undefined, (outcome, schedulerUserLogin, chainReport) => scheduleScreenerFollowups(this.asyncJobsContext(), outcome, schedulerUserLogin, chainReport), {sql:this.ctx.storage.sql,blobStorage:this.ctx.storage,env:this.env}, (spec) => (this as any).submitAsyncJob(spec));
+      const res = await service.autonomousOptionsAnalysis({ ...payload, userLogin, environment, sharded: payload?.sharded });
       if ((res as any).skipped) return;
+      if (res.data?.sharded) return;
       // Issue #223: persist the run so GET /api/options/latest can report what
       // the scheduler produced. History is auxiliary — a storage failure must
       // not turn a completed analysis into a failed one.
@@ -2105,6 +2106,7 @@ export class OrchestratorAgent extends Think<Env> {
       getOrm: () => this.getOrm(),
       scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string, chainReport?: boolean) =>
         scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin, chainReport),
+      submitShardJob: (spec) => (this as any).submitAsyncJob(spec),
       autonomousMarketScreen: (payload) => this.autonomousMarketScreen(payload),
       autoRenewETradeTokens: (payload) => this.autoRenewETradeTokens(payload),
       creatableScheduleCallbacks: CREATABLE_SCHEDULE_CALLBACKS,

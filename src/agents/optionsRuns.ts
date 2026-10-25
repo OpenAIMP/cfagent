@@ -51,10 +51,11 @@ export async function recordOptionsRun(
 ): Promise<OptionsRunRecord[]> {
   if (!hasStorage(storage)) return [run];
   const existing = (await storage.get<OptionsRunRecord[]>(OPTIONS_RUNS_KEY)) ?? [];
-  const next = [run, ...(Array.isArray(existing) ? existing : [])].slice(0, OPTIONS_RUNS_LIMIT);
+  const next = [run, ...(Array.isArray(existing) ? existing.filter((item) => item.timestamp !== run.timestamp) : [])].slice(0, OPTIONS_RUNS_LIMIT);
   await storage.put(OPTIONS_RUNS_KEY, next);
   return next;
 }
+
 
 /** Read the retained history, newest first. */
 export async function readOptionsRuns(storage: unknown): Promise<OptionsRunRecord[]> {
