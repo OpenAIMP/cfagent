@@ -143,6 +143,11 @@ export async function handleReportsRoutes(
 ): Promise<Response | null> {
   // Issue #277: list pending report-dispatch confirmations for the
   // Settings UI. Summaries only — payloads stay server-side until decided.
+  // Issue #1324: the same list feeds the Reports panel's pending-review
+  // queue, so items carry expiry (for the countdown) and artifact
+  // metadata (file names/links, never payload bytes). Expired rows are
+  // marked expired with an audit row — mirroring the confirm path —
+  // so they leave the queue instead of lingering past their window.
   if (path.endsWith("/trading/reports/pending") && request.method === "GET") {
     try {
       const sql = ctx.ensureTables();
@@ -151,8 +156,17 @@ export async function handleReportsRoutes(
           "SELECT id, kind, payload_json, created_at FROM mas_report_confirmations WHERE status = 'pending' ORDER BY created_at DESC"
         )
       ) as any[];
+      const ttlMs = ctx.reportConfirmationTtlMs();
+      const nowMs = Date.now();
+      const live = rows.filter((row) => {
+        const ageMs = nowMs - new Date(String(row.created_at)).getTime();
+        if (Number.isFinite(ageMs) && ageMs <= ttlMs) return true;
+        ctx.decideReportConfirmation(String(row.id), "expired", null);
+        ctx.audit("research_report.confirmation_expired", "trading", { confirmationId: String(row.id) });
+        return false;
+      });
       return Response.json({
-        pending: rows.map((row) => {
+        pending: live.map((row) => {
           let payload: any = {};
           try {
             payload = JSON.parse(String(row.payload_json));
@@ -163,14 +177,32 @@ export async function handleReportsRoutes(
           // (sheetCount); legacy rows carry the full payload (sheets).
           const sheetCount =
             (payload.sheets || []).length || payload.sheetCount || 0;
+          const delivery = (payload as any).delivery ?? {};
+          const artifacts = Array.isArray(delivery.artifacts)
+            ? delivery.artifacts.map((a: any) => String(a.fileName || a.key || "")).filter(Boolean)
+            : row.kind === "email" && payload.fileName
+              ? [String(payload.fileName)]
+              : [];
+          const createdMs = new Date(String(row.created_at)).getTime();
           return {
             confirmationId: String(row.id),
             kind: String(row.kind),
             createdAt: String(row.created_at),
+            expiresAt: Number.isFinite(createdMs) ? new Date(createdMs + ttlMs).toISOString() : null,
             detail:
               row.kind === "email"
                 ? `${payload.recipient || "?"} · ${payload.fileName || "?"}`
-                : `${payload.title || "Research report"} · ${sheetCount} sheets`,
+                : row.kind === "screener"
+                  ? `${delivery.displayName || "Screener delivery"} · ${delivery.channel || "?"}`
+                  : `${payload.title || "Research report"} · ${sheetCount} sheets`,
+            artifacts,
+            ...(row.kind === "screener"
+              ? {
+                  channel: typeof delivery.channel === "string" ? delivery.channel : undefined,
+                  displayName: typeof delivery.displayName === "string" ? delivery.displayName : undefined,
+                  reportUrl: typeof delivery.outcome?.reportUrl === "string" ? delivery.outcome.reportUrl : undefined,
+                }
+              : {}),
           };
         }),
       });

@@ -148,6 +148,15 @@
     // silent dry-run. Rollback is removing these two vars (or setting
     // them to "0") and redeploying — no code change.
     "SOCIAL_POSTING_ENABLED": "1",
-    "SOCIAL_LIVE_PUBLISHING": "1"
+    "SOCIAL_LIVE_PUBLISHING": "1",
+    // Issue #1475 (sub-issue of #1344), service identity for unattended
+    // work (runbook docs/architecture/security/service-identity.md):
+    // the login scheduled goals and ledger forwards run under. Plain
+    // identifier, not a credential — never routed through secrets sync.
+    // Value follows the repo's own convention for the generic service
+    // identity (tests/service_identity.test.ts). Rollback is removing
+    // this var (or blanking it) and redeploying — goals return to
+    // failing closed at the budget check.
+    "SERVICE_USER_LOGIN": "svc-background"
   }
 }

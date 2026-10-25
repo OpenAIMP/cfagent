@@ -107,18 +107,50 @@ function styleSpans(text: string): Array<[number, number]> {
 function countNamedInTs(text: string): number {
   let n = 0;
   const spans = styleSpans(text);
+  const objSpans = styleObjectSpans(text);
   for (const m of text.matchAll(/(["']?)([A-Za-z][\w-]*)\1\s*:\s*(["'`])([^"'`]*)\3/g)) {
     const prop = m[2];
     const isColorProp =
       COLOR_CAMEL_PROPS.has(prop) || COLOR_KEBAB_PROPS.has(prop.toLowerCase()) || prop.startsWith("--");
     if (!isColorProp) continue;
-    if (!spans.some(([a, b]) => m.index >= a && m.index <= b)) continue;
+    if (!spans.some(([a, b]) => m.index >= a && m.index <= b) && !objSpans.some(([a, b]) => m.index >= a && m.index <= b)) continue;
     n += (m[4].match(NAMED_COLOR_RE) ?? []).length;
   }
   for (const m of text.matchAll(COLOR_JSX_ATTR_RE)) {
     n += (m[2].match(NAMED_COLOR_RE) ?? []).length;
   }
   return n;
+}
+
+// Brace-balanced spans of style objects referenced by identifier:
+// `style={panelStyle}` / `style={styles.panel}`. A named color in a
+// standalone style object escaped the gate (#1337: the span check only
+// saw direct style={{…}} literals), while a data field like a preset's
+// `color: "purple"` must NOT be flagged — so the scan is limited to
+// objects actually used as a style value, resolved in-file from a
+// direct const/let/var definition. Call expressions, ternaries, and
+// cross-file style objects are out of scope for this pass.
+// Mirrors scripts/token-coverage.mjs; keep the two in sync.
+function styleObjectSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const m of text.matchAll(/style\s*=\s*\{\s*([A-Za-z_$][\w$]*)(?:\.[A-Za-z_$][\w$]*)?\s*\}/g)) {
+    const ident = m[1];
+    const defRe = new RegExp(`(?:const|let|var)\\s+${ident}\\s*(?::[^=]+)?=\\s*\\{`, "g");
+    for (const d of text.matchAll(defRe)) {
+      const start = text.indexOf("{", d.index);
+      let depth = 0;
+      let i = start;
+      for (; i < text.length; i += 1) {
+        if (text[i] === "{") depth += 1;
+        else if (text[i] === "}") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      spans.push([start, i]);
+    }
+  }
+  return spans;
 }
 
 function scanNamedColors(): Map<string, number> {
@@ -217,5 +249,106 @@ describe("no dangling var() references (#492 follow-up)", () => {
       if (!defined.has(name)) dangling.push(`${name} (used in ${[...new Set(files)].slice(0, 3).join(", ")})`);
     }
     expect(dangling).toEqual([]);
+  });
+});
+
+describe("token governance (#1337)", () => {
+  it("catches a planted non-token color in a standalone style object", () => {
+    // The demonstrated gap: a named color in `const s = { color }`
+    // used as style={s} escaped the style={{…}} span check.
+    const planted = [
+      `const panelStyle = { color: "blue", padding: 4 };`,
+      `export const P = () => <div style={panelStyle}>x</div>;`,
+    ].join("\n");
+    expect(countNamedInTs(planted)).toBeGreaterThan(0);
+    const memberPlanted = [
+      `const styles = { panel: { backgroundColor: "red" } };`,
+      `export const Q = () => <div style={styles.panel}>x</div>;`,
+    ].join("\n");
+    expect(countNamedInTs(memberPlanted)).toBeGreaterThan(0);
+  });
+
+  it("does not flag token references or non-style data fields", () => {
+    const tokenRef = [
+      `const panelStyle = { color: "var(--color-text-primary)" };`,
+      `export const P = () => <div style={panelStyle}>x</div>;`,
+    ].join("\n");
+    expect(countNamedInTs(tokenRef)).toBe(0);
+    // A preset's `color: "purple"` is a data field, not a style
+    // value — the identifier-tracking scan must not flag it.
+    const dataField = [
+      `const preset = { id: "custom_1", name: "Custom", color: "purple" };`,
+      `export const P = () => <div>{preset.name}</div>;`,
+    ].join("\n");
+    expect(countNamedInTs(dataField)).toBe(0);
+  });
+
+  it("one-off stylesheets are registered, and growth is explicit", () => {
+    // Every stylesheet outside src/client/components/ui/ (tokens.css
+    // excepted — it is the token source, not a one-off) must be
+    // registered in tests/one_off_stylesheets_1337.json with a reason,
+    // and must not exceed its registered size: a PR that grows one
+    // bumps the baseline in-PR, so growth is visible in the diff.
+    const baseline = JSON.parse(
+      readFileSync(join(ROOT, "tests", "one_off_stylesheets_1337.json"), "utf8")
+    ) as Array<{ path: string; lines: number; reason: string }>;
+    const registered = new Map(baseline.map((b) => [b.path, b]));
+    const violations: string[] = [];
+    for (const file of walk(CLIENT_DIR)) {
+      const rel = relative(ROOT, file).split("\\").join("/");
+      if (!rel.endsWith(".css")) continue;
+      if (rel.includes("components/ui/") || TOKEN_SOURCES.has(rel)) continue;
+      const entry = registered.get(rel);
+      if (!entry) {
+        violations.push(`${rel}: unregistered one-off stylesheet (add it to tests/one_off_stylesheets_1337.json with a reason)`);
+        continue;
+      }
+      if (!entry.reason) violations.push(`${rel}: registered without a reason`);
+      const lines = readFileSync(file, "utf8").split("\n").length;
+      if (lines > entry.lines) {
+        violations.push(`${rel}: grew ${entry.lines} → ${lines} lines (bump the baseline in-PR)`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it("new surfaces compose from ui/ primitives unless exempted", () => {
+    // A .tsx file under src/client that is NOT in the grandfather
+    // baseline, renders JSX, and imports nothing from
+    // src/client/components/ui/ fails unless listed in the
+    // exemptions of tests/ui_primitives_1337.json with a reason.
+    // Primitives themselves (components/ui/**) are exempt by
+    // definition. Baseline files are grandfathered, not pinned:
+    // deleting one needs no baseline edit.
+    const gov = JSON.parse(
+      readFileSync(join(ROOT, "tests", "ui_primitives_1337.json"), "utf8")
+    ) as { baseline: string[]; exemptions: Array<{ path: string; reason: string }> };
+    const baseline = new Set(gov.baseline);
+    const exempted = new Map(gov.exemptions.map((e) => [e.path, e]));
+    const violations: string[] = [];
+    const DOM_TAGS = new Set("div span p button table section h1 h2 h3 h4 h5 h6 ul ol li input select form a img tr td th thead tbody header footer nav main label textarea".split(" "));
+    for (const file of walk(CLIENT_DIR)) {
+      const rel = relative(ROOT, file).split("\\").join("/");
+      if (!rel.endsWith(".tsx")) continue;
+      if (rel.includes("components/ui/")) continue;
+      if (baseline.has(rel)) continue;
+      const text = stripComments(readFileSync(file, "utf8"));
+      const rendersJsx =
+        /<[A-Z][\w.]*[\s/>]/.test(text) ||
+        [...text.matchAll(/<([a-z][\w]*)[\s/>]/g)].some((m) => DOM_TAGS.has(m[1]));
+      if (!rendersJsx) continue;
+      // Accept the barrel import (./components/ui) as well as a
+      // submodule import (./components/ui/Button): the barrel is the
+      // repo's dominant idiom (29 barrel vs 0 submodule imports), so
+      // requiring the trailing slash false-positived on it.
+      const usesPrimitive =
+        /from\s+["'][^"']*components\/ui(\/|["'])/.test(text) ||
+        /import\s+["'][^"']*components\/ui(\/|["'])/.test(text);
+      if (usesPrimitive) continue;
+      const exemption = exempted.get(rel);
+      if (exemption?.reason) continue;
+      violations.push(`${rel}: new surface renders JSX without importing a ui/ primitive (import one, or exempt it in tests/ui_primitives_1337.json with a reason)`);
+    }
+    expect(violations).toEqual([]);
   });
 });

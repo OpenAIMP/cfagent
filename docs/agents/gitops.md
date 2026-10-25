@@ -203,6 +203,22 @@ Epic/feature:
 Architecture decisions:
 ```
 
+### Required issue metadata
+
+The issue body template is not enough — every issue must also have its sidebar fields deliberately set at creation. No field may sit at its empty default (`No labels`, `No projects`, `No milestone`, `None yet`) without a recorded reason in the issue body:
+
+- **Assignees** — the creating agent assigns the issue to itself in the assignee field. An unassigned issue has no owner.
+- **Labels** — at least one applicable label, including the lane label (`lane:<lane>`). Labels are how lanes, types, and CI failures are found.
+- **Projects** — link the applicable project. If no project applies, record that in Traceability.
+- **Milestone** — set the target milestone. If none applies, record that in Traceability.
+- **Relationships** — link the parent epic, sub-issues, and blocked-by/blocking issues where they exist. A related issue with no recorded relationship is invisible to sequencing.
+- **Development** — link the branch and pull request once they exist (a PR body `Closes #N` links automatically). An issue with no linked development has no delivery path.
+- **Notifications** — the author stays subscribed to the issue thread while it is open. Unsubscribing from an issue you own breaks the feedback loop.
+
+Collaboration: when a change requires creating or updating a shared capability that belongs to another agent's lane, do not fold it into your own issue. Create a separate issue for that agent and assign it to them in the assignee field, with the `## Agent` hashtag naming their lane. Your issue carries your part; their issue carries theirs. Cross-lane work with no separately assigned issue is unowned work.
+
+Update these fields as the issue evolves — a label, milestone, or relationship that goes stale is the same defect as a stale body.
+
 ### Scope discipline
 
 - Keep issues small enough for focused review.
@@ -967,6 +983,7 @@ The Risks and limitations section MUST state known test-coverage gaps for the ch
 [ ] Refactor and rerun tests
 [ ] Review diff and security implications
 [ ] Push and open PR with required authorization
+[ ] Agents must continue to work in parallel while CI/CD does its job — start the next independent issue (§20), never idle waiting for checks
 [ ] Resolve review and CI failures
 [ ] Synchronize or use merge queue as configured
 [ ] Obtain merge authorization
@@ -976,7 +993,7 @@ The Risks and limitations section MUST state known test-coverage gaps for the ch
 [ ] Confirm §18/§19 regression coverage (pins bite-proofed; detection covers the changed surface; fix + coverage where a defect was fixed)
 [ ] Update issue and completion evidence
 [ ] Synchronize local main
-[ ] Only now begin the next issue
+[ ] Only now begin the next dependent issue (independent issues already started in parallel under §20)
 ```
 
 ## 17. Post-merge verification discipline
