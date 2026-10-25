@@ -4,7 +4,7 @@
 - Date: 2026-10-25
 - Deciders: owner, CAIO-quns
 - Issue: #1548 (slice 0; design #1546)
-- Implementing PR: (this PR; number filled before merge)
+- Implementing PR: #1553
 
 ## Context
 
