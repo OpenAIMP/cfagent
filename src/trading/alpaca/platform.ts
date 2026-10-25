@@ -55,6 +55,26 @@ export class AlpacaTradingPlatform implements ITradingPlatform {
     const cleanSym = symbol.trim().toUpperCase();
     const snap = await this.alpacaData.getQuote(cleanSym);
 
+    // Issue #1555 (parent #913): pass through, never fabricate. The
+    // Alpaca snapshot carries price/bid/ask/volume/OHLC only — it has
+    // no peRatio, marketCap, 52-week, or RSI. Those ETradeQuote
+    // fields are OPTIONAL, so a snapshot that lacks them yields an
+    // omitted field, never a hardcoded 28.0 / 50.0 / high*1.25 /
+    // low*0.75 / 50.0. A real snapshot value, if a future Alpaca
+    // response carries one, passes through untouched (finite and
+    // positive; RSI additionally bounded 0–100). Downstream filters
+    // fail closed on missing values (screener.ts: minMarketCap and
+    // maxPeRatio reject unknown), which is the honest outcome — an
+    // Alpaca name no longer passes those gates on fake numbers.
+    const extra = snap as unknown as Record<string, unknown>;
+    const positive = (v: unknown): v is number =>
+      typeof v === "number" && Number.isFinite(v) && v > 0;
+    const rsi = extra["rsi14"];
+    const rsiValue =
+      typeof rsi === "number" && Number.isFinite(rsi) && rsi >= 0 && rsi <= 100
+        ? rsi
+        : undefined;
+
     return {
       symbol: cleanSym,
       companyName: `${cleanSym} (Alpaca Real-Time)`,
@@ -68,13 +88,21 @@ export class AlpacaTradingPlatform implements ITradingPlatform {
       open: snap.open,
       high: snap.high,
       low: snap.low,
-      peRatio: 28.0,
-      marketCap: 50.0,
-      week52High: (snap as any).high52 || snap.high * 1.25,
-      week52Low: (snap as any).low52 || snap.low * 0.75,
-      high52: (snap as any).high52 || snap.high * 1.25,
-      low52: (snap as any).low52 || snap.low * 0.75,
-      rsi: (snap as any).rsi14 || 50.0,
+      ...(positive(extra["peRatio"]) ? { peRatio: extra["peRatio"] as number } : {}),
+      ...(positive(extra["marketCap"]) ? { marketCap: extra["marketCap"] as number } : {}),
+      ...(positive(extra["high52"])
+        ? {
+            week52High: extra["high52"] as number,
+            high52: extra["high52"] as number,
+          }
+        : {}),
+      ...(positive(extra["low52"])
+        ? {
+            week52Low: extra["low52"] as number,
+            low52: extra["low52"] as number,
+          }
+        : {}),
+      ...(rsiValue !== undefined ? { rsi: rsiValue } : {}),
       source: "Alpaca Real-Time NBBO Feed",
       timestamp: new Date().toISOString(),
     };
