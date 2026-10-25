@@ -2,10 +2,10 @@
  * App-facing session surface.
  *
  * The `getSession` exported here is the **cached** read (see
- * `./security/sessionCache`), not the raw KV read. This facade is what the
+ * `./security/sessionCache`), not the raw store read. This facade is what the
  * Worker imports, and `requireAuth` runs on every `/api/*` request, so routing
  * the app through the cached variant is what stops each request from spending
- * a Workers KV read (issue #329).
+ * a session-store read (issue #329).
  *
  * The uncached primitive remains available from `./security/session` for code
  * that must observe the authoritative value rather than a value up to one TTL

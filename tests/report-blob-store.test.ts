@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { putReportPdf, getReportPdf } from "../src/services/reportBlobStore";
+import { putReportPdf, getReportPdf, r2KeyForStorageKey } from "../src/services/reportBlobStore";
 
 /**
  * #605: report PDF blob storage (R2 with legacy DO-storage fallback).
@@ -72,5 +72,83 @@ describe("#605 report blob store", () => {
 
   it("returns null for missing keys", async () => {
     expect(await getReportPdf({}, storage, "nope")).toBeNull();
+  });
+});
+
+describe("#605 R2 bucket layout (bucket 'screener': stocks/ + options/ prefixes)", () => {
+  let storage: ReturnType<typeof makeStorage>;
+
+  beforeEach(() => {
+    storage = makeStorage();
+  });
+
+  function makeBucket() {
+    const map = new Map<string, Uint8Array>();
+    const bucket = {
+      async put(key: string, value: Uint8Array) {
+        map.set(key, value);
+      },
+      async get(key: string) {
+        const bytes = map.get(key);
+        if (!bytes) return null;
+        return {
+          customMetadata: { fileName: "from-r2.pdf" },
+          async arrayBuffer() {
+            return bytes.buffer as ArrayBuffer;
+          },
+        };
+      },
+    } as unknown as R2Bucket;
+    return { bucket, map };
+  }
+
+  it("maps storage keys to bucket keys by family", () => {
+    expect(r2KeyForStorageKey("screener:pdf:abc123")).toBe("stocks/pdf/abc123");
+    expect(r2KeyForStorageKey("screener:latest.pdf")).toBe("stocks/latest.pdf");
+    expect(r2KeyForStorageKey("screener:xlsx:xyz")).toBe("stocks/xlsx/xyz");
+    expect(r2KeyForStorageKey("screener:latest.xlsx")).toBe("stocks/latest.xlsx");
+    expect(r2KeyForStorageKey("options:pdf:def456")).toBe("options/pdf/def456");
+    expect(r2KeyForStorageKey("options:latest.pdf")).toBe("options/latest.pdf");
+    expect(r2KeyForStorageKey("k2")).toBe("k2");
+  });
+
+  it("put writes screener blobs under stocks/ and stores the mapped pointer", async () => {
+    const { bucket, map } = makeBucket();
+    await putReportPdf({ REPORTS_BUCKET: bucket }, storage, "screener:pdf:abc123", "a.pdf", BYTES);
+    expect([...map.keys()]).toEqual(["stocks/pdf/abc123"]);
+    const meta = storage.raw.get("screener:pdf:abc123") as { r2Key?: string; base64?: string };
+    expect(meta.r2Key).toBe("stocks/pdf/abc123");
+    expect(meta.base64).toBeUndefined();
+    const got = await getReportPdf({ REPORTS_BUCKET: bucket }, storage, "screener:pdf:abc123");
+    expect(got!.fileName).toBe("a.pdf");
+    expect(Array.from(got!.bytes)).toEqual(Array.from(BYTES));
+  });
+
+  it("put writes options blobs under options/", async () => {
+    const { bucket, map } = makeBucket();
+    await putReportPdf({ REPORTS_BUCKET: bucket }, storage, "options:pdf:def456", "o.pdf", BYTES);
+    expect([...map.keys()]).toEqual(["options/pdf/def456"]);
+  });
+
+  it("lazily migrates a legacy base64 blob to R2 on first read (pointer rewrite, bytes preserved)", async () => {
+    const { bucket, map } = makeBucket();
+    let binary = "";
+    for (const b of BYTES) binary += String.fromCharCode(b);
+    storage.raw.set("screener:pdf:old1", { base64: btoa(binary), fileName: "old.pdf", storedAt: "2026-10-01T00:00:00.000Z" });
+    const got = await getReportPdf({ REPORTS_BUCKET: bucket }, storage, "screener:pdf:old1");
+    expect(got!.fileName).toBe("old.pdf");
+    expect(Array.from(got!.bytes)).toEqual(Array.from(BYTES));
+    expect([...map.keys()]).toEqual(["stocks/pdf/old1"]);
+    const meta = storage.raw.get("screener:pdf:old1") as { r2Key?: string; base64?: string };
+    expect(meta.r2Key).toBe("stocks/pdf/old1");
+    expect(meta.base64).toBeUndefined();
+  });
+
+  it("direct R2 read (no DO pointer) resolves through the mapped key", async () => {
+    const { bucket, map } = makeBucket();
+    map.set("options/pdf/direct1", BYTES);
+    const got = await getReportPdf({ REPORTS_BUCKET: bucket }, storage, "options:pdf:direct1");
+    expect(got).not.toBeNull();
+    expect(Array.from(got!.bytes)).toEqual(Array.from(BYTES));
   });
 });

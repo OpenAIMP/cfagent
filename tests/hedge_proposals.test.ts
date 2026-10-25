@@ -5,7 +5,7 @@
  * no proposal when the exposure itself is unknown.
  */
 import { describe, it, expect } from "vitest";
-import { buildHedgeProposals, selectSpyPut, type SpyPutContract } from "../src/services/hedgeProposals";
+import { buildHedgeProposals, selectSpyPut, generateHedgeProposals, type SpyPutContract } from "../src/services/hedgeProposals";
 import type { PortfolioRiskReport, PortfolioRiskTotals } from "../src/services/portfolioRisk";
 
 function totals(partial: Partial<PortfolioRiskTotals>): PortfolioRiskTotals {
@@ -91,3 +91,84 @@ describe("selectSpyPut", () => {
     expect(selected?.price).toBe(6.5);
   });
 });
+
+describe("executableOrder on hedge proposals", () => {
+  it("attaches a fully-specified executable order to SPY shares hedge", () => {
+    const analysis = buildHedgeProposals(report(totals({ betaWeightedDeltaDollars: 50000 })), null);
+    const shares = analysis.proposals.find((p) => p.instrument === "SPY_SHARES")!;
+    expect(shares.executableOrder).toBeDefined();
+    expect(shares.executableOrder?.isExecutable).toBe(true);
+    expect(shares.executableOrder?.assetClass).toBe("equity");
+    expect(shares.executableOrder?.symbol).toBe("SPY");
+    expect(shares.executableOrder?.action).toBe("SELL");
+    expect(shares.executableOrder?.quantity).toBe(100);
+    expect(shares.executableOrder?.limitPrice).toBe(500);
+    expect(shares.executableOrder?.legs).toHaveLength(1);
+    expect(shares.executableOrder?.legs[0]).toEqual({
+      underlyingSymbol: "SPY",
+      securityType: "EQ",
+      side: "SELL",
+      quantity: 100,
+    });
+  });
+
+  it("attaches a fully-specified executable order to SPY puts hedge", () => {
+    const analysis = buildHedgeProposals(report(totals({ betaWeightedDeltaDollars: 50000 })), spyPut);
+    const puts = analysis.proposals.find((p) => p.instrument === "SPY_PUTS")!;
+    expect(puts.executableOrder).toBeDefined();
+    expect(puts.executableOrder?.isExecutable).toBe(true);
+    expect(puts.executableOrder?.assetClass).toBe("options");
+    expect(puts.executableOrder?.symbol).toBe("SPY");
+    expect(puts.executableOrder?.action).toBe("BUY");
+    expect(puts.executableOrder?.quantity).toBe(2);
+    expect(puts.executableOrder?.limitPrice).toBe(6.5);
+    expect(puts.executableOrder?.strategyNetDebit).toBe(650);
+    expect(puts.executableOrder?.legs[0]).toEqual({
+      underlyingSymbol: "SPY",
+      securityType: "OPTN",
+      side: "BUY",
+      quantity: 1,
+      optionType: "PUT",
+      strike: 500,
+      expirationDate: "2026-11-14",
+    });
+  });
+});
+
+describe("generateHedgeProposals listed expiration discovery", () => {
+  it("queries getOptionExpireDates and selects the listed expiration closest to 30 DTE", async () => {
+    const now = new Date();
+    const futureDate = new Date(now.getTime() + 28 * 24 * 3600 * 1000);
+    const mockExpireDates = [
+      { year: futureDate.getUTCFullYear(), month: futureDate.getUTCMonth() + 1, day: futureDate.getUTCDate() },
+    ];
+    let capturedChainParams: any = null;
+    const mockEtrade = {
+      fetchPortfolioRemote: async () => ({
+        account: { netAccountValue: 200000 },
+        positions: [],
+      }),
+      getPositions: () => ({ positions: [] }),
+      getQuotes: async () => [{ symbol: "SPY", lastPrice: 500 }],
+      getOptionExpireDates: async (symbol: string) => mockExpireDates,
+      getOptionChains: async (params: any) => {
+        capturedChainParams = params;
+        return {
+          symbol: "SPY",
+          underlyingPrice: 500,
+          pairs: [
+            { put: { optionType: "PUT", strikePrice: 500, symbol: "SPY", bid: 6.4, ask: 6.6, lastPrice: 6.5, delta: -0.45 } },
+          ],
+        };
+      },
+    } as any;
+
+    const analysis = await generateHedgeProposals(mockEtrade);
+    expect(capturedChainParams).toBeDefined();
+    expect(capturedChainParams.symbol).toBe("SPY");
+    expect(capturedChainParams.expiryYear).toBe(futureDate.getUTCFullYear());
+    expect(capturedChainParams.expiryMonth).toBe(futureDate.getUTCMonth() + 1);
+    expect(capturedChainParams.expiryDay).toBe(futureDate.getUTCDate());
+  });
+});
+

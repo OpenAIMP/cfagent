@@ -18,6 +18,8 @@ import type {
   ETradePositionLot,
   ETradeAccount,
   ETradeBrokerStatus,
+  ETradeOptionChain,
+  ETradeOptionExpireDate,
 } from "../types";
 
 export type TradingPlatformId = "etrade" | "alpaca" | "foss" | "sandbox";
@@ -77,6 +79,38 @@ export interface ITradingPlatform {
   previewOrder(params: OrderPreviewParams): Promise<ETradeOrderDraft>;
   executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected"): ETradeOrderExecutionResult | Promise<ETradeOrderExecutionResult>;
   placeOrderRemote?(params: PlaceOrderParams): Promise<ETradeOrderExecutionResult>;
+  /**
+   * Options data reads (issue #291 T5b). Optional: platforms without an
+   * options data plane omit them and callers get provider_unsupported.
+   * Semantics are the broker client's verbatim passthroughs — no
+   * caching, fallback, or provenance rewriting at this layer.
+   */
+  getOptionChains?(params: {
+    symbol: string;
+    expiryYear?: number;
+    expiryMonth?: number;
+    expiryDay?: number;
+    strikePrice?: number;
+    noOfStrikes?: number;
+    includeWeekly?: boolean;
+    chainType?: "CALL" | "PUT" | "CALLPUT";
+    includeRawResponse?: boolean;
+  }): Promise<ETradeOptionChain | null>;
+  getOptionExpireDates?(symbol: string, expiryType?: string): Promise<ETradeOptionExpireDate[]>;
+  /**
+   * The broker client's last recorded error, if any (issue #155 pattern:
+   * read on the SAME instance that made the call). Optional — platforms
+   * without a stateful client omit it.
+   */
+  getLastError?(): string | undefined;
+  /**
+   * Quote read with the error carried alongside the result (issue #462:
+   * concurrent callers must never read shared instance error state).
+   * LIVE fetch only — no cache/curated fallback, no policy: the caller
+   * names its failure policy (issue #291 quote unification, Q1).
+   * Optional — platforms without a detailed read omit it.
+   */
+  getQuoteDetailed?(symbol: string): Promise<{ quote: ETradeQuote | null; error: string | null }>;
 }
 
 export interface IMarketScreener {

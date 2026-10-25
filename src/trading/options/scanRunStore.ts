@@ -61,6 +61,11 @@ export interface ScanRunSummary {
    *  applied. Summaries persisted before issue #103 lack the field at
    *  runtime (undefined); readers must treat absent as null. */
   profileRef: ProfileRef | null;
+  /** The run's generated PDF storage key when the producing flow
+   *  stamped one at save time (issue #1239). Optional deliberately:
+   *  summaries persisted before #1239 lack the field at runtime;
+   *  readers must treat absent as null. */
+  pdfKey?: string | null;
   /** The login that saved the run (issue #103 per-user scoping).
    *  Optional deliberately: runs persisted before scoping existed —
    *  and runs saved by contexts with no identity — carry none, and
@@ -80,8 +85,11 @@ export interface ScanRunStore {
    *  beyond the row cap are deleted, oldest first. `userLogin` stamps
    *  the saver's identity for per-user scoping (issue #103); call
    *  sites with no identity omit it and the run is saved unscoped —
-   *  identity is never invented here. */
-  save(result: OpportunityScanResult, options?: { userLogin?: string }): Promise<StoredScanRun>;
+   *  identity is never invented here. `id` (issue #1157, E2) lets a
+   *  caller that minted the run id BEFORE the scan ran — so fetch-time
+   *  captures could be attributed to it — persist the run under that
+   *  very id; absent, the store's idFactory mints one as before. */
+  save(result: OpportunityScanResult, options?: { userLogin?: string; id?: string }): Promise<StoredScanRun>;
   /** Newest-first summaries (generatedAt descending, id descending on
    *  ties), paginated by limit/offset, filtered by the visibility
    *  rule when a `userLogin` scope is given (and when it is not — an
@@ -164,6 +172,7 @@ function summarize(id: string, result: OpportunityScanResult, userLogin?: string
     gate: result.gate,
     coverage: result.coverage,
     profileRef: result.profileRef ?? null,
+    pdfKey: result.pdfKey ?? null,
     ...(userLogin !== undefined ? { userLogin } : {}),
   };
 }
@@ -222,9 +231,9 @@ export class SqlScanRunStore implements ScanRunStore {
     return Number(rows[0]?.count ?? 0);
   }
 
-  async save(result: OpportunityScanResult, options: { userLogin?: string } = {}): Promise<StoredScanRun> {
+  async save(result: OpportunityScanResult, options: { userLogin?: string; id?: string } = {}): Promise<StoredScanRun> {
     this.ensure();
-    const id = this.idFactory();
+    const id = options.id ?? this.idFactory();
     const summary = summarize(id, result, options.userLogin);
     const run: StoredScanRun = { ...summary, result };
     this.sql.exec(
@@ -291,8 +300,8 @@ export class InMemoryScanRunStore implements ScanRunStore {
     this.maxRows = options.maxRows ?? SCAN_RUN_MAX_ROWS;
   }
 
-  async save(result: OpportunityScanResult, options: { userLogin?: string } = {}): Promise<StoredScanRun> {
-    const run: StoredScanRun = { ...summarize(this.idFactory(), result, options.userLogin), result };
+  async save(result: OpportunityScanResult, options: { userLogin?: string; id?: string } = {}): Promise<StoredScanRun> {
+    const run: StoredScanRun = { ...summarize(options.id ?? this.idFactory(), result, options.userLogin), result };
     this.runs.push(run);
     await this.prune(new Date(result.generatedAt));
     return run;

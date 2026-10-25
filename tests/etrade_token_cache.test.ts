@@ -158,6 +158,57 @@ describe("E*TRADE credential read cache (#329)", () => {
     expect(countGets()).toBe(3);
   });
 
+  it("#1218: a stale-epoch write after invalidation does not resurrect (null case)", async () => {
+    const { readTokenCache, writeTokenCache, tokenCacheEpoch, tokenCacheKey, invalidateTokenCacheFor } =
+      await import("../src/security/etradeTokenCache");
+    __resetTokenCache();
+    const key = tokenCacheKey("PROD", USER);
+    const epochAtReadStart = tokenCacheEpoch(key);
+    // Concurrent write path lands while the reader's store read is in flight.
+    invalidateTokenCacheFor(USER);
+    // The reader's stale result arrives now — it must be dropped.
+    writeTokenCache(key, null, epochAtReadStart);
+    expect(readTokenCache(key)).toBeUndefined();
+  });
+
+  it("#1218: a stale-epoch write after invalidation does not resurrect revoked tokens", async () => {
+    const { readTokenCache, writeTokenCache, tokenCacheEpoch, tokenCacheKey, invalidateTokenCacheFor } =
+      await import("../src/security/etradeTokenCache");
+    __resetTokenCache();
+    const key = tokenCacheKey("PROD", USER);
+    const epochAtReadStart = tokenCacheEpoch(key);
+    invalidateTokenCacheFor(USER);
+    writeTokenCache(key, {
+      accessToken: fixtureValue("stale-access"),
+      accessTokenSecret: fixtureValue("stale-secret"),
+      storedAt: new Date().toISOString(),
+      environment: "PROD",
+      userLogin: USER,
+    }, epochAtReadStart);
+    expect(readTokenCache(key)).toBeUndefined();
+  });
+
+  it("#1218: a current-epoch write still caches normally", async () => {
+    const { readTokenCache, writeTokenCache, tokenCacheEpoch, tokenCacheKey } =
+      await import("../src/security/etradeTokenCache");
+    __resetTokenCache();
+    const key = tokenCacheKey("PROD", USER);
+    writeTokenCache(key, null, tokenCacheEpoch(key));
+    expect(readTokenCache(key)).toBeNull();
+  });
+
+  it("#1218: invalidation bumps the epoch even with no entry cached", async () => {
+    const { tokenCacheEpoch, tokenCacheKey, invalidateTokenCacheFor } =
+      await import("../src/security/etradeTokenCache");
+    __resetTokenCache();
+    const key = tokenCacheKey("PROD", USER);
+    const before = tokenCacheEpoch(key);
+    invalidateTokenCacheFor(USER);
+    expect(tokenCacheEpoch(key)).toBe(before + 1);
+    // Another user's epoch is untouched.
+    expect(tokenCacheEpoch(tokenCacheKey("PROD", "someone-else"))).toBe(0);
+  });
+
   it("keeps environments apart", async () => {
     const { env, countGets } = makeEnv();
     const access = fixtureValue("scoped-access");

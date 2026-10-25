@@ -14,8 +14,10 @@
  * back-references into the class.
  */
 
-import type { AgentName } from "../../types";
+import type { AgentName, AsyncJobSubmission } from "../../types";
 import type { SqlStorage } from "../../orm";
+import type { ScreenerAgent } from "../screener-agent";
+import type { RunSummary } from "../../services/runSummaries";
 import {
   canonicalResearchEmailBody,
   canonicalResearchWebhookBody,
@@ -24,6 +26,13 @@ import {
 /** The subset of OrchestratorAgent surface the reports/HITL handlers need. */
 export interface ReportsRouteContext {
   ensureTables(): SqlStorage;
+  /** ScreenerAgent accessor (owner: OrchestratorAgent.getScreenerAgent) —
+   *  the #1057 Runs merge reads the agent's latest/history feed via it. */
+  getScreenerAgent(userLogin?: string): ScreenerAgent;
+  /** Execution-context accessor (owner: OrchestratorAgent.getScreenerExecutionContext). */
+  getScreenerExecutionContext(): Promise<
+    { userLogin: string; environment?: "TEST" | "PROD" } | undefined
+  >;
   getReportDispatchHitl(): boolean;
   setReportDispatchHitl(enabled: boolean): void;
   getReportConfirmation(id: string): any | null;
@@ -33,10 +42,23 @@ export interface ReportsRouteContext {
     decidedBy: string | null
   ): void;
   createReportConfirmation(
-    kind: "email" | "webhook",
+    kind: "email" | "webhook" | "screener",
     payloadJson: string,
     reportId?: string | null
   ): string;
+  /** Issue #1123 S5c: resubmit a held screener follow-up delivery on
+   *  approval (the resubmitted job carries the approval marker). */
+  submitFollowupDelivery?: (
+    delivery: {
+      outcome: import("../../services/screenerFollowups").ScreenerRunOutcome;
+      userLogin: string;
+      channel: import("../../types").AsyncJobChannel;
+      artifacts: Array<{ key: string; fileName: string }>;
+      parentJobId?: string;
+      displayName?: string;
+    },
+    confirmationId: string
+  ) => Promise<boolean>;
   confirmationDeliveryMeta(row: any): { recipient?: string };
   deliverStoredReportEmail(
     reportId: string,
@@ -74,6 +96,38 @@ export interface ReportsRouteContext {
   ): void;
   /** OrchestratorAgent.REPORT_CONFIRMATION_TTL_MS */
   reportConfirmationTtlMs(): number;
+}
+
+/**
+ * Issue #1170 (E3): the followup-delivery resubmission closure that
+ * used to be built inline in OrchestratorAgent.routeRequest's
+ * reports context now lives here with the routes it serves (the
+ * #992 extraction pattern — this is what keeps orchestrator.ts
+ * inside its size budget as new dispatch blocks land). Behaviour is
+ * identical to the inline closure: on a #277 approval it submits
+ * the held delivery as a followup.deliver job carrying the
+ * approved-confirmation marker, and reports success.
+ */
+export function makeSubmitFollowupDelivery(
+  submitAsyncJob: (job: AsyncJobSubmission) => Promise<unknown>
+): NonNullable<ReportsRouteContext["submitFollowupDelivery"]> {
+  return async (delivery, confirmationId) => {
+    await submitAsyncJob({
+      capability: "followup.deliver",
+      payload: {
+        outcome: delivery.outcome,
+        userLogin: delivery.userLogin,
+        channel: delivery.channel,
+        artifacts: delivery.artifacts,
+        approvedConfirmationId: confirmationId,
+      },
+      parentJobId: delivery.parentJobId,
+      jobKind: "delivery",
+      channel: delivery.channel,
+      displayName: delivery.displayName,
+    });
+    return true;
+  };
 }
 
 /**
@@ -125,8 +179,9 @@ export async function handleReportsRoutes(
     }
   }
 
-  // Issue #277: server-side setting for optional HITL confirmation on
-  // report dispatch. Default OFF (autonomous, today's behavior).
+  // Issue #277: server-side setting for HITL confirmation on report
+  // dispatch. Default ON (#1144) — held for confirmation unless the
+  // setting explicitly opts out.
   if (path.endsWith("/trading/settings/report-dispatch-hitl") && request.method === "GET") {
     return Response.json({ enabled: ctx.getReportDispatchHitl() });
   }
@@ -174,6 +229,30 @@ export async function handleReportsRoutes(
     }
     const userLogin = request.headers.get("x-user-login") || sessionId;
     if (decision === "approved") {
+      // Issue #1123 S5c: a held screener follow-up delivery. Approval
+      // resubmits the delivery job with the approval marker so the
+      // executor sends it; the spec rides the confirmation payload.
+      if (row.kind === "screener") {
+        if (!ctx.submitFollowupDelivery) {
+          return Response.json({ error: "Screener delivery release is unavailable in this host." }, { status: 500 });
+        }
+        let delivery: Parameters<NonNullable<typeof ctx.submitFollowupDelivery>>[0] | undefined;
+        try {
+          delivery = (JSON.parse(String(row.payload_json)) as { delivery?: typeof delivery })?.delivery;
+        } catch {
+          delivery = undefined;
+        }
+        if (!delivery || typeof delivery !== "object") {
+          return Response.json({ error: "The confirmation has no delivery payload." }, { status: 500 });
+        }
+        const submitted = await ctx.submitFollowupDelivery(delivery, confirmationId);
+        if (!submitted) {
+          return Response.json({ error: "Could not resubmit the held delivery." }, { status: 500 });
+        }
+        ctx.decideReportConfirmation(confirmationId, "approved", userLogin);
+        ctx.audit("screener.followup_delivery_released", "orchestrator", { confirmationId, channel: delivery.channel });
+        return Response.json({ success: true, status: "dispatched", confirmationId });
+      }
       // Issue #308: deliver the STORED canonical copy. New rows
       // reference mas_reports via report_id; legacy rows (pre-#308)
       // carry the full payload in payload_json (fallback below).
@@ -421,6 +500,98 @@ export async function handleReportsRoutes(
     }
   }
 
+  // Issue #1057 (consolidation S5): the one Runs read surface. Merges
+  // run summaries from all four run stores (mas_reports,
+  // mas_opportunity_scans, mas_discovery_runs, and the ScreenerAgent
+  // latest/history feed) into the single normalized shape defined in
+  // src/services/runSummaries.ts — newest first, de-duplicated on the
+  // exact canonical joins (the canonical row wins). Scoping matches
+  // each store's own route: canonical reports use the header login or
+  // stay unscoped; the scan/discovery stores use header, session, or
+  // default_trader; the screener feed uses header, execution context,
+  // or default_trader. A store that fails to read is named in
+  // storeErrors — never silently presented as empty.
+  if (path.endsWith("/runs") && request.method === "GET") {
+    try {
+      const { parseRunsListKind } = await import("../../trading");
+      const kindResult = parseRunsListKind(url.searchParams.get("kind") || "all");
+      if (!kindResult.ok) {
+        return Response.json({ error: kindResult.error, runs: [] }, { status: 400 });
+      }
+      const kind = kindResult.value;
+      const limit = Math.max(1, Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 100));
+      const headerLogin = request.headers.get("x-user-login");
+      const reportLogin = headerLogin && headerLogin.trim() ? headerLogin : undefined;
+      const storeLogin = headerLogin || sessionId || "default_trader";
+      const sql = ctx.ensureTables();
+      const lists: RunSummary[][] = [];
+      const storeErrors: Record<string, string> = {};
+      const readStore = async (name: string, read: () => Promise<RunSummary[]>) => {
+        try {
+          const rows = await read();
+          lists.push(kind === "all" ? rows : rows.filter((row) => row.kind === kind));
+        } catch (err: any) {
+          storeErrors[name] = err?.message || String(err);
+        }
+      };
+      if (kind === "all" || kind === "screener" || kind === "options_scanner" || kind === "goal") {
+        await readStore("reports", async () => {
+          const { listScheduledReports, ensureScheduledReportsTable, resolveCanonicalReportBodyWithBackfill } = await import("../../services/scheduledReports");
+          const { runSummaryFromReport } = await import("../../services/runSummaries");
+          ensureScheduledReportsTable(sql);
+          const hits = listScheduledReports(sql, { userLogin: reportLogin, limit });
+          // Issue #338 S2+S4: run summaries read body fields (pdfKey,
+          // reportUrl) — resolve every row's body first; pointer rows
+          // read from R2, inline rows serve inline and backfill.
+          const reportEnv = (ctx as any).env || {};
+          const resolved = await Promise.all(
+            hits.map(async (h) => ({
+              ...h,
+              body: (await resolveCanonicalReportBodyWithBackfill(sql, reportEnv, h)) ?? "",
+            }))
+          );
+          return resolved.map(runSummaryFromReport);
+        });
+      }
+      if (kind === "all" || kind === "options_scanner") {
+        await readStore("scans", async () => {
+          const { SqlScanRunStore } = await import("../../trading");
+          const { runSummaryFromScanRun } = await import("../../services/runSummaries");
+          const scans = await new SqlScanRunStore(sql).list({ limit, userLogin: storeLogin });
+          return scans.map(runSummaryFromScanRun);
+        });
+      }
+      if (kind === "all" || kind === "discovery") {
+        await readStore("discovery", async () => {
+          const { SqlDiscoveryRunStore } = await import("../../trading");
+          const { runSummaryFromDiscoveryRun } = await import("../../services/runSummaries");
+          const runs = await new SqlDiscoveryRunStore(sql).list({ limit, userLogin: storeLogin });
+          return runs.map(runSummaryFromDiscoveryRun);
+        });
+      }
+      if (kind === "all" || kind === "screener") {
+        await readStore("screener", async () => {
+          const { runSummaryFromScreenerRun } = await import("../../services/runSummaries");
+          const context = await ctx.getScreenerExecutionContext();
+          const agent = ctx.getScreenerAgent(headerLogin || context?.userLogin || "default_trader");
+          const history = await agent.getHistory();
+          return history.map(runSummaryFromScreenerRun);
+        });
+      }
+      const { mergeRunSummaries } = await import("../../services/runSummaries");
+      const merged = mergeRunSummaries(lists, limit);
+      return Response.json({
+        count: merged.length,
+        kind,
+        runs: merged,
+        ...(Object.keys(storeErrors).length ? { storeErrors } : {}),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to list runs", runs: [] }, { status: 500 });
+    }
+  }
+
   // Issue #339: one stored report by id for the Reports-tab detail view
   // (research run detail renders the canonical body client-side). The
   // attachment payload of email-delivery bodies is stripped — the detail
@@ -429,17 +600,23 @@ export async function handleReportsRoutes(
   const reportDetailMatch = path.match(/\/api\/reports\/([^/]+)$/);
   if (reportDetailMatch && request.method === "GET") {
     try {
-      const { getScheduledReportById, scheduledReportPdfUrl } = await import("../../services/scheduledReports");
+      const { getScheduledReportById, scheduledReportPdfUrl, resolveCanonicalReportBodyWithBackfill } = await import("../../services/scheduledReports");
       const headerLogin = request.headers.get("x-user-login");
       const userLogin = headerLogin && headerLogin.trim() ? headerLogin : undefined;
       const hit = getScheduledReportById(ctx.ensureTables(), decodeURIComponent(reportDetailMatch[1]), { userLogin });
       if (!hit) {
         return Response.json({ error: "Report not found" }, { status: 404 });
       }
+      // Issue #338 S2: the canonical body may live in R2 behind the
+      // body_r2_key pointer — resolve it before parsing (inline rows
+      // resolve to themselves; a lost object resolves to null and the
+      // detail view renders body: null, as for an unparseable body).
+      const reportEnv = (ctx as any).env || {};
+      const bodyText = (await resolveCanonicalReportBodyWithBackfill(ctx.ensureTables(), reportEnv, hit)) ?? "";
       let body: unknown = null;
       let hasAttachment = false;
       try {
-        const parsed = JSON.parse(hit.body);
+        const parsed = JSON.parse(bodyText);
         if (parsed && typeof parsed === "object" && typeof (parsed as any).attachmentBase64 === "string" && (parsed as any).attachmentBase64) {
           hasAttachment = true;
           body = { ...(parsed as Record<string, unknown>), attachmentBase64: "" };
@@ -456,7 +633,7 @@ export async function handleReportsRoutes(
         source: hit.source,
         summary: hit.summary,
         createdAt: hit.createdAt,
-        reportUrl: scheduledReportPdfUrl(hit.source, hit.body),
+        reportUrl: scheduledReportPdfUrl(hit.source, bodyText),
         hasAttachment,
         body,
       });

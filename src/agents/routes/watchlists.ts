@@ -59,7 +59,17 @@ export async function handleWatchlistsRoutes(
       try {
         const userLogin = request.headers.get("x-user-login") || sessionId || "default_trader";
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const watchlists = await etrade.getWatchlists();
+        let watchlists;
+        try {
+          watchlists = await etrade.getWatchlists();
+        } catch (err) {
+          // Issue #826: BusinessError carries business message for UI.
+          const { BusinessError } = await import("../../errors/errorAspects");
+          if (err instanceof BusinessError) {
+            return Response.json(err.toJSON(), { status: err.entry.httpStatus });
+          }
+          throw err;
+        }
         if (watchlists.length === 0) {
           // Issue #243: the merged remote+local list is empty AND the
           // client recorded an error — that is an upstream failure, not

@@ -50,7 +50,7 @@ function envWithExhaustedKv() {
     },
     SESSIONS: kv,
     ETRADE_KV: kv,
-    APP_NAME: "AI Search Agent",
+    APP_NAME: "NextGenTP",
     SEARCH_AGENT: {
       idFromName: (name: string) => name,
       get: () => ({

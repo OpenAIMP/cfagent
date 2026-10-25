@@ -40,26 +40,21 @@ export interface AssetResult {
 export class ReportAssetAgent extends Agent<Env> {
   /**
    * Generate + store one PDF asset. Returns null on any failure.
+   *
+   * Consolidation C4 (issue #1329, epic #1151): the agent no longer
+   * calls the trading generators directly — it dispatches through the
+   * pipeline's generateReportPdf/getReportFileName (the ONE generator
+   * dispatch, src/services/unifiedReportPipeline.ts), completing the
+   * epic's "report-asset-agent's direct PDF call moves behind
+   * runReportPipeline" item. The agent remains the single owner of
+   * the generate step; the pipeline owns the dispatch.
    */
   async generateAsset(request: AssetRequest): Promise<AssetResult | null> {
     try {
       const { type, data } = request;
-      let bytes: Uint8Array;
-      let fileName: string;
-
-      if (type === "research") {
-        const { generateResearchPdf, researchPdfFileName } = await import("../trading");
-        bytes = await generateResearchPdf(data as any);
-        fileName = request.fileName ?? researchPdfFileName(data as any);
-      } else if (type === "screener") {
-        const { generateScreenerPdf, screenerPdfFileName } = await import("../trading");
-        bytes = await generateScreenerPdf(data as any);
-        fileName = request.fileName ?? screenerPdfFileName(data as any);
-      } else {
-        const { generateOptionsPdf, optionsPdfFileName } = await import("../trading");
-        bytes = await generateOptionsPdf(data as any);
-        fileName = request.fileName ?? optionsPdfFileName(data as any);
-      }
+      const { generateReportPdf, getReportFileName } = await import("../services/unifiedReportPipeline");
+      const bytes = await generateReportPdf(type, data);
+      const fileName = request.fileName ?? (await getReportFileName(type, data));
 
       const key =
         request.key ?? `report:pdf:${type}:${crypto.randomUUID().slice(0, 8)}`;
@@ -118,7 +113,11 @@ export async function generatePdfAsset(
 ): Promise<AssetResult | null> {
   try {
     const ns = (env as any).REPORT_ASSET_AGENT;
-    if (!ns) return null;
+    if (!ns) {
+      // Issue #912: was silent — log why PDF generation is skipped.
+      console.error(`[ReportAssetAgent] generatePdfAsset(${type}) skipped: REPORT_ASSET_AGENT binding not configured in worker env. PDF will not be generated.`);
+      return null;
+    }
     const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin))) as unknown as ReportAssetAgent;
     return await agent.generateAsset({ type, data, userLogin });
   } catch (err) {
@@ -146,6 +145,25 @@ export async function generatePdfAssetWithBytes(
     if (!stored) return null;
     return { key: asset.key, fileName: asset.fileName, bytes: stored.bytes };
   } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch a stored asset by key via the ReportAssetAgent DO.
+ */
+export async function getPdfAsset(
+  env: { REPORT_ASSET_AGENT?: any },
+  userLogin: string,
+  key: string
+): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+  try {
+    const ns = (env as any).REPORT_ASSET_AGENT;
+    if (!ns) return null;
+    const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin))) as unknown as ReportAssetAgent;
+    return await agent.getAsset(key);
+  } catch (err) {
+    console.warn(`[ReportAssetAgent] getPdfAsset(${key}) failed:`, err);
     return null;
   }
 }

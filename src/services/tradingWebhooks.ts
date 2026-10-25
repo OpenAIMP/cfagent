@@ -25,6 +25,7 @@ import { AGENT_DIDS, createDidAttestation } from "../agents/did";
 import { ETradeService } from "./etrade";
 
 import { verifyHmacSha256Signature, assertSafeOutboundWebhookUrl } from "../security/webhookSecurity";
+import { checkSlackWebhookRateLimit, isSlackWebhookUrl } from "./slackWebhookRateLimit";
 import {
   deriveTradingViewNonce,
   deriveETradeNonce,
@@ -304,6 +305,20 @@ export class ETradeWebhookService {
       assertSafeOutboundWebhookUrl(url);
     } catch (err: any) {
       return { success: false, url: "", error: err?.message || "Webhook target not allowed." };
+    }
+
+    // Issue #411: Slack webhook destinations are rate-limited per URL
+    // (~1/sec sustained, burst 5 — Slack's published webhook guidance).
+    // Other destinations carry their own limits and are not throttled here.
+    if (isSlackWebhookUrl(url)) {
+      const rl = checkSlackWebhookRateLimit(url);
+      if (!rl.allowed) {
+        return {
+          success: false,
+          url,
+          error: `Rate limited: Slack webhook calls to this destination are capped at ~1/second; delivery skipped (retry after ${rl.retryAfterMs}ms).`,
+        };
+      }
     }
 
     // Issue #123 (F20): outbound webhooks are advertised as HMAC-signed, so

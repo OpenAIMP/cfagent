@@ -5,10 +5,10 @@
  */
 
 import { z } from "zod";
+import { optionScreenerFilterFields, parseOptionScreenerFilter } from "../trading";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
-import { DynamicOptionsScreener } from "../trading";
-import { ETradeService } from "../services/etrade";
+import { UnifiedOptionsService } from "../trading";
 import { FossResearchService } from "../services/fossResearch";
 
 /**
@@ -50,19 +50,24 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
       paymentSignature: { type: "string", description: "x402 PAYMENT-SIGNATURE proof (base64 JSON or hex)" },
     },
   };
+  // Issue #959: the filter constraints are composed from the ONE
+  // shared options-filter definition (optionScreenerFilterFields in
+  // src/trading/screeningSchemas.ts); this command's own tighter
+  // bounds (0..1 deltas, positive maxDte, integer open interest) are
+  // layered on the shared field schemas, not re-declared.
   readonly zodSchema = z.object({
     underlying: z.string().optional(),
-    maxUnderlyings: z.number().int().positive().optional(),
-    contractType: z.enum(["CALL", "PUT", "BOTH"]).optional(),
-    minDelta: z.number().min(0).max(1).optional(),
-    maxDelta: z.number().min(0).max(1).optional(),
-    minDte: z.number().int().nonnegative().optional(),
-    maxDte: z.number().int().positive().optional(),
-    minVolume: z.number().int().nonnegative().optional(),
-    minOpenInterest: z.number().int().nonnegative().optional(),
-    maxSpreadPct: z.number().nonnegative().optional(),
-    maxQuoteAgeSeconds: z.number().nonnegative().optional(),
-    limit: z.number().int().positive().optional(),
+    maxUnderlyings: optionScreenerFilterFields.maxUnderlyings,
+    contractType: optionScreenerFilterFields.contractType,
+    minDelta: optionScreenerFilterFields.minDelta.unwrap().min(0).max(1).optional(),
+    maxDelta: optionScreenerFilterFields.maxDelta.unwrap().min(0).max(1).optional(),
+    minDte: optionScreenerFilterFields.minDte,
+    maxDte: optionScreenerFilterFields.maxDte.unwrap().min(1).optional(),
+    minVolume: optionScreenerFilterFields.minVolume,
+    minOpenInterest: optionScreenerFilterFields.minOpenInterest.unwrap().int().min(0).optional(),
+    maxSpreadPct: optionScreenerFilterFields.maxSpreadPct,
+    maxQuoteAgeSeconds: optionScreenerFilterFields.maxQuoteAgeSeconds,
+    limit: optionScreenerFilterFields.limit,
     paymentSignature: z.string().optional(),
   });
 
@@ -118,10 +123,10 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
       };
     }
 
-    // Payment verified: execute options screen
-    const etrade = new ETradeService(context.orm, context.env, context.sessionId || "default_trader");
-    const screener = new DynamicOptionsScreener(etrade.client);
-    const result = await screener.screenOptions({
+    // Payment verified: execute options screen. Issue #959: the
+    // assembled filter validates through the ONE shared options-filter
+    // schema before the engine sees it.
+    const parsedFilter = parseOptionScreenerFilter({
       underlyingSymbols: input.underlying ? [input.underlying.toUpperCase().trim()] : undefined,
       maxUnderlyings: input.maxUnderlyings,
       contractType: input.contractType,
@@ -135,6 +140,21 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
       maxQuoteAgeSeconds: input.maxQuoteAgeSeconds,
       limit: input.limit,
     });
+    if (!parsedFilter.ok) {
+      return { status: 400, error: parsedFilter.error };
+    }
+    // Issue #982: the paid tool executes through UnifiedOptionsService
+    // (the service the REST routes call); its screen data is the raw
+    // screen result the response below is built from.
+    const service = new UnifiedOptionsService(context.env, context.sessionId || "default_trader", undefined, context.orm);
+    const serviceResponse = await service.execute({
+      action: "screen",
+      channel: "mcp",
+      filter: parsedFilter.value,
+      symbols: parsedFilter.value.underlyingSymbols,
+      limit: parsedFilter.value.limit,
+    });
+    const result = serviceResponse.data;
 
     context.audit("agentic_payment.tool_executed", "trading", {
       tool: "paid_options_screener",

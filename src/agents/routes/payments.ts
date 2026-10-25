@@ -38,6 +38,11 @@ import {
   type SupportedGateway,
 } from "../../services/payments";
 import { AGENT_DIDS, getUserDid, resolveAgentDidDocument } from "../did";
+import {
+  SETTLEMENT_OWNER_HEADER,
+  registerDraftOwner,
+  resolveDraftOwner,
+} from "../../payments/draftOwners";
 import type { AgentName, Env } from "../../types";
 import type { SqlStorage } from "../../orm";
 
@@ -248,6 +253,12 @@ export async function handlePaymentsRoutes(
         proofSignature: checkoutResult.didAttestation.signature,
       });
 
+      // Issue #932: record which instance owns this draft so a gateway
+      // settlement webhook — received by the shared
+      // system_webhook_receiver instance, not this one — can be routed
+      // back here. Written for every draft, whatever its initial status.
+      await registerDraftOwner(ctx.env, draftId, sessionId);
+
       return Response.json({
         success: true,
         transaction: {
@@ -445,12 +456,97 @@ export async function handlePaymentsRoutes(
         body?.draftId;
 
       if (draftId) {
-        sql.exec(
-          "UPDATE mas_transactions SET status = 'completed', updated_at = ? WHERE id = ?",
-          now,
-          draftId
-        );
-        ctx.audit("payment.settled_webhook", "payments", { draftId, provider, raw: body?.type || body?.event_type });
+        // Issue #932: settlement must execute in the instance that OWNS
+        // the draft. Webhooks land on the shared system_webhook_receiver
+        // instance (src/server.ts interception), but drafts live in
+        // per-user instances — the previous code ran the UPDATE against
+        // this instance's store, matched 0 rows for every real draft,
+        // and still returned { received: true }. Resolution order:
+        //   1. a settlement hop (SETTLEMENT_OWNER_HEADER, set only by
+        //      the forwarding instance below) settles here only when it
+        //      names THIS instance; anything else is a misroute and is
+        //      refused loud — an instance never settles on another
+        //      tenant's behalf;
+        //   2. a draft row in THIS store is owned by possession and
+        //      settles here;
+        //   3. otherwise the draft-owner registry (written by every
+        //      create path — src/payments/draftOwners.ts) names the
+        //      owner, and the verified webhook is forwarded to it.
+        // A settlement that matches no draft is LOUD (error response +
+        // payment.settled_webhook_unmatched audit + console.error),
+        // never a silent { received: true }.
+        const auditUnmatched = (reason: string, status: number): Response => {
+          console.error(
+            `[payments] webhook settlement unmatched: draft=${draftId} provider=${provider} reason=${reason}`
+          );
+          ctx.audit("payment.settled_webhook_unmatched", "payments", {
+            draftId,
+            provider,
+            reason,
+            raw: body?.type || body?.event_type,
+          });
+          return Response.json(
+            {
+              received: false,
+              settled: false,
+              unmatched: true,
+              draftId,
+              error: `Settlement matched no draft (${reason})`,
+            },
+            { status }
+          );
+        };
+        const settleHere = (): Response => {
+          const rows = Array.from(
+            sql.exec("SELECT id FROM mas_transactions WHERE id = ?", draftId)
+          ) as any[];
+          if (rows.length === 0) return auditUnmatched("owner_row_missing", 404);
+          sql.exec(
+            "UPDATE mas_transactions SET status = 'completed', updated_at = ? WHERE id = ?",
+            now,
+            draftId
+          );
+          ctx.audit("payment.settled_webhook", "payments", { draftId, provider, raw: body?.type || body?.event_type });
+          return Response.json({ received: true, settled: true, draftId });
+        };
+
+        const routedOwner = request.headers.get(SETTLEMENT_OWNER_HEADER);
+        if (routedOwner) {
+          if (routedOwner !== sessionId) return auditUnmatched("misrouted", 502);
+          return settleHere();
+        }
+
+        const localRows = Array.from(
+          sql.exec("SELECT id FROM mas_transactions WHERE id = ?", draftId)
+        ) as any[];
+        if (localRows.length > 0) return settleHere();
+
+        const owner = await resolveDraftOwner(ctx.env, draftId);
+        if (!owner) return auditUnmatched("unknown_draft", 404);
+        if (owner === sessionId) return settleHere();
+
+        // Forward the verified webhook to the owning instance, which
+        // re-verifies the signature and settles against its own store —
+        // so the settlement and its audit event land in the owning
+        // instance. The owner's response (settled, or loud-unmatched)
+        // is propagated to the gateway unchanged.
+        try {
+          const ns = ctx.env.SEARCH_AGENT;
+          const stub = ns.get(ns.idFromString(owner));
+          const headers = new Headers(request.headers);
+          headers.set(SETTLEMENT_OWNER_HEADER, owner);
+          headers.delete("content-length");
+          const targetUrl = new URL("/payments/webhook" + url.search, "https://agent.internal");
+          return await stub.fetch(
+            new Request(targetUrl, { method: "POST", headers, body: rawBody })
+          );
+        } catch (err) {
+          console.error(
+            `[payments] webhook settlement routing failed: draft=${draftId} owner=${owner}:`,
+            err instanceof Error ? err.message : String(err)
+          );
+          return auditUnmatched("routing_unavailable", 502);
+        }
       }
 
       return Response.json({ received: true });

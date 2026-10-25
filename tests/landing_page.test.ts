@@ -7,12 +7,17 @@ describe("pre-login pages", () => {
     const html = renderLandingPage("Test App");
     expect(html).toContain("Quant vs LLM comparison");
     expect(html).toContain("Fast order ticket");
+    expect(html).toContain("trading-platform order preview");
+    expect(html).toContain("Options strategy screening");
+    expect(html).toContain("Signed, audited trade drafts");
     expect(html).toContain('href="/login"');
   });
 
-  it("login card highlights only trading capabilities", () => {
+  it("login card is focused strictly on authentication without feature clutter", () => {
     const html = renderLoginPage({} as any);
-    expect(html).toContain("trading-platform order preview");
+    expect(html).toContain("Sign in with GitHub");
+    expect(html).toContain('href="/auth/login"');
+    expect(html).not.toContain("trading-platform order preview");
     expect(html).not.toContain("RAG");
     expect(html).not.toContain("Payment");
   });
