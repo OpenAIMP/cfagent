@@ -62,6 +62,7 @@ import {
 // Issue #359-01: reports + HITL routes live in src/agents/routes/reports.ts;
 // routeRequest delegates to handleReportsRoutes at the original position.
 import { handleReportsRoutes, makeSubmitFollowupDelivery } from "./routes/reports";
+import { handleScreenerPresetRoutes } from "./routes/screenerPresets";
 import { handleMcpChatNlqRoutes } from "./routes/mcpChatNlq";
 import { handleSchemaRoutes } from "./routes/schema";
 import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./routes/adsRevenueReferrals";
@@ -874,6 +875,18 @@ export class OrchestratorAgent extends Think<Env> {
     } catch {
       // Non-critical: best-effort migration; fresh installs get the column.
     }
+    // Issue #1495 (#940-A): user-scoped screener presets (DO/SQLite, not KV per #415); criteria validated by the run path's strict parsers before storage.
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_screener_presets (
+        id TEXT PRIMARY KEY,
+        user_login TEXT NOT NULL,
+        name TEXT NOT NULL,
+        asset_class TEXT NOT NULL,
+        criteria_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
     // Append-only verdict ledger: every policy decision, its inputs, and a
     // signature produced server-side where the decision is made.
     sql.exec(`
@@ -1738,6 +1751,10 @@ export class OrchestratorAgent extends Think<Env> {
       reportConfirmationTtlMs: () => OrchestratorAgent.REPORT_CONFIRMATION_TTL_MS,
     });
     if (reportsResponse) return reportsResponse;
+
+    // Issue #1495 (#940-A): screener preset routes (screenerPresets.ts), invoked at this exact position in the sequential matching sequence.
+    const presetsResponse = await handleScreenerPresetRoutes(request, url, path, sessionId, { ensureTables: () => this.ensureTables() });
+    if (presetsResponse) return presetsResponse;
 
     // Issue #359-02: MCP + chat + NLQ routes are handled by
     // src/agents/routes/mcpChatNlq.ts. Invoked at this exact position in the
