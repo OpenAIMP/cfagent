@@ -339,12 +339,12 @@ export const COMPOSITION_MEMORY: MemoryEntry[] = [
   },
 ];
 
-/** MCP status: ~30 single-capability tools exist; no chain/goal tool (Phase 5). */
+/** MCP status: ~30 single-capability tools exist; chain/goal tools ship with Phase 5 (#1466). */
 export const MCP_CHAIN_STATUS = {
   source: "src/mcp/index.ts + commands.ts (per-user cfk_ keys, #180)",
   singleCapabilityTools: "shipped",
-  chainTool: "planned",
-  goalTool: "planned",
+  chainTool: "shipped",
+  goalTool: "shipped",
 } as const;
 
 export interface WorkedExampleStep {
