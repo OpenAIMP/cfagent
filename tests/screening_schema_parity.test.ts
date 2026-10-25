@@ -772,6 +772,10 @@ describe("#959 REST interactive screen routes share the schemas", () => {
     },
   };
 
+  // The session gate's authenticated login for these route calls
+  // (issue #1185: route handlers fail closed without it).
+  const authenticatedLogin = "parity_user";
+
   function brokerCtx() {
     return {
       env: {} as any,
@@ -790,7 +794,7 @@ describe("#959 REST interactive screen routes share the schemas", () => {
   it("POST /api/etrade/screen rejects a mis-typed filter with a 400 naming the field; engine never runs", async () => {
     const req = new Request("https://agent.test/api/etrade/screen", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-user-login": authenticatedLogin },
       body: JSON.stringify({ minPrice: "10" }),
     });
     const res = await handleEtradeBrokerRoutes(req, new URL(req.url), "/api/etrade/screen", "sess-1", brokerCtx());
@@ -804,7 +808,7 @@ describe("#959 REST interactive screen routes share the schemas", () => {
   it("POST /api/etrade/screen hands the engine exactly the shared schema's validated filter + universe", async () => {
     const req = new Request("https://agent.test/api/etrade/screen", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-user-login": authenticatedLogin },
       body: JSON.stringify(SCREENERS_HUB_BODY),
     });
     const res = await handleEtradeBrokerRoutes(req, new URL(req.url), "/api/etrade/screen", "sess-1", brokerCtx());
@@ -820,7 +824,10 @@ describe("#959 REST interactive screen routes share the schemas", () => {
 
   it("GET /api/etrade/screen rejects a NaN numeric param with a 400 naming the field", async () => {
     const url = new URL("https://agent.test/api/etrade/screen?minRsi=abc");
-    const req = new Request(url, { method: "GET" });
+    const req = new Request(url, {
+      method: "GET",
+      headers: { "x-user-login": authenticatedLogin },
+    });
     const res = await handleEtradeBrokerRoutes(req, url, "/api/etrade/screen", "sess-1", brokerCtx());
     expect(res).not.toBeNull();
     expect(res!.status).toBe(400);
@@ -845,7 +852,7 @@ describe("#959 REST interactive screen routes share the schemas", () => {
   it("POST /api/trading/options/screen rejects a legacy sortBy with a 400 naming sortBy; screener never runs", async () => {
     const req = new Request("https://agent.test/api/trading/options/screen", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-user-login": authenticatedLogin },
       body: JSON.stringify({ underlyingSymbols: ["NVDA"], sortBy: "openInterest", pushToSlack: false }),
     });
     const res = await handleEtradeOptionsRoutes(req, new URL(req.url), "/api/trading/options/screen", "sess-1", optionsCtx());
@@ -859,7 +866,7 @@ describe("#959 REST interactive screen routes share the schemas", () => {
   it("POST /api/trading/options/screen hands the screener exactly the shared schema's validated filter", async () => {
     const req = new Request("https://agent.test/api/trading/options/screen", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-user-login": authenticatedLogin },
       body: JSON.stringify({ ...RAW_CONTRACTS_BODY, pushToSlack: false }),
     });
     const res = await handleEtradeOptionsRoutes(req, new URL(req.url), "/api/trading/options/screen", "sess-1", optionsCtx());
