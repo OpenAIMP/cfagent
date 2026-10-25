@@ -1,0 +1,112 @@
+/**
+ * Issue #1548 ([AGENTIC] Slice 0) — portable versioned migration
+ * runner (R3).
+ *
+ * Rules this runner enforces:
+ *  - A table's DDL lives in exactly one migration file. The runner
+ *    never invents DDL; it only executes listed migrations in
+ *    version order.
+ *  - The `_migrations` bookkeeping table is owned by the runner
+ *    itself, not by any migration file.
+ *  - Application is idempotent and re-runnable: a migration whose
+ *    version is already recorded is skipped, and a migration's
+ *    statements are all `IF NOT EXISTS` / `OR IGNORE` shaped, so a
+ *    partial apply (crash between statements) converges on retry.
+ *  - The `_migrations` row is written LAST for each migration, so
+ *    the row is the commit marker: no row means "not applied",
+ *    regardless of how many statements already landed.
+ *  - Deliberately NOT wrapped in a multi-statement transaction:
+ *    drizzle-orm/d1 implements `db.transaction()` as sequential
+ *    BEGIN/COMMIT statements, which is not Postgres-equivalent
+ *    atomicity on D1's request-per-statement API. Slice 0 needs no
+ *    multi-statement atomicity (every statement is idempotent and
+ *    the marker is last); a future multi-statement need must use
+ *    the store's atomic primitive (D1 `batch()`) explicitly, not
+ *    `db.transaction()` on D1. See the ADR.
+ *  - Migration SQL constraint: statements are split on `;`, so a
+ *    migration file must not contain a semicolon inside a string
+ *    literal. All slice-0 DDL satisfies this.
+ */
+import { sql, type SQL } from "drizzle-orm";
+
+export interface DataMigration {
+  version: number;
+  name: string;
+  sql: string;
+}
+
+/** Minimal structural surface the runner needs from a Drizzle DB. */
+export interface MigrationDb {
+  all<T>(query: SQL): Promise<T[]>;
+  run(query: SQL): Promise<unknown>;
+}
+
+/**
+ * Migration 0001 — agent_governance (halt rows only). Portable
+ * subset (R2): `?` params only where params exist (DDL has none),
+ * epoch-ms integers, no dialect date functions, no RETURNING.
+ * The tenant/scope index serves the latest-row read; the
+ * `set_at_ms DESC` ordering matches the read's ORDER BY.
+ */
+export const MIGRATION_0001_AGENT_GOVERNANCE: DataMigration = {
+  version: 1,
+  name: "0001_agent_governance",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_governance (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  scope_id TEXT,
+  state TEXT NOT NULL,
+  set_by TEXT NOT NULL,
+  set_at_ms INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  provenance TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_governance_tenant_scope_idx ON agent_governance (tenant_id, scope, scope_id, set_at_ms DESC);
+`,
+};
+
+export const ALL_MIGRATIONS: DataMigration[] = [
+  MIGRATION_0001_AGENT_GOVERNANCE,
+];
+
+function splitStatements(sqlText: string): string[] {
+  return sqlText
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** Apply every unapplied migration in version order. Idempotent. */
+export async function applyMigrations(
+  db: MigrationDb,
+  migrations: DataMigration[],
+  nowMs: number = Date.now(),
+): Promise<number[]> {
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at_ms INTEGER NOT NULL
+    )
+  `);
+  const applied: number[] = [];
+  for (const migration of [...migrations].sort((a, b) => a.version - b.version)) {
+    const existing = await db.all<{ version: number }>(sql`
+      SELECT version FROM _migrations WHERE version = ${migration.version}
+    `);
+    if (existing.length > 0) continue;
+    for (const statement of splitStatements(migration.sql)) {
+      await db.run(sql.raw(statement));
+    }
+    // Commit marker LAST (see header): no row means not applied.
+    await db.run(sql`
+      INSERT INTO _migrations (version, name, applied_at_ms)
+      VALUES (${migration.version}, ${migration.name}, ${nowMs})
+    `);
+    applied.push(migration.version);
+  }
+  return applied;
+}
