@@ -15,12 +15,13 @@
  * economics carried explicitly, never dropped or fabricated). Gate
  * evidence (quote + chain) comes from the same provider session so
  * the kernel's re-gate sees the same evidence the discovery run
- * used. The strategy direction (strategy_to_names) DELIBERATELY
- * stays on `runDiscoveryMode`: the kernel's falsify stage demotes
- * fits (rankings carry no falsification evidence) from
- * qualified/watchlist to unverified, which would change NLQ fit
- * tiers — switching it needs a fit-tier design decision, not a
- * forced mapping (see tests/fit_discovery_kernel.test.ts).
+ * used. The strategy direction (strategy_to_names) runs through the
+ * kernel research entry (`RecommendationService.discoverNamesForStrategy`)
+ * and maps back via `kernelDiscoveryMapping` (#1256: the discovery
+ * itself attaches genuine falsification evidence to each ranked fit
+ * — gate verdict + live chain/quote session + fit components — so
+ * the kernel's falsify stage keeps qualified/watchlist tiers
+ * honestly; evidence-less fits still demote, per the invariant).
  *
  * Governance, stated once and pinned by tests:
  *
@@ -43,12 +44,12 @@
 import type { Env } from "../types";
 import {
   discoverStrategiesForName,
-  runDiscoveryMode,
+  discoverNamesForStrategy,
   type DiscoveryModeRequest,
   type DiscoveryModeResult,
 } from "./researchDiscovery";
 import { RecommendationService } from "./recommendationKernel";
-import { mapKernelNameDiscovery } from "./kernelDiscoveryMapping";
+import { mapKernelNameDiscovery, mapKernelStrategyDiscovery } from "./kernelDiscoveryMapping";
 import { RESEARCH_CONFIG_DEFAULTS, type ResearchConfig } from "./researchConfig";
 import { EtradeResearchDataProvider } from "./researchProviders";
 import {
@@ -274,8 +275,40 @@ export function createFitDiscoveryRunner(deps: {
           result: mapKernelNameDiscovery(kernelResult, discovery),
         };
       } else {
-        // Strategy direction: deliberately direct (see module doc).
-        raw = await runDiscoveryMode({ provider }, config, request);
+        // Strategy direction (#1256): kernel path. The discovery
+        // itself attaches genuine falsification evidence to each
+        // ranked fit (gate verdict + live chain/quote session + fit
+        // components, recorded at discovery time), so the kernel's
+        // falsify stage keeps qualified/watchlist tiers honestly —
+        // no placeholder evidence, no falsify exemption. The kernel
+        // order (tier, fitScore) wins where it disagrees with the
+        // direct order (fitScore, symbol); see the order-divergence
+        // pin in tests/fit_discovery_kernel.test.ts.
+        const discovery = await discoverNamesForStrategy(
+          { provider },
+          config,
+          {
+            structure: request.structure,
+            outlook: request.outlook,
+            symbols: request.symbols,
+            universe: request.universe,
+            goalKind: request.goalKind,
+            now: request.now,
+          },
+        );
+        const kernelResult = await new RecommendationService().discoverNamesForStrategy({
+          discoverNamesForStrategy: async () => discovery,
+          structure: request.structure,
+          outlook: request.outlook,
+          symbols: request.symbols,
+          universe: request.universe,
+          goalKind: request.goalKind,
+          now: request.now,
+        });
+        raw = {
+          direction: "strategy_to_names",
+          result: mapKernelStrategyDiscovery(kernelResult, discovery),
+        };
       }
 
       let result = raw;

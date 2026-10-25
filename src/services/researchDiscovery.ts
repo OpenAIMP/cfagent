@@ -152,6 +152,55 @@ export interface NameFit {
     maxLoss: number;
     maxGain: number | null;
   } | null;
+  /**
+   * #1256 — genuine falsification evidence for this fit, built by
+   * buildFitFalsificationEvidence at discovery time from the fit's
+   * own evaluated record (gate verdict + live chain/quote session +
+   * evaluated components). Absent ⇒ the kernel's falsify stage
+   * demotes the fit to unverified (never silently qualified).
+   */
+  falsificationEvidence?: string;
+}
+
+/**
+ * #1256 — build genuine falsification evidence for a strategy→name
+ * fit. This is NOT a placeholder: every element names an evaluation
+ * that actually ran in discoverNamesForStrategy for this symbol —
+ * the structure passed gateComposedCandidate (falsificationPresent)
+ * against the live quote + chain, and the fit components were
+ * computed from that same session. A ranked fit has passed every
+ * falsifying condition the path checks (no quote, no chain,
+ * unbuildable structure, gate rejection, null economics — each lands
+ * the symbol in `rejected`, never in `ranked`), so the evidence
+ * records those checks as evaluated-and-not-triggered, with their
+ * inputs. Two fits with different evaluated records produce
+ * different strings; a fit with no evaluated record carries no
+ * evidence at all (undefined), and falsify demotes it.
+ */
+export function buildFitFalsificationEvidence(input: {
+  symbol: string;
+  structure: string;
+  status: IdeaStatus;
+  gateReasons: string[];
+  chainAsOf: number;
+  chainProvenance: ChainProvenance;
+  quoteSource: string;
+  components: Record<FitComponent, number | null>;
+  missingComponents: FitComponent[];
+  fitScore: number;
+}): string {
+  const evaluated = (Object.keys(input.components) as FitComponent[])
+    .filter((k) => input.components[k] !== null)
+    .map((k) => `${k}=${input.components[k]}`)
+    .join(", ");
+  const absent = input.missingComponents.length > 0 ? input.missingComponents.join(", ") : "none";
+  return (
+    `fit falsification (researchDiscovery: gateComposedCandidate falsificationPresent): ` +
+    `${input.symbol} ${input.structure} gated ${input.status} on live chain asOf ${new Date(input.chainAsOf).toISOString()} (${input.chainProvenance}) + quote ${input.quoteSource}; ` +
+    `components evaluated: ${evaluated}; absent (excluded from fitScore, never estimated): ${absent}; ` +
+    `fitScore ${input.fitScore}; gate reasons: ${input.gateReasons.length > 0 ? input.gateReasons.join(" ") : "none"}; ` +
+    `invalidation checked and not triggered: no-quote / no-chain / unbuildable-structure / gate-rejected / null-economics (symbol ranked, not rejected).`
+  );
 }
 
 export interface StrategyDiscoveryResult {
@@ -760,6 +809,22 @@ export async function discoverNamesForStrategy(
       fitScore,
       components,
       missingComponents,
+      // #1256: genuine falsification evidence from this fit's own
+      // evaluated record (gate verdict + live chain/quote session +
+      // components) — the kernel's falsify stage keeps the tier only
+      // on this evidence, never on assertion.
+      falsificationEvidence: buildFitFalsificationEvidence({
+        symbol,
+        structure: opts.structure,
+        status: candidate.status,
+        gateReasons: candidate.gateReasons,
+        chainAsOf: chain.asOf,
+        chainProvenance: chain.provenance,
+        quoteSource: quote.source,
+        components,
+        missingComponents,
+        fitScore,
+      }),
       // Null economics carries through as null (fitScore comes from
       // components, not economics) — never a zero-filled summary.
       economics: candidate.economics
