@@ -167,17 +167,19 @@ describe("capability registry (#1395)", () => {
     }
   });
 
-  it("plan-level composition memory stays planned, vector recall stays unverified", () => {
+  it("plan-level composition memory ships with Phase 4 (#1461), vector recall stays unverified", () => {
     const composition = COMPOSITION_MEMORY.find(
       (e) => e.id === "memory-plan-composition",
     );
-    expect(composition?.status).toBe("planned");
-    expect(composition?.verification).toBeNull();
+    // Phase 4 (#1461) implements it: tests/composition_memory.test.ts
+    // pins record → recall → reuse + serve-leg resolution.
+    expect(composition?.status).toBe("shipped");
+    expect(composition?.verification).toBe("tests/composition_memory.test.ts");
     const vectorRecall = COMPOSITION_MEMORY.find(
       (e) => e.id === "memory-vector-recall",
     );
-    // Vectors exist in src, but no test references vector-memory, so
-    // the verification rule forbids marking it shipped.
+    // Vectors exist in src, but no test exercises recallForPlan
+    // itself, so the verification rule forbids marking it shipped.
     expect(vectorRecall?.status).toBe("in_flight");
     expect(vectorRecall?.verification).toBeNull();
   });
