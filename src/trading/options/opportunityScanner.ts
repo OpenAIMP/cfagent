@@ -473,6 +473,66 @@ export interface OpportunityScanResult {
   /** Coverage accounting (issue #27): how much of the requested
    *  universe was actually judged. */
   coverage: ScanCoverage;
+  /** Issue #1290 (#1173 R6): set when coverage is partial — the run
+   *  publishes as a *qualified partial* (the options mirror of the
+   *  stock #462 doctrine): never presented as a complete scan, and
+   *  never a failure while something evaluated. Zero evaluated is
+   *  turned into a coded failure by the scheduled gate (SCREEN_003). */
+  partial?: OptionsPartialQualification;
+}
+
+/**
+ * Issue #1290: qualification metadata for an options scan that could
+ * not judge its whole requested universe. Built once, at the scan
+ * result's single assembly point, and carried on the result into the
+ * summary, the PDF banner, and the scheduled gate — replacing the
+ * pre-R6 state where partiality existed only as a console warning in
+ * the scheduled flow.
+ */
+export interface OptionsPartialQualification {
+  /** Underlyings actually evaluated (coverage.evaluated). */
+  evaluatedCount: number;
+  /** Underlyings requested (coverage.considered). */
+  consideredCount: number;
+  /** Symbols skipped with an error (coverage.errors). */
+  coverageErrors: number;
+  /** Symbols never attempted (universe cap / truncation). */
+  truncatedCount: number;
+  /** Dominant skip reason across the skipped symbols, when any. */
+  topSkipReason?: string;
+  /** How many skipped symbols carried that reason. */
+  topSkipCount?: number;
+}
+
+/** Pure builder for the qualification above: undefined when coverage
+ *  is complete (evaluated == considered) or the universe was empty. */
+export function optionsPartialQualification(
+  coverage: ScanCoverage,
+  skipped: Array<{ reason?: unknown }>
+): OptionsPartialQualification | undefined {
+  if (coverage.considered <= 0 || coverage.evaluated >= coverage.considered) {
+    return undefined;
+  }
+  const reasonCounts = new Map<string, number>();
+  for (const entry of skipped) {
+    const reason = typeof entry?.reason === "string" && entry.reason ? entry.reason : null;
+    if (reason) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+  }
+  let topSkipReason: string | undefined;
+  let topSkipCount = 0;
+  for (const [reason, count] of reasonCounts) {
+    if (count > topSkipCount) {
+      topSkipReason = reason;
+      topSkipCount = count;
+    }
+  }
+  return {
+    evaluatedCount: coverage.evaluated,
+    consideredCount: coverage.considered,
+    coverageErrors: coverage.errors,
+    truncatedCount: coverage.truncated,
+    ...(topSkipReason ? { topSkipReason, topSkipCount } : {}),
+  };
 }
 
 const TARGET_FACTOR: Record<StrategyRequest["thesis"], number> = baseOppConfig.targetFactors;
@@ -1048,6 +1108,18 @@ export class OpportunityScanner {
     // scanner performs no I/O; persistence lives behind the
     // ScanRunStore seam (src/trading/options/scanRunStore.ts).
     const skippedRows = matrix.filter((m) => m.verdict === "skipped").length;
+    const coverage: ScanCoverage = {
+      considered: unique.length,
+      scanned: batch.length,
+      truncated: Math.max(0, unique.length - batch.length),
+      evaluated: matrix.length - skippedRows,
+      errors: skippedRows,
+      withTrades: opportunities.length,
+      eventCalendar: eventCalendarCoverage,
+    };
+    // Issue #1290: stamp the qualified-partial marker at the single
+    // assembly point so every surface downstream inherits it.
+    const partial = optionsPartialQualification(coverage, skipped);
     return {
       scanned: batch.length,
       withTrades: opportunities.length,
@@ -1088,15 +1160,8 @@ export class OpportunityScanner {
         targetFactors: { ...baseOppConfig.targetFactors },
         targetEmMultiples: { ...baseOppConfig.targetEmMultiples },
       },
-      coverage: {
-        considered: unique.length,
-        scanned: batch.length,
-        truncated: Math.max(0, unique.length - batch.length),
-        evaluated: matrix.length - skippedRows,
-        errors: skippedRows,
-        withTrades: opportunities.length,
-        eventCalendar: eventCalendarCoverage,
-      },
+      coverage,
+      ...(partial ? { partial } : {}),
     };
   }
 }

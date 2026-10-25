@@ -605,7 +605,7 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
 
       const result = executeNLQQuery(orm, "session_trader", plan, mockEnv);
       expect(result.domain).toBe("agentic_payments");
-      expect(result.summary).toContain("Cloudflare Agentic Wallet: Balance");
+      expect(result.summary).toContain("Agentic Wallet: Balance");
       expect(result.rows.length).toBe(1);
     });
 
@@ -667,8 +667,8 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
 
       expect(turn.success).toBe(true);
       expect(turn.actionType).toBe("agentic_payment");
-      expect(turn.spokenText).toContain("Cloudflare Agentic Wallet");
-      expect(turn.displayMarkdown).toContain("Cloudflare Agentic Payments");
+      expect(turn.spokenText).toContain("Agentic Wallet");
+      expect(turn.displayMarkdown).toContain("Agentic Micropayments");
     });
 
     it("tunes financial pronunciation for wallet receipts and amounts", () => {

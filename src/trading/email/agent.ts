@@ -422,7 +422,7 @@ export class ETradeEmailTradingService {
         <p style="color: ${SERVER_PALETTE.textSecondary}; margin-bottom: 4px;"><strong>Execution Total:</strong> $${targetTrade.totalValue.toFixed(2)} USD</p>
         <p style="color: ${SERVER_PALETTE.textSecondary}; margin-bottom: 0;"><strong>Authorizer DID:</strong> <code>${authorizerDid}</code></p>
       </div>
-      <p style="color: ${SERVER_PALETTE.textMuted}; font-size: 13px;">This trade was authorized via Cloudflare Email Agent and stamped with Cryptographic Agent DID proof.</p>
+      <p style="color: ${SERVER_PALETTE.textMuted}; font-size: 13px;">This trade was authorized via Autonomous Email Desk and stamped with Cryptographic Agent DID proof.</p>
       `
     );
 

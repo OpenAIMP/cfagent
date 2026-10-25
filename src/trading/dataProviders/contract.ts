@@ -207,12 +207,17 @@ export interface DataProvider {
    * implements it only if it declares batch-capable quotes. The
    * result is the provider's normalized quotes, in request order
    * per sub-batch, with no raw payload attached — raw wire responses
-   * live in the capture store, one record per sub-batch.
+   * live in the capture store, one record per sub-batch. Issue
+   * #1317: the element type is QuoteResult (the union), not
+   * ETradeQuote alone — the FOSS adapters' batch returns FossQuote
+   * rows, and narrowing the contract to E*TRADE's shape would force
+   * the yahoo binding to convert (breaking P1 parity) or to drop
+   * batching (repeating the #1184 throttle incident).
    */
   getQuotesBatch?(
     symbols: string[],
     runContext?: DataRunContext
-  ): Promise<DataResult<ETradeQuote[]>>;
+  ): Promise<DataResult<QuoteResult[]>>;
   getOptionsChain?(
     request: OptionsChainRequest,
     runContext?: DataRunContext
