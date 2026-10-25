@@ -93,10 +93,16 @@ export interface ScreenerRunOutcome {
   canonicalReportId?: string;
   /** Consolidation C4 (#1329): false when the run's delivery stays on
    *  its direct path and the chain must NOT plan deliveries (discovery
-   *  chains and goal chains in C4 — the chain covers generate + serve;
-   *  deliver-stage chaining for those callbacks is #1236 remainder for
-   *  C5's delivery convergence). Absent/true = the chain delivers. */
+   *  chains — the chain covers generate + serve; deliver-stage
+   *  chaining for discovery is #1236 remainder). Absent/true = the
+   *  chain delivers. Goal chains flipped to true in #1236. */
   deliverViaChain?: boolean;
+  /** Consolidation #1236: chain-delivery channel allowlist. When set,
+   *  the delivery planner sends only to these channels — a goal chain
+   *  mirrors its direct path's recipients instead of adding
+   *  env-configured channels the direct path never used. Absent =
+   *  config channels + per-task overrides (legacy). */
+  deliveryChannels?: AsyncJobChannel[];
   error?: string;
 }
 
@@ -192,6 +198,10 @@ export interface FollowupReportResult {
   status: "ready" | "skipped" | string;
   artifacts?: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" | "csv" }>;
   reason?: string;
+  /** Consolidation C4 (#1329): the canonical mas_reports row the serve
+   *  stage verified. A ready result carrying it is deliverable content
+   *  even with no file artifacts (goal chains, #1236). */
+  canonicalReportId?: string;
 }
 
 const CHANNEL_ORDER: AsyncJobChannel[] = ["slack", "email", "webhook"];
@@ -230,6 +240,10 @@ export function plannedDeliveryChannels(
   if (!config.enabled) return [];
   const channels: AsyncJobChannel[] = [];
   for (const channel of CHANNEL_ORDER) {
+    // Consolidation #1236: an outcome allowlist restricts the planner
+    // to the run's own recipients (goal chains mirror their direct
+    // path); env-configured channels outside it are not added.
+    if (outcome.deliveryChannels && !outcome.deliveryChannels.includes(channel)) continue;
     const override = channel === "email"
       ? outcome.emailTo
       : channel === "slack"
@@ -268,9 +282,14 @@ export function planDeliveryFollowups(
   if (outcome.deliverViaChain === false) return [];
   const kindLabel = screenerKindLabel(outcome.kind);
   const artifacts = reportResult.artifacts ?? [];
+  // Consolidation #1236: a ready result whose serve stage verified a
+  // canonical row is deliverable content (the canonical row IS the
+  // artifact for goal chains) — no "no artifact" skipReason. A ready
+  // result with neither artifacts nor a verified row keeps the
+  // undeliverable notice; a skipped report keeps its reason.
   const skipReason = reportResult.status === "skipped"
     ? reportResult.reason || "Report was skipped."
-    : artifacts.length === 0
+    : artifacts.length === 0 && !reportResult.canonicalReportId
       ? "Report produced no artifact to deliver."
       : undefined;
   const specs: FollowupDeliverySubmission[] = [];
@@ -623,8 +642,9 @@ export function planInitialFollowups(
  * completion hook resolves this and hands the context to the planners;
  * only recognized screener completions yield an outcome to plan from,
  * so a generic http job gains chain identity + generate-stage status
- * while serve/deliver planning for arbitrary routes remains #1236
- * remainder (no outcome adapter exists for them).
+ * while serve/deliver planning for arbitrary routes applies only when
+ *  a registered outcome adapter produces an outcome for the route
+ *  (#1236); unregistered routes keep the legacy chain.
  */
 export function resolveHttpJobChain(
   job: { stage?: string | null; chainId?: string | null },
@@ -672,6 +692,34 @@ function asOpportunities(value: unknown): ScreenerOutcomeOpportunity[] | undefin
 }
 
 /**
+ * Consolidation #1236: opt-in outcome adapters for arbitrary
+ * http.request routes. screenerKindForPath recognizes only the two
+ * screener routes; a route outside them has no outcome semantics the
+ * pipeline may invent (what "success" means for an arbitrary POST is
+ * the route owner's design decision). A route owner registers an
+ * adapter — a path matcher plus an extractor from (status, parsed
+ * body) to the canonical outcome — and screenerOutcomeFromHttpJob
+ * consults adapters, in registration order, only when no builtin kind
+ * matches. Unregistered routes keep the legacy chain (null: no
+ * follow-ups). Adapters are code, not config: registering one is a
+ * deliberate per-route decision, recorded with the route owner.
+ */
+export interface HttpOutcomeAdapter {
+  match: (pathAndQuery: string) => boolean;
+  adapt: (input: {
+    pathAndQuery: string;
+    responseStatus: number | undefined;
+    body: Record<string, unknown>;
+  }) => ScreenerRunOutcome | null;
+}
+
+const httpOutcomeAdapters: HttpOutcomeAdapter[] = [];
+
+export function registerHttpOutcomeAdapter(adapter: HttpOutcomeAdapter): void {
+  httpOutcomeAdapters.push(adapter);
+}
+
+/**
  * Adapt a completed http.request job (path, response status, body) into
  * the canonical outcome. Returns null when the job is not a screener
  * completion or the body is unparseable — follow-ups simply don't apply.
@@ -682,11 +730,21 @@ export function screenerOutcomeFromHttpJob(
   bodyText: string,
 ): ScreenerRunOutcome | null {
   const kind = screenerKindForPath(pathAndQuery);
-  if (!kind) return null;
   let body: Record<string, unknown>;
   try {
     body = JSON.parse(bodyText) as Record<string, unknown>;
   } catch {
+    return null;
+  }
+  // Consolidation #1236: builtins win; adapters cover only routes no
+  // builtin recognizes. An adapter that declines (null) leaves the job
+  // without follow-ups — the same as an unregistered route.
+  if (!kind) {
+    for (const adapter of httpOutcomeAdapters) {
+      if (!adapter.match(pathAndQuery)) continue;
+      const adapted = adapter.adapt({ pathAndQuery, responseStatus, body });
+      if (adapted) return adapted;
+    }
     return null;
   }
   const failed = (responseStatus !== undefined && responseStatus >= 400) || typeof body.error === "string";
