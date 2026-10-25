@@ -42,7 +42,17 @@ export type { PaymentRecord } from "../payments/ledger";
 
 const GUARD_STORAGE_KEY = "budgetGuard";
 const PAYMENTS_STORAGE_KEY = "payments";
-const GUARD_ALLOWLIST = ["search.query", "payments.draft", "tasks.create", "memory.remember", "nlq.execute"];
+const GUARD_ALLOWLIST = [
+  "search.query",
+  "payments.draft",
+  "tasks.create",
+  "memory.remember",
+  "nlq.execute",
+  "qa.run_sweep",
+  "search.opportunity_hunt",
+  "social.publish",
+  "pipeline:social-daily",
+];
 
 export class PaymentsAgent extends Agent<Env> {
   /**
