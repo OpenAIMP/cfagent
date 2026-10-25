@@ -218,6 +218,22 @@ export function getChallenger(
   return rows.length ? rowToChallenger(rows[0]) : null;
 }
 
+/**
+ * Consolidation #1257: the hub Review inbox lists challengers (the
+ * /adaptation/candidates read path after the challenger re-point).
+ * Tenant-scoped, newest first.
+ */
+export function listChallengers(sql: any, userLogin: string): Challenger[] {
+  ensureChallengerTables(sql);
+  const rows = Array.from(
+    sql.exec(
+      `SELECT * FROM mas_challengers WHERE user_login = ? ORDER BY created_at DESC LIMIT 200`,
+      userLogin
+    )
+  ) as any[];
+  return rows.map(rowToChallenger);
+}
+
 function setChallengerStatus(
   sql: any,
   challenger: Challenger,
@@ -369,6 +385,44 @@ function approvedApprover(sql: any, userLogin: string, challengerId: string): st
     )
   ) as any[];
   return rows.length ? String(rows[0].approver) : null;
+}
+
+export interface ChallengerApprovalRecord {
+  id: string;
+  challengerId: string;
+  approver: string;
+  decision: "approved" | "rejected";
+  createdAt: string;
+}
+
+/**
+ * Consolidation #1257: the hub Review inbox's approval read path
+ * (the /adaptation/candidates/approvals read path after the
+ * challenger re-point). Tenant-scoped, oldest first. Note there is
+ * no pending state: recording an approval IS the decision (the old
+ * #759 request-then-decide two-step is retired with the panel
+ * rework).
+ */
+export function listChallengerApprovals(
+  sql: any,
+  userLogin: string,
+  challengerId: string
+): ChallengerApprovalRecord[] {
+  ensureChallengerTables(sql);
+  const rows = Array.from(
+    sql.exec(
+      `SELECT * FROM mas_challenger_approvals WHERE challenger_id = ? AND user_login = ? ORDER BY created_at ASC`,
+      challengerId,
+      userLogin
+    )
+  ) as any[];
+  return rows.map((r) => ({
+    id: String(r.id),
+    challengerId: String(r.challenger_id),
+    approver: String(r.approver),
+    decision: r.decision as "approved" | "rejected",
+    createdAt: String(r.created_at),
+  }));
 }
 
 /* ------------------------------------------------------------------ */
