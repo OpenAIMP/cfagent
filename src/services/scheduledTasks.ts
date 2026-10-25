@@ -606,6 +606,10 @@ export class ScheduledTasksService {
     };
   }>> {
     const timestamp = new Date().toISOString();
+    // Issue #1527: whole-run fallback marker, set when the E*TRADE
+    // guard blocks and the run falls back to Yahoo. Declared here so
+    // the catch below can name it on a fallback-run failure.
+    let providerFallback: { from: "etrade"; reason: string } | undefined;
 
     try {
       const userLogin = options.userLogin || this.userLogin;
@@ -618,6 +622,12 @@ export class ScheduledTasksService {
       // expiry episode — instead of failing inside quote acquisition
       // every hour (the 2026-10-23 overnight incident). Yahoo runs
       // never touch the broker (#1007) and skip the guard.
+      // Issue #1527: a blocked E*TRADE run no longer fails outright —
+      // it falls back to a whole-run Yahoo screen. The guard's deduped
+      // episode alert already fired inside the guard; the fallback
+      // run's marker is the per-run signal, and a fallback success
+      // emits no failure notice. A fallback that itself fails takes
+      // the normal failure path in the catch below.
       if ((options.provider ?? "etrade") === "etrade") {
         const guard = await this.guardScheduledAuth(
           userLogin,
@@ -626,21 +636,26 @@ export class ScheduledTasksService {
           `${options.universe || "NASDAQ100"} stock screen`
         );
         if (guard.blocked) {
-          // Issue #1369 (stock twin of #1358): a blocked run is a
-          // failure, not a quiet return — throw so the catch below
-          // runs the full failure path (audit + session message +
-          // screener.failed bus event). The episode alert itself
-          // stays deduped inside the guard; the per-run notice here
-          // is never deduped. The guard sits before the sharded
-          // dispatch, so blocked sharded runs notify here too and
-          // never submit a shard chain.
-          throw new Error(guard.error);
+          providerFallback = { from: "etrade", reason: "etrade-auth-dead" };
+          this.audit("screener.run_fallback", {
+            kind: "stock",
+            universe: options.universe || "TECH",
+            sector: options.sector || "ALL",
+            from: "etrade",
+            to: "yahoo",
+            reason: "etrade-auth-dead",
+            error: guard.error,
+          });
         }
       }
       // Issue #1355: sharded execution. The monolithic path below is
       // untouched when the flag is absent — off runs keep today's
       // behaviour exactly.
-      if (options.sharded) {
+      // Issue #1527: a fallback run bypasses sharded dispatch — the
+      // sharded chain's E*TRADE feed shard has no auth-dead mode, so
+      // the fallback runs the monolithic Yahoo path and is recorded
+      // without the sharded flag.
+      if (options.sharded && !providerFallback) {
         // Issue #1412: await (do not bare-return) so a rejection from
         // the sharded path — e.g. the missing-port throw above — is
         // caught by this function's catch instead of escaping to the
@@ -661,7 +676,14 @@ export class ScheduledTasksService {
         environment: options.environment,
         // Issue #1007: provider rides through to the pipeline run;
         // absent keeps the E*TRADE default, byte-identical in shape.
-        ...(options.provider ? { provider: options.provider } : {}),
+        // Issue #1527: a fallback run rides provider "yahoo" plus the
+        // marker; a deliberate Yahoo run rides provider "yahoo" with
+        // no marker; an E*TRADE-live run is unchanged.
+        ...(providerFallback
+          ? { provider: "yahoo" as const, providerFallback }
+          : options.provider
+            ? { provider: options.provider }
+            : {}),
       });
 
       if (result.skippedDuplicate) {
@@ -674,9 +696,13 @@ export class ScheduledTasksService {
 
       // Audit every run (not just ones with hits) so "Recent autonomous
       // actions" shows the full history, including quiet runs.
+      // Issue #1527: the audit names the run's provider and, for a
+      // fallback run, the marker — the fallback is visible in history.
       this.audit("screener.run_completed", {
         sector: result.sector,
         universe: result.universe,
+        provider: result.provider,
+        ...(providerFallback ? { providerFallback } : {}),
         totalScanned: result.totalScanned,
         matchedCount: result.matchedCount,
         opportunityCount: result.opportunities.length,
@@ -699,6 +725,7 @@ export class ScheduledTasksService {
         universe: result.universe,
         trigger: options.trigger || "scheduled",
         expectedCount: result.expectedCount,
+        ...(providerFallback ? { providerFallback } : {}),
         pdfKey: result.pdfKey,
         pdfStatus: result.pdfStatus,
         pdfError: result.pdfError,
@@ -742,6 +769,7 @@ export class ScheduledTasksService {
           sector: result.sector,
           universe: result.universe,
           provider: result.provider,
+          ...(providerFallback ? { providerFallback } : {}),
           expectedCount: result.expectedCount,
           pdfKey: result.pdfKey,
           pdfStatus: result.pdfStatus,
@@ -764,9 +792,13 @@ export class ScheduledTasksService {
       // Failure surfacing (issue #112): screen failures used to vanish —
       // no audit event, no session message — unlike options analysis.
       // Audit and surface them symmetrically.
+      // Issue #1527: a fallback run that itself fails takes this same
+      // path; the audit names the fallback so the failure record
+      // shows it was a fallback attempt, not an E*TRADE-live failure.
       this.audit("screener.screen_failed", {
         sector: options.sector || "ALL",
         error: err.message,
+        ...(providerFallback ? { providerFallback } : {}),
       });
 
       if (this.orm?.messages) {
@@ -775,7 +807,7 @@ export class ScheduledTasksService {
             id: crypto.randomUUID(),
             sessionId: this.userLogin,
             role: "assistant",
-            content: `⚠️ Scheduled Market Screen failed for sector ${options.sector || "ALL"}: ${err.message || "Market screener execution error"}`,
+            content: `⚠️ Scheduled Market Screen failed for sector ${options.sector || "ALL"}: ${err.message || "Market screener execution error"}${providerFallback ? " (Yahoo fallback after E*TRADE auth failure)" : ""}`,
             agent: "orchestrator",
             createdAt: timestamp,
           });

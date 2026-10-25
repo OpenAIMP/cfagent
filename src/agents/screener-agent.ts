@@ -109,6 +109,17 @@ export interface ScreenerRunRequest {
    */
   provider?: StockScreenProvider;
   /**
+   * Issue #1527: explicit whole-run fallback marker — set by the
+   * scheduled layer when it falls back to Yahoo because the
+   * configured provider's auth is dead. Carried onto the result so
+   * every provenance surface (PDF, event, outcome) can name the run
+   * as a fallback, never as the configured provider's live run.
+   */
+  providerFallback?: {
+    from: StockScreenProvider;
+    reason: string;
+  };
+  /**
    * Issue #1007: test seam — an injected Yahoo quote fetcher for
    * provider "yahoo" runs (mirrors the pipeline's yahooDeps). Absent
    * in production, where the platform yahoo provider is bound here.
@@ -121,6 +132,14 @@ export interface ScreenerRunResult {
   trigger: "manual" | "scheduled";
   /** Issue #1007: the data provider that produced this run. */
   provider: StockScreenProvider;
+  /**
+   * Issue #1527: whole-run fallback marker, carried from the request
+   * when the run fell back to its provider (see the request field).
+   */
+  providerFallback?: {
+    from: StockScreenProvider;
+    reason: string;
+  };
   /** Universe screened (issue #270). */
   universe: UniverseId;
   sector: string;
@@ -474,6 +493,10 @@ export class ScreenerAgent extends Agent<Env> {
     // on every result — success, duplicate and failure alike — so the
     // canonical report provenance always names its provider.
     const provider: StockScreenProvider = req.provider ?? "etrade";
+    // Issue #1527: carry the fallback marker onto every result the
+    // run produces, so provenance names the fallback, not the
+    // configured provider's live run.
+    const providerFallback = req.providerFallback;
     let expectedCount = 0;
 
     // Issue #607: durable task record for this run (mandate §6; design
@@ -531,6 +554,7 @@ export class ScreenerAgent extends Agent<Env> {
           timestamp,
           trigger: req.trigger,
           provider,
+          ...(providerFallback ? { providerFallback } : {}),
           universe,
           sector,
           success: false,
@@ -792,6 +816,7 @@ export class ScreenerAgent extends Agent<Env> {
         timestamp,
         trigger: req.trigger,
         provider,
+        ...(providerFallback ? { providerFallback } : {}),
         universe,
         sector,
         success: true,
@@ -867,6 +892,7 @@ export class ScreenerAgent extends Agent<Env> {
         timestamp,
         trigger: req.trigger,
         provider,
+        ...(providerFallback ? { providerFallback } : {}),
         universe,
         sector,
         success: false,

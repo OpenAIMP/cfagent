@@ -70,6 +70,12 @@ export interface ScreenerCompletedEvent {
   rejections?: { symbol: string; reason: string }[];
   /** Summary of criteria applied during screening. */
   filterSummary?: string;
+  /**
+   * Issue #1527: whole-run fallback marker — the run fell back to
+   * its provider because the configured provider's auth was dead.
+   * Carried so deliveries and report bodies name the fallback.
+   */
+  providerFallback?: { from: string; reason: string };
   /** Direct recipient email (enables email dispatch via cfpay A2A or local fallback). */
   emailTo?: string;
   /** Explicit Slack channel destination. */

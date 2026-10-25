@@ -168,20 +168,39 @@ function renderAllStocksHeader(ctx: Ctx): void {
  */
 export function screenerProvenanceLines(result: {
   provider?: string;
+  /**
+   * Issue #1527: whole-run fallback marker. A fallback run's lines
+   * name the fallback explicitly — a plain-Yahoo line would hide
+   * that the run was configured for another provider, and the
+   * E*TRADE line would be false.
+   */
+  providerFallback?: { from: string; reason: string };
   technicalsCoverage?: { symbols: number; withMacd: number; withGap: number };
 }): { quotesLine: string; methodologyQuotes: string; technicalsNote?: string } {
   const yahoo = result.provider === "yahoo";
-  const lines: { quotesLine: string; methodologyQuotes: string; technicalsNote?: string } = yahoo
+  const fallback = yahoo && !!result.providerFallback;
+  const fromLabel =
+    result.providerFallback?.from === "etrade"
+      ? "E*TRADE"
+      : (result.providerFallback?.from ?? "the configured provider");
+  const lines: { quotesLine: string; methodologyQuotes: string; technicalsNote?: string } = fallback
     ? {
-        quotesLine: "Quotes: Yahoo Finance quotes (delayed)",
+        quotesLine: `Quotes: Yahoo Finance quotes (delayed) — fallback (${fromLabel} auth unavailable)`,
         methodologyQuotes:
-          "Quotes: Yahoo Finance (delayed) — the quote source for this run.",
+          `Quotes: Yahoo Finance (delayed) — fallback because ${fromLabel} auth was unavailable ` +
+          `for this scheduled run; the quote source for this run is Yahoo, not ${fromLabel} live.`,
       }
-    : {
-        quotesLine: "Quotes: E*TRADE live snapshots",
-        methodologyQuotes:
-          "Quotes: E*TRADE live snapshots (primary). No fallback data substituted.",
-      };
+    : yahoo
+      ? {
+          quotesLine: "Quotes: Yahoo Finance quotes (delayed)",
+          methodologyQuotes:
+            "Quotes: Yahoo Finance (delayed) — the quote source for this run.",
+        }
+      : {
+          quotesLine: "Quotes: E*TRADE live snapshots",
+          methodologyQuotes:
+            "Quotes: E*TRADE live snapshots (primary). No fallback data substituted.",
+        };
   const cov = result.technicalsCoverage;
   if (cov && cov.symbols > 0 && (cov.withMacd < cov.symbols || cov.withGap < cov.symbols)) {
     lines.technicalsNote =
