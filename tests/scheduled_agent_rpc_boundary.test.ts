@@ -37,6 +37,7 @@ vi.mock("../src/orchestrate", () => ({
 }));
 
 import { ScheduledAgent } from "../src/agents/scheduled-agent";
+import { PaymentsAgent } from "../src/agents/payments-agent";
 import { createJob } from "../src/orchestrate";
 import { zonedDateParts } from "../src/schedule";
 
@@ -164,4 +165,88 @@ describe("ScheduledAgent DO RPC boundary (#1391)", () => {
     expect(stored.enabled).toBe(false);
     expect(stored.lastRun).toBeTruthy();
   });
+
+  it("interacts with real PaymentsAgent without budgetCheck rejection (#1391)", async () => {
+    const ss = makeSessionStore();
+    const today = zonedDateParts(Date.now(), "America/New_York").date;
+    ss.rawSet(`social-brief:${today}`, JSON.stringify({
+      text: "Daily brief for threads.",
+      date: today,
+      updatedAtMs: Date.now(),
+    }));
+
+    const disabledSocialGoal = {
+      id: "daily-social-post",
+      name: "Daily social post",
+      cron: "0 9 * * 1-5",
+      timeZone: "America/New_York",
+      operation: "social.publish",
+      budgetCents: 1,
+      enabled: false,
+    };
+
+    const ctx = makeCtx([disabledSocialGoal]);
+    const paymentsAgent = new (PaymentsAgent as any)(makeCtx(), {
+      SEARCH_AGENT: {
+        idFromName: () => "search",
+        get: () => ({
+          fetch: async () => Response.json({ state: { dailySpend: [], seenKeys: [] } }),
+        }),
+      },
+    });
+
+    const env = {
+      PAYMENTS_AGENT: {
+        idFromName: () => "default",
+        get: () => paymentsAgent,
+      },
+      SESSION_STORE: ss.namespace,
+      SOCIAL_POSTING_ENABLED: "1",
+      SOCIAL_AUTONOMOUS_CHANNELS: "threads",
+      THREADS_ACCESS_TOKEN: "valid-threads-token",
+    } as any;
+
+    const agent = new (ScheduledAgent as any)(ctx, env);
+    const tick = await (agent as any).triggerGoal("daily-social-post");
+
+    expect(tick.jobsCreated).toBe(1);
+    expect(tick.jobsSkipped).toBe(0);
+    expect(tick.errors).toEqual([]);
+  });
+
+  it("records budget check error in tick.errors if rejected (#1391)", async () => {
+    const disabledGoal = {
+      id: "custom-unallowed-goal",
+      name: "Custom Goal",
+      cron: "0 9 * * 1-5",
+      operation: "disallowed.operation",
+      budgetCents: 100,
+      enabled: true,
+    };
+
+    const ctx = makeCtx([disabledGoal]);
+    const paymentsAgent = new (PaymentsAgent as any)(makeCtx(), {
+      ORCHESTRATOR_AGENT: {
+        idFromName: () => "orchestrator",
+        get: () => ({
+          fetch: async () => Response.json({ state: { dailySpend: {}, seenKeys: [] } }),
+        }),
+      },
+    });
+
+    const env = {
+      PAYMENTS_AGENT: {
+        idFromName: () => "default",
+        get: () => paymentsAgent,
+      },
+    } as any;
+
+    const agent = new (ScheduledAgent as any)(ctx, env);
+    const tick = await (agent as any).triggerGoal("custom-unallowed-goal");
+
+    expect(tick.jobsCreated).toBe(0);
+    expect(tick.jobsSkipped).toBe(1);
+    expect(tick.errors.some((e: string) => e.includes("budget check rejected"))).toBe(true);
+  });
 });
+

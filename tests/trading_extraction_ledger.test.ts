@@ -150,7 +150,7 @@ describe("trading extraction ledger (issue #291 T0)", () => {
       if (file.startsWith(TRADING_DIR + path.sep)) continue;
       const text = fs.readFileSync(file, "utf8");
       const count = text.split("new ETradeService(").length - 1;
-      if (count > 0) actual[path.relative(SRC, file)] = count;
+      if (count > 0) actual[path.relative(SRC, file).replace(/\\/g, "/")] = count;
     }
     expect(actual).toEqual(CONSTRUCTION_LEDGER);
     const total = Object.values(actual).reduce((a, b) => a + b, 0);
