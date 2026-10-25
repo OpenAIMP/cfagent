@@ -1,0 +1,118 @@
+# Main Audit — cfagent issue #1487.
+#
+# WHAT: daily backstop for the ruleset. It lists main commits from
+# the last 24 hours and checks each one against the GitHub API
+# commits/pulls association. A commit on main with no associated
+# PR is a direct push: the run files an issue naming it and fails.
+#
+# WHY: rebase-merged PR commits DO carry a PR association (verified
+# 2026-10-25 for the Jules commits in #1006, #1021, #1028, #1061,
+# and #1137), so association is a reliable discriminator. Merge
+# commits (two parents) are PR merges by construction and are
+# skipped, not flagged.
+#
+# SCOPE: read-only except for the single audit issue filed on
+# detection. This workflow never pushes, merges, or reverts.
+# A direct push it finds is reported, not repaired — repair is a
+# human decision (revert PR, §15, incident issue).
+#
+# OWNER STEP: no required-check wiring — this runs on a schedule
+# on main, not on PRs, so it is a detector, not a gate.
+
+name: Main Audit
+
+on:
+  schedule:
+    - cron: "30 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}-main
+  cancel-in-progress: false
+
+jobs:
+  main-audit:
+    name: Main Audit
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Audit recent main commits for direct pushes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - << 'PYEOF'
+          import json
+          import os
+          import subprocess
+          import sys
+          from datetime import datetime, timedelta, timezone
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          since = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+
+          def gh(*args):
+              result = subprocess.run(
+                  ["gh", "api", *args],
+                  capture_output=True, text=True, check=True,
+              )
+              return json.loads(result.stdout) if result.stdout.strip() else None
+
+          commits = gh(
+              f"repos/{repo}/commits",
+              "--jq", ".",
+              "-f", f"since={since}",
+              "-f", "per_page=100",
+              "-f", "sha=main",
+          )
+          direct = []
+          for commit in commits or []:
+              sha = commit["sha"]
+              # Merge commits are PR merges by construction.
+              if len(commit.get("parents", [])) > 1:
+                  continue
+              associated = gh(f"repos/{repo}/commits/{sha}/pulls")
+              if not associated:
+                  direct.append(commit)
+
+          if not direct:
+              print(f"Main audit passed: {len(commits or [])} main commit(s) "
+                    "in the last 24 hours, all associated with a PR.")
+              sys.exit(0)
+
+          print(f"Main audit FAILED: {len(direct)} direct-push commit(s):")
+          lines = []
+          for commit in direct:
+              author = (commit.get("author") or {}).get("login") or \
+                  commit["commit"]["author"]["name"]
+              committer = (commit.get("committer") or {}).get("login") or \
+                  commit["commit"]["committer"]["name"]
+              message = commit["commit"]["message"].splitlines()[0]
+              print(f"  - {commit['sha']} author={author} "
+                    f"committer={committer} msg={message}")
+              lines.append(
+                  f"- `{commit['sha']}` — author: {author}, "
+                  f"committer: {committer}, "
+                  f"date: {commit['commit']['committer']['date']}, "
+                  f"message: {message}"
+              )
+          body = (
+              "The main-audit workflow found main commit(s) with no "
+              "associated pull request — i.e. direct pushes to main, "
+              "which gitops §22 forbids. This issue is a report, not "
+              "a repair: do not auto-revert. Decide the repair as a "
+              "human action (revert PR, §15 report, incident issue).\n\n"
+              + "\n".join(lines)
+              + "\n\n#CISO-bhdm\n"
+          )
+          subprocess.run(
+              ["gh", "issue", "create",
+               "--repo", repo,
+               "--title", "[audit] Direct push to main detected",
+               "--body", body],
+              check=True,
+          )
+          sys.exit(1)
+          PYEOF
