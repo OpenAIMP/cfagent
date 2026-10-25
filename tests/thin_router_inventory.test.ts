@@ -102,6 +102,7 @@ const src = (rel: string) => readFileSync(`src/${rel}`, "utf8");
 
 const HANDLER_FILE: Record<string, string> = {
   "handleReportsRoutes": "reports.ts",
+  "handleScreenerPresetRoutes": "screenerPresets.ts",
   "handleMcpChatNlqRoutes": "mcpChatNlq.ts",
   "handleSchemaRoutes": "schema.ts",
   "handleAdsRevenueReferralsRoutes": "adsRevenueReferrals.ts",
@@ -128,6 +129,7 @@ const HANDLER_FILE: Record<string, string> = {
 
 const EXPECTED_DELEGATIONS = [
   "handleReportsRoutes",
+  "handleScreenerPresetRoutes",
   "handleMcpChatNlqRoutes",
   "handleSchemaRoutes",
   "handleAdsRevenueReferralsRoutes",
@@ -166,6 +168,9 @@ const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: === \"/reports\"",
   "handleReportsRoutes :: === \"/api/reports\"",
   "handleReportsRoutes :: endsWith(\"/reports/semantic-search\")",
+  "handleScreenerPresetRoutes :: endsWith(\"/screener/presets\")",
+  "handleScreenerPresetRoutes :: endsWith(\"/screener/presets\")",
+  "handleScreenerPresetRoutes :: startsWith(\"/screener/presets/\")",
   "handleMcpChatNlqRoutes :: endsWith(\"/mcp\")",
   "handleMcpChatNlqRoutes :: === \"/chat\"",
   "handleMcpChatNlqRoutes :: === \"/api/chat\"",
