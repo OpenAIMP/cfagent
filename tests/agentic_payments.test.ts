@@ -555,9 +555,17 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
         text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
         headers: { get: (h: string) => (h === "set-cookie" ? "A1=dummy; path=/" : null) },
       });
+      // Exact-hostname check (CodeQL js/incomplete-url-substring-sanitization).
+      const isFcYahoo = (u: string) => {
+        try {
+          return new URL(u).hostname === "fc.yahoo.com";
+        } catch {
+          return false;
+        }
+      };
       vi.stubGlobal("fetch", vi.fn(async (input: any) => {
         const url = String(input);
-        if (url.includes("fc.yahoo.com")) return jsonRes({});
+        if (isFcYahoo(url)) return jsonRes({});
         if (url.includes("getcrumb")) return jsonRes("dummy-crumb");
         if (url.includes("/v10/finance/quoteSummary/")) {
           return jsonRes({
