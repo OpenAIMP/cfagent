@@ -1098,7 +1098,7 @@ Before merging, the gate MUST also screen for the failure shapes a green suite c
 
 §18 and this section are discipline until repository settings make them mechanical.
 
-- `main` in every repository under this policy MUST be protected with required status checks covering at minimum the CI test/build job and secret scanning, so a red or unfinished pipeline cannot be merged by any lane or tool. Where merge volume makes stale-base merges a live risk, the branch MUST also be required to be up to date before merging.
+- `main` in every repository under this policy MUST be protected with required status checks covering at minimum the CI test/build job, secret scanning, and Policy Gate, so a red or unfinished pipeline or a PR that violates repository policy cannot be merged by any lane or tool. Where merge volume makes stale-base merges a live risk, the branch MUST also be required to be up to date before merging.
 - Enabling or changing branch protection is an owner-side repository setting (§3). Agents MUST record, per repository, whether protection is enabled and which checks are required; a repository without it is an open enforcement gap and MUST be reported as one — never described as covered.
 - Until protection is enabled for a repository, every merge in it remains auditable against §18 and this section after the fact. A merge that proceeded over a red or running check outside §18.1's emergency exception is a policy deviation and MUST be recorded on the PR or its issue, with the reason.
 
@@ -1228,51 +1228,39 @@ the work: use the wait to review the in-flight diff, prepare the next
 issue's test plan, or verify post-merge results — do not start dependent
 implementation on a stale base.
 
-### Trusted auto-merge automation (issue #1307, no-wait Phase 1 extension)
+### Default auto-merge automation (issue #1509)
 
-Per-PR auto-merge (rebase strategy) above is the manual form of this
-rule: the author enables it once the local gate is green and the PR
-description is complete. The automated form is the `auto-merge-trusted`
-workflow (`.github/workflows/auto-merge-trusted.yml`):
+The `auto-merge-trusted` workflow (`.github/workflows/auto-merge-trusted.yml`)
+is the default for PRs targeting `main`: when a non-draft PR is opened,
+updated, reopened, or marked ready, it adds the `auto-merge` label and
+enables auto-merge with the rebase strategy. No author allowlist is used
+because PR authors here share the owner's GitHub account. The PR template
+remains focused on description and checklist content; the workflow applies
+the default label.
 
-- It enables auto-merge (rebase only) on PRs carrying the `auto-merge`
-  label, and on nothing else. The label is the opt-in: only someone
-  with write access can add it, so no author allowlist is used (PR
-  authors here are the owner's token, so author alone proves nothing).
-- PRs touching `.github/workflows/` are never auto-merged by it.
-- Enabling auto-merge merges nothing by itself: GitHub merges only
-  when every requirement passes (required checks green, conversations
-  resolved, queue validation once the queue is on). Removing the label
+- PRs touching `.github/workflows/` are excluded from automatic labeling
+  and merging; they require a human merge.
+- Enabling auto-merge does not bypass branch rules. GitHub merges only
+  after all required checks pass, conversations are resolved, and queue
+  validation passes when the merge queue is enabled. Removing the label
   does not disable an already-enabled auto-merge — disable it on the
   PR page.
 - Prerequisite: the repo-level General → "Allow auto-merge" switch must
-  be ON, or PR-level auto-merge does not exist at all. Workflow files
-  cannot be written via API (403 workflow scope): the workflow is
-  installed by the owner via the web UI on a branch + PR, never direct
-  to main.
+  be ON, or PR-level auto-merge does not exist at all.
 
-### Auto-merge-safe PRs (issue #1307 extension)
+### Default eligibility
 
-Beyond the label, one class of PR auto-merges without any label: the
-safe PR. A PR is auto-merge-safe iff ALL hold:
+The workflow treats non-draft PRs as eligible by default, with the
+workflow-change exclusion above. Required checks provide the merge gate;
+there is no separate docs-only allowlist.
 
-- Every changed file is documentation: path ends with `.md` and none
-  is under `public/` (whose HTML is served as assets). Docs-only PRs
-  cannot change runtime behavior, so they are safe to merge as soon as
-  required checks pass.
-- Base branch is `main`, the PR is not a draft, and no conversation is
-  unresolved (GitHub enforces the last two at merge time regardless).
-- It is NOT safe if any file is a workflow, production config
-  (`wrangler.jsonc`), a pinned security module, a migration/schema, or
-  a production activation (flag flip, provider enablement) — those need
-  the label path (deliberate opt-in) or manual merge, never silent
-  auto-merge.
+### Policy Gate requirement
 
-The workflow enables auto-merge for safe PRs on the same rebase-only
-terms as labeled PRs; GitHub still merges only when every requirement
-passes. Test-only, dependency, and config PRs are NOT safe by default
-— promote a class to safe only by amending this list, never by
-assuming it.
+The `Policy Gate` job must be included in the `protectmain` ruleset's
+required status checks alongside CI and secret scanning. Its workflow
+enforces the linked issue, lane label, agent hashtag, and changelog entry
+requirements below. Recheck the live ruleset after changing this policy;
+documentation alone does not enforce the gate.
 
 ***
 
@@ -1328,10 +1316,10 @@ implement.
 - **Policy gate (required check).** `.github/workflows/policy-gate.yml`
   ("Policy Gate") fails any PR missing a linked issue, a §21 lane
   label, an agent hashtag, or a CHANGELOG entry under
-  `## [Unreleased]`. The owner must add "Policy Gate" to the
-  ruleset's required checks; until then the workflow runs but does
-  not block merges, and that state must be reported, not described
-  as covered.
+  `## [Unreleased]`. The "Policy Gate" job must be included in the
+  ruleset's required checks. Treat the gate as active only after
+  verifying the live ruleset includes it; if it is missing, report the
+  enforcement gap.
 - **Gate protection.** `.github/CODEOWNERS` requires owner review
   for `.github/workflows/*`, `docs/agents/gitops.md`, and `AGENTS.md`,
   and the ruleset must enable "Require review from Code Owners".
