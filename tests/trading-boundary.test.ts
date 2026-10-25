@@ -67,7 +67,7 @@ describe("trading boundary (issue #290)", () => {
       "ETradeRestClient",
       "DynamicMarketScreener",
       "DynamicOptionsScreener",
-      "OptionsAgentPipeline",
+      "runPanelPipeline",
       "UnifiedOptionsService",
       "SqlScanRunStore",
       "SqlIvHistoryStore",

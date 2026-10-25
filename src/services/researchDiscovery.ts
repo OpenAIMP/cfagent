@@ -84,7 +84,14 @@ export interface DiscoveryCandidate {
   source: "catalog" | "composed";
   operator?: string;
   legs: ResearchLeg[];
-  economics: StructureEconomics;
+  /**
+   * #1256 remainder — nullable: the kernel candidate contract allows
+   * economics null (unpriced ⇒ Unverified, never fabricated), and the
+   * discovery contract must be able to carry such a candidate back
+   * from a kernel run instead of dropping it or inventing figures.
+   * Every consumer must handle null explicitly (absent, never zero).
+   */
+  economics: StructureEconomics | null;
   status: IdeaStatus;
   provenance: ChainProvenance;
   definedRisk: boolean;
@@ -134,12 +141,17 @@ export interface NameFit {
   fitScore: number;
   components: Record<FitComponent, number | null>;
   missingComponents: FitComponent[];
+  /**
+   * #1256 remainder — nullable, mirroring DiscoveryCandidate: a fit
+   * whose candidate carries no economics reports economics absent,
+   * never a zero-filled summary.
+   */
   economics: {
     netDebit: number;
     netCredit: number;
     maxLoss: number;
     maxGain: number | null;
-  };
+  } | null;
 }
 
 export interface StrategyDiscoveryResult {
@@ -646,6 +658,16 @@ export async function discoverNamesForStrategy(
       continue;
     }
     const candidate = outcome.candidate;
+    if (!candidate.economics) {
+      // gateAndScore always prices, so this is defensive: a
+      // null-economics candidate cannot be fit-scored on legs — the
+      // rejection is recorded visibly, never silently dropped.
+      rejected.push({
+        symbol,
+        reason: "Economics unavailable — candidate cannot be fit-scored.",
+      });
+      continue;
+    }
     const legs = candidate.economics.legs;
 
     /* Fit components — missing data stays missing. */
@@ -738,12 +760,16 @@ export async function discoverNamesForStrategy(
       fitScore,
       components,
       missingComponents,
-      economics: {
-        netDebit: candidate.economics.netDebit,
-        netCredit: candidate.economics.netCredit,
-        maxLoss: candidate.economics.maxLoss,
-        maxGain: candidate.economics.maxGain,
-      },
+      // Null economics carries through as null (fitScore comes from
+      // components, not economics) — never a zero-filled summary.
+      economics: candidate.economics
+        ? {
+            netDebit: candidate.economics.netDebit,
+            netCredit: candidate.economics.netCredit,
+            maxLoss: candidate.economics.maxLoss,
+            maxGain: candidate.economics.maxGain,
+          }
+        : null,
     });
   }
 

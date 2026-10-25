@@ -39,7 +39,7 @@ import type { StrategyRequest } from "../src/trading/options/strategyEngine";
  * Issue #126 (PR-E) — scheduled strategy discovery.
  *
  * The scheduled task re-runs SAVED StrategyRequests verbatim (user
- * decision on #126) through the real OptionsAgentPipeline and persists
+ * decision on #126) through the real panel pipeline function and persists
  * one run record per execution. These tests pin:
  *  - the store (SQL + in-memory): round-trip, issue #103 visibility,
  *    retention pruning;
