@@ -108,7 +108,7 @@ describe("#920 NLQ relative pricing provenance", () => {
       source: "Curated universe static price (no live E*TRADE response)",
     });
     const plan = await planNLQ(liveEnv, `buy 10 shares of ${CURATED_ONLY} at 5% below market price`);
-    const result = await executeNLQQueryAsync(orm, sessionId, plan, liveEnv);
+    const result = await executeNLQQueryAsync(orm, sessionId, plan, liveEnv, "test-user");
     expect(result.count).toBe(0);
     expect(result.rows).toHaveLength(0);
     expect(result.summary).toMatch(/live E\*TRADE quote/i);
@@ -117,7 +117,7 @@ describe("#920 NLQ relative pricing provenance", () => {
   it("async execution prices a relative order off the LIVE remote quote", async () => {
     vi.spyOn(ETradeService.prototype, "fetchQuoteRemote").mockResolvedValue(liveQuote(CURATED_ONLY, 300));
     const plan = await planNLQ(liveEnv, `buy 10 shares of ${CURATED_ONLY} at 10% above market price`);
-    const result = await executeNLQQueryAsync(orm, sessionId, plan, liveEnv);
+    const result = await executeNLQQueryAsync(orm, sessionId, plan, liveEnv, "test-user");
     expect(result.count).toBe(1);
     // 10% above the live $300.00 quote = $330.00.
     expect(result.summary).toContain("330.00");

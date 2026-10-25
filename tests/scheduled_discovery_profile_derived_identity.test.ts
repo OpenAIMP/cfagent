@@ -38,8 +38,14 @@ vi.mock("../src/services/etrade", () => ({
   ETradeService: class FakeETradeService {
     client: { userLogin: string; overrideEnv?: string };
     constructor(...args: any[]) {
+      // Issue #1185: mirror the production constructor — an explicit
+      // userLogin is required; there is no default identity.
+      const userLogin = args[2] as string | undefined;
+      if (!userLogin) {
+        throw new Error("ETradeService requires an explicit userLogin (issue #1185: no default identity).");
+      }
       this.client = {
-        userLogin: (args[2] as string) || "default_trader",
+        userLogin,
         overrideEnv: args[3] as string | undefined,
       };
       etradeCapture.constructions.push({
