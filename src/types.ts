@@ -10,6 +10,11 @@ export interface Env {
   // wrangler.jsonc are #606).
   SESSION_STORE?: DurableObjectNamespace;
   SEARCH_AGENT: DurableObjectNamespace;
+  // Issue #1387 — OrchestratorAgent root namespace for sub-agent
+  // bootstrap (agents SDK resolves ctx.exports by constructor.name).
+  // Optional: the SDK resolves via ctx.exports, not env, so no code
+  // reads this binding yet.
+  ORCHESTRATOR_AGENT?: DurableObjectNamespace;
   // PR #3 — x402 PaymentsAgent DO (issue #161)
   PAYMENTS_AGENT: DurableObjectNamespace;
   // PR #4 — ScheduledAgent DO (issue #166)
@@ -154,13 +159,6 @@ export interface Env {
   // whose domain is listed are accepted. When unset, only format validation
   // applies (a warning is logged on first use). Issue #143 P0.
   EMAIL_TO_ALLOWED_DOMAINS?: string;
-  // Issue #1262 Phase 1: inbound email trading principal map. JSON object:
-  // lowercased sender address → { "login": "<cfagent login>", "tier":
-  // "read" | "preview" | "trade" }. Plain configuration (like
-  // EMAIL_TO_ALLOWED_DOMAINS), NOT a credential. Unmapped senders are
-  // refused; trade tier additionally requires a DKIM/SPF pass on the
-  // message. Parsed by parseEmailPrincipals (src/trading/channels/intake).
-  CHANNEL_EMAIL_PRINCIPALS?: string;
   // Nightly mas_messages retention window in days (issue #255, part of
   // #143). Default 90. A value <= 0 disables the retention pass entirely.
   MAS_MESSAGES_RETENTION_DAYS?: string;
@@ -1199,15 +1197,11 @@ export interface InboundEmailPayload {
   text?: string;
   html?: string;
   messageId?: string;
-  // Issue #1262 Phase 1: the raw Authentication-Results header (RFC 8601)
-  // forwarded by the worker email handler; the channel intake parses
-  // DKIM/SPF pass results from it to gate the email trade tier.
-  authenticationResults?: string;
 }
 
 export interface EmailTradingResult {
   success: boolean;
-  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "error" | "refusal";
+  actionType: "quote" | "screener" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "error";
   from: string;
   to: string;
   responseSubject: string;
@@ -1246,7 +1240,7 @@ export interface SlackBlockKitPayload {
 
 export interface SlackEventResult {
   handled: boolean;
-  actionType: "quote" | "screener" | "options_research" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored" | "snap" | "refusal" | "link";
+  actionType: "quote" | "screener" | "options_research" | "preview" | "approval" | "rejection" | "portfolio" | "general" | "challenge" | "ignored" | "snap";
   response?: SlackBlockKitPayload;
   orderId?: string;
   challenge?: string;

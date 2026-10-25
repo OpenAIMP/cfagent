@@ -77,13 +77,7 @@ import {
 import { ETradeRestClient } from "./trading";
 import { resolveEnvironmentConfig } from "./config/environment";
 import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./trading";
-import { ETradeSlackTradingService, confirmSlackLink } from "./trading";
-import {
-  INBOUND_EMAIL_ORCHESTRATOR_INSTANCE,
-  resolvePrincipal,
-  slackPrincipalLinkStoreFromEnv,
-  verifyApprovalLinkForPrincipal,
-} from "./trading";
+import { ETradeSlackTradingService } from "./trading";
 import { gateSlackRequest } from "./security/webhookSecurity";
 import { checkRateLimit } from "./security/rateLimiter";
 import {
@@ -112,6 +106,12 @@ import {
   AssetClassCategory,
 } from "./trading";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
+// Issue #1387 — the agents SDK resolves sub-agent roots through
+// ctx.exports by constructor.name, so OrchestratorAgent must ALSO be
+// exported under its own name (the SearchAgent alias above cannot
+// satisfy the root-namespace lookup). The alias stays: it is the live
+// orchestrator address and its stored state must not move.
+export { OrchestratorAgent } from "./agents/orchestrator";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
 export { BrowserAgent } from "./agents/browserAgent";
 export { SlackAgent } from "./agents/slackAgent";
@@ -774,7 +774,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         addGoal(goal: Record<string, unknown>): Promise<unknown>;
         removeGoal(id: string): Promise<boolean>;
         setGoalEnabled(id: string, enabled: boolean): Promise<boolean>;
-        triggerGoal(id: string): Promise<unknown>;
+        triggerGoal(id: string, env: unknown): Promise<unknown>;
       };
 
       if (path === "/api/schedule/goals" && request.method === "GET") {
@@ -807,7 +807,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           if (!updated) return Response.json({ error: "Goal not found." }, { status: 404 });
           return Response.json({ ok: true });
         }
-        const tick = await sched.triggerGoal(id);
+        const tick = await sched.triggerGoal(id, env);
         return Response.json({ ok: true, tick });
       }
       const deleteMatch = path.match(/^\/api\/schedule\/goals\/([^/]+)$/);
@@ -1514,54 +1514,6 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
     }
 
-    // --- Omnichannel Trading Agent: Signed Email Approval Link Click ---
-    // Issue #1262 Phase 5: a link click is NOT session-authenticated —
-    // the signed token is the authorization (HMAC + expiry + login
-    // binding, #149 pattern). The worker verifies the token's shape
-    // fast (fail-closed HTML page, no DO round-trip for junk), then
-    // forwards to the Orchestrator DO /trading/email/approve-link,
-    // which verifies again (signature + expiry + principal-map
-    // re-check) and executes through the shared engine. The DO
-    // instance is the inbound-email instance constant (imported, not
-    // copied — its value is #1289's scope; a rebase onto post-#1289
-    // main picks up the new value automatically).
-    if (path === "/api/trading/email/approve" && request.method === "GET") {
-      const escapeHtml = (s: string) =>
-        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-      const renderPage = (title: string, body: string) =>
-        new Response(
-          `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head>` +
-            `<body style="font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px">` +
-            `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p></body></html>`,
-          { headers: { "Content-Type": "text/html; charset=utf-8" } }
-        );
-      const token = url.searchParams.get("token") || "";
-      const fastCheck = await verifyApprovalLinkForPrincipal(env, token, undefined);
-      if (!fastCheck.ok) {
-        return renderPage("Approval link invalid", fastCheck.error);
-      }
-      const id = env.SEARCH_AGENT.idFromName(INBOUND_EMAIL_ORCHESTRATOR_INSTANCE);
-      const targetUrl = new URL("/trading/email/approve-link", "https://agent.internal");
-      const forwardRes = await env.SEARCH_AGENT.get(id).fetch(
-        new Request(targetUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token }),
-        })
-      );
-      const result = (await forwardRes.json().catch(() => ({}))) as any;
-      if (result.success) {
-        return renderPage(
-          "Order executed",
-          `Order ${result.orderId ?? ""} executed on E*TRADE${result.execId ? ` (reference ${result.execId})` : ""}.`
-        );
-      }
-      return renderPage(
-        "Approval not completed",
-        result.message || "The approval link could not be completed. The order was not executed."
-      );
-    }
-
     // --- Omnichannel Trading Agent: Slack Test Simulator ---
     if (path === "/api/trading/slack/test" && request.method === "POST") {
       const session = await requireAuth(request, env);
@@ -1572,33 +1524,6 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", userLogin);
       return env.SEARCH_AGENT.get(id).fetch(forwardReq);
-    }
-
-    // --- Omnichannel Trading Agent: Slack Principal Link Confirm ---
-    // Issue #1262 Phase 1: a signed-in user confirms the connect code
-    // the bot issued in a Slack DM (`link`). The code names the Slack
-    // user (team_id + user_id); the SESSION names the account — the
-    // binding written is slack user → session.githubLogin at tier
-    // "trade". Self-binding only: no request field can name the login.
-    if (path === "/api/trading/slack/link" && request.method === "POST") {
-      const session = await requireAuth(request, env);
-      if (!session) return new Response("Unauthorized", { status: 401 });
-      const body = (await request.json().catch(() => ({}))) as any;
-      const result = await confirmSlackLink(
-        env,
-        typeof body.code === "string" ? body.code : "",
-        session.githubLogin
-      );
-      if (!result.ok) {
-        return Response.json({ ok: false, error: result.error }, { status: 400 });
-      }
-      return Response.json({
-        ok: true,
-        teamId: result.teamId,
-        slackUserId: result.userId,
-        login: result.login,
-        tier: result.tier,
-      });
     }
 
     // --- Omnichannel Trading Agent: Voice Trading Turn Simulator & API ---
@@ -1665,7 +1590,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if ((path === "/voice/trade" || path === "/api/trading/voice/ws") && request.headers.get("Upgrade") === "websocket") {
       // Issue #154: the voice-trading session requires an app session,
       // checked BEFORE the WebSocket is accepted. Previously a null
-      // session proceeded under a shared synthetic voice identity, so an
+      // session proceeded under a shared "voice_trader" identity, so an
       // unauthenticated caller could open a voice trading session.
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
@@ -1849,26 +1774,8 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           return new Response("Social stores unavailable", { status: 500 });
         }
         const rawEnv = env as unknown as Record<string, string | undefined>;
-        // Issue #1262 Phase 2 (social convergence): a social APPROVE
-        // requires a resolved principal — the clicker's Slack identity
-        // linked to a trading login (Phase 1 link store). Unlinked
-        // clickers get a refusal with a link hint; REJECT stays open
-        // to any clicker (fail-safe: rejecting only prevents
-        // publication). The handler stamps the resolved login as the
-        // approver when one exists, else the legacy slack:<userId>.
-        const clickerPrincipal = await resolvePrincipal(
-          env,
-          {
-            channel: "slack",
-            channelUserId: payload.user?.id ?? "",
-            channelScopeId: payload.team?.id ?? "",
-            text: "",
-          },
-          { slackLinks: slackPrincipalLinkStoreFromEnv(env) }
-        );
         const outcome = await handleSocialSlackInteraction({
           payload,
-          principal: clickerPrincipal,
           env: {
             SOCIAL_POSTING_ENABLED: rawEnv.SOCIAL_POSTING_ENABLED,
             SOCIAL_AUTONOMOUS_CHANNELS: rawEnv.SOCIAL_AUTONOMOUS_CHANNELS,
@@ -2236,9 +2143,9 @@ export default {
     if (event?.cron === "*/30 * * * *") {
       const schedId = env.SCHEDULED_AGENT.idFromName("default");
       const schedAgent = env.SCHEDULED_AGENT.get(schedId) as unknown as {
-        onCron(): Promise<unknown>;
+        onCron(env: unknown): Promise<unknown>;
       };
-      const tickPromise = schedAgent.onCron();
+      const tickPromise = schedAgent.onCron(env);
       if (ctx?.waitUntil) ctx.waitUntil(tickPromise);
       else await tickPromise;
       // Issue #354 — the daily options-research run (after market close)
