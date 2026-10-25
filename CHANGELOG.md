@@ -19,6 +19,8 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **Sharded options screens (#1574, #1355):** scheduled options scans can opt into per-symbol durable chain-acquisition jobs with paced submission and independent retries. Assembly collates stored shard results, recalculates global ranking and coverage, and can publish qualified partial results when some symbols fail; an all-failed run stops without a report. #COO-spr9
+
 - **Guarded operator route for the halt seed cutover (#1559):** POST `/api/governance/seed-halt` runs the one-time `seedGovernanceHalt` for the primary tenant (mirror row only, never the DO setting; second run returns seeded:false), gated by requireAuth + wired session + live platform-admin membership following the IAAA admin pattern, via a new OrchestratorAgent method on the shared instance. No boot logic, no auto-run. #CAIO-quns
 
 - **Unrestricted PR automation (#1551):** `auto-merge-trusted.yml` uses the existing short-lived GitHub App token for all PRs, including drafts and workflow changes; drafts are labeled and auto-merge is enabled when they become ready. Policy Gate now runs on drafts, and the auto-update workflow updates draft branches. Gitops and active agent instructions permit parallel issue work by default while retaining each PR's required checks and post-merge verification. #CTO-mbshr
