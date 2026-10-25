@@ -5,7 +5,7 @@
  * avoids duplicate dispatches, and all repo workflows use pinned ubuntu-24.04 runners.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +13,10 @@ const workflowPath = new URL("../.github/workflows/auto-update-prs-app.yml", imp
 const workflowContent = readFileSync(workflowPath, "utf-8");
 
 describe("auto-update-prs-app.yml workflow configuration", () => {
+  it("replaces the previous updater instead of leaving both active", () => {
+    expect(existsSync(new URL("../.github/workflows/auto-update-prs.yml", import.meta.url))).toBe(false);
+  });
+
   it("triggers on push to main branch", () => {
     expect(workflowContent).toMatch(/^\s*push:\s*$/m);
     expect(workflowContent).toMatch(/^\s*branches:\s*$/m);
