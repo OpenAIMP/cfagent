@@ -40,7 +40,13 @@ function makeOrm(): DatabaseORM {
 }
 
 function tvEnv(): Env {
+  // No ETRADE_ENVIRONMENT set, so the environment resolves to live
+  // (PROD default) — the live-env assertions below apply.
   return { TRADINGVIEW_WEBHOOK_SECRET: TV_SECRET } as Env;
+}
+
+function tvSandboxEnv(): Env {
+  return { TRADINGVIEW_WEBHOOK_SECRET: TV_SECRET, ETRADE_ENVIRONMENT: "sandbox" } as Env;
 }
 
 function etEnv(): Env {
@@ -65,8 +71,27 @@ describe("TradingView inbound replay protection (#143 P0)", () => {
     return s.processTradingViewAlert(body, { "X-TradingView-Signature": sig });
   }
 
-  it("processes a fresh alert once (200)", async () => {
+  async function sendSandbox(body: string) {
+    const s = new ETradeWebhookService(orm, tvSandboxEnv(), "sess_tv");
+    const sig = await computeHmacSha256Hex(TV_SECRET, body);
+    return s.processTradingViewAlert(body, { "X-TradingView-Signature": sig });
+  }
+
+  // #922 ([#913 S4]): in the LIVE env NVDA has no live quote here (it
+  // only hits the curated table), so the alert can no longer draft off a
+  // static price — the handler fails explicit with a structured 502 and
+  // no draft, instead of an uncaught throw. The sandbox path below keeps
+  // the original draft-success coverage.
+  it("live env: a fresh alert without a live quote fails explicit (502), no draft", async () => {
     const res = await send(BODY);
+    expect(res.success).toBe(false);
+    expect(res.statusCode).toBe(502);
+    expect(res.message).toMatch(/live quote unavailable/i);
+    expect(res.orderDraftId).toBeUndefined();
+  });
+
+  it("sandbox env: processes a fresh alert once (200)", async () => {
+    const res = await sendSandbox(BODY);
     expect(res.success).toBe(true);
     expect(res.statusCode).toBe(200);
     expect(res.orderDraftId).toBeTruthy();
@@ -74,7 +99,8 @@ describe("TradingView inbound replay protection (#143 P0)", () => {
 
   it("rejects an identical replay with 409 and does not draft a second order", async () => {
     const first = await send(BODY);
-    expect(first.success).toBe(true);
+    expect(first.success).toBe(false);
+    expect(first.statusCode).toBe(502);
     const replay = await send(BODY);
     expect(replay.success).toBe(false);
     expect(replay.statusCode).toBe(409);
@@ -82,12 +108,13 @@ describe("TradingView inbound replay protection (#143 P0)", () => {
     expect(replay.orderDraftId).toBeUndefined();
   });
 
-  it("treats a different body as a different event (200)", async () => {
-    await send(BODY);
+  it("treats a different body as a different event (distinct failure, not a replay)", async () => {
+    const first = await send(BODY);
     const other = JSON.stringify({ ticker: "NVDA", action: "BUY", quantity: 3 });
     const res = await send(other);
-    expect(res.success).toBe(true);
-    expect(res.statusCode).toBe(200);
+    expect(res.success).toBe(false);
+    expect(res.statusCode).toBe(502);
+    expect(res.eventId).not.toBe(first.eventId);
   });
 
   it("nonce derivation is deterministic per delivery and distinct per body", async () => {
