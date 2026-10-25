@@ -64,8 +64,15 @@ const ORCH = "agents/orchestrator.ts";
  *  autonomousMarketScreen wrapper — measured 2,079 lines / 96,028 B
  *  after the addition; budget keeps similar headroom.
  *  Channel consolidation (#1262) adds channel wireup — measured
- *  2,079 lines / 97,953 B; budget keeps ~350 B headroom. */
-const BUDGET_LINES = 2095;
+ *  2,079 lines / 97,953 B; budget keeps ~350 B headroom.
+ *  R2 knowledge corpus S1 (#1169, supersedes PR #1510) adds the
+ *  knowledgeCorpus delegating wrapper + its import — measured
+ *  2,109 lines / 97,520 B after the addition (main alone, with
+ *  #1495's presets, already sat at 2,093 lines); budget keeps
+ *  similar headroom. This is the documented deliberate-growth
+ *  update, not a weakened assertion: the pin still fails on any
+ *  further unintentional regrowth. */
+const BUDGET_LINES = 2125;
 const BUDGET_BYTES = 98_300;
 
 const count = (haystack: string, needle: string) =>
