@@ -182,6 +182,14 @@ export interface MessageEnvelope {
   /** The entity the event is about (a chain/job id). */
   subject?: string;
   correlationid?: string;
+  /**
+   * Issue #1743 — W3C traceparent for the envelope's trace
+   * (e.g. "00-<traceId>-<spanId>-<flags>"). Consumer-side
+   * continuation: a subscriber folds under this trace. The
+   * validator tolerates it as a lowercase extension; it is
+   * listed here so the contract is explicit, not accidental.
+   */
+  traceparent?: string;
   /** Job this message belongs to. */
   jobid?: string;
   /** Parent job for a sub-job (the chain / request this shard belongs to). */
@@ -294,6 +302,9 @@ export function isMessageEnvelope(value: unknown): value is MessageEnvelope {
     (v.correlationid !== undefined &&
       (typeof v.correlationid !== "string" ||
         v.correlationid.length === 0)) ||
+    (v.traceparent !== undefined &&
+      (typeof v.traceparent !== "string" ||
+        v.traceparent.length === 0)) ||
     (v.jobid !== undefined &&
       (typeof v.jobid !== "string" || v.jobid.length === 0)) ||
     (v.parentjobid !== undefined &&
@@ -333,6 +344,7 @@ const KNOWN_KEYS = new Set([
   "data",
   "subject",
   "correlationid",
+  "traceparent",
   "jobid",
   "parentjobid",
   "shardid",

@@ -125,9 +125,15 @@ const ORCH = "agents/orchestrator.ts";
  *  createActorTurnRunner; the turn execution itself lives in
  *  src/gateway/, the class gains no logic) — measured 2,411
  *  lines / 110,562 B on the rebased tree, so budget lines rise
- *  to 2420 and bytes to 111_200. */
-const BUDGET_LINES = 2420;
-const BUDGET_BYTES = 111_200;
+ *  to 2420 and bytes to 111_200.
+ *  Observability (#1743) wires the actor turn's gateway emit
+ *  to the stream sink (two imports + emit closure in
+ *  createActorTurnRunner; the stream lives in src/observability/,
+ *  the class gains no logic) — measured 2,420 lines / 111,043 B
+ *  on the rebased tree, so budget lines rise to 2430 and bytes
+ *  to 112_000. */
+const BUDGET_LINES = 2430;
+const BUDGET_BYTES = 112_000;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

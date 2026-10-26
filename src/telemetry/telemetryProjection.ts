@@ -30,6 +30,8 @@ import type {
   ThesisDirection,
   ThesisRealizationInput,
 } from "./telemetryPorts";
+import { toRealizationRecordedEnvelope } from "./telemetryPorts";
+import type { MessageEnvelope } from "../messaging/messagingPorts";
 
 export interface ReportIdeaLike {
   symbol: string;
@@ -121,6 +123,14 @@ export function realizationsFromEvaluation(
  * hook body, extracted so it is testable without a DO):
  * convert, then idempotent record. Returns the store's
  * counts; empty conversions record nothing.
+ *
+ * Issue #1743: when opts.emit is supplied and at least one row
+ * was newly recorded, each row's realization_recorded envelope
+ * is emitted best-effort (failures swallowed — the stream
+ * never blocks the projection). Emission is at-least-once
+ * with deterministic ids (outcome id); a pure re-projection
+ * (recorded 0) emits nothing. Treat stream realization counts
+ * as approximate — the exact store is this table.
  */
 export async function projectEvaluationRealizations(
   store: TelemetryStore,
@@ -128,10 +138,32 @@ export async function projectEvaluationRealizations(
   evaluation: EvaluationLike,
   tenantId: string,
   links?: { reportId?: string | null; chainId?: string | null },
+  opts?: { emit?: (envelope: MessageEnvelope) => void | Promise<void> },
 ): Promise<{ recorded: number; duplicates: number }> {
   const rows = realizationsFromEvaluation(report, evaluation, tenantId, links);
   if (rows.length === 0) return { recorded: 0, duplicates: 0 };
-  return store.recordRealizations(rows);
+  const result = await store.recordRealizations(rows);
+  if (opts?.emit && result.recorded > 0) {
+    for (const row of rows) {
+      try {
+        await opts.emit(
+          toRealizationRecordedEnvelope({
+            tenantId: row.tenantId,
+            outcomeId: row.outcomeId,
+            agentKey: row.agentKey,
+            structure: row.structure,
+            regime: row.regime,
+            directionCorrect: row.directionCorrect,
+            falsified: row.falsified,
+            time: new Date(row.evaluatedAtMs).toISOString(),
+          }),
+        );
+      } catch {
+        // Best-effort stream emission, swallowed like #1742's emit.
+      }
+    }
+  }
+  return result;
 }
 
 export interface TrackRecordIdeaInput {

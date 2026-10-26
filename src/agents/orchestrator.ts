@@ -8,6 +8,8 @@ import type {
 import { createCfActorSession } from "../actors/cfAgentsAdapter";
 import { AgentChatTurnRunner, generateTextModelTurn } from "../actors/actorTurnRunner";
 import { createGatewayPorts } from "../gateway/createGatewayPorts";
+import { createObservabilitySink } from "../observability/createObservabilityPorts";
+import { writeEnvelopeToSink } from "../observability/observabilityPorts";
 import { createGatewayModelTurn } from "../gateway/gatewayModelTurn";
 import type { ActorSessionPort, ActorTurnPort } from "../actors/actorPorts";
 import type { ToolSet } from "ai";
@@ -249,7 +251,14 @@ export class OrchestratorAgent extends Agent<Env> {
     // #1741: the turn's generateText call routes through the gateway
     // port when one exists; otherwise the legacy turn is kept, so
     // unbound/mocked AI environments behave exactly as before.
-    const gateway = createGatewayPorts(this.env);
+    // #1743: gateway events flow to the observability stream
+    // (the server-boot sink wiring #1741 named as follow-up);
+    // unbound degrades to local logging, never fails the turn.
+    const gateway = createGatewayPorts(this.env, {
+      emit: async (envelope) => {
+        await writeEnvelopeToSink(createObservabilitySink(this.env), envelope);
+      },
+    });
     const modelTurn = gateway ? createGatewayModelTurn(gateway, { caller: "actor-turn" }) : generateTextModelTurn;
     return new AgentChatTurnRunner({
       hooks: {

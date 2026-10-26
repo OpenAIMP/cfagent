@@ -181,6 +181,14 @@ export interface WorkflowJobCommand {
   shard?: WorkflowShard;
   /** Tenant id resolved by the starter (absent → projection best-effort skipped). */
   tenantId?: string;
+  /**
+   * Issue #1743 — W3C traceparent for the run: the ingress
+   * trace continued into the workflow. Steps emit under it
+   * when they gain sink access (follow-up); the contract and
+   * the adapter passthrough land here, not a fake producer —
+   * service-layer call sites carry no request context today.
+   */
+  traceparent?: string;
   /** Sector filter (recorded on the job; the screen applies it). */
   sector?: string;
   /** Data provider ("etrade" | "yahoo"; the screen defaults it when absent). */
