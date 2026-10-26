@@ -14,6 +14,12 @@ import type { AsyncJobSubmission, Env } from "../types";
 import type { DatabaseORM } from "../orm";
 import { McpToolFactory } from "./commands";
 import { McpSystemFacade } from "../patterns/facade";
+import {
+  MEMORY_READ_MODE_SWITCH,
+  applyMemoryReadCap,
+  memoryConfigErrorEvent,
+  resolveMemoryReadMode,
+} from "../config/knowledgeMemoryModes";
 
 export interface MCPRequest {
   jsonrpc: "2.0";
@@ -187,6 +193,9 @@ export async function executeMCPTool(
     sessionId: string;
     /** #1722: NLQ_MODE session/user carriers, spread through to the tool context. */
     scopedNlqModes?: import("../config/nlqModes").NlqScopedModes;
+    /** #1723: KNOWLEDGE_MODE / MEMORY_READ_MODE carriers, spread likewise. */
+    scopedKnowledgeModes?: import("../config/knowledgeMemoryModes").KnowledgeScopedModes;
+    scopedMemoryModes?: import("../config/knowledgeMemoryModes").MemoryScopedModes;
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
     submitJob?: (job: AsyncJobSubmission) => Promise<{
       jobId: string;
@@ -209,7 +218,14 @@ export async function executeMCPTool(
  */
 export async function readMCPResource(
   uri: string,
-  context: { orm: DatabaseORM; sessionId: string }
+  context: {
+    orm: DatabaseORM;
+    sessionId: string;
+    /** #1723: env for the MEMORY_READ_MODE env level (resource protocol has no run carrier). */
+    env?: Env;
+    /** #1723: optional audit channel for memory.config_error on an invalid env value. */
+    audit?: (type: string, agent: any, payload: Record<string, unknown>) => void;
+  }
 ): Promise<{ uri: string; mimeType: string; text: string }> {
   const { orm, sessionId } = context;
 
@@ -247,7 +263,29 @@ export async function readMCPResource(
       };
     }
     case "sqlite://memory/facts": {
-      const memories = orm.memory.findMany({ orderBy: "updated_at DESC" });
+      // #1723: MEMORY_READ_MODE over the read cap only. The resource
+      // protocol carries no per-call mode, so only the env level
+      // applies here (builtin legacy = "uncapped"); an invalid env
+      // value fails closed to uncapped, is logged, and is audited
+      // when the caller supplied an audit channel.
+      const resolved = resolveMemoryReadMode(
+        { env: (context.env as unknown as Record<string, unknown> | undefined)?.[MEMORY_READ_MODE_SWITCH] },
+        "uncapped"
+      );
+      if (resolved.invalid) {
+        console.error(
+          `[memory] invalid ${MEMORY_READ_MODE_SWITCH} value ${JSON.stringify(resolved.raw)} — failing closed to "uncapped"`
+        );
+        context.audit?.(memoryConfigErrorEvent(), "orchestrator", {
+          setting: MEMORY_READ_MODE_SWITCH,
+          value: resolved.raw ?? "",
+          resolved: "uncapped",
+        });
+      }
+      const memories = applyMemoryReadCap(
+        orm.memory.findMany({ orderBy: "updated_at DESC" }),
+        resolved.mode
+      );
       return {
         uri,
         mimeType: "application/json",
@@ -329,6 +367,9 @@ export async function handleMCPRequest(
     sessionId: string;
     /** #1722: NLQ_MODE session/user carriers, forwarded to tool execution. */
     scopedNlqModes?: import("../config/nlqModes").NlqScopedModes;
+    /** #1723: KNOWLEDGE_MODE / MEMORY_READ_MODE carriers, forwarded likewise. */
+    scopedKnowledgeModes?: import("../config/knowledgeMemoryModes").KnowledgeScopedModes;
+    scopedMemoryModes?: import("../config/knowledgeMemoryModes").MemoryScopedModes;
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
     submitJob?: (job: AsyncJobSubmission) => Promise<{
       jobId: string;

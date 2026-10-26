@@ -1886,7 +1886,7 @@ export class OrchestratorAgent extends Think<Env> {
     });
     if (autopilotResponse) return autopilotResponse;
 
-    // Issue #359-06: memory + reset routes (GET/DELETE /memory,
+    // Issue #359-06: memory + reset routes (GET/POST/DELETE /memory,
     // POST|DELETE|GET /clear|/reset) are handled by
     // src/agents/routes/memoryReset.ts. Invoked at this exact position
     // in the sequential path.endsWith matching sequence (between the
@@ -1895,6 +1895,8 @@ export class OrchestratorAgent extends Think<Env> {
     const memoryResetResponse = await handleMemoryResetRoutes(request, url, path, sessionId, {
       ensureTables: () => this.ensureTables(),
       getOrm: () => this.getOrm(),
+      // #1723: env for the MEMORY_READ_MODE env level on GET /memory.
+      env: this.env,
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       abortAllRequests: (_reason) => this.abortAllRequests(),
       resetTurnState: () => this.resetTurnState(),
