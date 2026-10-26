@@ -9,6 +9,14 @@ export interface Env {
   // absence means the tick keeps legacy behavior (no cross-DO
   // halt read). Never a session or credential store.
   AGENT_DB?: D1Database;
+  // Issue #1739: queue-backed messaging bindings. Optional so code is
+  // safe before the bindings propagate; absence means the legacy
+  // in-process bus (the composition root returns null). The work
+  // queue stays producer-only in this slice (its consumer arrives
+  // with the first job handler); only the delivery subscriber queue
+  // has a consumer.
+  SCREENER_EVENTS?: Queue<unknown>;
+  SCREENER_EVENTS_DELIVERY?: Queue<unknown>;
   // Issue #329/#604: session + credential store — the SessionStore Durable
   // Object. Sessions, tokens and API keys live here, not in Workers KV
   // (legacy KV fallback removed in #604; the leftover KV bindings in
@@ -114,6 +122,40 @@ export interface Env {
   // values are an owner action. Resolved by resolvePaymentsFlowMode
   // in src/agents/routes/payments.ts.
   PAYMENTS_FLOW_MODE?: string;
+  // #1721 (parent #1717) — ONE switch per categories / referrals /
+  // external-ads pair (non-secret, owner-set, same pattern as
+  // PAYMENTS_FLOW_MODE). Values "route" | "mcp" (case-insensitive,
+  // padded values accepted). Default when unset or blank: "route" —
+  // current public route behavior (notably external ads cpm 15.0 /
+  // cpc 1.25). Any other value FAILS CLOSED to "route" and is logged
+  // + audited as <domain>.config_error — never silently treated as
+  // "mcp". Set via a Worker plain-text var (wrangler.jsonc `vars` or
+  // the Cloudflare dashboard Variables) and redeploy; rollback is
+  // unsetting the var (or setting it to "route") and redeploying — no
+  // code change. This slice deliberately does NOT set a production
+  // value: production values are an owner action. Resolution order
+  // (run > session > user > global env > built-in) lives in
+  // src/config/adsRevenueModes.ts.
+  CATEGORIES_MODE?: string;
+  REFERRALS_MODE?: string;
+  EXTERNAL_ADS_MODE?: string;
+  // #1722 (parent #1717, slice (b)) — ONE NLQ port-contract switch
+  // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
+  // Values "rest" | "mcp" (case-insensitive, padded values
+  // accepted). Default when unset or blank: "rest" — the REST-sync
+  // public route behavior (full port set on the REST route; the
+  // async-job contract is the other "public route" spelling and is
+  // NOT the default). Any other value FAILS CLOSED to "rest" and is
+  // logged + audited as nlq.config_error — never silently treated as
+  // "mcp". Set via a Worker plain-text var (wrangler.jsonc `vars` or
+  // the Cloudflare dashboard Variables) and redeploy; rollback is
+  // unsetting the var (or setting it to "rest") and redeploying — no
+  // code change. This slice deliberately does NOT set a production
+  // value: production values are an owner action. Resolution order
+  // (run > session > user > global env > built-in) and the
+  // enforcement exclusions (x-user-login gate, webhook social-port
+  // withholding) live in src/config/nlqModes.ts.
+  NLQ_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
@@ -1951,7 +1993,16 @@ export type AsyncJobSubmission =
     } & AsyncJobGraphFields)
   | ({
       capability: "nlq.execute";
-      payload: { query: string; userLogin: string };
+      payload: {
+        query: string;
+        userLogin: string;
+        // #1722: run-level NLQ_MODE value for this job, plus the
+        // optional session/user carriers set by the job submitter
+        // (see src/config/nlqModes.ts). Absent levels fall through
+        // to the Worker env NLQ_MODE, then the built-in "rest".
+        mode?: unknown;
+        scopedNlqModes?: { session?: unknown; user?: unknown };
+      };
     } & AsyncJobGraphFields)
   | ({
       capability: "task.draft";
