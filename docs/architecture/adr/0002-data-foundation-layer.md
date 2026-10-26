@@ -502,6 +502,57 @@ built here.
   with the port/dialect suite passing unchanged against
   both.
 
+## Slice 4 addendum (issue #1697, MCP read tools + dashboard routes)
+
+- Status: accepted with slice 4; the R1–R9 contract above is
+  unchanged and governs this slice. Scope note: the Postgres
+  adapter slice is deferred by the owner (2026-10-26,
+  "for now do R1/sqlite"); this program proceeds R1
+  port-first on SQLite (D1 + in-memory/local SQLite).
+- No new tables, no new migrations, no writes. The four
+  tools (`src/mcp/agentDbReadCommands.ts`) reuse the
+  slice-1/2/3 read helpers (`readChainStatus`,
+  `readJobHistory`, `readAuditHistory`, `readReports`)
+  behind the ports — query logic lives in exactly one
+  place per read, and the result shapes mirror the
+  dashboard route bodies (report bodies excluded, the
+  durable object holding the full copy).
+- Registration: the four commands join the McpToolFactory
+  static block alongside `goal.compile` / `goal.schedule` /
+  `chain.run`, so `tools/list` (derived from the factory),
+  `tools/call`, and `createAgentMcpTools` (which dogfoods
+  the factory) all pick them up with no further wiring.
+  The MCP explorer catalog gains the four entries and
+  its §7 size pin moves 30 → 34, per that pin's own
+  growth rule.
+- Tenancy (R7): the tenant comes from IAAA resolution of
+  env — the same resolution the dashboard routes use. No
+  tool accepts a tenant argument; a forged tenant value
+  in the arguments is ignored (pinned by test), and
+  cross-tenant reads return nothing. Auth rides the
+  existing `/mcp` path (app session or valid per-user
+  `cfk_` key) before any tool runs; the tools themselves
+  authenticate nothing, like every other factory tool.
+- Availability: an unbound store yields a clean
+  unavailable error, never a crash. A read failure
+  surfaces as a tool error, not partial data.
+- Dashboard routes: verified on main before building —
+  all four reads (`/api/chains/status`,
+  `/api/jobs/history`, `/api/audit/history`,
+  `/api/reports/list`) already exist from slices 1–3 and
+  are already catalogued, so slice 4 adds no server
+  route. The finding is pinned by a source test so a
+  future reader can see the check, not just the claim.
+- Explicitly out of scope: `chain.run` execution binding.
+  The tool stays registered and still reports legs
+  unimplemented with no executor; this slice adds reads
+  only and projects nothing.
+- Honest limitation: MCP reads share the projection's
+  R5 lag — a transition committed a moment ago may not
+  be visible yet. The tool descriptions say so, and any
+  consumer that cannot tolerate lag reads the durable
+  object directly.
+
 ## Consequences
 
 - A new dependency: `drizzle-orm` (runtime). No `drizzle-kit`
@@ -518,5 +569,7 @@ built here.
 - Later slices, in order: chains + schedules projection,
   shard jobs with executor-output capture, audit + reports
   with the authority matrix, MCP read tools + dashboard
-  routes, then the Postgres adapter (proving
-  cloud-agnosticism with the dialect-conformance suite).
+  routes, then retention enforcement. The Postgres adapter
+  (proving cloud-agnosticism with the dialect-conformance
+  suite) is deferred by the owner (2026-10-26, "for now do
+  R1/sqlite") and is not in the current program order.
