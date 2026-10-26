@@ -299,18 +299,20 @@ export function RawContractsScreener({
           />
         </label>
 
-        <ScreenerPresetManager
-          assetClass="options"
-          userLogin={userLogin}
-          currentFilter={optionsCriteriaToFilter(optionsCriteria)}
-          filterToCriteria={optionsFilterToCriteria}
-          onApplyPreset={setOptionsCriteria}
-        />
-        <OptionsCriteriaPanel
-          criteria={optionsCriteria}
-          onChange={setOptionsCriteria}
-          lastSentFilters={lastSentOptionsFilters}
-        />
+        <div className="screener-criteria-presets-deck">
+          <ScreenerPresetManager
+            assetClass="options"
+            userLogin={userLogin}
+            currentFilter={optionsCriteriaToFilter(optionsCriteria)}
+            filterToCriteria={optionsFilterToCriteria}
+            onApplyPreset={setOptionsCriteria}
+          />
+          <OptionsCriteriaPanel
+            criteria={optionsCriteria}
+            onChange={setOptionsCriteria}
+            lastSentFilters={lastSentOptionsFilters}
+          />
+        </div>
         <div className="options-form-footer" style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
           <button type="submit" disabled={loading} style={{ minWidth: "180px", fontWeight: 600 }}>
             {loading ? "Scanning Chains…" : `⚡ Screen ${symbol || "Options"} Contracts`}
