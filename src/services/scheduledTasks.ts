@@ -42,7 +42,7 @@ import {
   type OptionStrategyType,
   type StrategyRequest,
 } from "../trading";
-import { getOpportunityScannerConfig } from "../config/etapiConfig";
+import { DEFAULT_SUBREQUEST_BUDGET, getOpportunityScannerConfig } from "../config/etapiConfig";
 import { tagOpportunitiesWithDirection, ETradeSlackTradingService } from "../trading";
 // Issue #1291: the scheduled path's unified scan result is an
 // OpportunityScanResult, not the OptionScreenResult the workbook
@@ -1639,7 +1639,29 @@ export class ScheduledTasksService {
       // Issue #16: fetch the event calendar for the scan's names so
       // the run judges event risk per name and reports coverage. The
       // service never throws; uncovered names stay unverified.
-      if (options.sharded) {
+      //
+      // Issue #1785: a scheduled run over more symbols than one
+      // invocation's subrequest budget can cover takes the existing
+      // sharded branch below (one paced per-symbol job, each invocation
+      // with its own budget) instead of running monolithically and
+      // deferring most of the universe. Measured per-symbol cost of
+      // the snapshot path is 1 expire-dates fetch + ~11 chain fetches
+      // (pinned by tests/options_scan_subrequest_budget.test.ts, which
+      // reproduces prod's exactly-3-of-100); floor(35 / 12) = 2 symbols
+      // fit one budget. Explicit sharded: true still shards regardless
+      // of size; manual runs and small scheduled runs keep the
+      // monolithic path. Caveat: the limit is a typical-cost heuristic
+      // — a symbol with unusually many expirations in its window can
+      // still partial even below it, and then the #1718 degraded
+      // notice (not silence) is what the run reports.
+      const SCHEDULED_OPTIONS_MONOLITHIC_SYMBOL_LIMIT = Math.max(
+        1,
+        Math.floor(DEFAULT_SUBREQUEST_BUDGET / 12),
+      );
+      const autoShard =
+        options.trigger === "scheduled" &&
+        symbols.length > SCHEDULED_OPTIONS_MONOLITHIC_SYMBOL_LIMIT;
+      if (options.sharded || autoShard) {
         if (!this.shardSubmit) {
           throw new Error("Sharded options runs require the async-job submission port; configure the host or run the scan directly.");
         }
