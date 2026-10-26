@@ -564,6 +564,16 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: path === /api/reports/seed-canonical",
   },
   {
+    id: "retrieval-populate-market-graph",
+    method: "POST",
+    path: "/api/retrieval/populate-market-graph",
+    aliases: [],
+    kind: "http",
+    auth: "platform-admin",
+    authNote: "401 unauthenticated; 405 non-POST; 403 for unwired or non-admin sessions with no data; 503 when AgentDB is not bound. Deliberate operator invocation point for seeding the D1 market adjacency graph from the curated stock universe (never auto-run on boot, deploy, or tick); idempotent upserts, a second run refreshes labels/weights and reports the same counts.",
+    source: "src/server.ts branch: path === /api/retrieval/populate-market-graph",
+  },
+  {
     id: "openapi-spec",
     method: "GET",
     path: "/openapi.json",

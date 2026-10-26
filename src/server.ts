@@ -836,7 +836,41 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const { VectorMemory } = await import("./memory/vector-memory");
       const vm = new VectorMemory(env.AI, env.VECTOR_MEMORY, undefined);
       const chunks = await vm.recallForPlan(query, operationFilter, topK);
-      return Response.json({ ok: true, chunks });
+      // Issue #1740 (Hybrid RAG): additive graph expansion. The
+      // dense leg above is unchanged; when AgentDB is bound, the
+      // same query gains graph-adjacent market context. Unbound
+      // or failed graph means chunks-only, exactly as before.
+      let graph: unknown[] = [];
+      let graphDegraded = false;
+      if ((env as any).AGENT_DB) {
+        try {
+          const { createMarketGraphAdapter, ensureMarketGraphTables } =
+            await import("./retrieval/createRetrievalPorts");
+          const { expandGraphContext } = await import(
+            "./retrieval/hybridRetrieval"
+          );
+          const adapter = createMarketGraphAdapter(env as any);
+          if (adapter) {
+            await ensureMarketGraphTables(adapter);
+            const expanded = await expandGraphContext(
+              adapter,
+              resolveIaaaTenant(env),
+              query,
+              chunks.map((c) => c.summary),
+              { graphTopK: 12 },
+            );
+            graph = expanded.rows;
+            graphDegraded = expanded.degraded;
+          }
+        } catch (err) {
+          console.warn(
+            "[retrieval] memory_search graph expansion failed, dense-only:",
+            err instanceof Error ? err.message : String(err),
+          );
+          graphDegraded = true;
+        }
+      }
+      return Response.json({ ok: true, chunks, graph, graphDegraded });
     }
 
     // Issue #159 — ScheduledAgent dashboard API.
@@ -1649,6 +1683,65 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         isPlatformAdmin,
         tenantId: resolveIaaaTenant(env),
         runSeed: ({ tenantId, setBy }) => stub.seedCanonicalReports(setBy, tenantId),
+      });
+    }
+
+    // --- Market graph population (issue #1740, Hybrid RAG) ---
+    // POST /api/retrieval/populate-market-graph: the deliberate
+    // operator invocation point for seeding the D1 market
+    // adjacency graph from the curated stock universe. Gating
+    // reuses the IAAA admin pattern exactly (requireAuth →
+    // wired session → live platform-admin membership,
+    // fail-closed, no data on 403). Never auto-run: no boot,
+    // deploy, or tick path calls it. Population runs in the
+    // Worker (it reads the static universe and writes D1 via
+    // the Worker's own AGENT_DB binding — no DO hop needed) and
+    // is idempotent: a second run refreshes labels/weights and
+    // reports the same counts. Unbound AgentDB → 503.
+    if (path === "/api/retrieval/populate-market-graph") {
+      const session = await requireAuth(request, env);
+      let isPlatformAdmin = false;
+      if (session?.internalUserId) {
+        try {
+          const overview = await buildAdminOverview(
+            {
+              membershipStore: createKvMembershipStore(sessionStore(env)),
+              auditStore: createWiredAuditStore(env),
+              kv: sessionStore(env),
+              tenantId: resolveIaaaTenant(env),
+              nowMs: Date.now(),
+            },
+            { callerInternalUserId: session.internalUserId },
+          );
+          isPlatformAdmin = overview.allowed;
+        } catch {
+          return Response.json({ error: "Market graph population unavailable." }, { status: 500 });
+        }
+      }
+      const { handlePopulateMarketGraphRoute } = await import(
+        "./retrieval/populateMarketGraphRoute"
+      );
+      const { createMarketGraphAdapter, ensureMarketGraphTables } =
+        await import("./retrieval/createRetrievalPorts");
+      const { populateFromCuratedUniverse } = await import(
+        "./retrieval/marketGraphPopulation"
+      );
+      const adapter = createMarketGraphAdapter(env as any);
+      if (!adapter) {
+        return Response.json(
+          { error: "Market graph population unavailable: AgentDB is not bound." },
+          { status: 503 },
+        );
+      }
+      return handlePopulateMarketGraphRoute({
+        session,
+        method: request.method,
+        isPlatformAdmin,
+        tenantId: resolveIaaaTenant(env),
+        runPopulate: async ({ tenantId }) => {
+          await ensureMarketGraphTables(adapter);
+          return populateFromCuratedUniverse(adapter, tenantId, Date.now());
+        },
       });
     }
 

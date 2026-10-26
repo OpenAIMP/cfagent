@@ -206,11 +206,52 @@ CREATE INDEX IF NOT EXISTS agent_reports_tenant_report_idx ON agent_reports (ten
 `,
 };
 
+/**
+ * Migration 0005 — agent_market_nodes + agent_market_edges
+ * (issue #1740, Hybrid RAG). Portable subset (R2): epoch-ms
+ * integers, no dialect date functions, no RETURNING. Grain:
+ * one row per (tenant, node type, node key) / one row per
+ * (tenant, from, relation, to). The 4-space PRIMARY KEY lines
+ * are constraint lines, not columns, for the parity test's
+ * two-space column matcher (same shape as migration 0004).
+ */
+export const MIGRATION_0005_AGENT_MARKET_GRAPH: DataMigration = {
+  version: 5,
+  name: "0005_agent_market_graph",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_market_nodes (
+  tenant_id TEXT NOT NULL,
+  node_type TEXT NOT NULL,
+  node_key TEXT NOT NULL,
+  label TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (tenant_id, node_type, node_key)
+);
+CREATE INDEX IF NOT EXISTS agent_market_nodes_tenant_type_idx ON agent_market_nodes (tenant_id, node_type, node_key);
+CREATE TABLE IF NOT EXISTS agent_market_edges (
+  tenant_id TEXT NOT NULL,
+  from_type TEXT NOT NULL,
+  from_key TEXT NOT NULL,
+  relation TEXT NOT NULL,
+  to_type TEXT NOT NULL,
+  to_key TEXT NOT NULL,
+  weight REAL NOT NULL,
+  provenance TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (tenant_id, from_type, from_key, relation, to_type, to_key)
+);
+CREATE INDEX IF NOT EXISTS agent_market_edges_tenant_from_idx ON agent_market_edges (tenant_id, from_type, from_key, relation);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
   MIGRATION_0003_AGENT_SHARD_JOBS,
   MIGRATION_0004_AGENT_AUDIT_REPORTS,
+  MIGRATION_0005_AGENT_MARKET_GRAPH,
 ];
 
 function splitStatements(sqlText: string): string[] {
