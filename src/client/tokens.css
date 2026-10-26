@@ -612,7 +612,7 @@
   --gradient-flow-bullish: linear-gradient(90deg, rgba(5, 150, 105, 0.9) 0%, rgba(4, 120, 87, 0.7) 60%, rgba(4, 120, 87, 0.45) 100%);
   --gradient-flow-bearish: linear-gradient(270deg, rgba(220, 38, 38, 0.9) 0%, rgba(185, 28, 28, 0.7) 60%, rgba(185, 28, 28, 0.45) 100%);
   --color-trade-subtle: rgba(194, 65, 12, 0.1);
-  --color-trade: #c2410c;
+  --color-trade: #9a3412;
   --color-trade-deep: #9a3412;
   --shadow-focus-ring: 0 0 0 3px rgba(2, 132, 199, 0.35);
   --shadow-inner: inset 0 2px 6px rgba(15, 23, 42, 0.12);
@@ -625,9 +625,9 @@
   --color-on-gradient: #ffffff;
 
   /* Bright status text — in light these resolve to the AA base status colors */
-  --color-success-text: #15803d;
-  --color-danger-text: #dc2626;
-  --color-warning-text: #b45309;
+  --color-success-text: #166534;
+  --color-danger-text: #b91c1c;
+  --color-warning-text: #92400e;
   --color-indigo-text: #4338ca;
   --color-purple-text: #7e22ce;
   --color-info-text: #0369a1;
@@ -1129,6 +1129,8 @@ code:not(.did-pill code) {
   padding: var(--space-1, 0.25rem) var(--space-1-5, 0.35rem);
   border-radius: var(--radius-xs, 4px);
   line-height: 1;
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   transition: all var(--transition-fast, 120ms) ease;
 }
 
