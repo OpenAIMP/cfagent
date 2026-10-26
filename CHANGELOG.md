@@ -19,7 +19,7 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-- **Consolidated record (#1658):** new docs/architecture/consolidated-record.md — one repo doc holding the 2026-10-26 early-morning updates: the one-document issue/PR model (#1647, PR #1648), the day-trader Track 1 screens (#1604), and the B7 catalog products section (#1645). Summary only; each change's single source of truth remains its owning issue's §15 completion report. #ceo-aimp
+- **Consolidated record (#1658):** new docs/architecture/iros.md — one repo doc holding the 2026-10-26 early-morning updates: the one-document issue/PR model (#1647, PR #1648), the day-trader Track 1 screens (#1604), and the B7 catalog products section (#1645). Summary only; each change's single source of truth remains its owning issue's §15 completion report. #ceo-aimp
 
 - **Daily QA sweep op-registry fix (#1655, blocks #1649):** `qa.run_sweep` — the `daily-qa-sweep` default goal's operation in `src/schedule.ts` — is now registered in `OPERATION_CATALOG` (`src/orchestrate.ts`, `qa` entry alongside `qa.supervised_fix`). It was missing, so every due tick (06 UTC hour) recorded `daily-qa-sweep: Unknown operation: qa.run_sweep` and left the goal due, failing `tests/chain_executor_scheduled_agent.test.ts` and blocking PR #1649. `createJob` is descriptor-only, so registration is the complete fix: the tick now creates the pending job descriptor and stamps the goal like any other catalog operation. No sweep executor or implementation is added here. Pins: `tests/qa_run_sweep_catalog_1655.test.ts` (catalog membership, `createJob` acceptance, forced-tick no-error + stamp). #CISO-bhdm
 
