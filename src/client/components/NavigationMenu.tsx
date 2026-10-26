@@ -2,55 +2,22 @@ import React, { useState, useEffect } from "react";
 import type { ThemeMode } from "../theme";
 import { StockSearchBar } from "./StockSearchBar";
 import { Badge, Button, type BadgeTone } from "./ui";
+import { ROUTES, DEFAULT_VISIBLE_NAV_TABS, getNavGroup, hasNavEntry, type RouteId, type NavEntryMeta } from "../routes";
+export { DEFAULT_VISIBLE_NAV_TABS };
 import { MarketStatusPill } from "./MarketStatusPill";
 import { adjustFontScale, getStoredFontScale } from "../typography";
 import { BRAND } from "../branding";
 import { isTabFeatureEnabled } from "../featureFlags";
 
-export type NavTabId =
-  | "trading"
-  | "autopilot"
-  | "order"
-  | "orders"
-  | "portfolio"
-  | "ledger"
-  | "options"
-  | "options-flows"
-  | "screeners"
-  | "scanner"
-  | "reports"
-  | "schedules"
-  | "research"
-  | "chat"
-  | "voice"
-  | "omnichannel"
-  | "workflows"
-  | "endpoints"
-  | "nlq"
-  | "audit"
-  | "payments"
-  | "referrals"
-  | "ads"
-  | "revenue"
-  | "social"
-  | "approvals";
+export type NavTabId = RouteId;
 
 export type NavLayoutMode = "left" | "top";
 
 export function isTabActive(itemTabId: NavTabId, currentTab: NavTabId): boolean {
-  if (itemTabId === currentTab) return true;
-  if ((itemTabId === "autopilot" || itemTabId === "trading") && (currentTab === "autopilot" || currentTab === "trading")) return true;
-  if ((itemTabId === "order" || itemTabId === "orders") && (currentTab === "order" || currentTab === "orders")) return true;
-  // C2 (consolidation #1151, issue #1246): ONE screening nav entry —
-  // the legacy screening tab ids (deep links) all read as the
-  // Screening hub being active.
-  if (
-    itemTabId === "screeners" &&
-    (currentTab === "scanner" || currentTab === "options" || currentTab === "reports" || currentTab === "schedules")
-  ) {
-    return true;
-  }
-  return false;
+  // Nav groups come from the route table (routes.ts): alias ids highlight
+  // their group (trading -> autopilot, orders -> order, the four hub
+  // children -> screeners). This replaces the hand-coded groups.
+  return getNavGroup(currentTab) === itemTabId;
 }
 
 export interface NavItemDef {
@@ -104,33 +71,6 @@ export interface NavigationMenuProps {
   isRefreshing?: boolean;
   lastRefreshedAt?: string;
 }
-
-export const DEFAULT_VISIBLE_NAV_TABS: Record<string, boolean> = {
-  autopilot: true,
-  order: true,
-  portfolio: true,
-  ledger: true,
-  "options-flows": true,
-  options: true,
-  screeners: true,
-  scanner: true,
-  reports: true,
-  schedules: true,
-  research: true,
-  chat: true,
-  voice: true,
-  omnichannel: true,
-  workflows: true,
-  endpoints: true,
-  nlq: true,
-  audit: true,
-  payments: true,
-  referrals: true,
-  ads: true,
-  revenue: true,
-  social: true,
-  approvals: true,
-};
 
 export const NAV_TAB_PRESETS: Record<string, Record<string, boolean>> = {
   all: { ...DEFAULT_VISIBLE_NAV_TABS },
@@ -394,208 +334,47 @@ export const NavIcons = {
   ),
 };
 
-export const NAVIGATION_ITEMS: NavItemDef[] = [
-  // Execution (Core Broker & Trading Desk)
-  {
-    id: "autopilot",
-    label: "Autopilot Control",
-    shortLabel: "Autopilot",
-    category: "Execution",
-    badge: "Live",
-    badgeType: "live",
-    icon: NavIcons.Autopilot,
-    description: "Autonomous policy execution within limits, E*TRADE broker desk & real-time kill switch",
-  },
-  {
-    id: "order",
-    label: "Fast Order Ticket",
-    shortLabel: "Orders",
-    category: "Execution",
-    badge: "HITL",
-    badgeType: "pro",
-    icon: NavIcons.Order,
-    description: "Build and validate live equity orders with two-step preview validation & DID signing",
-  },
-  {
-    id: "portfolio",
-    label: "Portfolio & Holdings",
-    shortLabel: "Portfolio",
-    category: "Execution",
-    badge: "Live",
-    badgeType: "live",
-    icon: NavIcons.Portfolio,
-    description: "Inspect open equity and options holdings, cost basis, unrealized gain/loss & allocations",
-  },
-  {
-    id: "ledger",
-    label: "Order History Ledger",
-    shortLabel: "Ledger",
-    category: "Execution",
-    badge: "Audit",
-    badgeType: "pro",
-    icon: NavIcons.Ledger,
-    description: "Full chronological ledger of open, executed, and cancelled orders with upstream IDs",
-  },
-  {
-    // Issue #1705 (A3-c): the top-level Approvals surface — a composed
-    // view, not a new queue. No badge: this entry carries no live
-    // count, and a badge would imply one.
-    id: "approvals",
-    label: "Approvals",
-    shortLabel: "Approvals",
-    category: "Execution",
-    icon: NavIcons.Ledger,
-    description: "Every consequential action awaiting your decision — trade drafts and held deliveries, composed in one place",
-  },
-  {
-    id: "options-flows",
-    label: "Hedging (F&O)",
-    shortLabel: "Hedging",
-    category: "Execution",
-    badge: "Sweeps",
-    badgeType: "pro",
-    icon: NavIcons.Options,
-    description: "Options flows, dark pool prints, institutional sweeps, blocks, and insider disclosures",
-  },
-  // Intelligence (Market Scans, AI Copilot, Voice & Alerts)
-  {
-    // C2 (consolidation #1151, issue #1246): ONE screening nav entry.
-    // The former Auto Options Research, Strategy/Symbol Scanner,
-    // Reports, and Schedules entries are gone — those surfaces are
-    // tabs of this hub, and their legacy tab ids still deep-link
-    // into it (they read as active on this entry via isTabActive).
-    id: "screeners",
-    label: "Screening",
-    shortLabel: "Screening",
-    category: "Intelligence",
-    badge: "Multi",
-    badgeType: "pro",
-    icon: NavIcons.Screeners,
-    description: "The one screening hub: stock + options screening, the strategy scanner, IV history, goal screens, reports, schedules, proposal review, and the recommendation track record",
-  },
-  {
-    id: "research",
-    label: "Research & Dual Feed",
-    shortLabel: "Research",
-    category: "Intelligence",
-    badge: "FOSS",
-    icon: NavIcons.Research,
-    description: "Zero-credential Yahoo Finance and Alpaca dual feed, fundamental peer comparison",
-  },
-  {
-    id: "chat",
-    label: "Copilot Ideas",
-    shortLabel: "Copilot",
-    category: "Intelligence",
-    badge: "AI",
-    badgeType: "ai",
-    icon: NavIcons.Copilot,
-    description: "Conversational trading copilot, natural language strategies, and agent chat",
-  },
-  {
-    id: "voice",
-    label: "Voice Trading Desk",
-    shortLabel: "Voice Desk",
-    category: "Intelligence",
-    badge: "Audio",
-    badgeType: "ai",
-    icon: NavIcons.Voice,
-    description: "Hands-free voice recognition desk for querying quotes, screening setups, and trade confirmation",
-  },
-  {
-    id: "omnichannel",
-    label: "Email & Slack Agents",
-    shortLabel: "Omnichannel",
-    category: "Intelligence",
-    badge: "Relay",
-    badgeType: "new",
-    icon: NavIcons.Omnichannel,
-    description: "Autonomous alerts, trade approvals, and scheduled market briefings dispatched to Slack and Email",
-  },
+/** NavIcons key -> component (the route table carries keys, not components). */
+const NAV_ICON_MAP: Record<string, NavItemDef["icon"]> = {
+  Autopilot: NavIcons.Autopilot,
+  Order: NavIcons.Order,
+  Portfolio: NavIcons.Portfolio,
+  Ledger: NavIcons.Ledger,
+  Options: NavIcons.Options,
+  Screeners: NavIcons.Screeners,
+  Scanner: NavIcons.Scanner,
+  Research: NavIcons.Research,
+  Copilot: NavIcons.Copilot,
+  Voice: NavIcons.Voice,
+  Omnichannel: NavIcons.Omnichannel,
+  Workflows: NavIcons.Workflows,
+  Endpoints: NavIcons.Endpoints,
+  Database: NavIcons.Database,
+  Audit: NavIcons.Audit,
+  Payments: NavIcons.Payments,
+  Referrals: NavIcons.Referrals,
+  Ads: NavIcons.Ads,
+  Revenue: NavIcons.Revenue,
+  Social: NavIcons.Social,
+};
 
-  // Playbooks
-  {
-    id: "workflows",
-    label: "Workflows & FAQ",
-    shortLabel: "Workflows",
-    category: "Playbooks",
-    badge: "14 Guides",
-    icon: NavIcons.Workflows,
-    description: "Platform architecture guides, strategy playbooks, order mechanics & FAQ",
-  },
-  {
-    id: "endpoints",
-    label: "Developer & MCP",
-    shortLabel: "Endpoints",
-    category: "Playbooks",
-    badge: "MCP",
-    badgeType: "mcp",
-    icon: NavIcons.Endpoints,
-    description: "Interactive Model Context Protocol (MCP) tool and REST endpoint testing suite",
-  },
-  {
-    id: "nlq",
-    label: "Records & Ledger Explorer",
-    shortLabel: "Records",
-    category: "Playbooks",
-    badge: "Ledger",
-    icon: NavIcons.Database,
-    description: "Natural language records analytics, enterprise schema inspector & data browser",
-  },
-
-  // Platform
-  {
-    id: "audit",
-    label: "AI Transparency",
-    shortLabel: "Audit Log",
-    category: "Platform",
-    icon: NavIcons.Audit,
-    description: "W3C Agent DID verification, memory vault, and immutable audit logs",
-  },
-  {
-    id: "payments",
-    label: "Billing & Accounts",
-    shortLabel: "Billing",
-    category: "Platform",
-    badge: "x402",
-    icon: NavIcons.Payments,
-    description: "x402 protocol, MPP micropayments, Stripe, PayPal, and DID billing",
-  },
-  {
-    id: "referrals",
-    label: "Referrals & Earn",
-    shortLabel: "Referrals",
-    category: "Platform",
-    icon: NavIcons.Referrals,
-    description: "Community referral engine, reward tracking, and social share links",
-  },
-  {
-    id: "ads",
-    label: "Sponsored Marketplace",
-    shortLabel: "Deals",
-    category: "Platform",
-    icon: NavIcons.Ads,
-    description: "Curated partner marketplace, developer sponsorships, and deal feed",
-  },
-  {
-    id: "revenue",
-    label: "Revenue Analytics",
-    shortLabel: "Revenue",
-    category: "Platform",
-    icon: NavIcons.Revenue,
-    description: "Platform monetization engine, ad network yield, CPM/CPC metrics, and ledger",
-  },
-  {
-    id: "social",
-    label: "Social Posting",
-    shortLabel: "Social",
-    category: "Platform",
-    badge: "New",
-    badgeType: "new",
-    icon: NavIcons.Social,
-    description: "Today's social brief editor, manual daily-post trigger, pending approvals, and per-channel token health",
-  },
-];
+/** Nav items, derived from the route table in display order (#1804 S1). */
+export const NAVIGATION_ITEMS: NavItemDef[] = ROUTES.filter(hasNavEntry)
+  .sort((a, b) => a.navEntry.navOrder - b.navEntry.navOrder)
+  .map((r) => {
+    // Widen the literal entry meta so optional badge fields read cleanly.
+    const meta: NavEntryMeta = r.navEntry;
+    return {
+      id: r.id,
+      label: meta.label,
+      shortLabel: meta.shortLabel,
+      category: r.category,
+      badge: meta.badge,
+      badgeType: meta.badgeType,
+      icon: NAV_ICON_MAP[r.icon],
+      description: r.description,
+    };
+  });
 
 export function NavigationMenu({
   layout,
