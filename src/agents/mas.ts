@@ -8,6 +8,11 @@ import { registerDraftOwner } from "../payments/draftOwners";
 // scheduled-run reports searchable through this same path.
 import { getAiSearchCache, aiSearchCacheKey } from "../services/aiSearchCache";
 import { searchScheduledReports } from "../services/scheduledReports";
+// Issue #1169 (S2, flag-gated): corpus provenance on index chunks.
+import {
+  attachCorpusProvenance,
+  isKnowledgeServingEnabled,
+} from "../services/knowledgeCorpus";
 
 export interface MASOptions {
   env: Env;
@@ -77,12 +82,34 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
         const chunks = Array.isArray(rawChunks) ? rawChunks : [];
         const resultsFound = chunks.length > 0 || reports.length > 0;
 
+        // Issue #1169 (S2, flag-gated): when the serving flag is on,
+        // index chunks gain corpus provenance (bucket key, served-file
+        // link for servable corpus keys, indexingState "indexed").
+        // Local report chunks are NOT index results and are left
+        // untouched. Flag-OFF passes chunks through verbatim —
+        // today's behavior. Note: the TTL cache below caches the
+        // flagged shape, so a flag flip takes effect as entries
+        // expire (<= 5 minutes, in-isolate) — a documented limit,
+        // not a second cache.
+        const servingOn = isKnowledgeServingEnabled(env);
+        const servingChunks = servingOn
+          ? chunks.map((c) => attachCorpusProvenance(c))
+          : chunks;
+        // Cross-cutting (S2): provenance application is logged via
+        // the repo's console-stream idiom — counts and flag state
+        // only, never chunk content, keys, or logins.
+        if (servingOn) {
+          console.info(
+            `[knowledgeMapping] MAS provenance attached chunks=${chunks.length}`
+          );
+        }
+
         const result = {
           query,
           resultsFound,
           count: chunks.length,
           reportCount: reports.length,
-          chunks: [...reportChunks, ...chunks].slice(0, 5),
+          chunks: [...reportChunks, ...servingChunks].slice(0, 5),
           message: resultsFound
             ? reports.length > 0
               ? `Retrieved ${reports.length} scheduled-run report(s) and ${chunks.length} factual documents from Cloudflare AI Search.`
