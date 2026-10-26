@@ -10,7 +10,6 @@
  */
 
 import type { Env } from "../types";
-import { resolveMarketDataQuotes } from "./marketDataService";
 
 export interface MarketTickData {
   symbol: string;
@@ -325,24 +324,16 @@ export function getBatchMarketQuotes(symbols: string[]): MarketTickData[] {
 
 /**
  * HTTP handler for GET /api/market/quotes?symbols=NVDA,AAPL,BTC/USD
- * (and its /api/foss/quotes alias — one handler, one facade).
- * Issue #1643: quotes resolve through the MarketDataService facade,
- * so each quote carries its provenance (cached + fetch time + age)
- * and expired entries resolve as unavailable instead of being
- * served stale. The background refresh still fires, so the next
- * call recovers; the top-level `timestamp` remains the RESPONSE
- * time — per-quote freshness is `fetchedAtMs`/`ageMs`, never the
- * response time. The WebSocket stream is untouched (its continuity
- * design publishes the last cached quote; see marketDataService).
  */
 export function handleMarketQuotesHttp(symbols: string[], env?: Env): Response {
   // Fire background refresh of live quotes for symbols
   void refreshQuotesInBackground(symbols, env);
 
-  const { quotes, unavailable } = resolveMarketDataQuotes(
-    symbols,
-    (symbol) => liveMarketCache.get(symbol),
-  );
+  const quotes = getBatchMarketQuotes(symbols);
+  const quoted = new Set(quotes.map((quote) => quote.symbol));
+  const unavailable = symbols
+    .map((s) => s.toUpperCase().trim())
+    .filter((s) => s && !quoted.has(s));
   return Response.json(
     {
       quotes,

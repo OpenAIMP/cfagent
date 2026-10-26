@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from "react";
 import "./workflowsHub.css";
-import { Button, PillGroup, Table, TextInput } from "./components/ui";
 import { STRATEGY_LIBRARY } from "./options/strategyLibrary";
 import {
   FAQ_QUESTIONS,
@@ -1092,18 +1091,41 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* Primary Sub-Navigation Tabs */}
       <div className="workflows-subnav-bar">
-        <PillGroup
-          ariaLabel="Workflows sections"
-          options={[
-            { id: "faq", label: "💡 Quantitative Playbooks (8 Core FAQs)" },
-            { id: "workflows", label: "🧭 Platform Workflows (14 Track A & E)" },
-            { id: "decisioning", label: "⚖️ Algorithmic Decisioning Rules (6 Engines)" },
-            { id: "matrix", label: "📋 Capability & Lookup Matrix" },
-            { id: "improvements", label: "🚀 Optimization Roadmap (6 Enhancements)" },
-          ]}
-          value={activeTab}
-          onChange={setActiveTab}
-        />
+        <button
+          type="button"
+          className={`workflows-nav-tab ${activeTab === "faq" ? "active" : ""}`}
+          onClick={() => setActiveTab("faq")}
+        >
+          💡 Quantitative Playbooks (8 Core FAQs)
+        </button>
+        <button
+          type="button"
+          className={`workflows-nav-tab ${activeTab === "workflows" ? "active" : ""}`}
+          onClick={() => setActiveTab("workflows")}
+        >
+          🧭 Platform Workflows (14 Track A &amp; E)
+        </button>
+        <button
+          type="button"
+          className={`workflows-nav-tab ${activeTab === "decisioning" ? "active" : ""}`}
+          onClick={() => setActiveTab("decisioning")}
+        >
+          ⚖️ Algorithmic Decisioning Rules (6 Engines)
+        </button>
+        <button
+          type="button"
+          className={`workflows-nav-tab ${activeTab === "matrix" ? "active" : ""}`}
+          onClick={() => setActiveTab("matrix")}
+        >
+          📋 Capability &amp; Lookup Matrix
+        </button>
+        <button
+          type="button"
+          className={`workflows-nav-tab ${activeTab === "improvements" ? "active" : ""}`}
+          onClick={() => setActiveTab("improvements")}
+        >
+          🚀 Optimization Roadmap (6 Enhancements)
+        </button>
       </div>
 
       {/* VIEW 1: QUANTITATIVE PLAYBOOKS & FAQS (THE 8 CORE QUESTIONS) */}
@@ -1113,7 +1135,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           <div className="workflows-filter-strip">
             <div className="workflows-search-box">
               <span className="workflows-search-icon">🔍</span>
-              <TextInput
+              <input
                 type="text"
                 className="workflows-search-input"
                 placeholder="Search scenarios, parameters, execution methods, formulas, or tickers…"
@@ -1122,12 +1144,16 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
               />
             </div>
             <div className="workflows-category-chips">
-                            <PillGroup
-                size="sm"
-                options={faqCategories}
-                value={faqCategory}
-                onChange={setFaqCategory}
-              />
+              {faqCategories.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  className={`workflows-cat-chip ${faqCategory === cat.id ? "active" : ""}`}
+                  onClick={() => setFaqCategory(cat.id)}
+                >
+                  {cat.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -1212,25 +1238,24 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                               )}
                               <div style={{ marginTop: "auto", paddingTop: "0.5rem", display: "flex", gap: "0.4rem" }}>
                                 {method.targetTab && onNavigateTab && method.targetTab !== "chat" && (
-                                  <Button
-                                  variant="primary"
-                                  size="sm"
+                                  <button
+                                    type="button"
                                     className="workflow-cta-btn"
+                                    style={{ padding: "0.25rem 0.55rem", fontSize: "0.74rem" }}
                                     onClick={() => onNavigateTab(method.targetTab!)}
                                   >
                                     Open Tab →
-                                  </Button>
+                                  </button>
                                 )}
                                 {onSendPrompt && (
-                                  <Button
-                                  variant="accent"
-                                  tone="subtle"
-                                  size="sm"
+                                  <button
+                                    type="button"
                                     className="workflow-cta-btn"
+                                    style={{ padding: "0.25rem 0.55rem", fontSize: "0.74rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}
                                     onClick={() => onSendPrompt(method.samplePayloadOrCommand || faq.samplePrompt, faq.question)}
                                   >
                                     Ask Agent 💬
-                                  </Button>
+                                  </button>
                                 )}
                               </div>
                             </div>
@@ -1249,13 +1274,13 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                           </div>
                         </div>
                         {faq.relatedDecisionRuleId && (
-                          <Button
-                          variant="ghost"
+                          <button
+                            type="button"
                             className="workflow-rule-link"
                             onClick={() => jumpToDecisionRule(faq.relatedDecisionRuleId!)}
                           >
                             <span>⚖️</span> View Governing Decision Rule →
-                          </Button>
+                          </button>
                         )}
                       </div>
 
@@ -1287,8 +1312,8 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                         </div>
 
                         <div style={{ display: "flex", gap: "0.5rem" }}>
-                          <Button
-                          variant="primary"
+                          <button
+                            type="button"
                             className="workflow-cta-btn"
                             onClick={() => {
                               if (onNavigateTab) {
@@ -1297,20 +1322,20 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                             }}
                           >
                             Open in Platform →
-                          </Button>
+                          </button>
 
                           {onSendPrompt && (
-                            <Button
-                            variant="accent"
-                            tone="subtle"
+                            <button
+                              type="button"
                               className="workflow-cta-btn"
+                              style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}
                               onClick={() => {
                                 onSendPrompt(faq.samplePrompt, faq.question);
                               }}
                               title="Ask AI Agent in chat"
                             >
                               Ask AI Agent 💬
-                            </Button>
+                            </button>
                           )}
                         </div>
                       </div>
@@ -1331,22 +1356,34 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
             <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginRight: "0.3rem" }}>
               Operational Track:
             </span>
-            <PillGroup
-              options={[
-                { id: "all", label: "All Workflows (14)" },
-                { id: "analysis", label: "📊 Analysis Track (A1–A8)" },
-                { id: "execution", label: "⚡ Execution Track (E1–E6)" },
-              ]}
-              value={trackFilter}
-              onChange={setTrackFilter}
-            />
+            <button
+              type="button"
+              className={`workflow-track-btn ${trackFilter === "all" ? "active" : ""}`}
+              onClick={() => setTrackFilter("all")}
+            >
+              All Workflows (14)
+            </button>
+            <button
+              type="button"
+              className={`workflow-track-btn ${trackFilter === "analysis" ? "active" : ""}`}
+              onClick={() => setTrackFilter("analysis")}
+            >
+              📊 Analysis Track (A1–A8)
+            </button>
+            <button
+              type="button"
+              className={`workflow-track-btn ${trackFilter === "execution" ? "active" : ""}`}
+              onClick={() => setTrackFilter("execution")}
+            >
+              ⚡ Execution Track (E1–E6)
+            </button>
           </div>
 
           {/* Search & Category Filter Strip */}
           <div className="workflows-filter-strip">
             <div className="workflows-search-box">
               <span className="workflows-search-icon">🔍</span>
-              <TextInput
+              <input
                 type="text"
                 className="workflows-search-input"
                 placeholder="Search workflows by code (A1..E6), name, APIs, endpoints, or parameters…"
@@ -1356,12 +1393,16 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
             </div>
 
             <div className="workflows-category-chips">
-                            <PillGroup
-                size="sm"
-                options={categories}
-                value={selectedCategory}
-                onChange={setSelectedCategory}
-              />
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  className={`workflows-cat-chip ${selectedCategory === cat.id ? "active" : ""}`}
+                  onClick={() => setSelectedCategory(cat.id)}
+                >
+                  {cat.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -1408,13 +1449,13 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                             ⚙️ <strong style={{ color: "var(--color-accent)" }}>Primary Parameters:</strong> <code style={{ color: "var(--color-text-primary)" }}>{wf.keyParameters}</code>
                           </span>
                           {wf.governingDecisionRuleId && (
-                            <Button
-                            variant="ghost"
+                            <button
+                              type="button"
                               className="workflow-rule-link"
                               onClick={() => jumpToDecisionRule(wf.governingDecisionRuleId!)}
                             >
                               <span>⚖️</span> Governing Decision Rule →
-                            </Button>
+                            </button>
                           )}
                         </div>
                       )}
@@ -1473,17 +1514,32 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                             <span>📊</span> Upstream Subrequests &amp; Edge Execution Metrics
                           </h5>
                           <div style={{ overflowX: "auto" }}>
-                                                        <Table
-                              columns={[
-                                { key: "host", header: "Host / Endpoint", render: (row) => (<span style={{ color: "var(--color-accent)", fontWeight: 600 }}>{row.host}</span>) },
-                                { key: "2xx", header: "2xx", render: (row) => (<span style={{ color: "var(--color-success)", fontWeight: 600 }}>{row.status2xx}</span>) },
-                                { key: "4xx", header: "4xx", render: (row) => (<span style={{ color: row.status4xx ? "var(--color-danger)" : "var(--color-text-muted)" }}>{row.status4xx}</span>) },
-                                { key: "latency", header: "Latency", render: (row) => (<span style={{ color: "var(--color-text-secondary)" }}>{row.avgDuration}</span>) },
-                                { key: "role", header: "Role & How It Is Used", render: (row) => (<><div style={{ fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.2rem" }}>{row.role}</div><div style={{ color: "var(--color-text-muted)", fontSize: "0.76rem", lineHeight: 1.4 }}>{row.usageDetails}</div><div style={{ color: "var(--color-warning)", fontSize: "0.73rem", marginTop: "0.25rem", fontStyle: "italic" }}>💡 {row.nuanceExplanation}</div></>) },
-                              ]}
-                              rows={wf.apiMetrics.map((metric, mIdx) => ({ ...metric, __rowKey: `${metric.host}-${mIdx}` }))}
-                              rowKey={(row) => row.__rowKey}
-                            />
+                            <table style={{ width: "100%", fontSize: "0.8rem", borderCollapse: "collapse", color: "var(--color-text-secondary)" }}>
+                              <thead>
+                                <tr style={{ borderBottom: "1px solid var(--color-border-subtle)", textAlign: "left", color: "var(--color-text-muted)" }}>
+                                  <th style={{ padding: "0.4rem 0.6rem" }}>Host / Endpoint</th>
+                                  <th style={{ padding: "0.4rem 0.6rem" }}>2xx</th>
+                                  <th style={{ padding: "0.4rem 0.6rem" }}>4xx</th>
+                                  <th style={{ padding: "0.4rem 0.6rem" }}>Latency</th>
+                                  <th style={{ padding: "0.4rem 0.6rem" }}>Role &amp; How It Is Used</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {wf.apiMetrics.map((metric, mIdx) => (
+                                  <tr key={mIdx} style={{ borderBottom: "1px solid var(--color-border-subtle)" }}>
+                                    <td style={{ padding: "0.5rem 0.6rem", color: "var(--color-accent)", fontWeight: 600 }}>{metric.host}</td>
+                                    <td style={{ padding: "0.5rem 0.6rem", color: "var(--color-success)", fontWeight: 600 }}>{metric.status2xx}</td>
+                                    <td style={{ padding: "0.5rem 0.6rem", color: metric.status4xx ? "var(--color-danger)" : "var(--color-text-muted)" }}>{metric.status4xx}</td>
+                                    <td style={{ padding: "0.5rem 0.6rem", color: "var(--color-text-secondary)" }}>{metric.avgDuration}</td>
+                                    <td style={{ padding: "0.5rem 0.6rem" }}>
+                                      <div style={{ fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.2rem" }}>{metric.role}</div>
+                                      <div style={{ color: "var(--color-text-muted)", fontSize: "0.76rem", lineHeight: 1.4 }}>{metric.usageDetails}</div>
+                                      <div style={{ color: "var(--color-warning)", fontSize: "0.73rem", marginTop: "0.25rem", fontStyle: "italic" }}>💡 {metric.nuanceExplanation}</div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
                         </div>
                       )}
@@ -1501,8 +1557,8 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                         </div>
 
                         <div style={{ display: "flex", gap: "0.5rem" }}>
-                          <Button
-                          variant="primary"
+                          <button
+                            type="button"
                             className="workflow-cta-btn"
                             onClick={() => {
                               if (onNavigateTab) {
@@ -1511,20 +1567,20 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                             }}
                           >
                             Open in Platform →
-                          </Button>
+                          </button>
 
                           {onSendPrompt && (
-                            <Button
-                            variant="accent"
-                            tone="subtle"
+                            <button
+                              type="button"
                               className="workflow-cta-btn"
+                              style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}
                               onClick={() => {
                                 onSendPrompt(wf.sampleQueryOrAction, wf.title);
                               }}
                               title="Send sample query to AI agent in chat"
                             >
                               Ask AI Agent 💬
-                            </Button>
+                            </button>
                           )}
                         </div>
                       </div>
@@ -1561,7 +1617,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           <div className="workflows-filter-strip">
             <div className="workflows-search-box">
               <span className="workflows-search-icon">🔍</span>
-              <TextInput
+              <input
                 type="text"
                 className="workflows-search-input"
                 placeholder="Search decision rules, scoring weights, formulas, or rejection codes…"
@@ -1648,15 +1704,24 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                             📊 Dimension Weightings &amp; Profile Matrix
                           </h4>
                           <div style={{ overflowX: "auto" }}>
-                                                        <Table
-                              columns={[
-                                { key: "dimension", header: "Profile / Dimension", render: (row) => (<span style={{ fontWeight: 600, color: "var(--color-text-primary)" }}>{row.dimension}</span>) },
-                                { key: "weight", header: "Weight Distribution / Formula", render: (row) => (<span style={{ color: "var(--color-accent)" }}>{row.weightOrValue}</span>) },
-                                { key: "behavior", header: "Strategic Behavior & Tradeoff", render: (row) => (<span style={{ color: "var(--color-text-secondary)" }}>{row.details}</span>) },
-                              ]}
-                              rows={sec.matrixOrWeights.map((row, mIdx) => ({ ...row, __rowKey: `${row.dimension}-${mIdx}` }))}
-                              rowKey={(row) => row.__rowKey}
-                            />
+                            <table className="faq-matrix-table" style={{ fontSize: "0.78rem" }}>
+                              <thead>
+                                <tr>
+                                  <th>Profile / Dimension</th>
+                                  <th>Weight Distribution / Formula</th>
+                                  <th>Strategic Behavior &amp; Tradeoff</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sec.matrixOrWeights.map((row, mIdx) => (
+                                  <tr key={mIdx}>
+                                    <td style={{ fontWeight: 600, color: "var(--color-text-primary)" }}>{row.dimension}</td>
+                                    <td style={{ color: "var(--color-accent)" }}>{row.weightOrValue}</td>
+                                    <td style={{ color: "var(--color-text-secondary)" }}>{row.details}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
                         </div>
                       )}
@@ -1690,16 +1755,16 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                         <div style={{ display: "flex", gap: "0.5rem" }}>
                           {onSendPrompt && (
-                            <Button
-                            variant="accent"
-                            tone="subtle"
+                            <button
+                              type="button"
                               className="workflow-cta-btn"
+                              style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}
                               onClick={() => {
                                 onSendPrompt(`Explain the decision logic and scoring for ${sec.title}`, sec.title);
                               }}
                             >
                               Ask AI Agent 💬
-                            </Button>
+                            </button>
                           )}
                         </div>
                       </div>
@@ -1729,7 +1794,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           <div className="workflows-filter-strip">
             <div className="workflows-search-box">
               <span className="workflows-search-icon">🔍</span>
-              <TextInput
+              <input
                 type="text"
                 className="workflows-search-input"
                 placeholder="Search capability matrix by question, workflow, or parameter…"
@@ -1742,18 +1807,43 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           {/* Matrix Table */}
           <div className="faq-matrix-container" style={{ marginTop: 0 }}>
             <div style={{ overflowX: "auto" }}>
-                            <Table
-                columns={[
-                  { key: "question", header: "User Question / Scenario", render: (row) => (<span style={{ fontWeight: 600, color: "var(--color-text-primary)" }}>“{row.question}”</span>) },
-                  { key: "primary", header: "Primary Workflow", render: (row) => (<span className="workflow-tag-badge green">{row.primaryWorkflow}</span>) },
-                  { key: "secondary", header: "Secondary Workflow", render: (row) => (<span className="workflow-tag-badge blue">{row.secondaryWorkflow}</span>) },
-                  { key: "param", header: "Key Input Parameter", render: (row) => (<span style={{ color: "var(--color-accent)", fontSize: "0.76rem" }}>{row.keyInputParameter}</span>) },
-                  { key: "output", header: "Optimal Output Structure", render: (row) => (<span style={{ color: "var(--color-text-secondary)" }}>{row.optimalOutputStructure}</span>) },
-                  { key: "action", header: "Action", render: (row) => (<Button variant="primary" size="sm" className="workflow-cta-btn" onClick={() => { if (onNavigateTab) { onNavigateTab(row.targetTab); } }}>Try Now →</Button>) },
-                ]}
-                rows={filteredMatrix.map((row, rIdx) => ({ ...row, __rowKey: `${row.question}-${rIdx}` }))}
-                rowKey={(row) => row.__rowKey}
-              />
+              <table className="faq-matrix-table">
+                <thead>
+                  <tr>
+                    <th>User Question / Scenario</th>
+                    <th>Primary Workflow</th>
+                    <th>Secondary Workflow</th>
+                    <th>Key Input Parameter</th>
+                    <th>Optimal Output Structure</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredMatrix.map((row, rIdx) => (
+                    <tr key={rIdx}>
+                      <td style={{ fontWeight: 600, color: "var(--color-text-primary)" }}>&ldquo;{row.question}&rdquo;</td>
+                      <td><span className="workflow-tag-badge green">{row.primaryWorkflow}</span></td>
+                      <td><span className="workflow-tag-badge blue">{row.secondaryWorkflow}</span></td>
+                      <td style={{ color: "var(--color-accent)", fontSize: "0.76rem" }}>{row.keyInputParameter}</td>
+                      <td style={{ color: "var(--color-text-secondary)" }}>{row.optimalOutputStructure}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="workflow-cta-btn"
+                          style={{ padding: "0.25rem 0.6rem", fontSize: "0.74rem" }}
+                          onClick={() => {
+                            if (onNavigateTab) {
+                              onNavigateTab(row.targetTab);
+                            }
+                          }}
+                        >
+                          Try Now →
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

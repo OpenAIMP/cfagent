@@ -490,9 +490,6 @@ export interface StockScreenerFilter {
   /** Issue #1654 slice 1: reject candidates whose bandwidth is not at
    *  its lookback minimum (see bollingerBandwidthMin). */
   requireSqueezeGate?: boolean;
-  /** Issue #1654 slice 2: reject candidates whose spot price is below
-   *  the anchored VWAP (see anchoredVwap). */
-  requireAboveAnchoredVwap?: boolean;
   gainersOnly?: boolean;
   losersOnly?: boolean;
   rsiFilter?: "oversold" | "overbought" | "neutral" | "any";
@@ -535,11 +532,6 @@ export interface ScreenedStockItem extends ETradeQuote {
    *  gate requires ≥ 21 (default 20-period bands + 1 prior bandwidth
    *  point); fewer bars cannot support a non-trivial minimum. */
   bollingerBarsUsed?: number;
-  /** Issue #1654 slice 2: anchored VWAP from the 52-week low bar,
-   *  attached upstream where real bar history exists. Absent = AVWAP
-   *  data unavailable — the gate that needs it fail-closes, never
-   *  estimated. */
-  anchoredVwap?: number;
   macdSignal: string;
   signal: "BULLISH_MOMENTUM" | "OVERSOLD_BOUNCE" | "RANGE_BOUND" | "OVERBOUGHT";
   technicalSignal: string;

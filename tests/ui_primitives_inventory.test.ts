@@ -33,7 +33,6 @@ const INVENTORY: Record<string, string[]> = {
   "Tabs.tsx": ["Tabs", "TabPanel"],
   "TextInput.tsx": ["TextInput"],
   "Select.tsx": ["Select"],
-  "Checkbox.tsx": ["Checkbox"],
   "Modal.tsx": ["Modal"],
   "Table.tsx": ["Table"],
   "Skeleton.tsx": ["Skeleton"],

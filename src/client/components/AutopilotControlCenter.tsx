@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AGENT_DIDS } from "../../agents/did";
-import { EmptyState, Table, Badge, Button, PillGroup, TextInput, Select, type BadgeTone } from "./ui";
+import { EmptyState, Table, Badge, Button, type BadgeTone } from "./ui";
 import { BRAND } from "../branding";
 import { normalizeAutopilotLimits, type AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 import type { TradeRecord } from "../../types";
@@ -754,13 +754,17 @@ export function AutopilotControlCenter({
             </span>
           </div>
 
-          <div className="chart-tf-selector">
-                        <PillGroup
-              ariaLabel="Performance timeframe"
-              options={(["1d", "1w", "1m", "3m", "6m", "ytd"] as const).map((tf) => ({ id: tf, label: tf.toUpperCase() }))}
-              value={chartTimeframe}
-              onChange={setChartTimeframe}
-            />
+          <div className="chart-tf-selector" role="tablist" aria-label="Performance timeframe">
+            {(["1d", "1w", "1m", "3m", "6m", "ytd"] as const).map((tf) => (
+              <button
+                key={tf}
+                type="button"
+                className={`chart-tf-btn ${chartTimeframe === tf ? "active" : ""}`}
+                onClick={() => setChartTimeframe(tf)}
+              >
+                {tf.toUpperCase()}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -865,22 +869,25 @@ export function AutopilotControlCenter({
           </div>
 
           <div className="status-actions-row">
-            <Button
-            variant={isRunning && !isKillSwitched ? "secondary" : "primary"}
+            <button
+              type="button"
+              className={`btn-autopilot-toggle ${
+                isRunning && !isKillSwitched ? "btn-pause-autopilot" : "btn-resume-autopilot"
+              }`}
               onClick={handleToggleAutopilot}
               aria-label={isRunning ? "Pause Autopilot" : "Resume Autopilot"}
             >
               {isRunning && !isKillSwitched ? "Pause Autopilot" : "Resume Autopilot"}
-            </Button>
+            </button>
 
-            <Button
-            variant="danger"
+            <button
+              type="button"
               className="btn-kill-switch-trigger"
               onClick={() => setKillSwitchModalOpen(true)}
               title="Emergency Platform Kill Switch"
             >
               🛡️ Emergency Kill Switch
-            </Button>
+            </button>
           </div>
 
           <p className="autopilot-guardrail-note">
@@ -893,8 +900,8 @@ export function AutopilotControlCenter({
         <div className="autopilot-card autopilot-limits-card">
           <div className="limits-card-header">
             <h2 className="card-section-title">Live policy limits</h2>
-            <Button
-            variant="secondary"
+            <button
+              type="button"
               className="btn-edit-limits"
               onClick={() => {
                 setEditLimitsDraft(policyLimits);
@@ -902,7 +909,7 @@ export function AutopilotControlCenter({
               }}
             >
               ⚙️ Edit limits
-            </Button>
+            </button>
           </div>
 
           <div className="autopilot-limits-grid">
@@ -1077,16 +1084,34 @@ export function AutopilotControlCenter({
           <div className="actions-header-right">
             {/* Filter Pills */}
             <div className="actions-filter-pills">
-              <PillGroup
-                options={[
-                  { id: "all", label: "All" },
-                  { id: "order", label: "Orders" },
-                  { id: "policy_check", label: "Policy Checks" },
-                  { id: "risk_guardrail", label: "Risk Guardrails" },
-                ]}
-                value={actionsFilter}
-                onChange={setActionsFilter}
-              />
+              <button
+                type="button"
+                className={`action-filter-btn ${actionsFilter === "all" ? "active" : ""}`}
+                onClick={() => setActionsFilter("all")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`action-filter-btn ${actionsFilter === "order" ? "active" : ""}`}
+                onClick={() => setActionsFilter("order")}
+              >
+                Orders
+              </button>
+              <button
+                type="button"
+                className={`action-filter-btn ${actionsFilter === "policy_check" ? "active" : ""}`}
+                onClick={() => setActionsFilter("policy_check")}
+              >
+                Policy Checks
+              </button>
+              <button
+                type="button"
+                className={`action-filter-btn ${actionsFilter === "risk_guardrail" ? "active" : ""}`}
+                onClick={() => setActionsFilter("risk_guardrail")}
+              >
+                Risk Guardrails
+              </button>
             </div>
 
             {/* Refresh Live Data Button */}
@@ -1100,16 +1125,15 @@ export function AutopilotControlCenter({
             </Button>
 
             {/* Test Simulation Button */}
-            <Button
-            variant="secondary"
-            size="sm"
+            <button
+              type="button"
               className="btn-simulate-action"
               onClick={handleSimulateAutonomousAction}
               disabled={isSimulating}
               title="Run a real policy evaluation server-side and record the signed verdict"
             >
               {isSimulating ? "Evaluating Policy…" : "⚡ Run Policy Check"}
-            </Button>
+            </button>
           </div>
         </div>
 
@@ -1178,9 +1202,8 @@ export function AutopilotControlCenter({
               header: "DID ATTESTATION",
               cellClassName: "attestation-cell",
               render: (action) => (
-              <><Button
-              variant="ghost"
-              size="sm"
+              <><button
+                          type="button"
                           className="did-signature-badge"
                           onClick={() =>
                             handleCopyDid(
@@ -1195,7 +1218,7 @@ export function AutopilotControlCenter({
                             : action.didAttestation.signature
                             ? action.didAttestation.signature.slice(0, 14) + "…"
                             : "UNSIGNED"}
-                        </Button></>
+                        </button></>
             ),
             },
           ]}
@@ -1211,14 +1234,13 @@ export function AutopilotControlCenter({
             title="No autonomous actions recorded"
             description={`As the ${BRAND.name} autonomous agent scans opportunities and evaluates policy limits, live order executions and cryptographic audit proofs will appear here in real time.`}
             action={
-            <Button
-            variant="secondary"
-            size="sm"
-            className="btn-simulate-action"
+            <button
+            type="button"
+            className="btn-simulate-action secondary"
             onClick={handleSimulateAutonomousAction}
             >
             Trigger Policy Evaluation
-            </Button>
+            </button>
             }
             />
           )}
@@ -1326,20 +1348,20 @@ export function AutopilotControlCenter({
           >
             <div className="modal-header">
               <h3>Edit Autopilot Policy Limits</h3>
-              <Button
-              variant="ghost"
+              <button
+                type="button"
                 className="btn-close-modal"
                 onClick={() => setIsEditModalOpen(false)}
               >
                 ✕
-              </Button>
+              </button>
             </div>
 
             <form onSubmit={handleSaveLimits} className="edit-limits-form">
               <div className="form-group-grid">
                 <div className="form-field">
                   <label htmlFor="maxPositionPct">Max position size (% of equity)</label>
-                  <TextInput
+                  <input
                     id="maxPositionPct"
                     type="number"
                     step="0.5"
@@ -1359,7 +1381,7 @@ export function AutopilotControlCenter({
 
                 <div className="form-field">
                   <label htmlFor="cashReservePct">Minimum cash reserve (%)</label>
-                  <TextInput
+                  <input
                     id="cashReservePct"
                     type="number"
                     step="0.5"
@@ -1379,7 +1401,7 @@ export function AutopilotControlCenter({
 
                 <div className="form-field">
                   <label htmlFor="ordersPerDay">Max autonomous orders / day</label>
-                  <TextInput
+                  <input
                     id="ordersPerDay"
                     type="number"
                     step="1"
@@ -1399,7 +1421,7 @@ export function AutopilotControlCenter({
 
                 <div className="form-field">
                   <label htmlFor="drawdownAlertPct">Peak-to-trough drawdown alert (%)</label>
-                  <TextInput
+                  <input
                     id="drawdownAlertPct"
                     type="number"
                     step="1"
@@ -1419,7 +1441,7 @@ export function AutopilotControlCenter({
 
                 <div className="form-field">
                   <label htmlFor="universe">Trading Universe</label>
-                  <Select
+                  <select
                     id="universe"
                     value={editLimitsDraft.universe}
                     onChange={(e) =>
@@ -1434,12 +1456,12 @@ export function AutopilotControlCenter({
                     <option value="Nasdaq 100 & AI Growth">Nasdaq 100 & AI Growth</option>
                     <option value="US Equities + Crypto (BTC/ETH/SOL)">US Equities + Crypto (BTC/ETH/SOL)</option>
                     <option value="Custom Screened Watchlist">Custom Screened Watchlist</option>
-                  </Select>
+                  </select>
                 </div>
 
                 <div className="form-field">
                   <label htmlFor="riskProfile">Risk Profile</label>
-                  <Select
+                  <select
                     id="riskProfile"
                     value={editLimitsDraft.riskProfile}
                     onChange={(e) =>
@@ -1452,7 +1474,7 @@ export function AutopilotControlCenter({
                     <option value="conservative">Conservative</option>
                     <option value="moderate">Moderate</option>
                     <option value="aggressive">Aggressive</option>
-                  </Select>
+                  </select>
                 </div>
               </div>
 
@@ -1461,17 +1483,16 @@ export function AutopilotControlCenter({
                   Reset to Defaults
                 </Button>
                 <div className="modal-right-actions">
-                  <Button
-                  variant="secondary"
+                  <button
+                    type="button"
                     className="btn-cancel"
                     onClick={() => setIsEditModalOpen(false)}
                   >
                     Cancel
-                  </Button>
-                  <Button type="submit" className="btn-save-limits">
-                  variant="primary"
+                  </button>
+                  <button type="submit" className="btn-save-limits">
                     Save Policy Limits
-                  </Button>
+                  </button>
                 </div>
               </div>
             </form>
@@ -1491,13 +1512,13 @@ export function AutopilotControlCenter({
           >
             <div className="modal-header">
               <h3 style={{ color: "var(--color-danger)" }}>🚨 Emergency Platform Kill Switch</h3>
-              <Button
-              variant="ghost"
+              <button
+                type="button"
                 className="btn-close-modal"
                 onClick={() => setKillSwitchModalOpen(false)}
               >
                 ✕
-              </Button>
+              </button>
             </div>
             <div className="modal-body">
               <p style={{ color: "var(--color-text-secondary)", lineHeight: 1.5, fontSize: "0.9rem" }}>
@@ -1520,15 +1541,16 @@ export function AutopilotControlCenter({
               </div>
             </div>
             <div className="modal-actions-row">
-              <Button
-              variant="secondary"
+              <button
+                type="button"
                 className="btn-cancel"
                 onClick={() => setKillSwitchModalOpen(false)}
               >
                 Dismiss
-              </Button>
-              <Button
-              variant={isKillSwitched ? "secondary" : "danger"}
+              </button>
+              <button
+                type="button"
+                className={isKillSwitched ? "btn-resume-autopilot" : "btn-pause-autopilot"}
                 onClick={() => {
                   const next = !isKillSwitched;
                   setIsKillSwitched(next);
@@ -1552,7 +1574,7 @@ export function AutopilotControlCenter({
                 }}
               >
                 {isKillSwitched ? "Disarm Kill Switch & Restore Access" : "ACTIVATE KILL SWITCH NOW"}
-              </Button>
+              </button>
             </div>
           </div>
         </div>

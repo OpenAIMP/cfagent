@@ -61,7 +61,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import "./scannerPanel.css";
-import { Button, Card, Checkbox, PillGroup, Select, Table, TextInput } from "./components/ui";
 import { StrategyLibraryModal } from "./options/StrategyLibraryModal";
 import { resolveCatalogStrategyLabels } from "./options/strategyLibrary";
 import { parseSymbolList } from "./accountApi";
@@ -500,7 +499,7 @@ export function TypeRollupCards({ rollup }: { rollup: ScanTypeRollup[] }) {
       </div>
       <div className="scp-rollup">
         {rollup.map((entry) => (
-          <Card padding="none" className="scp-rollup-card" key={entry.strategyType}>
+          <div className="scp-rollup-card" key={entry.strategyType}>
             <div className="scp-rollup-type">{entry.strategyType}</div>
             <div className="scp-rollup-line">
               {entry.symbolsPassed} of {entry.symbolsEvaluated} symbols passed the screen
@@ -516,7 +515,7 @@ export function TypeRollupCards({ rollup }: { rollup: ScanTypeRollup[] }) {
             ) : (
               <div className="scp-rollup-best scp-muted">No passing candidate</div>
             )}
-          </Card>
+          </div>
         ))}
       </div>
     </div>
@@ -555,31 +554,83 @@ export function MatrixBoard({
         Pass = screen pass only: at least one candidate passed the scanner's risk screen in that
         type. Qualification is the fit gate's job — see the fit / borderline / no fit badge on each row.
       </div>
-      <Table
-        containerClassName="scp-matrix-scroll"
-        columns={[
-          { key: "symbol", header: "Symbol", cellClassName: "scp-matrix-symbol", render: (row: ScanMatrixRow & { __rowKey: string }) => (<><strong>{row.symbol}</strong>{" "}<span className={`scp-badge scp-badge-verdict-${row.verdict}`}>{VERDICT_LABELS[row.verdict]}</span>{row.gateBucket && (<> <span className={`scp-badge scp-badge-${row.gateBucket}`}>{row.gateBucket}</span></>)}{row.verdict !== "skipped" && (<div className="scp-row-meta">Target {fmtTarget(row.targetPrice, row.targetEmUnits)}<TargetSourceChip source={row.targetSource} /></div>)}{row.gateReasons && row.gateReasons.length > 0 && (<div className="scp-reasons">{row.gateReasons.join("; ")}</div>)}</>) },
-          ...types.map((t) => ({
-            key: t,
-            header: t,
-            render: (row: ScanMatrixRow & { __rowKey: string }) => {
-              if (row.verdict === "skipped") {
-                return t === types[0] ? `Skipped — ${row.skipReason ?? "not evaluated"}` : "";
-              }
-              const cell = (row.cells ?? []).find((c) => c.strategyType === t);
-              if (!cell) return "—";
-              if (!cell.best) {
-                const top = topRejectionReason(cell.rejectionReasons);
-                return (<><div>{cell.passedCount}/{cell.evaluatedCount} passed · {cell.rejectedCount} rejected</div>{top && (<div className="scp-cell-reason" title={top.reason}>top rejection: {top.reason} ×{top.count}</div>)}</>);
-              }
-              const content = (<><div className="scp-cell-score">{cell.best.compositeScore.toFixed(1)}</div><div className="scp-cell-caption">composite</div><div>{cell.passedCount}/{cell.evaluatedCount} passed</div><div className="scp-cell-label">{cell.best.label}</div></>);
-              return onPreviewTrade ? (<Button variant="ghost" className="scp-cell-btn" title={`Preview ${cell.best.label} for ${row.symbol}`} onClick={() => onPreviewTrade(matrixCellTradeContext(row, cell, thesis))}>{content}</Button>) : content;
-            },
-          })),
-        ]}
-        rows={matrix.map((row, idx) => ({ ...row, __rowKey: `${row.symbol}-${idx}` }))}
-        rowKey={(row) => row.__rowKey}
-      />
+      <div className="scp-matrix-scroll">
+        <table className="scp-table scp-matrix-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              {types.map((t) => <th key={t}>{t}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {matrix.map((row, idx) => (
+              <tr key={`${row.symbol}-${idx}`}>
+                <td className="scp-matrix-symbol">
+                  <strong>{row.symbol}</strong>{" "}
+                  <span className={`scp-badge scp-badge-verdict-${row.verdict}`}>{VERDICT_LABELS[row.verdict]}</span>
+                  {row.gateBucket && (
+                    <> <span className={`scp-badge scp-badge-${row.gateBucket}`}>{row.gateBucket}</span></>
+                  )}
+                  {row.verdict !== "skipped" && (
+                    <div className="scp-row-meta">
+                      Target {fmtTarget(row.targetPrice, row.targetEmUnits)}
+                      <TargetSourceChip source={row.targetSource} />
+                    </div>
+                  )}
+                  {row.gateReasons && row.gateReasons.length > 0 && (
+                    <div className="scp-reasons">{row.gateReasons.join("; ")}</div>
+                  )}
+                </td>
+                {row.verdict === "skipped" ? (
+                  <td className="scp-skip-reason" colSpan={Math.max(types.length, 1)}>
+                    Skipped — {row.skipReason ?? "not evaluated"}
+                  </td>
+                ) : (
+                  types.map((type) => {
+                    const cell = (row.cells ?? []).find((c) => c.strategyType === type);
+                    if (!cell) return <td key={type} className="scp-cell-empty">—</td>;
+                    if (!cell.best) {
+                      const top = topRejectionReason(cell.rejectionReasons);
+                      return (
+                        <td key={type} className="scp-cell">
+                          <div>{cell.passedCount}/{cell.evaluatedCount} passed · {cell.rejectedCount} rejected</div>
+                          {top && (
+                            <div className="scp-cell-reason" title={top.reason}>
+                              top rejection: {top.reason} ×{top.count}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    }
+                    const content = (
+                      <>
+                        <div className="scp-cell-score">{cell.best.compositeScore.toFixed(1)}</div>
+                        <div className="scp-cell-caption">composite</div>
+                        <div>{cell.passedCount}/{cell.evaluatedCount} passed</div>
+                        <div className="scp-cell-label">{cell.best.label}</div>
+                      </>
+                    );
+                    return (
+                      <td key={type} className="scp-cell">
+                        {onPreviewTrade ? (
+                          <button
+                            type="button"
+                            className="scp-cell-btn"
+                            title={`Preview ${cell.best.label} for ${row.symbol}`}
+                            onClick={() => onPreviewTrade(matrixCellTradeContext(row, cell, thesis))}
+                          >
+                            {content}
+                          </button>
+                        ) : content}
+                      </td>
+                    );
+                  })
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -602,32 +653,38 @@ export function ScanResultsView({ result, runContext, onPreviewTrade, storedRun 
   const exportRun = storedRun
     ? scanExportRunFromStored(storedRun)
     : scanExportRunFromResult(result);
-
+  const exportButtonStyle = {
+    fontSize: "0.8rem",
+    padding: "0.35rem 0.75rem",
+    borderRadius: "4px",
+    border: "1px solid var(--color-accent)",
+    color: "var(--color-accent)",
+    background: "transparent",
+    cursor: "pointer",
+  } as const;
 
   return (
     <div className="scp-results">
       <div className="scp-results-head">
         <strong>Mode: {MODE_LABELS[mode]}</strong>
-        <Button
-        variant="accent"
-        tone="subtle"
-        size="sm"
+        <button
+          type="button"
           className="scanner-export-csv"
+          style={exportButtonStyle}
           onClick={() => downloadScanExport(exportRun, "results-csv")}
           title="Download this run's result rows as CSV"
         >
           ⬇ CSV results
-        </Button>
-        <Button
-        variant="accent"
-        tone="subtle"
-        size="sm"
+        </button>
+        <button
+          type="button"
           className="scanner-export-json"
+          style={exportButtonStyle}
           onClick={() => downloadScanExport(exportRun, "run-json")}
           title="Download this run's full stored result as JSON"
         >
           ⬇ JSON run
-        </Button>
+        </button>
         {/* Issue #126 (PR-D): the PDF link exists only when THIS run
             has its own reportUrl. The previous keyless fallback
             ("/api/options/report.pdf" with no key) serves the LATEST
@@ -679,20 +736,37 @@ export function ScanResultsView({ result, runContext, onPreviewTrade, storedRun 
 
       {mode === "per_name_best" && (
         opportunities.length > 0 ? (
-          <Table
-            columns={[
-              { key: "symbol", header: "Symbol", render: (row) => (<strong>{row.symbol}</strong>) },
-              { key: "strategy", header: "Strategy", render: (row) => { const candidate = row.pick?.best?.candidate; return candidate ? candidate.label : row.pick?.status === "no_trade" ? "No qualifying trade" : "—"; } },
-              { key: "score", header: "Composite score", render: (row) => { const score = row.pick?.best?.compositeScore ?? row.score; return typeof score === "number" && Number.isFinite(score) ? score.toFixed(1) : "—"; } },
-              { key: "pop", header: "POP", render: (row) => fmtPct(row.pick?.best?.candidate?.modelImpliedProbabilityOfProfit) },
-              { key: "target", header: "Target", render: (row) => (<>{fmtTarget(row.targetPrice, row.targetEmUnits)}<TargetSourceChip source={row.targetSource} /></>) },
-              { key: "entry", header: "Entry", render: (row) => fmtEntry(row.pick?.best?.candidate?.netDebit) },
-              { key: "maxloss", header: "Max loss", render: (row) => fmtMoney(row.pick?.best?.candidate?.maxLoss) },
-              { key: "gate", header: "Gate", render: (row) => (<><span className={`scp-badge scp-badge-${row.gateBucket ?? "none"}`}>{row.gateBucket ?? "—"}</span>{row.gateReasons && row.gateReasons.length > 0 && (<div className="scp-reasons">{row.gateReasons.join("; ")}</div>)}</>) },
-            ]}
-            rows={opportunities.map((row, idx) => ({ ...row, __rowKey: `${row.symbol}-${idx}` }))}
-            rowKey={(row) => row.__rowKey}
-          />
+          <table className="scp-table">
+            <thead>
+              <tr><th>Symbol</th><th>Strategy</th><th>Composite score</th><th>POP</th><th>Target</th><th>Entry</th><th>Max loss</th><th>Gate</th></tr>
+            </thead>
+            <tbody>
+              {opportunities.map((row: OpportunityRow, idx: number) => {
+                const candidate = row.pick?.best?.candidate;
+                const score = row.pick?.best?.compositeScore ?? row.score;
+                return (
+                  <tr key={`${row.symbol}-${idx}`}>
+                    <td><strong>{row.symbol}</strong></td>
+                    <td>{candidate ? candidate.label : row.pick?.status === "no_trade" ? "No qualifying trade" : "—"}</td>
+                    <td>{typeof score === "number" && Number.isFinite(score) ? score.toFixed(1) : "—"}</td>
+                    <td>{fmtPct(candidate?.modelImpliedProbabilityOfProfit)}</td>
+                    <td>
+                      {fmtTarget(row.targetPrice, row.targetEmUnits)}
+                      <TargetSourceChip source={row.targetSource} />
+                    </td>
+                    <td>{fmtEntry(candidate?.netDebit)}</td>
+                    <td>{fmtMoney(candidate?.maxLoss)}</td>
+                    <td>
+                      <span className={`scp-badge scp-badge-${row.gateBucket ?? "none"}`}>{row.gateBucket ?? "—"}</span>
+                      {row.gateReasons && row.gateReasons.length > 0 && (
+                        <div className="scp-reasons">{row.gateReasons.join("; ")}</div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         ) : (
           <div className="scp-nofit" role="note">No qualifying trades were returned for this scan.</div>
         )
@@ -702,20 +776,36 @@ export function ScanResultsView({ result, runContext, onPreviewTrade, storedRun 
         (result.fitsTotal ?? 0) === 0 ? (
           <div className="scp-nofit" role="note">{noFitMessage(result)}</div>
         ) : fits.length > 0 ? (
-          <Table
-            columns={[
-              { key: "symbol", header: "Symbol", render: (row) => (<strong>{row.symbol}</strong>) },
-              { key: "strategy", header: "Best fit strategy", render: (row) => { const best = bestFitCell(row); return best ? best.label : "—"; } },
-              { key: "score", header: "Composite score", render: (row) => { const best = bestFitCell(row); return best ? best.compositeScore.toFixed(1) : "—"; } },
-              { key: "pop", header: "POP", render: (row) => fmtPct(bestFitCell(row)?.probabilityOfProfit) },
-              { key: "target", header: "Target", render: (row) => (<>{fmtTarget(row.targetPrice, row.targetEmUnits)}<TargetSourceChip source={row.targetSource} /></>) },
-              { key: "entry", header: "Entry", render: (row) => fmtEntry(bestFitCell(row)?.netDebit) },
-              { key: "maxloss", header: "Max loss", render: (row) => fmtMoney(bestFitCell(row)?.maxLoss) },
-              { key: "gate", header: "Gate", render: (row) => (<><span className={`scp-badge scp-badge-${row.gateBucket ?? "none"}`}>{row.gateBucket ?? "—"}</span>{row.gateReasons && row.gateReasons.length > 0 && (<div className="scp-reasons">{row.gateReasons.join("; ")}</div>)}</>) },
-            ]}
-            rows={fits.map((row, idx) => ({ ...row, __rowKey: `${row.symbol}-${idx}` }))}
-            rowKey={(row) => row.__rowKey}
-          />
+          <table className="scp-table">
+            <thead>
+              <tr><th>Symbol</th><th>Best fit strategy</th><th>Composite score</th><th>POP</th><th>Target</th><th>Entry</th><th>Max loss</th><th>Gate</th></tr>
+            </thead>
+            <tbody>
+              {fits.map((row: ScanMatrixRow, idx: number) => {
+                const best = bestFitCell(row);
+                return (
+                  <tr key={`${row.symbol}-${idx}`}>
+                    <td><strong>{row.symbol}</strong></td>
+                    <td>{best ? best.label : "—"}</td>
+                    <td>{best ? best.compositeScore.toFixed(1) : "—"}</td>
+                    <td>{fmtPct(best?.probabilityOfProfit)}</td>
+                    <td>
+                      {fmtTarget(row.targetPrice, row.targetEmUnits)}
+                      <TargetSourceChip source={row.targetSource} />
+                    </td>
+                    <td>{fmtEntry(best?.netDebit)}</td>
+                    <td>{fmtMoney(best?.maxLoss)}</td>
+                    <td>
+                      <span className={`scp-badge scp-badge-${row.gateBucket ?? "none"}`}>{row.gateBucket ?? "—"}</span>
+                      {row.gateReasons && row.gateReasons.length > 0 && (
+                        <div className="scp-reasons">{row.gateReasons.join("; ")}</div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         ) : (
           <div className="scp-nofit" role="note">{noFitMessage(result)}</div>
         )
@@ -941,24 +1031,39 @@ function StrategyCatalogBrowser() {
 
   return (
     <div style={{ margin: "1rem 0", border: "1px solid var(--color-border-medium)", borderRadius: 6, padding: "0.75rem" }}>
-      <Button
-      variant="ghost"
+      <button
+        type="button"
         onClick={() => setOpen(!open)}
+        style={{ fontWeight: 700, fontSize: "0.9rem", background: "none", border: "none", cursor: "pointer" }}
       >
         {open ? "▼" : "▶"} Strategy catalog ({strategies.length || "…" } strategies)
-      </Button>
+      </button>
       {open && (
         <div style={{ marginTop: "0.75rem" }}>
           <div style={{ marginBottom: "0.5rem" }}>
-                        <PillGroup
-              options={theses.map((t) => ({ id: t, label: t === "all" ? "All" : t.replace("_", " ") }))}
-              value={filter}
-              onChange={setFilter}
-            />
+            {theses.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setFilter(t)}
+                style={{
+                  marginRight: "0.4rem",
+                  padding: "0.2rem 0.6rem",
+                  borderRadius: 12,
+                  border: "1px solid var(--color-border-medium)",
+                  background: filter === t ? "var(--color-surface-hover)" : "none",
+                  fontWeight: filter === t ? 700 : 400,
+                  fontSize: "0.8rem",
+                  cursor: "pointer",
+                }}
+              >
+                {t === "all" ? "All" : t.replace("_", " ")}
+              </button>
+            ))}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "0.5rem" }}>
             {filtered.map((st) => (
-              <Card padding="sm" key={st.id}>
+              <div key={st.id} style={{ border: "1px solid var(--color-border-medium)", borderRadius: 4, padding: "0.5rem", fontSize: "0.8rem" }}>
                 <div style={{ fontWeight: 700 }}>{st.label}</div>
                 <div style={{ color: "var(--color-text-muted)", margin: "0.25rem 0" }}>{st.description}</div>
                 <div>
@@ -980,7 +1085,7 @@ function StrategyCatalogBrowser() {
                     </span>
                   ))}
                 </div>
-              </Card>
+              </div>
             ))}
           </div>
         </div>
@@ -1319,17 +1424,24 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
       </div>
       <StrategyCatalogBrowser />
 
-      <PillGroup
-        ariaLabel="Scan mode"
-        options={(Object.keys(MODE_LABELS) as ScanMode[]).map((value) => ({ id: value, label: MODE_LABELS[value] }))}
-        value={mode}
-        onChange={setMode}
-      />
+      <div className="scp-mode-switch" role="group" aria-label="Scan mode">
+        {(Object.keys(MODE_LABELS) as ScanMode[]).map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={mode === value ? "scp-mode-btn active" : "scp-mode-btn"}
+            aria-pressed={mode === value}
+            onClick={() => setMode(value)}
+          >
+            {MODE_LABELS[value]}
+          </button>
+        ))}
+      </div>
 
       <form className="scp-form" onSubmit={runScan}>
         <div className="scp-field scp-field-wide">
           <label htmlFor="scp-symbols">Symbols</label>
-          <TextInput
+          <input
             id="scp-symbols"
             type="text"
             value={symbolsText}
@@ -1339,16 +1451,16 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         </div>
         <div className="scp-field">
           <label htmlFor="scp-thesis">Thesis</label>
-          <Select id="scp-thesis" value={thesis} onChange={(e) => setThesis(e.target.value as OptionThesis)}>
+          <select id="scp-thesis" value={thesis} onChange={(e) => setThesis(e.target.value as OptionThesis)}>
             {THESIS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </Select>
+          </select>
         </div>
         <div className="scp-field scp-field-strategies">
           {/* Issue #450: one shared StrategyLibraryModal (multi-select).
               Names, descriptions and thesis tags preserved from the catalog. */}
           <label>Strategies <span className="scp-hint">(empty = all)</span></label>
-          <Button
-          variant="secondary"
+          <button
+            type="button"
             className="scp-strategy-picker-btn"
             onClick={() => setStrategyModalOpen(true)}
             disabled={strategyCatalog.length === 0}
@@ -1361,16 +1473,15 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
                     .map((id) => strategyCatalog.find((s) => s.id === id)?.label || id)
                     .slice(0, 3)
                     .join(", ")}${selectedStrategies.length > 3 ? "…" : ""}`}
-          </Button>
+          </button>
           {selectedStrategies.length > 0 && (
-            <Button
-            variant="secondary"
-            size="sm"
+            <button
+              type="button"
               className="scp-clear-btn"
               onClick={() => setSelectedStrategies([])}
             >
               Clear ({selectedStrategies.length})
-            </Button>
+            </button>
           )}
           <StrategyLibraryModal
             isOpen={strategyModalOpen}
@@ -1383,33 +1494,32 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         </div>
         <div className="scp-field">
           <label htmlFor="scp-risk">Risk profile</label>
-          <Select id="scp-risk" value={riskProfile} onChange={(e) => setRiskProfile(e.target.value as RiskProfileValue)}>
+          <select id="scp-risk" value={riskProfile} onChange={(e) => setRiskProfile(e.target.value as RiskProfileValue)}>
             {RISK_PROFILE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-          </Select>
+          </select>
         </div>
         <div className="scp-field">
           <label htmlFor="scp-profile">Strategy profile</label>
-          <Select id="scp-profile" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
+          <select id="scp-profile" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
             <option value="">No profile</option>
             {profiles.map((p) => (
               <option key={p.id} value={p.id}>{p.name} (v{p.version})</option>
             ))}
-          </Select>
+          </select>
         </div>
         {mode === "strategy_fit" && (
           <div className="scp-field">
             <label htmlFor="scp-fit-limit">Show fits up to</label>
-            <Select id="scp-fit-limit" value={fitLimit} onChange={(e) => setFitLimit(Number(e.target.value))}>
+            <select id="scp-fit-limit" value={fitLimit} onChange={(e) => setFitLimit(Number(e.target.value))}>
               {[10, 25, 50].map((n) => <option key={n} value={n}>{n}</option>)}
-            </Select>
+            </select>
           </div>
         )}
         <div className="scp-field scp-field-btn">
           <label>&nbsp;</label>
-          <Button type="submit" className="scp-run" disabled={scanning}>
-          variant="primary"
+          <button type="submit" className="scp-run" disabled={scanning}>
             {scanning ? "Running scan…" : "Run scan"}
-          </Button>
+          </button>
         </div>
       </form>
       <div className="scp-note">
@@ -1437,7 +1547,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
       {/* Strategy profiles manager (surface 4) */}
       <div className="scp-subhead">
         Strategy Profiles
-        <Button variant="secondary" size="sm" className="scp-mini-btn" onClick={openCreateForm}>+ New profile</Button>
+        <button type="button" className="scp-mini-btn" onClick={openCreateForm}>+ New profile</button>
       </div>
       {profilesError && <div className="scp-error" role="alert">{profilesError}</div>}
       {savedNote && <div className="scp-note">{savedNote}</div>}
@@ -1452,15 +1562,15 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
             <span className="scp-row-summary">{profileSummary(profile)}</span>
             <span className="scp-row-meta">updated {new Date(profile.updatedAt).toLocaleString()}</span>
           </div>
-          <Button variant="secondary" size="sm" className="scp-mini-btn" onClick={() => setProfileId(profile.id)}>Use in scan</Button>
-          <Button variant="secondary" size="sm" className="scp-mini-btn" onClick={() => openEditForm(profile)}>Edit</Button>
-          <Button
-          variant="danger"
-          tone={confirmDeleteId === profile.id ? "solid" : "subtle"}
+          <button type="button" className="scp-mini-btn" onClick={() => setProfileId(profile.id)}>Use in scan</button>
+          <button type="button" className="scp-mini-btn" onClick={() => openEditForm(profile)}>Edit</button>
+          <button
+            type="button"
+            className={confirmDeleteId === profile.id ? "scp-danger armed" : "scp-danger"}
             onClick={() => void handleDelete(profile)}
           >
             {confirmDeleteId === profile.id ? "Confirm delete?" : "Delete"}
-          </Button>
+          </button>
         </div>
       ))}
 
@@ -1471,100 +1581,100 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
           <div className="scp-form-grid">
             <div className="scp-field scp-field-wide">
               <label htmlFor="scp-pf-name">Name *</label>
-              <TextInput id="scp-pf-name" type="text" value={form.name} onChange={setField("name")} placeholder="Income" />
+              <input id="scp-pf-name" type="text" value={form.name} onChange={setField("name")} placeholder="Income" />
             </div>
             <div className="scp-field">
               <label htmlFor="scp-pf-thesis">Thesis</label>
-              <Select id="scp-pf-thesis" value={form.thesis} onChange={setField("thesis")}>
+              <select id="scp-pf-thesis" value={form.thesis} onChange={setField("thesis")}>
                 <option value="">(unset)</option>
                 {THESIS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </Select>
+              </select>
             </div>
             <div className="scp-field scp-field-wide">
               <label htmlFor="scp-pf-types">Allowed strategy types (comma-separated ids)</label>
-              <TextInput id="scp-pf-types" type="text" value={form.allowedStrategies} onChange={setField("allowedStrategies")} placeholder="put_credit_spread, iron_condor" />
+              <input id="scp-pf-types" type="text" value={form.allowedStrategies} onChange={setField("allowedStrategies")} placeholder="put_credit_spread, iron_condor" />
             </div>
             <div className="scp-field">
               <label htmlFor="scp-pf-maxloss">Max planned loss ($)</label>
-              <TextInput id="scp-pf-maxloss" type="number" min="0" step="any" value={form.maxPlannedLoss} onChange={setField("maxPlannedLoss")} />
+              <input id="scp-pf-maxloss" type="number" min="0" step="any" value={form.maxPlannedLoss} onChange={setField("maxPlannedLoss")} />
             </div>
             <div className="scp-field">
               <label htmlFor="scp-pf-minrr">Min reward / risk</label>
-              <TextInput id="scp-pf-minrr" type="number" min="0" step="any" value={form.minRewardRisk} onChange={setField("minRewardRisk")} />
+              <input id="scp-pf-minrr" type="number" min="0" step="any" value={form.minRewardRisk} onChange={setField("minRewardRisk")} />
             </div>
             <div className="scp-field">
               <label htmlFor="scp-pf-mindte">Min DTE</label>
-              <TextInput id="scp-pf-mindte" type="number" min="0" step="1" value={form.minDte} onChange={setField("minDte")} />
+              <input id="scp-pf-mindte" type="number" min="0" step="1" value={form.minDte} onChange={setField("minDte")} />
             </div>
             <div className="scp-field">
               <label htmlFor="scp-pf-maxdte">Max DTE</label>
-              <TextInput id="scp-pf-maxdte" type="number" min="0" step="1" value={form.maxDte} onChange={setField("maxDte")} />
+              <input id="scp-pf-maxdte" type="number" min="0" step="1" value={form.maxDte} onChange={setField("maxDte")} />
             </div>
             <div className="scp-field">
               <label htmlFor="scp-pf-events">Event policy</label>
-              <Select id="scp-pf-events" value={form.eventPolicy} onChange={setField("eventPolicy")}>
+              <select id="scp-pf-events" value={form.eventPolicy} onChange={setField("eventPolicy")}>
                 <option value="">(unset)</option>
                 <option value="warn">warn</option>
                 <option value="exclude">exclude</option>
-              </Select>
+              </select>
             </div>
             <div className="scp-field">
               <label htmlFor="scp-pf-iv">Expected IV direction</label>
-              <Select id="scp-pf-iv" value={form.expectedIvDirection} onChange={setField("expectedIvDirection")}>
+              <select id="scp-pf-iv" value={form.expectedIvDirection} onChange={setField("expectedIvDirection")}>
                 <option value="">(unset)</option>
                 <option value="rise">rise</option>
                 <option value="unchanged">unchanged</option>
                 <option value="fall">fall</option>
-              </Select>
+              </select>
             </div>
             <div className="scp-field">
               <label htmlFor="scp-pf-bias">Optimization bias (0–100)</label>
-              <TextInput id="scp-pf-bias" type="number" min="0" max="100" step="1" value={form.optimizationBias} onChange={setField("optimizationBias")} />
+              <input id="scp-pf-bias" type="number" min="0" max="100" step="1" value={form.optimizationBias} onChange={setField("optimizationBias")} />
             </div>
             <div className="scp-field">
               <label htmlFor="scp-pf-risk">Risk profile posture</label>
-              <Select id="scp-pf-risk" value={form.riskProfile} onChange={setField("riskProfile")}>
+              <select id="scp-pf-risk" value={form.riskProfile} onChange={setField("riskProfile")}>
                 <option value="">(unset)</option>
                 {RISK_PROFILE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-              </Select>
+              </select>
             </div>
             <div className="scp-field">
               <label htmlFor="scp-pf-mode">Default scan mode</label>
-              <Select id="scp-pf-mode" value={form.mode} onChange={setField("mode")}>
+              <select id="scp-pf-mode" value={form.mode} onChange={setField("mode")}>
                 <option value="">(unset)</option>
                 {(Object.keys(MODE_LABELS) as ScanMode[]).map((value) => (
                   <option key={value} value={value}>{MODE_LABELS[value]}</option>
                 ))}
-              </Select>
+              </select>
             </div>
           </div>
 
           <label className="scp-check">
-            <Checkbox checked={form.gateEnabled} onChange={setField("gateEnabled")} />
+            <input type="checkbox" checked={form.gateEnabled} onChange={setField("gateEnabled")} />
             Set fit-gate thresholds (issue #24)
           </label>
           {form.gateEnabled && (
             <div className="scp-form-grid">
               <div className="scp-field">
                 <label htmlFor="scp-pf-gate-score">Gate min score (0–100)</label>
-                <TextInput id="scp-pf-gate-score" type="number" min="0" max="100" step="any" value={form.gateMinCompositeScore} onChange={setField("gateMinCompositeScore")} />
+                <input id="scp-pf-gate-score" type="number" min="0" max="100" step="any" value={form.gateMinCompositeScore} onChange={setField("gateMinCompositeScore")} />
               </div>
               <div className="scp-field">
                 <label htmlFor="scp-pf-gate-pop">Gate min POP (0–1)</label>
-                <TextInput id="scp-pf-gate-pop" type="number" min="0" max="1" step="0.05" value={form.gateMinProbabilityOfProfit} onChange={setField("gateMinProbabilityOfProfit")} />
+                <input id="scp-pf-gate-pop" type="number" min="0" max="1" step="0.05" value={form.gateMinProbabilityOfProfit} onChange={setField("gateMinProbabilityOfProfit")} />
               </div>
               <div className="scp-field">
                 <label htmlFor="scp-pf-gate-conf">Gate min confidence</label>
-                <Select id="scp-pf-gate-conf" value={form.gateMinConfidence} onChange={setField("gateMinConfidence")}>
+                <select id="scp-pf-gate-conf" value={form.gateMinConfidence} onChange={setField("gateMinConfidence")}>
                   <option value="">(unset)</option>
                   <option value="LOW">LOW</option>
                   <option value="MEDIUM">MEDIUM</option>
                   <option value="HIGH">HIGH</option>
-                </Select>
+                </select>
               </div>
               <div className="scp-field">
                 <label className="scp-check scp-check-inline">
-                  <Checkbox checked={form.gateRequireFresh} onChange={setField("gateRequireFresh")} />
+                  <input type="checkbox" checked={form.gateRequireFresh} onChange={setField("gateRequireFresh")} />
                   Require fresh quotes
                 </label>
               </div>
@@ -1572,15 +1682,12 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
           )}
 
           <div className="scp-form-actions">
-            <Button type="submit" className="scp-run" disabled={saving}>
-            variant="primary"
+            <button type="submit" className="scp-run" disabled={saving}>
               {saving ? "Saving…" : editingId ? "Save changes" : "Create profile"}
-            </Button>
-            <Button className="scp-mini-btn" onClick={() => { setFormOpen(false); setEditingId(null); }}>
-            variant="secondary"
-            size="sm"
+            </button>
+            <button type="button" className="scp-mini-btn" onClick={() => { setFormOpen(false); setEditingId(null); }}>
               Cancel
-            </Button>
+            </button>
           </div>
         </form>
       )}
@@ -1598,16 +1705,12 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         {compareIds.length > 0 && (
           <div className="scp-note scp-compare-bar">
             Comparing {compareIds.length} of 2 runs picked.
-            <Button className="scp-mini-btn" disabled={compareIds.length !== 2} onClick={compareSelected}>
-            variant="secondary"
-            size="sm"
+            <button type="button" className="scp-mini-btn" disabled={compareIds.length !== 2} onClick={compareSelected}>
               Show diff
-            </Button>
-            <Button className="scp-mini-btn" onClick={() => setCompareIds([])}>
-            variant="secondary"
-            size="sm"
+            </button>
+            <button type="button" className="scp-mini-btn" onClick={() => setCompareIds([])}>
               Clear
-            </Button>
+            </button>
           </div>
         )}
         {history.map((run, idx) => (
@@ -1624,33 +1727,30 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
               </span>
               <span className="scp-row-meta" title={run.id}>run {shortenRunId(run.id)}</span>
             </div>
-            <Button
-            variant="secondary"
-            size="sm"
+            <button
+              type="button"
               className="scp-mini-btn"
               disabled={historyBusyId === run.id}
               onClick={() => void viewRun(run)}
             >
               View
-            </Button>
-            <Button
-            variant="secondary"
-            size="sm"
+            </button>
+            <button
+              type="button"
               className="scp-mini-btn"
               disabled={historyBusyId === run.id || scanning}
               onClick={() => void rerunRun(run)}
             >
               Re-run
-            </Button>
+            </button>
             {idx < history.length - 1 && (
-              <Button className="scp-mini-btn" onClick={() => diffVsPrevious(run, idx)}>
-              variant="secondary"
-              size="sm"
+              <button type="button" className="scp-mini-btn" onClick={() => diffVsPrevious(run, idx)}>
                 Diff vs previous
-              </Button>
+              </button>
             )}
             <label className="scp-compare">
-              <Checkbox
+              <input
+                type="checkbox"
                 checked={compareIds.includes(run.id)}
                 onChange={() => toggleCompare(run.id)}
               />

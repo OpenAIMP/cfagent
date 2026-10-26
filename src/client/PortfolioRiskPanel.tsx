@@ -44,7 +44,6 @@ import {
 } from "./portfolioRiskApi";
 import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import "./portfolioRiskPanel.css";
-import { Button, Table, TextInput, Select } from "./components/ui";
 
 interface PortfolioRiskPanelProps {
   activeEnv: string;
@@ -240,16 +239,13 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
   return (
     <section className="prp-panel" id="section-portfolio-risk" style={{ scrollMarginTop: 80 }}>
       <div className="prp-header">
-        <Button className="prp-collapse" onClick={() => setPanelOpen((o) => !o)} aria-expanded={panelOpen}>
-        variant="ghost"
+        <button type="button" className="prp-collapse" onClick={() => setPanelOpen((o) => !o)} aria-expanded={panelOpen}>
           {panelOpen ? "▾" : "▸"} Portfolio Risk
-        </Button>
+        </button>
         {report && <span className="prp-asof">as of {new Date(report.asOf).toLocaleString()}</span>}
-        <Button className="prp-refresh" onClick={() => void load()} disabled={loading}>
-        variant="secondary"
-        size="sm"
+        <button type="button" className="prp-refresh" onClick={() => void load()} disabled={loading}>
           {loading ? "Loading…" : "↻ Refresh"}
-        </Button>
+        </button>
       </div>
       {panelOpen && (
       <>
@@ -277,19 +273,22 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
           )}
 
           {report.rows.length > 0 && (
-            <Table
-            columns={[
-              { key: "symbol", header: "Symbol", render: (row) => row.symbol },
-              { key: "type", header: "Type", render: (row) => row.kind },
-              { key: "delta", header: "Δ $", render: (row) => fmtSignedUsd(row.deltaDollars) },
-              { key: "betaDelta", header: "β-weighted Δ $", render: (row) => fmtSignedUsd(row.betaWeightedDeltaDollars) },
-              { key: "beta", header: "Beta", render: (row) => (<>{row.beta === null ? "—" : fmtNumber(row.beta)} <span className={`prp-badge prp-badge-${row.betaSource}`}>{row.betaSource}</span></>) },
-              { key: "maxloss", header: "Defined max loss", render: (row) => row.definedMaxLoss === null ? "undefined" : fmtUsd(row.definedMaxLoss) },
-              { key: "action", header: "", render: (row) => (<Button variant="secondary" size="sm" className="prp-mini-btn" title="Prefill the Post-Trade Evaluator with this position's Greek contribution" onClick={() => { setEvalForm(positionRowToEvalForm(row)); document.getElementById("section-portfolio-risk")?.scrollIntoView({ behavior: "smooth" }); }}>→ Evaluator</Button>) },
-            ]}
-            rows={report.rows.map((row, i) => ({ ...row, __rowKey: `${row.symbol}-${i}` }))}
-            rowKey={(row) => row.__rowKey}
-          />
+            <table className="prp-table">
+              <thead><tr><th>Symbol</th><th>Type</th><th>Δ $</th><th>β-weighted Δ $</th><th>Beta</th><th>Defined max loss</th><th></th></tr></thead>
+              <tbody>
+                {report.rows.map((row, i) => (
+                  <tr key={`${row.symbol}-${i}`}>
+                    <td>{row.symbol}</td>
+                    <td>{row.kind}</td>
+                    <td>{fmtSignedUsd(row.deltaDollars)}</td>
+                    <td>{fmtSignedUsd(row.betaWeightedDeltaDollars)}</td>
+                    <td>{row.beta === null ? "—" : fmtNumber(row.beta)} <span className={`prp-badge prp-badge-${row.betaSource}`}>{row.betaSource}</span></td>
+                    <td>{row.definedMaxLoss === null ? "undefined" : fmtUsd(row.definedMaxLoss)}</td>
+                    <td><button type="button" className="prp-mini-btn" title="Prefill the Post-Trade Evaluator with this position's Greek contribution" onClick={() => { setEvalForm(positionRowToEvalForm(row)); document.getElementById("section-portfolio-risk")?.scrollIntoView({ behavior: "smooth" }); }}>→ Evaluator</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
 
           {report.excluded.length > 0 && (
@@ -328,11 +327,9 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
             )}
             <p>{proposal.rationale}</p>
           </div>
-          <Button className="prp-preview-btn" onClick={() => onPreviewHedge(hedgeProposalToTradeContext(proposal, report?.spyPrice ?? null))}>
-          variant="primary"
-          size="sm"
+          <button type="button" className="prp-preview-btn" onClick={() => onPreviewHedge(hedgeProposalToTradeContext(proposal, report?.spyPrice ?? null))}>
             ⚡ Preview in Order Ticket →
-          </Button>
+          </button>
         </div>
       ))}
 
@@ -360,21 +357,17 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
             )}
             <p>{proposal.rationale}</p>
           </div>
-          <Button className="prp-preview-btn" onClick={() => onPreviewHedge(repairProposalToTradeContext(proposal))}>
-          variant="primary"
-          size="sm"
+          <button type="button" className="prp-preview-btn" onClick={() => onPreviewHedge(repairProposalToTradeContext(proposal))}>
             ⚡ Preview in Order Ticket →
-          </Button>
+          </button>
         </div>
       ))}
 
       {/* Correlation & concentration (#35) */}
       <div className="prp-subhead">Correlation &amp; Concentration</div>
       <div className="prp-form-row">
-        <TextInput value={corrSymbol} onChange={(e) => setCorrSymbol(e.target.value)} placeholder="Candidate symbol (optional)" />
-        <Button onClick={() => void runCorrelation()} disabled={corrLoading}>{corrLoading ? "Assessing…" : "Assess"}</Button>
-        variant="secondary"
-        size="sm"
+        <input value={corrSymbol} onChange={(e) => setCorrSymbol(e.target.value)} placeholder="Candidate symbol (optional)" />
+        <button type="button" onClick={() => void runCorrelation()} disabled={corrLoading}>{corrLoading ? "Assessing…" : "Assess"}</button>
       </div>
       {corrError && <div className="prp-error">{corrError}</div>}
       {concentration && (
@@ -399,24 +392,20 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
               {concentration.candidateAssessment.flags.map((flag, i) => (
                 <div className="prp-flag" key={i}>⚠ {flag.message}</div>
               ))}
-              <Button className="prp-size-btn" onClick={() => setSizeSymbol(concentration.candidateAssessment!.symbol)}>
-              variant="secondary"
-              size="sm"
+              <button type="button" className="prp-size-btn" onClick={() => setSizeSymbol(concentration.candidateAssessment!.symbol)}>
                 Size this candidate ↓
-              </Button>
+              </button>
             </div>
           )}
           {concentration.heldCorrelations.length > 0 && (
-            <Table
-            columns={[
-              { key: "pair", header: "Pair", render: (row) => `${row.a} / ${row.b}` },
-              { key: "corr", header: "Correlation", render: (row) => row.value === null ? "—" : fmtNumber(row.value) },
-              { key: "source", header: "Source", render: (row) => (<span className={`prp-badge prp-badge-${row.source}`}>{row.source}</span>) },
-              { key: "obs", header: "Observations", render: (row) => row.observations || "—" },
-            ]}
-            rows={concentration.heldCorrelations.map((pair, i) => ({ ...pair, __rowKey: `${pair.a}-${pair.b}-${i}` }))}
-            rowKey={(row) => row.__rowKey}
-          />
+            <table className="prp-table">
+              <thead><tr><th>Pair</th><th>Correlation</th><th>Source</th><th>Observations</th></tr></thead>
+              <tbody>
+                {concentration.heldCorrelations.map((pair, i) => (
+                  <tr key={i}><td>{pair.a} / {pair.b}</td><td>{pair.value === null ? "—" : fmtNumber(pair.value)}</td><td><span className={`prp-badge prp-badge-${pair.source}`}>{pair.source}</span></td><td>{pair.observations || "—"}</td></tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </>
       )}
@@ -424,40 +413,37 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       {/* Portfolio-aware sizing (#36) */}
       <div className="prp-subhead">Portfolio-Aware Sizing</div>
       <div className="prp-form-grid">
-        <label>Symbol<TextInput value={sizeSymbol} onChange={(e) => setSizeSymbol(e.target.value)} placeholder="ACME" /></label>
-        <label>Δ $ / contract<TextInput value={sizeDelta} onChange={(e) => setSizeDelta(e.target.value)} placeholder="500" inputMode="decimal" /></label>
-        <label>β-weighted Δ $ / contract<TextInput value={sizeBetaDelta} onChange={(e) => setSizeBetaDelta(e.target.value)} placeholder="600 (blank = unknown)" inputMode="decimal" /></label>
-        <label>Defined max loss $ / contract<TextInput value={sizeMaxLoss} onChange={(e) => setSizeMaxLoss(e.target.value)} placeholder="200 (blank = undefined risk)" inputMode="decimal" /></label>
-        <label>Risk score 0–100<TextInput value={sizeRiskScore} onChange={(e) => setSizeRiskScore(e.target.value)} placeholder="optional" inputMode="decimal" /></label>
-        <label>Requested contracts<TextInput value={sizeRequested} onChange={(e) => setSizeRequested(e.target.value)} placeholder="optional" inputMode="numeric" /></label>
-        <label>Max measured correlation<TextInput value={sizeCorr} onChange={(e) => setSizeCorr(e.target.value)} placeholder="e.g. 0.85 (optional)" inputMode="decimal" /></label>
+        <label>Symbol<input value={sizeSymbol} onChange={(e) => setSizeSymbol(e.target.value)} placeholder="ACME" /></label>
+        <label>Δ $ / contract<input value={sizeDelta} onChange={(e) => setSizeDelta(e.target.value)} placeholder="500" inputMode="decimal" /></label>
+        <label>β-weighted Δ $ / contract<input value={sizeBetaDelta} onChange={(e) => setSizeBetaDelta(e.target.value)} placeholder="600 (blank = unknown)" inputMode="decimal" /></label>
+        <label>Defined max loss $ / contract<input value={sizeMaxLoss} onChange={(e) => setSizeMaxLoss(e.target.value)} placeholder="200 (blank = undefined risk)" inputMode="decimal" /></label>
+        <label>Risk score 0–100<input value={sizeRiskScore} onChange={(e) => setSizeRiskScore(e.target.value)} placeholder="optional" inputMode="decimal" /></label>
+        <label>Requested contracts<input value={sizeRequested} onChange={(e) => setSizeRequested(e.target.value)} placeholder="optional" inputMode="numeric" /></label>
+        <label>Max measured correlation<input value={sizeCorr} onChange={(e) => setSizeCorr(e.target.value)} placeholder="e.g. 0.85 (optional)" inputMode="decimal" /></label>
       </div>
-      <Button className="prp-size-btn" onClick={() => void runSizing()} disabled={sizeLoading || !sizeSymbol.trim()}>
-      variant="secondary"
-      size="sm"
+      <button type="button" className="prp-size-btn" onClick={() => void runSizing()} disabled={sizeLoading || !sizeSymbol.trim()}>
         {sizeLoading ? "Sizing…" : "Size against portfolio"}
-      </Button>
+      </button>
       {sizeError && <div className="prp-error">{sizeError}</div>}
       {sizing && (
         <div className="prp-sizing-result">
           <div className="prp-note"><strong>{sizing.recommendedContracts} contract(s)</strong> — bound by <strong>{sizing.bindingConstraint}</strong> · NAV band {fmtNumber(sizing.navBandPctApplied, 1)}% · delta basis: {sizing.deltaBudgetBasis}{sizing.correlationSurchargeApplied ? " · correlation surcharge applied" : ""}</div>
           <p className="prp-rationale">{sizing.rationale}</p>
-          <Table
-            columns={[
-              { key: "name", header: "Constraint", render: (row) => row.name === sizing.bindingConstraint ? (<strong>{row.name}</strong>) : row.name },
-              { key: "max", header: "Max contracts", render: (row) => Number.isFinite(row.maxContracts) ? row.maxContracts : "∞" },
-              { key: "detail", header: "Detail", render: (row) => row.detail },
-            ]}
-            rows={sizing.constraints.map((c) => ({ ...c, __rowKey: c.name }))}
-            rowKey={(row) => row.__rowKey}
-          />
+          <table className="prp-table">
+            <thead><tr><th>Constraint</th><th>Max contracts</th><th>Detail</th></tr></thead>
+            <tbody>
+              {sizing.constraints.map((c) => (
+                <tr key={c.name} className={c.name === sizing.bindingConstraint ? "prp-binding" : undefined}>
+                  <td>{c.name}</td><td>{Number.isFinite(c.maxContracts) ? c.maxContracts : "∞"}</td><td>{c.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           <div className="prp-note">Post-trade: Δ {fmtSignedUsd(sizing.postTradeTotals.deltaDollars)} · β-weighted Δ {fmtSignedUsd(sizing.postTradeTotals.betaWeightedDeltaDollars)} · defined max loss {fmtUsd(sizing.postTradeTotals.definedMaxLoss)}</div>
           {lastSizingCandidate && (
-            <Button className="prp-size-btn" onClick={() => setEvalForm(sizingToEvalForm(lastSizingCandidate, sizing))}>
-            variant="secondary"
-            size="sm"
+            <button type="button" className="prp-size-btn" onClick={() => setEvalForm(sizingToEvalForm(lastSizingCandidate, sizing))}>
               Send sized candidate to Evaluator ↓
-            </Button>
+            </button>
           )}
         </div>
       )}
@@ -466,9 +452,9 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       <div className="prp-subhead">Recommendation Bundle (Best Trade v2)</div>
       <div className="prp-note">Paste a strategy candidate (strategy-engine JSON) to build its full bundle against the live book: trade + falsification + post-trade risk + optimizer verdict + hedge/repair plans + alternatives including no-trade. Draft only — human approval is required for any order.</div>
       <div className="prp-form-grid">
-        <label>Symbol beta (blank = unknown)<TextInput value={bundleBeta} onChange={(e) => setBundleBeta(e.target.value)} placeholder="e.g. 1.1" inputMode="decimal" /></label>
+        <label>Symbol beta (blank = unknown)<input value={bundleBeta} onChange={(e) => setBundleBeta(e.target.value)} placeholder="e.g. 1.1" inputMode="decimal" /></label>
       </div>
-      <TextInput multiline
+      <textarea
         className="prp-bundle-json"
         value={bundleJson}
         onChange={(e) => setBundleJson(e.target.value)}
@@ -479,16 +465,12 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       {bundleStagedNote && <div className="prp-note">{bundleStagedNote}</div>}
       {bundleTextState.status === "empty" && <div className="prp-note">{bundleTextState.message}</div>}
       {bundleTextState.status === "invalid" && <div className="prp-error">{bundleTextState.message}</div>}
-      <Button className="prp-size-btn" onClick={insertExampleBundleCandidate}>
-      variant="secondary"
-      size="sm"
+      <button type="button" className="prp-size-btn" onClick={insertExampleBundleCandidate}>
         Insert example candidate
-      </Button>
-      <Button className="prp-size-btn" onClick={() => void runBundle()} disabled={bundleLoading || bundleTextState.status !== "valid"}>
-      variant="secondary"
-      size="sm"
+      </button>
+      <button type="button" className="prp-size-btn" onClick={() => void runBundle()} disabled={bundleLoading || bundleTextState.status !== "valid"}>
         {bundleLoading ? "Building…" : "Build bundle"}
-      </Button>
+      </button>
       {bundleError && <div className="prp-error">{bundleError}</div>}
       {bundle && (
         <div className="prp-sizing-result">
@@ -519,51 +501,50 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
           ["gammaSharesPerDollar", "Γ shares/$"], ["thetaDollarsPerDay", "Θ $/day"], ["vegaDollarsPerVolPoint", "Vega $/vol pt"],
           ["rhoDollarsPerRatePoint", "Rho $/1%"], ["definedMaxLoss", "Defined max loss $"],
         ] as Array<[string, string]>).map(([key, label]) => (
-          <label key={key}>{label}<TextInput value={evalForm[key] ?? ""} onChange={(e) => setEvalForm({ ...evalForm, [key]: e.target.value })} inputMode="decimal" /></label>
+          <label key={key}>{label}<input value={evalForm[key] ?? ""} onChange={(e) => setEvalForm({ ...evalForm, [key]: e.target.value })} inputMode="decimal" /></label>
         ))}
       </div>
-      <Button className="prp-size-btn" onClick={() => void runEvaluate()} disabled={evalLoading}>{evalLoading ? "Evaluating…" : "Evaluate post-trade"}</Button>
-      variant="secondary"
-      size="sm"
+      <button type="button" className="prp-size-btn" onClick={() => void runEvaluate()} disabled={evalLoading}>{evalLoading ? "Evaluating…" : "Evaluate post-trade"}</button>
       {evalError && <div className="prp-error">{evalError}</div>}
       {evaluation && (
-          <Table
-          columns={[
-            { key: "total", header: "Total", render: (row) => row.label },
-            { key: "current", header: "Current", render: (row) => fmtSignedUsd((evaluation.current.totals as unknown as Record<string, number | null>)[row.key]) },
-            { key: "post", header: "Post-trade", render: (row) => fmtSignedUsd((evaluation.postTradeTotals as unknown as Record<string, number | null>)[row.key]) },
-          ]}
-          rows={([
-            ["Delta $", "deltaDollars"], ["Beta-weighted Δ $", "betaWeightedDeltaDollars"], ["Gamma (shares/$)", "gammaSharesPerDollar"],
-            ["Theta $/day", "thetaDollarsPerDay"], ["Vega $/vol pt", "vegaDollarsPerVolPoint"], ["Rho $/1%", "rhoDollarsPerRatePoint"], ["Defined max loss $", "definedMaxLoss"],
-          ] as Array<[string, string]>).map(([label, key]) => ({ label, key, __rowKey: key }))}
-          rowKey={(row) => row.__rowKey}
-        />
+        <table className="prp-table">
+          <thead><tr><th>Total</th><th>Current</th><th>Post-trade</th></tr></thead>
+          <tbody>
+            {([
+              ["Delta $", "deltaDollars"], ["Beta-weighted Δ $", "betaWeightedDeltaDollars"], ["Gamma (shares/$)", "gammaSharesPerDollar"],
+              ["Theta $/day", "thetaDollarsPerDay"], ["Vega $/vol pt", "vegaDollarsPerVolPoint"], ["Rho $/1%", "rhoDollarsPerRatePoint"], ["Defined max loss $", "definedMaxLoss"],
+            ] as Array<[string, string]>).map(([label, key]) => (
+              <tr key={key}>
+                <td>{label}</td>
+                <td>{fmtSignedUsd((evaluation.current.totals as unknown as Record<string, number | null>)[key])}</td>
+                <td>{fmtSignedUsd((evaluation.postTradeTotals as unknown as Record<string, number | null>)[key])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       {/* Think-harness guardrail check (#37, surfaced by #67) */}
       <div className="prp-subhead">Trade Guardrail Check</div>
       <div className="prp-note">Runs the think harness on live account state. It fails closed — when price, balance, or spread cannot be resolved from the broker, the verdict is INPUTS_UNAVAILABLE and no draft is produced.</div>
       <div className="prp-form-grid">
-        <label>Symbol<TextInput value={thinkSymbol} onChange={(e) => setThinkSymbol(e.target.value)} placeholder="ACME" /></label>
+        <label>Symbol<input value={thinkSymbol} onChange={(e) => setThinkSymbol(e.target.value)} placeholder="ACME" /></label>
         <label>Action
-          <Select value={thinkAction} onChange={(e) => setThinkAction(e.target.value as "BUY" | "SELL")}>
+          <select value={thinkAction} onChange={(e) => setThinkAction(e.target.value as "BUY" | "SELL")}>
             <option value="BUY">BUY</option><option value="SELL">SELL</option>
-          </Select>
+          </select>
         </label>
-        <label>Quantity<TextInput value={thinkQuantity} onChange={(e) => setThinkQuantity(e.target.value)} inputMode="numeric" /></label>
+        <label>Quantity<input value={thinkQuantity} onChange={(e) => setThinkQuantity(e.target.value)} inputMode="numeric" /></label>
         <label>Order type
-          <Select value={thinkOrderType} onChange={(e) => setThinkOrderType(e.target.value as "MARKET" | "LIMIT" | "STOP")}>
+          <select value={thinkOrderType} onChange={(e) => setThinkOrderType(e.target.value as "MARKET" | "LIMIT" | "STOP")}>
             <option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="STOP">STOP</option>
-          </Select>
+          </select>
         </label>
-        <label>Price (optional)<TextInput value={thinkPrice} onChange={(e) => setThinkPrice(e.target.value)} inputMode="decimal" /></label>
+        <label>Price (optional)<input value={thinkPrice} onChange={(e) => setThinkPrice(e.target.value)} inputMode="decimal" /></label>
       </div>
-      <Button className="prp-size-btn" onClick={() => void runThink()} disabled={thinkLoading || !thinkSymbol.trim() || !thinkQuantity.trim()}>
-      variant="secondary"
-      size="sm"
+      <button type="button" className="prp-size-btn" onClick={() => void runThink()} disabled={thinkLoading || !thinkSymbol.trim() || !thinkQuantity.trim()}>
         {thinkLoading ? "Checking…" : "Run guardrail check"}
-      </Button>
+      </button>
       {thinkError && <div className="prp-error">{thinkError}</div>}
       {verdict && (
         <div className="prp-sizing-result">

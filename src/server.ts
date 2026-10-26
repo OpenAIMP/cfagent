@@ -35,12 +35,6 @@ import { canGrantRole } from "./security/authorization";
 import { createAccessRequestStore } from "./security/iaaaAccessRequests";
 import { buildAdminOverview } from "./security/iaaaAdminOverview";
 import { handleSeedGovernanceRoute } from "./data/seedGovernanceRoute";
-import {
-  handleChainStatusRoute,
-  handleReconcileChainsRoute,
-} from "./data/chainStatusRoute";
-import { readChainStatus } from "./data/createChainSchedulePorts";
-import type { ReconcileReport } from "./data/chainScheduleProjection";
 import type { GovernedHaltState } from "./data/governedHalt";
 import { buildOpenApiSpec, SWAGGER_UI_HTML } from "./security/openapiSpec";
 import {
@@ -1228,87 +1222,6 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         isPlatformAdmin,
         tenantId: resolveIaaaTenant(env),
         runSeed: ({ tenantId, setBy }) => stub.seedGovernanceHalt(setBy, tenantId),
-      });
-    }
-
-    // --- Chain/schedule projection status (issue #1651, slice 1) ---
-    // GET /api/chains/status?chainId=: tenant-scoped read of the
-    // AgentDB projection ONLY — never the durable object. Gated
-    // by requireAuth (any signed-in user); the tenant comes from
-    // the IAAA tenant resolution, so a caller can only ever see
-    // their own tenant's rows. Unbound AgentDB → 503.
-    if (path === "/api/chains/status") {
-      const session = await requireAuth(request, env);
-      const tenantId = resolveIaaaTenant(env);
-      const chainId = url.searchParams.get("chainId") ?? "";
-      const status = session
-        ? await readChainStatus(env, tenantId, chainId)
-        : null;
-      if (!session) {
-        return handleChainStatusRoute({
-          session: null,
-          method: request.method,
-          tenantId,
-          chainId,
-          readStatus: async () => ({ chain: null, schedule: null }),
-        });
-      }
-      if (status === null) {
-        return Response.json(
-          { error: "Chain status unavailable: AgentDB is not bound." },
-          { status: 503 },
-        );
-      }
-      return handleChainStatusRoute({
-        session,
-        method: request.method,
-        tenantId,
-        chainId,
-        readStatus: async () => status,
-      });
-    }
-
-    // --- Chain/schedule reconciliation (issue #1651, slice 1) ---
-    // POST /api/chains/reconcile: the deliberate operator
-    // invocation point for projection reconciliation. Gating
-    // reuses the IAAA admin pattern exactly (requireAuth → wired
-    // session → live platform-admin membership, fail-closed, no
-    // data on 403). Never auto-run: no boot, deploy, or tick
-    // path calls it. Runs on the shared ScheduledAgent "default"
-    // instance, whose synthesizedSchedules key is authoritative.
-    if (path === "/api/chains/reconcile") {
-      const session = await requireAuth(request, env);
-      let isPlatformAdmin = false;
-      if (session?.internalUserId) {
-        try {
-          const overview = await buildAdminOverview(
-            {
-              membershipStore: createKvMembershipStore(sessionStore(env)),
-              auditStore: createWiredAuditStore(env),
-              kv: sessionStore(env),
-              tenantId: resolveIaaaTenant(env),
-              nowMs: Date.now(),
-            },
-            { callerInternalUserId: session.internalUserId },
-          );
-          isPlatformAdmin = overview.allowed;
-        } catch {
-          return Response.json({ error: "Chain reconciliation unavailable." }, { status: 500 });
-        }
-      }
-      const schedId = (env as any).SCHEDULED_AGENT.idFromName("default");
-      const sched = (env as any).SCHEDULED_AGENT.get(schedId) as unknown as {
-        reconcileChainScheduleProjection(
-          tenantId: string,
-        ): Promise<ReconcileReport>;
-      };
-      return handleReconcileChainsRoute({
-        session,
-        method: request.method,
-        isPlatformAdmin,
-        tenantId: resolveIaaaTenant(env),
-        runReconcile: ({ tenantId }) =>
-          sched.reconcileChainScheduleProjection(tenantId),
       });
     }
 
