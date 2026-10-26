@@ -557,6 +557,9 @@ export interface ETradeQuote {
  *  in src/trading/technicals.ts; slice 6's bias vote reads this value. */
 export type PriceRegime = "UP" | "DN" | "RNG";
 
+/** Issue #1654 slice 6: 6-vote composite bias label (see screeningIndicators). */
+export type CompositeBias = "Bullish" | "Bearish" | "Neutral";
+
 export interface StockScreenerFilter {
   sector?: string;
   minPrice?: number;
@@ -586,6 +589,9 @@ export interface StockScreenerFilter {
   /** Issue #1654 slice 5: reject candidates whose attached price-action
    *  regime (see regime) does not match. */
   regimeFilter?: PriceRegime;
+  /** Issue #1654 slice 6: reject candidates whose attached composite
+   *  bias score (see compositeBiasScore) is below this minimum. */
+  minCompositeBiasScore?: number;
   gainersOnly?: boolean;
   losersOnly?: boolean;
   rsiFilter?: "oversold" | "overbought" | "neutral" | "any";
@@ -644,6 +650,14 @@ export interface ScreenedStockItem extends ETradeQuote {
    *  data unavailable — the filter that needs it fail-closes, never
    *  estimated. */
   regime?: PriceRegime;
+  /** Issue #1654 slice 6: 6-vote composite bias score (bullish-vote
+   *  count, 0–6) from real bar history, attached upstream where bars
+   *  exist. Absent = bias data unavailable — the gate that needs it
+   *  fail-closes, never estimated. */
+  compositeBiasScore?: number;
+  /** Issue #1654 slice 6: 6-vote composite bias label for the attached
+   *  score (see compositeBiasScore). */
+  compositeBias?: CompositeBias;
   macdSignal: string;
   signal: "BULLISH_MOMENTUM" | "OVERSOLD_BOUNCE" | "RANGE_BOUND" | "OVERBOUGHT";
   technicalSignal: string;
