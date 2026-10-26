@@ -31,8 +31,8 @@
   },
   {
     "path": "src/client/options/optionsResearch.css",
-    "lines": 1087,
-    "reason": "grandfathered (#1337)"
+    "lines": 1198,
+    "reason": "grandfathered (#1337), screener deck layout (#1793)"
   },
   {
     "path": "src/client/options/riskAnalysis.css",
@@ -46,8 +46,8 @@
   },
   {
     "path": "src/client/optionsResearch.css",
-    "lines": 1107,
-    "reason": "grandfathered (#1337)"
+    "lines": 1218,
+    "reason": "grandfathered (#1337), screener deck layout (#1793)"
   },
   {
     "path": "src/client/portfolioRiskPanel.css",
