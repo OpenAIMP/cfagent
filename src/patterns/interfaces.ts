@@ -13,6 +13,7 @@
 import type { z } from "zod";
 import type { AsyncJobSubmission, Env, FossQuote, FossCompanyFundamentals, FossHistoricalBar, AlpacaMarketSnapshot } from "../types";
 import type { DatabaseORM } from "../orm";
+import type { AdsRevenueScopedModes } from "../config/adsRevenueModes";
 import type { SupportedGateway, CreateCheckoutParams, CheckoutResult, RefundParams, RefundResult, GatewayStatus } from "../services/payments";
 import type { DidAttestationProof } from "../agents/did";
 
@@ -23,6 +24,13 @@ export interface McpToolContext {
   env: Env;
   orm: DatabaseORM;
   sessionId: string;
+  /**
+   * #1721: optional session/user carriers for the categories /
+   * referrals / external-ads switches (run comes from the per-call
+   * `mode` input, global env from `env`). Populated by the
+   * execution-context owner; unset carriers fall through to env.
+   */
+  scopedModes?: AdsRevenueScopedModes;
   requestId?: string;
   audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
   facade?: IMcpSystemFacade;
