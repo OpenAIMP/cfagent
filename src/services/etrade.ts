@@ -10,6 +10,9 @@
 
 import type { Env } from "../types";
 import type { DatabaseORM } from "../orm";
+import { withBreaker } from "../breakers/breakerDecorator";
+import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
+import type { BreakerRegistry } from "../breakers/breakerPorts";
 import type {
   ETradeQuote,
   StockScreenerFilter,
@@ -65,13 +68,24 @@ export class ETradeService {
   private env: Env;
   private userLogin: string;
   private overrideEnv?: string;
+  private breakerRegistry: BreakerRegistry;
   private storage?: Parameters<typeof nasdaqUniverseSeamFromSql>[3];
 
   setScreenerUniverse(universe: ScreenedStockItem[]): void {
     this.screener.setUniverse(universe);
   }
 
-  constructor(ormOrEnv?: DatabaseORM | Env, env?: Env, userLogin?: string, overrideEnv?: string, storage?: Parameters<typeof nasdaqUniverseSeamFromSql>[3]) {
+  constructor(
+    ormOrEnv?: DatabaseORM | Env,
+    env?: Env,
+    userLogin?: string,
+    overrideEnv?: string,
+    storage?: Parameters<typeof nasdaqUniverseSeamFromSql>[3],
+    // Issue #1745: breaker registry (tests inject an isolated one;
+    // production shares the per-isolate default so the etrade
+    // breaker has memory across requests).
+    opts?: { breakerRegistry?: BreakerRegistry }
+  ) {
     // Issue #1185: the service resolves the caller's stored per-user
     // token — an explicit login is required; there is no default
     // identity to fall back to.
@@ -92,6 +106,7 @@ export class ETradeService {
     // internal listings-seam build below. Unset → outcome-only, as before.
     this.storage = storage;
 
+    this.breakerRegistry = opts?.breakerRegistry ?? defaultBreakerRegistry();
     this.client = new ETradeRestClient(this.env, this.userLogin, this.overrideEnv);
     this.platform = new ETradeTradingPlatform(this.env, this.orm, this.userLogin, this.overrideEnv, this.client);
     this.screener = new DynamicMarketScreener();
@@ -534,7 +549,17 @@ export class ETradeService {
       // the shared getLastError() after the await attributed one symbol's
       // failure to another. fetchQuoteDetailed returns the error with the
       // result; nothing is read from shared instance state.
-      const { quote: live, error } = await this.client.fetchQuoteDetailed(cleanSym, options);
+      // Issue #1745: the live client call runs behind the etrade
+      // breaker (no fallback: a live failure stays explicit below,
+      // never stale cache. No budget here: the client charges its
+      // own SubrequestBudget per fetch — charging again would
+      // double-count against the run's remaining budget).
+      const { quote: live, error } = (
+        await withBreaker(
+          this.breakerRegistry.breakerFor("etrade"),
+          () => this.client.fetchQuoteDetailed(cleanSym, options)
+        )
+      ).value;
       if (live && live.lastPrice > 0) {
         // #1725 (M7): the inline stub-heuristic copy is replaced by
         // the shared isStubQuote helper (quotePolicies.ts) already
@@ -588,13 +613,22 @@ export class ETradeService {
     // the same way — options are passed only when at least one is
     // actually supplied, so existing callers see the exact call
     // shapes they always have.
+    // Issue #1745: batch quote calls run behind the etrade breaker
+    // as one budgeted execution per batch (the #495 shape is kept:
+    // one call per batch, not per symbol). No fallback, same rule
+    // as fetchQuoteRemote above.
+    const etradeBreaker = this.breakerRegistry.breakerFor("etrade");
     if (trace || onWireResponse) {
-      return this.client.fetchQuotes(clean, {
-        ...(trace ? { trace } : {}),
-        ...(onWireResponse ? { onWireResponse } : {}),
-      });
+      return (
+        await withBreaker(etradeBreaker, () =>
+          this.client.fetchQuotes(clean, {
+            ...(trace ? { trace } : {}),
+            ...(onWireResponse ? { onWireResponse } : {}),
+          })
+        )
+      ).value;
     }
-    return this.client.fetchQuotes(clean);
+    return (await withBreaker(etradeBreaker, () => this.client.fetchQuotes(clean))).value;
   }
 
   /**
