@@ -274,8 +274,15 @@ function gateThesisCoherence(
   };
   // Pipeline structure ids (bull_call_spread, long_straddle, ...) map onto
   // economics families before the compatibility check.
+  // #1639 (D8): llm_idea is exempt from the family check — it is a single
+  // cited contract, not a named strategy family, and its direction lives
+  // in the LLM answer prose (still length-checked above), not in a leg
+  // pattern the gate can classify. The exemption does not qualify
+  // anything: the publication gate still fails without falsification
+  // evidence, and the kernel's falsify stage caps such candidates at
+  // Unverified. Every named family keeps the check.
   const allowed = compatible[candidate.outlook] ?? [];
-  if (candidate.outlook !== "unknown" && !allowed.includes(structureFamily(candidate.structure))) {
+  if (candidate.outlook !== "unknown" && candidate.structure !== "llm_idea" && !allowed.includes(structureFamily(candidate.structure))) {
     reasons.push(
       `Structure ${candidate.structure} does not express a ${candidate.outlook} outlook.`
     );
