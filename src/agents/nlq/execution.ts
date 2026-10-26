@@ -1293,6 +1293,18 @@ async function executeSchedulingAction(
     ] as const) {
       if (sd[key] !== undefined) criteria[key] = sd[key];
     }
+    // Consolidation #1236 (discovery notifications): per-task
+    // delivery recipients ride the NLQ schedule path ONLY for
+    // autonomousStrategyDiscovery. Other callbacks never carried
+    // delivery fields through NLQ, and this keeps them that way —
+    // buildSchedulePayload would 400 pushToSlack-style fields on
+    // non-discovery schemas, so the gate is the callback, not the
+    // builder.
+    if (callback === "autonomousStrategyDiscovery") {
+      for (const key of ["emailTo", "slackChannel", "webhookUrl"] as const) {
+        if (sd[key] !== undefined) criteria[key] = sd[key];
+      }
+    }
     const built = buildSchedulePayload(callback, criteria, { userLogin, trigger: "scheduled" });
     if (!built.ok) {
       return failure(

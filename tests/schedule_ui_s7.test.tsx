@@ -167,6 +167,7 @@ const GOLDENS: Record<string, { form: ScheduleFormState; body: Record<string, an
           { symbol: "NVDA", thesis: "bullish", targetPrice: 200, targetDate: "2027-12-18", expectedIvDirection: "unchanged", maxPlannedLoss: 500, minRewardRisk: 1, allowedStrategies: ["all"], dataMode: "live" },
           { symbol: "MSFT", thesis: "bearish", targetPrice: 380, targetDate: "2027-12-18", expectedIvDirection: "unchanged", maxPlannedLoss: 250, minRewardRisk: 2, allowedStrategies: ["long_put", "bull_put_spread"], dataMode: "live" },
         ],
+        slackChannel: "#options-alerts",
         environment: "TEST",
         trigger: "scheduled",
       },
@@ -178,7 +179,7 @@ const GOLDENS: Record<string, { form: ScheduleFormState; body: Record<string, an
     body: {
       callback: "autonomousStrategyDiscovery",
       scheduleType: "interval",
-      payload: { inputModel: "profile-derived", symbols: ["NVDA", "MSFT", "AAPL"], profileId: "prof-1", environment: "TEST", trigger: "scheduled" },
+      payload: { inputModel: "profile-derived", symbols: ["NVDA", "MSFT", "AAPL"], profileId: "prof-1", slackChannel: "#options-alerts", environment: "TEST", trigger: "scheduled" },
       intervalSeconds: 3600,
     },
   },
@@ -187,7 +188,7 @@ const GOLDENS: Record<string, { form: ScheduleFormState; body: Record<string, an
     body: {
       callback: "autonomousStrategyDiscovery",
       scheduleType: "interval",
-      payload: { inputModel: "profile-derived", watchlistName: "My List", profileId: "prof-1", environment: "TEST", trigger: "scheduled" },
+      payload: { inputModel: "profile-derived", watchlistName: "My List", profileId: "prof-1", slackChannel: "#options-alerts", environment: "TEST", trigger: "scheduled" },
       intervalSeconds: 3600,
     },
   },
@@ -207,6 +208,7 @@ const GOLDENS: Record<string, { form: ScheduleFormState; body: Record<string, an
           { symbol: "NVDA", maxPlannedLoss: 500, minRewardRisk: 1, minProbabilityOfProfit: 0.35, riskProfile: "balanced", minDte: 7, maxDte: 45 },
           { symbol: "MSFT", maxPlannedLoss: 500, minRewardRisk: 1, minProbabilityOfProfit: 0.35, riskProfile: "balanced", minDte: 7, maxDte: 45 },
         ],
+        slackChannel: "#options-alerts",
         environment: "TEST",
         trigger: "scheduled",
       },

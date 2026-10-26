@@ -107,7 +107,7 @@ export function buildScheduleSubmission(
     const built = buildNoViewPayload(form.noViewDraft);
     if ("error" in built) return { error: built.error };
     callback = JOB_CALLBACKS.strategyDiscovery;
-    payload = { ...built.payload, environment: form.environment, trigger: "scheduled" };
+    payload = { ...built.payload, ...discoveryDeliveryFields(form), environment: form.environment, trigger: "scheduled" };
   } else if (
     form.jobType === "strategyDiscovery" &&
     form.discoveryInputModel === "profile-derived"
@@ -122,14 +122,14 @@ export function buildScheduleSubmission(
     });
     if ("error" in built) return { error: built.error };
     callback = JOB_CALLBACKS.strategyDiscovery;
-    payload = { ...built.payload, environment: form.environment, trigger: "scheduled" };
+    payload = { ...built.payload, ...discoveryDeliveryFields(form), environment: form.environment, trigger: "scheduled" };
   } else if (form.jobType === "strategyDiscovery") {
     // Saved-request discovery (issue #126): complete saved
     // StrategyRequests, re-run verbatim.
     const built = buildDiscoveryRequests(form.discoveryRequests);
     if ("error" in built) return { error: built.error };
     callback = JOB_CALLBACKS.strategyDiscovery;
-    payload = { requests: built.requests, environment: form.environment, trigger: "scheduled" };
+    payload = { requests: built.requests, ...discoveryDeliveryFields(form), environment: form.environment, trigger: "scheduled" };
   } else {
     const symbols = parseSymbolsText(form.targetSymbols);
     if (!Number.isInteger(form.maxItems) || form.maxItems < 0) {
@@ -202,6 +202,22 @@ export function buildScheduleSubmission(
   if (cadenceError) return { error: cadenceError };
 
   return { requestBody };
+}
+
+/**
+ * Consolidation #1236 (discovery notifications): the per-task
+ * delivery recipients a discovery schedule payload carries — exactly
+ * emailTo/slackChannel/webhookUrl (the discovery schema accepts
+ * these three, NOT pushToSlack). slackChannel is gated by the push
+ * checkbox, exactly as the marketScreen/optionsAnalysis branches
+ * gate it; empty fields are omitted, never sent as empty strings.
+ */
+function discoveryDeliveryFields(form: ScheduleFormState): Record<string, string> {
+  const fields: Record<string, string> = {};
+  if (form.pushToSlack && form.slackChannel.trim()) fields.slackChannel = form.slackChannel.trim();
+  if (form.emailTo.trim()) fields.emailTo = form.emailTo.trim();
+  if (form.webhookUrl.trim()) fields.webhookUrl = form.webhookUrl.trim();
+  return fields;
 }
 
 /** The cadence fields of a create body, shared by every builder in
