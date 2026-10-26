@@ -32,6 +32,12 @@ import type {
   FossProviderStatus,
 } from "../types";
 import type { IFossMarketDataProvider } from "../patterns/interfaces";
+import {
+  BreakerWrappedFossProvider,
+  yahooQuoteCacheFallback,
+} from "../breakers/fossBreakerWrapper";
+import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
+import type { BreakerRegistry } from "../breakers/breakerPorts";
 import { AGENT_DIDS, createDidAttestationSync } from "../agents/did";
 import { getCachedQuoteWithAge, setCachedQuote } from "./quoteCache";
 import {
@@ -2598,14 +2604,44 @@ export class HybridFossProvider implements IFossMarketDataProvider {
  * High-level orchestration for FOSS financial data, fundamentals, and multi-symbol comparisons.
  */
 export class FossResearchService {
-  private readonly yfinance: YahooFinanceProvider;
-  private readonly alpaca: AlpacaMarketDataProvider;
-  private readonly hybrid: HybridFossProvider;
+  private readonly yfinance: BreakerWrappedFossProvider;
+  private readonly alpaca: BreakerWrappedFossProvider;
+  // Trading calls (placeOrder/getAccount/getPositions/getOrders)
+  // are NOT market-data acquisition and stay on the raw Alpaca
+  // client — breakers never gate trades (issue #1745 scope).
+  private readonly alpacaTrading: AlpacaMarketDataProvider;
+  // The hybrid strategy is guarded at the composed level (breaker
+  // "hybrid"); the service only calls getQuote/getQuoteSync on it,
+  // both of which the wrapper carries.
+  private readonly hybrid: BreakerWrappedFossProvider;
 
-  constructor(private readonly env?: Env) {
-    this.yfinance = new YahooFinanceProvider(env);
-    this.alpaca = new AlpacaMarketDataProvider(env);
-    this.hybrid = new HybridFossProvider(env);
+  constructor(
+    private readonly env?: Env,
+    // Issue #1745: breaker registry (tests inject an isolated one;
+    // production shares the per-isolate default so breakers have
+    // memory across requests — a per-instance registry would reset
+    // on every request and never trip).
+    breakers?: BreakerRegistry
+  ) {
+    const registry = breakers ?? defaultBreakerRegistry();
+    this.yfinance = new BreakerWrappedFossProvider(
+      new YahooFinanceProvider(env),
+      registry.breakerFor("yahoo"),
+      { getQuote: (symbol) => Promise.resolve(yahooQuoteCacheFallback(symbol)) }
+    );
+    const alpacaInner = new AlpacaMarketDataProvider(env);
+    this.alpaca = new BreakerWrappedFossProvider(
+      alpacaInner,
+      registry.breakerFor("alpaca")
+    );
+    this.alpacaTrading = alpacaInner;
+    // The hybrid strategy keeps its own inner instances and is
+    // guarded at the composed level (breaker "hybrid"); its legs
+    // are covered by the yahoo/alpaca breakers on direct use.
+    this.hybrid = new BreakerWrappedFossProvider(
+      new HybridFossProvider(env),
+      registry.breakerFor("hybrid")
+    );
   }
 
   getProvider(provider: "yfinance" | "alpaca" | "hybrid" = "hybrid"): IFossMarketDataProvider {
@@ -2699,11 +2735,13 @@ export class FossResearchService {
   }
 
   getAlpacaSnapshotSync(symbol: string): AlpacaMarketSnapshot {
-    return this.alpaca.getMarketSnapshotSync(symbol);
+    // Alpaca carries both snapshot methods; the wrapper exposes them
+    // conditionally (present iff the inner offers them), hence "!".
+    return this.alpaca.getMarketSnapshotSync!(symbol);
   }
 
   async getAlpacaSnapshot(symbol: string): Promise<AlpacaMarketSnapshot> {
-    return this.alpaca.getMarketSnapshot(symbol);
+    return this.alpaca.getMarketSnapshot!(symbol);
   }
 
   compareStocksSync(symbols: string[]): Array<{ symbol: string; quote: FossQuote; fundamentals: FossCompanyFundamentals }> {
@@ -2929,28 +2967,28 @@ export class FossResearchService {
     limit_price?: number;
     time_in_force?: "day" | "gtc" | "ioc" | "fok";
   }): Promise<{ success: boolean; orderId?: string; status?: string; symbol?: string; qty?: number; side?: string; message: string }> {
-    return this.alpaca.placeOrder(params);
+    return this.alpacaTrading.placeOrder(params);
   }
 
   /**
    * Real Alpaca Trading v2: Query Account
    */
   async getAlpacaAccount(): Promise<{ success: boolean; account?: any; message?: string }> {
-    return this.alpaca.getAccount();
+    return this.alpacaTrading.getAccount();
   }
 
   /**
    * Real Alpaca Trading v2: Query Positions
    */
   async getAlpacaPositions(): Promise<{ success: boolean; positions?: any[]; message?: string }> {
-    return this.alpaca.getPositions();
+    return this.alpacaTrading.getPositions();
   }
 
   /**
    * Real Alpaca Trading v2: Query Orders
    */
   async getAlpacaOrders(status: "open" | "closed" | "all" = "open"): Promise<{ success: boolean; orders?: any[]; message?: string }> {
-    return this.alpaca.getOrders(status);
+    return this.alpacaTrading.getOrders(status);
   }
 }
 

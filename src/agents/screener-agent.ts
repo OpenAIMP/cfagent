@@ -22,6 +22,7 @@ import type { Env } from "../types";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
+import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
 import {
   applyPortfolioContextToOpportunities,
   type PortfolioContextMarker,
@@ -740,6 +741,9 @@ export class ScreenerAgent extends Agent<Env> {
             blobStorage: this.ctx.storage,
             env: this.env,
           },
+          // Issue #1745: pipeline Yahoo quotes run behind the yahoo
+          // breaker (stale-cache fallback on trip).
+          breaker: defaultBreakerRegistry().breakerFor("yahoo"),
         });
         yahooRegistry.register(yahooAdapter);
         const yahooProvider = yahooQuoteProviderFromRoute(
@@ -1052,6 +1056,9 @@ export class ScreenerAgent extends Agent<Env> {
             blobStorage: this.ctx.storage,
             env: this.env,
           },
+          // Issue #1745: pipeline Yahoo quotes run behind the yahoo
+          // breaker (stale-cache fallback on trip).
+          breaker: defaultBreakerRegistry().breakerFor("yahoo"),
         });
         yahooRegistry.register(yahooAdapter);
         const yahooProvider = yahooQuoteProviderFromRoute(
