@@ -37,6 +37,13 @@
 
 import { unauthenticatedResponse } from "./routeIdentity";
 import { FossResearchService, fossBarsSourceLabel } from "../../services/fossResearch";
+import {
+  resolveFossRestSwitch,
+  fossQuoteAuditEvent,
+  fossFundamentalsAuditEvent,
+  fossResearchAuditEvent,
+  fossBarsAuditEvent,
+} from "../../config/fossModes";
 import { parseStockScreenRequest, shardableUniverses } from "../../trading";
 import {
   manualWorkflowJobId,
@@ -57,6 +64,8 @@ export interface FossResearchRouteContext {
     agent: AgentName | "judge" | "nlq" | "orchestrator",
     payload: Record<string, unknown>
   ): void;
+  /** #1727: optional session/user carriers for the FOSS switches (run comes from query `?mode=`, global env from `env`). Populated by the execution-context owner; unset carriers fall through to env. See src/config/fossModes.ts. */
+  scopedFossModes?: import("../../config/fossModes").FossScopedModes;
   /** Screener agent (owner: OrchestratorAgent.getScreenerAgent) — issue #1007: the FOSS screen runs through the one pipeline via this agent, with the Yahoo data-source adapter as its provider. */
   getScreenerAgent(userLogin?: string): ScreenerAgent;
   /** Canonical-copy screener persistence (owner: OrchestratorAgent.persistScreenerReportCanonical) — the REST idiom the E*TRADE screen route stores through. */
@@ -77,6 +86,15 @@ export interface FossResearchRouteContext {
   }): Promise<void>;
 }
 
+/** #1727: adapts this module's route context to the fossModes switch host (the ctx audit type is narrower than the host's, so it is wrapped rather than passed through). */
+function fossSwitchHost(ctx: FossResearchRouteContext) {
+  return {
+    scopedFossModes: ctx.scopedFossModes,
+    env: ctx.env,
+    audit: (type: string, agent: any, payload: Record<string, unknown>) => ctx.audit(type, agent, payload),
+  };
+}
+
 /**
  * Non-alpaca FOSS market research & quoting routes (quote, fundamentals,
  * bars, research). Invoked from routeRequest at the exact position the
@@ -92,12 +110,22 @@ export async function handleFossQuoteResearchRoutes(
   ctx: FossResearchRouteContext
 ): Promise<Response | null> {
   // Real-time quote (Yahoo Finance, Alpaca, or Hybrid)
+  // #1727 F01: quote mode (run `?mode=` > session > user > env >
+  // rest legacy). mcp mode = the MCP command's contract (symbol
+  // required, 400 when missing, foss.quote.fetched audit); rest
+  // mode = this route's legacy (NVDA default, no audit).
   if (path.endsWith("/foss/quote") && request.method === "GET") {
     try {
-      const symbol = url.searchParams.get("symbol") || "NVDA";
+      const quoteMode = resolveFossRestSwitch(fossSwitchHost(ctx), "quote", url.searchParams.get("mode"), "rest");
+      const symbol = quoteMode === "mcp" ? (url.searchParams.get("symbol") || "") : (url.searchParams.get("symbol") || "NVDA");
+      if (quoteMode === "mcp" && !symbol.trim()) {
+        return Response.json({ error: "symbol is required" }, { status: 400 });
+      }
       const provider = (url.searchParams.get("provider") || "hybrid") as any;
       const foss = new FossResearchService(ctx.env);
       const quote = await foss.getQuote(symbol, provider);
+      const event = fossQuoteAuditEvent(quoteMode);
+      if (event) ctx.audit(event, "research", { symbol, provider: quote.provider, price: quote.price, provenance: quote.provenance });
       return Response.json(quote);
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch FOSS quote" }, { status: 500 });
@@ -105,11 +133,20 @@ export async function handleFossQuoteResearchRoutes(
   }
 
   // Company fundamentals & valuation metrics (yfinance)
+  // #1727 F01: fundamentals mode, same shape as quote (mcp =
+  // required + foss.fundamentals.fetched audit; rest = NVDA
+  // default, no audit).
   if (path.endsWith("/foss/fundamentals") && request.method === "GET") {
     try {
-      const symbol = url.searchParams.get("symbol") || "NVDA";
+      const fundamentalsMode = resolveFossRestSwitch(fossSwitchHost(ctx), "fundamentals", url.searchParams.get("mode"), "rest");
+      const symbol = fundamentalsMode === "mcp" ? (url.searchParams.get("symbol") || "") : (url.searchParams.get("symbol") || "NVDA");
+      if (fundamentalsMode === "mcp" && !symbol.trim()) {
+        return Response.json({ error: "symbol is required" }, { status: 400 });
+      }
       const foss = new FossResearchService(ctx.env);
       const fundamentals = await foss.getFundamentals(symbol);
+      const event = fossFundamentalsAuditEvent(fundamentalsMode);
+      if (event) ctx.audit(event, "research", { symbol, marketCap: fundamentals.marketCap, pe: fundamentals.peTrailing, provenance: fundamentals.provenance });
       return Response.json(fundamentals);
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch fundamentals" }, { status: 500 });
@@ -117,13 +154,28 @@ export async function handleFossQuoteResearchRoutes(
   }
 
   // Historical OHLCV bars (yfinance / Alpaca)
+  // #1727 F02: bars mode. mcp = the MCP command's contract (no
+  // provider input — service default — small envelope, audit
+  // foss.bars.fetched); rest = this route's legacy (explicit
+  // provider default yfinance, fuller envelope, no audit).
   if (path.endsWith("/foss/bars") && request.method === "GET") {
     try {
-      const symbol = url.searchParams.get("symbol") || "NVDA";
+      const barsMode = resolveFossRestSwitch(fossSwitchHost(ctx), "bars", url.searchParams.get("mode"), "rest");
+      const symbol = barsMode === "mcp" ? (url.searchParams.get("symbol") || "") : (url.searchParams.get("symbol") || "NVDA");
+      if (barsMode === "mcp" && !symbol.trim()) {
+        return Response.json({ error: "symbol is required" }, { status: 400 });
+      }
       const timeframe = url.searchParams.get("timeframe") || "1D";
       const limit = Number(url.searchParams.get("limit") || "30");
-      const provider = (url.searchParams.get("provider") || "yfinance") as "yfinance" | "alpaca" | "hybrid";
       const foss = new FossResearchService(ctx.env);
+      if (barsMode === "mcp") {
+        const bars = await foss.getHistoricalBars(symbol, timeframe, limit);
+        const provenance = bars[0]?.provenance ?? "generated";
+        const event = fossBarsAuditEvent("mcp");
+        if (event) ctx.audit(event, "research", { symbol, count: bars.length, provenance });
+        return Response.json({ symbol: symbol.toUpperCase(), count: bars.length, provenance, bars });
+      }
+      const provider = (url.searchParams.get("provider") || "yfinance") as "yfinance" | "alpaca" | "hybrid";
       const bars = await foss.getHistoricalBars(symbol, timeframe, limit, provider);
       // Issue #117: `source` is stamped from the bars' actual provenance —
       // a provider API name only when the bars were really fetched live;
@@ -146,12 +198,20 @@ export async function handleFossQuoteResearchRoutes(
   }
 
   // Comprehensive equity research report with Agent DID stamp
+  // #1727 F01: research mode. mcp = foss.research.generated audit
+  // + required symbol; rest = foss.research_generated audit (the
+  // canonical spelling, see src/config/fossModes.ts) + NVDA
+  // default. The payload shape is identical in both modes.
   if (path.endsWith("/foss/research") && request.method === "GET") {
     try {
-      const symbol = url.searchParams.get("symbol") || "NVDA";
+      const researchMode = resolveFossRestSwitch(fossSwitchHost(ctx), "research", url.searchParams.get("mode"), "rest");
+      const symbol = researchMode === "mcp" ? (url.searchParams.get("symbol") || "") : (url.searchParams.get("symbol") || "NVDA");
+      if (researchMode === "mcp" && !symbol.trim()) {
+        return Response.json({ error: "symbol is required" }, { status: 400 });
+      }
       const foss = new FossResearchService(ctx.env);
       const report = await foss.generateResearchReport(symbol);
-      ctx.audit("foss.research_generated", "research", { symbol, rating: report.analystRating, did: report.agentAttestation.did, provenance: report.provenance });
+      ctx.audit(fossResearchAuditEvent(researchMode), "research", { symbol, rating: report.analystRating, did: report.agentAttestation.did, provenance: report.provenance });
       return Response.json(report);
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to generate research report" }, { status: 500 });

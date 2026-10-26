@@ -38,6 +38,7 @@ import { getServiceUserLogin } from "../security/serviceIdentity";
 import { z } from "zod";
 import { resolveAiModelName } from "./model";
 import type { Env } from "../types";
+import { DatabaseORM } from "../orm";
 import {
   TradingPlatformRegistry,
   UnifiedOptionsService,
@@ -114,6 +115,12 @@ export interface TradingServiceContext {
   env: Env;
   config: TradingAgentConfig;
   userLogin: string;
+  /**
+   * #1686: optional ORM + DO blob handle for full capture on the
+   * listings-screen leg. Unset → today's missing-seam error result.
+   */
+  orm?: DatabaseORM;
+  storage?: import("../trading").NasdaqUniverseRouteBundleInput["storage"];
   /** Resolve the platform for a provider id (or the configured default). */
   resolvePlatform: (providerId?: string) => ITradingPlatform;
 }
@@ -368,6 +375,11 @@ export function resolveTradingPlatform(
   config: TradingAgentConfig,
   providerId: string | undefined,
   userLogin: string,
+  // Issue #1686: optional ORM + DO blob handle. Without an ORM the
+  // platform builds an undefined seam and screens return the
+  // missing-seam error result (the pre-#1686 trading-agent behavior).
+  orm?: DatabaseORM,
+  storage?: import("../trading").NasdaqUniverseRouteBundleInput["storage"],
 ): ITradingPlatform {
   const provider = (providerId ?? config.defaultProvider).toLowerCase();
   if (!config.enabledProviders.includes(provider)) {
@@ -396,8 +408,10 @@ export function resolveTradingPlatform(
   return TradingPlatformRegistry.getPlatform(
     provider as TradingPlatformId,
     env,
-    undefined,
+    orm,
     userLogin,
+    undefined,
+    storage,
   );
 }
 
@@ -415,6 +429,13 @@ export interface TradingServiceCall {
   door?: string;
   /** Correlation id for the dispatch log; generated when absent. */
   traceId?: string;
+  /**
+   * #1686: optional ORM + DO blob handle, supplied by the door when the
+   * caller runs inside a DO (Think tools, typed RPC, A2A handler). Unset
+   * → today's missing-seam error result for the listings-screen leg.
+   */
+  orm?: DatabaseORM;
+  storage?: import("../trading").NasdaqUniverseRouteBundleInput["storage"];
 }
 
 /**
@@ -479,8 +500,10 @@ export async function executeTradingService(
       env,
       config,
       userLogin,
+      orm: call.orm,
+      storage: call.storage,
       resolvePlatform: (providerId) =>
-        resolveTradingPlatform(env, config, providerId, userLogin),
+        resolveTradingPlatform(env, config, providerId, userLogin, call.orm, call.storage),
     };
     const result = await service.execute(ctx, input);
     log(true);
@@ -500,7 +523,7 @@ export async function executeTradingService(
 // Door 1: Think tools (agent-as-a-tool), generated from the registry
 // ---------------------------------------------------------------------------
 
-export function buildTradingTools(env: Env, config: TradingAgentConfig, userLogin?: string): ToolSet {
+export function buildTradingTools(env: Env, config: TradingAgentConfig, userLogin?: string, deps?: { orm?: DatabaseORM; storage?: import("../trading").NasdaqUniverseRouteBundleInput["storage"] }): ToolSet {
   const tools: ToolSet = {};
   for (const service of liveTradingServices(config)) {
     tools[service.toolName] = tool({
@@ -513,6 +536,8 @@ export function buildTradingTools(env: Env, config: TradingAgentConfig, userLogi
             input,
             userLogin,
             door: "tool",
+            orm: deps?.orm,
+            storage: deps?.storage,
           });
           return JSON.stringify({ ok: true, service: service.id, result });
         } catch (err) {
@@ -571,6 +596,10 @@ export async function dispatchTradingA2A(
   config: TradingAgentConfig,
   body: unknown,
   userLogin?: string,
+  // Issue #1686: optional ORM + DO blob handle, supplied by the A2A
+  // handler when it runs inside a DO. Unset → missing-seam error
+  // result for the listings-screen leg, as before.
+  deps?: { orm?: DatabaseORM; storage?: import("../trading").NasdaqUniverseRouteBundleInput["storage"] },
 ): Promise<A2ADataResult> {
   const correlationId = crypto.randomUUID();
   const extracted = extractA2AOperation(body);
@@ -599,6 +628,8 @@ export async function dispatchTradingA2A(
       userLogin,
       door: "a2a",
       traceId: correlationId,
+      orm: deps?.orm,
+      storage: deps?.storage,
     });
     return { ok: true, operation: extracted.operation, service: service.id, correlationId, result };
   } catch (err) {
@@ -807,7 +838,19 @@ export class TradingAgent extends Agent<Env> {
   }
 
   getTools(): ToolSet {
-    return buildTradingTools(this.env, this.config(), this.instanceUserLogin() ?? undefined);
+    return buildTradingTools(this.env, this.config(), this.instanceUserLogin() ?? undefined, { orm: this.getOrm(), storage: this.ctx.storage });
+  }
+
+  /**
+   * Issue #1686: the DO's ORM, mirroring OrchestratorAgent.getOrm —
+   * the SQL handle the listings-seam build needs. The trading-agent
+   * leg previously passed no ORM at all, so its screens returned the
+   * missing-seam error result; with this + storage they fetch + capture.
+   */
+  private getOrm(): DatabaseORM {
+    const orm = new DatabaseORM(this.ctx.storage.sql);
+    orm.initializeSchema(this.ctx.id.toString());
+    return orm;
   }
 
   /** Door 3: typed RPC for in-process callers. */
@@ -816,6 +859,10 @@ export class TradingAgent extends Agent<Env> {
       ...call,
       userLogin: call.userLogin ?? this.instanceUserLogin() ?? undefined,
       door: "rpc",
+      // Issue #1686: instance handles as fallback, so RPC screens
+      // capture like tool screens; an explicit call orm/storage wins.
+      orm: call.orm ?? this.getOrm(),
+      storage: call.storage ?? this.ctx.storage,
     });
   }
 
@@ -1029,7 +1076,7 @@ export class TradingAgent extends Agent<Env> {
    */
   async handleA2A(body: unknown, origin: string): Promise<TradingA2AOutcome> {
     void origin; // reserved for per-origin policy (cfpay parity); unused in v1
-    const data = await dispatchTradingA2A(this.env, this.config(), body, this.instanceUserLogin() ?? undefined);
+    const data = await dispatchTradingA2A(this.env, this.config(), body, this.instanceUserLogin() ?? undefined, { orm: this.getOrm(), storage: this.ctx.storage });
     return tradingA2AOutcome(data);
   }
 }

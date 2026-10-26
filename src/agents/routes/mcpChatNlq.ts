@@ -337,8 +337,11 @@ export async function handleMcpChatNlqRoutes(
       // surface). "mcp" is the MCP-direct shape — the full function
       // with NO options (no ports, no stores, no runners) — while
       // keeping the REST identity (x-user-login) and audit.
+      // Issue #1686: the single exception to "NO options" is the DO
+      // blob handle — mcp-mode screens capture fully like rest-mode
+      // screens; ports, stores, and runners stay absent.
       const { plan, result } = resolvedNlqMode.mode === "mcp"
-        ? await executeNaturalLanguageQuery(orm, sessionId, query, ctx.env, userLogin, userDid)
+        ? await executeNaturalLanguageQuery(orm, sessionId, query, ctx.env, userLogin, userDid, { storage: ctx.getStorage?.() })
         : await executeNaturalLanguageQuery(
             orm,
             sessionId,
@@ -346,7 +349,7 @@ export async function handleMcpChatNlqRoutes(
             ctx.env,
             userLogin,
             userDid,
-            { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), socialBriefPort, discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql(), blobStorage: ctx.getStorage?.() }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql: ctx.getStorageSql(), storage: ctx.getStorage?.() }) }
+            { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), socialBriefPort, storage: ctx.getStorage?.(), discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql(), blobStorage: ctx.getStorage?.() }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql: ctx.getStorageSql(), storage: ctx.getStorage?.() }) }
           );
       ctx.audit("nlq.executed", "nlq", {
         query,

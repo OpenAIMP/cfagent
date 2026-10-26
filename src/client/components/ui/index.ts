@@ -32,6 +32,9 @@
  * - Table — semantic data table from a column config, with an empty
  *   slot (usually EmptyState).
  * - Skeleton — decorative loading placeholder (text/block/circle).
+ * - PageShell + PageSection — page chrome (title + scope note + sections)
+ *   with primitive loading/empty/error states; sections carry the shared
+ *   section treatment (title + description) instead of hand-rolled h3s.
  *
  * Styles live in ./primitives.css (imported once by main.tsx). New
  * primitives are added here with their styles + tests in the same PR.
@@ -51,3 +54,4 @@ export { Checkbox, type CheckboxProps } from "./Checkbox";
 export { Modal, type ModalProps } from "./Modal";
 export { Table, type TableProps, type TableColumn } from "./Table";
 export { Skeleton, type SkeletonProps } from "./Skeleton";
+export { PageShell, PageSection, type PageShellProps, type PageSectionProps } from "./PageShell";

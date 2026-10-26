@@ -312,11 +312,14 @@ describe("token governance (#1337)", () => {
     expect(violations).toEqual([]);
   });
 
-  it("new surfaces compose from ui/ primitives unless exempted", () => {
+  it("new surfaces compose from ui/ primitives (no exemptions, ADR-0004)", () => {
     // A .tsx file under src/client that is NOT in the grandfather
     // baseline, renders JSX, and imports nothing from
-    // src/client/components/ui/ fails unless listed in the
-    // exemptions of tests/ui_primitives_1337.json with a reason.
+    // src/client/components/ui/ fails. The exemptions list of
+    // tests/ui_primitives_1337.json is pinned empty by the ADR-0004
+    // test below (compliance is mandatory, no exemptions); the
+    // exemption lookup below stays only because removing the
+    // mechanism is follow-up, not decided.
     // Primitives themselves (components/ui/**) are exempt by
     // definition. Baseline files are grandfathered, not pinned:
     // deleting one needs no baseline edit.
@@ -347,8 +350,20 @@ describe("token governance (#1337)", () => {
       if (usesPrimitive) continue;
       const exemption = exempted.get(rel);
       if (exemption?.reason) continue;
-      violations.push(`${rel}: new surface renders JSX without importing a ui/ primitive (import one, or exempt it in tests/ui_primitives_1337.json with a reason)`);
+      violations.push(`${rel}: new surface renders JSX without importing a ui/ primitive (import one; exemptions are prohibited by ADR-0004)`);
     }
     expect(violations).toEqual([]);
+  });
+
+  it("no exemptions to the primitive rule (ADR-0004)", () => {
+    // UX token architecture compliance is mandatory with NO
+    // exemptions — all or none (ADR-0004, #1705). A surface that
+    // cannot comply must be reworked until it complies; it must
+    // not be added here. This pin fails CI the moment any entry
+    // appears in the exemptions list.
+    const gov = JSON.parse(
+      readFileSync(join(ROOT, "tests", "ui_primitives_1337.json"), "utf8")
+    ) as { baseline: string[]; exemptions: Array<{ path: string; reason: string }> };
+    expect(gov.exemptions).toEqual([]);
   });
 });

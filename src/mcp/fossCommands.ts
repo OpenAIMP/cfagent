@@ -5,11 +5,91 @@
  * - GoF Command Pattern: Encapsulates FOSS market operations (yfinance & Alpaca) as executable MCP commands.
  * - SOLID Single Responsibility Principle: Each command executes a discrete research or quoting capability.
  * - GoF Adapter Pattern: Directly adapted into Vercel AI SDK tools for agent self-consumption.
+ *
+ * #1727 (parent #1717, slice (g)): every command resolves its FOSS
+ * switch (src/config/fossModes.ts) in order run (per-call `mode`
+ * input) > session > user (context.scopedFossModes) > global env >
+ * built-in (this surface's legacy = "mcp" for every switch here).
+ * An unrecognized winning value FAILS CLOSED to "mcp",
+ * console-logged + audited as foss.config_error (no fall-through).
+ * The `mode` input is a plain optional string (not a zod enum) so
+ * an invalid value reaches execute and fails closed instead of
+ * being rejected by schema validation — the #1726 idiom. The
+ * jsonSchema/zodSchema `required` lists keep their legacy entries
+ * (symbol required, qty required): the rest/foss/trading-mode
+ * defaults (NVDA, qty 1, aliases) apply at execute level when the
+ * caller bypasses schema validation or the transport passes a
+ * missing field through — exactly the #1726 quote idiom. No
+ * endpoint is removed, no code path is deleted: every legacy
+ * branch is preserved under its mode value.
  */
 
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
-import { FossResearchService } from "../services/fossResearch";
+import { FossResearchService, fossBarsSourceLabel } from "../services/fossResearch";
+import {
+  FOSS_QUOTE_MODE_SWITCH,
+  FOSS_FUNDAMENTALS_MODE_SWITCH,
+  FOSS_RESEARCH_MODE_SWITCH,
+  FOSS_BARS_MODE_SWITCH,
+  FOSS_SNAPSHOT_MODE_SWITCH,
+  FOSS_ALPACA_READS_MODE_SWITCH,
+  FOSS_ALPACA_ORDER_MODE_SWITCH,
+  fossConfigErrorEvent,
+  levelsForFossSwitch,
+  resolveFossQuoteMode,
+  resolveFossFundamentalsMode,
+  resolveFossResearchMode,
+  resolveFossBarsMode,
+  resolveFossSnapshotMode,
+  resolveFossAlpacaReadsMode,
+  resolveFossAlpacaOrderMode,
+  fossQuoteAuditEvent,
+  fossFundamentalsAuditEvent,
+  fossResearchAuditEvent,
+  fossBarsAuditEvent,
+  fossSnapshotAudit,
+  fossReadsAuditEvent,
+  normalizeFossOrderInput,
+  fossOrderAuditEvent,
+  fossOrderAuditPayload,
+  type FossModeValues,
+  type ResolvedFossSwitch,
+} from "../config/fossModes";
+
+/** Builds the level set for one switch from the MCP context + run value. */
+function fossModeLevels(
+  context: McpToolContext,
+  key: keyof FossModeValues,
+  run: unknown,
+  envVar: string
+) {
+  return levelsForFossSwitch(context.scopedFossModes, key, run, (context.env as any)?.[envVar]);
+}
+
+/** Logs + audits foss.config_error when a resolution failed closed. */
+function auditFossConfigError(
+  context: McpToolContext,
+  switchName: string,
+  resolved: ResolvedFossSwitch<any>,
+  agent: "research" | "trading"
+) {
+  if (!resolved.invalid) return;
+  context.audit?.(fossConfigErrorEvent(), agent, {
+    switch: switchName,
+    raw: resolved.raw,
+    level: resolved.level,
+    failedClosedTo: resolved.mode,
+  });
+}
+
+/** MCP-mode symbol requirement (legacy): a missing/blank symbol throws, it never defaults. */
+function requireMcpSymbol(input: any): string {
+  if (typeof input?.symbol !== "string" || !input.symbol.trim()) {
+    throw new Error("symbol is required");
+  }
+  return input.symbol;
+}
 
 /**
  * 1. FOSS Get Quote Command
@@ -24,6 +104,7 @@ export class FossGetQuoteCommand implements IMcpToolCommand {
     properties: {
       symbol: { type: "string", description: "Stock ticker or crypto pair (e.g. NVDA, AAPL, MSFT, BTC/USD)" },
       provider: { type: "string", enum: ["yfinance", "alpaca", "hybrid"], description: "Market data provider (default: hybrid)" },
+      mode: { type: "string", description: "#1727 run-level FOSS_QUOTE_MODE override (mcp | rest)" },
     },
     required: ["symbol"],
   };
@@ -31,12 +112,21 @@ export class FossGetQuoteCommand implements IMcpToolCommand {
   readonly zodSchema = z.object({
     symbol: z.string().min(1).max(20).describe("Stock ticker or crypto pair"),
     provider: z.enum(["yfinance", "alpaca", "hybrid"]).default("hybrid").optional(),
+    mode: z.string().optional().describe("#1727 run-level FOSS_QUOTE_MODE override (mcp | rest)"),
   });
 
-  async execute(input: { symbol: string; provider?: "yfinance" | "alpaca" | "hybrid" }, context: McpToolContext) {
+  async execute(input: { symbol: string; provider?: "yfinance" | "alpaca" | "hybrid"; mode?: string }, context: McpToolContext) {
+    const resolved = resolveFossQuoteMode(fossModeLevels(context, "quote", (input as any)?.mode, FOSS_QUOTE_MODE_SWITCH), "mcp");
+    auditFossConfigError(context, FOSS_QUOTE_MODE_SWITCH, resolved, "research");
     const service = new FossResearchService(context.env);
-    const quote = await service.getQuote(input.symbol, input.provider || "hybrid");
-    context.audit?.("foss.quote.fetched", "research", { symbol: input.symbol, provider: quote.provider, price: quote.price, provenance: quote.provenance });
+    if (resolved.mode === "rest") {
+      const symbol = (typeof (input as any)?.symbol === "string" ? (input as any).symbol.trim() : "") || "NVDA";
+      return await service.getQuote(symbol, input.provider || "hybrid");
+    }
+    const symbol = requireMcpSymbol(input);
+    const quote = await service.getQuote(symbol, input.provider || "hybrid");
+    const event = fossQuoteAuditEvent("mcp");
+    if (event) context.audit?.(event, "research", { symbol: input.symbol, provider: quote.provider, price: quote.price, provenance: quote.provenance });
     return quote;
   }
 }
@@ -53,18 +143,28 @@ export class FossFundamentalsCommand implements IMcpToolCommand {
     type: "object" as const,
     properties: {
       symbol: { type: "string", description: "Stock ticker symbol (e.g. NVDA, AAPL, MSFT)" },
+      mode: { type: "string", description: "#1727 run-level FOSS_FUNDAMENTALS_MODE override (mcp | rest)" },
     },
     required: ["symbol"],
   };
 
   readonly zodSchema = z.object({
     symbol: z.string().min(1).max(20).describe("Stock ticker symbol"),
+    mode: z.string().optional().describe("#1727 run-level FOSS_FUNDAMENTALS_MODE override (mcp | rest)"),
   });
 
-  async execute(input: { symbol: string }, context: McpToolContext) {
+  async execute(input: { symbol: string; mode?: string }, context: McpToolContext) {
+    const resolved = resolveFossFundamentalsMode(fossModeLevels(context, "fundamentals", (input as any)?.mode, FOSS_FUNDAMENTALS_MODE_SWITCH), "mcp");
+    auditFossConfigError(context, FOSS_FUNDAMENTALS_MODE_SWITCH, resolved, "research");
     const service = new FossResearchService(context.env);
-    const fundamentals = await service.getFundamentals(input.symbol);
-    context.audit?.("foss.fundamentals.fetched", "research", { symbol: input.symbol, marketCap: fundamentals.marketCap, pe: fundamentals.peTrailing, provenance: fundamentals.provenance });
+    if (resolved.mode === "rest") {
+      const symbol = (typeof (input as any)?.symbol === "string" ? (input as any).symbol.trim() : "") || "NVDA";
+      return await service.getFundamentals(symbol);
+    }
+    const symbol = requireMcpSymbol(input);
+    const fundamentals = await service.getFundamentals(symbol);
+    const event = fossFundamentalsAuditEvent("mcp");
+    if (event) context.audit?.(event, "research", { symbol: input.symbol, marketCap: fundamentals.marketCap, pe: fundamentals.peTrailing, provenance: fundamentals.provenance });
     return fundamentals;
   }
 }
@@ -83,6 +183,8 @@ export class FossHistoricalBarsCommand implements IMcpToolCommand {
       symbol: { type: "string", description: "Stock ticker symbol or crypto pair" },
       timeframe: { type: "string", description: "Bar timeframe (default: '1D')" },
       limit: { type: "number", description: "Number of bars to return (default: 30, max: 90)" },
+      provider: { type: "string", enum: ["yfinance", "alpaca", "hybrid"], description: "#1727 rest-mode provider override (default: yfinance; ignored in mcp mode)" },
+      mode: { type: "string", description: "#1727 run-level FOSS_BARS_MODE override (mcp | rest)" },
     },
     required: ["symbol"],
   };
@@ -91,13 +193,35 @@ export class FossHistoricalBarsCommand implements IMcpToolCommand {
     symbol: z.string().min(1).max(20).describe("Stock ticker or crypto pair"),
     timeframe: z.string().default("1D").optional(),
     limit: z.number().int().min(1).max(90).default(30).optional(),
+    provider: z.enum(["yfinance", "alpaca", "hybrid"]).optional().describe("#1727 rest-mode provider override (default: yfinance; ignored in mcp mode)"),
+    mode: z.string().optional().describe("#1727 run-level FOSS_BARS_MODE override (mcp | rest)"),
   });
 
-  async execute(input: { symbol: string; timeframe?: string; limit?: number }, context: McpToolContext) {
+  async execute(input: { symbol: string; timeframe?: string; limit?: number; provider?: "yfinance" | "alpaca" | "hybrid"; mode?: string }, context: McpToolContext) {
+    const resolved = resolveFossBarsMode(fossModeLevels(context, "bars", (input as any)?.mode, FOSS_BARS_MODE_SWITCH), "mcp");
+    auditFossConfigError(context, FOSS_BARS_MODE_SWITCH, resolved, "research");
     const service = new FossResearchService(context.env);
-    const bars = await service.getHistoricalBars(input.symbol, input.timeframe || "1D", input.limit || 30);
+    if (resolved.mode === "rest") {
+      const symbol = (typeof (input as any)?.symbol === "string" ? (input as any).symbol.trim() : "") || "NVDA";
+      const provider = input.provider || "yfinance";
+      const bars = await service.getHistoricalBars(symbol, input.timeframe || "1D", input.limit || 30, provider);
+      const provenance = bars[0]?.provenance ?? "generated";
+      return {
+        symbol: symbol.toUpperCase(),
+        provider,
+        timeframe: input.timeframe || "1D",
+        count: bars.length,
+        bars,
+        provenance,
+        source: fossBarsSourceLabel(provider, provenance),
+        timestamp: new Date().toISOString(),
+      };
+    }
+    const symbol = requireMcpSymbol(input);
+    const bars = await service.getHistoricalBars(symbol, input.timeframe || "1D", input.limit || 30);
     const provenance = bars[0]?.provenance ?? "generated";
-    context.audit?.("foss.bars.fetched", "research", { symbol: input.symbol, count: bars.length, provenance });
+    const event = fossBarsAuditEvent("mcp");
+    if (event) context.audit?.(event, "research", { symbol: input.symbol, count: bars.length, provenance });
     return { symbol: input.symbol.toUpperCase(), count: bars.length, provenance, bars };
   }
 }
@@ -114,18 +238,29 @@ export class FossMarketResearchCommand implements IMcpToolCommand {
     type: "object" as const,
     properties: {
       symbol: { type: "string", description: "Stock ticker symbol (e.g. NVDA, AAPL, MSFT, TSLA)" },
+      mode: { type: "string", description: "#1727 run-level FOSS_RESEARCH_MODE override (mcp | rest)" },
     },
     required: ["symbol"],
   };
 
   readonly zodSchema = z.object({
     symbol: z.string().min(1).max(20).describe("Stock ticker symbol"),
+    mode: z.string().optional().describe("#1727 run-level FOSS_RESEARCH_MODE override (mcp | rest)"),
   });
 
-  async execute(input: { symbol: string }, context: McpToolContext) {
+  async execute(input: { symbol: string; mode?: string }, context: McpToolContext) {
+    const resolved = resolveFossResearchMode(fossModeLevels(context, "research", (input as any)?.mode, FOSS_RESEARCH_MODE_SWITCH), "mcp");
+    auditFossConfigError(context, FOSS_RESEARCH_MODE_SWITCH, resolved, "research");
     const service = new FossResearchService(context.env);
-    const report = await service.generateResearchReport(input.symbol);
-    context.audit?.("foss.research.generated", "research", { symbol: input.symbol, rating: report.analystRating, did: report.agentAttestation.did, provenance: report.provenance });
+    if (resolved.mode === "rest") {
+      const symbol = (typeof (input as any)?.symbol === "string" ? (input as any).symbol.trim() : "") || "NVDA";
+      const report = await service.generateResearchReport(symbol);
+      context.audit?.(fossResearchAuditEvent("rest"), "research", { symbol, rating: report.analystRating, did: report.agentAttestation.did, provenance: report.provenance });
+      return report;
+    }
+    const symbol = requireMcpSymbol(input);
+    const report = await service.generateResearchReport(symbol);
+    context.audit?.(fossResearchAuditEvent("mcp"), "research", { symbol: input.symbol, rating: report.analystRating, did: report.agentAttestation.did, provenance: report.provenance });
     return report;
   }
 }
@@ -142,18 +277,31 @@ export class FossAlpacaSnapshotCommand implements IMcpToolCommand {
     type: "object" as const,
     properties: {
       symbol: { type: "string", description: "Stock ticker symbol or crypto pair (e.g. NVDA, BTC/USD)" },
+      mode: { type: "string", description: "#1727 run-level FOSS_SNAPSHOT_MODE override (mcp | rest)" },
     },
     required: ["symbol"],
   };
 
   readonly zodSchema = z.object({
     symbol: z.string().min(1).max(20).describe("Stock ticker or crypto pair"),
+    mode: z.string().optional().describe("#1727 run-level FOSS_SNAPSHOT_MODE override (mcp | rest)"),
   });
 
-  async execute(input: { symbol: string }, context: McpToolContext) {
+  async execute(input: { symbol: string; mode?: string }, context: McpToolContext) {
+    const resolved = resolveFossSnapshotMode(fossModeLevels(context, "snapshot", (input as any)?.mode, FOSS_SNAPSHOT_MODE_SWITCH), "mcp");
+    auditFossConfigError(context, FOSS_SNAPSHOT_MODE_SWITCH, resolved, "trading");
     const service = new FossResearchService(context.env);
-    const snapshot = await service.getAlpacaSnapshot(input.symbol);
-    context.audit?.("foss.alpaca.snapshot", "research", { symbol: input.symbol, assetClass: snapshot.assetClass, tradePrice: snapshot.latestTrade.price, provenance: snapshot.provenance });
+    if (resolved.mode === "rest") {
+      const symbol = (typeof (input as any)?.symbol === "string" ? (input as any).symbol.trim() : "") || "NVDA";
+      const snapshot = await service.getAlpacaSnapshot(symbol);
+      const [event, payload] = fossSnapshotAudit("rest", symbol, snapshot);
+      context.audit?.(event, "trading", payload);
+      return snapshot;
+    }
+    const symbol = requireMcpSymbol(input);
+    const snapshot = await service.getAlpacaSnapshot(symbol);
+    const [event, payload] = fossSnapshotAudit("mcp", input.symbol, snapshot);
+    context.audit?.(event, "trading", payload);
     return snapshot;
   }
 }
@@ -168,20 +316,29 @@ export class FossAlpacaAccountCommand implements IMcpToolCommand {
 
   readonly jsonSchema = {
     type: "object" as const,
-    properties: {},
+    properties: {
+      mode: { type: "string", description: "#1727 run-level FOSS_ALPACA_READS_MODE override (mcp | rest | none)" },
+    },
   };
 
-  readonly zodSchema = z.object({});
+  readonly zodSchema = z.object({
+    mode: z.string().optional().describe("#1727 run-level FOSS_ALPACA_READS_MODE override (mcp | rest | none)"),
+  });
 
   async execute(_input: Record<string, unknown>, context: McpToolContext) {
+    const resolved = resolveFossAlpacaReadsMode(fossModeLevels(context, "reads", (_input as any)?.mode, FOSS_ALPACA_READS_MODE_SWITCH), "mcp");
+    auditFossConfigError(context, FOSS_ALPACA_READS_MODE_SWITCH, resolved, "trading");
     const service = new FossResearchService(context.env);
     const result = await service.getAlpacaAccount();
-    context.audit?.("alpaca.account.query", "trading", {
-      success: result.success,
-      accountId: result.account?.id,
-      buyingPower: result.account?.buying_power,
-      portfolioValue: result.account?.portfolio_value,
-    });
+    const event = fossReadsAuditEvent(resolved.mode, "account");
+    if (event) {
+      context.audit?.(event, "trading", {
+        success: result.success,
+        accountId: result.account?.id,
+        buyingPower: result.account?.buying_power,
+        portfolioValue: result.account?.portfolio_value,
+      });
+    }
     return result;
   }
 }
@@ -196,19 +353,28 @@ export class FossAlpacaPositionsCommand implements IMcpToolCommand {
 
   readonly jsonSchema = {
     type: "object" as const,
-    properties: {},
+    properties: {
+      mode: { type: "string", description: "#1727 run-level FOSS_ALPACA_READS_MODE override (mcp | rest | none)" },
+    },
   };
 
-  readonly zodSchema = z.object({});
+  readonly zodSchema = z.object({
+    mode: z.string().optional().describe("#1727 run-level FOSS_ALPACA_READS_MODE override (mcp | rest | none)"),
+  });
 
   async execute(_input: Record<string, unknown>, context: McpToolContext) {
+    const resolved = resolveFossAlpacaReadsMode(fossModeLevels(context, "reads", (_input as any)?.mode, FOSS_ALPACA_READS_MODE_SWITCH), "mcp");
+    auditFossConfigError(context, FOSS_ALPACA_READS_MODE_SWITCH, resolved, "trading");
     const service = new FossResearchService(context.env);
     const result = await service.getAlpacaPositions();
-    context.audit?.("alpaca.positions.query", "trading", {
-      success: result.success,
-      count: result.positions?.length || 0,
-      symbols: result.positions?.map((p: any) => p.symbol) || [],
-    });
+    const event = fossReadsAuditEvent(resolved.mode, "positions");
+    if (event) {
+      context.audit?.(event, "trading", {
+        success: result.success,
+        count: result.positions?.length || 0,
+        symbols: result.positions?.map((p: any) => p.symbol) || [],
+      });
+    }
     return result;
   }
 }
@@ -225,20 +391,29 @@ export class FossAlpacaOrdersCommand implements IMcpToolCommand {
     type: "object" as const,
     properties: {
       status: { type: "string", enum: ["open", "closed", "all"], description: "Order status filter (default: open)" },
+      mode: { type: "string", description: "#1727 run-level FOSS_ALPACA_READS_MODE override (mcp | rest | none)" },
     },
   };
 
   readonly zodSchema = z.object({
     status: z.enum(["open", "closed", "all"]).default("open").optional(),
+    mode: z.string().optional().describe("#1727 run-level FOSS_ALPACA_READS_MODE override (mcp | rest | none)"),
   });
 
-  async execute(input: { status?: "open" | "closed" | "all" }, context: McpToolContext) {
+  async execute(input: { status?: "open" | "closed" | "all"; mode?: string }, context: McpToolContext) {
+    const resolved = resolveFossAlpacaReadsMode(fossModeLevels(context, "reads", (input as any)?.mode, FOSS_ALPACA_READS_MODE_SWITCH), "mcp");
+    auditFossConfigError(context, FOSS_ALPACA_READS_MODE_SWITCH, resolved, "trading");
     const service = new FossResearchService(context.env);
-    const result = await service.getAlpacaOrders(input.status || "open");
-    context.audit?.("alpaca.orders.query", "trading", {
-      status: input.status || "open",
-      count: result.orders?.length || 0,
-    });
+    // Status default is open in every mode (pinned, not switched — see #1727).
+    const status = input.status || "open";
+    const result = await service.getAlpacaOrders(status);
+    const event = fossReadsAuditEvent(resolved.mode, "orders");
+    if (event) {
+      context.audit?.(event, "trading", {
+        status,
+        count: result.orders?.length || 0,
+      });
+    }
     return result;
   }
 }
@@ -246,6 +421,14 @@ export class FossAlpacaOrdersCommand implements IMcpToolCommand {
 /**
  * 9. FOSS Alpaca Place Order Command
  * Places an equity, ETF, or crypto order via Alpaca Trading API v2 with Agent DID cryptographic attestation.
+ *
+ * #1727: the order switch (FOSS_ALPACA_ORDER_MODE) selects input
+ * normalization + audit per src/config/fossModes.ts. The alias
+ * fields (quantity, orderAction, orderType, limitPrice) are
+ * accepted in the schema so they survive transport parsing; they
+ * are IGNORED in mcp mode (verbatim legacy) and honored in foss /
+ * trading modes. No HITL gate exists on this path on either surface
+ * today; the switch changes normalization + audit only.
  */
 export class FossAlpacaPlaceOrderCommand implements IMcpToolCommand {
   readonly name = "foss_alpaca_place_order";
@@ -260,6 +443,11 @@ export class FossAlpacaPlaceOrderCommand implements IMcpToolCommand {
       type: { type: "string", enum: ["market", "limit", "stop", "stop_limit"], description: "Order execution type" },
       limit_price: { type: "number", description: "Limit price (required if type is limit)" },
       time_in_force: { type: "string", enum: ["day", "gtc", "ioc", "fok"], description: "Time in force" },
+      quantity: { type: "number", description: "#1727 foss/trading-mode alias for qty (ignored in mcp mode)" },
+      orderAction: { type: "string", description: "#1727 foss-mode alias for side (ignored in mcp/trading modes)" },
+      orderType: { type: "string", description: "#1727 foss-mode alias for type (ignored in mcp/trading modes)" },
+      limitPrice: { type: "number", description: "#1727 foss-mode alias for limit_price (ignored in mcp/trading modes)" },
+      mode: { type: "string", description: "#1727 run-level FOSS_ALPACA_ORDER_MODE override (mcp | foss | trading)" },
     },
     required: ["symbol", "qty", "side"],
   };
@@ -271,6 +459,11 @@ export class FossAlpacaPlaceOrderCommand implements IMcpToolCommand {
     type: z.enum(["market", "limit", "stop", "stop_limit"]).default("market").optional(),
     limit_price: z.number().positive().optional().describe("Limit price"),
     time_in_force: z.enum(["day", "gtc", "ioc", "fok"]).default("day").optional(),
+    quantity: z.number().positive().optional().describe("#1727 foss/trading-mode alias for qty (ignored in mcp mode)"),
+    orderAction: z.string().optional().describe("#1727 foss-mode alias for side (ignored in mcp/trading modes)"),
+    orderType: z.string().optional().describe("#1727 foss-mode alias for type (ignored in mcp/trading modes)"),
+    limitPrice: z.number().positive().optional().describe("#1727 foss-mode alias for limit_price (ignored in mcp/trading modes)"),
+    mode: z.string().optional().describe("#1727 run-level FOSS_ALPACA_ORDER_MODE override (mcp | foss | trading)"),
   });
 
   async execute(
@@ -281,21 +474,20 @@ export class FossAlpacaPlaceOrderCommand implements IMcpToolCommand {
       type?: "market" | "limit" | "stop" | "stop_limit";
       limit_price?: number;
       time_in_force?: "day" | "gtc" | "ioc" | "fok";
+      quantity?: number;
+      orderAction?: string;
+      orderType?: string;
+      limitPrice?: number;
+      mode?: string;
     },
     context: McpToolContext
   ) {
+    const resolved = resolveFossAlpacaOrderMode(fossModeLevels(context, "order", (input as any)?.mode, FOSS_ALPACA_ORDER_MODE_SWITCH), "mcp");
+    auditFossConfigError(context, FOSS_ALPACA_ORDER_MODE_SWITCH, resolved, "trading");
     const service = new FossResearchService(context.env);
-    const result = await service.placeAlpacaOrder(input);
-    context.audit?.("alpaca.order.place", "trading", {
-      symbol: input.symbol,
-      qty: input.qty,
-      side: input.side,
-      type: input.type || "market",
-      limitPrice: input.limit_price,
-      orderId: result.orderId,
-      status: result.status,
-      success: result.success,
-    });
+    const normalized = normalizeFossOrderInput(input as any, resolved.mode);
+    const result = await service.placeAlpacaOrder(normalized);
+    context.audit?.(fossOrderAuditEvent(resolved.mode), "trading", fossOrderAuditPayload(resolved.mode, normalized, result));
     return result;
   }
 }

@@ -70,7 +70,8 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     private orm: DatabaseORM | undefined,
     private userLogin: string,
     private overrideEnv?: string,
-    existingClient?: ETradeRestClient
+    existingClient?: ETradeRestClient,
+    private storage?: import("../screenerPipeline").NasdaqUniverseRouteBundleInput["storage"]
   ) {
     // Issue #1185: per-user platform — an explicit login is required.
     if (!userLogin) {
@@ -279,7 +280,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
   ): Promise<StockScreenResult> {
     const resolved =
       seam ??
-      (await nasdaqUniverseSeamFromSql(this.orm?.getSql?.(), this.env, this.userLogin));
+      (await nasdaqUniverseSeamFromSql(this.orm?.getSql?.(), this.env, this.userLogin, this.storage));
     return this.screener.screenLive(filter, resolved);
   }
 
