@@ -54,6 +54,10 @@ import { RESEARCH_CONFIG_DEFAULTS, type ResearchConfig } from "./researchConfig"
 import { EtradeResearchDataProvider } from "./researchProviders";
 import {
   resolveYahooHistoryDeps,
+  nasdaqUniverseRouteBundle,
+  nasdaqUniverseProviderFromRoute,
+  bindNasdaqUniverseDeps,
+  type NasdaqUniverseDeps,
 } from "../trading";
 import type { ResearchDataProvider } from "./researchPipeline";
 import type { Outlook } from "./researchGates";
@@ -218,10 +222,37 @@ export function createFitDiscoveryRunner(deps: {
               runId: crypto.randomUUID(),
             })
           : undefined;
+      // Issue #1378: universe deps when sql is present (route-
+      // resolved, outcome-tracked; capture needs a blob handle
+      // the fit runner does not carry). Without sql — or when the
+      // bundle cannot be built — the provider keeps working with
+      // honestly-empty universes (listings degrade to []), never a
+      // direct fetch. Decision D2: captures use a generated run id.
+      let universeDeps: NasdaqUniverseDeps | undefined;
+      if (deps.sql && deps.env) {
+        try {
+          const universeBundle = await nasdaqUniverseRouteBundle({
+            sql: deps.sql,
+            env: deps.env,
+            userLogin: deps.userLogin,
+            runId: crypto.randomUUID(),
+          });
+          const universeProvider = nasdaqUniverseProviderFromRoute(
+            universeBundle.registry,
+            universeBundle.configs,
+            universeBundle.routes
+          );
+          universeDeps = bindNasdaqUniverseDeps(universeProvider, universeBundle.runContext);
+        } catch (err) {
+          console.warn(
+            `[fit] universe deps unavailable, listings degrade to empty: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
       const provider =
         deps.provider ??
         (deps.env
-          ? new EtradeResearchDataProvider(deps.env, deps.userLogin, historyDeps)
+          ? new EtradeResearchDataProvider(deps.env, deps.userLogin, historyDeps, universeDeps)
           : null);
       if (!provider) {
         return {
