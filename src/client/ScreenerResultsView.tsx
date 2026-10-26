@@ -13,6 +13,7 @@
 
 import { useMemo, useState } from "react";
 import { downloadScreenExport } from "./runExport";
+import { Button, Table } from "./components/ui";
 
 export interface StockTechnicalsData {
   rsi14: number | null;
@@ -214,7 +215,7 @@ function useSortable<T extends Record<string, any>>(rows: T[], defaultKey: SortK
   return { sorted, sortKey, sortDir, toggle };
 }
 
-function SortTh({
+function SortLabel({
   label,
   k,
   sortKey,
@@ -230,14 +231,14 @@ function SortTh({
   title?: string;
 }) {
   return (
-    <th
+    <span
       onClick={() => toggle(k)}
       title={title ?? `Sort by ${label}`}
       style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
     >
       {label}
       {sortKey === k && <span style={{ marginLeft: "0.25rem" }}>{sortDir === 1 ? "▲" : "▼"}</span>}
-    </th>
+    </span>
   );
 }
 
@@ -295,9 +296,9 @@ function quantRatingColor(r: string | null | undefined): string {
   return "var(--color-danger)";
 }
 
-function GapCell({ t }: { t?: StockTechnicalsData }) {
+function GapValue({ t }: { t?: StockTechnicalsData }) {
   if (t?.gapPercent == null) {
-    return <td style={{ color: "var(--color-text-muted)" }} title="No history — gap unavailable">—</td>;
+    return <span style={{ color: "var(--color-text-muted)" }} title="No history — gap unavailable">—</span>;
   }
   const arrow = t.gapDirection === "up" ? "▲" : t.gapDirection === "down" ? "▼" : "•";
   const color =
@@ -307,22 +308,22 @@ function GapCell({ t }: { t?: StockTechnicalsData }) {
         ? "var(--color-danger)"
         : "var(--color-text-muted)";
   return (
-    <td style={{ color, fontWeight: 600 }} title={`Overnight gap (Yahoo): ${t.gapPercent.toFixed(2)}%`}>
+    <span style={{ color, fontWeight: 600 }} title={`Overnight gap (Yahoo): ${t.gapPercent.toFixed(2)}%`}>
       {arrow} {t.gapPercent >= 0 ? "+" : ""}{t.gapPercent.toFixed(2)}%
-    </td>
+    </span>
   );
 }
 
-function ChangeCell({ value }: { value: number }) {
+function ChangeValue({ value }: { value: number }) {
   return (
-    <td
+    <span
       style={{
         color: value >= 0 ? "var(--color-success)" : "var(--color-danger)",
       }}
     >
       {value >= 0 ? "+" : ""}
       {value.toFixed(2)}%
-    </td>
+    </span>
   );
 }
 
@@ -366,50 +367,44 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
   // being viewed), beside the PDF report. A failed run produced no
   // result set, so it offers none; partial runs export with their #462
   // qualification carried into the file (see runExport.ts).
-  const exportButtonStyle = {
-    fontSize: "0.8rem",
-    padding: "0.35rem 0.75rem",
-    borderRadius: "4px",
-    border: "1px solid var(--color-accent)",
-    color: "var(--color-accent)",
-    background: "transparent",
-    cursor: "pointer",
-  } as const;
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
         {result.success && (
           <>
-            <button
-              type="button"
+            <Button
+            variant="accent"
+            tone="subtle"
+            size="sm"
               className="screener-export-csv"
-              style={exportButtonStyle}
               onClick={() => downloadScreenExport(result, "standouts")}
               title="Download this run's standout opportunities as CSV"
             >
               ⬇ CSV standouts
-            </button>
+            </Button>
             {(result.allStocks?.length ?? 0) > 0 && (
-              <button
-                type="button"
+              <Button
+              variant="accent"
+              tone="subtle"
+              size="sm"
                 className="screener-export-csv-all"
-                style={exportButtonStyle}
                 onClick={() => downloadScreenExport(result, "all-stocks")}
                 title="Download every symbol this run scanned as CSV"
               >
                 ⬇ CSV all screened
-              </button>
+              </Button>
             )}
-            <button
-              type="button"
+            <Button
+            variant="accent"
+            tone="subtle"
+            size="sm"
               className="screener-export-json"
-              style={exportButtonStyle}
               onClick={() => downloadScreenExport(result, "run-json")}
               title="Download this run's full result as JSON"
             >
               ⬇ JSON run
-            </button>
+            </Button>
           </>
         )}
         {reportUrl && (
@@ -546,57 +541,25 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
       ) : (
         <>
           {result.opportunities.length > 0 ? (
-            <div className="options-table-scroll">
-              <table className="options-comparison-table">
-                <thead>
-                  <tr>
-                    <SortTh label="Symbol" k="symbol" {...opps} />
-                    <th>Company</th>
-                    <SortTh label="Sentiment" k="sentiment" {...opps} title="Day-action sentiment: very bearish → very bullish" />
-                    <SortTh label="Score" k="screenScore" {...opps} title="Composite 0-100 screening score (heuristic)" />
-                    <SortTh label="Quant" k="quantRating" {...opps} title="Quant rating from graded factors (Strong Buy → Strong Sell)" />
-                    <SortTh label="Val" k="valueGrade" {...opps} title="Value factor grade A+…F (P/E + 52-week position, relative)" />
-                    <SortTh label="Mom" k="momentumGrade" {...opps} title="Momentum factor grade A+…F (relative)" />
-                    <SortTh label="Price" k="lastPrice" {...opps} />
-                    <SortTh label="Change" k="changePercent" {...opps} />
-                    <SortTh label="Gap" k="gapPercent" {...opps} title="Overnight gap % (open vs prev close, Yahoo)" />
-                    <SortTh label="Range" k="rangeZone" {...opps} title="Range-based overbought/oversold (52-week position, not RSI)" />
-                    <SortTh label="Value" k="valueZone" {...opps} title="Heuristic value zone (P/E + 52-week position)" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {opps.sorted.map((o) => (
-                    <tr key={o.symbol}>
-                      <td>
-                        <strong>{o.symbol}</strong>
-                        {o.indicators?.directional && (
-                          <span title="Strong directional move (|change| ≥ 2%)" style={{ marginLeft: "0.3rem" }}>
-                            ⚡
-                          </span>
-                        )}
-                      </td>
-                      <td>{o.companyName}</td>
-                      <td style={{ color: sentimentColor(o.indicators?.sentiment), fontWeight: 600 }}>
-                        {sentimentLabel(o.indicators?.sentiment)}
-                      </td>
-                      <td>
-                        <strong>{o.indicators?.screenScore ?? "—"}</strong>
-                      </td>
-                      <td style={{ color: quantRatingColor(o.factorGrades?.quantRating), fontWeight: 700, whiteSpace: "nowrap" }}>
-                        {o.factorGrades?.quantRating ?? "—"}
-                      </td>
-                      <td><GradeBadge grade={o.factorGrades?.value} /></td>
-                      <td><GradeBadge grade={o.factorGrades?.momentum} /></td>
-                      <td>${o.lastPrice.toFixed(2)}</td>
-                      <ChangeCell value={o.changePercent} />
-                      <GapCell t={o.technicals} />
-                      <td>{o.indicators?.rangeZone ?? "—"}</td>
-                      <td>{o.indicators?.valueZone ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+              <Table
+                containerClassName="options-table-scroll"
+                columns={[
+                  { key: "symbol", header: <SortLabel label="Symbol" k="symbol" {...opps} />, render: (o) => (<><strong>{o.symbol}</strong>{o.indicators?.directional && (<span title="Strong directional move (|change| ≥ 2%)" style={{ marginLeft: "0.3rem" }}>⚡</span>)}</>) },
+                  { key: "company", header: "Company", render: (o) => o.companyName },
+                  { key: "sentiment", header: <SortLabel label="Sentiment" k="sentiment" {...opps} title="Day-action sentiment: very bearish → very bullish" />, render: (o) => (<span style={{ color: sentimentColor(o.indicators?.sentiment), fontWeight: 600 }}>{sentimentLabel(o.indicators?.sentiment)}</span>) },
+                  { key: "score", header: <SortLabel label="Score" k="screenScore" {...opps} title="Composite 0-100 screening score (heuristic)" />, render: (o) => (<strong>{o.indicators?.screenScore ?? "—"}</strong>) },
+                  { key: "quant", header: <SortLabel label="Quant" k="quantRating" {...opps} title="Quant rating from graded factors (Strong Buy → Strong Sell)" />, render: (o) => (<span style={{ color: quantRatingColor(o.factorGrades?.quantRating), fontWeight: 700, whiteSpace: "nowrap" }}>{o.factorGrades?.quantRating ?? "—"}</span>) },
+                  { key: "value", header: <SortLabel label="Val" k="valueGrade" {...opps} title="Value factor grade A+…F (P/E + 52-week position, relative)" />, render: (o) => (<GradeBadge grade={o.factorGrades?.value} />) },
+                  { key: "momentum", header: <SortLabel label="Mom" k="momentumGrade" {...opps} title="Momentum factor grade A+…F (relative)" />, render: (o) => (<GradeBadge grade={o.factorGrades?.momentum} />) },
+                  { key: "price", header: <SortLabel label="Price" k="lastPrice" {...opps} />, render: (o) => ("$" + o.lastPrice.toFixed(2)) },
+                  { key: "change", header: <SortLabel label="Change" k="changePercent" {...opps} />, render: (o) => (<ChangeValue value={o.changePercent} />) },
+                  { key: "gap", header: <SortLabel label="Gap" k="gapPercent" {...opps} title="Overnight gap % (open vs prev close, Yahoo)" />, render: (o) => (<GapValue t={o.technicals} />) },
+                  { key: "range", header: <SortLabel label="Range" k="rangeZone" {...opps} title="Range-based overbought/oversold (52-week position, not RSI)" />, render: (o) => (o.indicators?.rangeZone ?? "—") },
+                  { key: "valueZone", header: <SortLabel label="Value" k="valueZone" {...opps} title="Heuristic value zone (P/E + 52-week position)" />, render: (o) => (o.indicators?.valueZone ?? "—") },
+                ]}
+                rows={opps.sorted}
+                rowKey={(o) => o.symbol}
+              />
           ) : (
             <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
               No standout opportunities in this run.
@@ -615,74 +578,28 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                 All {result.allStocks!.length} screened symbols (click column headers to sort)
               </summary>
               <div className="options-table-scroll" style={{ marginTop: "0.5rem" }}>
-                <table className="options-comparison-table">
-                  <thead>
-                    <tr>
-                      <SortTh label="Symbol" k="symbol" {...all} />
-                      <th>Company</th>
-                      <SortTh label="Price" k="lastPrice" {...all} />
-                      <SortTh label="Change" k="changePercent" {...all} />
-                      <SortTh label="Gap" k="gapPercent" {...all} title="Overnight gap % (Yahoo)" />
-                      <SortTh label="Sentiment" k="sentiment" {...all} />
-                      <SortTh label="Score" k="screenScore" {...all} />
-                      <SortTh label="Quant" k="quantRating" {...all} />
-                      <SortTh label="Val" k="valueGrade" {...all} />
-                      <SortTh label="Mom" k="momentumGrade" {...all} />
-                      <SortTh label="Momentum" k="momentumScore" {...all} />
-                      <SortTh label="Range" k="rangeZone" {...all} title="Range-based (52-week position), not RSI" />
-                      <SortTh label="Value" k="valueZone" {...all} />
-                      <SortTh label="RSI(14)" k="rsi14" {...all} title="Real RSI(14) from Yahoo daily history" />
-                      <th title="MACD(12,26,9) from Yahoo daily history">MACD</th>
-                      <th>Source</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {all.sorted.map((s) => (
-                      <tr key={s.symbol}>
-                        <td>
-                          <strong>{s.symbol}</strong>
-                          {s.indicators?.directional && (
-                            <span title="Strong directional move" style={{ marginLeft: "0.3rem" }}>
-                              ⚡
-                            </span>
-                          )}
-                        </td>
-                        <td>{s.companyName}</td>
-                        <td>${s.lastPrice.toFixed(2)}</td>
-                        <ChangeCell value={s.changePercent} />
-                        <GapCell t={s.technicals} />
-                        <td style={{ color: sentimentColor(s.indicators?.sentiment) }}>
-                          {sentimentLabel(s.indicators?.sentiment)}
-                        </td>
-                        <td>
-                          <strong>{s.indicators?.screenScore ?? "—"}</strong>
-                        </td>
-                        <td style={{ color: quantRatingColor(s.factorGrades?.quantRating), fontWeight: 700, whiteSpace: "nowrap" }}>
-                          {s.factorGrades?.quantRating ?? "—"}
-                        </td>
-                        <td><GradeBadge grade={s.factorGrades?.value} /></td>
-                        <td><GradeBadge grade={s.factorGrades?.momentum} /></td>
-                        <td>{s.momentumScore.toFixed(0)}</td>
-                        <td>{s.indicators?.rangeZone ?? "—"}</td>
-                        <td>{s.indicators?.valueZone ?? "—"}</td>
-                        <td title={s.technicals?.historySource ? `RSI(14) from ${s.technicals.historySource} (${s.technicals.historyBars} bars)` : "No history — RSI unavailable"}>
-                          {s.rsi14 == null ? "—" : s.rsi14.toFixed(1)}
-                        </td>
-                        <td
-                          style={{ fontSize: "0.75rem" }}
-                          title={s.technicals?.macdSignal ?? "No history — MACD unavailable"}
-                        >
-                          {s.technicals?.macdHistogram == null
-                            ? "—"
-                            : `${s.technicals.macdHistogram >= 0 ? "+" : ""}${s.technicals.macdHistogram.toFixed(2)}`}
-                        </td>
-                        <td style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
-                          {s.source}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <Table
+                  columns={[
+                    { key: "symbol", header: <SortLabel label="Symbol" k="symbol" {...all} />, render: (s) => (<><strong>{s.symbol}</strong>{s.indicators?.directional && (<span title="Strong directional move" style={{ marginLeft: "0.3rem" }}>⚡</span>)}</>) },
+                    { key: "company", header: "Company", render: (s) => s.companyName },
+                    { key: "price", header: <SortLabel label="Price" k="lastPrice" {...all} />, render: (s) => ("$" + s.lastPrice.toFixed(2)) },
+                    { key: "change", header: <SortLabel label="Change" k="changePercent" {...all} />, render: (s) => (<ChangeValue value={s.changePercent} />) },
+                    { key: "gap", header: <SortLabel label="Gap" k="gapPercent" {...all} title="Overnight gap % (Yahoo)" />, render: (s) => (<GapValue t={s.technicals} />) },
+                    { key: "sentiment", header: <SortLabel label="Sentiment" k="sentiment" {...all} />, render: (s) => (<span style={{ color: sentimentColor(s.indicators?.sentiment) }}>{sentimentLabel(s.indicators?.sentiment)}</span>) },
+                    { key: "score", header: <SortLabel label="Score" k="screenScore" {...all} />, render: (s) => (<strong>{s.indicators?.screenScore ?? "—"}</strong>) },
+                    { key: "quant", header: <SortLabel label="Quant" k="quantRating" {...all} />, render: (s) => (<span style={{ color: quantRatingColor(s.factorGrades?.quantRating), fontWeight: 700, whiteSpace: "nowrap" }}>{s.factorGrades?.quantRating ?? "—"}</span>) },
+                    { key: "value", header: <SortLabel label="Val" k="valueGrade" {...all} />, render: (s) => (<GradeBadge grade={s.factorGrades?.value} />) },
+                    { key: "momentum", header: <SortLabel label="Mom" k="momentumGrade" {...all} />, render: (s) => (<GradeBadge grade={s.factorGrades?.momentum} />) },
+                    { key: "momentumScore", header: <SortLabel label="Momentum" k="momentumScore" {...all} />, render: (s) => s.momentumScore.toFixed(0) },
+                    { key: "range", header: <SortLabel label="Range" k="rangeZone" {...all} title="Range-based (52-week position), not RSI" />, render: (s) => (s.indicators?.rangeZone ?? "—") },
+                    { key: "valueZone", header: <SortLabel label="Value" k="valueZone" {...all} />, render: (s) => (s.indicators?.valueZone ?? "—") },
+                    { key: "rsi", header: <SortLabel label="RSI(14)" k="rsi14" {...all} title="Real RSI(14) from Yahoo daily history" />, render: (s) => (<span title={s.technicals?.historySource ? `RSI(14) from ${s.technicals.historySource} (${s.technicals.historyBars} bars)` : "No history — RSI unavailable"}>{s.rsi14 == null ? "—" : s.rsi14.toFixed(1)}</span>) },
+                    { key: "macd", header: (<span title="MACD(12,26,9) from Yahoo daily history">MACD</span>), render: (s) => (<span style={{ fontSize: "0.75rem" }} title={s.technicals?.macdSignal ?? "No history — MACD unavailable"}>{s.technicals?.macdHistogram == null ? "—" : `${s.technicals.macdHistogram >= 0 ? "+" : ""}${s.technicals.macdHistogram.toFixed(2)}`}</span>) },
+                    { key: "source", header: "Source", render: (s) => (<span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>{s.source}</span>) },
+                  ]}
+                  rows={all.sorted}
+                  rowKey={(s) => s.symbol}
+                />
               </div>
             </details>
           )}
