@@ -19,9 +19,9 @@ import {
 import type { ETradeOptionChain, ETradeOptionChainContract, Env } from "../../../types";
 import { DynamicOptionsScreener } from "../../optionsScreener";
 import { DynamicMarketScreener } from "../../screener";
+import type { NasdaqUniverseSeam } from "../../screenerPipeline";
 import { ETradeService } from "../../../services/etrade";
 import { getYahooCrumbSession } from "../../../services/fossResearch";
-import { fetchAllUsStockListings, type NasdaqStockListing } from "../../../services/nasdaqListings";
 import { CURATED_STOCK_UNIVERSE, getCuratedStockUniverse } from "../../../config/curatedStockUniverse";
 import { isDemoCalibratedChainsEnabled } from "../../../config/demoMode";
 import { classifyNewsSentiment } from "./newsSentiment";
@@ -1700,7 +1700,8 @@ function isOptionableListing(l: {
  * decides whether to use a dynamic listing or fall back to the externalized curated stock universe.
  */
 export async function resolveDynamicFlowSymbols(
-  filter?: Partial<FlowFilterConfig>
+  filter?: Partial<FlowFilterConfig>,
+  seam?: NasdaqUniverseSeam
 ): Promise<string[]> {
   const now = Date.now();
   const curatedUniverse = getCuratedStockUniverse();
@@ -1714,9 +1715,12 @@ export async function resolveDynamicFlowSymbols(
     try {
       // Primary discovery: Stock Screener dynamically scans live equities across all US exchanges first
       const screener = new DynamicMarketScreener();
-      const screenResult = await screener.screenLive({
-        minPrice: 3.0,
-      });
+      const screenResult = await screener.screenLive(
+        {
+          minPrice: 3.0,
+        },
+        seam
+      );
 
       const screenedList = (screenResult && screenResult.stocks && screenResult.stocks.length > 0)
         ? screenResult.stocks
