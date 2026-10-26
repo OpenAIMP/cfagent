@@ -90,6 +90,11 @@ import type {
 import type { SqlStorage } from "../../orm";
 import type { QuoteTrace } from "../etrade/quoteTrace";
 import { fetchAllUsStockListings } from "../../services/nasdaqListings";
+import {
+  BreakerWrappedFossProvider,
+  yahooQuoteCacheFallback,
+} from "../../breakers/fossBreakerWrapper";
+import type { CircuitBreaker } from "../../breakers/breakerPorts";
 import type {
   DataProvider,
   DataResult,
@@ -628,6 +633,14 @@ export interface FossDataProviderOptions {
    * record outcomes without full capture wiring (verifier probes).
    */
   outcomeRecorder?: FetchOutcomeRecorder;
+  /**
+   * Issue #1745: opt-in breaker. When supplied, the provider is
+   * wrapped in the breaker Decorator (Yahoo quotes fall back to the
+   * stamped cache; everything else surfaces business errors).
+   * Absent, the raw provider is used — verifiers and conformance
+   * tests pass no breaker and are unaffected.
+   */
+  breaker?: CircuitBreaker;
 }
 
 function createFossDataProvider(
@@ -681,17 +694,30 @@ function createFossDataProvider(
       }
     );
   };
-  const batchProvider = provider as IFossMarketDataProvider & {
+  // Issue #1745: breaker decoration is opt-in (see the breaker field
+  // on FossDataProviderOptions). The wrapped provider preserves the
+  // optional getQuotes shape, so the batch dep below still appears
+  // exactly when the inner provider offers it.
+  const effectiveProvider = options?.breaker
+    ? new BreakerWrappedFossProvider(
+        provider,
+        options.breaker,
+        id === "yahoo"
+          ? { getQuote: (symbol) => Promise.resolve(yahooQuoteCacheFallback(symbol)) }
+          : {}
+      )
+    : provider;
+  const batchProvider = effectiveProvider as IFossMarketDataProvider & {
     getQuotes?: (symbols: string[]) => Promise<import("../../types").FossQuote[]>;
   };
   return {
     id,
     name,
     capabilities: ["quotes", "historicalBars", "fundamentals"] as const,
-    isConfigured: () => provider.isConfigured(env),
+    isConfigured: () => effectiveProvider.isConfigured(env),
     getQuote: async (symbol: string, runContext?: DataRunContext) => {
       const result = await trackedFetch(outcomeRecorder, meta("quotes", { symbol }, runContext), () =>
-        provider.getQuote(symbol)
+        effectiveProvider.getQuote(symbol)
       );
       await captureFetch("quotes", { symbol }, result, runContext);
       return tag(id, "quotes", result);
@@ -700,7 +726,7 @@ function createFossDataProvider(
       const result = await trackedFetch(
         outcomeRecorder,
         meta("historicalBars", { symbol, timeframe: timeframe ?? null, limit: limit ?? null }, runContext),
-        () => provider.getHistoricalBars(symbol, timeframe, limit)
+        () => effectiveProvider.getHistoricalBars(symbol, timeframe, limit)
       );
       await captureFetch(
         "historicalBars",
@@ -712,7 +738,7 @@ function createFossDataProvider(
     },
     getFundamentals: async (symbol: string, runContext?: DataRunContext) => {
       const result = await trackedFetch(outcomeRecorder, meta("fundamentals", { symbol }, runContext), () =>
-        provider.getFundamentals(symbol)
+        effectiveProvider.getFundamentals(symbol)
       );
       await captureFetch("fundamentals", { symbol }, result, runContext);
       return tag(id, "fundamentals", result);
@@ -744,6 +770,11 @@ export interface YahooDataProviderOptions {
    * for verifier probes (see ETradeDataProviderOptions).
    */
   outcomeRecorder?: FetchOutcomeRecorder;
+  /**
+   * Issue #1745: opt-in breaker, forwarded to createFossDataProvider
+   * (same semantics as FossDataProviderOptions.breaker).
+   */
+  breaker?: CircuitBreaker;
 }
 
 /** Yahoo adapter — wraps YahooFinanceProvider (the FOSS "yfinance" impl). */

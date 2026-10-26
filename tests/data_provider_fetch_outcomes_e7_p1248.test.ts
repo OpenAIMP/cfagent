@@ -71,6 +71,7 @@ import { PublicMcpClient, PublicMcpError } from "../src/services/publicMcp";
 import { PublicDataError } from "../src/services/publicData";
 import type { Env, ETradeQuote } from "../src/types";
 import { DataProvidersPanel } from "../src/client/DataProvidersPanel";
+import { __resetDefaultBreakerRegistry } from "../src/breakers/createBreakerPorts";
 import type {
   DataProviderView,
 } from "../src/client/dataProvidersApi";
@@ -112,6 +113,12 @@ const META: FetchOutcomeMeta = {
 // ---------------------------------------------------------------------------
 // Classifier (Strategy) — error shape → kind, table-pinned.
 // ---------------------------------------------------------------------------
+
+// Issue #1745: the public breaker is shared per isolate, and this
+// file runs several public failure cases before success/probe tests
+// — without a reset the tripped breaker would (correctly) change
+// their outcomes. Resetting test state, not production behavior.
+beforeEach(() => { __resetDefaultBreakerRegistry(); });
 
 describe("classifyFetchError (issue #1248)", () => {
   it("maps E*TRADE's coded errors by their catalog code", () => {
