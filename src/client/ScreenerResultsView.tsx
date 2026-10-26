@@ -14,6 +14,7 @@
 import { useMemo, useState } from "react";
 import { downloadScreenExport } from "./runExport";
 import { Button, Table } from "./components/ui";
+import { RegeneratePdfButton } from "./RegeneratePdfButton";
 
 export interface StockTechnicalsData {
   rsi14: number | null;
@@ -440,7 +441,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             📊 Download XLSX report
           </a>
         )}
-        {/* Issue #912: surface PDF generation failure instead of silent missing button. */}
+        {/* Issue #912 / #1793: surface PDF generation status and offer recovery action */}
         {!reportUrl && result.pdfStatus === "failed" && (
           <span
             title={result.pdfError || "PDF generation failed"}
@@ -450,9 +451,31 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
               borderRadius: "4px",
               border: "1px solid var(--color-danger)",
               color: "var(--color-danger)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
             }}
           >
             ⚠️ PDF failed: {result.pdfError ? result.pdfError.slice(0, 50) : "unknown error"}
+            <RegeneratePdfButton />
+          </span>
+        )}
+        {!reportUrl && !result.pdfStatus && result.success && (
+          <span
+            title="PDF report was not generated for this run"
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "4px",
+              border: "1px dashed var(--color-border-subtle)",
+              color: "var(--color-text-muted)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+            }}
+          >
+            ⚠️ PDF unavailable
+            <RegeneratePdfButton />
           </span>
         )}
       </div>
@@ -509,8 +532,18 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                 ({result.quoteTrace.quotesFailed} failed)
               </span>
             )}
+            {result.quoteTrace.quotesReceived === 0 && (
+              <span style={{ color: "var(--color-warning)", marginLeft: "0.5rem", fontWeight: 500 }}>
+                • Off-market hours (live feed closed)
+              </span>
+            )}
           </summary>
           <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+            {result.quoteTrace.quotesReceived === 0 && (
+              <div style={{ marginBottom: "0.4rem", color: "var(--color-warning)" }}>
+                ℹ️ 0 quotes received — Live quotes are unavailable outside market hours or when the exchange feed is closed.
+              </div>
+            )}
             <div>Trace ID: <code>{result.quoteTrace.traceId}</code></div>
             <div>Batches: {result.quoteTrace.batchCount} · Received: {result.quoteTrace.quotesReceived} · Failed: {result.quoteTrace.quotesFailed}</div>
             {Object.entries(result.quoteTrace.failuresByCategory).filter(([_, v]) => v > 0).length > 0 && (
