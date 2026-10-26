@@ -487,6 +487,12 @@ export interface ETradeQuote {
   raw?: Record<string, unknown>;
 }
 
+/** Issue #1654 slice 5: HH/HL price-action regime — "UP" = higher highs
+ *  + higher lows, "DN" = lower highs + lower lows, "RNG" = mixed
+ *  (screener-rules.md; fit-gap Gap 4). Produced by classifyPriceRegime()
+ *  in src/trading/technicals.ts; slice 6's bias vote reads this value. */
+export type PriceRegime = "UP" | "DN" | "RNG";
+
 export interface StockScreenerFilter {
   sector?: string;
   minPrice?: number;
@@ -513,6 +519,9 @@ export interface StockScreenerFilter {
    *  %B defaulting. Bounds are inclusive. */
   minAtrPct?: number;
   maxAtrPct?: number;
+  /** Issue #1654 slice 5: reject candidates whose attached price-action
+   *  regime (see regime) does not match. */
+  regimeFilter?: PriceRegime;
   gainersOnly?: boolean;
   losersOnly?: boolean;
   rsiFilter?: "oversold" | "overbought" | "neutral" | "any";
@@ -566,6 +575,11 @@ export interface ScreenedStockItem extends ETradeQuote {
    *  never estimated. No separate `atr` field: the gate reads only
    *  this percentage, so a raw-ATR field would be speculative. */
   atrPct?: number;
+  /** Issue #1654 slice 5: HH/HL price-action regime from real bar
+   *  history, attached upstream where bars exist. Absent = regime
+   *  data unavailable — the filter that needs it fail-closes, never
+   *  estimated. */
+  regime?: PriceRegime;
   macdSignal: string;
   signal: "BULLISH_MOMENTUM" | "OVERSOLD_BOUNCE" | "RANGE_BOUND" | "OVERBOUGHT";
   technicalSignal: string;

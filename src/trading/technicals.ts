@@ -15,7 +15,7 @@
  */
 
 import { computeRsi14, computeMacd } from "../services/fossResearch";
-import type { FossHistoricalBar } from "../types";
+import type { FossHistoricalBar, PriceRegime } from "../types";
 import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
 
 export interface YahooDailyBar {
@@ -404,6 +404,52 @@ export function computeFibonacciRetracements(
     price: direction === "up" ? high - ratio * range : low + ratio * range,
   }));
   return { high, low, range, highIndex, lowIndex, direction, levels, barsUsed: window.length };
+}
+
+/**
+ * HH/HL Price-Action Regime Classification (issue #1654 slice 5;
+ * screener-rules.md; fit-gap Gap 4).
+ *
+ * CONTRACT (slice 6 builds against this signature — do not change it
+ * without coordinating with the bias slice):
+ *   classifyPriceRegime(bars: readonly YahooDailyBar[]): PriceRegime | null
+ *   where PriceRegime = "UP" | "DN" | "RNG".
+ *
+ * Semantics — a 20-bar window, operationalized as two consecutive
+ * 10-bar halves of the LAST 20 bars supplied (longer inputs are
+ * truncated to their last 20; the doc's "20-bar pivot sequence" names
+ * the window, not a fractal-pivot extraction — slice 4 owns fractal
+ * pivots, and this function deliberately does not depend on them):
+ *   - higherHighs = max high of the second half STRICTLY above max
+ *     high of the first half; higherLows likewise on min lows.
+ *   - lowerHighs / lowerLows are the strict mirror.
+ *   - "UP" iff higherHighs AND higherLows; "DN" iff lowerHighs AND
+ *     lowerLows; "RNG" otherwise (mixed structure, flat series, or
+ *     equal extremes — equality is not "higher" or "lower").
+ *
+ * Returns null when the regime cannot be built honestly: fewer than
+ * 20 bars, empty input, or a non-finite high/low in the window.
+ * Never fabricates bars, never estimates from a short window.
+ */
+export function classifyPriceRegime(
+  bars: readonly YahooDailyBar[]
+): PriceRegime | null {
+  if (!bars || bars.length < 20) return null;
+  const window = bars.slice(-20);
+  if (window.some((b) => !Number.isFinite(b.high) || !Number.isFinite(b.low))) {
+    return null;
+  }
+  const first = window.slice(0, 10);
+  const second = window.slice(10);
+  const maxHigh = (xs: YahooDailyBar[]) => Math.max(...xs.map((b) => b.high));
+  const minLow = (xs: YahooDailyBar[]) => Math.min(...xs.map((b) => b.low));
+  const higherHighs = maxHigh(second) > maxHigh(first);
+  const higherLows = minLow(second) > minLow(first);
+  const lowerHighs = maxHigh(second) < maxHigh(first);
+  const lowerLows = minLow(second) < minLow(first);
+  if (higherHighs && higherLows) return "UP";
+  if (lowerHighs && lowerLows) return "DN";
+  return "RNG";
 }
 
 export function classifyGap(

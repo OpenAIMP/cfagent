@@ -12,6 +12,7 @@
 
 import { defaultRegistry } from "./catalog";
 import type { OptionThesis } from "../strategyEngine";
+import type { PriceRegime } from "../../../types";
 
 export const DIRECTION_TAGS = ["bullish", "bearish", "range_bound", "large_move"] as const;
 
@@ -62,4 +63,44 @@ export function tagOpportunitiesWithDirection<T extends DirectionTaggableRow>(
     ...row,
     directionTags: directionTagsForStrategy(row.pick?.best?.candidate?.type || ""),
   }));
+}
+
+/**
+ * Issue #1654 slice 5 — bullish-spread regime rule
+ * (screener-rules.md: DN underlyings hard-reject bullish selling).
+ *
+ * A "bullish spread" is a catalog strategy in the "vertical" category
+ * whose theses include "bullish" — today exactly call_debit_spread
+ * (Bull Call Spread) and put_credit_spread (Bull Put Spread). Single-leg
+ * bullish strategies (long_call), bullish stock plays (covered_call),
+ * and bearish verticals (put_debit_spread) are NOT spreads under this
+ * rule and are never blocked by it. Unknown strategy ids are not
+ * bullish spreads — never a guessed direction.
+ *
+ * NOTE — rule defined here, pipeline enforcement deferred: no
+ * per-underlying regime flows through the options scan today (zero
+ * "regime" references in the options pipeline), so there is no call
+ * site with a regime input yet. Slice 8 (enrichment) threads the
+ * attached regime into the scan and calls
+ * isStrategyAllowedUnderRegime at the strategy-selection filter in
+ * strategyEngine.ts (~line 976, where defs are filtered by thesis).
+ * Until then this rule is tested but uncalled — it must not be wired
+ * to an invented regime input.
+ */
+export function isBullishSpreadStrategy(strategyId: string): boolean {
+  if (!strategyId) return false;
+  const def = defaultRegistry.get(strategyId);
+  if (!def) return false;
+  return def.category === "vertical" && (def.theses as string[]).includes("bullish");
+}
+
+/** False only for a bullish spread on a DN underlying; everything else
+ *  passes, including a null (unknown) regime — an unknown regime must
+ *  not silently kill candidates the rule cannot judge. */
+export function isStrategyAllowedUnderRegime(
+  strategyId: string,
+  regime: PriceRegime | null
+): boolean {
+  if (regime !== "DN") return true;
+  return !isBullishSpreadStrategy(strategyId);
 }
