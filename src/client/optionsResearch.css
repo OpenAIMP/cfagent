@@ -145,21 +145,21 @@
   gap: 0.75rem;
   padding: 0.65rem 0.75rem;
   border-radius: 8px;
-  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.2));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   margin-bottom: 0.65rem;
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .stock-criteria-row:hover,
 .options-criteria-row:hover {
-  border-color: var(--color-border, rgba(255, 255, 255, 0.16));
+  border-color: var(--color-border-medium);
 }
 
 .stock-criteria-row.is-enabled,
 .options-criteria-row.is-enabled {
-  border-color: var(--color-accent, #00d26a);
-  background: var(--color-surface-raised, rgba(0, 210, 106, 0.04));
+  border-color: var(--color-accent);
+  background: var(--color-surface-raised);
 }
 
 .stock-criteria-row > button,
@@ -192,13 +192,13 @@
   gap: 0.75rem;
   padding: 0.6rem 0.75rem;
   border-radius: 6px;
-  background: var(--color-surface-sunken, rgba(0, 0, 0, 0.18));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.06));
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
 }
 
 .preset-list-item:hover {
-  background: var(--color-surface-raised, rgba(255, 255, 255, 0.04));
-  border-color: var(--color-border, rgba(255, 255, 255, 0.12));
+  background: var(--color-surface-raised);
+  border-color: var(--color-border-medium);
 }
 
 .preset-item-meta {
