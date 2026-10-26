@@ -143,7 +143,6 @@ export const stockScreenerFilterFields = {
   maxPercentB: fin().optional(),
   minPercentB: fin().optional(),
   requireSqueezeGate: z.boolean().optional(),
-  requireAboveAnchoredVwap: z.boolean().optional(),
   gainersOnly: z.boolean().optional(),
   losersOnly: z.boolean().optional(),
   rsiFilter: z.enum(["oversold", "overbought", "neutral", "any"]).optional(),

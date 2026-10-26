@@ -155,9 +155,6 @@ export class DynamicMarketScreener implements IMarketScreener {
     if (filter.requireSqueezeGate) {
       summaryParts.push("Squeeze Gate (bandwidth at lookback minimum)");
     }
-    if (filter.requireAboveAnchoredVwap) {
-      summaryParts.push("Above Anchored VWAP (52W low)");
-    }
     if (filter.gainersOnly) {
       summaryParts.push("Gainers Only");
     }
@@ -502,36 +499,6 @@ export class DynamicMarketScreener implements IMarketScreener {
             symbol: stock.symbol,
             reason: `Bandwidth (${bandwidth.toFixed(4)}) above lookback minimum (${bandwidthMin.toFixed(4)}) — squeeze gate not met`,
             price: stock.price,
-            changePercent: stock.changePercent,
-          });
-          continue;
-        }
-      }
-
-      // 12. Anchored VWAP gate (issue #1654 slice 2; screener-rules.md).
-      // Spot must remain above the anchored VWAP from the 52-week low
-      // bar; the slice spec rejects when lastPrice < anchoredVwap, so
-      // exact equality passes. The AVWAP value is attached upstream
-      // where real bar history exists; a requested gate with no AVWAP
-      // data fail-closes (unavailable, never estimated). Like slice 1,
-      // evaluateUniverse itself sees no bar history — it gates on the
-      // attached value, it never fabricates it.
-      if (filter.requireAboveAnchoredVwap) {
-        const anchoredVwap = stock.anchoredVwap;
-        if (anchoredVwap === undefined || !Number.isFinite(anchoredVwap)) {
-          rejections.push({
-            symbol: stock.symbol,
-            reason: "Anchored VWAP unavailable — AVWAP gate requested but no AVWAP data attached",
-            price: stock.price,
-            changePercent: stock.changePercent,
-          });
-          continue;
-        }
-        if (stock.lastPrice < anchoredVwap) {
-          rejections.push({
-            symbol: stock.symbol,
-            reason: `Price ($${stock.lastPrice.toFixed(2)}) below anchored VWAP ($${anchoredVwap.toFixed(2)})`,
-            price: stock.lastPrice,
             changePercent: stock.changePercent,
           });
           continue;

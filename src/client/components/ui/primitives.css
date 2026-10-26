@@ -426,17 +426,6 @@
 
 .ui-input:disabled, .ui-select:disabled { opacity: 0.55; cursor: not-allowed; }
 
-/* ---------- Checkbox ---------- */
-.ui-checkbox {
-  accent-color: var(--color-accent);
-  width: 1rem;
-  height: 1rem;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-.ui-checkbox:disabled { opacity: 0.55; cursor: not-allowed; }
-
 
 /* ---------- Modal ---------- */
 /* Chrome (backdrop, dialog surface, header, close button) comes from the

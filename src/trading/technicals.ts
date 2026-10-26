@@ -165,60 +165,6 @@ export function computeBollingerSqueezeGate(
     isSqueeze: bandwidth <= bandwidthMin + 1e-12,
   };
 }
-
-/**
- * Anchored VWAP from the 52-week low (issue #1654 slice 2/8;
- * docs/architecture/business/screener-rules.md: AVWAP =
- * Σ(Pᵢ·Vᵢ)/ΣVᵢ anchored from the 52-week low bar). Pure function
- * over bars supplied by the caller — nothing here fetches.
- *
- * Price Pᵢ is the daily CLOSE, matching this module's other
- * bar-derived indicators (RSI, MACD, Bollinger all run on closes),
- * and the gate compares spot (lastPrice, ~ last close) against it.
- * The doc formula writes Pᵢ generically; close is the documented
- * choice, not a second convention.
- *
- * Anchor semantics, stated not silent:
- * - The anchor is the bar with the MINIMUM LOW over the supplied
- *   bars, and the accumulation runs from that bar INCLUSIVE through
- *   the latest bar. Bars before the anchor are excluded.
- * - On a tie for the lowest low, the EARLIEST such bar anchors —
- *   the low event's first occurrence, which also maximizes the
- *   accumulation window. A latest-tie anchor would silently shorten
- *   it; the choice is pinned by test, not assumed.
- * - The "52-week" qualifier is the CALLER's window responsibility:
- *   the function anchors at the lowest low of the bars it is given.
- *   A window shorter than 52 weeks still computes from its own low
- *   (a mathematically valid AVWAP, just not a 52-week one) — the
- *   function refuses to pretend otherwise by returning null, but it
- *   also refuses to refuse honest math. Slice 8's enrichment passes
- *   the 52-week window; until then callers must know what they pass.
- *
- * Returns null when the value cannot be built honestly: empty input,
- * a non-finite close/low/volume, a negative volume, or zero total
- * volume from the anchor forward (never divides by zero). Zero-volume
- * bars after the anchor contribute weight 0 but are not an error.
- */
-export function computeAnchoredVwapFrom52wLow(
-  bars: readonly YahooDailyBar[]
-): number | null {
-  if (!bars || bars.length === 0) return null;
-  if (bars.some((b) => !Number.isFinite(b.close) || !Number.isFinite(b.low) || !Number.isFinite(b.volume) || b.volume < 0)) {
-    return null;
-  }
-  let anchorIndex = 0;
-  for (let i = 1; i < bars.length; i++) {
-    if (bars[i].low < bars[anchorIndex].low) anchorIndex = i;
-  }
-  let priceVolumeSum = 0;
-  let volumeSum = 0;
-  for (let i = anchorIndex; i < bars.length; i++) {
-    priceVolumeSum += bars[i].close * bars[i].volume;
-    volumeSum += bars[i].volume;
-  }
-  if (volumeSum <= 0) return null;
-  return priceVolumeSum / volumeSum;
-}
 export function classifyGap(
   gapPercent: number | null,
   config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
