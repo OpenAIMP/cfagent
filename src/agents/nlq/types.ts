@@ -142,6 +142,11 @@ export interface NLQExecutionDeps extends OptionsStrategyDeps {
   schedulingPort?: NLQSchedulingPort;
   stockScreenPort?: NLQStockScreenPort;
   socialBriefPort?: NLQSocialBriefPort;
+  /**
+   * #1686: optional DO blob handle for full capture on the port-less
+   * listings-screener fallback legs. Unset → today's outcome-only contract.
+   */
+  storage?: import("../../trading").NasdaqUniverseRouteBundleInput["storage"];
 }
 
 export interface NLQPlanOptions {
