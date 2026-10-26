@@ -8,7 +8,10 @@
  * route.
  *
  * Data source: GET /etrade/orders (existing, last 50 trades), filtered
- * client-side to status 'previewed'. Expiry is the preview flow's own
+ * client-side to status 'previewed'. Each listed draft carries a
+ * server-computed payload version (issue #1703, A3-a): the card states
+ * the delegation contract and the exact version being authorized, so
+ * the approver sees what execution will read. Expiry is the preview flow's own
  * 15-minute HITL timer: the draft row is created at preview time and
  * the schedule fires 900s later (expireStaleOrderDraft marks it
  * 'expired'), so expiresAt = createdAt + 900s. That countdown is a
@@ -47,8 +50,44 @@ export interface TradeProposal {
   proposerDid: string | null;
   authorizerDid: string | null;
   previewNotes: string | null;
+  /** Server-computed payload version (issue #1703); absent on pre-#1703 responses. */
+  payloadHash?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Strategy legs travel in `previewNotes` as
+ * `{ kind: "strategy-order-v1", optionLegs, strategyNetDebit }`.
+ * Parsed defensively: anything else yields no strategy section, never
+ * an invented leg. Mirrors the server parser in
+ * `src/agents/routes/orderPayloadHash.ts` (client-local copy: the queue
+ * must not import server route modules).
+ */
+export function parseApprovalStrategy(trade: Pick<TradeProposal, "previewNotes">): {
+  legCount: number;
+  optionLegs: number;
+  equityLegs: number;
+  strategyNetDebit: number | null;
+} | null {
+  if (typeof trade.previewNotes !== "string" || !trade.previewNotes.startsWith("{")) return null;
+  try {
+    const stored = JSON.parse(trade.previewNotes) as Record<string, unknown>;
+    if (stored?.kind !== "strategy-order-v1" || !Array.isArray(stored.optionLegs)) return null;
+    const legs = stored.optionLegs as Array<Record<string, unknown>>;
+    const netDebit =
+      typeof stored.strategyNetDebit === "number" && Number.isFinite(stored.strategyNetDebit)
+        ? stored.strategyNetDebit
+        : null;
+    return {
+      legCount: legs.length,
+      optionLegs: legs.filter((leg) => leg.securityType === "OPTN").length,
+      equityLegs: legs.filter((leg) => leg.securityType === "EQ").length,
+      strategyNetDebit: netDebit,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Expiry of a previewed draft, from the preview flow's own 900s timer. */
@@ -168,6 +207,9 @@ export function TradingApprovalsQueue() {
             const expiresAt = proposalExpiresAt(trade);
             const countdown = formatCountdown(expiresAt, nowMs);
             const expired = countdown === "Expired";
+            const strategy = parseApprovalStrategy(trade);
+            const isLimit = trade.orderType.toUpperCase() === "LIMIT";
+            const shortHash = trade.payloadHash ? trade.payloadHash.slice(0, 12) : null;
             return (
               <div
                 key={trade.id}
@@ -191,6 +233,37 @@ export function TradingApprovalsQueue() {
                 <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
                   Proposed by {trade.proposerDid || "unknown"} ·{" "}
                   {new Date(trade.createdAt).toLocaleString()} · {countdown}
+                </div>
+                <div style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
+                  Approval contract: you authorize exactly the order above and nothing else.
+                  Execution uses only the stored draft — differing action, symbol, or quantity are
+                  rejected outright, and the autopilot policy is re-checked at execution.
+                </div>
+                <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
+                  {isLimit
+                    ? `Limit $${trade.price} — execution is bounded by this price.`
+                    : `Market order — no price bound; $${trade.price} is an estimate and the final price may differ.`}{" "}
+                  Estimated total ${trade.totalValue} — the value at risk at the estimated price.
+                </div>
+                {strategy && (
+                  <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
+                    Multi-leg strategy: {strategy.legCount} legs ({strategy.optionLegs} option,{" "}
+                    {strategy.equityLegs} equity)
+                    {strategy.strategyNetDebit !== null &&
+                      ` · net debit $${strategy.strategyNetDebit}`}
+                  </div>
+                )}
+                {shortHash && (
+                  <div
+                    style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}
+                    title={trade.payloadHash}
+                  >
+                    Version {shortHash} — this approval applies to exactly this version.
+                  </div>
+                )}
+                <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
+                  Commission is not shown here — the approval record carries no commission
+                  estimate; commission follows your account schedule.
                 </div>
                 <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
                   <Button
@@ -248,6 +321,14 @@ export function TradingApprovalsQueue() {
               Proposed by {confirm.trade.proposerDid || "unknown"} · expires{" "}
               {formatCountdown(proposalExpiresAt(confirm.trade), nowMs)}
             </p>
+            {confirm.decision === "approved" && (
+              <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+                {confirm.trade.payloadHash &&
+                  `Version ${confirm.trade.payloadHash.slice(0, 12)} — this approval applies to exactly this version. `}
+                Approval cannot be undone — approving places a real order. An unfilled order can
+                be cancelled afterwards.
+              </p>
+            )}
           </div>
         )}
       </Modal>

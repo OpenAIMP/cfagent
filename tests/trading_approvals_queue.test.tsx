@@ -221,4 +221,62 @@ describe("Issue #1327 — TradingApprovalsQueue", () => {
     const hub = readFileSync("src/client/ETradeTradingHub.tsx", "utf8");
     expect(hub).toContain("TradingApprovalsQueue");
   });
+
+  it("A3-a: card states the approval contract, version, limit bound, and fee note", async () => {
+    mockOrders([
+      [trade({ id: "ord-1", payloadHash: "abcdef1234567890abcdef1234567890" })],
+    ]);
+    await render(<TradingApprovalsQueue />);
+    const text = container.textContent || "";
+    expect(text).toContain("Approval contract");
+    expect(text).toContain("Version abcdef123456");
+    expect(text).toContain("bounded by this price");
+    expect(text).toContain("Commission is not shown here");
+  });
+
+  it("A3-a: market order states plainly that price is unbounded", async () => {
+    mockOrders([
+      [trade({ id: "ord-1", orderType: "MARKET", payloadHash: "abcdef1234567890" })],
+    ]);
+    await render(<TradingApprovalsQueue />);
+    const text = container.textContent || "";
+    expect(text).toContain("no price bound");
+    expect(text).not.toContain("bounded by this price");
+  });
+
+  it("A3-a: strategy legs render from the stored strategy-order-v1 notes", async () => {
+    const notes = JSON.stringify({
+      kind: "strategy-order-v1",
+      optionLegs: [{ securityType: "OPTN" }, { securityType: "EQ" }],
+      strategyNetDebit: 1.25,
+    });
+    mockOrders([[trade({ id: "ord-1", previewNotes: notes })]]);
+    await render(<TradingApprovalsQueue />);
+    const text = container.textContent || "";
+    expect(text).toContain("Multi-leg strategy: 2 legs (1 option, 1 equity)");
+    expect(text).toContain("net debit $1.25");
+  });
+
+  it("A3-a: approve modal shows the version and that approval cannot be undone", async () => {
+    mockOrders([
+      [trade({ id: "ord-1", payloadHash: "abcdef1234567890" })],
+      [],
+    ]);
+    await render(<TradingApprovalsQueue />);
+    await act(async () => {
+      buttonByText("Approve")!.click();
+    });
+    await flush();
+    const dialogText = document.body.textContent || "";
+    expect(dialogText).toContain("Version abcdef123456");
+    expect(dialogText).toContain("Approval cannot be undone");
+  });
+
+  it("A3-a: no version line renders when the server response predates payload versions", async () => {
+    mockOrders([[trade({ id: "ord-1" })]]);
+    await render(<TradingApprovalsQueue />);
+    const text = container.textContent || "";
+    expect(text).not.toContain("Version ");
+    expect(text).toContain("Approval contract");
+  });
 });

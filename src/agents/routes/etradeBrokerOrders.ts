@@ -14,6 +14,7 @@
 
 import { ETradeSlackTradingService } from "../../trading";
 import { ETradeBrowserService } from "../../services/browserAgent";
+import { orderPayloadHash } from "./orderPayloadHash";
 import type { EtradeBrokerRouteContext } from "./etradeBroker";
 import type { ETradeService } from "../../services/etrade";
 import type { PolicyVerdict } from "../../services/riskPolicyEngine";
@@ -26,6 +27,18 @@ export async function completeEtradeOrderPreview(args: {
   requestedEnv: "TEST" | "PROD" | undefined;
 }): Promise<Response> {
   const { ctx, sessionId, preview, userLogin, requestedEnv } = args;
+  // Issue #1703 (A3-a): record the approved payload version at preview
+  // time, so the execute-time version can be compared against it.
+  const previewPayloadHash = await orderPayloadHash({
+    symbol: preview.symbol,
+    action: preview.orderAction,
+    quantity: preview.quantity,
+    orderType: preview.orderType,
+    price: preview.estimatedPrice,
+    totalValue: preview.estimatedTotal,
+    optionLegs: preview.optionLegs,
+    strategyNetDebit: preview.strategyNetDebit,
+  });
   ctx.audit("etrade.order_previewed", "trading", {
     orderId: preview.orderId,
     symbol: preview.symbol,
@@ -33,6 +46,7 @@ export async function completeEtradeOrderPreview(args: {
     quantity: preview.quantity,
     estimatedTotal: preview.estimatedTotal,
     proposerDid: preview.proposerDid,
+    payloadHash: previewPayloadHash,
   });
 
   // Autopilot policy envelope (autopilot Phase 1). Evaluated server-side
@@ -176,6 +190,20 @@ export async function completeEtradeOrderExecution(args: {
     }
   }
 
+  // Issue #1703 (A3-a): the executed payload version, computed from
+  // the stored draft fields execution actually read — comparable with
+  // the preview-time version in the preview audit event.
+  const executedPayloadHash = await orderPayloadHash({
+    symbol,
+    action,
+    quantity,
+    orderType,
+    price: existingRecord.price,
+    totalValue: existingRecord.totalValue,
+    optionLegs: strategyOrder?.optionLegs,
+    strategyNetDebit: strategyOrder?.strategyNetDebit,
+    previewNotes: existingRecord.previewNotes,
+  });
   ctx.audit("etrade.order_executed", "trading", {
     orderId,
     decision,
@@ -183,6 +211,7 @@ export async function completeEtradeOrderExecution(args: {
     status: result.status,
     executionId: result.executionId,
     policyVerdictId: executionVerdict?.verdictId ?? null,
+    payloadHash: executedPayloadHash,
   });
 
   // Automatically dispatch official transaction snap to Slack via ETradeBrowserService
