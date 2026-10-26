@@ -1,7 +1,7 @@
-import { generateText } from "ai";
 import { z } from "zod";
 import type { Env, ScreenedOptionContractItem } from "../../types";
-import { DEFAULT_AI_MODEL, getWorkersAIModel, resolveAiModelName } from "../../agents/model";
+import { resolveAiModelName } from "../../agents/model";
+import { requireGatewayPorts } from "../../gateway/createGatewayPorts";
 import type { RiskProfile } from "./recommendationAgent";
 import type { StrategyCandidate, StrategyRequest } from "./strategyEngine";
 
@@ -176,11 +176,14 @@ async function generateSelections(
 ): Promise<LlmCandidateResponse> {
   const resolvedModel = resolveAiModelName(env, "optionsComparison");
   if (candidates.length === 0) return { model: resolvedModel, ranked: [] };
-  const { text } = await generateText({
-    model: getWorkersAIModel(env, "optionsComparison"),
+  // #1741: candidate selection routes through the gateway port.
+  const gateway = requireGatewayPorts(env);
+  const { text } = await gateway.generate({
+    models: [resolvedModel],
     temperature: 0,
     system: LLM_SYSTEM_PROMPT,
     prompt: comparisonPrompt(request, riskProfile, contracts, candidates, humanFeedback),
+    caller: "options-comparison",
   });
   return {
     model: resolvedModel,

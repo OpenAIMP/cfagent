@@ -1,6 +1,6 @@
-import { getWorkersAIModel, resolveAiModelName } from "../model";
+import { resolveAiModelName } from "../model";
 import { parseOptionsStrategyIntent } from "../nlqOptionsStrategy";
-import { generateObject, generateText } from "ai";
+import { requireGatewayPorts } from "../../gateway/createGatewayPorts";
 import type { Env } from "../../types";
 import { STOP_WORDS_REGEX } from "./orderParams";
 import { planWithRules } from "./planning";
@@ -47,10 +47,13 @@ export async function planWithLLM(env: Env, question: string, options?: { untrus
   const hasAi = Boolean(env?.AI && typeof (env.AI as any).run === "function");
   if (!hasAi) return null;
 
+  // #1741: NLQ planning routes through the gateway port. Built
+  // before the try so the generateText fallback in the catch can
+  // reuse it (the hasAi guard above already proved the binding).
+  const gateway = requireGatewayPorts(env);
   try {
-    const model = getWorkersAIModel(env);
-    const { object } = await generateObject({
-      model,
+    const { object } = await gateway.generate({
+      models: [resolveAiModelName(env)],
       schema: nlqPlanSchema,
       system: withUntrustedRule(`You are an expert NLQ (Natural Language Query) planner for an enterprise multi-agent financial and database platform.
 Analyze the user's natural language request and output a structured plan conforming exactly to the JSON schema.
@@ -83,18 +86,20 @@ Available Domains:
       prompt: plannerPrompt(question, options?.untrustedContent),
     });
 
-    if (object && object.domain) {
+    // #1741: the port returns object as unknown (it cannot know the
+    // caller's schema); the schema-validated shape is NLQPlan here.
+    const plan = object as NLQPlan | null;
+    if (plan && plan.domain) {
       return {
-        ...object,
+        ...plan,
         planSource: "llm",
       };
     }
   } catch {
     // If generateObject fails, fallback to generateText with JSON extraction
     try {
-      const model = getWorkersAIModel(env);
-      const { text } = await generateText({
-        model,
+      const { text } = await gateway.generate({
+        models: [resolveAiModelName(env)],
         temperature: 0,
         system: withUntrustedRule(`You are an NLQ planner for an enterprise database and trading platform.
 Return JSON ONLY matching this structure:
@@ -233,9 +238,10 @@ export async function validateNLQPlanWithLLM(
 
   if (hasAi) {
     try {
-      const model = getWorkersAIModel(env, "nlqValidation");
-      const { text } = await generateText({
-        model,
+      // #1741: NLQ validation routes through the gateway port.
+      const gateway = requireGatewayPorts(env);
+      const { text } = await gateway.generate({
+        models: [resolveAiModelName(env, "nlqValidation")],
         temperature: 0,
         maxOutputTokens: 256,
         system: withUntrustedRule(`You are an expert financial NLQ query validator. Validate if the planned action "${plan.tradingData?.action || plan.domain}" accurately matches the user question. Return JSON only: {"valid": boolean, "interpretation": string}`, options?.untrustedContent),

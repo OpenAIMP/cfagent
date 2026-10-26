@@ -7,6 +7,8 @@ import type {
 } from "../actors/actorPorts";
 import { createCfActorSession } from "../actors/cfAgentsAdapter";
 import { AgentChatTurnRunner, generateTextModelTurn } from "../actors/actorTurnRunner";
+import { createGatewayPorts } from "../gateway/createGatewayPorts";
+import { createGatewayModelTurn } from "../gateway/gatewayModelTurn";
 import type { ActorSessionPort, ActorTurnPort } from "../actors/actorPorts";
 import type { ToolSet } from "ai";
 import { getWorkersAIModel } from "./model";
@@ -244,6 +246,11 @@ export class OrchestratorAgent extends Agent<Env> {
 
   private createActorTurnRunner(): ActorTurnPort {
     const epoch = this.turnEpoch;
+    // #1741: the turn's generateText call routes through the gateway
+    // port when one exists; otherwise the legacy turn is kept, so
+    // unbound/mocked AI environments behave exactly as before.
+    const gateway = createGatewayPorts(this.env);
+    const modelTurn = gateway ? createGatewayModelTurn(gateway, { caller: "actor-turn" }) : generateTextModelTurn;
     return new AgentChatTurnRunner({
       hooks: {
         getModel: () => this.getModel(),
@@ -255,7 +262,7 @@ export class OrchestratorAgent extends Agent<Env> {
         maxSteps: this.maxSteps,
       },
       session: this.getActorSession(),
-      modelTurn: generateTextModelTurn,
+      modelTurn,
       isAborted: () => this.turnEpoch !== epoch,
     });
   }

@@ -1,6 +1,5 @@
-import { generateText } from "ai";
-import { getWorkersAIModel } from "./model";
-import { runWithRouting } from "../models/router";
+import { requireGatewayPorts } from "../gateway/createGatewayPorts";
+import { chainModels } from "../models/router";
 import { deterministicRoute } from "../judge-routing";
 import type { AgentName, Env, RouteDecision, QualityDecision } from "../types";
 
@@ -21,10 +20,6 @@ export class LLMJudge {
    * Issue #163: model calls route through the model router — cheap →
    * primary → fallback on retryable errors (429/quota/overload).
    */
-  private routedModel(modelName: string) {
-    return getWorkersAIModel(this.env, modelName);
-  }
-
   async route(
     text: string,
     recentMessages: Array<{ role?: string; content?: string }> = []
@@ -37,13 +32,15 @@ export class LLMJudge {
     try {
       // Issue #163: intent classification retries on cheaper/fallback models
       // when the primary is quota- or overload-limited.
-      const { result: routedText } = await runWithRouting("plan", async (modelName) => {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2500);
-
-        const { text: output } = await generateText({
-          model: this.routedModel(modelName),
+      // #1741: ordered chain failover now lives in the gateway port;
+      // the per-attempt 2500ms timeout is preserved as timeoutMs.
+      const gateway = requireGatewayPorts(this.env);
+      const routedText = (
+        await gateway.generate({
+          models: chainModels("plan"),
           temperature: 0,
+          timeoutMs: 2500,
+          caller: "judge-route",
           system: `You are a strict, conservative intent classifier for an autonomous multi-agent assistant.
 Available agents:
 - 'search': knowledge-base queries, documented facts, company policies, architectural information.
@@ -55,11 +52,9 @@ Available agents:
 - 'general': greetings, general conversation, clarification, or ambiguous intent.
 
 ${ROUTE_SCHEMA}`,
-        prompt: text.slice(0, 2000),
-        abortSignal: controller.signal,
-        }).finally(() => clearTimeout(timeout));
-        return output;
-      });
+          prompt: text.slice(0, 2000),
+        })
+      ).text;
 
       const parsed = this.parseJson(routedText);
       const validAgents: AgentName[] = ["search", "payments", "tasks", "memory", "general", "trading", "research"];
@@ -88,10 +83,13 @@ ${ROUTE_SCHEMA}`,
   async evaluate(input: { question: string; answer: string; agent: AgentName }): Promise<QualityDecision> {
     try {
       // Issue #163: quality evaluation falls back across the judge model chain.
-      const { result: output } = await runWithRouting("judge", async (modelName) => {
-        const { text } = await generateText({
-          model: this.routedModel(modelName),
+      // #1741: ordered chain failover now lives in the gateway port.
+      const gateway = requireGatewayPorts(this.env);
+      const output = (
+        await gateway.generate({
+          models: chainModels("judge"),
           temperature: 0,
+          caller: "judge-evaluate",
           system: `You are a critical quality judge evaluating an AI agent's answer.
 Rules:
 - Never assume external facts without evidence.
@@ -99,10 +97,9 @@ Rules:
 - Score from 0 to 100.
 Return JSON only:
 {"score": 0-100, "grounded": boolean, "safe": boolean, "issues": ["issue 1", "issue 2"]}`,
-        prompt: JSON.stringify(input).slice(0, 8000),
-        });
-        return text;
-      });
+          prompt: JSON.stringify(input).slice(0, 8000),
+        })
+      ).text;
 
       const parsed = this.parseJson(output);
       return {

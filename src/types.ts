@@ -125,6 +125,15 @@ export interface Env {
   SERVICE_USER_LOGIN?: string;
   MAS_MAX_STEPS?: string;
   AI_MODEL?: string;
+  // #1741 — AI Gateway routing (plain vars, owner-set, non-secret).
+  // AI_GATEWAY_ID: Cloudflare AI Gateway id; when set, every model
+  // built by getWorkersAIModel routes through it (rate limiting,
+  // caching, failover). Unset => direct Workers AI path, unchanged.
+  // AI_GATEWAY_CACHE_TTL: gateway cache TTL in seconds (optional).
+  // AI_GATEWAY_RATE_LIMIT_RPM: port-level rate limit, req/min (optional).
+  AI_GATEWAY_ID?: string;
+  AI_GATEWAY_CACHE_TTL?: string;
+  AI_GATEWAY_RATE_LIMIT_RPM?: string;
   // #1711 — payments flow switch (ONE switch, non-secret, owner-set).
   // PAYMENTS_FLOW_MODE: "hitl" | "immediate" (case-insensitive, padded
   // values accepted). Default when unset or blank: "hitl" — the #1690

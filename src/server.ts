@@ -75,6 +75,7 @@ import {
   ensureTelemetryTables,
 } from "./telemetry/createTelemetryPorts";
 import { defaultBreakerRegistry } from "./breakers/createBreakerPorts";
+import { gatewayStatsSnapshot } from "./gateway/createGatewayPorts";
 import { retrievalStatsSnapshot } from "./telemetry/retrievalStats";
 import {
   createAuditReportAdapter,
@@ -1627,6 +1628,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           store,
           breakerSnapshots: () => defaultBreakerRegistry().snapshots(),
           retrievalStats: () => retrievalStatsSnapshot(),
+          gatewayStats: () => gatewayStatsSnapshot(),
         });
       }
       if (path === "/api/telemetry/decisions") {

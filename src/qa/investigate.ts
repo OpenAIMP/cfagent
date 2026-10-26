@@ -13,9 +13,8 @@
  * (src/qa/self-healing.ts holds the CI-side issue-filing half.)
  */
 
-import { generateText } from "ai";
-import { getWorkersAIModel } from "../agents/model";
-import { runWithRouting } from "../models/router";
+import { requireGatewayPorts } from "../gateway/createGatewayPorts";
+import { chainModels } from "../models/router";
 import type { Env } from "../types";
 
 export interface QAFailureInput {
@@ -64,14 +63,14 @@ export async function investigateQAFailure(
   ].join("\n");
 
   try {
-    const { result: text, model } = await runWithRouting("plan", async (modelName) => {
-      const { text } = await generateText({
-        model: getWorkersAIModel(env, modelName),
-        temperature: 0,
-        system: SYSTEM_PROMPT,
-        prompt,
-      });
-      return text;
+    // #1741: plan-chain failover now lives in the gateway port.
+    const gateway = requireGatewayPorts(env);
+    const { text, model } = await gateway.generate({
+      models: chainModels("plan"),
+      temperature: 0,
+      system: SYSTEM_PROMPT,
+      prompt,
+      caller: "qa-investigate",
     });
 
     const parsed = parseJson(text);

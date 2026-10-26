@@ -106,6 +106,8 @@ export interface TelemetrySummaryRouteDeps {
   store: TelemetryStore | null;
   breakerSnapshots: () => BreakerSnapshot[];
   retrievalStats: () => RetrievalStatsSnapshot;
+  /** #1741: gateway stats, when the caller wires the gateway port. Absent => no `gateway` field. */
+  gatewayStats?: () => import("../gateway/gatewayPorts").GatewayStatsSnapshot;
 }
 
 export interface TelemetrySummaryBody {
@@ -120,6 +122,8 @@ export interface TelemetrySummaryBody {
   }>;
   breakerHealth: BreakerSnapshot[];
   retrieval: RetrievalStatsSnapshot;
+  /** #1741: present only when the gatewayStats dep is provided. */
+  gateway?: import("../gateway/gatewayPorts").GatewayStatsSnapshot;
 }
 
 export async function handleTelemetrySummaryRoute(
@@ -152,6 +156,7 @@ export async function handleTelemetrySummaryRoute(
       })),
       breakerHealth: deps.breakerSnapshots(),
       retrieval: deps.retrievalStats(),
+      ...(deps.gatewayStats ? { gateway: deps.gatewayStats() } : {}),
     };
     return Response.json(body);
   } catch {

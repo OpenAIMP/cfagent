@@ -26,6 +26,7 @@ PR.
 | [0007](0007-hybrid-rag.md) | Hybrid RAG: Vectorize embeddings + D1 market adjacency graphs | Accepted |
 | [0008](0008-market-data-circuit-breakers.md) | Market data circuit breakers: port-first breaker Decorator over provider calls | Accepted |
 | [0009](0009-telemetry-calibration.md) | RSI telemetry & calibration engine in D1: falsification-gated, governed prompt notes | Accepted |
+| [0010](0010-llm-gateway-port.md) | LLM gateway port: AI Gateway fallback integration (rate limiting, caching, multi-provider failover) | Accepted |
 
 ## Template
 

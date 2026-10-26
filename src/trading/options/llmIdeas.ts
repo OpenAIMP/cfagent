@@ -15,10 +15,10 @@
  * Section 10, findings F-1/F-2); its system prompt forbids quant
  * inputs by design. The /llm-ideas endpoint contract is preserved.
  */
-import { generateText } from "ai";
 import { z } from "zod";
 import type { Env, ETradeOptionChain, ETradeOptionChainContract, ETradeOptionExpireDate } from "../../types";
-import { DEFAULT_AI_MODEL, getWorkersAIModel, resolveAiModelName } from "../../agents/model";
+import { resolveAiModelName } from "../../agents/model";
+import { requireGatewayPorts } from "../../gateway/createGatewayPorts";
 // Type-only: the kernel's builder contract (panelPipeline / opportunityScanner
 // import the kernel the same way); erased at runtime, so no import cycle.
 import type { LlmGeneratorResponse } from "../../services/recommendationKernel";
@@ -776,14 +776,19 @@ export async function generateRawOptionsIdeas(
     "Keep the answer concise (under 2,000 characters). contractSymbols must contain only exact E*TRADE symbols copied verbatim from the supplied JSON; do not put formatted descriptions or explanations in this array.",
   ].join("\n");
   let lastError: unknown;
+  // #1741: idea generation routes through the gateway port; the
+  // retry loop still retries on JSON-parse failure only, not on
+  // model failure (a gateway throw propagates, as before).
+  const gateway = requireGatewayPorts(env);
   for (let attempt = 0; attempt < 3; attempt++) {
     const resolvedModel = resolveAiModelName(env, "optionsIdeas");
-    const { text } = await generateText({
-      model: getWorkersAIModel(env, "optionsIdeas"),
+    const { text } = await gateway.generate({
+      models: [resolvedModel],
       temperature: 0,
       maxOutputTokens: 4096,
       system: input.systemPrompt,
       prompt,
+      caller: "options-ideas",
     });
     try {
       const chainsToVerify = verificationChains && verificationChains.length > 0 ? verificationChains : input.optionChains;
@@ -855,15 +860,19 @@ export async function generateRawOptionsIdeasRanking(
   if (prompt.completedGroupIds.length === 0) throw new Error("No completed expiration-group analyses are available to rank.");
   let lastError: unknown;
   const resolvedModel = resolveAiModelName(env, "optionsIdeas");
+  // #1741: ranking routes through the gateway port (same retry
+  // semantics as the ideas loop above).
+  const rankingGateway = requireGatewayPorts(env);
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { text } = await generateText({
-      model: getWorkersAIModel(env, "optionsIdeas"),
+    const { text } = await rankingGateway.generate({
+      models: [resolvedModel],
       temperature: 0,
       maxOutputTokens: 2048,
       system: prompt.systemPrompt,
       prompt: attempt === 0
         ? prompt.userPrompt
         : `${prompt.userPrompt}\nRETRY: Return compact valid JSON only. Answer <=300 characters; each strategy <=100 characters; each rationale <=200 characters. Include exactly one entry for each completed group id.`,
+      caller: "options-ideas-ranking",
     });
     try {
       return {
