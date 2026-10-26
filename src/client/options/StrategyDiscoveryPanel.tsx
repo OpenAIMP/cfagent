@@ -19,6 +19,8 @@ import {
   type StrategyDiscoveryConfig,
   type NetOptionGreeks,
   type RealizedUnrealizedPnl,
+  type Matrix2dCell,
+  type Matrix2dRow,
 } from "./strategyDiscoveryEngine";
 import {
   buildStrategyRequest,
@@ -46,7 +48,7 @@ import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 import { StrategyLibraryModal, type StrategyInfo } from "./StrategyLibraryModal";
-import { SegmentedControl, PillGroup } from "../components/ui";
+import { Button, PillGroup, SegmentedControl, Select, Table, TextInput } from "../components/ui";
 
 const SENTIMENT_ITEMS: Array<{
   id: SentimentType;
@@ -222,6 +224,34 @@ function decodeTradeFromHash(hashStr: string): {
   } catch {
     return null;
   }
+}
+
+/** Display value for one payoff-matrix cell under the active metric mode (P1, #1835). Pure. */
+export function matrixCellDisplay(
+  cell: Matrix2dCell,
+  metricMode: "pnl_dollar" | "pnl_pct" | "contract_val" | "collateral_pct",
+): string {
+  if (metricMode === "pnl_dollar") {
+    return `${cell.pnlDollar >= 0 ? "+" : ""}$${cell.pnlDollar.toLocaleString()}`;
+  } else if (metricMode === "pnl_pct") {
+    return `${cell.pnlPercent >= 0 ? "+" : ""}${cell.pnlPercent}%`;
+  } else if (metricMode === "collateral_pct") {
+    return `${cell.riskPercent >= 0 ? "+" : ""}${cell.riskPercent}%`;
+  }
+  return `$${cell.contractValue.toLocaleString()}`;
+}
+
+/** Heatmap background for one payoff-matrix cell (P1, #1835). Pure. */
+export function matrixCellBg(cell: Matrix2dCell, maxPnl: number, minPnl: number): string {
+  let cellBg = "var(--color-muted)";
+  if (cell.pnlDollar > 0) {
+    const intensity = Math.min(0.7, 0.12 + (cell.pnlDollar / (maxPnl || 1)) * 0.58);
+    cellBg = `color-mix(in srgb, var(--color-success) ${Math.round(intensity * 100)}%, transparent)`;
+  } else if (cell.pnlDollar < 0) {
+    const intensity = Math.min(0.7, 0.12 + (Math.abs(cell.pnlDollar) / (Math.abs(minPnl) || 1)) * 0.58);
+    cellBg = `color-mix(in srgb, var(--color-danger) ${Math.round(intensity * 100)}%, transparent)`;
+  }
+  return cellBg;
 }
 
 export function StrategyDiscoveryPanel({
@@ -1559,58 +1589,58 @@ export function StrategyDiscoveryPanel({
       {/* Top View Mode Switcher */}
       <div className="strat-view-tabs">
         <div className="strat-view-tab-buttons">
-          <button
+          <Button
             type="button"
             className={`strat-view-tab-btn ${activeView === "builder" ? "active" : ""}`}
             onClick={() => setActiveView("builder")}
           >
             📊 Builder / Payoff Analyzer
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className={`strat-view-tab-btn ${activeView === "discovery" && dataTab === "live" ? "active" : ""}`}
             onClick={() => { setDataTab("live"); setActiveView("discovery"); }}
           >
             🔍 Discovery Scanner
-          </button>
+          </Button>
           {serverCatalog?.demoCalibratedChainsEnabled && (
-            <button
+            <Button
               type="button"
               className={`strat-view-tab-btn ${dataTab === "demo" ? "active" : ""}`}
               onClick={() => { setDataTab("demo"); setActiveView("discovery"); }}
               title="Development/demo mode: strategies built on calibrated (generated) chains, not live market data"
             >
               🧪 Demo — Calibrated Chains
-            </button>
+            </Button>
           )}
         </div>
 
         <div className="strat-top-controls-group">
-          <button
+          <Button
             type="button"
             className="strat-action-chip highlight"
             onClick={() => setShowStrategyModal(true)}
             title={`Browse ${catalogCount} pre-made options strategies`}
           >
             📚 Strategies ({catalogCount})
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="strat-action-chip"
             onClick={() => setShowSavedTradesModal(true)}
             title="Open saved strategies & tracking"
           >
             📂 Saved Trades ({savedTrades.length})
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="strat-action-chip"
             onClick={handleShareTrade}
             title="Copy shareable trade link to clipboard"
           >
             🔗 Share
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="strat-action-chip save"
             onClick={() => {
@@ -1620,9 +1650,9 @@ export function StrategyDiscoveryPanel({
             title="Save this strategy"
           >
             💾 Save
-          </button>
+          </Button>
           {onPreviewTrade && selectedStrategy && (
-            <button
+            <Button
               type="button"
               className={`strat-action-chip trade-fast ${canTradeBuilderCandidate ? "" : "disabled"}`}
               onClick={sendToFastOrder}
@@ -1634,7 +1664,7 @@ export function StrategyDiscoveryPanel({
                   : "A live broker chain and at least one active strategy leg are required."}
             >
               ⚡ Trade
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -1645,7 +1675,7 @@ export function StrategyDiscoveryPanel({
       {activeView === "discovery" && (
         <div className="strat-discovery-view">
           {dataTab === "demo" && (
-            <div style={{ margin: "0 0 12px", padding: "10px 14px", borderRadius: 10, background: "var(--color-warning-subtle)", border: "1px solid var(--color-warning-border)", color: "var(--color-warning-text)", fontSize: "0.85rem", fontWeight: 600 }}>
+            <div style={{ margin: "0 0 12px", padding: "var(--space-2-5) var(--space-3)", borderRadius: 10, background: "var(--color-warning-subtle)", border: "1px solid var(--color-warning-border)", color: "var(--color-warning-text)", fontSize: "0.85rem", fontWeight: 600 }}>
               ⚠ DEMO DATA — the strategies below are built on calibrated (generated) option chains for development/demo. This is not live market data.
             </div>
           )}
@@ -1661,7 +1691,7 @@ export function StrategyDiscoveryPanel({
                 <div className="strat-symbol-input-wrap">
                   <span className="strat-search-icon">🔍</span>
                   <label htmlFor="strat-sym-input">Symbol:</label>
-                  <input
+                  <TextInput
                     id="strat-sym-input"
                     type="text"
                     value={symbolInput}
@@ -1726,7 +1756,7 @@ export function StrategyDiscoveryPanel({
                       {isQuoteRefreshing ? "Loading quote…" : quoteError || "Quote unavailable"}
                     </span>
                   )}
-                  <button
+                  <Button
                     type="button"
                     className="strat-mini-refresh-btn"
                     onClick={handleRefreshOptions}
@@ -1734,7 +1764,7 @@ export function StrategyDiscoveryPanel({
                     title={`Refresh ${activeSymbol} quote & options`}
                   >
                     <span className={isQuoteRefreshing ? "strat-spin" : ""}>↻</span>
-                  </button>
+                  </Button>
                 </div>
               </form>
             </div>
@@ -1746,7 +1776,7 @@ export function StrategyDiscoveryPanel({
                 {SENTIMENT_ITEMS.map((item) => {
                   const isActive = sentiment === item.id;
                   return (
-                    <button
+                    <Button
                       key={item.id}
                       type="button"
                       className={`strat-sentiment-btn-wrap strat-sentiment-card ${item.id} ${isActive ? "active" : ""}`}
@@ -1759,7 +1789,7 @@ export function StrategyDiscoveryPanel({
                         {item.icon}
                       </div>
                       <span className="strat-sentiment-label">{item.label}</span>
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
@@ -1773,7 +1803,7 @@ export function StrategyDiscoveryPanel({
                   </div>
                   <div className="strat-opt-adjacent-slider-wrap">
                     <span className="strat-opt-bound">← Return</span>
-                    <input
+                    <TextInput
                       type="range"
                       min={0}
                       max={100}
@@ -1798,7 +1828,7 @@ export function StrategyDiscoveryPanel({
               <div className="strat-input-pill" title="Tap or edit to customize target price. Defaults to ±1x or ±2x implied move based on sentiment.">
                 <span className="strat-pill-icon">🎯</span>
                 <label>Target:</label>
-                <input
+                <TextInput
                   type="number"
                   step="0.1"
                   value={targetPrice}
@@ -1831,7 +1861,7 @@ export function StrategyDiscoveryPanel({
                 <span className="strat-pill-icon">💰</span>
                 <label>Budget:</label>
                 <span className="strat-currency-prefix">$</span>
-                <input
+                <TextInput
                   type="text"
                   placeholder="None"
                   value={budget !== null ? budget : ""}
@@ -1846,7 +1876,7 @@ export function StrategyDiscoveryPanel({
               <div className="strat-input-pill strat-rr-pill" title="Filter strategies by minimum Reward/Risk (Max Profit to Max Loss ratio)">
                 <span className="strat-pill-icon">⚖️</span>
                 <label>Min R:R:</label>
-                <select
+                <Select
                   value={minRewardRiskRatio ?? ""}
                   onChange={(e) => setMinRewardRiskRatio(e.target.value === "" ? null : Number(e.target.value))}
                   className="strat-rr-select"
@@ -1858,13 +1888,13 @@ export function StrategyDiscoveryPanel({
                   <option value="2">≥ 1:2 (2x)</option>
                   <option value="3">≥ 1:3 (3x)</option>
                   <option value="4">≥ 1:4 (4x)</option>
-                </select>
+                </Select>
               </div>
             </div>
 
             {/* Expiration Timeline Chips (Scrollable with Navigation Arrows) */}
             <div className="strat-exp-chips-scroll-wrap">
-              <button
+              <Button
                 type="button"
                 className="strat-scroll-arrow left"
                 onClick={() => scrollContainer(discoveryExpScrollRef, -240)}
@@ -1872,14 +1902,14 @@ export function StrategyDiscoveryPanel({
                 aria-label="Scroll expirations left"
               >
                 ‹
-              </button>
+              </Button>
               <div
                 className="strat-timeline-row strat-exp-chips-scroll"
                 ref={discoveryExpScrollRef}
                 onWheel={handleHorizontalWheel}
               >
                 {expirations.map((exp) => (
-                  <button
+                  <Button
                     key={exp.date}
                     type="button"
                     className={`strat-timeline-chip ${selectedExpiration.date === exp.date ? "active" : ""}`}
@@ -1887,10 +1917,10 @@ export function StrategyDiscoveryPanel({
                   >
                     <span className="strat-chip-month">{exp.monthGroup}</span>
                     <span className="strat-chip-day">{exp.dayLabel}</span>
-                  </button>
+                  </Button>
                 ))}
               </div>
-              <button
+              <Button
                 type="button"
                 className="strat-scroll-arrow right"
                 onClick={() => scrollContainer(discoveryExpScrollRef, 240)}
@@ -1898,7 +1928,7 @@ export function StrategyDiscoveryPanel({
                 aria-label="Scroll expirations right"
               >
                 ›
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -1906,14 +1936,14 @@ export function StrategyDiscoveryPanel({
           <div className="strat-schedule-capture">
             {!scheduleCaptureOpen ? (
               <>
-                <button
+                <Button
                   type="button"
                   className="strat-action-chip"
                   onClick={openScheduleCapture}
                   title="Create a durable schedule that re-runs this exact discovery view and stores the results"
                 >
                   🗓 Schedule this discovery
-                </button>
+                </Button>
                 <span className="strat-schedule-capture-hint">
                   Re-runs the view above (symbol, sentiment, target, budget) on a schedule; results land in Discovery runs.
                 </span>
@@ -1929,7 +1959,7 @@ export function StrategyDiscoveryPanel({
                 <div className="strat-schedule-confirm-controls">
                   <label>
                     Cadence
-                    <select
+                    <Select
                       value={captureScheduleType}
                       onChange={(e) => setCaptureScheduleType(e.target.value as typeof captureScheduleType)}
                       aria-label="Schedule cadence type"
@@ -1938,12 +1968,12 @@ export function StrategyDiscoveryPanel({
                       <option value="cron">Cron (UTC)</option>
                       <option value="delayed">Delayed (once)</option>
                       <option value="scheduled">One-shot date</option>
-                    </select>
+                    </Select>
                   </label>
                   {captureScheduleType === "interval" && (
                     <label>
                       Every (seconds)
-                      <input
+                      <TextInput
                         type="number"
                         min={60}
                         step={60}
@@ -1956,7 +1986,7 @@ export function StrategyDiscoveryPanel({
                   {captureScheduleType === "cron" && (
                     <label>
                       Cron (UTC)
-                      <input
+                      <TextInput
                         type="text"
                         value={captureCron}
                         onChange={(e) => setCaptureCron(e.target.value)}
@@ -1967,7 +1997,7 @@ export function StrategyDiscoveryPanel({
                   {captureScheduleType === "delayed" && (
                     <label>
                       Delay (seconds)
-                      <input
+                      <TextInput
                         type="number"
                         min={1}
                         step={60}
@@ -1980,7 +2010,7 @@ export function StrategyDiscoveryPanel({
                   {captureScheduleType === "scheduled" && (
                     <label>
                       Run at
-                      <input
+                      <TextInput
                         type="datetime-local"
                         value={captureDate}
                         onChange={(e) => setCaptureDate(e.target.value)}
@@ -1995,22 +2025,22 @@ export function StrategyDiscoveryPanel({
                   </div>
                 )}
                 <div className="strat-schedule-confirm-actions">
-                  <button
+                  <Button
                     type="button"
                     className="strat-action-chip highlight"
                     onClick={handleCreateDiscoverySchedule}
                     disabled={captureSubmitting}
                   >
                     {captureSubmitting ? "Scheduling…" : "✓ Create schedule"}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="strat-action-chip"
                     onClick={() => setScheduleCaptureOpen(false)}
                     disabled={captureSubmitting}
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : null}
@@ -2098,7 +2128,7 @@ export function StrategyDiscoveryPanel({
 
                   <div className="strat-card-actions-row">
                     {onPreviewTrade && discoveryDataSource === "live" && dataTab === "live" && (
-                      <button
+                      <Button
                         type="button"
                         className="strat-card-icon-btn trade"
                         onClick={(e) => {
@@ -2140,9 +2170,9 @@ export function StrategyDiscoveryPanel({
                       >
                         <span className="strat-icon">⚡</span>
                         <span className="strat-icon-tooltip">Trade</span>
-                      </button>
+                      </Button>
                     )}
-                    <button
+                    <Button
                       type="button"
                       className="strat-card-icon-btn builder"
                       onClick={(e) => {
@@ -2154,8 +2184,8 @@ export function StrategyDiscoveryPanel({
                     >
                       <span className="strat-icon">📊</span>
                       <span className="strat-icon-tooltip">Builder</span>
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       className="strat-card-icon-btn eval"
                       onClick={(e) => {
@@ -2190,8 +2220,8 @@ export function StrategyDiscoveryPanel({
                     >
                       <span className="strat-icon">🧠</span>
                       <span className="strat-icon-tooltip">AI Eval</span>
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       className="strat-card-icon-btn risk"
                       onClick={(e) => {
@@ -2236,7 +2266,7 @@ export function StrategyDiscoveryPanel({
                     >
                       <span className="strat-icon">🛡️</span>
                       <span className="strat-icon-tooltip">Risk</span>
-                    </button>
+                    </Button>
                   </div>
                 </div>
               );
@@ -2257,20 +2287,20 @@ export function StrategyDiscoveryPanel({
                 <span className="strat-flow-alert-title">{flowTradeBanner.title}</span>
                 <span className="strat-flow-alert-subtitle">{flowTradeBanner.returnText}</span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                 {onBackToFlows && (
-                  <button type="button" className="strat-flow-back-btn" onClick={onBackToFlows}>
+                  <Button type="button" className="strat-flow-back-btn" onClick={onBackToFlows}>
                     ← Back to Flows
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
                   type="button"
                   className="strat-flow-alert-close"
                   onClick={() => setIsFlowBannerDismissed(true)}
                   aria-label="Dismiss banner"
                 >
                   ✕
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -2280,14 +2310,14 @@ export function StrategyDiscoveryPanel({
             <div className="strat-builder-title-group">
               <div className="strat-strategy-name-badge-wrap">
                 <h2>{currentStrategyName}</h2>
-                <button
+                <Button
                   type="button"
                   className="strat-change-strat-btn"
                   onClick={() => setShowStrategyModal(true)}
                   title={`Change Strategy (${catalogCount} available)`}
                 >
                   Change ▾
-                </button>
+                </Button>
               </div>
               <span title={selectedStrategy?.description} className="strat-info-icon">
                 ⓘ {selectedStrategy?.subtitle}
@@ -2295,22 +2325,22 @@ export function StrategyDiscoveryPanel({
             </div>
 
             <div className="strat-builder-action-btns">
-              <button
+              <Button
                 type="button"
                 className="strat-btn-action"
                 onClick={() => setShowPositionsDrawer(!showPositionsDrawer)}
               >
                 Positions ({builderLegs.filter((l) => !l.isClosed).length} open) ☰
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className="strat-btn-action"
                 onClick={() => setShowHistoryModal(true)}
                 title="View single contract price history over time"
               >
                 History 📈
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className="strat-btn-action eval-llm"
                 onClick={() => {
@@ -2341,8 +2371,8 @@ export function StrategyDiscoveryPanel({
                 }}
               >
                 🧠 Evaluate with AI
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className="strat-btn-action risk-btn"
                 onClick={() => {
@@ -2384,7 +2414,7 @@ export function StrategyDiscoveryPanel({
                 title="Institutional Risk Management & Defense Playbook"
               >
                 🛡️ Risk Analysis
-              </button>
+              </Button>
               <OptionsDataDownloadDropdown
                 symbol={activeSymbol}
                 activeEnv={activeEnv}
@@ -2408,7 +2438,7 @@ export function StrategyDiscoveryPanel({
               {SENTIMENT_ITEMS.map((item) => {
                 const isActive = sentiment === item.id;
                 return (
-                  <button
+                  <Button
                     key={item.id}
                     type="button"
                     className={`strat-sentiment-btn-wrap strat-sentiment-card ${item.id} ${isActive ? "active" : ""}`}
@@ -2419,7 +2449,7 @@ export function StrategyDiscoveryPanel({
                   >
                     <div className="strat-sentiment-circle">{item.icon}</div>
                     <span className="strat-sentiment-label">{item.label}</span>
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -2437,7 +2467,7 @@ export function StrategyDiscoveryPanel({
             {discoveredStrategies.length > 0 && (
               <div className="strat-server-candidates-list" aria-label={`${discoveredStrategies.length} backend-ranked strategies`}>
                 {discoveredStrategies.slice(0, 8).map((strategy) => (
-                  <button
+                  <Button
                     key={strategy.id}
                     type="button"
                     className={`strat-server-candidate ${selectedStrategy?.id === strategy.id ? "active" : ""}`}
@@ -2453,7 +2483,7 @@ export function StrategyDiscoveryPanel({
                     <span className="strat-server-candidate-title">{strategy.name}</span>
                     <span className="strat-server-candidate-meta">{strategy.subtitle}</span>
                     <span className="strat-server-candidate-risk">Max loss {strategy.maxLoss === null ? "Unlimited" : `$${strategy.maxLoss.toLocaleString()}`} · POP {strategy.chanceOfProfit}%</span>
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
@@ -2467,20 +2497,20 @@ export function StrategyDiscoveryPanel({
                 <span className="strat-compare-hint">Compare payoff against previous configuration</span>
               </div>
               <div className="strat-compare-actions">
-                <button
+                <Button
                   type="button"
                   className={`strat-compare-toggle-btn ${isComparingPrevious ? "active" : ""}`}
                   onClick={() => setIsComparingPrevious(!isComparingPrevious)}
                 >
                   {isComparingPrevious ? "Hide Comparison" : "Compare with Previous"}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="strat-compare-revert-btn"
                   onClick={handleRevertToPrevious}
                 >
                   ↩ Revert
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -2489,14 +2519,14 @@ export function StrategyDiscoveryPanel({
           <div className="strat-symbol-quote-bar">
             <div className="strat-quote-search-inline">
               <span className="strat-symbol-pill">{activeSymbol}</span>
-              <button
+              <Button
                 type="button"
                 className="strat-sym-quick-btn"
                 onClick={() => setShowSymbolSearchMenu(!showSymbolSearchMenu)}
                 title="Search Stock / ETF / Futures"
               >
                 🔍 Search
-              </button>
+              </Button>
             </div>
             <span className="strat-quote-name">{quote ? quote.companyName : activeSymbol}</span>
             {quote ? (
@@ -2513,7 +2543,7 @@ export function StrategyDiscoveryPanel({
                 {isQuoteRefreshing ? "Loading quote…" : quoteError || "Quote unavailable"}
               </span>
             )}
-            <button
+            <Button
               type="button"
               className="strat-mini-refresh-btn"
               onClick={handleRefreshOptions}
@@ -2521,7 +2551,7 @@ export function StrategyDiscoveryPanel({
               title={`Refresh ${activeSymbol} quote & options legs`}
             >
               <span className={isQuoteRefreshing ? "strat-spin" : ""}>↻</span> {isQuoteRefreshing ? "Refreshing…" : "Refresh"}
-            </button>
+            </Button>
           </div>
 
 
@@ -2531,7 +2561,7 @@ export function StrategyDiscoveryPanel({
                 <div className="strat-symbol-dropdown-backdrop" onClick={() => setShowSymbolSearchMenu(false)} />
                 <div className="strat-symbol-dropdown builder" onClick={(e) => e.stopPropagation()}>
                   <div className="strat-dropdown-search-wrap">
-                    <input
+                    <TextInput
                       type="text"
                       value={symbolInput}
                       onChange={(e) => setSymbolInput(e.target.value)}
@@ -2576,7 +2606,7 @@ export function StrategyDiscoveryPanel({
               EXPIRATION: <span className="highlight">{selectedExpiration.label}</span> ({selectedExpiration.dte} DTE)
             </div>
             <div className="strat-exp-chips-scroll-wrap">
-              <button
+              <Button
                 type="button"
                 className="strat-scroll-arrow left"
                 onClick={() => scrollContainer(builderExpScrollRef, -240)}
@@ -2584,14 +2614,14 @@ export function StrategyDiscoveryPanel({
                 aria-label="Scroll expirations left"
               >
                 ‹
-              </button>
+              </Button>
               <div
                 className="strat-exp-chips-scroll"
                 ref={builderExpScrollRef}
                 onWheel={handleHorizontalWheel}
               >
                 {expirations.map((exp) => (
-                  <button
+                  <Button
                     key={exp.date}
                     type="button"
                     className={`strat-exp-chip strat-timeline-chip ${selectedExpiration.date === exp.date ? "active" : ""}`}
@@ -2600,10 +2630,10 @@ export function StrategyDiscoveryPanel({
                   >
                     <span className="strat-chip-month">{exp.monthGroup}</span>
                     <span className="strat-chip-day">{exp.dayLabel}</span>
-                  </button>
+                  </Button>
                 ))}
               </div>
-              <button
+              <Button
                 type="button"
                 className="strat-scroll-arrow right"
                 onClick={() => scrollContainer(builderExpScrollRef, 240)}
@@ -2611,7 +2641,7 @@ export function StrategyDiscoveryPanel({
                 aria-label="Scroll expirations right"
               >
                 ›
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -2632,43 +2662,43 @@ export function StrategyDiscoveryPanel({
                   <span className="dot put"></span> Put (Red)
                   <span className="dot vol"></span> Vol Bars
                 </span>
-                <button
+                <Button
                   type="button"
                   className="strat-ruler-shift-btn center-atm"
                   onClick={centerRulerOnAtm}
                   title={`Center strike ruler on ATM ($${spot.toFixed(2)})`}
                 >
                   🎯 Center ATM
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="strat-ruler-shift-btn"
                   onClick={() => handleMoveAllStrikes(-1)}
                   title="Shift all strikes down 1 step"
                 >
                   ◀ Move All
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="strat-ruler-shift-btn"
                   onClick={() => handleMoveAllStrikes(1)}
                   title="Shift all strikes up 1 step"
                 >
                   Move All ▶
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="strat-ruler-shift-btn wings"
                   onClick={() => handleSymmetricMove(1)}
                   title="Expand wings symmetrically for condors & butterflies"
                 >
                   ↔ Symmetric Wings
-                </button>
+                </Button>
               </div>
             </div>
 
             <div className="strat-strike-ruler-container">
-              <button
+              <Button
                 type="button"
                 className="strat-ruler-nav-arrow left"
                 onClick={() => scrollContainer(strikeRulerScrollRef, -280)}
@@ -2676,7 +2706,7 @@ export function StrategyDiscoveryPanel({
                 aria-label="Scroll strikes left"
               >
                 ‹
-              </button>
+              </Button>
               <div
                 className="strat-strike-ruler"
                 ref={strikeRulerScrollRef}
@@ -2744,7 +2774,7 @@ export function StrategyDiscoveryPanel({
                   })}
                 </div>
               </div>
-              <button
+              <Button
                 type="button"
                 className="strat-ruler-nav-arrow right"
                 onClick={() => scrollContainer(strikeRulerScrollRef, 280)}
@@ -2752,7 +2782,7 @@ export function StrategyDiscoveryPanel({
                 aria-label="Scroll strikes right"
               >
                 ›
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -2767,15 +2797,15 @@ export function StrategyDiscoveryPanel({
               </div>
               <div className="strat-add-leg-btns">
                 <div className="strat-leg-btn-pair">
-                  <button
+                  <Button
                     type="button"
                     className="strat-add-leg-btn call"
                     onClick={() => handleAddLeg("CALL")}
                     title="Add a new Call option leg"
                   >
                     + Add Call
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="strat-remove-leg-btn call"
                     onClick={() => handleRemoveLegByType("CALL")}
@@ -2787,18 +2817,18 @@ export function StrategyDiscoveryPanel({
                     }
                   >
                     − Remove Call
-                  </button>
+                  </Button>
                 </div>
                 <div className="strat-leg-btn-pair">
-                  <button
+                  <Button
                     type="button"
                     className="strat-add-leg-btn put"
                     onClick={() => handleAddLeg("PUT")}
                     title="Add a new Put option leg"
                   >
                     + Add Put
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="strat-remove-leg-btn put"
                     onClick={() => handleRemoveLegByType("PUT")}
@@ -2810,7 +2840,7 @@ export function StrategyDiscoveryPanel({
                     }
                   >
                     − Remove Put
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -2835,25 +2865,25 @@ export function StrategyDiscoveryPanel({
                   >
                     <div className="strat-leg-header-row">
                       <div className="strat-leg-side-qty">
-                        <button
+                        <Button
                           type="button"
                           className="strat-qty-btn"
                           onClick={() => handleLegQuantityChange(leg.id, -1)}
                           disabled={isClosed}
                         >
                           -
-                        </button>
+                        </Button>
                         <span className="strat-leg-qty">{leg.quantity}x</span>
-                        <button
+                        <Button
                           type="button"
                           className="strat-qty-btn"
                           onClick={() => handleLegQuantityChange(leg.id, 1)}
                           disabled={isClosed}
                         >
                           +
-                        </button>
+                        </Button>
 
-                        <button
+                        <Button
                           type="button"
                           className={`strat-side-pill ${leg.side.toLowerCase()}`}
                           onClick={() => handleLegSideToggle(leg.id)}
@@ -2861,7 +2891,7 @@ export function StrategyDiscoveryPanel({
                           title="Toggle BUY / SELL"
                         >
                           {leg.side}
-                        </button>
+                        </Button>
 
                         <span className={`strat-type-pill ${leg.optionType.toLowerCase()}`}>
                           {leg.optionType}
@@ -2874,7 +2904,7 @@ export function StrategyDiscoveryPanel({
                         <span className="strat-cost-label">Price:</span>
                         {editingLegCostId === leg.id ? (
                           <div className="strat-inline-edit-cost">
-                            <input
+                            <TextInput
                               type="number"
                               step="0.05"
                               value={customCostInputValue}
@@ -2882,24 +2912,24 @@ export function StrategyDiscoveryPanel({
                               placeholder={leg.entryPrice.toFixed(2)}
                               autoFocus
                             />
-                            <button
+                            <Button
                               type="button"
                               className="strat-cost-save-btn"
                               onClick={() => handleSaveCustomCost(leg.id)}
                             >
                               ✓
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                               type="button"
                               className="strat-cost-reset-btn"
                               onClick={() => handleResetCustomCost(leg.id)}
                               title="Reset to market price"
                             >
                               ✕
-                            </button>
+                            </Button>
                           </div>
                         ) : (
-                          <button
+                          <Button
                             type="button"
                             className={`strat-cost-display-btn ${hasCustomCost ? "custom" : ""}`}
                             onClick={() => {
@@ -2912,30 +2942,30 @@ export function StrategyDiscoveryPanel({
                           >
                             ${costBasis.toFixed(2)}
                             {hasCustomCost && <span className="strat-custom-cost-badge" title="Custom cost-basis applied">$</span>}
-                          </button>
+                          </Button>
                         )}
                       </div>
 
                       {/* Leg Actions: Exclude, Close, Roll, Remove */}
                       <div className="strat-leg-actions-group">
-                        <button
+                        <Button
                           type="button"
                           className={`strat-leg-act-btn exclude ${isExcluded ? "active" : ""}`}
                           onClick={() => handleLegExcludeToggle(leg.id)}
                           title={isExcluded ? "Include in strategy" : "Exclude from calculations"}
                         >
                           {isExcluded ? "👁️ Excluded" : "👁️‍🗨️ Exclude"}
-                        </button>
+                        </Button>
 
                         {!isClosed && (
-                          <button
+                          <Button
                             type="button"
                             className="strat-leg-act-btn close"
                             onClick={() => handleCloseLeg(leg.id)}
                             title="Close leg to lock in realized profit/loss"
                           >
                             ✓ Close
-                          </button>
+                          </Button>
                         )}
 
                         {isClosed && (
@@ -2944,16 +2974,16 @@ export function StrategyDiscoveryPanel({
                           </span>
                         )}
 
-                        <button
+                        <Button
                           type="button"
                           className="strat-leg-act-btn roll"
                           onClick={() => setRollingLeg(leg)}
                           title="Roll to new strike or expiration date"
                         >
                           ↻ Roll
-                        </button>
+                        </Button>
 
-                        <button
+                        <Button
                           type="button"
                           className="strat-leg-act-btn remove"
                           onClick={() => handleRemoveLeg(leg.id)}
@@ -2961,7 +2991,7 @@ export function StrategyDiscoveryPanel({
                           aria-label={`Remove leg ${leg.side} ${leg.strike} ${leg.optionType}`}
                         >
                           ✕ Remove
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
@@ -3011,15 +3041,15 @@ export function StrategyDiscoveryPanel({
 
                       {!isClosed && (
                         <div className="strat-leg-slider-row">
-                          <button
+                          <Button
                             type="button"
                             className="strat-strike-step-btn"
                             onClick={(e) => handleStrikeStep(leg.id, -1, e)}
                             title="Step strike down (Hold shift to move all)"
                           >
                             ◀ -
-                          </button>
-                          <input
+                          </Button>
+                          <TextInput
                             type="range"
                             min={minStrike}
                             max={maxStrike}
@@ -3028,14 +3058,14 @@ export function StrategyDiscoveryPanel({
                             onChange={(e) => handleStrikeChange(leg.id, Number(e.target.value), e)}
                             className="strat-leg-strike-range"
                           />
-                          <button
+                          <Button
                             type="button"
                             className="strat-strike-step-btn"
                             onClick={(e) => handleStrikeStep(leg.id, 1, e)}
                             title="Step strike up (Hold shift to move all)"
                           >
                             + ▶
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -3048,24 +3078,24 @@ export function StrategyDiscoveryPanel({
           {/* Capability 4: Simultaneous Side-by-Side Stats & Greeks Display */}
           <div className="strat-stats-card-container">
             <div className="strat-stats-header-tabs">
-              <button
+              <Button
                 type="button"
                 className={`strat-stats-tab ${showKeyStats ? "active" : ""}`}
                 onClick={toggleKeyStats}
                 title={showKeyStats ? "Key Stats & P&L active (click to toggle)" : "Click to enable Key Stats & P&L"}
               >
                 📊 Key Stats & P&L
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className={`strat-stats-tab ${showNetGreeks ? "active" : ""}`}
                 onClick={toggleNetGreeks}
                 title={showNetGreeks ? "Net Option Greeks active (click to toggle)" : "Click to enable Net Option Greeks"}
               >
                 📐 Net Option Greeks (Δ Γ Θ ν ρ)
-              </button>
+              </Button>
               {(!showKeyStats || !showNetGreeks) && (
-                <button
+                <Button
                   type="button"
                   className="strat-stats-tab reset-both"
                   onClick={() => {
@@ -3075,7 +3105,7 @@ export function StrategyDiscoveryPanel({
                   title="Enable both side-by-side"
                 >
                   ⚡ Show Both Side-by-Side
-                </button>
+                </Button>
               )}
             </div>
 
@@ -3273,64 +3303,42 @@ export function StrategyDiscoveryPanel({
                 </span>
               </div>
               <div className="strat-matrix-scroll-wrap">
-                <table className="strat-matrix-table">
-                  <thead>
-                    <tr>
-                      <th className="sticky-col">Price</th>
-                      {matrix2dData.columns.map((col) => (
-                        <th key={col.dateStr}>
-                          <div className="strat-th-content">
-                            <span>{col.label}</span>
-                            <span className="strat-th-dte">({col.dteRemaining}d)</span>
-                            {col.isExDiv && <span title="Estimated Ex-Dividend Date">🪙</span>}
-                            {col.isEarnings && <span title="Upcoming Earnings Announcement">📢</span>}
-                          </div>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {matrix2dData.rows.map((row) => (
-                      <tr key={row.price} className={row.isAtSpot ? "current-price-row" : ""}>
-                        <td className="sticky-col price-cell">
+                <Table
+                  className="strat-matrix-table"
+                  columns={[
+                    {
+                      key: "price",
+                      header: "Price",
+                      headerClassName: "sticky-col",
+                      cellClassName: "sticky-col price-cell",
+                      render: (row) => (
+                        <>
                           {row.priceLabel} {row.isAtSpot && <span className="spot-tag">● Spot</span>}
-                        </td>
-                        {row.cells.map((cell) => {
-                          let displayVal = "";
-                          if (builderMetricMode === "pnl_dollar") {
-                            displayVal = `${cell.pnlDollar >= 0 ? "+" : ""}$${cell.pnlDollar.toLocaleString()}`;
-                          } else if (builderMetricMode === "pnl_pct") {
-                            displayVal = `${cell.pnlPercent >= 0 ? "+" : ""}${cell.pnlPercent}%`;
-                          } else if (builderMetricMode === "collateral_pct") {
-                            displayVal = `${cell.riskPercent >= 0 ? "+" : ""}${cell.riskPercent}%`;
-                          } else {
-                            displayVal = `$${cell.contractValue.toLocaleString()}`;
-                          }
-
-                          // Heatmap color shading
-                          let cellBg = "var(--color-muted)";
-                          if (cell.pnlDollar > 0) {
-                            const intensity = Math.min(0.7, 0.12 + (cell.pnlDollar / (matrix2dData.maxPnl || 1)) * 0.58);
-                            cellBg = `color-mix(in srgb, var(--color-success) ${Math.round(intensity * 100)}%, transparent)`;
-                          } else if (cell.pnlDollar < 0) {
-                            const intensity = Math.min(0.7, 0.12 + (Math.abs(cell.pnlDollar) / (Math.abs(matrix2dData.minPnl) || 1)) * 0.58);
-                            cellBg = `color-mix(in srgb, var(--color-danger) ${Math.round(intensity * 100)}%, transparent)`;
-                          }
-
-                          return (
-                            <td
-                              key={cell.dateStr}
-                              style={{ background: cellBg }}
-                              className={cell.pnlDollar >= 0 ? "matrix-cell gain" : "matrix-cell loss"}
-                            >
-                              {displayVal}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </>
+                      ),
+                    },
+                    ...matrix2dData.columns.map((col, colIdx) => ({
+                      key: col.dateStr,
+                      header: (
+                        <div className="strat-th-content">
+                          <span>{col.label}</span>
+                          <span className="strat-th-dte">({col.dteRemaining}d)</span>
+                          {col.isExDiv && <span title="Estimated Ex-Dividend Date">🪙</span>}
+                          {col.isEarnings && <span title="Upcoming Earnings Announcement">📢</span>}
+                        </div>
+                      ),
+                      cellClassName: (row: Matrix2dRow) =>
+                        row.cells[colIdx].pnlDollar >= 0 ? "matrix-cell gain" : "matrix-cell loss",
+                      cellStyle: (row: Matrix2dRow) => ({
+                        background: matrixCellBg(row.cells[colIdx], matrix2dData.maxPnl, matrix2dData.minPnl),
+                      }),
+                      render: (row: Matrix2dRow) => matrixCellDisplay(row.cells[colIdx], builderMetricMode),
+                    })),
+                  ]}
+                  rows={matrix2dData.rows}
+                  rowKey={(row) => String(row.price)}
+                  rowClassName={(row) => (row.isAtSpot ? "current-price-row" : "")}
+                />
               </div>
             </div>
           )}
@@ -3375,7 +3383,7 @@ export function StrategyDiscoveryPanel({
                   ? `Today (${selectedExpiration.dte}d)`
                   : `In ${Math.round((builderDateSliderPct / 100) * selectedExpiration.dte)}d (${Math.round(tRemainingDays)}d)`}
               </span>
-              <input
+              <TextInput
                 type="range"
                 min={0}
                 max={100}
@@ -3389,56 +3397,56 @@ export function StrategyDiscoveryPanel({
             <div className="strat-footer-tools-group">
               <div className="strat-zoom-btn-group compact">
                 <span className="strat-footer-sub-label">RANGE:</span>
-                <button
+                <Button
                   type="button"
                   className={`strat-zoom-btn ${builderZoomLevel === "x1" ? "active" : ""}`}
                   onClick={() => setBuilderZoomLevel("x1")}
                 >
                   ±20%
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className={`strat-zoom-btn ${builderZoomLevel === "x2" ? "active" : ""}`}
                   onClick={() => setBuilderZoomLevel("x2")}
                 >
                   ±40%
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className={`strat-zoom-btn ${builderZoomLevel === "x3" ? "active" : ""}`}
                   onClick={() => setBuilderZoomLevel("x3")}
                 >
                   ±70%
-                </button>
+                </Button>
               </div>
 
               <div className="strat-footer-iv-group">
                 <span className="strat-footer-sub-label">IV: {builderIv.toFixed(1)}%</span>
                 <div className="strat-iv-presets mini">
-                  <button
+                  <Button
                     type="button"
                     className="strat-iv-btn mini crush"
                     onClick={() => setBuilderIv(Math.max(10, Number((builderIv * 0.75).toFixed(1))))}
                     title="Simulate IV Crush (-25%)"
                   >
                     -25%
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="strat-iv-btn mini surge"
                     onClick={() => setBuilderIv(Math.min(150, Number((builderIv * 1.25).toFixed(1))))}
                     title="Simulate IV Expansion (+25%)"
                   >
                     +25%
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="strat-iv-btn mini reset"
                     onClick={() => setBuilderIv(44.2)}
                     title="Reset IV to baseline"
                   >
                     ↺
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -3484,9 +3492,9 @@ export function StrategyDiscoveryPanel({
           <div className="strat-roll-modal" onClick={(e) => e.stopPropagation()}>
             <div className="strat-modal-header">
               <h3>Roll Option Leg</h3>
-              <button type="button" className="strat-modal-close-btn" onClick={() => setRollingLeg(null)}>
+              <Button type="button" className="strat-modal-close-btn" onClick={() => setRollingLeg(null)}>
                 ✕
-              </button>
+              </Button>
             </div>
 
             <div className="strat-roll-body">
@@ -3498,14 +3506,14 @@ export function StrategyDiscoveryPanel({
                 <label>Select New Expiration Date:</label>
                 <div className="strat-roll-exp-chips">
                   {expirations.map((exp) => (
-                    <button
+                    <Button
                       key={exp.date}
                       type="button"
                       className={`strat-roll-exp-chip ${exp.date === selectedExpiration.date ? "active" : ""}`}
                       onClick={() => handleExecuteRoll(exp.dte, exp.date, rollingLeg.strike)}
                     >
                       {exp.label} ({exp.dte}d)
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -3514,14 +3522,14 @@ export function StrategyDiscoveryPanel({
                 <label>Select New Strike Price:</label>
                 <div className="strat-roll-strikes-grid">
                   {rulerStrikes.map((k) => (
-                    <button
+                    <Button
                       key={k}
                       type="button"
                       className={`strat-roll-strike-btn ${k === rollingLeg.strike ? "current" : ""}`}
                       onClick={() => handleExecuteRoll(selectedExpiration.dte, selectedExpiration.date, k)}
                     >
                       ${k}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -3543,9 +3551,9 @@ export function StrategyDiscoveryPanel({
                   Historical contract value of {activeSymbol} {currentStrategyName}
                 </span>
               </div>
-              <button type="button" className="strat-modal-close-btn" onClick={() => setShowHistoryModal(false)}>
+              <Button type="button" className="strat-modal-close-btn" onClick={() => setShowHistoryModal(false)}>
                 ✕
-              </button>
+              </Button>
             </div>
 
             <div className="strat-history-stats-row">
@@ -3599,14 +3607,14 @@ export function StrategyDiscoveryPanel({
           <div className="strat-save-modal" onClick={(e) => e.stopPropagation()}>
             <div className="strat-modal-header">
               <h3>Save Trade Strategy</h3>
-              <button type="button" className="strat-modal-close-btn" onClick={() => setShowSaveModal(false)}>
+              <Button type="button" className="strat-modal-close-btn" onClick={() => setShowSaveModal(false)}>
                 ✕
-              </button>
+              </Button>
             </div>
 
             <div className="strat-save-form">
               <label>Strategy / Trade Name:</label>
-              <input
+              <TextInput
                 type="text"
                 value={saveTradeName}
                 onChange={(e) => setSaveTradeName(e.target.value)}
@@ -3615,7 +3623,7 @@ export function StrategyDiscoveryPanel({
               />
 
               <label>Trading Notes & Rationale (Optional):</label>
-              <textarea
+              <TextInput multiline
                 value={saveTradeNotes}
                 onChange={(e) => setSaveTradeNotes(e.target.value)}
                 placeholder="Targeting $450 breakout after delivery report. Max loss defined at $250."
@@ -3623,20 +3631,20 @@ export function StrategyDiscoveryPanel({
               />
 
               <div className="strat-save-actions">
-                <button
+                <Button
                   type="button"
                   className="strat-save-submit-btn"
                   onClick={handleSaveTrade}
                 >
                   Save to My Trades 💾
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="strat-save-cancel-btn"
                   onClick={() => setShowSaveModal(false)}
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -3654,9 +3662,9 @@ export function StrategyDiscoveryPanel({
                 <h3>My Saved Trades ({savedTrades.length})</h3>
                 <span className="strat-modal-sub">Track profit/loss and reopen saved positions</span>
               </div>
-              <button type="button" className="strat-modal-close-btn" onClick={() => setShowSavedTradesModal(false)}>
+              <Button type="button" className="strat-modal-close-btn" onClick={() => setShowSavedTradesModal(false)}>
                 ✕
-              </button>
+              </Button>
             </div>
 
             <div className="strat-saved-trades-list">
@@ -3675,7 +3683,7 @@ export function StrategyDiscoveryPanel({
                         </span>
                       </div>
                       <div className="strat-saved-card-btns">
-                        <button
+                        <Button
                           type="button"
                           className="strat-saved-load-btn"
                           style={{ borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
@@ -3704,21 +3712,21 @@ export function StrategyDiscoveryPanel({
                           title="Analyze Risk for Saved Trade"
                         >
                           🛡️ Risk
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
                           className="strat-saved-load-btn"
                           onClick={() => handleLoadSavedTrade(t)}
                         >
                           Load Trade ↗
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
                           className="strat-saved-del-btn"
                           onClick={() => handleDeleteSavedTrade(t.id)}
                         >
                           ✕
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
@@ -3746,9 +3754,9 @@ export function StrategyDiscoveryPanel({
         <div className="strat-positions-drawer">
           <div className="strat-drawer-header">
             <h4>Positions & Leg Status</h4>
-            <button type="button" className="strat-drawer-close" onClick={() => setShowPositionsDrawer(false)}>
+            <Button type="button" className="strat-drawer-close" onClick={() => setShowPositionsDrawer(false)}>
               ✕
-            </button>
+            </Button>
           </div>
 
           <div className="strat-drawer-content">
@@ -3758,7 +3766,7 @@ export function StrategyDiscoveryPanel({
                 <div key={l.id} className="strat-pos-item open">
                   <span>{l.side} {l.quantity}x {l.strike}{l.optionType[0]}</span>
                   <span>Cost: ${(l.customCostBasis ?? l.entryPrice).toFixed(2)}</span>
-                  <button type="button" onClick={() => handleCloseLeg(l.id)}>Close</button>
+                  <Button type="button" onClick={() => handleCloseLeg(l.id)}>Close</Button>
                 </div>
               ))}
             </div>

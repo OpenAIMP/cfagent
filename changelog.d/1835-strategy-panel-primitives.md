@@ -1,0 +1,2 @@
+### Changed
+- platform-wide P1 (#1835): StrategyDiscoveryPanel migrated to primitives — 80 raw buttons to Button, 13 inputs to TextInput (3 range sliders render natively via a `.ui-input[type="range"]` reset), 2 selects to Select, textarea to TextInput multiline, payoff-matrix table to the Table primitive (which gains per-row/per-cell `rowClassName`/`cellClassName`/`cellStyle` and `headerClassName`); 2 density literals to density tokens. Freeze 97 → 0, density 2 → 0 for this file. No behavior change (matrix display/heatmap logic extracted verbatim as pure helpers).

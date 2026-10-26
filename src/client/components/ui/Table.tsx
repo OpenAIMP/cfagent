@@ -5,8 +5,12 @@ export interface TableColumn<T> {
   header: React.ReactNode;
   render: (row: T) => React.ReactNode;
   align?: "left" | "center" | "right";
-  /** Class applied to every body cell in this column (surface cell styles). */
-  cellClassName?: string;
+  /** Class applied to every body cell in this column (surface cell styles); a function computes it per row. */
+  cellClassName?: string | ((row: T) => string);
+  /** Class applied to the column's <th> (e.g. sticky first columns). */
+  headerClassName?: string;
+  /** Inline style for the column's body cells, computed per row (e.g. heatmap shading). */
+  cellStyle?: (row: T) => React.CSSProperties;
 }
 
 export interface TableProps<T> {
@@ -16,7 +20,7 @@ export interface TableProps<T> {
   caption?: string;
   /** Rendered instead of the table when rows is empty (usually EmptyState). */
   empty?: React.ReactNode;
-  rowClassName?: string;
+  rowClassName?: string | ((row: T) => string);
   className?: string;
   containerClassName?: string;
 }
@@ -45,7 +49,11 @@ export function Table<T>({
         <thead>
           <tr>
             {columns.map((col) => (
-              <th key={col.key} scope="col" className={col.align ? `align-${col.align}` : undefined}>
+              <th
+                key={col.key}
+                scope="col"
+                className={`${col.headerClassName ?? ""} ${col.align ? `align-${col.align}` : ""}`.trim() || undefined}
+              >
                 {col.header}
               </th>
             ))}
@@ -53,11 +61,17 @@ export function Table<T>({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={rowKey(row)} className={rowClassName || undefined}>
+            <tr
+              key={rowKey(row)}
+              className={
+                (typeof rowClassName === "function" ? rowClassName(row) : rowClassName) || undefined
+              }
+            >
               {columns.map((col) => (
                 <td
                   key={col.key}
-                  className={`${col.cellClassName ?? ""} ${col.align ? `align-${col.align}` : ""}`.trim() || undefined}
+                  className={`${typeof col.cellClassName === "function" ? col.cellClassName(row) : (col.cellClassName ?? "")} ${col.align ? `align-${col.align}` : ""}`.trim() || undefined}
+                  style={col.cellStyle?.(row)}
                 >
                   {col.render(row)}
                 </td>
