@@ -1071,6 +1071,7 @@ describe("ScheduledOptionsManager — profile-derived discovery (#533)", () => {
       inputModel: "profile-derived",
       symbols: ["NVDA", "MSFT", "AAPL"],
       profileId: "prof-1",
+      slackChannel: "#options-alerts",
       environment: "TEST",
       trigger: "scheduled",
     });
@@ -1104,6 +1105,7 @@ describe("ScheduledOptionsManager — profile-derived discovery (#533)", () => {
       inputModel: "profile-derived",
       watchlistName: "My List",
       profileId: "prof-1",
+      slackChannel: "#options-alerts",
       environment: "TEST",
       trigger: "scheduled",
     });
@@ -1188,6 +1190,7 @@ describe("ScheduledOptionsManager — profile-derived discovery (#533)", () => {
       inputModel: "profile-derived",
       symbols: ["NVDA", "MSFT"],
       profileId: "prof-1",
+      slackChannel: "#options-alerts",
       environment: "TEST",
       trigger: "scheduled",
     });
@@ -1375,6 +1378,7 @@ describe("ScheduledOptionsManager — no-view discovery (#534)", () => {
         { symbol: "NVDA", maxPlannedLoss: 500, minRewardRisk: 1, minProbabilityOfProfit: 0.35, riskProfile: "balanced", minDte: 7, maxDte: 45 },
         { symbol: "MSFT", maxPlannedLoss: 500, minRewardRisk: 1, minProbabilityOfProfit: 0.35, riskProfile: "balanced", minDte: 7, maxDte: 45 },
       ],
+      slackChannel: "#options-alerts",
       environment: "TEST",
       trigger: "scheduled",
     });
@@ -1442,6 +1446,7 @@ describe("ScheduledOptionsManager — no-view discovery (#534)", () => {
     expect(createCalls[0].body.payload).toEqual({
       inputModel: "no-view",
       constraintSets: userDiscoveryNoView.payload.constraintSets,
+      slackChannel: "#options-alerts",
       environment: "TEST",
       trigger: "scheduled",
     });

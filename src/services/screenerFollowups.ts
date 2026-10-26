@@ -36,6 +36,23 @@ export function screenerKindLabel(kind: ScreenerKind): string {
   }
 }
 
+/**
+ * Consolidation #1236 (discovery notifications): the email subject
+ * for a followup delivery. Stock/options/goal keep exactly today's
+ * subjects (goal still renders "Options", as the port's else branch
+ * always did — this PR does not change goal behavior); discovery
+ * renders "Discovery" instead of inheriting the "Options" fallback.
+ */
+export function followupDeliveryEmailSubject(outcome: ScreenerRunOutcome): string {
+  const kindLabel = outcome.kind === "stock"
+    ? "Stock"
+    : outcome.kind === "discovery"
+      ? "Discovery"
+      : "Options";
+  const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
+  return `📊 ${kindLabel} Screen${scope ? ` [${scope}]` : ""} — ${outcome.matchedCount ?? "?"} matched`;
+}
+
 /** One standout opportunity, as carried for delivery content (S3). */
 export interface ScreenerOutcomeOpportunity {
   symbol: string;
@@ -98,9 +115,11 @@ export interface ScreenerRunOutcome {
   canonicalReportId?: string;
   /** Consolidation C4 (#1329): false when the run's delivery stays on
    *  its direct path and the chain must NOT plan deliveries (discovery
-   *  chains — the chain covers generate + serve; deliver-stage
-   *  chaining for discovery is #1236 remainder). Absent/true = the
-   *  chain delivers. Goal chains flipped to true in #1236. */
+   *  chains before #1236 notifications — the chain covered generate +
+   *  serve only). Absent/true = the chain delivers. Discovery chains
+   *  flip to true in #1236 when the run carries stageChain (with a
+   *  deliveryChannels allowlist from the task's own fields; an empty
+   *  allowlist plans nothing). Goal chains flipped to true in #1236. */
   deliverViaChain?: boolean;
   /** Consolidation #1236: chain-delivery channel allowlist. When set,
    *  the delivery planner sends only to these channels — a goal chain

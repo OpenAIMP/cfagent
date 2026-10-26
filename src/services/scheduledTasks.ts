@@ -73,7 +73,14 @@ import {
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "./tradingWebhooks";
 import { ScreenerEventBus } from "../events/screenerEvents";
-import { screenerOutcomeFromEvent } from "./screenerFollowups";
+import {
+  screenerOutcomeFromEvent,
+  resolveScreenerFollowupConfig,
+  type ScreenerOutcomeOpportunity,
+  type ScreenerRunOutcome,
+} from "./screenerFollowups";
+import { createFollowupDeliveryPort } from "./screenerFollowupDelivery";
+import { deliverDiscoveryDirect } from "./screeningDelivery";
 import { recordJobOutcome } from "./jobOutcomes";
 import { storeReportStage } from "./unifiedReportPipeline";
 import { registerScreenerPublishers } from "../events/screenerPublishers";
@@ -136,14 +143,22 @@ export interface AutonomousStrategyDiscoveryOptions {
   /** The arming schedule's id, when the caller knows it (recorded as
    *  run provenance; the SDK callback path supplies none). */
   scheduleId?: string;
+  /** Consolidation #1236 (discovery notifications): per-task delivery
+   *  recipients. Carried to the bridge in chain mode and to the direct
+   *  delivery in non-chain mode. A task naming no channels plans no
+   *  notification — env-configured channels are never added to a
+   *  discovery run that did not name them. */
+  emailTo?: string;
+  slackChannel?: string;
+  webhookUrl?: string;
   /** Consolidation C4 (#1329): per-record stage-chain config — a
    *  completed discovery run bridges generate + serve (canonical
-   *  report adoption). Consolidation #1236 finding: discovery has NO
-   *  direct success delivery to chain (success completes as audit +
-   *  session message + canonical row; the options carry no channel
-   *  fields), so flipping deliverViaChain would INVENT channel
-   *  notifications, not migrate a path — deliver chaining for
-   *  discovery stays carried, not implemented. Absent ⇒ unbridged.
+   *  report adoption). Consolidation #1236 notifications: chain mode
+   *  ALSO carries delivery — the bridge flips deliverViaChain to
+   *  true with the task's own channel fields + a deliveryChannels
+   *  allowlist derived from them, and direct delivery is suppressed
+   *  in chain mode (goal-pattern exactly-once). A task naming no
+   *  channels plans no delivery even in chain mode (empty allowlist).
    *  Failed runs do not bridge: their existing failure-notice path
    *  is channel-divergent from the bridge's, and suppressing it
    *  would risk a lost notice. */
@@ -169,6 +184,105 @@ export interface AutonomousStrategyDiscoveryOptions {
  * and the broadcast — until its next scheduled fire or a manual
  * trigger.
  */
+/**
+ * Consolidation #1236 (discovery notifications): map a discovery
+ * run's per-symbol outcomes to the delivery surface's opportunity
+ * shape — the same top-10 shape stock screens render. Per completed
+ * outcome the best trade wins, else the top ranked strategy; the
+ * no-view path reads bestNoViewTrade/rankedNoView. Failed outcomes
+ * and abstentions (status "abstained", or completed + abstained
+ * true on the no-view path) contribute nothing. Only label +
+ * underlying price exist on candidates — no company name or change
+ * percent is fabricated. Capped at 10 here; the formatter slices to
+ * 10 again, so the cap is belt-and-braces.
+ */
+export function discoveryDeliveryOpportunities(
+  outcomes: DiscoverySymbolOutcome[],
+): ScreenerOutcomeOpportunity[] {
+  const opportunities: ScreenerOutcomeOpportunity[] = [];
+  for (const outcome of outcomes) {
+    if (outcome.status !== "completed" || outcome.abstained) continue;
+    const candidate =
+      outcome.bestTrade?.best?.candidate
+      ?? outcome.ranked?.[0]?.candidate
+      ?? outcome.bestNoViewTrade?.best?.candidate
+      ?? outcome.rankedNoView?.[0]?.candidate;
+    if (!candidate) continue;
+    opportunities.push({
+      symbol: outcome.symbol,
+      signal: candidate.label,
+      lastPrice: candidate.underlyingPrice,
+    });
+    if (opportunities.length >= 10) break;
+  }
+  return opportunities;
+}
+
+export interface DiscoveryDeliveryOutcomeInput {
+  runId: string;
+  status: DiscoveryRunStatus;
+  inputModel: string;
+  symbols: string[];
+  summary: string;
+  trigger: "manual" | "scheduled";
+  matchedCount: number;
+  totalScanned: number;
+  outcomes: DiscoverySymbolOutcome[];
+  reportId?: string;
+  /** True when the run carries stageChain (bridge path); false for
+   *  the direct path. The direct outcome is never fed to the
+   *  planner, but deliverViaChain: false documents that it stays
+   *  off the chain. */
+  chainMode: boolean;
+  stageChain?: ScreenerRunOutcome["stageChain"];
+  emailTo?: string;
+  slackChannel?: string;
+  webhookUrl?: string;
+}
+
+/**
+ * Consolidation #1236 (discovery notifications): build the one
+ * delivery outcome for a discovery run, shared by both phases —
+ * chain mode (bridge carries it to the planner) and direct mode
+ * (delivered through the port inside the run). Chain mode derives
+ * the deliveryChannels allowlist from the task's own fields in
+ * CHANNEL_ORDER; a task naming no channels gets an empty allowlist
+ * and plans nothing. reportUrl wires to the run's real detail
+ * address (GET /api/etrade/options/discovery-runs/:id) — no UI
+ * deep-link exists for a run, so none is invented.
+ */
+export function buildDiscoveryDeliveryOutcome(
+  input: DiscoveryDeliveryOutcomeInput,
+): ScreenerRunOutcome {
+  const channels: NonNullable<ScreenerRunOutcome["deliveryChannels"]> = [];
+  if (input.slackChannel) channels.push("slack");
+  if (input.emailTo) channels.push("email");
+  if (input.webhookUrl) channels.push("webhook");
+  const outcome: ScreenerRunOutcome = {
+    kind: "discovery",
+    trigger: input.trigger,
+    success: input.status !== "failed",
+    thesis: `Strategy discovery (${input.inputModel}) — ${input.symbols.join(", ")}`,
+    summary: input.summary,
+    pdfKeys: [],
+    canonicalReportId: input.reportId,
+    matchedCount: input.matchedCount,
+    totalScanned: input.totalScanned,
+    opportunities: discoveryDeliveryOpportunities(input.outcomes),
+    reportUrl: `/api/etrade/options/discovery-runs/${input.runId}`,
+    emailTo: input.emailTo,
+    slackChannel: input.slackChannel,
+    webhookUrl: input.webhookUrl,
+    deliverViaChain: input.chainMode,
+  };
+  if (input.chainMode) {
+    outcome.deliveryChannels = channels;
+    outcome.stageChain = input.stageChain;
+  }
+  return outcome;
+}
+
+
 export class ScheduledTasksService {
   constructor(
     private env: Env,
@@ -2188,6 +2302,9 @@ export class ScheduledTasksService {
         symbols,
         options,
         timestamp,
+        outcomes,
+        matchedCount: requests.length - failures.length,
+        totalScanned: requests.length,
       });
 
       if (status === "failed") {
@@ -2260,15 +2377,17 @@ export class ScheduledTasksService {
   /**
    * Consolidation C4 (#1329): persist the canonical mas_reports row
    * for a discovery run and, when the run carries stageChain, bridge
-   * it (generate + serve stages; deliverViaChain=false because
-   * discovery has no direct success delivery to chain — #1236
-   * finding, see the stageChain field comment). Called right after the detail
+   * it (generate + serve stages, then deliver when the task named
+   * channels — #1236 notifications). Called right after the detail
    * save, before the status is judged — so even a failed run gains
    * its canonical row (the detail prune can never erase it from
-   * GET /api/runs). Failed runs do NOT bridge: their failure-notice
-   * path is channel-divergent from the bridge's, and suppressing it
-   * would risk a lost notice. A bridge failure never fails the run
-   * itself — it is logged, and the canonical row is the record.
+   * GET /api/runs). Failed runs do NOT bridge and do NOT deliver:
+   * their failure-notice path is channel-divergent from the
+   * bridge's, and suppressing it would risk a lost notice. A bridge
+   * failure never fails the run itself — it is logged, and the
+   * canonical row is the record. Non-chain runs deliver directly
+   * (Phase 1) when the task named channels; chain mode suppresses
+   * direct delivery so the notification is sent exactly once.
    */
   private async persistDiscoveryCanonicalAndBridge(args: {
     run: { id: string; status: DiscoveryRunStatus; inputModel: string };
@@ -2276,6 +2395,9 @@ export class ScheduledTasksService {
     symbols: string[];
     options: AutonomousStrategyDiscoveryOptions;
     timestamp: string;
+    outcomes: DiscoverySymbolOutcome[];
+    matchedCount: number;
+    totalScanned: number;
   }): Promise<string | undefined> {
     let reportId: string | undefined;
     if (this.orm) {
@@ -2296,27 +2418,72 @@ export class ScheduledTasksService {
       });
       reportId = stored?.reportId;
     }
-    if (args.run.status !== "failed" && args.options.stageChain && this.followupScheduler) {
-      try {
-        await this.followupScheduler(
-          {
-            kind: "discovery",
-            trigger: args.options.trigger || "scheduled",
-            success: true,
-            thesis: `Strategy discovery (${args.run.inputModel}) — ${args.symbols.join(", ")}`,
-            pdfKeys: [],
-            canonicalReportId: reportId,
-            deliverViaChain: false,
-            stageChain: args.options.stageChain,
-          },
-          this.userLogin,
-          true,
-        );
-      } catch (bridgeErr) {
-        console.warn("[ScheduledTasksService] Discovery bridge failed (canonical row kept):", bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr));
+    if (args.run.status !== "failed") {
+      const outcome = buildDiscoveryDeliveryOutcome({
+        runId: args.run.id,
+        status: args.run.status,
+        inputModel: args.run.inputModel,
+        symbols: args.symbols,
+        summary: args.summary,
+        trigger: args.options.trigger || "scheduled",
+        matchedCount: args.matchedCount,
+        totalScanned: args.totalScanned,
+        outcomes: args.outcomes,
+        reportId,
+        chainMode: Boolean(args.options.stageChain),
+        stageChain: args.options.stageChain,
+        emailTo: args.options.emailTo,
+        slackChannel: args.options.slackChannel,
+        webhookUrl: args.options.webhookUrl,
+      });
+      if (args.options.stageChain && this.followupScheduler) {
+        try {
+          await this.followupScheduler(outcome, this.userLogin, true);
+        } catch (bridgeErr) {
+          console.warn("[ScheduledTasksService] Discovery bridge failed (canonical row kept):", bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr));
+        }
+      } else if (!args.options.stageChain) {
+        await this.sendDiscoveryDirect(outcome);
       }
     }
     return reportId;
+  }
+
+  /**
+   * Consolidation #1236 Phase 1: deliver a non-chain discovery
+   * notification directly through the delivery port — the same
+   * transports, footer, allowlist, and per-channel isolation as the
+   * chain path, so direct and chain texts are identical for the
+   * same outcome. Best-effort by design: a failure is audited via
+   * warn and never fails the run. Without an ORM there is no
+   * canonical row to link, so delivery is skipped (the content
+   * spec requires the canonical link).
+   */
+  private async sendDiscoveryDirect(outcome: ScreenerRunOutcome): Promise<void> {
+    if (!this.orm) {
+      console.warn("[ScheduledTasksService] Discovery direct delivery skipped: no ORM (no canonical row to link).");
+      return;
+    }
+    try {
+      const port = createFollowupDeliveryPort({
+        env: this.env,
+        getOrm: () => this.orm as DatabaseORM,
+        getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
+      });
+      const results = await deliverDiscoveryDirect({
+        port,
+        outcome,
+        config: resolveScreenerFollowupConfig(this.env as unknown as Record<string, unknown>),
+        userLogin: this.userLogin,
+      });
+      for (const result of results) {
+        if (!result.ok) {
+          console.warn(`[ScheduledTasksService] Discovery direct delivery failed (${result.channel}):`, result.error ?? "unknown error");
+        }
+      }
+    } catch (err) {
+      console.warn("[ScheduledTasksService] Discovery direct delivery failed:", err instanceof Error ? err.message : String(err));
+    }
   }
 
   /**
@@ -2682,6 +2849,9 @@ export class ScheduledTasksService {
         symbols,
         options,
         timestamp,
+        outcomes,
+        matchedCount: completedCount,
+        totalScanned: constructed.length,
       });
 
       if (status === "failed") {
@@ -2986,6 +3156,9 @@ export class ScheduledTasksService {
         symbols,
         options,
         timestamp,
+        outcomes,
+        matchedCount: completedCount,
+        totalScanned: constraintSets.length,
       });
 
       if (status === "failed") {
