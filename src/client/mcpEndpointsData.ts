@@ -421,6 +421,57 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     },
     sampleArgs: { symbol: "NVDA", qty: 1, side: "buy", type: "limit", limit_price: 135.0 },
   },
+  {
+    name: "agentdb.chain.status",
+    category: "AgentDB Reads",
+    description: "Read a chain's projected status from AgentDB (latest chain + schedule rows, projection only). Read-only; tenant resolved from the caller's environment.",
+    schema: {
+      type: "object",
+      properties: {
+        chainId: { type: "string", description: "The persisted chain identity (the synthesized record id)" },
+      },
+      required: ["chainId"],
+    },
+    sampleArgs: { chainId: "c1" },
+  },
+  {
+    name: "agentdb.jobs.history",
+    category: "AgentDB Reads",
+    description: "List a chain's projected shard jobs from AgentDB (latest row per job, newest first, projection only). Read-only; tenant resolved from the caller's environment.",
+    schema: {
+      type: "object",
+      properties: {
+        chainId: { type: "string", description: "The chain the jobs ran (or were submitted) for" },
+      },
+      required: ["chainId"],
+    },
+    sampleArgs: { chainId: "c1" },
+  },
+  {
+    name: "agentdb.audit.history",
+    category: "AgentDB Reads",
+    description: "List a chain's projected audit events from AgentDB (one row per lifecycle event, newest first, projection only). Read-only; tenant resolved from the caller's environment.",
+    schema: {
+      type: "object",
+      properties: {
+        chainId: { type: "string", description: "The chain the audit events belong to" },
+      },
+      required: ["chainId"],
+    },
+    sampleArgs: { chainId: "c1" },
+  },
+  {
+    name: "agentdb.reports.list",
+    category: "AgentDB Reads",
+    description: "List canonical reports from AgentDB (latest row per report, newest first; with reportId, that one report — projection only). Read-only; bodies are never included. Tenant resolved from the caller's environment.",
+    schema: {
+      type: "object",
+      properties: {
+        reportId: { type: "string", description: "Optional canonical report id; when absent, all reports for the tenant are listed" },
+      },
+    },
+    sampleArgs: {},
+  },
 ];
 
 export const MCP_RESOURCES_CATALOG: McpResourceMeta[] = [
