@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import type { NavTabId } from "./NavigationMenu";
-import { Badge, type BadgeTone } from "./ui";
+import { Badge, Button, PillGroup, TextInput, type BadgeTone, type PillOption } from "./ui";
 import { BRAND } from "../branding";
 
 export interface StockTickerItem {
@@ -71,6 +71,13 @@ const NAV_SHORTCUTS: NavShortcut[] = [
 ];
 
 const TICKER_TYPE_TONES: Record<string, BadgeTone> = { stock: "info", crypto: "warning", etf: "purple" };
+
+const FILTER_PILLS: PillOption<"all" | "tickers" | "navigation" | "actions">[] = [
+  { id: "all", label: "All Results" },
+  { id: "tickers", label: "📈 Stocks & Crypto" },
+  { id: "navigation", label: "🧭 Platform Navigation" },
+  { id: "actions", label: "⚡ Agent Actions" },
+];
 
 export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: StockSearchBarProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -404,8 +411,7 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
     <>
       {/* Search Bar Inline Trigger */}
       <div className={`stock-search-trigger-container ${className}`}>
-        <button
-          type="button"
+        <Button
           className="stock-search-trigger-btn"
           onClick={() => setIsOpen(true)}
           title={`Search stocks, options, workflows (${shortcutHint})`}
@@ -419,7 +425,7 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
           </span>
           <span className="stock-search-placeholder">Search stocks...</span>
           <kbd className="stock-search-kbd">{shortcutHint}</kbd>
-        </button>
+        </Button>
       </div>
 
       {/* Global Command Palette / Stock Search Modal */}
@@ -440,9 +446,8 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
                   <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
               </span>
-              <input
+              <TextInput
                 ref={inputRef}
-                type="text"
                 className="stock-search-modal-input"
                 placeholder="Search stocks (NVDA, AAPL, BTC), workflows, or agent commands..."
                 value={query}
@@ -450,56 +455,31 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
                 onKeyDown={handleKeyDownInInput}
               />
               {query && (
-                <button
-                  type="button"
+                <Button
                   className="modal-clear-btn"
                   onClick={() => setQuery("")}
                   title="Clear search"
                 >
                   ✕
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
+              <Button
                 className="modal-esc-badge"
                 onClick={() => setIsOpen(false)}
                 title="Close modal"
               >
                 ESC
-              </button>
+              </Button>
             </div>
 
             {/* Filter Type Pills */}
-            <div className="stock-search-filter-pills">
-              <button
-                type="button"
-                className={`filter-pill ${filterType === "all" ? "active" : ""}`}
-                onClick={() => setFilterType("all")}
-              >
-                All Results
-              </button>
-              <button
-                type="button"
-                className={`filter-pill ${filterType === "tickers" ? "active" : ""}`}
-                onClick={() => setFilterType("tickers")}
-              >
-                📈 Stocks & Crypto
-              </button>
-              <button
-                type="button"
-                className={`filter-pill ${filterType === "navigation" ? "active" : ""}`}
-                onClick={() => setFilterType("navigation")}
-              >
-                🧭 Platform Navigation
-              </button>
-              <button
-                type="button"
-                className={`filter-pill ${filterType === "actions" ? "active" : ""}`}
-                onClick={() => setFilterType("actions")}
-              >
-                ⚡ Agent Actions
-              </button>
-            </div>
+            <PillGroup
+              options={FILTER_PILLS}
+              value={filterType}
+              onChange={setFilterType}
+              ariaLabel="Search result filters"
+              className="stock-search-filter-pills"
+            />
 
             {/* Results Body */}
             <div className="stock-search-results-list" ref={listRef}>

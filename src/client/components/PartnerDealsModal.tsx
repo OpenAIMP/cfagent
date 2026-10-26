@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Notice, Modal } from "./ui";
+import { Button, Card, Notice, Modal, PillGroup } from "./ui";
 
 export interface PartnerDeal {
   id: string;
@@ -120,9 +120,9 @@ export function PartnerDealsModal({
   footer={
     <div className="partner-deals-footer">
       <span className="deals-counter">Showing {filteredDeals.length} partner offer{filteredDeals.length === 1 ? "" : "s"}</span>
-      <button type="button" className="partner-deals-dismiss-btn" onClick={onClose}>
+      <Button className="partner-deals-dismiss-btn" onClick={onClose}>
         Back to Workspace
-      </button>
+      </Button>
     </div>
   }
       title={
@@ -143,29 +143,21 @@ export function PartnerDealsModal({
         </Notice>
 
         {/* Category Filters */}
-        <div className="partner-deals-category-bar">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              className={`partner-deals-cat-btn ${filterCategory === cat ? "active" : ""}`}
-              onClick={() => setFilterCategory(cat)}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
+        <PillGroup
+          options={categories.map((cat) => ({ id: cat, label: cat }))}
+          value={filterCategory}
+          onChange={setFilterCategory}
+          ariaLabel="Deal categories"
+          className="partner-deals-category-bar"
+        />
 
         {/* Deals Grid */}
         <div className="partner-deals-grid">
           {filteredDeals.map((deal) => {
             const color = deal.accentColor || "var(--color-accent)";
             return (
-              <div
-                key={deal.id}
-                className="partner-deal-card"
-                style={{ borderTop: `3px solid ${color}` }}
-              >
+              <div key={deal.id} style={{ borderTop: `3px solid ${color}` }}>
+              <Card>
                 <div className="deal-card-header">
                   <span
                     className="deal-badge"
@@ -180,8 +172,7 @@ export function PartnerDealsModal({
                 <p className="deal-tagline">{deal.tagline}</p>
 
                 <div className="deal-footer">
-                  <button
-                    type="button"
+                  <Button
                     className="deal-cta-btn"
                     style={{ background: color }}
                     onClick={() => {
@@ -193,7 +184,7 @@ export function PartnerDealsModal({
                     }}
                   >
                     {deal.ctaText || "Claim Deal →"}
-                  </button>
+                  </Button>
                   <a
                     href={deal.url}
                     target="_blank"
@@ -204,6 +195,7 @@ export function PartnerDealsModal({
                     Direct Link ↗
                   </a>
                 </div>
+              </Card>
               </div>
             );
           })}

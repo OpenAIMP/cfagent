@@ -8,7 +8,7 @@
  * All reads/writes go through the existing session-gated routes.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Button } from "./components/ui";
+import { Badge, Button, Card, Notice, TextInput } from "./components/ui";
 import {
   listGoals,
   triggerGoal,
@@ -37,8 +37,6 @@ const CHANNEL_LABELS: Record<string, string> = {
   instagram: "Instagram",
   linkedin: "LinkedIn",
 };
-
-const inputStyle: React.CSSProperties = { padding: "8px 12px", width: "100%" };
 
 export function SocialPostingPanel() {
   const [date] = useState(() => todayInNewYork());
@@ -126,19 +124,20 @@ export function SocialPostingPanel() {
 
   return (
     <div className="social-posting-panel">
-      <h3 style={{ margin: "0 0 4px" }}>Social posting</h3>
-      <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 12 }}>
+      <h3 style={{ margin: "0 0 var(--space-1)" }}>Social posting</h3>
+      <div style={{ fontSize: 13, opacity: 0.7, marginBottom: "var(--space-3)" }}>
         Today: {date} · manual runs only — triggering never enables the daily schedule.
       </div>
-      {error && <div style={{ color: "var(--color-danger)", marginBottom: 12 }}>{error}</div>}
+      {error && <Notice tone="danger">{error}</Notice>}
       {loading && <div>Loading…</div>}
 
       {!loading && (
         <>
-          <h3 style={{ margin: "12px 0 8px" }}>Today&apos;s brief</h3>
-          <div style={{ display: "grid", gap: 8, maxWidth: 640 }}>
-            <textarea
-              style={{ ...inputStyle, minHeight: 120 }}
+          <h3 style={{ margin: "var(--space-3) 0 var(--space-2)" }}>Today&apos;s brief</h3>
+          <div style={{ display: "grid", gap: "var(--space-2)", maxWidth: 640 }}>
+            <TextInput
+              multiline
+              rows={6}
               placeholder="Write today's post here…"
               value={briefText}
               onChange={(e) => {
@@ -149,7 +148,7 @@ export function SocialPostingPanel() {
             <div style={{ fontSize: 13, opacity: 0.8 }}>
               {briefText.length} / {SOCIAL_BRIEF_MAX_CHARS} characters
               {overCap && (
-                <span style={{ color: "var(--color-danger)", marginLeft: 8 }}>
+                <span style={{ color: "var(--color-danger)", marginLeft: "var(--space-2)" }}>
                   Over the {SOCIAL_BRIEF_MAX_CHARS}-character cap — shorten the text to save.
                 </span>
               )}
@@ -159,53 +158,47 @@ export function SocialPostingPanel() {
                 {busy === "save" ? "Saving…" : "Save brief"}
               </Button>
               {savedNote && (
-                <span style={{ color: "var(--color-success)", marginLeft: 12, fontSize: 13 }}>
+                <span style={{ color: "var(--color-success)", marginLeft: "var(--space-3)", fontSize: 13 }}>
                   {savedNote}
                 </span>
               )}
             </div>
           </div>
 
-          <h3 style={{ margin: "20px 0 8px" }}>Daily social post goal</h3>
+          <h3 style={{ margin: "var(--space-5) 0 var(--space-2)" }}>Daily social post goal</h3>
           {goalMissing && (
             <div style={{ opacity: 0.7 }}>
               The {DAILY_SOCIAL_POST_GOAL_ID} goal is not in the store yet.
             </div>
           )}
           {goal && (
-            <div
-              style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, padding: "10px 12px", marginBottom: 10, maxWidth: 640 }}
-            >
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ maxWidth: 640 }}>
+              <Card>
+              <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
                 <strong>{goal.name}</strong>
                 <code style={{ fontSize: 12 }}>{goal.id}</code>
                 <span style={{ fontSize: 12, opacity: 0.7 }}>{goal.cron}</span>
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: goal.enabled ? "var(--color-success)" : "var(--color-text-muted)",
-                  }}
-                >
-                  {goal.enabled ? "ENABLED" : "DISABLED"}
+                <span style={{ marginLeft: "auto" }}>
+                  <Badge tone={goal.enabled ? "success" : "neutral"} size="sm">
+                    {goal.enabled ? "ENABLED" : "DISABLED"}
+                  </Badge>
                 </span>
               </div>
-              <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>
+              <div style={{ fontSize: 13, opacity: 0.8, marginTop: "var(--space-1)" }}>
                 operation <code>{goal.operation}</code> · budget ${(goal.budgetCents / 100).toFixed(2)} · last
                 run {goal.lastRun ? new Date(goal.lastRun).toLocaleString() : "never"}
               </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
                 <Button variant="primary" disabled={!!busy} onClick={() => void handleTrigger()}>
                   Run now
                 </Button>
               </div>
               {lastTick && (
-                <div style={{ fontSize: 13, marginTop: 8 }}>
+                <div style={{ fontSize: 13, marginTop: "var(--space-2)" }}>
                   Last manual run: {new Date(lastTick.timestamp).toLocaleString()} — evaluated{" "}
                   {lastTick.goalsEvaluated}, created {lastTick.jobsCreated}, skipped {lastTick.jobsSkipped}
                   {lastTick.errors.length > 0 && (
-                    <div style={{ color: "var(--color-danger)", marginTop: 4 }}>
+                    <div style={{ color: "var(--color-danger)", marginTop: "var(--space-1)" }}>
                       {lastTick.errors.map((e, i) => (
                         <div key={i}>{e}</div>
                       ))}
@@ -213,63 +206,45 @@ export function SocialPostingPanel() {
                   )}
                 </div>
               )}
+              </Card>
             </div>
           )}
 
-          <h3 style={{ margin: "20px 0 8px" }}>Pending approvals</h3>
+          <h3 style={{ margin: "var(--space-5) 0 var(--space-2)" }}>Pending approvals</h3>
           {approvals.length === 0 && (
             <div style={{ opacity: 0.7 }}>No pending approvals for {date}.</div>
           )}
+          <div style={{ display: "grid", gap: "var(--space-2-5)", maxWidth: 640 }}>
           {approvals.map((a) => (
-            <div
-              key={a.draftId}
-              style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, padding: "10px 12px", marginBottom: 10, maxWidth: 640 }}
-            >
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Card key={a.draftId}>
+              <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
                 <strong>{CHANNEL_LABELS[a.channel] ?? a.channel}</strong>
                 <span style={{ fontSize: 12, opacity: 0.7 }}>{a.status}</span>
                 <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.7 }}>
                   {new Date(a.requestedAtMs).toLocaleString()}
                 </span>
               </div>
-              <div style={{ fontSize: 13, marginTop: 4 }}>{a.text}</div>
-            </div>
+              <div style={{ fontSize: 13, marginTop: "var(--space-1)" }}>{a.text}</div>
+            </Card>
           ))}
+          </div>
 
-          <h3 style={{ margin: "20px 0 8px" }}>Submitted posts</h3>
+          <h3 style={{ margin: "var(--space-5) 0 var(--space-2)" }}>Submitted posts</h3>
           {posts.length === 0 && (
             <div style={{ opacity: 0.7 }}>No submitted posts or drafts for {date}.</div>
           )}
+          <div style={{ display: "grid", gap: "var(--space-2-5)", maxWidth: 640 }}>
           {posts.map((p) => {
             const label = CHANNEL_LABELS[p.channel] ?? p.channel;
             const isPosted = p.status === "posted";
             const isDryRun = p.status === "dry-run-posted";
             return (
-              <div
-                key={p.draftId}
-                style={{
-                  border: "1px solid var(--color-border-medium)",
-                  borderRadius: 8,
-                  padding: "10px 12px",
-                  marginBottom: 10,
-                  maxWidth: 640,
-                }}
-              >
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+              <Card key={p.draftId}>
+                <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: "var(--space-1-5)" }}>
                   <strong>{label}</strong>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: isPosted
-                        ? "var(--color-success)"
-                        : isDryRun
-                          ? "var(--color-primary)"
-                          : "var(--color-text-muted)",
-                    }}
-                  >
+                  <Badge tone={isPosted ? "success" : isDryRun ? "accent" : "neutral"} size="sm">
                     {p.status.toUpperCase()}
-                  </span>
+                  </Badge>
                   {p.platformPostId && (
                     <code style={{ fontSize: 12, opacity: 0.8 }}>ID: {p.platformPostId}</code>
                   )}
@@ -277,11 +252,11 @@ export function SocialPostingPanel() {
                     {new Date(p.createdAtMs).toLocaleString()}
                   </span>
                 </div>
-                <div style={{ fontSize: 13, marginBottom: 4 }}>
+                <div style={{ fontSize: 13, marginBottom: "var(--space-1)" }}>
                   <span style={{ opacity: 0.7 }}>Submission endpoint: </span>
                   <code style={{ fontSize: 12 }}>{p.submissionEndpoint || "—"}</code>
                 </div>
-                <div style={{ fontSize: 13, marginBottom: 6 }}>
+                <div style={{ fontSize: 13, marginBottom: "var(--space-1-5)" }}>
                   <span style={{ opacity: 0.7 }}>Submitted post URL: </span>
                   {p.postUrl ? (
                     <a
@@ -298,16 +273,17 @@ export function SocialPostingPanel() {
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 13, marginTop: 4 }}>{p.text}</div>
-              </div>
+                <div style={{ fontSize: 13, marginTop: "var(--space-1)" }}>{p.text}</div>
+              </Card>
             );
           })}
+          </div>
 
-          <h3 style={{ margin: "20px 0 8px" }}>Token health</h3>
+          <h3 style={{ margin: "var(--space-5) 0 var(--space-2)" }}>Token health</h3>
           {SOCIAL_CHANNEL_ORDER.filter((id) => tokenChannels[id]).map((id) => {
             const channel = tokenChannels[id];
             return (
-              <div key={id} style={{ fontSize: 13, marginBottom: 6 }}>
+              <div key={id} style={{ fontSize: 13, marginBottom: "var(--space-1-5)" }}>
                 <strong>{CHANNEL_LABELS[id] ?? id}</strong> —{" "}
                 {channel.presence === "configured" ? "Configured" : "Not configured"} · validity{" "}
                 {channel.validity === "valid"
@@ -318,7 +294,7 @@ export function SocialPostingPanel() {
               </div>
             );
           })}
-          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
+          <div style={{ fontSize: 12, opacity: 0.7, marginTop: "var(--space-1)" }}>
             Validity reads Unknown in production by design: no live probe is wired, so validity is
             never assumed — only a real post proves a token works.
           </div>
