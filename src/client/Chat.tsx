@@ -2074,7 +2074,7 @@ export function Chat({ user }: { user: User }) {
 
         {/* E*TRADE Agentic Trading Hub */}
         {/* Kept mounted (hidden) so in-flight and finished requests survive tab switches */}
-        <div className="trading-view" hidden={!isTradingTab(tab) || !isTabFeatureEnabled(tab)}>
+        <div className="trading-view" hidden={!isTradingTab(tab)}>
           <ErrorBoundary label="E*TRADE Hub">
           <ETradeTradingHub
             user={user}

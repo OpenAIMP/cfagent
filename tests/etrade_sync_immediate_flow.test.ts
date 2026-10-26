@@ -52,6 +52,8 @@ function makeEnv() {
   seedSession("sessions", SESSION_ID, { githubLogin: LOGIN, userLogin: LOGIN });
   const env: any = {
     SESSION_STORE: sessionStoreNs,
+    FEATURE_SCREENER: "1",
+    FEATURE_OPTIONS_RESEARCH: "1",
     SEARCH_AGENT: {
       idFromName: (name: string) => name,
       get: (id: string) => ({

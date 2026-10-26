@@ -279,6 +279,16 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: path === /health",
   },
   {
+    id: "features",
+    method: "GET",
+    path: "/api/features",
+    aliases: [],
+    kind: "http",
+    auth: "session-optional",
+    authNote: "Evaluates Cloudflare feature flags for the current user session (or unauthenticated context); no session requirement.",
+    source: "src/server.ts branch: path === /api/features",
+  },
+  {
     id: "qa-investigate",
     method: "POST",
     path: "/api/qa/investigate",
