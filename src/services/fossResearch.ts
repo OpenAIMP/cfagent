@@ -2080,17 +2080,41 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
 
   async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
     const cleanSym = symbol.toUpperCase().trim();
-    const isWeekly = timeframe.toUpperCase().includes("W");
-    const isMonthly = timeframe.toUpperCase().includes("M") && !timeframe.toUpperCase().includes("MIN");
-    const isHourly = timeframe.toUpperCase().includes("H");
-    const interval = isWeekly ? "1wk" : isMonthly ? "1mo" : isHourly ? "1h" : "1d";
-    const range = isWeekly
-      ? (limit > 52 ? "5y" : limit > 26 ? "2y" : "1y")
-      : isMonthly
-      ? "5y"
-      : isHourly
-      ? "1mo"
-      : (limit > 60 ? "1y" : limit > 30 ? "6mo" : "3mo");
+    const upper = timeframe.toUpperCase();
+    // #1654 slice 8 adapters: minute intervals pass through to the v8
+    // chart API instead of silently collapsing to daily (the slice-7
+    // finding). Upstream supports 1m/2m/5m/15m/30m/90m/1h; 60Min is the
+    // documented alias for 1h (Yahoo has no 60m interval). Any other
+    // NMin value fails explicit BEFORE any fetch — never a silent
+    // collapse to daily. Only the MIN suffix denotes minutes, so "15M"
+    // stays monthly. Range for minutes is 1d: minute bars exist only
+    // for recent days, and ORB needs today's session.
+    const minuteMatch = upper.match(/^(\d+)MIN$/);
+    let interval: string;
+    let range: string;
+    if (minuteMatch) {
+      const minutes = Number(minuteMatch[1]);
+      if (minutes === 60) interval = "1h";
+      else if ([1, 2, 5, 15, 30, 90].includes(minutes)) interval = `${minutes}m`;
+      else {
+        throw new Error(
+          `Unsupported Yahoo bar timeframe "${timeframe}": minute intervals are 1m/2m/5m/15m/30m/90m (60Min aliases to 1h)`,
+        );
+      }
+      range = "1d";
+    } else {
+      const isWeekly = upper.includes("W");
+      const isMonthly = upper.includes("M") && !upper.includes("MIN");
+      const isHourly = upper.includes("H");
+      interval = isWeekly ? "1wk" : isMonthly ? "1mo" : isHourly ? "1h" : "1d";
+      range = isWeekly
+        ? (limit > 52 ? "5y" : limit > 26 ? "2y" : "1y")
+        : isMonthly
+        ? "5y"
+        : isHourly
+        ? "1mo"
+        : (limit > 60 ? "1y" : limit > 30 ? "6mo" : "3mo");
+    }
 
     const urls = [
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}?interval=${interval}&range=${range}`,
@@ -2122,7 +2146,12 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
                 const v = quote.volume?.[i] ?? 0;
                 bars.unshift({
                   provenance: "live",
-                  timestamp: new Date(timestamps[i] * 1000).toISOString().split("T")[0],
+                  // #1654 slice 8 adapters: full ISO timestamp preserved
+                  // (was date-only). Intraday consumers need the time
+                  // of day to build the ET opening window; daily
+                  // consumers pass this through as a date label and do
+                  // no strict date parsing, so nothing breaks.
+                  timestamp: new Date(timestamps[i] * 1000).toISOString(),
                   open: Number(Number(o).toFixed(2)),
                   high: Number(Number(h).toFixed(2)),
                   low: Number(Number(l).toFixed(2)),
@@ -2258,12 +2287,39 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
   }
 
   async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
+    // #1654 slice 8 adapters: minute timeframes pass through to the
+    // Alpaca bars API (upstream supports [1-59]Min) instead of
+    // silently collapsing to 1Day (the slice-7 finding). Out-of-range
+    // minutes fail explicit HERE, before any fetch attempt, so the
+    // try/catch below cannot swallow the validation into a generic
+    // unavailable error. Only the MIN suffix denotes minutes, so
+    // "15M" stays monthly. Feed-labeling note for the later
+    // enrichment wiring: bars carry provenance "live" only — this
+    // adapter does NOT stamp a feed, because the account tier is
+    // unknowable here. A free-tier account serves IEX-only bars for
+    // the most recent 15 minutes; the wiring must label Alpaca bars
+    // younger than 15 minutes as IEX-partial unless the tier is known
+    // (provider identity travels with the registry envelope's
+    // providerId, or the call-site provider choice).
+    const upper = timeframe.toUpperCase();
+    const minuteMatch = upper.match(/^(\d+)MIN$/);
+    let alpacaTf: string;
+    if (minuteMatch) {
+      const minutes = Number(minuteMatch[1]);
+      if (minutes < 1 || minutes > 59) {
+        throw new Error(
+          `Unsupported Alpaca bar timeframe "${timeframe}": minute timeframes are 1–59Min`,
+        );
+      }
+      alpacaTf = `${minutes}Min`;
+    } else {
+      const isWeekly = upper.includes("W");
+      const isMonthly = upper.includes("M") && !upper.includes("MIN");
+      const isHourly = upper.includes("H");
+      alpacaTf = isWeekly ? "1Week" : isMonthly ? "1Month" : isHourly ? "1Hour" : "1Day";
+    }
     if (this.isConfigured()) {
       try {
-        const isWeekly = timeframe.toUpperCase().includes("W");
-        const isMonthly = timeframe.toUpperCase().includes("M") && !timeframe.toUpperCase().includes("MIN");
-        const isHourly = timeframe.toUpperCase().includes("H");
-        const alpacaTf = isWeekly ? "1Week" : isMonthly ? "1Month" : isHourly ? "1Hour" : "1Day";
         const isCrypto = symbol.includes("/") || symbol.toLowerCase().includes("btc") || symbol.toLowerCase().includes("eth");
         const url = isCrypto
           ? `${this.getDataUrl()}/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(symbol)}&timeframe=${alpacaTf}&limit=${limit}`
@@ -2276,7 +2332,10 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
           if (Array.isArray(rawBars) && rawBars.length > 0) {
             return rawBars.map((b: any) => ({
               provenance: "live" as const,
-              timestamp: String(b.t).split("T")[0],
+              // #1654 slice 8 adapters: full ISO timestamp preserved
+              // verbatim (was date-only) — intraday consumers need
+              // the time of day; see the Yahoo note above.
+              timestamp: String(b.t),
               open: Number(b.o || 0),
               high: Number(b.h || 0),
               low: Number(b.l || 0),

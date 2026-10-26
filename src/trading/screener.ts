@@ -521,9 +521,10 @@ export class DynamicMarketScreener implements IMarketScreener {
       }
 
       // 12. Anchored VWAP gate (issue #1654 slice 2; screener-rules.md).
-      // Spot must remain above the anchored VWAP from the 52-week low
-      // bar; the slice spec rejects when lastPrice < anchoredVwap, so
-      // exact equality passes. The AVWAP value is attached upstream
+      // Spot must remain STRICTLY above the anchored VWAP from the
+      // 52-week low bar: equality rejects (Venus ruling 2026-10-26,
+      // recorded on #1654; the slice spec's equality-passes reading
+      // is superseded). The AVWAP value is attached upstream
       // where real bar history exists; a requested gate with no AVWAP
       // data fail-closes (unavailable, never estimated). Like slice 1,
       // evaluateUniverse itself sees no bar history — it gates on the
@@ -539,10 +540,10 @@ export class DynamicMarketScreener implements IMarketScreener {
           });
           continue;
         }
-        if (stock.lastPrice < anchoredVwap) {
+        if (stock.lastPrice <= anchoredVwap) {
           rejections.push({
             symbol: stock.symbol,
-            reason: `Price ($${stock.lastPrice.toFixed(2)}) below anchored VWAP ($${anchoredVwap.toFixed(2)})`,
+            reason: `Price ($${stock.lastPrice.toFixed(2)}) not above anchored VWAP ($${anchoredVwap.toFixed(2)})`,
             price: stock.lastPrice,
             changePercent: stock.changePercent,
           });
