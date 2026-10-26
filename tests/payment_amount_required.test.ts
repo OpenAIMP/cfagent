@@ -139,8 +139,10 @@ describe("POST /payments/create — amount is required, never defaulted (#524)",
 
   const allTx = (sql: MockSqlStorage) =>
     Array.from(sql.exec("SELECT * FROM mas_transactions")) as any[];
+  // #1690: the create audit is now the draft command's
+  // payment.awaiting_confirmation (payment.created no longer exists).
   const createdAudits = (sql: MockSqlStorage) =>
-    Array.from(sql.exec("SELECT * FROM mas_events WHERE type = ?", "payment.created")) as any[];
+    Array.from(sql.exec("SELECT * FROM mas_events WHERE type = ?", "payment.awaiting_confirmation")) as any[];
 
   // The agent lazily seeds two ledger rows on its first request
   // (pay_init_stripe / pay_init_paypal — #175's territory), so assertions
@@ -165,19 +167,19 @@ describe("POST /payments/create — amount is required, never defaulted (#524)",
     expect(createdAudits(sql)).toHaveLength(base.audits);
   };
 
-  it("amount omitted: 400 with the contract error, no transaction row, no payment.created audit", async () => {
+  it("amount omitted: 400 with the contract error, no transaction row, no payment.awaiting_confirmation audit", async () => {
     await expectRejected({ customer: "Acme Corp", gateway: "stripe" });
   });
 
-  it("amount unparseable ('abc'): 400, no transaction row, no payment.created audit", async () => {
+  it("amount unparseable ('abc'): 400, no transaction row, no payment.awaiting_confirmation audit", async () => {
     await expectRejected({ amount: "abc", customer: "Acme Corp", gateway: "stripe" });
   });
 
-  it("amount zero: 400, no transaction row, no payment.created audit", async () => {
+  it("amount zero: 400, no transaction row, no payment.awaiting_confirmation audit", async () => {
     await expectRejected({ amount: 0, customer: "Acme Corp", gateway: "stripe" });
   });
 
-  it("amount negative (-5): 400, no transaction row, no payment.created audit", async () => {
+  it("amount negative (-5): 400, no transaction row, no payment.awaiting_confirmation audit", async () => {
     await expectRejected({ amount: -5, customer: "Acme Corp", gateway: "stripe" });
   });
 
