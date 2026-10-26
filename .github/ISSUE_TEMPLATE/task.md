@@ -50,8 +50,10 @@ All development on this issue must follow:
 - Branch-as-lock when collaborating: check live fix/<issue>-* branches and open PRs before claiming
 - Never place or cancel a trade/order without explicit confirmation
 
-## Completion report (gitops §15 — fill on close)
-- Value created:
+## Completion report (gitops §15 — fill on close; single source of truth for value-creation)
+- Value delivered by PR (append one entry per PR merge, never overwrite a previous entry):
+  - PR #___: value created; capabilities; competencies; value proposition; delivery channels; user journey
+- Value created (roll-up at close):
 - Capabilities enabled:
 - Competencies improved:
 - Value proposition (how this takes us closer to it):
