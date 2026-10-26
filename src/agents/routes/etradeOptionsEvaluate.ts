@@ -169,7 +169,7 @@ export async function executeLlmIdeasEvaluation(args: {
     minRewardRisk: 0,
     allowedStrategies: ["all"],
   };
-  const pipelineResult = await runPanelPipeline(new DynamicOptionsScreener(etrade.client), strategyRequest, { riskProfile: "balanced" });
+  const pipelineResult = await runPanelPipeline(new DynamicOptionsScreener(etrade.client, undefined, await etrade.getUniverseDeps?.()), strategyRequest, { riskProfile: "balanced" });
   const topRanked = pipelineResult.ranked.slice(0, 10);
   const candidates = topRanked.map((r) => r.candidate);
   let llmJudgment: Awaited<ReturnType<typeof rankCandidatesWithLlm>> | null = null;
