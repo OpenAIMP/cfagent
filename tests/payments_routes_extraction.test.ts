@@ -24,7 +24,8 @@
  * #156 gateway validation (400 before checkout, before any row write),
  * #148 webhook provider default-deny (401 before signature verification),
  * signature verification failure (401), and the audit event names
- * (payment.created / payment.confirmed / payment.rejected /
+ * (#1690: payment.awaiting_confirmation replaces payment.created /
+ * payment.confirmed / payment.rejected /
  * payment.captured / payment.settled_webhook).
  */
 import { describe, it, expect, vi } from "vitest";

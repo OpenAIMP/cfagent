@@ -238,7 +238,16 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
     const customer = (input.customer || "").trim();
     const action = (input.action || "charge") as "charge" | "refund" | "invoice";
     const gateway = (input.gateway || "stripe") as SupportedGateway;
-    const description = (input.description || `Payment intent for ${customer}`).trim();
+    // #1690/#514: an EXPLICITLY supplied description — including an
+    // explicitly empty string, which the POST /payments/create route
+    // passes when the caller omits one — stays exactly as supplied
+    // (trimmed), so the route's pinned empty-note behavior survives
+    // delegation. Only an OMITTED description falls back to the
+    // generic default, which is derived from caller input (customer),
+    // not an invented product line.
+    const description = (input.description == null
+      ? `Payment intent for ${customer}`
+      : String(input.description)).trim();
 
     const draftId = `pay_${crypto.randomUUID().slice(0, 8)}`;
     const userDid = getUserDid(context.sessionId);
