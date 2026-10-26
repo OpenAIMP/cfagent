@@ -54,5 +54,7 @@ All development on this issue must follow:
 - Value created:
 - Capabilities enabled:
 - Competencies improved:
+- Value proposition (how this takes us closer to it):
+- Delivery channels:
 - Workflows operationalized:
 - How to harness this value from UX:

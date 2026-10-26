@@ -22,6 +22,14 @@ Rollback plan:
 Communication:
 Changelog entry:
 
+## Value and impact
+Value created:
+Capabilities enhanced:
+Competencies improved:
+Value proposition (how this takes us closer to it):
+Delivery channels:
+User journey (how users harness this value from UX):
+
 ## Checklist
 - [ ] Required checks green on the current merge with `main`
 - [ ] Pins my change alters are updated in this PR (gitops §7)

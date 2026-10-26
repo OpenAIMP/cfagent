@@ -450,6 +450,7 @@ Every issue and every PR states how its change lands and how it is undone. A cha
 2. **State it in the PR.** The PR template's `## Change management` section names the change type, impacted surfaces (code, config, secrets, data, public surfaces), migration and data impact, rollout plan (flag, staged, immediate), rollback plan, communication, and changelog entry.
 3. **Production-behavior changes name the owner step.** A change that alters production behavior, configuration, secrets, or data additionally names the owner approval or activation step it requires; agent work stops at that step.
 4. **Reviewers enforce this gate.** An issue without change management is incomplete; a PR without it is sent back, not merged — the same gate pattern as Reuse before you build item 6.
+5. **Value and impact.** The PR template's `## Value and impact` section names the value created, capabilities enhanced, competencies improved, value-proposition linkage, delivery channels, and user journey; it must agree with the issue's §15 completion report, which carries the matching fields.
 
 ### The pin rule
 
