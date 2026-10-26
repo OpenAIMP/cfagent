@@ -442,6 +442,15 @@ Every change MUST start from what already exists. Locate the capability, then ex
 5. **Consolidate on contact.** A change touching a duplicated implementation MUST fold it into the canonical one when the scope allows. When it does not, open the follow-up issue in the same PR and link it.
 6. **Reviewers enforce this gate.** A PR that adds a parallel implementation without the note in item 3 is sent back, not merged.
 
+### Change management
+
+Every issue and every PR states how its change lands and how it is undone. A change without a landing plan is not ready for review.
+
+1. **State it in the issue.** The issue template's `## Change management` field names the expected impact, migration and data impact, rollout plan, rollback plan, and communication (who is notified: owner, users, lanes).
+2. **State it in the PR.** The PR template's `## Change management` section names the change type, impacted surfaces (code, config, secrets, data, public surfaces), migration and data impact, rollout plan (flag, staged, immediate), rollback plan, communication, and changelog entry.
+3. **Production-behavior changes name the owner step.** A change that alters production behavior, configuration, secrets, or data additionally names the owner approval or activation step it requires; agent work stops at that step.
+4. **Reviewers enforce this gate.** An issue without change management is incomplete; a PR without it is sent back, not merged — the same gate pattern as Reuse before you build item 6.
+
 ### The pin rule
 
 A **pin** is a test that freezes a shared surface so that changes to it are deliberate and visible. This repository's pins include the route inventory (`tests/thin_router_inventory.test.ts`), the design-token mirror and contrast/drift suites, the dependency-pinning guard, Durable Object binding and migration assertions, module-boundary suites (e.g. the trading boundary), and the Think conformance adopter set.
