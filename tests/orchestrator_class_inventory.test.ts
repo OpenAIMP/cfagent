@@ -111,9 +111,17 @@ const ORCH = "agents/orchestrator.ts";
  *  scoped-carrier fields, /mcp route wiring) — measured 2,278 lines
  *  / 105,064 B after the addition on the tree rebased onto #1737;
  *  budget lines rise to 2280 and bytes rise to 109_100, which still
- *  cover the tree. */
-const BUDGET_LINES = 2280;
-const BUDGET_BYTES = 109_100;
+ *  cover the tree.
+ *  Agents SDK actors (#1738) migrate Orchestrator/Research/Trading
+ *  from Think to Agent<Env> behind the actor port: the actor
+ *  session/turn/runner wiring (getActorSession, createActorTurnRunner,
+ *  getMessages/addMessages, waitUntilStable poll, abort/reset/clear
+ *  for the memory-reset route, turnEpoch) + comment updates —
+ *  measured on the pre-rebase tree 2,315 lines / 106,258 B; the
+ *  combined tree with #1724/#1725 measures 2,401 lines /
+ *  109,911 B, so budget lines rise to 2410 and bytes to 110_500. */
+const BUDGET_LINES = 2410;
+const BUDGET_BYTES = 110_500;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

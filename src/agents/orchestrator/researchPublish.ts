@@ -67,7 +67,7 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
   if (!agent) {
     return { success: false, error: "ResearchAgent binding not configured." };
   }
-  // Dispatch discovery through the Think agent-tool workflow. The child
+  // Dispatch discovery through the SDK agent-tool run. The child
   // invokes its deterministic, read-only pipeline tool and persists the
   // typed report before returning its summary.
   const { ResearchAgent } = await import("../research-agent");
@@ -95,7 +95,7 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
     taskId = null;
   }
   // Issue #624: heartbeat the task while dispatch is in flight —
-  // both the Think turn and the fallback run below are awaited here,
+  // both the agent-tool run and the fallback run below are awaited here,
   // so one timer bounds the heartbeat gap for either path. Cleared
   // in the finally on every exit; the ledger rejects heartbeats
   // from terminal states, so a stray tick would be harmless anyway.
@@ -107,8 +107,11 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
     }, ctx.RESEARCH_TASK_HEARTBEAT_MS);
   }
   try {
-    let executionPath: ResearchExecutionPath = "think";
-    // Issue #1387: a THROWN Think dispatch (e.g. the sub-agent bootstrap
+    // Issue #1738: the primary dispatch is the SDK's runAgentTool
+    // on an Agents SDK actor — the "think" label died with the
+    // Think base class. The fallback (direct pipeline) is unchanged.
+    let executionPath: ResearchExecutionPath = "agent";
+    // Issue #1387: a THROWN agent dispatch (e.g. the sub-agent bootstrap
     // error when the root namespace is missing) must degrade to the
     // direct pipeline like a non-completed status — the #543 fallback
     // below triggers on status, never on a throw, so without this the
@@ -127,13 +130,13 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
     let report = await agent.getLatest();
     if (child.status !== "completed" || !report || report.runId === previousRunId || report.trigger !== trigger || report.userLogin !== login) {
       // Keep scheduled discovery dependable if a provider cannot complete
-      // the Think turn. The same read-only deterministic pipeline remains
+      // the agent-tool run. The same read-only deterministic pipeline remains
       // the recovery path and persists through the same ResearchAgent.
       // Issue #543: the fallback must not silently mask which execution
       // path ran — emit a structured warning carrying the identifiers an
       // operator needs to correlate the bypass in Workers Logs.
       console.warn(
-        `[OrchestratorAgent] Think research turn bypassed — falling back to direct pipeline: trigger=${trigger} userLogin=${login} childStatus=${child.status} childError=${child.error ?? "none"} previousRunId=${previousRunId ?? "none"} latestRunId=${report?.runId ?? "none"}`
+        `[OrchestratorAgent] Agent research turn bypassed — falling back to direct pipeline: trigger=${trigger} userLogin=${login} childStatus=${child.status} childError=${child.error ?? "none"} previousRunId=${previousRunId ?? "none"} latestRunId=${report?.runId ?? "none"}`
       );
       const fallback = await agent.runResearch({ trigger, userLogin: login });
       if (!fallback.success || !fallback.report) {

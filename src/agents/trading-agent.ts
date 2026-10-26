@@ -32,7 +32,7 @@
  * orchestrator; services receive any such state as call parameters.
  */
 
-import { Think } from "@cloudflare/think";
+import { Agent } from "agents";
 import { tool, type ToolSet } from "ai";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { z } from "zod";
@@ -775,7 +775,13 @@ export async function settleTradingOrder(
   }
 }
 
-export class TradingAgent extends Think<Env> {
+export class TradingAgent extends Agent<Env> {
+  // Issue #1738 (AgentActorDO): an Agents SDK actor. The workflow
+  // doors (runWorkflow/sendWorkflowEvent) live on Agent itself —
+  // verified against agents 0.24.0 types — so the approval workflow
+  // path is unchanged by the base change. The trade workflow class
+  // itself stays on ThinkWorkflow (ADR 0004 W13); that is not an
+  // agent class and is out of this slice's scope.
   private config(): TradingAgentConfig {
     return getTradingAgentConfig(this.env as unknown as Record<string, unknown>);
   }

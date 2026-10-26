@@ -31,11 +31,35 @@
  * refuse — Green.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import { ETradeEmailTradingService } from "../src/trading/email/agent";
 import { issueApprovalLink } from "../src/trading/channels/signedLinks";
 import type { ChannelPrincipal } from "../src/trading/channels/intake";
+// Issue #1738: OrchestratorAgent/ResearchAgent/TradingAgent are
+// Agents SDK actors now — mock the SDK with a plain base class
+// (the api_chat_route.test.ts idiom) so the real module graph's
+// `cloudflare:` imports never reach the node loader.
+vi.mock("agents", () => {
+  return {
+    Agent: class MockAgent {
+      ctx: any;
+      env: any;
+      constructor(ctx: any, env: any) {
+        this.ctx = ctx;
+        this.env = env;
+      }
+      // Schedule methods are inert under Node (the old Think stub's
+      // contract): production schedule calls resolve without firing.
+      async schedule(_when: unknown, _callback: string, _payload?: unknown, _options?: unknown) {
+        return { id: "mock-schedule" };
+      }
+      async scheduleEvery(_intervalSeconds: number, _callback: string, _payload?: unknown) {
+        return { id: "mock-schedule" };
+      }
+    },
+  };
+});
 import { settleTradingOrder } from "../src/agents/trading-agent";
 import { getTradingAgentConfig } from "../src/config/tradingAgentConfig";
 import { TradingPlatformRegistry } from "../src/trading";

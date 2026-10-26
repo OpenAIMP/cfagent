@@ -16,7 +16,7 @@
  * function (pinned by tests/research-boundary.test.ts). Research only.
  */
 
-import { Think } from "@cloudflare/think";
+import { Agent } from "agents";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { resolveAiModelName } from "./model";
@@ -128,8 +128,11 @@ export interface ResearchRunSummary {
   summary: string;
 }
 
-export class ResearchAgent extends Think<Env> {
-  /** Think supplies durable chat turns and tool dispatch for research workflows. */
+export class ResearchAgent extends Agent<Env> {
+  /** Issue #1738 (AgentActorDO): an Agents SDK actor. The model/tool
+   *  identity below is the port facet other actors and the MCP layer
+   *  read; live dispatch runs through direct methods (runResearch /
+   *  runDiscovery) and the SDK's runAgentTool, not a chat turn. */
   getModel() {
     return resolveAiModelName(this.env, "researchAgent");
   }

@@ -77,6 +77,10 @@ const ARMING_SITES: Record<string, { count: number; role: string }> = {
     count: 1,
     role: "order-draft expiry arm (expireStaleOrderDraft — not a screening schedule)",
   },
+  "src/actors/cfAgentsAdapter.ts": {
+    count: 2,
+    role: "actor schedule port bindings onto the agent's SDK schedule methods (delegation, not arming — #1738)",
+  },
 };
 
 describe("screen-schedule creation paths — enumeration pin", () => {

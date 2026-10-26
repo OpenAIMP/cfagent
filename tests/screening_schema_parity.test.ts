@@ -94,6 +94,30 @@ import {
 } from "../src/trading/screeningSchemas";
 import { UNIVERSES } from "../src/trading/universes";
 import { validateStrategyRequest } from "../src/trading/options/strategyRiskAgent";
+// Issue #1738: OrchestratorAgent/ResearchAgent/TradingAgent are
+// Agents SDK actors now — mock the SDK with a plain base class
+// (the api_chat_route.test.ts idiom) so the real module graph's
+// `cloudflare:` imports never reach the node loader.
+vi.mock("agents", () => {
+  return {
+    Agent: class MockAgent {
+      ctx: any;
+      env: any;
+      constructor(ctx: any, env: any) {
+        this.ctx = ctx;
+        this.env = env;
+      }
+      // Schedule methods are inert under Node (the old Think stub's
+      // contract): production schedule calls resolve without firing.
+      async schedule(_when: unknown, _callback: string, _payload?: unknown, _options?: unknown) {
+        return { id: "mock-schedule" };
+      }
+      async scheduleEvery(_intervalSeconds: number, _callback: string, _payload?: unknown) {
+        return { id: "mock-schedule" };
+      }
+    },
+  };
+});
 import { OrchestratorAgent } from "../src/agents/orchestrator";
 import { handleEtradeBrokerRoutes } from "../src/agents/routes/etradeBroker";
 import { handleEtradeOptionsRoutes } from "../src/agents/routes/etradeOptions";

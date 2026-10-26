@@ -41,7 +41,28 @@ vi.mock("@cloudflare/ai-chat", () => {
   };
 });
 vi.mock("agents", () => {
-  return { routeAgentRequest: async () => null };
+  // Issue #1738: OrchestratorAgent/ResearchAgent/TradingAgent are
+  // Agents SDK actors now, so the mock must export the Agent base
+  // the classes extend (previously Think, aliased to a stub).
+  return {
+    routeAgentRequest: async () => null,
+    Agent: class MockAgent {
+      ctx: any;
+      env: any;
+      constructor(ctx: any, env: any) {
+        this.ctx = ctx;
+        this.env = env;
+      }
+      // Schedule methods are inert under Node (the old Think stub's
+      // contract): production schedule calls resolve without firing.
+      async schedule(_when: unknown, _callback: string, _payload?: unknown, _options?: unknown) {
+        return { id: "mock-schedule" };
+      }
+      async scheduleEvery(_intervalSeconds: number, _callback: string, _payload?: unknown) {
+        return { id: "mock-schedule" };
+      }
+    },
+  };
 });
 vi.mock("agents/mcp", () => {
   return { McpAgent: class MockMcpAgent {} };

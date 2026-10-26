@@ -35,8 +35,11 @@ export default defineConfig({
     // load. The stub only provides the base class; tests never instantiate one.
     alias: {
       "cloudflare:workers": new URL("./tests/stubs/cloudflareWorkers.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
+      // Issue #1738: the bare @cloudflare/think alias is gone with
+      // the last Think agent class — agent code no longer imports
+      // it. The /workflows alias stays: both workflow classes are
+      // still ThinkWorkflow by ADR 0004 W13.
       "@cloudflare/think/workflows": new URL("./tests/stubs/cloudflareThinkWorkflows.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
-      "@cloudflare/think": new URL("./tests/stubs/cloudflareThink.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
     },
   },
 });

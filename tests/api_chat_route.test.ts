@@ -5,8 +5,28 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // module graph pulls in `cloudflare:` protocol imports the node test
 // loader cannot resolve. Mock it with a plain base class (same
 // pattern as tests/audit-event-endpoint.test.ts). The orchestrator
-// itself extends Think since the step-4 cutover (issue #686);
-// @cloudflare/think is aliased to the node stub by vite.config.
+// itself extends Agent since #1738; the agents SDK graph pulls the
+// same `cloudflare:` imports, so it gets the same plain-base mock.
+vi.mock("agents", () => {
+  return {
+    Agent: class MockAgent {
+      ctx: any;
+      env: any;
+      constructor(ctx: any, env: any) {
+        this.ctx = ctx;
+        this.env = env;
+      }
+      // Schedule methods are inert under Node (the old Think stub's
+      // contract): production schedule calls resolve without firing.
+      async schedule(_when: unknown, _callback: string, _payload?: unknown, _options?: unknown) {
+        return { id: "mock-schedule" };
+      }
+      async scheduleEvery(_intervalSeconds: number, _callback: string, _payload?: unknown) {
+        return { id: "mock-schedule" };
+      }
+    },
+  };
+});
 vi.mock("@cloudflare/ai-chat", () => {
   return {
     AIChatAgent: class MockAIChatAgent {
@@ -51,15 +71,26 @@ describe("POST /api/chat (#312) — orchestrator route", () => {
 
   function makeAgent() {
     const sql = new MockSqlStorage();
+    // Issue #1738: session state lives behind the actor session
+    // store, which runs on the DO key-value API — the test ctx
+    // carries a Map-backed implementation of it.
+    const kv = new Map<string, unknown>();
     const ctx = {
-      storage: { sql },
+      storage: {
+        sql,
+        get: async (key: string) => kv.get(key),
+        put: async (key: string, value: unknown) => {
+          kv.set(key, value);
+        },
+        delete: async (key: string) => {
+          kv.delete(key);
+        },
+      },
       id: { toString: () => SESSION_KEY },
     } as any;
     const agent: any = Object.create(OrchestratorAgent.prototype);
     agent.ctx = ctx;
     agent.env = { APP_ENV: "TEST" } as any;
-    // Issue #686: session state lives behind the Think stub's async
-    // accessors (lazy in-memory store); nothing to stub per-test.
     const turnCalls: any[] = [];
     agent.runAgenticChatTurn = async (opts: any) => {
       turnCalls.push(opts);
@@ -118,7 +149,7 @@ describe("POST /api/chat (#312) — orchestrator route", () => {
     // Both posts run the pipeline; the session-level dedupe on a
     // re-send is the turn driver's contract since #686 (the adapter
     // no longer appends messages itself) and is pinned against the
-    // real driver in tests/orchestrator-think-cutover.test.ts.
+    // real driver in tests/orchestrator-actor-cutover.test.ts.
     expect(turnCalls).toHaveLength(2);
   });
 
