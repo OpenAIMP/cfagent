@@ -176,7 +176,10 @@ export async function handleOptionsStrategyRecommend(
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
     const etrade = new ETradeService(deps.orm, deps.env, userLogin, deps.requestedEnv);
-    const screener = new DynamicOptionsScreener(etrade.client);
+    // Issue #1378: the optional call tolerates ETradeService-shaped
+    // mocks without getUniverseDeps (single_pdf_path_s4) — undefined
+    // degrades to the missing-seam throw at discovery time.
+    const screener = new DynamicOptionsScreener(etrade.client, undefined, await etrade.getUniverseDeps?.());
     // Consolidation C1 (issue #1201, epic #1151 R1): the contract
     // screen behind strategy recommendation executes through the
     // Phase 0 ScreeningProvider (same engine, same result) — see
@@ -488,7 +491,7 @@ export async function handleEtradeOptionsRoutes(
         const userLogin = request.headers.get("x-user-login");
         if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const result = await runPanelPipeline(new DynamicOptionsScreener(etrade.client), strategyRequest, {
+        const result = await runPanelPipeline(new DynamicOptionsScreener(etrade.client, undefined, await etrade.getUniverseDeps?.()), strategyRequest, {
           riskProfile: body.riskProfile,
           alternatives: body.alternatives,
         });
@@ -550,7 +553,7 @@ export async function handleEtradeOptionsRoutes(
         const userLogin = request.headers.get("x-user-login");
         if (!userLogin) return unauthenticatedResponse();
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
+        const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client, undefined, await etrade.getUniverseDeps?.()));
         const s = await dataAgent.loadSnapshot(parsedDiscovery.value.request);
         // Same KernelSnapshot mapping the panel route builds (see
         // RecommendationService.discoverPanel) — replicated here
@@ -687,7 +690,7 @@ export async function handleEtradeOptionsRoutes(
         // the kernel-passed candidates, and evaluations / nameLedger
         // / excluded ride the facade's legacy mapping. /compare and
         // /llm-ideas below are untouched.
-        const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
+        const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client, undefined, await etrade.getUniverseDeps?.()));
         const result = await new RecommendationService().discoverPanel({
           dataAgent: {
             loadSnapshot: async (params: unknown) => {
@@ -781,7 +784,7 @@ export async function handleEtradeOptionsRoutes(
         const screenEmailTo = parsedScreen.value.emailTo;
 
         const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, ctx.requestedEnv);
-        const screener = new DynamicOptionsScreener(etrade.client);
+        const screener = new DynamicOptionsScreener(etrade.client, undefined, await etrade.getUniverseDeps?.());
         return await executeOptionsScreen({ ctx, userLogin, screener, screenFilter, screenPushToSlack, screenSlackChannel, screenUniverseLabel, screenEmailTo, deferDelivery: Boolean(ctx.asyncJobId) });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Options screening failed";
