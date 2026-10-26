@@ -19,7 +19,7 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-- **Change management requirement (#1647):** every issue and PR now carries change management — issue template and PR template gain the Change management fields (impact, migration, rollout, rollback, communication), and gitops gains the Change management rule section with the reviewer gate. #ceo-aimp
+- **Change management requirement (#1647):** every issue and PR now carries change management — issue template and PR template gain the Change management fields (impact, migration, rollout, rollback, communication), and gitops gains the Change management rule section with the reviewer gate. The PR template also gains a Value and impact section (value created, capabilities enhanced, competencies improved, value-proposition linkage, delivery channels, user journey), and the §15 completion report gains the matching Value proposition and Delivery channels fields. #ceo-aimp
 
 - **PR template: ## Implementation section (#1636):** the pull request template now carries the gitops §9 ## Implementation section (Key decisions / Alternatives / Scope exclusions), giving the reuse-before-you-build exception note its prescribed home. #ceo-aimp
 
