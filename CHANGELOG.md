@@ -19,7 +19,7 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-- **One-document issue/PR model (#1647):** the issue holds everything and the PR body becomes a pointer — the PR template shrinks to summary, linked issue, and checklist; the issue template's §15 completion report carries the full PR report (implementation, test evidence, change management, value and impact, risk, delivery, release, next-step gate); gitops §5/§9/§15 specs are aligned to the live templates and §7 gains the One document rule. One issue, one PR; the completion report is the single source of truth for the change record and value-creation. #ceo-aimp
+- **One-document issue/PR model (#1647):** the issue holds everything and the PR body becomes a pointer — the PR template shrinks to summary, linked issue, and checklist; the issue template's §15 completion report carries the full PR report (implementation, test evidence, change management, value and impact, risk, delivery, release, next-step gate); gitops §5/§9/§15 specs are aligned to the live templates and §7 gains the One document rule. One issue, one PR; the completion report is the single source of truth for the change record and value-creation; the issue template gains a Conformance field (no UX drift, no architecture drift, no rework, no regression — reuse mandatory, per docs/compliance) and gitops §7 gains the No drift rule. #ceo-aimp
 
 - **PR template: ## Implementation section (#1636):** the pull request template now carries the gitops §9 ## Implementation section (Key decisions / Alternatives / Scope exclusions), giving the reuse-before-you-build exception note its prescribed home. #ceo-aimp
 

@@ -180,6 +180,14 @@ Rollout plan:
 Rollback plan:
 Communication:
 
+## Conformance (no drift — docs/compliance)
+No UX drift, no architecture drift, no rework, no regression — reuse is mandatory.
+UX surfaces touched + primitives/tokens used (or none):
+Architecture surfaces touched + patterns/boundaries/ADRs followed (or none):
+Reused surfaces (existing implementations reused):
+Rework justification (if rebuilding an existing capability, why — otherwise none):
+Regression risk + pins preserving existing behavior:
+
 ## Engineering standards
 All development on this issue must follow:
 - SOLID principles
@@ -204,6 +212,7 @@ All development on this issue must follow:
 - Implementation (key decisions, alternatives, scope exclusions):
 - Test evidence (red, green, regression, integration/evaluation; CI runs; post-merge checks):
 - Change management (actual: change type, impacted surfaces, migration and data impact, rollout plan, rollback plan, communication, changelog entry):
+- Conformance (actual: UX primitives/tokens used, architecture boundaries followed, reused surfaces, rework justification, regression pins):
 - Value and impact (value created, capabilities enhanced, competencies improved, value proposition, delivery channels, user journey):
 - Risk and limitations (security, tenant isolation, compatibility, performance/cost; known test-coverage gaps stated explicitly):
 - Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
@@ -462,6 +471,16 @@ One issue, one PR, one record. The issue holds everything; the PR body is a poin
 3. **The author writes the report into the issue.** When opening the PR, the author writes the full report into the linked issue's completion report; it is finalized at close. A PR whose report is not in the linked issue is sent back, not merged — the same gate pattern as Reuse before you build item 6.
 4. **One issue, one PR.** Each issue has exactly one PR; follow-up work is a new issue, not a second PR — so the completion report never needs a per-PR log.
 5. **The completion report is the single source of truth** for the change record and for value-creation: what was built, what proves it, how it landed, and what value it created, in one place. Change management is required in every issue (expected field at creation, actuals in the completion report); production-behavior changes additionally name the owner approval or activation step, and agent work stops at that step.
+
+### No drift (UX and architecture conformance — docs/compliance)
+
+No UX drift, no architecture drift, no rework, no regression — reuse is mandatory.
+
+1. **State it in the issue.** The issue template's `## Conformance` field names the UX surfaces touched and the primitives/tokens used, the architecture surfaces touched and the patterns/boundaries/ADRs followed, the existing surfaces reused, any rework justification, and the regression pins. An issue without it is incomplete.
+2. **UX drift is primitive bypass.** UI work renders through `src/client/components/ui/` primitives and design tokens (`tokens.css` / `designTokens.ts`) only — no raw HTML controls with inline styles, no raw color literals outside tokens, no hardcoded density/spacing values. The active gates (zero raw hex gate, token parity script, primitives inventory pin, theme matrix, freeze allowlist ratchet) enforce this; a PR that trips them is sent back.
+3. **Architecture drift is boundary bypass.** Routes stay thin and delegate to domain services/DOs (thin router pin); no direct SQL or business logic in route handlers; no frontend/backend schema duplication (single-source schema pin); authorization through the PDP seam; agentic work through the Judge with step caps and HITL for consequential actions. A PR that bypasses a boundary is sent back.
+4. **Reuse is mandatory; rework needs justification.** Before building, consult `docs/compliance/multiple-implementations.md` — the catalog of existing parallel engines, rankers, weight systems, promotion pipelines, and report generators. Do not add another parallel implementation; reuse, enhance, or consolidate the canonical one (see Reuse before you build). Rebuilding an existing capability without a stated justification is drift, and the PR is sent back.
+5. **No regression.** Existing behavior and pins are preserved; any behavior change updates its pin tests in the same PR (§7). The completion report's Conformance line confirms the actuals at close.
 
 ### The pin rule
 
@@ -919,6 +938,7 @@ Agents cannot approve their own exceptions.
 - Implementation (key decisions, alternatives, scope exclusions):
 - Test evidence (red, green, regression, integration/evaluation; CI runs; post-merge checks):
 - Change management (actual: change type, impacted surfaces, migration and data impact, rollout plan, rollback plan, communication, changelog entry):
+- Conformance (actual: UX primitives/tokens used, architecture boundaries followed, reused surfaces, rework justification, regression pins):
 - Value and impact (value created, capabilities enhanced, competencies improved, value proposition, delivery channels, user journey):
 - Risk and limitations (security, tenant isolation, compatibility, performance/cost; known test-coverage gaps stated explicitly):
 - Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
