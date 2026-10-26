@@ -14,6 +14,10 @@ import { etradeOrderKind, validateTradingOrderLegs } from "./optionOrders";
 import { ETradeRestClient } from "./client";
 import { isStubQuote } from "../quotePolicies";
 import { DynamicMarketScreener } from "../screener";
+import {
+  nasdaqUniverseSeamFromSql,
+  type NasdaqUniverseSeam,
+} from "../screenerPipeline";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
 import { getETradeAuthStatus } from "../../security/etradeOAuth";
@@ -220,8 +224,20 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     );
   }
 
-  async screenMarkets(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
-    return this.screener.screenLive(filter);
+  /**
+   * Issue #1378: threads the universe seam to screenLive (same
+   * contract as ETradeService.screenMarketsAsync: a
+   * caller-supplied seam wins, otherwise an outcome-only bundle
+   * is built internally from the platform's ORM when present).
+   */
+  async screenMarkets(
+    filter: StockScreenerFilter = {},
+    seam?: NasdaqUniverseSeam
+  ): Promise<StockScreenResult> {
+    const resolved =
+      seam ??
+      (await nasdaqUniverseSeamFromSql(this.orm?.getSql?.(), this.env, this.userLogin));
+    return this.screener.screenLive(filter, resolved);
   }
 
   async getAccounts(): Promise<ETradeAccount[]> {
