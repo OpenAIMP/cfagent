@@ -341,9 +341,9 @@ export function createDiscoveryService(args: {
    * Issue #1331: blob handle for history capture. When supplied,
    * discovery bars are captured (raw + normalized, run-linked);
    * without it the binding still outcome-tracks every fetch via
-   * the sql-derived recorder, but writes no capture rows. No
-   * caller passes one today — threading it through is a
-   * follow-up, not silent behavior.
+   * the sql-derived recorder, but writes no capture rows.
+   * Issue #1661: threaded at asyncJobs, the NLQ route, the
+   * trading-integrations route, and UnifiedOptionsService.
    */
   blobStorage?: CaptureBlobStorage;
   /** Issue #18: opt into Decision 2 alert dispatch for runs from
