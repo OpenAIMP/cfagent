@@ -29,7 +29,7 @@
 
 import { DynamicMarketScreener, inferSectorFromCompanyName, resolveStockSector } from "./screener";
 import {
-  fetchTechnologySymbols,
+  filterTechnologySymbols,
   withRetries,
 } from "./liveScreener";
 import { DEFAULT_PIPELINE_POLICY, type RetryPolicy } from "../services/pipelinePolicy";
@@ -43,13 +43,23 @@ import type {
   DataProvider,
   DataRunContext,
 } from "./dataProviders/contract";
-import type {
-  CapabilityRouteRecord,
-  ProviderConfigRecord,
+import {
+  bootstrapDataProviders,
+  getProviderConfig,
+  listCapabilityRoutes,
+  listProviderConfigs,
+  type CapabilityRouteRecord,
+  type ProviderConfigRecord,
 } from "./dataProviders/providerConfigStore";
+import { transitionProvider } from "./dataProviders/lifecycle";
+import {
+  createNasdaqDataProvider,
+  verifyNasdaqDataProvider,
+} from "./dataProviders/adapters";
+import { createCaptureFetchOutcomeRecorder } from "./dataProviders/captureStore";
 import {
   DataProviderNotFoundError,
-  type DataProviderRegistry,
+  DataProviderRegistry,
 } from "./dataProviders/registry";
 import { computeScreeningIndicators } from "./screeningIndicators";
 import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
@@ -61,10 +71,11 @@ import {
   type GradeableStock,
 } from "./factorGrades";
 import {
-  fetchAllUsStockListings,
   type NasdaqStockListing,
 } from "../services/nasdaqListings";
+import type { SqlStorage } from "../orm";
 import type {
+  Env,
   ETradeQuote,
   FossQuote,
   ScreenedStockItem,
@@ -171,13 +182,26 @@ export interface AcquireUniverseOptions {
   yahooDeps?: YahooScreenerDeps;
   /**
    * all-listings: Nasdaq universe fetcher (the platform nasdaq
-   * provider, bound by bindNasdaqUniverseDeps). When absent, the
-   * listings module is called directly — the screenLive trigger
-   * path (screener.ts) carries no platform context, so the direct
-   * default stays for dep-less callers; the screener-agent screen
-   * path and the #1355 feed shard always bind it.
+   * provider, bound by bindNasdaqUniverseDeps). Issue #1378
+   * removed the dep-less direct fallback: without universeDeps
+   * or universeRoute, all-listings returns the error-result shape
+   * naming the missing seam (decision D1), and the
+   * live-quotes/etrade-only symbol legs throw when symbols are
+   * absent. No dep-less production path remains.
    */
   universeDeps?: NasdaqUniverseDeps;
+  /**
+   * Issue #1378: the route bundle a caller threads instead of a
+   * pre-bound fetcher (service paths that cannot bind a fetcher
+   * without a DO context). Resolution happens INSIDE
+   * acquireUniverse (decision D1) so a route-unservable universe
+   * becomes the existing error-result shape naming the
+   * route/provider, never a caller-propagated throw and never a
+   * per-site improvisation. Built by
+   * nasdaqUniverseRouteBundle; pre-bound universeDeps wins when
+   * both are present.
+   */
+  universeRoute?: NasdaqUniverseRouteBundle;
 }
 
 export interface AcquiredUniverse {
@@ -378,6 +402,183 @@ export function nasdaqUniverseProviderFromRoute(
     );
   }
   return provider;
+}
+
+/**
+ * Issue #1378: the route bundle a caller threads to acquireUniverse
+ * instead of a pre-bound fetcher. It carries the registry (with the
+ * nasdaq adapter registered), the route table snapshot, and the run
+ * context — but NOT a resolved provider: resolution stays inside
+ * acquireUniverse (decision D1), so route-unservable failures
+ * convert to the existing error-result shape there.
+ */
+export interface NasdaqUniverseRouteBundle {
+  registry: DataProviderRegistry;
+  configs: readonly ProviderConfigRecord[];
+  routes: readonly CapabilityRouteRecord[];
+  runContext: DataRunContext;
+}
+
+/**
+ * Issue #1378: input for nasdaqUniverseRouteBundle. The caller
+ * supplies DO sql (and, where it has one, blob storage); the helper
+ * performs the screener-agent #1368 sequence — bootstrap, verify →
+ * enable when not already enabled, adapter construction, registry
+ * registration — and returns the bundle WITHOUT resolving it.
+ * With storage the adapter captures full blobs; without storage it
+ * records outcomes only (the #1331 fit-runner precedent: a
+ * capture_failed marker on every successful fetch would poison
+ * provider health, so no capture is attempted without a blob
+ * handle — see providerHealth.ts, where capture_failed counts as
+ * a failure). The helper THROWS on failure (neutral); each caller
+ * chooses per its established contract — service paths catch and
+ * degrade to the missing-seam error result, shard/scheduled paths
+ * propagate into their failure boundaries, research paths catch
+ * and degrade to empty.
+ */
+export interface NasdaqUniverseRouteBundleInput {
+  sql: SqlStorage;
+  /** Blob storage when the caller has a DO storage handle; omitted → outcome-only. */
+  storage?: { get: (key: string) => Promise<unknown>; put: (key: string, value: unknown) => Promise<void> };
+  env: Env;
+  userLogin: string;
+  runId: string;
+  tenantId?: string;
+  /** Override fetcher (tests); omitted → the adapter's live feed fetcher. */
+  fetchListings?: () => Promise<NasdaqStockListing[]>;
+}
+
+export async function nasdaqUniverseRouteBundle(
+  input: NasdaqUniverseRouteBundleInput
+): Promise<NasdaqUniverseRouteBundle> {
+  const { sql, storage, env, userLogin, runId } = input;
+  bootstrapDataProviders(sql);
+  const config = getProviderConfig(sql, "nasdaq");
+  if (!config || config.lifecycleState !== "enabled" || !config.enabled) {
+    await transitionProvider(sql, "nasdaq", "verify", userLogin, {
+      verifier: async () =>
+        verifyNasdaqDataProvider(
+          input.fetchListings ? { fetchListings: input.fetchListings } : {}
+        ),
+    });
+    await transitionProvider(sql, "nasdaq", "enable", userLogin, {});
+  }
+  const registry = new DataProviderRegistry();
+  registry.register(
+    createNasdaqDataProvider(
+      input.fetchListings,
+      storage
+        ? { capture: { sql, blobStorage: storage as never, env } }
+        : { outcomeRecorder: createCaptureFetchOutcomeRecorder(sql) }
+    )
+  );
+  return {
+    registry,
+    configs: listProviderConfigs(sql),
+    routes: listCapabilityRoutes(sql),
+    runContext: {
+      runId,
+      tenantId: input.tenantId ?? "default",
+      userLogin,
+    },
+  };
+}
+
+/**
+ * Issue #1378: the seam screenLive and its callers thread — either
+ * a pre-bound fetcher or a route bundle (never both needed;
+ * pre-bound deps win in acquireUniverse).
+ */
+export interface NasdaqUniverseSeam {
+  universeDeps?: NasdaqUniverseDeps;
+  universeRoute?: NasdaqUniverseRouteBundle;
+}
+
+/**
+ * Issue #1378: build the screenLive seam from a service-held ORM.
+ * Outcome-only (the service carries no DO blob handle — the #1331
+ * fit-runner precedent): route resolution is enforced and fetch
+ * failures are outcome-recorded, but successful fetches leave no
+ * capture row. Full blob capture for these paths requires storage
+ * threading (named follow-up, not hidden). A bundle-build failure
+ * (verify/network) degrades to undefined + warn — never a throw
+ * out of screenLive — so the caller gets the missing-seam
+ * error-result shape, matching screenLive's contract.
+ */
+export async function nasdaqUniverseSeamFromSql(
+  sql: SqlStorage | undefined,
+  env: Env,
+  userLogin: string
+): Promise<NasdaqUniverseSeam | undefined> {
+  if (!sql) return undefined;
+  try {
+    const bundle = await nasdaqUniverseRouteBundle({
+      sql,
+      env,
+      userLogin,
+      runId: crypto.randomUUID(),
+    });
+    return { universeRoute: bundle };
+  } catch (err) {
+    console.warn(
+      `[screener] universe seam unavailable, degrading to the missing-seam error result: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Issue #1378: resolve the all-listings universe from the threaded
+ * seam. Called INSIDE acquireUniverse's try block (decision D1),
+ * so every failure — missing seam, route not naming nasdaq,
+ * nasdaq not enabled, fetch failure — becomes the existing
+ * error-result shape naming the route/provider.
+ */
+async function resolveAllListings(
+  opts: AcquireUniverseOptions
+): Promise<NasdaqStockListing[]> {
+  if (opts.universeDeps) return opts.universeDeps.fetchListings();
+  if (opts.universeRoute) {
+    const provider = nasdaqUniverseProviderFromRoute(
+      opts.universeRoute.registry,
+      opts.universeRoute.configs,
+      opts.universeRoute.routes
+    );
+    return bindNasdaqUniverseDeps(provider, opts.universeRoute.runContext).fetchListings();
+  }
+  throw new Error(
+    "all-listings mode requires universeDeps or universeRoute — no dep-less listings fetch exists (#1378)"
+  );
+}
+
+/**
+ * Issue #1378: resolve the live-quotes/etrade-only symbol source
+ * from the threaded seam, with the pre-#1378 three-attempt retry
+ * (the old fetchTechnologySymbols wrapper) preserved around the
+ * seam fetch. Symbols explicitly passed still win; when they are
+ * absent and no seam exists, the throw mirrors the existing
+ * quoteDeps throw pattern for the same modes.
+ */
+async function resolveUniverseListings(
+  opts: AcquireUniverseOptions,
+  mode: "live-quotes" | "etrade-only"
+): Promise<NasdaqStockListing[]> {
+  if (opts.symbols) return opts.symbols;
+  if (opts.universeDeps) {
+    return withRetries(() => opts.universeDeps!.fetchListings(), "Nasdaq listings");
+  }
+  if (opts.universeRoute) {
+    const provider = nasdaqUniverseProviderFromRoute(
+      opts.universeRoute.registry,
+      opts.universeRoute.configs,
+      opts.universeRoute.routes
+    );
+    const deps = bindNasdaqUniverseDeps(provider, opts.universeRoute.runContext);
+    return withRetries(() => deps.fetchListings(), "Nasdaq listings");
+  }
+  throw new Error(
+    `${mode} mode requires universeDeps or universeRoute when symbols are absent (#1378)`
+  );
 }
 
 /**
@@ -884,7 +1085,8 @@ export async function acquireUniverse(
       throw new Error("live-quotes mode requires quoteDeps.fetchQuote");
     }
     const cfg = opts.config ?? DEFAULT_SCREENER_CONFIG;
-    const symbols = opts.symbols ?? (await fetchTechnologySymbols());
+    const symbols =
+      opts.symbols ?? filterTechnologySymbols(await resolveUniverseListings(opts, "live-quotes"));
     const maxSymbols = opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols;
     const limited = maxSymbols > 0 ? symbols.slice(0, maxSymbols) : symbols;
     const gapFillLabel = opts.quoteDeps.gapFillLabel;
@@ -1172,7 +1374,8 @@ export async function acquireUniverse(
       throw new Error("etrade-only mode requires quoteDeps.fetchQuote");
     }
     const cfg = opts.config ?? DEFAULT_SCREENER_CONFIG;
-    const symbols = opts.symbols ?? (await fetchTechnologySymbols());
+    const symbols =
+      opts.symbols ?? filterTechnologySymbols(await resolveUniverseListings(opts, "etrade-only"));
     const maxSymbols = opts.maxSymbols ?? cfg.acquisition.defaultMaxSymbols;
     const limited = maxSymbols > 0 ? symbols.slice(0, maxSymbols) : symbols;
     if (limited.length === 0) {
@@ -1383,7 +1586,7 @@ export async function acquireUniverse(
   try {
     listings =
       DynamicMarketScreener.getTestListingsFixture() ??
-      (await (opts.universeDeps?.fetchListings() ?? fetchAllUsStockListings()));
+      (await resolveAllListings(opts));
     if (!DynamicMarketScreener.getTestListingsFixture() && (!listings || listings.length === 0)) {
       throw new Error("The live listings directory returned no symbols; no static universe was substituted.");
     }
