@@ -46,8 +46,10 @@ import {
   SqlIvHistoryStore,
   SqlScanRunStore,
   SqlStrategyProfileStore,
+  validateStrategyRequest,
 } from "../../trading";
 import { ScheduledTasksService } from "../../services/scheduledTasks";
+import { SqlFeedSnapshotStore, pickFeedLoadParams } from "../../services/feedSnapshotStore";
 import {
   SqlPausedScheduleStore,
   pausedRecordToListItem,
@@ -114,6 +116,10 @@ export interface SchedulesRouteContext {
   ) => Promise<void>;
   /** Issue #1574: submit an opt-in options shard chain on existing async-job rails. */
   submitShardJob?: (spec: import("../../types").AsyncJobSubmission) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>;
+  /** Consolidation #1236 (feed seam): submit an async job (owner:
+   *  OrchestratorAgent.submitAsyncJob). Used by the feed-snapshot
+   *  route; hosts without it cannot submit feed jobs. */
+  submitAsyncJob?: (spec: import("../../types").AsyncJobSubmission) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>;
   /** Scheduled market screen (owner: OrchestratorAgent.autonomousMarketScreen - was `this.autonomousMarketScreen`). */
   autonomousMarketScreen(payload?: {
     sector?: string;
@@ -693,7 +699,10 @@ export async function handleSchedulesRoutes(
           undefined,
           new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
           new SqlStrategyProfileStore(ctx.agentCtx.storage.sql),
-          ctx.scheduleScreenerFollowups
+          ctx.scheduleScreenerFollowups,
+          undefined,
+          undefined,
+          new SqlFeedSnapshotStore(ctx.agentCtx.storage.sql)
         );
         // Issue #959: validate through the shared schedule builder
         // (the service's own derivation validation still runs inside).
@@ -706,6 +715,96 @@ export async function handleSchedulesRoutes(
         return Response.json(result);
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to trigger strategy discovery" }, { status: 500 });
+      }
+    }
+
+    // Submit the feed stage (consolidation #1236): produce + store
+    // one snapshot artifact per symbol as a feed.snapshot async job
+    // (stage "feed", retryable, status-visible). With chainTo, the
+    // job mints a chain id and its completion plans the generate
+    // stage (see the feed completion hook); without it, the job is
+    // a standalone refresh. When chainTo is present the feed symbols
+    // + filters are DERIVED from its requests, so generate-time
+    // filter matching holds by construction; a body.symbols that
+    // disagrees with chainTo.requests is rejected rather than
+    // silently ignored.
+    if (path.endsWith("/schedules/feed-snapshot") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const context = await ctx.getScreenerExecutionContext();
+        const userLogin = request.headers.get("x-user-login") || context?.userLogin;
+        if (!userLogin) return Response.json({ success: false, error: "An authenticated E*TRADE account is required." }, { status: 401 });
+        const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
+        const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD"
+          ? rawEnvironment
+          : context?.environment;
+        if (!ctx.submitAsyncJob) return Response.json({ success: false, error: "Feed submission is not wired on this host." }, { status: 500 });
+        const tickerRe = /^[A-Z0-9./-]{1,16}$/i;
+        const chainTo = body?.chainTo;
+        let feedSymbols: Array<{ symbol: string; loadParams?: Record<string, unknown> }> | undefined;
+        let chainRequests: Array<Record<string, unknown>> | undefined;
+        if (chainTo !== undefined) {
+          if (chainTo === null || typeof chainTo !== "object" || !Array.isArray(chainTo.requests) || chainTo.requests.length === 0) {
+            return Response.json({ success: false, error: "chainTo.requests must be a non-empty array." }, { status: 400 });
+          }
+          for (const key of ["emailTo", "slackChannel", "webhookUrl"] as const) {
+            if (chainTo[key] !== undefined && typeof chainTo[key] !== "string") {
+              return Response.json({ success: false, error: `chainTo.${key} must be a string.` }, { status: 400 });
+            }
+          }
+          chainRequests = [];
+          feedSymbols = [];
+          for (const req of chainTo.requests) {
+            const invalid = validateStrategyRequest(req);
+            if (invalid) {
+              return Response.json({ success: false, error: `chainTo request is invalid: ${invalid}` }, { status: 400 });
+            }
+            const symbol = String((req as { symbol: string }).symbol).toUpperCase().trim();
+            chainRequests.push(req);
+            feedSymbols.push({ symbol, loadParams: pickFeedLoadParams(req) as Record<string, unknown> });
+          }
+          if (body?.symbols !== undefined) {
+            const bodySymbols = Array.isArray(body.symbols) ? body.symbols.map((s: unknown) => String(s).toUpperCase().trim()) : null;
+            const derived = feedSymbols.map((s) => s.symbol);
+            if (!bodySymbols || bodySymbols.length !== derived.length || bodySymbols.some((s: string, i: number) => s !== derived[i])) {
+              return Response.json({ success: false, error: "symbols must match chainTo.requests symbols." }, { status: 400 });
+            }
+          }
+        } else {
+          if (!Array.isArray(body?.symbols) || body.symbols.length === 0) {
+            return Response.json({ success: false, error: "symbols must be a non-empty array, or chainTo.requests must name the feed." }, { status: 400 });
+          }
+          for (const s of body.symbols) {
+            if (typeof s !== "string" || !tickerRe.test(s.trim())) {
+              return Response.json({ success: false, error: `symbols must be valid ticker strings; got '${String(s)}'.` }, { status: 400 });
+            }
+          }
+          feedSymbols = body.symbols.map((s: string) => ({ symbol: s.toUpperCase().trim() }));
+        }
+        const chainId = chainTo !== undefined ? crypto.randomUUID() : undefined;
+        const submitted = await ctx.submitAsyncJob({
+          capability: "feed.snapshot",
+          payload: {
+            userLogin,
+            ...(environment ? { environment } : {}),
+            symbols: feedSymbols,
+            ...(chainTo
+              ? {
+                  chainTo: {
+                    requests: chainRequests,
+                    ...(typeof chainTo.emailTo === "string" ? { emailTo: chainTo.emailTo } : {}),
+                    ...(typeof chainTo.slackChannel === "string" ? { slackChannel: chainTo.slackChannel } : {}),
+                    ...(typeof chainTo.webhookUrl === "string" ? { webhookUrl: chainTo.webhookUrl } : {}),
+                  },
+                }
+              : {}),
+          },
+          stage: "feed",
+          ...(chainId ? { chainId } : {}),
+        } as import("../../types").AsyncJobSubmission);
+        return Response.json({ ...submitted, stage: "feed", ...(chainId ? { chainId } : {}) });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to submit feed snapshot" }, { status: 500 });
       }
     }
   return null;
