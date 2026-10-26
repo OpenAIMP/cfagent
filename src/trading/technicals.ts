@@ -68,6 +68,25 @@ export function fossBarsToDailyBars(
 }
 
 /**
+ * Simple moving average (issue #1654 slice 6; supports the 6-vote
+ * composite bias SMA₅₀/SMA₂₀₀ votes). Mean of the LAST `period`
+ * closes. Returns null when the average cannot be built honestly:
+ * fewer than `period` closes, a non-positive period, or a
+ * non-finite close in the window. Never estimates from a short
+ * window, never fabricates closes.
+ */
+export function computeSma(
+  closes: readonly number[],
+  period: number
+): number | null {
+  if (!closes || !Number.isInteger(period) || period < 1) return null;
+  if (closes.length < period) return null;
+  const window = closes.slice(-period);
+  if (window.some((c) => !Number.isFinite(c))) return null;
+  return window.reduce((a, b) => a + b, 0) / period;
+}
+
+/**
  * Bollinger Bands (issue #1654 slice 1/7; docs/architecture/business/
  * screener-rules.md §1.1). Pure function over closes supplied by the
  * caller — nothing here fetches.

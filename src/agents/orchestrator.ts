@@ -29,6 +29,19 @@ import type { ResearchAgent } from "./research-agent";
 import { evaluateResearchOutcome, type ResearchExecutionPath } from "../services/researchTaskLedger";
 import { getEtapiConfig, setRuntimeEtapiConfigOverrides } from "../config/etapiConfig";
 import { isDemoCalibratedChainsEnabled } from "../config/demoMode";
+import {
+  HTTP_DELIVERY_MODE_SWITCH,
+  JOB_LIST_ENVELOPE_SWITCH,
+  applyJobListEnvelope,
+  jobsConfigErrorEvent,
+  levelsForHttpDelivery,
+  levelsForJobListEnvelope,
+  resolveHttpDeliveryMode,
+  resolveJobListEnvelope,
+  shouldQueueApiRequest,
+  type HttpDeliveryScopedModes,
+  type JobListScopedModes,
+} from "../config/asyncJobModes";
 import { SqlScanRunStore, diffScanRuns } from "../trading";
 import { SqlStrategyProfileStore } from "../trading";
 import { createDidAttestation, resolveAgentDidDocument } from "./did";
@@ -175,6 +188,18 @@ export class OrchestratorAgent extends Think<Env> {
   private scheduledScreenerSlots = new Set<string>();
   private scheduledOptionsSlots = new Set<string>();
   private scheduledDiscoverySlots = new Set<string>();
+
+  /**
+   * #1724: optional HTTP_DELIVERY_MODE / JOB_LIST_ENVELOPE
+   * session/user carriers for the DO entry decision in onRequest
+   * (delivery run = the `x-delivery-mode` header, envelope run = the
+   * `?envelope=` query param, global env = this.env). Populated by
+   * the execution-context owner; unset carriers fall through to env.
+   * In production today only run + env are settable — the same
+   * boundary as #1721/#1722/#1723. See src/config/asyncJobModes.ts.
+   */
+  scopedHttpDeliveryModes?: HttpDeliveryScopedModes;
+  scopedJobListModes?: JobListScopedModes;
 
   // ---------------------------------------------------------------------
   // Issue #992: context builders for the modules extracted under
@@ -1236,6 +1261,46 @@ export class OrchestratorAgent extends Think<Env> {
     return persistScreenerReportCanonical(this.reportDispatchContext(), result);
   }
 
+  /**
+   * Issue #1737: workflow doors. Thin PUBLIC wrappers over the
+   * same two functions the synchronous routes use, so the
+   * async path stores and delivers through identical code —
+   * no new delivery path, no duplicated logic. Called by
+   * ScreenerScreenWorkflow via the shared orchestrator stub.
+   */
+  async recordWorkflowScreenReport(result: {
+    timestamp: string;
+    universe?: unknown;
+    sector?: unknown;
+    provider?: unknown;
+    success: boolean;
+    totalScanned: number;
+    matchedCount: number;
+    opportunities: unknown[];
+    allStocks: unknown[];
+    pdfKey?: string;
+    error?: string;
+    trigger?: unknown;
+    userLogin?: string;
+  }): Promise<void> {
+    return this.persistScreenerReportCanonical(result);
+  }
+
+  async deliverWorkflowScreenOutcome(
+    outcome: ScreenerRunOutcome,
+    userLogin: string,
+    deliveryId?: string,
+  ): Promise<void> {
+    // A caller-supplied deterministic deliveryId lets a
+    // retried deliver step converge in the outcome sink
+    // instead of forking a second tracked record.
+    await scheduleScreenerFollowups(
+      this.asyncJobsContext(),
+      deliveryId ? { ...outcome, deliveryId } : outcome,
+      userLogin,
+    );
+  }
+
   // Issue #992: extracted to ./orchestrator/reportDispatch.ts (sendReportEmail);
   private async sendReportEmail(
     recipient: string,
@@ -1690,7 +1755,31 @@ export class OrchestratorAgent extends Think<Env> {
         const { result: _result, ...summary } = job;
         return summary;
       });
-      return Response.json({ jobs });
+      // #1724: JOB_LIST_ENVELOPE over the list envelope only (run =
+      // `?envelope=`, session/user = scoped carriers, env = Worker
+      // var, builtin = REST legacy "nocount"). List rows stay
+      // result-stripped in both modes; the single-job full record is
+      // untouched. An invalid winning value fails closed to nocount,
+      // logged + audited as jobs.config_error.
+      const resolvedEnvelope = resolveJobListEnvelope(
+        levelsForJobListEnvelope(
+          this.scopedJobListModes,
+          url.searchParams.get("envelope"),
+          (this.env as unknown as Record<string, unknown> | undefined)?.[JOB_LIST_ENVELOPE_SWITCH]
+        ),
+        "nocount"
+      );
+      if (resolvedEnvelope.invalid) {
+        console.error(
+          `[jobs] invalid ${JOB_LIST_ENVELOPE_SWITCH} value ${JSON.stringify(resolvedEnvelope.raw)} — failing closed to "nocount"`
+        );
+        this.audit(jobsConfigErrorEvent(), "orchestrator", {
+          setting: JOB_LIST_ENVELOPE_SWITCH,
+          value: resolvedEnvelope.raw ?? "",
+          resolved: "nocount",
+        });
+      }
+      return Response.json(applyJobListEnvelope(jobs, resolvedEnvelope.mode));
     }
 
     const jobMatch = path.match(/(?:^|\/api)\/jobs\/([0-9a-f-]{36})$/i);
@@ -1724,8 +1813,43 @@ export class OrchestratorAgent extends Think<Env> {
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
     const isScheduleEndpoint = /(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path);
     const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat|chat-activity|screener|etrade\/options\/strategy|etrade|broker|trading|options)(?:\/|$)/i.test(path);
+    const isJobsEndpoint = /(?:^|\/api)\/jobs(?:\/|$)/.test(path);
     const isApiRequest = path.startsWith("/api/") || request.headers.get("x-async-eligible") === "1";
-    if (isApiRequest && !/(?:^|\/api)\/jobs(?:\/|$)/.test(path) && !isMcpEndpoint && !isScheduleEndpoint && !isImmediateEndpoint) {
+    // #1724: HTTP_DELIVERY_MODE over the queue decision (run =
+    // `x-delivery-mode` header, session/user = scoped carriers, env =
+    // Worker var, builtin = the per-prefix legacy: immediate → sync,
+    // otherwise queued). An explicitly set level overrides the prefix
+    // rule in both directions. An invalid winning value fails closed
+    // to legacy, logged + audited as jobs.config_error. The jobs /
+    // MCP / schedules exclusions stand in every mode (see
+    // shouldQueueApiRequest); the /jobs branches above already
+    // returned, so isJobsEndpoint here is belt-and-braces.
+    const deliveryLegacy = isImmediateEndpoint ? "sync" : "queued";
+    const resolvedDelivery = resolveHttpDeliveryMode(
+      levelsForHttpDelivery(
+        this.scopedHttpDeliveryModes,
+        request.headers.get("x-delivery-mode"),
+        (this.env as unknown as Record<string, unknown> | undefined)?.[HTTP_DELIVERY_MODE_SWITCH]
+      ),
+      deliveryLegacy
+    );
+    if (resolvedDelivery.invalid) {
+      console.error(
+        `[jobs] invalid ${HTTP_DELIVERY_MODE_SWITCH} value ${JSON.stringify(resolvedDelivery.raw)} — failing closed to "${deliveryLegacy}"`
+      );
+      this.audit(jobsConfigErrorEvent(), "orchestrator", {
+        setting: HTTP_DELIVERY_MODE_SWITCH,
+        value: resolvedDelivery.raw ?? "",
+        resolved: deliveryLegacy,
+      });
+    }
+    if (shouldQueueApiRequest({
+      isApiRequest,
+      isJobsEndpoint,
+      isMcpEndpoint,
+      isScheduleEndpoint,
+      deliveryMode: resolvedDelivery.mode,
+    })) {
       return this.enqueueHttpRequest(request, url);
     }
 
@@ -1801,6 +1925,8 @@ export class OrchestratorAgent extends Think<Env> {
       recordMessage: (role, content, agent) => this.recordMessage(role, content, agent),
       runAgenticChatTurn: (opts) => this.runAgenticChatTurn(opts),
       buildChatErrorFallback: (err, userText, userLogin) => this.buildChatErrorFallback(err, userText, userLogin),
+      scopedHttpDeliveryModes: this.scopedHttpDeliveryModes,
+      scopedJobListModes: this.scopedJobListModes,
       nlqSchedulingPort: () => this.nlqSchedulingPort(),
       nlqSocialBriefPort: () => this.nlqSocialBriefPort(),
     });

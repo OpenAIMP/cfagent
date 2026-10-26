@@ -178,6 +178,29 @@ export interface Env {
   // production value for either switch: production values are an
   // owner action. Rollback is unsetting the var and redeploying.
   MEMORY_READ_MODE?: string;
+  // #1724 (parent #1717, slice (d)) — TWO async-jobs switches
+  // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
+  // HTTP_DELIVERY_MODE: "sync" | "queued" (case-insensitive, padded
+  // values accepted). Governs the DO /api queue decision and the MCP
+  // tools/call wrapping decision. Built-in default = the calling
+  // surface's own legacy: HTTP per-prefix rule (immediate prefixes
+  // sync, other /api or async-eligible requests queued), MCP
+  // submitter rule (submitter present → queued, absent → sync).
+  // Any other value FAILS CLOSED to the surface legacy and is logged
+  // + audited as jobs.config_error. Resolution order (run > session
+  // > user > global env > built-in) lives in
+  // src/config/asyncJobModes.ts.
+  HTTP_DELIVERY_MODE?: string;
+  // JOB_LIST_ENVELOPE: "count" | "nocount" (case-insensitive, padded
+  // values accepted). Governs the LIST envelope only (MCP
+  // list_async_jobs and REST GET /jobs). Built-in default = the
+  // calling surface's own legacy envelope (MCP → "count", REST →
+  // "nocount"). Any other value FAILS CLOSED to the surface legacy
+  // and is logged + audited as jobs.config_error. This slice
+  // deliberately does NOT set a production value for either switch:
+  // production values are an owner action. Rollback is unsetting the
+  // var and redeploying.
+  JOB_LIST_ENVELOPE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
@@ -292,6 +315,8 @@ export interface Env {
   A2A_API_TOKEN?: string;
   /** Trade approval workflow binding (#291 T3b). */
   TRADE_WORKFLOW?: Workflow;
+  /** Screener screen workflow binding (#1737). */
+  SCREENER_WORKFLOW?: Workflow;
 }
 
 export interface TransactionRecord {
@@ -557,6 +582,9 @@ export interface ETradeQuote {
  *  in src/trading/technicals.ts; slice 6's bias vote reads this value. */
 export type PriceRegime = "UP" | "DN" | "RNG";
 
+/** Issue #1654 slice 6: 6-vote composite bias label (see screeningIndicators). */
+export type CompositeBias = "Bullish" | "Bearish" | "Neutral";
+
 export interface StockScreenerFilter {
   sector?: string;
   minPrice?: number;
@@ -586,6 +614,9 @@ export interface StockScreenerFilter {
   /** Issue #1654 slice 5: reject candidates whose attached price-action
    *  regime (see regime) does not match. */
   regimeFilter?: PriceRegime;
+  /** Issue #1654 slice 6: reject candidates whose attached composite
+   *  bias score (see compositeBiasScore) is below this minimum. */
+  minCompositeBiasScore?: number;
   gainersOnly?: boolean;
   losersOnly?: boolean;
   rsiFilter?: "oversold" | "overbought" | "neutral" | "any";
@@ -644,6 +675,14 @@ export interface ScreenedStockItem extends ETradeQuote {
    *  data unavailable — the filter that needs it fail-closes, never
    *  estimated. */
   regime?: PriceRegime;
+  /** Issue #1654 slice 6: 6-vote composite bias score (bullish-vote
+   *  count, 0–6) from real bar history, attached upstream where bars
+   *  exist. Absent = bias data unavailable — the gate that needs it
+   *  fail-closes, never estimated. */
+  compositeBiasScore?: number;
+  /** Issue #1654 slice 6: 6-vote composite bias label for the attached
+   *  score (see compositeBiasScore). */
+  compositeBias?: CompositeBias;
   macdSignal: string;
   signal: "BULLISH_MOMENTUM" | "OVERSOLD_BOUNCE" | "RANGE_BOUND" | "OVERBOUGHT";
   technicalSignal: string;

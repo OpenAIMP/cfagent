@@ -37,7 +37,13 @@
 
 import { unauthenticatedResponse } from "./routeIdentity";
 import { FossResearchService, fossBarsSourceLabel } from "../../services/fossResearch";
-import { parseStockScreenRequest } from "../../trading";
+import { parseStockScreenRequest, shardableUniverses } from "../../trading";
+import {
+  manualWorkflowJobId,
+  tryStartScreenerWorkflow,
+  workflowAcceptedResponse,
+  workflowTenantId,
+} from "../../workflows/screenerWorkflowRoutes";
 import type { ScreenerAgent } from "../screener-agent";
 import type { AgentName, Env } from "../../types";
 
@@ -225,6 +231,13 @@ export async function handleFossCompareScreenRoutes(
         if (url.searchParams.get("losersOnly")) filters.losersOnly = url.searchParams.get("losersOnly") === "true";
         if (url.searchParams.get("universe")) filters.universe = url.searchParams.get("universe");
       }
+      // Issue #1737: the async flag rides the POST body or the
+      // GET query; stripped before schema validation.
+      const asyncRequested =
+        request.method === "POST"
+          ? (filters as { async?: unknown }).async === true
+          : url.searchParams.get("async") === "1";
+      if (request.method === "POST") delete (filters as { async?: unknown }).async;
       // Issue #959: the FOSS screen takes the same StockScreenerFilter
       // shape as the E*TRADE screen — validate through the ONE shared
       // stock-screen schema (the universe/minScore envelope fields are
@@ -237,6 +250,38 @@ export async function handleFossCompareScreenRoutes(
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
       const agent = ctx.getScreenerAgent(userLogin);
+      // Issue #1737: async path (store only, no deliver — the
+      // FOSS route has no deliver step). Unbound → fall
+      // through to the synchronous path below.
+      if (asyncRequested) {
+        const jobId = manualWorkflowJobId(universe);
+        const shards =
+          universe === "ALL"
+            ? shardableUniverses().map((u) => ({ shardId: u, universe: u }))
+            : [{ shardId: universe, universe }];
+        const handle = await tryStartScreenerWorkflow(ctx.env, {
+          jobId,
+          type: "run-screen",
+          source: "manual",
+          trigger: "manual",
+          userLogin,
+          role: "parent",
+          tenantId: workflowTenantId(ctx.env),
+          shards,
+          provider: "yahoo",
+          deliver: false,
+          filters: parsedScreen.value.filters as unknown as Record<string, unknown>,
+        });
+        if (handle) {
+          ctx.audit("foss.screener.enqueued", "research", {
+            jobId,
+            workflowId: handle.workflowId,
+            universe,
+            provider: "yahoo",
+          });
+          return workflowAcceptedResponse(handle);
+        }
+      }
       if (universe === "ALL") {
         const shards = await agent.runSharded({
           trigger: "manual",

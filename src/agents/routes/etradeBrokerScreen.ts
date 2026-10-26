@@ -12,9 +12,15 @@
  * original inline block returned.
  */
 
-import { parseStockScreenRequest } from "../../trading";
+import { parseStockScreenRequest, shardableUniverses } from "../../trading";
 import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
 import { isPortfolioContextEnabled } from "../../services/screeningFlags";
+import {
+  manualWorkflowJobId,
+  tryStartScreenerWorkflow,
+  workflowAcceptedResponse,
+  workflowTenantId,
+} from "../../workflows/screenerWorkflowRoutes";
 import { publishManualScreenerRun } from "./etradeBroker";
 import type { EtradeBrokerRouteContext } from "./etradeBroker";
 import type { ScreenerAgent } from "../screener-agent";
@@ -52,12 +58,49 @@ export async function executeEtradeScreen(args: {
   agent: ScreenerAgent;
   universe: StockScreenValue["universe"];
   validatedFilters: StockScreenValue["filters"];
+  /** Issue #1737: opt-in async path — start a workflow, return 202, never await the scan. */
+  asyncRequested?: boolean;
 }): Promise<Response> {
   const { ctx, sessionId, requestedEnv, userLogin, agent, universe, validatedFilters } = args;
   // Issue #17: the portfolio-context flag is read here (orchestrator
   // storage owns mas_settings; the screener agent cannot read it) and
   // rides the run request — runSharded spreads it onto every shard.
   const portfolioContext = isPortfolioContextEnabled(ctx.readSettingRaw);
+  // Issue #1737: async path. Shards mirror runSharded (ALL →
+  // shardableUniverses, else one shard); the workflow owns
+  // store + deliver per shard, so nothing is persisted,
+  // published, or audited-as-complete here. Unbound → null
+  // → fall through to the synchronous path below.
+  if (args.asyncRequested) {
+    const jobId = manualWorkflowJobId(universe);
+    const shards =
+      universe === "ALL"
+        ? shardableUniverses().map((u) => ({ shardId: u, universe: u }))
+        : [{ shardId: universe, universe }];
+    const handle = await tryStartScreenerWorkflow(ctx.env, {
+      jobId,
+      type: "run-screen",
+      source: "manual",
+      trigger: "manual",
+      userLogin,
+      role: "parent",
+      tenantId: workflowTenantId(ctx.env),
+      shards,
+      deliver: true,
+      filters: validatedFilters as unknown as Record<string, unknown>,
+      environment: requestedEnv,
+      portfolioContext,
+    });
+    if (handle) {
+      ctx.audit("etrade.screen_enqueued", "trading", {
+        jobId,
+        workflowId: handle.workflowId,
+        universe,
+        shards: shards.length,
+      });
+      return workflowAcceptedResponse(handle);
+    }
+  }
   if (universe === "ALL") {
     const shards = await agent.runSharded({ trigger: "manual", filters: validatedFilters, userLogin, environment: requestedEnv, portfolioContext });
     for (const shard of shards) {

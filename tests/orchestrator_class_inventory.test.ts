@@ -99,9 +99,21 @@ const ORCH = "agents/orchestrator.ts";
  *  passes Worker env into the memory route call site (MEMORY_READ_MODE
  *  env level on GET /memory) — measured 2,152 lines / 100,195 B
  *  after the addition; budget lines rise to 2160, bytes keep
- *  103_300, which still cover the tree. */
-const BUDGET_LINES = 2160;
-const BUDGET_BYTES = 103_300;
+ *  103_300, which still cover the tree.
+ *  Screener workflows (#1737) add the two PUBLIC workflow
+ *  doors (recordWorkflowScreenReport +
+ *  deliverWorkflowScreenOutcome) + their doc comment —
+ *  measured 2,192 lines / 101,411 B on the rebased tree;
+ *  budget lines rise to 2200, bytes keep 103_300.
+ *  Async jobs systems unification (#1724, parent #1717 slice (d))
+ *  adds the DO-entry delivery + list-envelope resolution to onRequest
+ *  (HTTP_DELIVERY_MODE queue decision, JOB_LIST_ENVELOPE list branch,
+ *  scoped-carrier fields, /mcp route wiring) — measured 2,278 lines
+ *  / 105,064 B after the addition on the tree rebased onto #1737;
+ *  budget lines rise to 2280 and bytes rise to 109_100, which still
+ *  cover the tree. */
+const BUDGET_LINES = 2280;
+const BUDGET_BYTES = 109_100;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;
