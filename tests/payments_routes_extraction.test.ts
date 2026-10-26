@@ -26,7 +26,8 @@
  * signature verification failure (401), and the audit event names
  * (#1690: payment.awaiting_confirmation replaces payment.created /
  * payment.confirmed / payment.rejected /
- * payment.captured / payment.settled_webhook).
+ * payment.captured / payment.settled_webhook; #1711 restores
+ * payment.created in immediate mode only).
  */
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
