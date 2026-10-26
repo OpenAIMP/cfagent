@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, Modal, Table, Skeleton, Checkbox } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, Modal, Table, Skeleton, Checkbox, PageShell, PageSection } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -363,5 +363,14 @@ describe("Checkbox (#1577)", () => {
     expect(source).toContain('type="checkbox"');
     expect(source).toContain("ui-checkbox");
     expect(source).not.toContain("ui-input");
+  });
+});
+
+describe("PageShell + PageSection (#1804/#1808)", () => {
+  it("carries page shell and section primitives", () => {
+    const section = React.createElement(PageSection, { title: "Overview" }, "Content");
+    expect(section.props.title).toBe("Overview");
+    const shell = React.createElement(PageShell, { title: "Dashboard" }, section);
+    expect(shell.props.title).toBe("Dashboard");
   });
 });

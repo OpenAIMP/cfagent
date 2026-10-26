@@ -14,6 +14,8 @@ import { AgenticWalletPanel } from "./AgenticWalletPanel";
 import { AdBannerConfig, getStoredAdBannerConfig, saveStoredAdBannerConfig } from "./adBannerConfig";
 import { PartnerDealsModal } from "./components/PartnerDealsModal";
 import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons, DEFAULT_VISIBLE_NAV_TABS } from "./components/NavigationMenu";
+import { navigateToTab, readTabFromLocation, subscribeToRouteChanges } from "./router";
+import { getCrumb } from "./routes";
 import { StockSearchBar } from "./components/StockSearchBar";
 import { MarketTickerTape } from "./components/MarketTickerTape";
 import { MarketStatusPill } from "./components/MarketStatusPill";
@@ -41,15 +43,32 @@ import {
 } from "./featureFlags";
 export function Chat({ user }: { user: User }) {
   const [tab, setTab] = useState<NavTabId>(() => {
-    // Issue #1806: Screener-first rollout — if screener is enabled and autopilot is off, start on screeners
-    if (isTabFeatureEnabled("screeners") && !isTabFeatureEnabled("autopilot")) {
-      return "screeners";
+    // S1 (#1808): the URL is the source of truth for navigation.
+    const fromUrl = readTabFromLocation();
+    // Issue #1806: Screener-first rollout — if default from url is autopilot, but autopilot is disabled and screener is enabled, start on screeners
+    if (fromUrl === "autopilot" && typeof window !== "undefined" && !window.location.search.includes("tab=autopilot")) {
+      if (isTabFeatureEnabled("screeners") && !isTabFeatureEnabled("autopilot")) {
+        return "screeners";
+      }
+      if (!isTabFeatureEnabled("autopilot")) {
+        return isTabFeatureEnabled("screeners") ? "screeners" : "chat";
+      }
     }
-    if (!isTabFeatureEnabled("autopilot")) {
-      return isTabFeatureEnabled("screeners") ? "screeners" : "chat";
-    }
-    return "autopilot";
+    return fromUrl;
   });
+  // S1 (#1808): the URL is the source of truth for navigation. Tab state
+  // follows the router: the initial ?tab=, back/forward, and every
+  // navigation through handleSelectTab below.
+  useEffect(() => subscribeToRouteChanges(() => { setTab(readTabFromLocation()); }), []);
+  // Accepts values and updater functions, like the state setter it
+  // replaces (the trading view passes it as setTab): updaters resolve
+  // against the current URL tab, which mirrors tab state.
+  const handleSelectTab = useCallback(
+    (next: string | ((prev: NavTabId) => NavTabId)) => {
+      navigateToTab(typeof next === "function" ? next(readTabFromLocation()) : next);
+    },
+    [],
+  );
   const [brokerProps, setBrokerProps] = useState<ETradeDynamicMenuProps | null>(null);
   const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
@@ -291,7 +310,7 @@ export function Chat({ user }: { user: User }) {
 
   const handleAskAgent = (queryText: string) => {
     setPendingPrompt({ prompt: queryText, sourceTab: `Global Search / ${BRAND.name}` });
-    setTab("chat");
+    handleSelectTab("chat");
   };
 
   // Configurable Ad & Sponsor Banner settings (externalized from workspace tabs)
@@ -981,7 +1000,7 @@ export function Chat({ user }: { user: User }) {
           onToggleLayout={handleToggleNavLayout}
           activeTab={tab}
           onSelectTab={(newTab) => {
-            setTab(newTab);
+            handleSelectTab(newTab);
             setTbdMenuOpen(false);
           }}
           alertBadgeCount={unreadAlerts}
@@ -1006,53 +1025,7 @@ export function Chat({ user }: { user: User }) {
             <div className="sub-header-left">
               <div className="sub-header-brand-crumbs">
                 <span className="crumb-module">
-                  {tab === "autopilot" || tab === "trading"
-                    ? "Autopilot"
-                    : tab === "order" || tab === "orders"
-                    ? "Order Ticket"
-                    : tab === "portfolio"
-                    ? "Portfolio"
-                    : tab === "ledger"
-                    ? "Ledger"
-                    : tab === "screeners"
-                    ? "Screeners"
-                    : tab === "scanner"
-                    ? "Strategy/Symbol Scanner"
-                    : tab === "reports"
-                    ? "Reports"
-                    : tab === "schedules"
-                    ? "Schedules"
-                    : tab === "options"
-                    ? "Options"
-                    : tab === "voice"
-                    ? "Voice Desk"
-                    : tab === "omnichannel"
-                    ? "Email & Slack"
-                    : tab === "research"
-                    ? "Research"
-                    : tab === "options-flows"
-                    ? "Options Flow"
-                    : tab === "workflows"
-                    ? "Workflows"
-                    : tab === "endpoints"
-                    ? "MCP Explorer"
-                    : tab === "chat"
-                    ? "Copilot Ideas"
-                    : tab === "nlq"
-                    ? "Records NLQ"
-                    : tab === "audit"
-                    ? "Audit Vault"
-                    : tab === "payments"
-                    ? "Payments"
-                    : tab === "referrals"
-                    ? "Referrals"
-                    : tab === "ads"
-                    ? "Marketplace"
-                    : tab === "social"
-                    ? "Social"
-                    : tab === "approvals"
-                    ? "Approvals"
-                    : "Revenue"}
+                  {getCrumb(tab)}
                 </span>
                 <span className="crumb-divider">/</span>
                 <span className="crumb-subtitle">
@@ -1066,7 +1039,7 @@ export function Chat({ user }: { user: User }) {
               {/* Global Stock Search Bar */}
               <StockSearchBar
                 onSelectTab={(newTab) => {
-                  setTab(newTab);
+                  handleSelectTab(newTab);
                   setTbdMenuOpen(false);
                 }}
                 onAskAgent={handleAskAgent}
@@ -1089,7 +1062,7 @@ export function Chat({ user }: { user: User }) {
               <Button
                 variant="trade"
                 onClick={() => {
-                  setTab("order");
+                  handleSelectTab("order");
                   setTbdMenuOpen(false);
                 }}
                 title="Quick Trade & Fast Order Ticket"
@@ -1147,7 +1120,7 @@ export function Chat({ user }: { user: User }) {
               onToggleLayout={handleToggleNavLayout}
               activeTab={tab}
               onSelectTab={(newTab) => {
-                setTab(newTab);
+                handleSelectTab(newTab);
                 setTbdMenuOpen(false);
               }}
               user={user}
@@ -1197,7 +1170,7 @@ export function Chat({ user }: { user: User }) {
       {/* Real-Time Market Ticker Tape (Streaming Live Benchmark Quotes) */}
       <MarketTickerTape
         onSelectTab={(newTab) => {
-          setTab(newTab);
+          handleSelectTab(newTab);
           setTbdMenuOpen(false);
         }}
         onSelectSymbol={(sym) => {
@@ -1271,11 +1244,11 @@ export function Chat({ user }: { user: User }) {
             showSponsorSpotlight={adBannerConfig.enabled && adBannerConfig.showSponsorSpotlight && Boolean(adBannerConfig.tabVisibility.chat)}
             onAdClick={handleAdClick}
             onOpenAdsTab={() => {
-              setTab("ads");
+              handleSelectTab("ads");
               setTbdMenuOpen(false);
             }}
             onNavigateTab={(targetTab) => {
-              setTab(targetTab as any);
+              handleSelectTab(targetTab as any);
               setTbdMenuOpen(false);
             }}
             onStatusChange={setChatStatus}
@@ -1354,7 +1327,7 @@ export function Chat({ user }: { user: User }) {
               if (nlqInput.trim()) {
                 setPendingPrompt({ prompt: nlqInput.trim(), sourceTab: "Records Explorer" });
                 setNlqInput("");
-                setTab("chat");
+                handleSelectTab("chat");
               }
             }}>
               <TextInput
@@ -2056,7 +2029,7 @@ export function Chat({ user }: { user: User }) {
             setNewExtTitle={setNewExtTitle}
             setNewExtUrl={setNewExtUrl}
             setSelectedBrowseTable={setSelectedBrowseTable}
-            setTab={setTab}
+            setTab={handleSelectTab}
             tables={tables}
           />
         )}
@@ -2080,13 +2053,13 @@ export function Chat({ user }: { user: User }) {
             user={user}
             activeSubTab={mapTabToTradingSubTab(tab)}
             onSelectSubTab={(newSubTab) => {
-              setTab(newSubTab as NavTabId);
+              handleSelectTab(newSubTab);
             }}
             onBrokerPropsChange={setBrokerProps}
             onUnreadAlertsChange={setUnreadAlerts}
             onSendPrompt={(prompt, sourceTab) => {
               setPendingPrompt({ prompt, sourceTab: sourceTab || "E*TRADE Brokerage" });
-              setTab("chat");
+              handleSelectTab("chat");
             }}
           />
           </ErrorBoundary>
@@ -2098,10 +2071,10 @@ export function Chat({ user }: { user: User }) {
               user={user}
               onSendPrompt={(prompt, sourceTab) => {
                 setPendingPrompt({ prompt, sourceTab: sourceTab || "Yahoo Finance Research" });
-                setTab("chat");
+                handleSelectTab("chat");
               }}
               onTradeSymbol={(symbol) => {
-                setTab("order");
+                handleSelectTab("order");
               }}
             />
           </div>
@@ -2113,10 +2086,10 @@ export function Chat({ user }: { user: User }) {
               user={user}
               onSendPrompt={(prompt, sourceTab) => {
                 setPendingPrompt({ prompt, sourceTab: sourceTab || "Options Flows" });
-                setTab("chat");
+                handleSelectTab("chat");
               }}
               onTradeSymbol={(symbol) => {
-                setTab("order");
+                handleSelectTab("order");
               }}
             />
           </div>
@@ -2126,12 +2099,12 @@ export function Chat({ user }: { user: User }) {
           <div className="workflows-view" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <WorkflowsHub
               onNavigateTab={(targetTab) => {
-                setTab(targetTab as any);
+                handleSelectTab(targetTab as any);
                 setTbdMenuOpen(false);
               }}
               onSendPrompt={(prompt, sourceTab) => {
                 setPendingPrompt({ prompt, sourceTab: sourceTab || "Platform Workflows" });
-                setTab("chat");
+                handleSelectTab("chat");
               }}
             />
           </div>
@@ -2150,7 +2123,7 @@ export function Chat({ user }: { user: User }) {
       <AskAgentWidget
         onAskAgent={handleAskAgent}
         onOpenFullChat={() => {
-          setTab("chat");
+          handleSelectTab("chat");
           setTbdMenuOpen(false);
         }}
         agentStatus={{ dotClass: statusDotClass, label: statusLabel }}

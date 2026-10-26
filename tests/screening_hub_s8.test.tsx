@@ -317,10 +317,14 @@ describe("S8 nav integrity", () => {
     // entries for scanner/screeners/options: the nav carries exactly
     // one screening entry now, and the legacy tab ids survive only as
     // deep links in the tab→subtab mapping.
-    const nav = read("src/client/components/NavigationMenu.tsx");
-    expect(nav).toContain('id: "screeners"');
+    // S1 (#1804/#1808): nav entries derive from the central route table (routes.ts).
+    const routes = read("src/client/routes.ts");
+    expect(routes).toContain('id: "screeners"');
     for (const id of ["scanner", "options", "reports", "schedules"]) {
-      expect(nav).not.toContain(`id: "${id}"`);
+      const entryIdx = routes.indexOf(`id: "${id}"`);
+      expect(entryIdx).toBeGreaterThan(-1);
+      const entrySlice = routes.slice(entryIdx, entryIdx + 200);
+      expect(entrySlice).not.toContain("navEntry:");
     }
     const types = read("src/client/chat/types.ts");
     expect(types).toContain('case "scanner":');
