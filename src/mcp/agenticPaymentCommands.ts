@@ -10,12 +10,66 @@ import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import { UnifiedOptionsService } from "../trading";
 import { FossResearchService } from "../services/fossResearch";
+import {
+  AGENTIC_WALLET_MODE_SWITCH,
+  paymentsConfigErrorEvent,
+  PREMIUM_RESEARCH_MODE_SWITCH,
+  PREMIUM_SCREENER_MODE_SWITCH,
+  resolvePaymentsSwitchByKey,
+  type PaymentsModeValues,
+  type PaymentsSurfaceMode,
+} from "../config/agenticPaymentsModes";
+
+/**
+ * #1728: resolves one agentic-payments switch for an MCP execution in
+ * run > session > user > env > builtin order (the commands.ts
+ * resolvePaymentsCommandMode pattern, local to this module). An
+ * invalid winning value fails closed to `legacy` and is logged +
+ * audited as payment.config_error.
+ */
+function resolveAgenticPaymentsCommandMode(
+  context: McpToolContext,
+  key: keyof PaymentsModeValues,
+  run: unknown,
+  legacy: PaymentsSurfaceMode
+): PaymentsSurfaceMode {
+  const { resolved, switchName } = resolvePaymentsSwitchByKey(
+    context.scopedPaymentsModes,
+    key,
+    run,
+    (context.env as unknown as Record<string, unknown> | undefined)?.[AGENTIC_PAYMENTS_SWITCH_NAMES[key]],
+    legacy
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[payments] invalid ${switchName} value ${JSON.stringify(resolved.raw)} — failing closed to "${legacy}"`
+    );
+    context.audit(paymentsConfigErrorEvent(), "orchestrator", {
+      setting: switchName,
+      value: resolved.raw ?? "",
+      resolved: legacy,
+    });
+  }
+  return resolved.mode;
+}
+
+/** Env var name per switch key (for the env level lookup above). */
+const AGENTIC_PAYMENTS_SWITCH_NAMES: Record<keyof PaymentsModeValues, string> = {
+  create: "PAYMENTS_CREATE_MODE",
+  confirm: "PAYMENTS_CONFIRM_MODE",
+  transactions: "PAYMENTS_TRANSACTIONS_MODE",
+  wallet: AGENTIC_WALLET_MODE_SWITCH,
+  screener: PREMIUM_SCREENER_MODE_SWITCH,
+  research: PREMIUM_RESEARCH_MODE_SWITCH,
+};
 
 /**
  * 1. Paid Options Screener Command ($0.05 USDC)
  */
 export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
   underlying?: string;
+  underlyingSymbols?: string[];
+  symbol?: string;
   maxUnderlyings?: number;
   contractType?: "CALL" | "PUT" | "BOTH";
   minDelta?: number;
@@ -28,6 +82,7 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
   maxQuoteAgeSeconds?: number;
   limit?: number;
   paymentSignature?: string;
+  mode?: string;
 }> {
   readonly name = "paid_options_screener";
   readonly description =
@@ -48,6 +103,9 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
       maxQuoteAgeSeconds: { type: "number", description: "Quote age reference for freshness labels; does not discard stale rows" },
       limit: { type: "number", description: "Maximum contracts to return (clamped to 500); omitted returns up to 500 matches" },
       paymentSignature: { type: "string", description: "x402 PAYMENT-SIGNATURE proof (base64 JSON or hex)" },
+      underlyingSymbols: { type: "array", items: { type: "string" }, description: "#1728 input alias: REST filter spelling for the underlying list" },
+      symbol: { type: "string", description: "#1728 input alias: REST GET query spelling for a single underlying" },
+      mode: { type: "string", description: "#1728 run-level PREMIUM_SCREENER_MODE override (mcp | rest)" },
     },
   };
   // Issue #959: the filter constraints are composed from the ONE
@@ -69,11 +127,16 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
     maxQuoteAgeSeconds: optionScreenerFilterFields.maxQuoteAgeSeconds,
     limit: optionScreenerFilterFields.limit,
     paymentSignature: z.string().optional(),
+    underlyingSymbols: z.array(z.string()).optional(),
+    symbol: z.string().optional(),
+    mode: z.string().optional().describe("#1728 run-level PREMIUM_SCREENER_MODE override (mcp | rest)"),
   });
 
   async execute(
     input: {
       underlying?: string;
+      underlyingSymbols?: string[];
+      symbol?: string;
       maxUnderlyings?: number;
       contractType?: "CALL" | "PUT" | "BOTH";
       minDelta?: number;
@@ -86,9 +149,14 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
       maxQuoteAgeSeconds?: number;
       limit?: number;
       paymentSignature?: string;
+      mode?: string;
     },
     context: McpToolContext
   ) {
+    // #1728: the screener switch governs the paid RESPONSE ENVELOPE
+    // only. Gate (x402-only), price, engine, channel ("mcp"), and
+    // identity (sessionId) are identical in both modes.
+    const screenerMode = resolveAgenticPaymentsCommandMode(context, "screener", input.mode, "mcp");
     const paymentService = new ETradeAgenticPaymentService(context.orm, context.env, context.sessionId);
     const serviceDef = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
     const extractedNonce = paymentService.extractNonce(input.paymentSignature);
@@ -126,8 +194,20 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
     // Payment verified: execute options screen. Issue #959: the
     // assembled filter validates through the ONE shared options-filter
     // schema before the engine sees it.
+    // #1728 input aliases (additive spellings, not mode behavior):
+    // the REST filter's underlyingSymbols list and the REST GET
+    // query's `symbol` are accepted alongside the MCP `underlying`.
+    // Precedence: explicit list > underlying > symbol.
+    const underlyingList =
+      input.underlyingSymbols && input.underlyingSymbols.length > 0
+        ? input.underlyingSymbols.map((s) => String(s).toUpperCase().trim()).filter(Boolean)
+        : input.underlying
+          ? [input.underlying.toUpperCase().trim()]
+          : input.symbol
+            ? [input.symbol.toUpperCase().trim()]
+            : undefined;
     const parsedFilter = parseOptionScreenerFilter({
-      underlyingSymbols: input.underlying ? [input.underlying.toUpperCase().trim()] : undefined,
+      underlyingSymbols: underlyingList,
       maxUnderlyings: input.maxUnderlyings,
       contractType: input.contractType,
       minDelta: input.minDelta,
@@ -165,6 +245,27 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
       txHash: verification.receipt.txHash,
     });
 
+    // #1728: rest mode returns exactly the REST options-scan envelope
+    // (success/service/receipt/screenResult); mcp mode (legacy)
+    // returns the flat MCP envelope below.
+    if (screenerMode === "rest") {
+      const failed = result.status === "error";
+      return {
+        success: !failed,
+        service: serviceDef.name,
+        receipt: verification.receipt,
+        screenResult: result,
+        ...(failed
+          ? {
+              error:
+                result.validationError ||
+                result.fetchErrors?.[0]?.reason ||
+                "Options screen failed upstream; no data could be fetched.",
+            }
+          : {}),
+      };
+    }
+
     return {
       status: 200,
       paid: true,
@@ -196,6 +297,7 @@ export class PaidOptionsScreenerCommand implements IMcpToolCommand<{
 export class PaidMarketResearchCommand implements IMcpToolCommand<{
   symbol?: string;
   paymentSignature?: string;
+  mode?: string;
 }> {
   readonly name = "paid_market_research";
   readonly description =
@@ -205,14 +307,19 @@ export class PaidMarketResearchCommand implements IMcpToolCommand<{
     properties: {
       symbol: { type: "string", description: "Stock ticker symbol (e.g. NVDA, AAPL)" },
       paymentSignature: { type: "string", description: "x402 PAYMENT-SIGNATURE proof (base64 JSON or hex)" },
+      mode: { type: "string", description: "#1728 run-level PREMIUM_RESEARCH_MODE override (mcp | rest)" },
     },
   };
   readonly zodSchema = z.object({
     symbol: z.string().optional().default("NVDA"),
     paymentSignature: z.string().optional(),
+    mode: z.string().optional().describe("#1728 run-level PREMIUM_RESEARCH_MODE override (mcp | rest)"),
   });
 
-  async execute(input: { symbol?: string; paymentSignature?: string }, context: McpToolContext) {
+  async execute(input: { symbol?: string; paymentSignature?: string; mode?: string }, context: McpToolContext) {
+    // #1728: the research switch governs the paid RESPONSE ENVELOPE
+    // only (same boundaries as the screener switch above).
+    const researchMode = resolveAgenticPaymentsCommandMode(context, "research", input.mode, "mcp");
     const paymentService = new ETradeAgenticPaymentService(context.orm, context.env, context.sessionId);
     const serviceDef = TRADING_PAID_SERVICES.MARKET_RESEARCH;
     const extractedNonce = paymentService.extractNonce(input.paymentSignature);
@@ -255,6 +362,16 @@ export class PaidMarketResearchCommand implements IMcpToolCommand<{
       symbol: input.symbol || "NVDA",
     });
 
+    // #1728: rest mode returns exactly the REST market-research
+    // envelope; mcp mode (legacy) returns the flat MCP envelope.
+    if (researchMode === "rest") {
+      return {
+        success: true,
+        service: serviceDef.name,
+        receipt: verification.receipt,
+        report,
+      };
+    }
     return {
       status: 200,
       paid: true,
@@ -270,6 +387,8 @@ export class PaidMarketResearchCommand implements IMcpToolCommand<{
 export class AgenticWalletStatusCommand implements IMcpToolCommand<{
   action?: "status" | "set_limit";
   limitUSD?: number;
+  limit?: number;
+  mode?: string;
 }> {
   readonly name = "agentic_wallet_status";
   readonly description =
@@ -279,26 +398,58 @@ export class AgenticWalletStatusCommand implements IMcpToolCommand<{
     properties: {
       action: { type: "string", enum: ["status", "set_limit"], description: "Action to perform" },
       limitUSD: { type: "number", description: "New auto-approval threshold in USD (e.g. 0.10)" },
+      limit: { type: "number", description: "#1728 input alias (rest mode): same as limitUSD, the REST POST spelling" },
+      mode: { type: "string", description: "#1728 run-level AGENTIC_WALLET_MODE override (mcp | rest)" },
     },
   };
   readonly zodSchema = z.object({
     action: z.enum(["status", "set_limit"]).optional().default("status"),
     limitUSD: z.number().optional(),
+    limit: z.number().optional(),
+    mode: z.string().optional().describe("#1728 run-level AGENTIC_WALLET_MODE override (mcp | rest)"),
   });
 
-  async execute(input: { action?: "status" | "set_limit"; limitUSD?: number }, context: McpToolContext) {
+  async execute(input: { action?: "status" | "set_limit"; limitUSD?: number; limit?: number; mode?: string }, context: McpToolContext) {
+    // #1728: the wallet switch. Mode "rest" adopts the route
+    // contract: status is raw, set_limit validates (missing /
+    // negative / NaN → the route's 400 message, as a throw on this
+    // transport), honors the `limit` alias, audits
+    // agentic_payment.limit_updated, and returns the route POST
+    // shape. Mode "mcp" (legacy) keeps the wrapped status, the
+    // message-string set_limit shape, the silent status fall-through
+    // on a missing limit, and no audit. The balance stays simulated
+    // and per-identity scoped in both modes.
+    const walletMode = resolveAgenticPaymentsCommandMode(context, "wallet", input.mode, "mcp");
     const paymentService = new ETradeAgenticPaymentService(context.orm, context.env, context.sessionId);
 
-    if (input.action === "set_limit" && input.limitUSD !== undefined) {
-      paymentService.setAutoApproveLimit(input.limitUSD);
-      return {
-        success: true,
-        message: `Agentic payment auto-approval limit set to $${input.limitUSD.toFixed(2)} USD.`,
-        autoApproveLimitUSD: input.limitUSD,
-      };
+    if (input.action === "set_limit") {
+      if (walletMode === "rest") {
+        const raw = input.limitUSD !== undefined ? input.limitUSD : input.limit;
+        const limit = Number(raw);
+        if (raw === undefined || !Number.isFinite(limit) || limit < 0) {
+          throw new Error("Invalid limitUSD. Must be non-negative number.");
+        }
+        paymentService.setAutoApproveLimit(limit);
+        context.audit("agentic_payment.limit_updated", "payments", { limitUSD: limit });
+        return {
+          success: true,
+          autoApproveLimitUSD: limit,
+        };
+      }
+      if (input.limitUSD !== undefined) {
+        paymentService.setAutoApproveLimit(input.limitUSD);
+        return {
+          success: true,
+          message: `Agentic payment auto-approval limit set to $${input.limitUSD.toFixed(2)} USD.`,
+          autoApproveLimitUSD: input.limitUSD,
+        };
+      }
     }
 
     const status = await paymentService.getWalletStatus();
+    if (walletMode === "rest") {
+      return status;
+    }
     return {
       success: true,
       ...status,

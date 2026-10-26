@@ -41,6 +41,13 @@ import {
 import { AGENT_DIDS } from "../did";
 import type { DatabaseORM } from "../../orm";
 import type { AgentName, Env } from "../../types";
+import {
+  paymentsConfigErrorEvent,
+  resolvePaymentsSwitchByKey,
+  type PaymentsModeValues,
+  type PaymentsScopedModes,
+  type PaymentsSurfaceMode,
+} from "../../config/agenticPaymentsModes";
 
 /** The subset of OrchestratorAgent surface the agentic-payments handlers need. */
 export interface AgenticPaymentsRouteContext {
@@ -54,7 +61,58 @@ export interface AgenticPaymentsRouteContext {
     agent: AgentName | "judge" | "nlq" | "orchestrator",
     payload: Record<string, unknown>
   ): void;
+  /**
+   * #1728: optional session/user carriers for the wallet switch
+   * (run comes from the per-request `mode` / `?mode=`, global env
+   * from `env`). Populated by the execution-context owner; unset
+   * carriers fall through to env. See
+   * src/config/agenticPaymentsModes.ts.
+   */
+  scopedPaymentsModes?: PaymentsScopedModes;
 }
+
+/**
+ * #1728: resolves the wallet switch for a route in run > session >
+ * user > env > builtin order. An invalid winning value fails closed
+ * to the route legacy and is logged + audited as payment.config_error
+ * (agent "payments").
+ */
+function resolveAgenticRouteMode(
+  ctx: AgenticPaymentsRouteContext,
+  key: keyof PaymentsModeValues,
+  run: unknown,
+  legacy: PaymentsSurfaceMode
+): PaymentsSurfaceMode {
+  const envRecord = ctx.env as unknown as Record<string, unknown> | undefined;
+  const { resolved, switchName } = resolvePaymentsSwitchByKey(
+    ctx.scopedPaymentsModes,
+    key,
+    run,
+    envRecord?.[AGENTIC_ROUTE_SWITCH_NAMES[key]],
+    legacy
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[payments] invalid ${switchName} value ${JSON.stringify(resolved.raw)} — failing closed to "${legacy}"`
+    );
+    ctx.audit(paymentsConfigErrorEvent(), "payments", {
+      setting: switchName,
+      value: resolved.raw ?? "",
+      resolved: legacy,
+    });
+  }
+  return resolved.mode;
+}
+
+/** Env var name per switch key (for the env level lookup above). */
+const AGENTIC_ROUTE_SWITCH_NAMES: Record<keyof PaymentsModeValues, string> = {
+  create: "PAYMENTS_CREATE_MODE",
+  confirm: "PAYMENTS_CONFIRM_MODE",
+  transactions: "PAYMENTS_TRANSACTIONS_MODE",
+  wallet: "AGENTIC_WALLET_MODE",
+  screener: "PREMIUM_SCREENER_MODE",
+  research: "PREMIUM_RESEARCH_MODE",
+};
 
 /**
  * Handles the Cloudflare Agentic Payments routes. Returns a Response on
@@ -75,9 +133,13 @@ export async function handleAgenticPaymentsRoutes(
   // Agentic Wallet Status & Micropayment Metrics
   if ((path.endsWith("/payments/agentic/wallet") || path.includes("/payments/agentic/wallet")) && request.method === "GET") {
     try {
+      // #1728: mode "mcp" adopts the MCP status shape
+      // ({success: true, ...status}); mode "rest" (legacy) keeps
+      // the raw status.
+      const walletMode = resolveAgenticRouteMode(ctx, "wallet", url.searchParams.get("mode"), "rest");
       const paymentService = new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId);
       const status = await paymentService.getWalletStatus();
-      return Response.json(status);
+      return Response.json(walletMode === "mcp" ? { success: true, ...status } : status);
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to fetch wallet status" }, { status: 500 });
     }
@@ -189,6 +251,14 @@ export async function handleAgenticPaymentsRoutes(
   if (path.endsWith("/payments/agentic/auto-approve-limit") || path.includes("/payments/agentic/auto-approve-limit")) {
     const paymentService = new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId);
     if (request.method === "GET") {
+      // #1728: mode "mcp" adopts the MCP status shape (the full
+      // wallet status, which carries autoApproveLimitUSD); mode
+      // "rest" (legacy) keeps {autoApproveLimitUSD, network}.
+      const walletMode = resolveAgenticRouteMode(ctx, "wallet", url.searchParams.get("mode"), "rest");
+      if (walletMode === "mcp") {
+        const status = await paymentService.getWalletStatus();
+        return Response.json({ success: true, ...status });
+      }
       return Response.json({
         autoApproveLimitUSD: paymentService.getAutoApproveLimit(),
         network: ctx.env.X402_NETWORK || "base-sepolia",
@@ -197,12 +267,25 @@ export async function handleAgenticPaymentsRoutes(
     if (request.method === "POST") {
       try {
         const body = (await request.json().catch(() => ({}))) as any;
+        // #1728: validation (400) and the limit_updated audit run in
+        // BOTH modes — they are guards/observability, not presentation.
+        // Only the RESPONSE SHAPE is switchable: mode "mcp" returns
+        // the MCP set_limit shape (with the message string); mode
+        // "rest" (legacy) returns {success, autoApproveLimitUSD}.
+        const walletMode = resolveAgenticRouteMode(ctx, "wallet", body.mode, "rest");
         const limit = Number(body.limitUSD !== undefined ? body.limitUSD : body.limit);
         if (isNaN(limit) || limit < 0) {
           return Response.json({ error: "Invalid limitUSD. Must be non-negative number." }, { status: 400 });
         }
         paymentService.setAutoApproveLimit(limit);
         ctx.audit("agentic_payment.limit_updated", "payments", { limitUSD: limit });
+        if (walletMode === "mcp") {
+          return Response.json({
+            success: true,
+            message: `Agentic payment auto-approval limit set to $${limit.toFixed(2)} USD.`,
+            autoApproveLimitUSD: limit,
+          });
+        }
         return Response.json({ success: true, autoApproveLimitUSD: limit });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to update limit" }, { status: 500 });
