@@ -182,12 +182,28 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
     // #335: render the run PDF from the canonical stored report (best-effort;
     // the PDF is a delivery artifact, never a second copy).
     // #680: PDF generation is owned by ReportAssetAgent (single owner for
-    // the Generate step). Best-effort; never fails the run.
+    // the Generate step). Issue #1641: research runs go through the
+    // unified pipeline's generate stage (same ReportAssetAgent key
+    // source, plus the #1278 retry policy and the explicit
+    // pdfStatus/pdfError contract) instead of a direct asset call.
+    // Best-effort; never fails the run. A failed stage maps to a null
+    // key, exactly as a null asset did before.
     let pdfKey: string | null = null;
     try {
-      const { generatePdfAsset } = await import("../report-asset-agent");
-      const asset = await generatePdfAsset(ctx.env, login, "research", report);
-      pdfKey = asset?.key ?? null;
+      const { generateReportStage } = await import("../../services/unifiedReportPipeline");
+      const staged = await generateReportStage(ctx.env as any, {
+        type: "research",
+        trigger: trigger === "scheduled" ? "scheduled" : "manual",
+        result: report,
+        userLogin: login,
+        title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
+        summary: report.summary,
+        timestamp: report.createdAt,
+      });
+      pdfKey = staged.pdfStatus === "generated" ? staged.pdfKey : null;
+      if (staged.pdfStatus !== "generated") {
+        console.warn("[OrchestratorAgent] Research PDF generation failed:", staged.pdfError ?? "unknown");
+      }
     } catch (err) {
       console.warn("[OrchestratorAgent] Research PDF generation failed:", err);
     }
