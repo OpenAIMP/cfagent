@@ -10,14 +10,158 @@
  */
 
 import type { Env } from "../types";
+import {
+  KNOWLEDGE_CATEGORIES,
+  isKnowledgeServingEnabled,
+  servedFileLinkFor,
+} from "./knowledgeCorpus";
+// Issue #1169 (S2, cross-cutting: typed errors + externalized
+// messages): the mapping error extends the aspects catalog's
+// KnowledgeError — its code/message/remediation live in
+// src/aspects/errorCodes.ts, never inline here.
+import { KnowledgeError, KnowledgeErrorCode } from "../aspects/errorCodes";
+
+/**
+ * Issue #1169 (S2): a flag-ON mapping failure, typed and explicit.
+ * Thrown by mapAiSearchChunks when an upstream chunk is malformed
+ * (wrong-typed field, non-object chunk). The service rethrows it
+ * past the fallback — a malformed chunk must fail VISIBLY, never
+ * silently substitute stub results. `details` names the chunk index
+ * and field so the probe can pinpoint the shape mismatch. Flag-OFF
+ * never throws: it reproduces today's lenient mapping verbatim.
+ */
+export class AiSearchMappingError extends KnowledgeError {
+  public readonly chunkIndex: number;
+  public readonly field: string;
+
+  constructor(chunkIndex: number, field: string) {
+    super(
+      KnowledgeErrorCode.MAPPING_INVALID_CHUNK,
+      `Upstream AI Search chunk ${chunkIndex} has a malformed field '${field}'; the chunk was not mapped.`,
+      { chunkIndex, field }
+    );
+    this.name = "AiSearchMappingError";
+    this.chunkIndex = chunkIndex;
+    this.field = field;
+  }
+}
 
 export interface AISearchResultItem {
   id: string;
   title: string;
   url?: string;
   snippet: string;
-  score: number;
-  category: "sec_filing" | "broker_rules" | "options_disclosure" | "market_education";
+  /**
+   * Issue #1169 (S2, flag-gated): optional since the flag-ON mapping
+   * preserves the TRUE index score/category — an upstream chunk that
+   * carries no score (or no category) yields no score (or no
+   * category), never a defaulted 0.9 or a forced "sec_filing". The
+   * fallback branch below still always sets both: its constant's
+   * annotation narrows to Required for score/category (see the
+   * NOTE below), so no fallback logic line needed to change.
+   */
+  score?: number;
+  category?: "sec_filing" | "broker_rules" | "options_disclosure" | "market_education";
+  /**
+   * NOTE on the optionality above: the fallback branch below still
+   * always sets both (its constant entries all carry scores and
+   * categories — the constant's annotation below narrows to
+   * Required for exactly those two fields, so the fallback's
+   * arithmetic still typechecks). No fallback LOGIC line is touched
+   * by S2; the narrowing fails CLOSED at compile time if a future
+   * entry ever omits a score/category, instead of silently
+   * defaulting one.
+   */
+  /**
+   * Issue #1169 (S2, flag-gated) provenance. Present only when
+   * KNOWLEDGE_SERVING_ENABLED is on: bucketKey is the chunk's R2 key
+   * when present; servedFileLink exists ONLY for servable corpus
+   * keys (a link to anything else would 404); indexingState
+   * "indexed" marks index-returned rows — a row the live index
+   * returned is, by definition, indexed.
+   */
+  bucketKey?: string;
+  servedFileLink?: string;
+  indexingState?: "indexed" | "indexing" | "unknown";
+}
+
+/**
+ * Issue #1169 (S2, flag-gated): upstream chunk -> result mapping.
+ *
+ * PROBE-DEPENDENT: the assumed chunk shape is documented in
+ * tests/r2_knowledge_serving_p1169.test.ts. If the Step 0 live probe
+ * shows a different chunk shape, this mapping + its pins MUST be
+ * adjusted before S2 closes. Do not present probe-unverified mapping
+ * as proven.
+ *
+ * flagOn=false reproduces the pre-S2 mapping VERBATIM (defaulted
+ * score 0.9, forced category "sec_filing", no provenance) — that is
+ * the flag-OFF = today's behavior guarantee, pinned golden.
+ * flagOn=true preserves the true score (finite number or absent,
+ * never 0.9 — including a legitimate 0, which `||` used to erase)
+ * and the true category (one of the four corpus categories or
+ * absent, never forced), and stamps provenance.
+ */
+export function mapAiSearchChunks(chunks: readonly unknown[], flagOn: boolean): AISearchResultItem[] {
+  return (chunks as any[]).map((c: any, idx: number) => {
+    if (flagOn) {
+      // Strict validation, flag-ON only: a malformed chunk fails
+      // visibly (AiSearchMappingError, rethrown past the fallback
+      // by the service) instead of being silently defaulted or
+      // coerced. ABSENT fields are fine (they yield absent
+      // score/category); PRESENT-but-wrong-typed fields are not.
+      // Flag-OFF skips this block entirely — today's lenient
+      // mapping below is reproduced verbatim.
+      const malformed = (field: string): AiSearchMappingError =>
+        new AiSearchMappingError(idx, field);
+      if (typeof c !== "object" || c === null || Array.isArray(c)) throw malformed("chunk");
+      if (c.item !== undefined && (typeof c.item !== "object" || c.item === null || Array.isArray(c.item))) throw malformed("item");
+      if (c.item?.metadata !== undefined && (typeof c.item.metadata !== "object" || c.item.metadata === null || Array.isArray(c.item.metadata))) throw malformed("item.metadata");
+      if (c.item?.id !== undefined && typeof c.item.id !== "string") throw malformed("item.id");
+      if (c.item?.metadata?.title !== undefined && typeof c.item.metadata.title !== "string") throw malformed("item.metadata.title");
+      if (c.snippet !== undefined && typeof c.snippet !== "string") throw malformed("snippet");
+      if (c.item?.metadata?.description !== undefined && typeof c.item.metadata.description !== "string") throw malformed("item.metadata.description");
+      if (c.url !== undefined && typeof c.url !== "string") throw malformed("url");
+      if (c.key !== undefined && typeof c.key !== "string") throw malformed("key");
+      if (c.score !== undefined && (typeof c.score !== "number" || !Number.isFinite(c.score))) throw malformed("score");
+      if (c.item?.metadata?.category !== undefined && typeof c.item.metadata.category !== "string") throw malformed("category");
+    }
+    const id = c.item?.id || `doc_${idx}`;
+    const title = c.item?.metadata?.title || "Financial Document";
+    const snippet = c.snippet || c.item?.metadata?.description || "";
+    const url = c.url || c.key;
+    if (!flagOn) {
+      return {
+        id,
+        title,
+        snippet,
+        url,
+        score: c.score || 0.9,
+        category: "sec_filing",
+      } as AISearchResultItem;
+    }
+    const score =
+      typeof c.score === "number" && Number.isFinite(c.score) ? c.score : undefined;
+    const rawCategory = c.item?.metadata?.category;
+    const category =
+      typeof rawCategory === "string" &&
+      (KNOWLEDGE_CATEGORIES as readonly string[]).includes(rawCategory)
+        ? (rawCategory as AISearchResultItem["category"])
+        : undefined;
+    const bucketKey = typeof c.key === "string" ? c.key : undefined;
+    const servedFileLink = bucketKey ? servedFileLinkFor(bucketKey) : undefined;
+    return {
+      id,
+      title,
+      snippet,
+      url,
+      score,
+      category,
+      ...(bucketKey ? { bucketKey } : {}),
+      ...(servedFileLink ? { servedFileLink } : {}),
+      indexingState: "indexed",
+    } as AISearchResultItem;
+  });
 }
 
 export interface AISearchQueryResponse {
@@ -29,7 +173,14 @@ export interface AISearchQueryResponse {
 }
 
 // Built-in institutional knowledge base for financial trading docs
-const FINANCIAL_KNOWLEDGE_BASE: AISearchResultItem[] = [
+// Issue #1169 (S2, TYPE-ONLY): the constant's entries always carry a
+// score and a category (all five do), so the annotation narrows those
+// two fields to Required. This keeps the fallback branch's arithmetic
+// typechecking after AISearchResultItem.score/category became optional
+// for the flag-ON mapping. NO fallback logic line is touched, and the
+// narrowing fails CLOSED (compile error) if a future entry omits one.
+const FINANCIAL_KNOWLEDGE_BASE: (AISearchResultItem &
+  Required<Pick<AISearchResultItem, "score" | "category">>)[] = [
   {
     id: "sec_nvda_10k_2025",
     title: "NVIDIA Corp - Annual 10-K Filing (Risk Factors & Data Center Revenue)",
@@ -101,14 +252,21 @@ export class ETradeAISearchService {
         if (resp.ok) {
           const json = (await resp.json()) as any;
           if (json.success && json.result?.chunks) {
-            const results: AISearchResultItem[] = json.result.chunks.map((c: any, idx: number) => ({
-              id: c.item?.id || `doc_${idx}`,
-              title: c.item?.metadata?.title || "Financial Document",
-              snippet: c.snippet || c.item?.metadata?.description || "",
-              url: c.url || c.key,
-              score: c.score || 0.9,
-              category: "sec_filing",
-            }));
+            // Issue #1169 (S2, flag-gated): the primary-path mapping
+            // lives in mapAiSearchChunks above. Flag-OFF reproduces
+            // the pre-S2 mapping verbatim; flag-ON preserves true
+            // scores/categories + provenance. The fallback branch
+            // below is untouched by S2 (S3 owns it).
+            // Cross-cutting (S2): mapping application is logged via
+            // the repo's console-stream idiom (see loggingAspect.ts:
+            // standard console streams, bracket prefix, no sensitive
+            // fields — counts and flag state only, never chunk
+            // content, keys, or logins).
+            const flagOn = isKnowledgeServingEnabled(this.env);
+            const results = mapAiSearchChunks(json.result.chunks, flagOn);
+            console.info(
+              `[knowledgeMapping] aiSearch mapped chunks=${json.result.chunks.length} results=${results.length} flag=${flagOn ? "on" : "off"}`
+            );
 
             return {
               query,
@@ -119,7 +277,18 @@ export class ETradeAISearchService {
             };
           }
         }
-      } catch {
+      } catch (err) {
+        // Cross-cutting (S2): a mapping failure is VISIBLE, never a
+        // silent substitution — it is rethrown past the fallback
+        // below (S3 owns the fallback; S2 must not let a malformed
+        // chunk silently become stub results). Every other primary-
+        // path failure keeps today's fall-through behavior exactly.
+        if (err instanceof AiSearchMappingError) {
+          console.warn(
+            `[knowledgeMapping] aiSearch mapping failed chunkIndex=${err.chunkIndex} field=${err.field} code=${err.code}`
+          );
+          throw err;
+        }
         // Fall through to semantic cache
       }
     }
