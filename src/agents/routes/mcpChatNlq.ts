@@ -47,6 +47,13 @@ import {
   MCP_TOOLS,
 } from "../../mcp";
 import { executeNaturalLanguageQuery, type NLQSchedulingPort, type NLQSocialBriefPort } from "../nlq";
+import {
+  NLQ_MODE_SWITCH,
+  levelsForNlq,
+  nlqConfigErrorEvent,
+  resolveNlqMode,
+} from "../../config/nlqModes";
+import type { NlqScopedModes } from "../../config/nlqModes";
 import { resolveAiModelName } from "../model";
 import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
@@ -106,6 +113,13 @@ export interface McpChatNlqRouteContext {
    * webhook-originated requests (see below).
    */
   nlqSocialBriefPort?(): NLQSocialBriefPort | null;
+  /**
+   * #1722: optional NLQ_MODE session/user carriers for the /nlq
+   * route (run comes from the body `mode`, global env from
+   * `env`). Populated by the execution-context owner; unset carriers
+   * fall through to env. See src/config/nlqModes.ts.
+   */
+  scopedNlqModes?: NlqScopedModes;
 }
 
 /**
@@ -144,6 +158,7 @@ export async function handleMcpChatNlqRoutes(
           env: ctx.env,
           orm,
           sessionId,
+          scopedNlqModes: ctx.scopedNlqModes,
           audit: (type, agent, payload) => ctx.audit(type, agent, payload),
           submitJob: (job) => ctx.submitAsyncJob(job),
           getJob: (jobId) => ctx.getAsyncJob(jobId),
@@ -246,6 +261,7 @@ export async function handleMcpChatNlqRoutes(
         query?: string;
         context?: string;
         validateWithLLM?: boolean;
+        mode?: unknown;
       };
       const query = (body.query || "").trim();
       if (!query) {
@@ -267,19 +283,54 @@ export async function handleMcpChatNlqRoutes(
       // header can only REMOVE the port (a forged "webhook" value
       // on a direct call disables intake for that caller), never
       // grant it.
+      //
+      // #1722: withholding is computed BEFORE the mode branch and
+      // stands in BOTH modes — it is enforcement, not a behavior
+      // variant. A run/session/user/env value can never re-grant a
+      // withheld port: in rest mode the withheld port is passed as
+      // undefined; in mcp mode no port is passed at all. Scheduling
+      // and discovery are NOT withheld on the webhook path, in
+      // either mode. The x-user-login gate above likewise stands in
+      // both modes (it runs before any mode resolution).
       const socialBriefPort =
         request.headers.get("x-nlq-source") === "webhook"
           ? undefined
           : (ctx.nlqSocialBriefPort?.() ?? undefined);
-      const { plan, result } = await executeNaturalLanguageQuery(
-        orm,
-        sessionId,
-        query,
-        ctx.env,
-        userLogin,
-        userDid,
-        { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), socialBriefPort, discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql(), blobStorage: ctx.getStorage?.() }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql: ctx.getStorageSql(), storage: ctx.getStorage?.() }) }
+      // #1722: NLQ_MODE, run (body `mode`) > session > user >
+      // global env > built-in "rest". An invalid winning value fails
+      // closed to "rest" and is logged + audited as nlq.config_error.
+      const resolvedNlqMode = resolveNlqMode(
+        levelsForNlq(ctx.scopedNlqModes, body.mode, (ctx.env as unknown as Record<string, unknown> | undefined)?.[NLQ_MODE_SWITCH])
       );
+      if (resolvedNlqMode.invalid) {
+        console.error(
+          `[nlq] invalid ${NLQ_MODE_SWITCH} value ${JSON.stringify(resolvedNlqMode.raw)} — failing closed to "rest"`
+        );
+        ctx.audit(nlqConfigErrorEvent(), "nlq", {
+          setting: NLQ_MODE_SWITCH,
+          value: resolvedNlqMode.raw ?? "",
+          resolved: "rest",
+        });
+      }
+      // #1722: "rest" (default) is the pre-#1722 route contract
+      // verbatim — full ports, stores, runners, validateWithLLM
+      // passthrough (note: the REST route binds NO stock-screen port,
+      // so stock screens still fall back to the listings screener
+      // here, in both modes; the async job is the stock-screen
+      // surface). "mcp" is the MCP-direct shape — the full function
+      // with NO options (no ports, no stores, no runners) — while
+      // keeping the REST identity (x-user-login) and audit.
+      const { plan, result } = resolvedNlqMode.mode === "mcp"
+        ? await executeNaturalLanguageQuery(orm, sessionId, query, ctx.env, userLogin, userDid)
+        : await executeNaturalLanguageQuery(
+            orm,
+            sessionId,
+            query,
+            ctx.env,
+            userLogin,
+            userDid,
+            { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), socialBriefPort, discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql(), blobStorage: ctx.getStorage?.() }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql: ctx.getStorageSql(), storage: ctx.getStorage?.() }) }
+          );
       ctx.audit("nlq.executed", "nlq", {
         query,
         domain: result.domain,

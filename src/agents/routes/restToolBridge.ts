@@ -27,6 +27,8 @@ export interface RestToolParts {
   audit: McpToolContext["audit"];
   env?: unknown;
   scopedModes?: McpToolContext["scopedModes"];
+  /** #1722: NLQ_MODE session/user carriers, forwarded to the tool context. */
+  scopedNlqModes?: McpToolContext["scopedNlqModes"];
 }
 
 /**
@@ -41,6 +43,7 @@ export function restToolContext(parts: RestToolParts): McpToolContext {
     sessionId: parts.sessionId,
     audit: parts.audit,
     scopedModes: parts.scopedModes,
+    scopedNlqModes: parts.scopedNlqModes,
   };
 }
 

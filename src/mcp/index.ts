@@ -185,6 +185,8 @@ export async function executeMCPTool(
     env: Env;
     orm: DatabaseORM;
     sessionId: string;
+    /** #1722: NLQ_MODE session/user carriers, spread through to the tool context. */
+    scopedNlqModes?: import("../config/nlqModes").NlqScopedModes;
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
     submitJob?: (job: AsyncJobSubmission) => Promise<{
       jobId: string;
@@ -325,6 +327,8 @@ export async function handleMCPRequest(
     env: Env;
     orm: DatabaseORM;
     sessionId: string;
+    /** #1722: NLQ_MODE session/user carriers, forwarded to tool execution. */
+    scopedNlqModes?: import("../config/nlqModes").NlqScopedModes;
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
     submitJob?: (job: AsyncJobSubmission) => Promise<{
       jobId: string;
