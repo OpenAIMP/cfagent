@@ -83,8 +83,14 @@ const ORCH = "agents/orchestrator.ts";
  *  class itself gains no logic) — combined tree measured
  *  2,126 lines / 98,774 B; BUDGET_LINES keeps #1676's 2130 and
  *  BUDGET_BYTES keeps the slice's 103_300 (measured 98_359 +
- *  ~5% headroom at slice time, the pin's convention). */
-const BUDGET_LINES = 2130;
+ *  ~5% headroom at slice time, the pin's convention).
+ *  Slice 3 audit + reports projection (#1688) adds the
+ *  seedCanonicalReports delegating wrapper + its import
+ *  (execution in orchestrator/canonicalReportSeed.ts) —
+ *  measured 2,143 lines / 99,642 B after the addition on the
+ *  pre-#1236 tree; budget lines rise to 2150 and bytes keep
+ *  #1236's 103_300, which still covers the combined tree. */
+const BUDGET_LINES = 2150;
 const BUDGET_BYTES = 103_300;
 
 const count = (haystack: string, needle: string) =>

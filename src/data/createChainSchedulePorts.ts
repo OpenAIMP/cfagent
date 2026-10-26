@@ -16,6 +16,7 @@ import {
   D1ChainScheduleAdapter,
   ensureChainScheduleSchema,
 } from "./d1ChainScheduleAdapter";
+import { recordAuditEventBestEffort } from "./createAuditReportPorts";
 import type {
   ChainRow,
   ChainScheduleStore,
@@ -61,7 +62,7 @@ export async function projectAfterTransition(
       return { projected: false, skipped: true };
     }
     await ensureChainScheduleSchema(adapter.db);
-    return await projectTransition({
+    const result = await projectTransition({
       store: adapter,
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
@@ -69,6 +70,35 @@ export async function projectAfterTransition(
       transition: input.transition,
       nowMs: input.nowMs,
     });
+    // Issue #1688 (slice 3, R5): a projected transition also
+    // writes one audit event per subject (chain + schedule).
+    // Best-effort and never blocking: the audit helper never
+    // throws, and skipped replays write no audit event (no
+    // new occurrence happened). Reconcile writes are audited
+    // separately at their invocation point, not here.
+    if (result.projected && !result.skipped) {
+      const detailJson = JSON.stringify({
+        transition: input.transition,
+        status: input.record.status,
+      });
+      for (const subjectType of ["chain", "schedule"] as const) {
+        await recordAuditEventBestEffort(env, {
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          chainId: input.record.id,
+          eventKind: input.transition,
+          subjectType,
+          subjectId: input.record.id,
+          actor: "system",
+          detailJson,
+          occurredAtMs: input.nowMs,
+          provenanceWriter: "scheduled-agent:projectAfterTransition",
+          provenanceSourceDo: "ScheduledAgent",
+          provenanceSourceVersion: "1",
+        }, input.nowMs);
+      }
+    }
+    return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(
