@@ -597,6 +597,11 @@ export class UnifiedOptionsService {
             overrideEnv: this.overrideEnv,
             orm: this.orm,
             sql: this.discoverySql,
+            // Issue #1661: full history capture when the service
+            // carries platformDeps; absent → today's outcome-only.
+            ...(this.platformDeps?.blobStorage
+              ? { blobStorage: this.platformDeps.blobStorage as never }
+              : {}),
           });
           const outcome = await discoveryService.run({
             symbols: discoverySymbols,
