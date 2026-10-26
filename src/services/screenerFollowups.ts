@@ -18,6 +18,7 @@
  */
 
 import type { AsyncJobChannel, AsyncJobSubmission, StageChainConfig } from "../types";
+import type { OptionsPartialQualification } from "../trading";
 
 /** Consolidation C4 (#1329): discovery + goal runs join the bridge, so
  *  the outcome kind covers them too. kindLabel (below) names each. */
@@ -104,6 +105,14 @@ export interface ScreenerRunOutcome {
   webhookUrl?: string;
   /** Stable per-run delivery id (dedupe for notifications/deliveries). */
   deliveryId?: string;
+  /**
+   * Issue #1718: the options run's partial qualification, when the scan
+   * could not judge its whole requested universe. Carried so the
+   * broadcast coverage floor can degrade (not success-broadcast)
+   * below-floor runs at notification time. Stock/goal/discovery runs
+   * never carry it, so their notifications are unchanged.
+   */
+  partial?: OptionsPartialQualification;
   /** Consolidation C3 (#1277): the schedule record's stage-chain
    *  config, when the run opted into stage-layered scheduling. The
    *  bridge stamps the chain's stage jobs from it; absent = the
@@ -400,6 +409,52 @@ export function planLifecycleNotifications(
   return specs;
 }
 
+/**
+ * Issue #1718: the single broadcast coverage floor for options runs.
+ * A partial run below this fraction of its requested universe evaluated
+ * must NOT be broadcast as a success ("✅ Screen completed" + report
+ * link) on any notification surface — its notification degrades instead
+ * (formatDegradedCoverageNotice). The run record and report are still
+ * persisted as evidence; only the broadcast changes. Owner-adjustable:
+ * change this one constant, not the call sites.
+ */
+export const OPTIONS_BROADCAST_COVERAGE_FLOOR = 0.5;
+
+/** True when a partial qualification sits below the broadcast floor.
+ *  No partial (complete coverage) or an empty universe never degrades. */
+export function optionsCoverageBelowBroadcastFloor(
+  partial: OptionsPartialQualification | undefined,
+): boolean {
+  if (!partial || partial.consideredCount <= 0) return false;
+  return partial.evaluatedCount / partial.consideredCount < OPTIONS_BROADCAST_COVERAGE_FLOOR;
+}
+
+/**
+ * Issue #1718: the degraded notice replacing a success broadcast for a
+ * below-floor partial run. Names coverage (evaluated of considered,
+ * failures, truncated) and the top skip reason when stamped. Deliberately
+ * carries no success mark, no "completed" text, and no report link — the
+ * report stays stored as evidence, it is just not broadcast.
+ */
+export function formatDegradedCoverageNotice(
+  partial: OptionsPartialQualification,
+  kindLabel: string,
+  scope?: string,
+): string {
+  const parts = [
+    `⚠️ ${kindLabel}${scope ? ` — ${scope}` : ""}: degraded coverage — ${partial.evaluatedCount} of ${partial.consideredCount} underlyings evaluated (${partial.coverageErrors} failures, ${partial.truncatedCount} truncated).`,
+  ];
+  if (partial.topSkipReason) {
+    parts.push(
+      `Top skip reason: "${partial.topSkipReason}"${partial.topSkipCount ? ` (${partial.topSkipCount} symbols)` : ""}.`,
+    );
+  }
+  parts.push(
+    `No report broadcast: coverage is below the ${Math.round(OPTIONS_BROADCAST_COVERAGE_FLOOR * 100)}% broadcast floor. The run record and report remain stored as evidence.`,
+  );
+  return parts.join(" ");
+}
+
 /** Notification text for one lifecycle transition. */
 export function formatLifecycleNotification(
   event: FollowupLifecycleEvent,
@@ -413,6 +468,13 @@ export function formatLifecycleNotification(
     case "started":
       return `🔔 ${kindLabel}${scopeText} started`;
     case "completed":
+      // Issue #1718: a below-floor options partial never posts as a
+      // success — the degraded notice replaces the completed text on
+      // every channel the notify job reaches. Other kinds carry no
+      // partial, so their completed text is byte-identical to before.
+      if (outcome.kind === "options" && optionsCoverageBelowBroadcastFloor(outcome.partial)) {
+        return formatDegradedCoverageNotice(outcome.partial!, kindLabel, scope);
+      }
       return `✅ Screen completed\n${formatFollowupDeliveryText(outcome)}`;
     case "failed":
       // Issue #1252 (#1173 R4): run failures carry the catalog code
@@ -456,6 +518,12 @@ export function formatHeldNotification(
  * is attached) instead of going silent.
  */
 export function formatUndeliverableNotification(outcome: ScreenerRunOutcome, reason: string): string {
+  // Issue #1718: same floor as the completed notice — a below-floor
+  // partial must not post a success header through this surface either.
+  if (outcome.kind === "options" && optionsCoverageBelowBroadcastFloor(outcome.partial)) {
+    const kindLabel = `${screenerKindLabel(outcome.kind)} screen`;
+    return formatDegradedCoverageNotice(outcome.partial!, kindLabel, outcome.thesis);
+  }
   return `✅ Screen completed\n${formatFollowupDeliveryText(outcome)}\n⚠️ No report is attached: ${reason}`;
 }
 
@@ -550,6 +618,9 @@ export function screenerOutcomeFromEvent(
         thesis: event.thesis,
         summary: event.summary,
         stageChain: event.stageChain,
+        // Issue #1718: the qualification rides the event so the
+        // lifecycle completed notice can apply the broadcast floor.
+        partial: event.partial,
       };
     case "options.failed":
       return {
@@ -612,6 +683,7 @@ export function screenerOutcomeFromRunResult(
     opportunities: asOpportunities(result.opportunities),
     providerFallback: asProviderFallback(result.providerFallback),
     error: typeof result.error === "string" ? result.error : undefined,
+    partial: asPartialQualification(result.partial),
   };
 }
 
@@ -701,6 +773,36 @@ function pdfKeyFromReportUrl(reportUrl: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Issue #1718: accept only a well-shaped partial qualification from an
+ * untyped run result — a malformed stamp must not arm the floor (nor
+ * crash the bridge); it is dropped, leaving today's behavior.
+ */
+function asPartialQualification(value: unknown): OptionsPartialQualification | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const p = value as Record<string, unknown>;
+  const evaluatedCount = asNumber(p.evaluatedCount);
+  const consideredCount = asNumber(p.consideredCount);
+  const coverageErrors = asNumber(p.coverageErrors);
+  const truncatedCount = asNumber(p.truncatedCount);
+  if (
+    evaluatedCount === undefined ||
+    consideredCount === undefined ||
+    coverageErrors === undefined ||
+    truncatedCount === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    evaluatedCount,
+    consideredCount,
+    coverageErrors,
+    truncatedCount,
+    ...(typeof p.topSkipReason === "string" && p.topSkipReason ? { topSkipReason: p.topSkipReason } : {}),
+    ...(asNumber(p.topSkipCount) !== undefined ? { topSkipCount: asNumber(p.topSkipCount)! } : {}),
+  };
 }
 
 function asOpportunities(value: unknown): ScreenerOutcomeOpportunity[] | undefined {
