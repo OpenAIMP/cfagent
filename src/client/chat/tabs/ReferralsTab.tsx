@@ -5,6 +5,13 @@ import type { CategoryItem } from "../types";
 import type { ExternalAdItem } from "../types";
 import type { ReferralItem } from "../types";
 import type { User } from "../types";
+import { Badge } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { Notice } from "../../components/ui/Notice";
+import { Select } from "../../components/ui/Select";
+import { TextInput } from "../../components/ui/TextInput";
 
 export interface ReferralsTabProps {
   activeShareRefId: string | null;
@@ -54,38 +61,38 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   Invite colleagues to Multi-Agent Studio to unlock GPU compute credits, and place your own developer referral links to earn community rewards.
                 </p>
               </div>
-              <button
-                className="refresh-btn"
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={fetchReferrals}
                 disabled={referralsLoading}
               >
                 {referralsLoading ? "Refreshing…" : "🔄 Refresh"}
-              </button>
+              </Button>
             </div>
 
             {/* Top Share Box */}
-            <div className="referral-share-card">
+            <Card padding="none" className="referral-share-card">
               <div className="referral-share-left">
-                <span className="share-tag">YOUR EXCLUSIVE INVITE LINK</span>
+                <Badge size="xs" uppercase tone="neutral">YOUR EXCLUSIVE INVITE LINK</Badge>
                 <h4>Share Multi-Agent Studio & Earn $10 Compute Credits</h4>
                 <p>
                   When friends or coworkers sign up using your link, both of you unlock 50,000 free inference tokens and premium agent execution limits.
                 </p>
                 <div className="referral-link-input-group">
-                  <input
+                  <TextInput
                     type="text"
                     readOnly
                     value={personalReferralUrl}
                     className="referral-url-field"
                     onClick={(e) => (e.target as HTMLInputElement).select()}
                   />
-                  <button
-                    type="button"
-                    className={`copy-link-btn ${copiedReferral ? "copied" : ""}`}
+                  <Button
+                    variant="primary"
                     onClick={handleCopyPersonalRef}
                   >
                     {copiedReferral ? "✓ Copied!" : "📋 Copy Link"}
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -200,35 +207,34 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   >
                     📌 Pinterest
                   </a>
-                  <button
-                    type="button"
-                    className={`social-btn discord ${discordCopied ? "copied" : ""}`}
+                  <Button
+                    variant="secondary"
                     onClick={handleCopyDiscordEmbed}
                     title="Copy Discord rich markdown format"
                   >
                     👾 {discordCopied ? "✓ Discord Link Copied!" : "Discord Embed"}
-                  </button>
+                  </Button>
                 </div>
               </div>
-            </div>
+            </Card>
 
             {/* Metrics Ribbon */}
             <div className="referral-stats-ribbon">
-              <div className="stat-card">
+              <Card padding="none" className="stat-card">
                 <span className="stat-icon">🔗</span>
                 <div className="stat-meta">
                   <span className="stat-num">{referrals.length}</span>
                   <span className="stat-label">Referrals Placed</span>
                 </div>
-              </div>
-              <div className="stat-card">
+              </Card>
+              <Card padding="none" className="stat-card">
                 <span className="stat-icon">🖱️</span>
                 <div className="stat-meta">
                   <span className="stat-num">{referrals.reduce((sum, r) => sum + r.clicks, 0)}</span>
                   <span className="stat-label">Total Link Clicks</span>
                 </div>
-              </div>
-              <div className="stat-card">
+              </Card>
+              <Card padding="none" className="stat-card">
                 <span className="stat-icon">👥</span>
                 <div className="stat-meta">
                   <span className="stat-num">
@@ -236,8 +242,8 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   </span>
                   <span className="stat-label">Referred Sign-ups</span>
                 </div>
-              </div>
-              <div className="stat-card highlight">
+              </Card>
+              <Card padding="none" className="stat-card highlight">
                 <span className="stat-icon">💎</span>
                 <div className="stat-meta">
                   <span className="stat-num">
@@ -245,7 +251,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   </span>
                   <span className="stat-label">Earned Compute</span>
                 </div>
-              </div>
+              </Card>
             </div>
 
             {/* Main 2-column Grid: Place Referral Link Form + Placed Links List */}
@@ -257,12 +263,12 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   <p>Publish your affiliate or referral link to your account to share with teammates and fellow developers.</p>
                 </div>
                 <form onSubmit={handleCreateReferral} className="referral-form">
-                  {refFormSuccess && <div className="form-alert success">{refFormSuccess}</div>}
-                  {refFormError && <div className="form-alert error">{refFormError}</div>}
+                  {refFormSuccess && <Notice tone="success" className="form-alert success">{refFormSuccess}</Notice>}
+                  {refFormError && <Notice tone="danger" className="form-alert error">{refFormError}</Notice>}
 
                   <div className="form-group">
                     <label>Link Title / Service *</label>
-                    <input
+                    <TextInput
                       type="text"
                       placeholder="e.g. Market Data Pro, Cursor AI, Supabase"
                       value={newRefTitle}
@@ -273,7 +279,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
 
                   <div className="form-group">
                     <label>Destination Referral URL *</label>
-                    <input
+                    <TextInput
                       type="url"
                       placeholder="https://service.com/?ref=yourname"
                       value={newRefUrl}
@@ -285,7 +291,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   <div className="form-row-2">
                     <div className="form-group">
                       <label>Category</label>
-                      <select
+                      <Select
                         value={newRefCategory}
                         onChange={(e) => setNewRefCategory(e.target.value)}
                       >
@@ -304,12 +310,12 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                             <option value="SaaS & Productivity">⚡ SaaS & Productivity</option>
                           </>
                         )}
-                      </select>
+                      </Select>
                     </div>
 
                     <div className="form-group">
                       <label>Bonus / Reward Offer</label>
-                      <input
+                      <TextInput
                         type="text"
                         placeholder="e.g. Get $10 in free API credits"
                         value={newRefReward}
@@ -318,13 +324,14 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                     </div>
                   </div>
 
-                  <button
+                  <Button
                     type="submit"
+                    variant="primary"
                     className="submit-action-btn"
                     disabled={savingRef || !newRefTitle.trim() || !newRefUrl.trim()}
                   >
                     {savingRef ? "Publishing…" : "🚀 Publish Referral Link"}
-                  </button>
+                  </Button>
                 </form>
               </div>
 
@@ -337,19 +344,17 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
 
                 <div className="referral-items-list">
                   {referrals.length === 0 ? (
-                    <div className="empty-referrals-box">
-                      <span className="empty-icon">🔗</span>
-                      <p>No referral links placed yet.</p>
-                      <span className="empty-sub">
-                        Use the form on the left to add your first affiliate or tool referral link.
-                      </span>
-                    </div>
+                    <EmptyState
+                      icon="🔗"
+                      title="No referral links placed yet."
+                      description="Use the form on the left to add your first affiliate or tool referral link."
+                    />
                   ) : (
                     referrals.map((ref) => (
-                      <div key={ref.id} className="referral-card-item">
+                      <Card padding="none" key={ref.id} className="referral-card-item">
                         <div className="ref-top">
-                          <span className="ref-cat-pill">{ref.category}</span>
-                          <span className="ref-clicks-pill">🖱️ {ref.clicks} clicks</span>
+                          <Badge size="xs" tone="accent">{ref.category}</Badge>
+                          <Badge size="xs" tone="neutral">🖱️ {ref.clicks} clicks</Badge>
                         </div>
                         <h5 className="ref-title">{ref.title}</h5>
                         <p className="ref-reward">🎁 {ref.rewardText}</p>
@@ -357,29 +362,31 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                           <code>{ref.url}</code>
                         </div>
                         <div className="ref-footer">
-                          <button
-                            type="button"
-                            className="visit-ref-btn"
+                          <Button
+                            variant="secondary"
+                            tone="subtle"
+                            size="sm"
                             onClick={() => handleReferralClick(ref)}
                           >
                             Test Link ↗
-                          </button>
-                          <button
-                            type="button"
-                            className={`share-toggle-btn ${activeShareRefId === ref.id ? "active" : ""}`}
+                          </Button>
+                          <Button
+                            variant="primary"
+                            tone="subtle"
+                            size="sm"
                             onClick={() => setActiveShareRefId(activeShareRefId === ref.id ? null : ref.id)}
                             title="Share on social media"
                           >
                             📢 Share Link
-                          </button>
-                          <button
-                            type="button"
-                            className="delete-ref-btn"
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => handleDeleteReferral(ref.id)}
                             title="Delete this referral"
                           >
                             🗑️ Delete
-                          </button>
+                          </Button>
                         </div>
                         {activeShareRefId === ref.id && (
                           <div className="card-social-share-row">
@@ -447,17 +454,17 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                             >
                               🦋
                             </a>
-                            <button
-                              type="button"
-                              className="mini-social-btn discord"
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               onClick={() => handleCopyRefDiscordEmbed(ref.url, ref.title, ref.id)}
                               title="Copy Discord embed"
                             >
                               {copiedShareRefId === ref.id ? "✓" : "👾"}
-                            </button>
+                            </Button>
                           </div>
                         )}
-                      </div>
+                      </Card>
                     ))
                   )}
                 </div>
@@ -478,7 +485,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
             )}
 
             {/* Official Social Media Platforms & Developer Community Hub */}
-            <div className="referral-social-hub-card">
+            <Card padding="none" className="referral-social-hub-card">
               <div className="card-header">
                 <h4>🌐 Official Developer Social Platforms & Communities</h4>
                 <p>
@@ -584,7 +591,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                   <span className="join-arrow">↗</span>
                 </a>
               </div>
-            </div>
+            </Card>
           </div>
   );
 }

@@ -20,7 +20,7 @@ import { MarketStatusPill } from "./components/MarketStatusPill";
 import { AskAgentWidget } from "./components/AskAgentWidget";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
 import { adAccentPalette } from "./designTokens";
-import { Button, TextInput, Badge } from "./components/ui";
+import { Button, TextInput, Badge, Select, Table, Card, Notice, Modal } from "./components/ui";
 import { MarkdownContent } from "./chat/MarkdownContent";
 import { renderInlineFormatted } from "./chat/renderInlineFormatted";
 import { ReasoningView } from "./chat/ReasoningView";
@@ -1056,9 +1056,8 @@ export function Chat({ user }: { user: User }) {
               />
 
               {/* Universal Top Bar Refresh Button */}
-              <button
-                type="button"
-                className={`nav-refresh-btn ${isRefreshing ? "refreshing" : ""}`}
+              <Button
+                variant="ghost"
                 onClick={handleGlobalRefresh}
                 disabled={isRefreshing}
                 title={`Refresh active workspace & market data feeds${lastRefreshedAt ? ` (last refreshed: ${lastRefreshedAt})` : ""}`}
@@ -1067,12 +1066,11 @@ export function Chat({ user }: { user: User }) {
                 <span className={`nav-refresh-icon ${isRefreshing ? "spin" : ""}`}>↻</span>
                 <span className="nav-refresh-text">Refresh</span>
                 {lastRefreshedAt && <span className="nav-refresh-time">{lastRefreshedAt}</span>}
-              </button>
+              </Button>
 
               {/* Trade Button (Orange/Amber pill matching reference) */}
-              <button
-                type="button"
-                className="nav-trade-btn sub-header-trade-btn"
+              <Button
+                variant="trade"
                 onClick={() => {
                   setTab("order");
                   setTbdMenuOpen(false);
@@ -1080,7 +1078,7 @@ export function Chat({ user }: { user: User }) {
                 title="Quick Trade & Fast Order Ticket"
               >
                 Trade
-              </button>
+              </Button>
 
               {/* Unified Settings & Broker Menu (Icon-only with hover) */}
               <SettingsMenu
@@ -1219,22 +1217,21 @@ export function Chat({ user }: { user: User }) {
           </div>
 
           <div className="ext-ad-actions">
-            <button
-              type="button"
-              className="ext-ad-cta-btn"
+            <Button
+              variant="primary"
               onClick={() => handleExternalAdClick(externalAds[activeExtAdIndex])}
             >
               {externalAds[activeExtAdIndex].ctaText}
-            </button>
+            </Button>
             {externalAds.length > 1 && (
-              <button
-                type="button"
-                className="ext-ad-next-btn"
+              <Button
+                variant="secondary"
+                size="sm"
                 title="View next ad in rotation"
                 onClick={() => setActiveExtAdIndex((prev) => (prev + 1) % externalAds.length)}
               >
                 ↻ Next ({activeExtAdIndex + 1}/{externalAds.length})
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -1278,42 +1275,54 @@ export function Chat({ user }: { user: User }) {
 
             <div className="nlq-presets">
               <span className="preset-label">Natural Language Queries:</span>
-              <button
-                className="chip-btn"
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 onClick={() => setNlqInput("List all database tables and schema")}
               >
                 🗄️ List tables & schema
-              </button>
-              <button
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 onClick={() => setNlqInput("Show referral categories in categories table")}
               >
                 🏷️ Show categories table data
-              </button>
-              <button
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 onClick={() => setNlqInput("Add category 'Web3 & Crypto' to categories table")}
               >
                 ➕ Add category 'Web3 & Crypto'
-              </button>
-              <button
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 onClick={() => setNlqInput("Show external ads inventory and earnings")}
               >
                 📢 Show external ads & earnings
-              </button>
-              <button
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 onClick={() => setNlqInput("Show transactions and payment records")}
               >
                 💳 Show transaction ledger
-              </button>
-              <button
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 onClick={() => setNlqInput("List all user questions asked")}
               >
                 💬 List user questions
-              </button>
+              </Button>
             </div>
 
             <form className="chat-input-bar nlq-bar" onSubmit={(event) => {
@@ -1324,21 +1333,21 @@ export function Chat({ user }: { user: User }) {
                 setTab("chat");
               }
             }}>
-              <input
+              <TextInput
                 type="text"
                 value={nlqInput}
                 onChange={(e) => setNlqInput(e.target.value)}
                 placeholder="Ask the shared chat about database records or categories…"
               />
-              <button type="submit" className="send-button" disabled={!nlqInput.trim() || isBusy}>
+              <Button type="submit" variant="primary" disabled={!nlqInput.trim() || isBusy}>
                 Ask in Chat
-              </button>
+              </Button>
             </form>
 
             {/* Direct ORM Table Explorer Toolbar */}
             <div className="nlq-orm-toolbar">
               <span className="orm-tag">⚡ RECORD EXPLORER:</span>
-              <select
+              <Select
                 value={selectedBrowseTable}
                 onChange={(e) => setSelectedBrowseTable(e.target.value)}
                 className="orm-table-select"
@@ -1351,7 +1360,7 @@ export function Chat({ user }: { user: User }) {
                 <option value="mas_messages">💬 mas_messages (Conversation History)</option>
                 <option value="mas_memory">🧠 mas_memory (Session Facts)</option>
                 <option value="mas_events">🛡️ mas_events (Audit Log)</option>
-              </select>
+              </Select>
 
               <TextInput
                 value={browseSearch}
@@ -1372,56 +1381,44 @@ export function Chat({ user }: { user: User }) {
 
             {/* Direct Table Browsing Results (if opened) */}
             {browsedData && (
-              <div className="nlq-results-card orm-browsed-card">
+              <Card padding="none" className="nlq-results-card orm-browsed-card">
                 <div className="browsed-card-header">
                   <div className="browsed-title">
                     <span>🗄️ Table Data: <strong>{browsedData.tableName}</strong></span>
-                    <span className="row-count-badge">{browsedData.total} Total Records</span>
+                    <Badge size="xs" tone="neutral">{browsedData.total} Total Records</Badge>
                   </div>
-                  <button
-                    type="button"
-                    className="close-sm-btn"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setBrowsedData(null)}
                     title="Close browsed table"
                   >
                     ✕ Close
-                  </button>
+                  </Button>
                 </div>
 
                 {browsedData.rows && browsedData.rows.length > 0 ? (
                   <div className="results-table-container">
-                    <table className="results-table">
-                      <thead>
-                        <tr>
-                          {Object.keys(browsedData.rows[0]).map((col) => (
-                            <th key={col}>{col}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {browsedData.rows.map((row: any, i: number) => (
-                          <tr key={i}>
-                            {Object.keys(browsedData.rows[0]).map((col) => (
-                              <td key={col} className="table-data-cell">
-                                {typeof row[col] === "object" && row[col] !== null
-                                  ? JSON.stringify(row[col])
-                                  : String(row[col] ?? "—")}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <Table
+                      columns={Object.keys(browsedData.rows[0]).map((col) => ({
+                        key: col,
+                        header: col,
+                        cellClassName: "table-data-cell",
+                        render: (row: any) => (typeof row[col] === "object" && row[col] !== null ? JSON.stringify(row[col]) : String(row[col] ?? "—")),
+                      }))}
+                      rows={browsedData.rows.map((row: any, i: number) => ({ ...row, __rowKey: String(i) }))}
+                      rowKey={(row: any) => row.__rowKey}
+                    />
                   </div>
                 ) : (
                   <div className="empty-results">No records found in table {browsedData.tableName}.</div>
                 )}
-              </div>
+              </Card>
             )}
 
             {/* Natural Language Query Planner & Execution Results */}
             {nlqResult && (
-              <div className="nlq-results-card">
+              <Card padding="none" className="nlq-results-card">
                 {nlqResult.plan && (
                   <div className="plan-badge-group">
                     <Badge size="md" tone="neutral">Domain: <strong>{nlqResult.domain || nlqResult.plan.domain}</strong></Badge>
@@ -1432,37 +1429,39 @@ export function Chat({ user }: { user: User }) {
                 )}
 
                 {nlqResult.summary && (
-                  <div className="nlq-summary-alert">
+                  <Notice tone="info">
                     ℹ️ {nlqResult.summary}
-                  </div>
+                  </Notice>
                 )}
 
                 {/* Domain: Tables & Schemas Rendering */}
                 {nlqResult.domain === "tables" && nlqResult.rows && nlqResult.rows.length > 0 && (
                   <div className="tables-schema-grid">
                     {nlqResult.rows.map((tbl: any, idx: number) => (
-                      <div key={idx} className="table-schema-card">
+                      <Card padding="none" key={idx} className="table-schema-card">
                         <div className="schema-card-top">
                           <span className="schema-table-icon">🗄️</span>
                           <h5><code>{tbl.tableName}</code></h5>
-                          <span className="row-count-badge">{tbl.rowCount} rows</span>
+                          <Badge size="xs" tone="neutral">{tbl.rowCount} rows</Badge>
                         </div>
                         <p className="schema-desc">{tbl.description}</p>
                         <div className="schema-cols-preview">
                           <span className="cols-count-label">{tbl.columnCount} columns:</span>
                           <span className="cols-string">{tbl.columns}</span>
                         </div>
-                        <button
-                          type="button"
+                        <Button
                           className="browse-data-btn"
+                          variant="primary"
+                          tone="subtle"
+                          size="sm"
                           onClick={() => {
                             setSelectedBrowseTable(tbl.tableName);
                             browseTable(tbl.tableName);
                           }}
                         >
                           🔍 Browse Records →
-                        </button>
-                      </div>
+                        </Button>
+                      </Card>
                     ))}
                   </div>
                 )}
@@ -1471,34 +1470,18 @@ export function Chat({ user }: { user: User }) {
                 {nlqResult.domain === "category_mutation" && nlqResult.rows && (
                   <div className="category-mutation-result">
                     <div className="results-table-container">
-                      <table className="results-table">
-                        <thead>
-                          <tr>
-                            <th>Icon</th>
-                            <th>Category</th>
-                            <th>Slug</th>
-                            <th>Description</th>
-                            <th>Order</th>
-                            <th>Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {nlqResult.rows.map((cat: any, i: number) => (
-                            <tr key={i}>
-                              <td style={{ fontSize: "1.25rem", textAlign: "center" }}>{cat.icon}</td>
-                              <td><strong>{cat.name}</strong></td>
-                              <td><code>{cat.slug}</code></td>
-                              <td>{cat.description}</td>
-                              <td>{cat.sortOrder}</td>
-                              <td>
-                                <span className={`status-pill ${cat.status === "ACTIVE" ? "active" : "inactive"}`}>
-                                  {cat.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                      <Table
+                      columns={[
+                        { key: "icon", header: "Icon", align: "center", render: (cat: any) => <span style={{ fontSize: "1.25rem", textAlign: "center" }}>{cat.icon}</span> },
+                        { key: "name", header: "Category", render: (cat: any) => <strong>{cat.name}</strong> },
+                        { key: "slug", header: "Slug", render: (cat: any) => <code>{cat.slug}</code> },
+                        { key: "desc", header: "Description", render: (cat: any) => <>{cat.description}</> },
+                        { key: "order", header: "Order", render: (cat: any) => <>{cat.sortOrder}</> },
+                        { key: "status", header: "Status", render: (cat: any) => <Badge size="xs" uppercase tone={cat.status === "ACTIVE" ? "success" : "neutral"}>{cat.status}</Badge> },
+                      ]}
+                      rows={nlqResult.rows.map((cat: any, i: number) => ({ ...cat, __rowKey: String(i) }))}
+                      rowKey={(row: any) => row.__rowKey}
+                    />
                     </div>
                   </div>
                 )}
@@ -1506,61 +1489,39 @@ export function Chat({ user }: { user: User }) {
                 {/* Domain: Table Data Dynamic Rendering */}
                 {nlqResult.domain === "table_data" && nlqResult.rows && nlqResult.rows.length > 0 && (
                   <div className="results-table-container">
-                    <table className="results-table">
-                      <thead>
-                        <tr>
-                          {Object.keys(nlqResult.rows[0]).map((col) => (
-                            <th key={col}>{col}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {nlqResult.rows.map((row: any, i: number) => (
-                          <tr key={i}>
-                            {Object.keys(nlqResult.rows[0]).map((col) => (
-                              <td key={col} className="table-data-cell">
-                                {typeof row[col] === "object" && row[col] !== null
-                                  ? JSON.stringify(row[col])
-                                  : String(row[col] ?? "—")}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <Table
+                      columns={Object.keys(nlqResult.rows[0]).map((col) => ({
+                        key: col,
+                        header: col,
+                        cellClassName: "table-data-cell",
+                        render: (row: any) => (typeof row[col] === "object" && row[col] !== null ? JSON.stringify(row[col]) : String(row[col] ?? "—")),
+                      }))}
+                      rows={nlqResult.rows.map((row: any, i: number) => ({ ...row, __rowKey: String(i) }))}
+                      rowKey={(row: any) => row.__rowKey}
+                    />
                   </div>
                 )}
 
                 {/* Domain: Conversation History Rendering */}
                 {nlqResult.domain === "conversation" && nlqResult.rows && nlqResult.rows.length > 0 && (
                   <div className="results-table-container">
-                    <table className="results-table">
-                      <thead>
-                        <tr>
-                          <th>Role</th>
-                          <th>Agent</th>
-                          <th>Content</th>
-                          <th>Timestamp</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {nlqResult.rows.map((row: any, i: number) => (
-                          <tr key={i}>
-                            <td><span className={`role-pill ${row.role}`}>{row.role || (row.count !== undefined ? "count" : "")}</span></td>
-                            <td>{row.agent || "—"}</td>
-                            <td className="content-cell">{row.content || (row.count !== undefined ? `Count: ${row.count}` : JSON.stringify(row))}</td>
-                            <td className="timestamp-cell">{row.created_at ? new Date(row.created_at).toLocaleTimeString() : "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <Table
+                      columns={[
+                        { key: "role", header: "Role", render: (row: any) => <Badge size="xs" tone={row.role === "user" || row.role === "assistant" ? "info" : "neutral"}>{row.role || (row.count !== undefined ? "count" : "")}</Badge> },
+                        { key: "agent", header: "Agent", render: (row: any) => <>{row.agent || "—"}</> },
+                        { key: "content", header: "Content", cellClassName: "content-cell", render: (row: any) => <>{row.content || (row.count !== undefined ? `Count: ${row.count}` : JSON.stringify(row))}</> },
+                        { key: "timestamp", header: "Timestamp", cellClassName: "timestamp-cell", render: (row: any) => <>{row.created_at ? new Date(row.created_at).toLocaleTimeString() : "—"}</> },
+                      ]}
+                      rows={nlqResult.rows.map((row: any, i: number) => ({ ...row, __rowKey: String(i) }))}
+                      rowKey={(row: any) => row.__rowKey}
+                    />
                   </div>
                 )}
 
                 {(!nlqResult.rows || nlqResult.rows.length === 0) && (
                   <div className="empty-results">No records matched the natural language query criteria.</div>
                 )}
-              </div>
+              </Card>
             )}
           </div>
         )}
@@ -1572,65 +1533,66 @@ export function Chat({ user }: { user: User }) {
                 <h3>🛡️ System Audit & Memory Vault</h3>
                 <p>Live observability stream into router decisions, sub-agent executions, AI decision evaluations, and firm memory state.</p>
               </div>
-              <button className="refresh-btn" onClick={fetchAuditData} disabled={auditLoading}>
+              <Button variant="secondary" size="sm" onClick={fetchAuditData} disabled={auditLoading}>
                 {auditLoading ? "Refreshing…" : "🔄 Refresh Data"}
-              </button>
+              </Button>
             </div>
 
             <div className="audit-grid">
               {/* Memory Vault Panel */}
-              <div className="audit-panel memory-panel">
+              <Card padding="none" className="audit-panel memory-panel">
                 <div className="panel-title">
                   <span>🧠 Persistent Memory Vault</span>
-                  <span className="badge-count">{memories.length} facts</span>
+                  <Badge size="xs" tone="info">{memories.length} facts</Badge>
                 </div>
                 <div className="memory-list">
                   {memories.length === 0 ? (
                     <div className="empty-notice">No memories saved yet. Try asking the assistant to "Remember that..."</div>
                   ) : (
                     memories.map((m) => (
-                      <div key={m.key} className="memory-card-item">
+                      <Card padding="none" key={m.key} className="memory-card-item">
                         <div className="mem-header">
                           <span className="mem-key">🔑 {m.key}</span>
-                          <button
-                            className="delete-mem-btn"
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => handleDeleteMemory(m.key)}
                             title="Delete memory"
                           >
                             ×
-                          </button>
+                          </Button>
                         </div>
                         <div className="mem-value">{m.value}</div>
                         <div className="mem-date">{new Date(m.updatedAt).toLocaleString()}</div>
-                      </div>
+                      </Card>
                     ))
                   )}
                 </div>
-              </div>
+              </Card>
 
               {/* Audit Events Panel */}
-              <div className="audit-panel events-panel">
+              <Card padding="none" className="audit-panel events-panel">
                 <div className="panel-title">
                   <span>📋 Real-time Event Log</span>
-                  <span className="badge-count">{auditEvents.length} events</span>
+                  <Badge size="xs" tone="info">{auditEvents.length} events</Badge>
                 </div>
                 <div className="events-stream">
                   {auditEvents.length === 0 ? (
                     <div className="empty-notice">No audit events logged yet.</div>
                   ) : (
                     auditEvents.map((e) => (
-                      <div key={e.id} className="event-item">
+                      <Card padding="none" key={e.id} className="event-item">
                         <div className="event-header">
                           <span className={`event-agent-tag ${e.agent}`}>{e.agent.toUpperCase()}</span>
                           <span className="event-type">{e.type}</span>
                           <span className="event-time">{new Date(e.created_at).toLocaleTimeString()}</span>
                         </div>
                         <pre className="event-payload">{JSON.stringify(e.payload, null, 2)}</pre>
-                      </div>
+                      </Card>
                     ))
                   )}
                 </div>
-              </div>
+              </Card>
             </div>
           </div>
         )}
@@ -1662,19 +1624,20 @@ export function Chat({ user }: { user: User }) {
                   </span>
                 </div>
               </div>
-              <button
-                className="refresh-btn"
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={fetchPaymentsData}
                 disabled={paymentsLoading}
               >
                 {paymentsLoading ? "Refreshing…" : "🔄 Refresh"}
-              </button>
+              </Button>
             </div>
 
             {/* Gateway Status Cards Grid */}
             <div className="gateway-cards-grid">
               {gateways.map((gw) => (
-                <div key={gw.id} className={`gateway-card ${gw.id}`}>
+                <Card padding="none" key={gw.id} className={`gateway-card ${gw.id}`}>
                   <div className="gw-card-header">
                     <div className="gw-name-group">
                       <span className="gw-icon">
@@ -1694,40 +1657,40 @@ export function Chat({ user }: { user: User }) {
                   <div className="gw-webhook-info">
                     <code>Webhook: /api/payments/webhook?provider={gw.id}</code>
                   </div>
-                </div>
+                </Card>
               ))}
             </div>
 
             {/* Financial Analytics Ribbon */}
             <div className="referral-stats-ribbon">
-              <div className="stat-card highlight">
+              <Card padding="none" className="stat-card highlight">
                 <span className="stat-icon">💰</span>
                 <div className="stat-meta">
                   <span className="stat-num">${paymentSummary.totalVolume.toFixed(2)}</span>
                   <span className="stat-label">Total Settled Volume</span>
                 </div>
-              </div>
-              <div className="stat-card">
+              </Card>
+              <Card padding="none" className="stat-card">
                 <span className="stat-icon">⚡</span>
                 <div className="stat-meta">
                   <span className="stat-num">{paymentSummary.completedCount}</span>
                   <span className="stat-label">Settled Transactions</span>
                 </div>
-              </div>
-              <div className="stat-card">
+              </Card>
+              <Card padding="none" className="stat-card">
                 <span className="stat-icon">🛡️</span>
                 <div className="stat-meta">
                   <span className="stat-num">{paymentSummary.pendingCount}</span>
                   <span className="stat-label">Pending Authorizations</span>
                 </div>
-              </div>
-              <div className="stat-card">
+              </Card>
+              <Card padding="none" className="stat-card">
                 <span className="stat-icon">🔐</span>
                 <div className="stat-meta">
                   <span className="stat-num">{paymentSummary.verifiedDidCount}</span>
                   <span className="stat-label">Verifiable DID Signatures</span>
                 </div>
-              </div>
+              </Card>
             </div>
 
             {/* Agentic Wallet (x402 / MPP) — issue #139: the wallet's first UI surface */}
@@ -1745,25 +1708,25 @@ export function Chat({ user }: { user: User }) {
                 </div>
 
                 <form onSubmit={handleCreatePayment} className="referral-form">
-                  {paySuccessMsg && <div className="form-alert success">{paySuccessMsg}</div>}
-                  {payErrorMsg && <div className="form-alert error">{payErrorMsg}</div>}
+                  {paySuccessMsg && <Notice tone="success" className="form-alert success">{paySuccessMsg}</Notice>}
+                  {payErrorMsg && <Notice tone="danger" className="form-alert error">{payErrorMsg}</Notice>}
 
                   <div className="form-group">
                     <label>Payment Gateway Provider *</label>
-                    <select
+                    <Select
                       value={newPayGateway}
                       onChange={(e) => setNewPayGateway(e.target.value as any)}
                     >
                       <option value="stripe">Stripe (Card, Elements, Checkout)</option>
                       <option value="paypal">PayPal (Digital Wallet & Pay Later)</option>
                       <option value="lemonsqueezy">Lemon Squeezy (Merchant of Record)</option>
-                    </select>
+                    </Select>
                   </div>
 
                   <div className="form-row-2">
                     <div className="form-group">
                       <label>Amount *</label>
-                      <input
+                      <TextInput
                         type="number"
                         step="0.01"
                         min="1"
@@ -1775,7 +1738,7 @@ export function Chat({ user }: { user: User }) {
                     </div>
                     <div className="form-group">
                       <label>Currency</label>
-                      <select
+                      <Select
                         value={newPayCurrency}
                         onChange={(e) => setNewPayCurrency(e.target.value)}
                       >
@@ -1783,13 +1746,13 @@ export function Chat({ user }: { user: User }) {
                         <option value="EUR">EUR (€)</option>
                         <option value="GBP">GBP (£)</option>
                         <option value="CAD">CAD ($)</option>
-                      </select>
+                      </Select>
                     </div>
                   </div>
 
                   <div className="form-group">
                     <label>Customer Name or Account ID *</label>
-                    <input
+                    <TextInput
                       type="text"
                       placeholder="e.g. Acme Logistics or user@example.com"
                       value={newPayCustomer}
@@ -1800,7 +1763,7 @@ export function Chat({ user }: { user: User }) {
 
                   <div className="form-group">
                     <label>Purpose / Description</label>
-                    <input
+                    <TextInput
                       type="text"
                       placeholder="Describe what this payment is for"
                       value={newPayDesc}
@@ -1808,13 +1771,14 @@ export function Chat({ user }: { user: User }) {
                     />
                   </div>
 
-                  <button
+                  <Button
                     type="submit"
+                    variant="primary"
                     className="submit-action-btn"
                     disabled={creatingPayment || !newPayAmount || !newPayCustomer.trim()}
                   >
                     {creatingPayment ? "Signing & Initializing…" : `🚀 Create ${newPayGateway.toUpperCase()} Checkout Link`}
-                  </button>
+                  </Button>
                 </form>
               </div>
 
@@ -1836,7 +1800,7 @@ export function Chat({ user }: { user: User }) {
                     </div>
                   ) : (
                     transactions.map((tx) => (
-                      <div key={tx.id} className="referral-card-item transaction-card">
+                      <Card padding="none" key={tx.id} className="referral-card-item transaction-card">
                         <div className="ref-top">
                           <span className={`gateway-pill ${tx.gateway}`}>{tx.gateway.toUpperCase()}</span>
                           <span className={`tx-status-pill ${tx.status}`}>{tx.status.replace("_", " ").toUpperCase()}</span>
@@ -1864,20 +1828,20 @@ export function Chat({ user }: { user: User }) {
                               🛡️ Human Authorization Required before gateway settlement.
                             </div>
                             <div className="tx-hitl-btns">
-                              <button
-                                type="button"
-                                className="hitl-btn approve"
+                              <Button
+                                variant="primary"
+                                tone="subtle"
                                 onClick={() => handleAuthorizeDraft(tx.id, "approved")}
                               >
                                 ✅ Authorize & Settle
-                              </button>
-                              <button
-                                type="button"
-                                className="hitl-btn reject"
+                              </Button>
+                              <Button
+                                variant="danger"
+                                tone="subtle"
                                 onClick={() => handleAuthorizeDraft(tx.id, "rejected")}
                               >
                                 ❌ Reject
-                              </button>
+                              </Button>
                             </div>
                           </div>
                         )}
@@ -1896,16 +1860,16 @@ export function Chat({ user }: { user: User }) {
                             <span className="tx-date">{new Date(tx.createdAt).toLocaleTimeString()}</span>
                           )}
 
-                          <button
-                            type="button"
-                            className="proof-inspect-btn"
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => setSelectedProofTx(tx)}
                             title="Inspect Cryptographic DID Proof"
                           >
                             🔐 Inspect DID Proof
-                          </button>
+                          </Button>
                         </div>
-                      </div>
+                      </Card>
                     ))
                   )}
                 </div>
@@ -1914,13 +1878,7 @@ export function Chat({ user }: { user: User }) {
 
             {/* Cryptographic DID Proof Modal */}
             {selectedProofTx && (
-              <div className="did-modal-overlay" onClick={() => setSelectedProofTx(null)}>
-                <div className="did-modal-card" onClick={(e) => e.stopPropagation()}>
-                  <div className="modal-header">
-                    <h4>🔐 W3C Agent Decentralized Identifier (DID) Proof</h4>
-                    <button className="close-modal-btn" onClick={() => setSelectedProofTx(null)}>×</button>
-                  </div>
-                  <div className="modal-body">
+              <Modal open size="none" panelClassName="did-modal-card" title="🔐 W3C Agent Decentralized Identifier (DID) Proof" onClose={() => setSelectedProofTx(null)}>
                     <div className="proof-field">
                       <label>Transaction Draft ID</label>
                       <code>{selectedProofTx.id}</code>
@@ -1949,9 +1907,7 @@ export function Chat({ user }: { user: User }) {
                       <label>Timestamp</label>
                       <code>{selectedProofTx.createdAt}</code>
                     </div>
-                  </div>
-                </div>
-              </div>
+              </Modal>
             )}
           </div>
         )}

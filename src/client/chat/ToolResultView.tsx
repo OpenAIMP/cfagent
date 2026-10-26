@@ -2,6 +2,9 @@ import { confirmationCardPresentation } from "../confirmationCard";
 import { executionCardPresentation } from "../executionCard";
 import { orderPreviewCardPresentation } from "../orderPreviewCard";
 import { useState } from "react";
+import { Badge } from "../components/ui/Badge";
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
 export function ToolResultView({
   toolType,
   data,
@@ -25,15 +28,15 @@ export function ToolResultView({
     const confirmCard = confirmationCardPresentation(data);
     const draftId = data?.draftId || "draft";
     return (
-      <div className="tool-card confirm-card">
+      <Card padding="none" className="tool-card confirm-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
           <span className="tool-icon">{confirmCard.icon}</span>
           <div className="tool-summary">
             <strong>Human Authorization:</strong> <code>{draftId}</code> ({confirmCard.verdict})
           </div>
-          <span className={`tool-status-pill ${confirmCard.pillClass}`}>
+          <Badge size="xs" uppercase tone={confirmCard.pillClass === "priority-urgent" ? "danger" : confirmCard.pillClass}>
             {confirmCard.pillLabel}
-          </span>
+          </Badge>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
         <div className="confirm-details">
@@ -44,7 +47,7 @@ export function ToolResultView({
             <pre>{JSON.stringify(data, null, 2)}</pre>
           </div>
         )}
-      </div>
+      </Card>
     );
   }
 
@@ -55,15 +58,15 @@ export function ToolResultView({
     const count = data?.count ?? (Array.isArray(data?.chunks) ? data.chunks.length : 0);
 
     return (
-      <div className="tool-card search-card">
+      <Card padding="none" className="tool-card search-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
           <span className="tool-icon">🔍</span>
           <div className="tool-summary">
             <strong>Knowledge Search:</strong> <em>"{query}"</em>
           </div>
-          <span className={`tool-status-pill ${resultsFound ? "success" : "warning"}`}>
+          <Badge size="xs" uppercase tone={resultsFound ? "success" : "warning"}>
             {resultsFound ? `Knowledge (${count} docs)` : "0 Docs (Fallback)"}
-          </span>
+          </Badge>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
         {!resultsFound && (
@@ -76,7 +79,7 @@ export function ToolResultView({
             <pre>{JSON.stringify(data.chunks || data.results || data, null, 2)}</pre>
           </div>
         )}
-      </div>
+      </Card>
     );
   }
 
@@ -102,7 +105,7 @@ export function ToolResultView({
     const targetPrice = data?.analystConsensus?.targetPrice || data?.targetPrice;
 
     return (
-      <div className="tool-card foss-card research-card">
+      <Card padding="none" className="tool-card foss-card research-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
           <span className="tool-icon">{isReport ? "🔬" : "📈"}</span>
           <div className="tool-summary">
@@ -111,7 +114,7 @@ export function ToolResultView({
               ({change >= 0 ? "+" : ""}{Number(change).toFixed(2)} / {changePercent >= 0 ? "+" : ""}{Number(changePercent).toFixed(2)}%)
             </span>
           </div>
-          <span className="tool-status-pill foss-badge">{provider}</span>
+          <Badge size="xs" uppercase tone="accent">{provider}</Badge>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
 
@@ -165,32 +168,17 @@ export function ToolResultView({
         )}
 
         <div className="hitl-actions">
-          <button
-            type="button"
-            className="hitl-btn approve"
-            disabled={isBusy}
-            onClick={() => onAction?.(`Preview buy 10 shares of ${symbol} on ETrade`)}
-          >
+          <Button variant="primary" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Preview buy 10 shares of ${symbol} on ETrade`)}>
             ⚡ Preview Buy 10 {symbol} (E*TRADE)
-          </button>
+          </Button>
           {!isReport && (
-            <button
-              type="button"
-              className="hitl-btn secondary"
-              disabled={isBusy}
-              onClick={() => onAction?.(`Run full FOSS market research on ${symbol}`)}
-            >
+            <Button variant="secondary" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Run full FOSS market research on ${symbol}`)}>
               🔬 Full FOSS Research
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
-            className="hitl-btn secondary"
-            disabled={isBusy}
-            onClick={() => onAction?.(`Compare valuation of ${symbol} against peers`)}
-          >
+          <Button variant="secondary" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Compare valuation of ${symbol} against peers`)}>
             📊 Compare Valuation
-          </button>
+          </Button>
         </div>
 
         {open && (
@@ -198,7 +186,7 @@ export function ToolResultView({
             <pre>{JSON.stringify(data, null, 2)}</pre>
           </div>
         )}
-      </div>
+      </Card>
     );
   }
 
@@ -226,15 +214,15 @@ export function ToolResultView({
       // reference is ever fabricated. See executionCardPresentation.
       const execCard = executionCardPresentation(data);
       return (
-        <div className="tool-card confirm-card trading-card">
+        <Card padding="none" className="tool-card confirm-card trading-card">
           <div className="tool-card-header" onClick={() => setOpen(!open)}>
             <span className="tool-icon">📈</span>
             <div className="tool-summary">
               <strong>E*TRADE Execution:</strong> {execCard.verdict} {quantity} {symbol} ({action})
             </div>
-            <span className={`tool-status-pill ${execCard.pillClass}`}>
+            <Badge size="xs" uppercase tone={execCard.pillClass === "priority-urgent" ? "danger" : execCard.pillClass}>
               {execCard.pillLabel}
-            </span>
+            </Badge>
             <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
           </div>
           <div className="confirm-details">
@@ -245,37 +233,32 @@ export function ToolResultView({
               <pre>{JSON.stringify(data, null, 2)}</pre>
             </div>
           )}
-        </div>
+        </Card>
       );
     }
 
     if (isQuote) {
       return (
-        <div className="tool-card quote-card trading-card">
+        <Card padding="none" className="tool-card quote-card trading-card">
           <div className="tool-card-header" onClick={() => setOpen(!open)}>
             <span className="tool-icon">📊</span>
             <div className="tool-summary">
               <strong>E*TRADE Quote:</strong> {symbol} — ${(price || 0).toFixed(2)} ({data.change >= 0 ? "+" : ""}{data.change?.toFixed(2) || 0})
             </div>
-            <span className="tool-status-pill info">Level 1 Live</span>
+            <Badge size="xs" uppercase tone="info">Level 1 Live</Badge>
             <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
           </div>
           <div className="hitl-actions">
-            <button
-              type="button"
-              className="hitl-btn approve"
-              disabled={isBusy}
-              onClick={() => onAction?.(`Preview buy 10 shares of ${symbol}`)}
-            >
+            <Button variant="primary" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Preview buy 10 shares of ${symbol}`)}>
               ⚡ Preview Buy 10 {symbol}
-            </button>
+            </Button>
           </div>
           {open && (
             <div className="tool-card-body">
               <pre>{JSON.stringify(data, null, 2)}</pre>
             </div>
           )}
-        </div>
+        </Card>
       );
     }
 
@@ -286,15 +269,15 @@ export function ToolResultView({
     // presented as a reserved one when the result carries none.
     const previewPill = orderPreviewCardPresentation(status);
     return (
-      <div className="tool-card trading-card order-preview-card">
+      <Card padding="none" className="tool-card trading-card order-preview-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
           <span className="tool-icon">📈</span>
           <div className="tool-summary">
             <strong>E*TRADE Trade Intent:</strong> {action} {quantity} {symbol} {price ? `@ $${Number(price).toFixed(2)}` : ""}
           </div>
-          <span className={`tool-status-pill ${previewPill.pillClass}`}>
+          <Badge size="xs" uppercase tone={previewPill.pillClass === "priority-urgent" ? "danger" : previewPill.pillClass}>
             {previewPill.pillLabel}
-          </span>
+          </Badge>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
         <div className="payment-notice">
@@ -302,22 +285,12 @@ export function ToolResultView({
         </div>
         {orderId && status !== "executed" && status !== "rejected" && (
           <div className="hitl-actions">
-            <button
-              type="button"
-              className="hitl-btn approve"
-              disabled={isBusy}
-              onClick={() => onAction?.(`Approve trade draft ${orderId}`)}
-            >
+            <Button variant="primary" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Approve trade draft ${orderId}`)}>
               ✅ Approve &amp; Execute Order
-            </button>
-            <button
-              type="button"
-              className="hitl-btn reject"
-              disabled={isBusy}
-              onClick={() => onAction?.(`Cancel trade draft ${orderId}`)}
-            >
+            </Button>
+            <Button variant="danger" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Cancel trade draft ${orderId}`)}>
               ❌ Cancel Order
-            </button>
+            </Button>
           </div>
         )}
         {open && (
@@ -325,7 +298,7 @@ export function ToolResultView({
             <pre>{JSON.stringify(data, null, 2)}</pre>
           </div>
         )}
-      </div>
+      </Card>
     );
   }
 
@@ -338,13 +311,13 @@ export function ToolResultView({
     const draftId = data?.draftId;
 
     return (
-      <div className="tool-card payment-card">
+      <Card padding="none" className="tool-card payment-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
           <span className="tool-icon">💳</span>
           <div className="tool-summary">
             <strong>Payment Intent ({String(action).toUpperCase()}):</strong> {amount ? `$${amount} ${currency}` : ""} for {customer || "customer"}
           </div>
-          <span className="tool-status-pill warning">Awaiting Approval</span>
+          <Badge size="xs" uppercase tone="warning">Awaiting Approval</Badge>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
         <div className="payment-notice">
@@ -352,22 +325,12 @@ export function ToolResultView({
         </div>
         {draftId && data?.status === "awaiting_confirmation" && (
           <div className="hitl-actions">
-            <button
-              type="button"
-              className="hitl-btn approve"
-              disabled={isBusy}
-              onClick={() => onAction?.(`Approve payment draft ${draftId}`)}
-            >
+            <Button variant="primary" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Approve payment draft ${draftId}`)}>
               ✅ Approve Draft
-            </button>
-            <button
-              type="button"
-              className="hitl-btn reject"
-              disabled={isBusy}
-              onClick={() => onAction?.(`Cancel payment draft ${draftId}`)}
-            >
+            </Button>
+            <Button variant="danger" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Cancel payment draft ${draftId}`)}>
               ❌ Cancel
-            </button>
+            </Button>
           </div>
         )}
         {open && (
@@ -375,7 +338,7 @@ export function ToolResultView({
             <pre>{JSON.stringify(data, null, 2)}</pre>
           </div>
         )}
-      </div>
+      </Card>
     );
   }
 
@@ -387,26 +350,21 @@ export function ToolResultView({
     const taskId = data?.taskId;
 
     return (
-      <div className="tool-card task-card">
+      <Card padding="none" className="tool-card task-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
           <span className="tool-icon">📋</span>
           <div className="tool-summary">
             <strong>Task Proposal:</strong> {title}
           </div>
-          <span className={`tool-status-pill priority-${priority}`}>{String(priority).toUpperCase()}</span>
+          <Badge size="xs" uppercase tone={priority === "urgent" || priority === "high" ? "danger" : priority === "medium" ? "warning" : "neutral"}>{String(priority).toUpperCase()}</Badge>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
         {dueDate && <div className="task-deadline">📅 Target: {dueDate}</div>}
         {taskId && data?.status === "draft" && (
           <div className="hitl-actions">
-            <button
-              type="button"
-              className="hitl-btn approve"
-              disabled={isBusy}
-              onClick={() => onAction?.(`Confirm task ${taskId}`)}
-            >
+            <Button variant="primary" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Confirm task ${taskId}`)}>
               ✅ Confirm Task
-            </button>
+            </Button>
           </div>
         )}
         {open && (
@@ -414,7 +372,7 @@ export function ToolResultView({
             <pre>{JSON.stringify(data, null, 2)}</pre>
           </div>
         )}
-      </div>
+      </Card>
     );
   }
 
@@ -422,7 +380,7 @@ export function ToolResultView({
   if (normalizedType.includes("remember") || normalizedType.includes("recall") || data?.key || data?.facts) {
     const isRecall = normalizedType.includes("recall") || Array.isArray(data?.facts);
     return (
-      <div className="tool-card memory-card">
+      <Card padding="none" className="tool-card memory-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
           <span className="tool-icon">🧠</span>
           <div className="tool-summary">
@@ -432,7 +390,7 @@ export function ToolResultView({
               <span><strong>Session Memory:</strong> <code>{data.key}</code> = "{data.value}"</span>
             )}
           </div>
-          <span className="tool-status-pill info">Ledger Stored</span>
+          <Badge size="xs" uppercase tone="info">Ledger Stored</Badge>
           <span className="toggle-arrow">{open ? "▲" : "▼"}</span>
         </div>
         {open && (
@@ -440,7 +398,7 @@ export function ToolResultView({
             <pre>{JSON.stringify(data, null, 2)}</pre>
           </div>
         )}
-      </div>
+      </Card>
     );
   }
 

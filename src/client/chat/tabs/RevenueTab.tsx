@@ -7,6 +7,13 @@ import type { ExternalAdItem } from "../types";
 import { NavTabId } from "../../components/NavigationMenu";
 import type { RevenueSummaryData } from "../types";
 import type { TableMetadataItem } from "../types";
+import { Badge } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
+import { Notice } from "../../components/ui/Notice";
+import { Select } from "../../components/ui/Select";
+import { Table } from "../../components/ui/Table";
+import { TextInput } from "../../components/ui/TextInput";
 
 export interface RevenueTabProps {
   adBannerConfig: AdBannerConfig;
@@ -78,8 +85,9 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                   Platform revenue accounting across external ad networks (CPM/CPC), sponsored marketplace placements, agent payment processing fees, and referral partner payouts with transactional double-entry ledger persistence.
                 </p>
               </div>
-              <button
-                className="refresh-btn"
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => {
                   fetchRevenueSummary();
                   fetchExternalAds();
@@ -89,60 +97,60 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                 disabled={revenueLoading}
               >
                 {revenueLoading ? "Refreshing…" : "🔄 Refresh Financials"}
-              </button>
+              </Button>
             </div>
 
             {/* Comprehensive Revenue Metrics Grid */}
             <div className="revenue-grid">
-              <div className="rev-card highlight-rev">
+              <Card padding="none" className="rev-card highlight-rev">
                 <span className="rev-icon">💵</span>
                 <div className="rev-meta">
                   <span className="rev-val">${revenueSummary?.grossRevenue?.toFixed(2) || "0.00"}</span>
                   <span className="rev-label">Total Gross Platform Revenue</span>
                 </div>
-              </div>
+              </Card>
 
-              <div className="rev-card">
+              <Card padding="none" className="rev-card">
                 <span className="rev-icon">🌐</span>
                 <div className="rev-meta">
                   <span className="rev-val">${revenueSummary?.adNetworkRevenue?.toFixed(2) || "0.00"}</span>
                   <span className="rev-label">External Ad Networks (CPM + CPC)</span>
                 </div>
-              </div>
+              </Card>
 
-              <div className="rev-card">
+              <Card padding="none" className="rev-card">
                 <span className="rev-icon">🚀</span>
                 <div className="rev-meta">
                   <span className="rev-val">${revenueSummary?.marketplaceRevenue?.toFixed(2) || "0.00"}</span>
                   <span className="rev-label">Direct Sponsored Marketplace</span>
                 </div>
-              </div>
+              </Card>
 
-              <div className="rev-card">
+              <Card padding="none" className="rev-card">
                 <span className="rev-icon">💳</span>
                 <div className="rev-meta">
                   <span className="rev-val">${revenueSummary?.paymentPlatformFees?.toFixed(2) || "0.00"}</span>
                   <span className="rev-label">Payment Processing Fees (2.5%)</span>
                 </div>
-              </div>
+              </Card>
 
-              <div className="rev-card expense-card">
+              <Card padding="none" className="rev-card expense-card">
                 <span className="rev-icon">🎁</span>
                 <div className="rev-meta">
                   <span className="rev-val">-${revenueSummary?.referralPayouts?.toFixed(2) || "0.00"}</span>
                   <span className="rev-label">Referral Partner Payouts</span>
                 </div>
-              </div>
+              </Card>
 
-              <div className="rev-card net-profit-card">
+              <Card padding="none" className="rev-card net-profit-card">
                 <span className="rev-icon">💎</span>
                 <div className="rev-meta">
                   <span className="rev-val">${revenueSummary?.netRevenue?.toFixed(2) || "0.00"}</span>
                   <span className="rev-label">Net Platform Margin</span>
                 </div>
-              </div>
+              </Card>
 
-              <div className="rev-card">
+              <Card padding="none" className="rev-card">
                 <span className="rev-icon">👁️</span>
                 <div className="rev-meta">
                   <span className="rev-val">
@@ -150,19 +158,19 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                   </span>
                   <span className="rev-label">Ad Views / Link Clicks</span>
                 </div>
-              </div>
+              </Card>
 
-              <div className="rev-card">
+              <Card padding="none" className="rev-card">
                 <span className="rev-icon">📈</span>
                 <div className="rev-meta">
                   <span className="rev-val">${revenueSummary?.averageRPM?.toFixed(2) || "18.50"}</span>
                   <span className="rev-label">Average Ad Network RPM</span>
                 </div>
-              </div>
+              </Card>
             </div>
 
             {/* External Ad Network Inventory Manager */}
-            <div className="revenue-section-card">
+            <Card padding="none" className="revenue-section-card">
               <div className="card-header">
                 <h4>📡 External Ad Network Placements ({externalAds.length})</h4>
                 <p>
@@ -171,70 +179,35 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
               </div>
 
               <div className="results-table-container">
-                <table className="results-table">
-                  <thead>
-                    <tr>
-                      <th>Placement Unit</th>
-                      <th>Network</th>
-                      <th>Slot</th>
-                      <th>CPM Rate</th>
-                      <th>CPC Rate</th>
-                      <th>Views</th>
-                      <th>Clicks</th>
-                      <th>Total Earned</th>
-                      <th>Status</th>
-                      <th>Live Preview</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {externalAds.map((ad) => (
-                      <tr key={ad.id}>
-                        <td>
-                          <strong>{ad.title}</strong>
-                          <div className="table-subtext">{ad.tagline}</div>
-                        </td>
-                        <td>
-                          <span className={`ad-net-tag ${ad.network}`}>
-                            {ad.network === "ethicalads" ? "EthicalAds" : ad.network === "carbon" ? "Carbon" : ad.network === "adsense" ? "AdSense" : "Direct"}
-                          </span>
-                        </td>
-                        <td><code>{ad.placement}</code></td>
-                        <td>${ad.cpmRate.toFixed(2)}</td>
-                        <td>${ad.cpcRate.toFixed(2)}</td>
-                        <td>{ad.impressions}</td>
-                        <td>{ad.clicks}</td>
-                        <td><strong className="earned-text">${ad.earnings.toFixed(2)}</strong></td>
-                        <td>
-                          <span className={`status-pill ${ad.isActive ? "active" : "inactive"}`}>
-                            {ad.isActive ? "ACTIVE" : "PAUSED"}
-                          </span>
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className="test-ad-btn"
-                            onClick={() => handleExternalAdClick(ad)}
-                          >
-                            {ad.ctaText}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <Table
+                    columns={[
+                      { key: "title", header: "Placement Unit", render: (ad) => (<><strong>{ad.title}</strong><div className="table-subtext">{ad.tagline}</div></>) },
+                      { key: "network", header: "Network", render: (ad) => (<span className={`ad-net-tag ${ad.network}`}>{ad.network === "ethicalads" ? "EthicalAds" : ad.network === "carbon" ? "Carbon" : ad.network === "adsense" ? "AdSense" : "Direct"}</span>) },
+                      { key: "slot", header: "Slot", render: (ad) => <code>{ad.placement}</code> },
+                      { key: "cpm", header: "CPM Rate", render: (ad) => <>${ad.cpmRate.toFixed(2)}</> },
+                      { key: "cpc", header: "CPC Rate", render: (ad) => <>${ad.cpcRate.toFixed(2)}</> },
+                      { key: "views", header: "Views", render: (ad) => <>{ad.impressions}</> },
+                      { key: "clicks", header: "Clicks", render: (ad) => <>{ad.clicks}</> },
+                      { key: "earned", header: "Total Earned", render: (ad) => <strong className="earned-text">${ad.earnings.toFixed(2)}</strong> },
+                      { key: "status", header: "Status", render: (ad) => <Badge size="xs" uppercase tone={ad.isActive ? "success" : "neutral"}>{ad.isActive ? "ACTIVE" : "PAUSED"}</Badge> },
+                      { key: "preview", header: "Live Preview", render: (ad) => <Button variant="accent" tone="subtle" size="sm" onClick={() => handleExternalAdClick(ad)}>{ad.ctaText}</Button> },
+                    ]}
+                    rows={externalAds}
+                    rowKey={(ad) => ad.id}
+                  />
               </div>
 
               {/* Form to Register New Ad Unit */}
-              <div className="create-subcard">
+              <Card padding="none" className="create-subcard">
                 <h5>➕ Register New External Ad Network Placement</h5>
-                {extAdSuccessMsg && <div className="form-alert success">{extAdSuccessMsg}</div>}
-                {extAdErrorMsg && <div className="form-alert error">{extAdErrorMsg}</div>}
+                {extAdSuccessMsg && <Notice tone="success" className="form-alert success">{extAdSuccessMsg}</Notice>}
+                {extAdErrorMsg && <Notice tone="danger" className="form-alert error">{extAdErrorMsg}</Notice>}
 
                 <form onSubmit={handleCreateExternalAd} className="compact-form">
                   <div className="form-row-3">
                     <div className="form-group">
                       <label>Ad Campaign Title *</label>
-                      <input
+                      <TextInput
                         type="text"
                         placeholder="e.g. DeepSeek R1 Global Inference"
                         value={newExtTitle}
@@ -244,7 +217,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                     </div>
                     <div className="form-group">
                       <label>Ad Network Provider</label>
-                      <select
+                      <Select
                         value={newExtNetwork}
                         onChange={(e) => setNewExtNetwork(e.target.value as any)}
                       >
@@ -252,11 +225,11 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                         <option value="carbon">⚡ Carbon Ads</option>
                         <option value="adsense">🌐 Google AdSense</option>
                         <option value="direct">⭐ Direct Sponsor</option>
-                      </select>
+                      </Select>
                     </div>
                     <div className="form-group">
                       <label>Placement Slot</label>
-                      <select
+                      <Select
                         value={newExtPlacement}
                         onChange={(e) => setNewExtPlacement(e.target.value as any)}
                       >
@@ -264,13 +237,13 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                         <option value="in_stream">In-Stream Banner (Chat)</option>
                         <option value="footer_deck">Footer Deck</option>
                         <option value="sidebar">Sidebar Rail</option>
-                      </select>
+                      </Select>
                     </div>
                   </div>
 
                   <div className="form-group">
                     <label>Tagline / Promo Copy</label>
-                    <input
+                    <TextInput
                       type="text"
                       placeholder="e.g. Serverless GPUs running 70B reasoning models with sub-second latency."
                       value={newExtTagline}
@@ -281,7 +254,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                   <div className="form-row-4">
                     <div className="form-group">
                       <label>Target URL *</label>
-                      <input
+                      <TextInput
                         type="url"
                         placeholder="https://..."
                         value={newExtUrl}
@@ -291,7 +264,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                     </div>
                     <div className="form-group">
                       <label>CTA Label</label>
-                      <input
+                      <TextInput
                         type="text"
                         placeholder="Claim Offer →"
                         value={newExtCta}
@@ -300,7 +273,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                     </div>
                     <div className="form-group">
                       <label>CPM Rate ($/1,000 views)</label>
-                      <input
+                      <TextInput
                         type="number"
                         step="0.5"
                         placeholder="18.50"
@@ -310,7 +283,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                     </div>
                     <div className="form-group">
                       <label>CPC Rate ($/click)</label>
-                      <input
+                      <TextInput
                         type="number"
                         step="0.1"
                         placeholder="1.50"
@@ -320,19 +293,20 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                     </div>
                   </div>
 
-                  <button
+                  <Button
                     type="submit"
+                    variant="primary"
                     className="submit-action-btn"
                     disabled={savingExtAd || !newExtTitle.trim() || !newExtUrl.trim()}
                   >
                     {savingExtAd ? "Activating Placement…" : "🚀 Activate Ad Network Unit"}
-                  </button>
+                  </Button>
                 </form>
-              </div>
-            </div>
+              </Card>
+            </Card>
 
             {/* Referral Categories Taxonomy Manager (ORM) */}
-            <div className="revenue-section-card">
+            <Card padding="none" className="revenue-section-card">
               <div className="card-header">
                 <h4>🏷️ Referral Categories &amp; Taxonomy Manager</h4>
                 <p>
@@ -341,58 +315,32 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
               </div>
 
               <div className="results-table-container">
-                <table className="results-table">
-                  <thead>
-                    <tr>
-                      <th>Icon</th>
-                      <th>Category Name</th>
-                      <th>Slug</th>
-                      <th>Description</th>
-                      <th>Sort Order</th>
-                      <th>Status</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {categories.map((cat) => (
-                      <tr key={cat.id}>
-                        <td style={{ fontSize: "1.25rem", textAlign: "center" }}>{cat.icon}</td>
-                        <td><strong>{cat.name}</strong></td>
-                        <td><code>{cat.slug}</code></td>
-                        <td>{cat.description}</td>
-                        <td>{cat.sortOrder}</td>
-                        <td>
-                          <span className={`status-pill ${cat.isActive ? "active" : "inactive"}`}>
-                            {cat.isActive ? "ACTIVE" : "INACTIVE"}
-                          </span>
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className="danger-sm-btn"
-                            onClick={() => handleDeleteCategory(cat.id)}
-                            title="Delete category"
-                          >
-                            🗑️ Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <Table
+                    columns={[
+                      { key: "icon", header: "Icon", align: "center", render: (cat) => <span style={{ fontSize: "1.25rem", textAlign: "center" }}>{cat.icon}</span> },
+                      { key: "name", header: "Category Name", render: (cat) => <strong>{cat.name}</strong> },
+                      { key: "slug", header: "Slug", render: (cat) => <code>{cat.slug}</code> },
+                      { key: "desc", header: "Description", render: (cat) => <>{cat.description}</> },
+                      { key: "order", header: "Sort Order", render: (cat) => <>{cat.sortOrder}</> },
+                      { key: "status", header: "Status", render: (cat) => <Badge size="xs" uppercase tone={cat.isActive ? "success" : "neutral"}>{cat.isActive ? "ACTIVE" : "INACTIVE"}</Badge> },
+                      { key: "actions", header: "Actions", render: (cat) => <Button variant="danger" tone="subtle" size="sm" onClick={() => handleDeleteCategory(cat.id)} title="Delete category">🗑️ Delete</Button> },
+                    ]}
+                    rows={categories}
+                    rowKey={(cat) => cat.id}
+                  />
               </div>
 
               {/* Form to Add New Category */}
-              <div className="create-subcard">
+              <Card padding="none" className="create-subcard">
                 <h5>➕ Add New Referral Category</h5>
-                {catSuccessMsg && <div className="form-alert success">{catSuccessMsg}</div>}
-                {catErrorMsg && <div className="form-alert error">{catErrorMsg}</div>}
+                {catSuccessMsg && <Notice tone="success" className="form-alert success">{catSuccessMsg}</Notice>}
+                {catErrorMsg && <Notice tone="danger" className="form-alert error">{catErrorMsg}</Notice>}
 
                 <form onSubmit={handleCreateCategory} className="compact-form">
                   <div className="form-row-3">
                     <div className="form-group">
                       <label>Category Name *</label>
-                      <input
+                      <TextInput
                         type="text"
                         placeholder="e.g. Web3 & Crypto, DevOps & CI/CD"
                         value={newCatName}
@@ -402,7 +350,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                     </div>
                     <div className="form-group">
                       <label>Emoji Icon</label>
-                      <input
+                      <TextInput
                         type="text"
                         placeholder="⚡"
                         value={newCatIcon}
@@ -412,7 +360,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                     </div>
                     <div className="form-group">
                       <label>Sort Priority (Order)</label>
-                      <input
+                      <TextInput
                         type="number"
                         placeholder="10"
                         value={newCatOrder}
@@ -424,7 +372,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
 
                   <div className="form-group">
                     <label>Description</label>
-                    <input
+                    <TextInput
                       type="text"
                       placeholder="e.g. Decentralized infrastructure, smart contracts, and wallet tooling."
                       value={newCatDesc}
@@ -432,19 +380,20 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                     />
                   </div>
 
-                  <button
+                  <Button
                     type="submit"
+                    variant="primary"
                     className="submit-action-btn"
                     disabled={savingCat || !newCatName.trim()}
                   >
                     {savingCat ? "Saving Category…" : "🏷️ Save Category"}
-                  </button>
+                  </Button>
                 </form>
-              </div>
-            </div>
+              </Card>
+            </Card>
 
             {/* SQLite ORM Database Tables Schema Inspection */}
-            <div className="revenue-section-card">
+            <Card padding="none" className="revenue-section-card">
               <div className="card-header">
                 <h4>🗄️ Institutional Data Schemas &amp; Record Counts</h4>
                 <p>
@@ -454,26 +403,28 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
 
               <div className="tables-meta-grid">
                 {tables.map((tbl) => (
-                  <div key={tbl.name} className="table-card">
+                  <Card padding="none" key={tbl.name} className="table-card">
                     <div className="table-card-header">
                       <h5><code>{tbl.name}</code></h5>
-                      <span className="row-count-badge">{tbl.rowCount} rows</span>
+                      <Badge size="xs" tone="neutral">{tbl.rowCount} rows</Badge>
                     </div>
                     <p className="table-desc">{tbl.description}</p>
                     <div className="table-cols">
                       <span className="col-count">{tbl.columns.length} columns:</span>
                       <div className="col-tags">
                         {tbl.columns.map((c) => (
-                          <span key={c.name} className={`col-pill ${c.isPrimary ? "pk" : ""}`}>
+                          <Badge key={c.name} size="xs" tone={c.isPrimary ? "purple" : "neutral"}>
                             {c.name} {c.isPrimary ? "(PK)" : ""}
-                          </span>
+                          </Badge>
                         ))}
                       </div>
                     </div>
                     <div className="table-action">
-                      <button
-                        type="button"
+                      <Button
                         className="browse-data-btn"
+                        variant="primary"
+                        tone="subtle"
+                        size="sm"
                         onClick={() => {
                           setSelectedBrowseTable(tbl.name);
                           browseTable(tbl.name);
@@ -481,15 +432,15 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                         }}
                       >
                         🔍 Browse Table Records →
-                      </button>
+                      </Button>
                     </div>
-                  </div>
+                  </Card>
                 ))}
               </div>
-            </div>
+            </Card>
 
             {/* Google Ads & Multi-Network Monetization Control Center */}
-            <div className="revenue-section-card">
+            <Card padding="none" className="revenue-section-card">
               <div className="card-header">
                 <h4>🌐 Google Ads & Multi-Network Display Engine</h4>
                 <p>
@@ -498,24 +449,24 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
               </div>
 
               <div className="google-ads-config-grid">
-                <div className="config-form-card">
+                <Card padding="none" className="config-form-card">
                   <h5>⚙️ Google Ads Configuration</h5>
                   <div className="form-group">
                     <label>Google Ads Display Status</label>
                     <div className="toggle-switch-row">
-                      <button
-                        type="button"
-                        className={`toggle-btn ${googleAdsEnabled ? "active" : ""}`}
+                      <Button
+                        variant={googleAdsEnabled ? "primary" : "secondary"}
+                        tone="subtle"
                         onClick={() => setGoogleAdsEnabled(!googleAdsEnabled)}
                       >
                         {googleAdsEnabled ? "🟢 Google Ads Active" : "⚪ Google Ads Paused"}
-                      </button>
+                      </Button>
                     </div>
                   </div>
 
                   <div className="form-group">
                     <label>Google AdSense Publisher Client ID</label>
-                    <input
+                    <TextInput
                       type="text"
                       placeholder="ca-pub-9842109842109842"
                       value={googlePublisherId}
@@ -526,7 +477,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                   <div className="form-row-2">
                     <div className="form-group">
                       <label>Default Ad Slot ID</label>
-                      <input
+                      <TextInput
                         type="text"
                         placeholder="7812903456"
                         value={googleSlotId}
@@ -535,20 +486,20 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                     </div>
                     <div className="form-group">
                       <label>Display Format</label>
-                      <select
+                      <Select
                         value={googleAdFormat}
                         onChange={(e) => setGoogleAdFormat(e.target.value as any)}
                       >
                         <option value="responsive">Responsive Banner</option>
                         <option value="leaderboard">728x90 Leaderboard</option>
                         <option value="rectangle">300x250 Medium Rectangle</option>
-                      </select>
+                      </Select>
                     </div>
                   </div>
-                </div>
+                </Card>
 
                 {adBannerConfig.enabled && adBannerConfig.showGoogleAdUnits && Boolean(adBannerConfig.tabVisibility.ads) && googleAdsEnabled && (
-                  <div className="live-ad-preview-card">
+                  <Card padding="none" className="live-ad-preview-card">
                     <h5>Live Google Ads Preview</h5>
                     <GoogleAdUnit
                       format={googleAdFormat}
@@ -557,10 +508,10 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                       ad={externalAds.find((a) => a.network === "google" || a.network === "adsense") || externalAds[0]}
                       onTrackClick={handleExternalAdClick}
                     />
-                  </div>
+                  </Card>
                 )}
               </div>
-            </div>
+            </Card>
           </div>
   );
 }
