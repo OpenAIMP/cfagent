@@ -514,6 +514,16 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: path === /api/jobs/reconcile",
   },
   {
+    id: "retention-purge",
+    method: "POST",
+    path: "/api/retention/purge",
+    aliases: [],
+    kind: "http",
+    auth: "platform-admin",
+    authNote: "401 unauthenticated; 405 non-POST; 403 for unwired or non-admin sessions with no data; 503 when AgentDB is not bound. Deliberate operator invocation point for AgentDB retention enforcement (never auto-run on boot, deploy, or tick); purges expired agent_shard_jobs rows only (30d + 500-row tenant cap) and returns the purge report.",
+    source: "src/server.ts branch: path === /api/retention/purge",
+  },
+  {
     id: "audit-history",
     method: "GET",
     path: "/api/audit/history",

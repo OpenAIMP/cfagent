@@ -103,9 +103,10 @@
  *   a pruned job version destroys no lifecycle fact (the chain
  *   row keeps it), and the rails source already discards the
  *   same rows at 30d, so an older projection row would outlive
- *   its source. Enforcement lands with the retention slice;
- *   until then rows accrue unbounded and this line is the
- *   contract that enforcement implements.
+ *   its source. Enforced by slice 6 (issue #1701): bounded
+ *   purge via admin-gated POST /api/retention/purge plus the
+ *   governed retention-purge job definition (nightly
+ *   0 4 * * *, activation is an operator step).
  * - agent_chain_audit (AgentDB projection, slice 3, issue #1688) —
  *   KEEP. Row-per-event audit trail of projection lifecycle
  *   events (transitions, job projections, reconciles, seed);
@@ -118,9 +119,17 @@
  *   (mas_reports itself is KEEP: one row per report
  *   generation). Canonical rows are the durable report
  *   record; deletion happens only via deleteCanonicalReport.
- *   Enforcement lands with the retention slice; until then
- *   rows accrue unbounded and this line is the contract
- *   that enforcement implements.
+ *   KEEP means no purge exists for this table; the retention
+ *   slice (slice 6, issue #1701) enforces only the BOUNDED
+ *   table (agent_shard_jobs).
+ * - agent_governance (AgentDB projection, slice 0, issue #1548) —
+ *   KEEP, decided up front per R8 (line added by slice 6,
+ *   issue #1701, which found it missing). Halt transition
+ *   history: one row per halt set/clear, not per request, so
+ *   volume is transitions, not traffic; pruning it would
+ *   destroy the governance audit the halt read reasons
+ *   about. The tick reads only the latest row, but the
+ *   history is the record of who halted what and why.
  * - usage_events (not a mas_* table) — PRUNE-CLASS, 365d, recorded here
  *   per issue #792's deferral, implementation deferred to its first
  *   production reader: rows are split across two DOs' databases
