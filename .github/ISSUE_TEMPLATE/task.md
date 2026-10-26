@@ -39,6 +39,14 @@ Reused surfaces (existing implementations reused):
 Rework justification (if rebuilding an existing capability, why — otherwise none):
 Regression risk + pins preserving existing behavior:
 
+## Agentic design (docs/agents)
+Allocation is a decision, not a default — do NOT turn every service into an agent.
+Capability allocation (agent judgment vs deterministic service/tool, and why the agent earns its cost):
+Coordinator / delegation path + evaluator (independent criteria):
+Task state + records (durable task ledger, execution path recorded):
+Adaptive policies + budgets (explicit, recorded; never-list compliance):
+Deterministic rules kept in code (calculations, risk limits, authorization, accounting, schema validation — never in a model loop):
+
 ## Engineering standards
 All development on this issue must follow:
 - SOLID principles
@@ -64,6 +72,7 @@ All development on this issue must follow:
 - Test evidence (red, green, regression, integration/evaluation; CI runs; post-merge checks):
 - Change management (actual: change type, impacted surfaces, migration and data impact, rollout plan, rollback plan, communication, changelog entry):
 - Conformance (actual: UX primitives/tokens used, architecture boundaries followed, reused surfaces, rework justification, regression pins):
+- Agentic design (actual: allocation as built, delegation path, evaluator, task records, policies/budgets, never-list compliance):
 - Value and impact (value created, capabilities enhanced, competencies improved, value proposition, delivery channels, user journey):
 - Risk and limitations (security, tenant isolation, compatibility, performance/cost; known test-coverage gaps stated explicitly):
 - Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
