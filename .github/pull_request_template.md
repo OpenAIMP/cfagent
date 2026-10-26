@@ -6,6 +6,11 @@
 ## Linked issue
 Closes #
 
+## Implementation
+Key decisions:
+Alternatives:
+Scope exclusions:
+
 ## Test evidence
 
 ## Checklist
