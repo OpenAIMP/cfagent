@@ -143,6 +143,16 @@ export const nlqPlanSchema = z.object({
       constraintSets: z.array(z.record(z.string(), z.unknown())).optional(),
       profileId: z.string().optional(),
       watchlistName: z.string().optional(),
+      // Consolidation #1236 (discovery notifications): per-task
+      // delivery recipients for discovery schedules (panel + NLQ
+      // full surface). Loosely typed here like the other criteria;
+      // buildSchedulePayload validates them strictly before arming.
+      // NOTE: the executor copies these three keys ONLY for
+      // autonomousStrategyDiscovery — other callbacks' NLQ behavior
+      // stays byte-identical.
+      emailTo: z.string().optional(),
+      slackChannel: z.string().optional(),
+      webhookUrl: z.string().optional(),
       // Consolidation C3 (#1277): stage-chain timing for a market
       // screen schedule — loosely typed here like the other criteria;
       // buildSchedulePayload validates it strictly before arming.
