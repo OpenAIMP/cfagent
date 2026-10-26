@@ -428,6 +428,9 @@ export class OrchestratorAgent extends Agent<Env> {
       env: this.env,
       ensureTables: () => this.ensureTables(),
       getOrm: () => this.getOrm(),
+      // Issue #1686: the DO blob handle, so chat-turn tool screens
+      // (etrade_market_scan) capture fully instead of outcome-only.
+      storage: this.ctx.storage,
       sessionKey: () => this.sessionKey(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       submitAsyncJob: (job) => this.submitAsyncJob(job),
