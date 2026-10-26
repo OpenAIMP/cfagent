@@ -57,6 +57,12 @@ import { createFitDiscoveryRunner } from "../../services/fitDiscoveryRunner";
 export interface McpChatNlqRouteContext {
   getOrm(): DatabaseORM;
   getStorageSql(): any;
+  /**
+   * Issue #1661: DO blob handle for full capture (mirrors the
+   * getStorageSql idiom). Optional — mock ctxs without it degrade
+   * to today's outcome-only contract via `ctx.getStorage?.()`.
+   */
+  getStorage?(): any;
   env: Env;
   audit(
     type: string,
@@ -272,7 +278,7 @@ export async function handleMcpChatNlqRoutes(
         ctx.env,
         userLogin,
         userDid,
-        { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), socialBriefPort, discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql() }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql: ctx.getStorageSql() }) }
+        { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), socialBriefPort, discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql(), blobStorage: ctx.getStorage?.() }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql: ctx.getStorageSql(), storage: ctx.getStorage?.() }) }
       );
       ctx.audit("nlq.executed", "nlq", {
         query,
