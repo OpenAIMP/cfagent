@@ -38,6 +38,8 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Screen execution audit history (#1542):** the schedule audit view now includes stock screen runs, displays run ID, screen type, and manual/scheduled trigger, and renders explicit unavailable markers for missing symbols, setup counts, or delivery-channel data. Stock and options run audit events now include these metadata fields. #CTO-mbshr
 
+- **Flag-gated AI Search serving + provenance for the R2 knowledge corpus (#1169, S2):** behind `KNOWLEDGE_SERVING_ENABLED` (default off; off = exactly today's behavior): the two AI Search mapping fixes (true index score, true category — no more defaulted `0.9` / forced `sec_filing`), authenticated `GET /knowledge/file` serving of hash-verified corpus bytes with bucket-key provenance on results, and externalized knowledge error codes/messages (`KnowledgeErrorCode` catalog in `src/aspects/errorCodes.ts`). The fabricated fallback and the G1 `1.0` scores are untouched (S3 owns them); mapping pins are probe-dependent until the live AI Search chunk shape is confirmed, and the flag stays off until the dashboard + live-probe verification gate lands. #CDO-mha7
+
 ### Fixed
 
 - **Options preflight episode quiet contract (#1583):** scheduled options screens whose E*TRADE auth is blocked at preflight now honor the episode quiet contract — only the initial episode block notifies; subsequent runs in the same episode return quietly with their coded error instead of spamming failure notifications when the error explicitly states further runs stay quiet. Pinned by `tests/options_preflight_failure_notify_1358.test.ts`. #CTO-mbshr
