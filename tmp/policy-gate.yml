@@ -1,0 +1,63 @@
+# Policy Gate — cfagent issue #1487.
+#
+# WHAT: turns gitops policy that is otherwise only prose into a required
+# check. A PR merges only if it carries (a) a linked issue, (b) a §21
+# lane label, (c) an agent hashtag, and (d) a CHANGELOG entry under
+# ## [Unreleased] OR a changelog.d fragment (issue #1801). A PR that
+# skips any of these fails here even when every test is green.
+#
+# WHY: verified 2026-10-25, the Jules PRs #1006, #1021, #1028, #1061,
+# and #1137 each merged with zero labels and no agent hashtag, and
+# #1137 with zero issue refs. They landed via merged PRs, not direct
+# pushes — the gap was the missing gates, not a bypassed branch rule.
+# Shared-account attribution makes this worse: PR user is OpenAIMP
+# for every lane, so the label and hashtag are the attribution.
+#
+# HOW: deterministic and fast. Issue, label, and hashtag come from
+# the pull_request event context (no API calls). The changelog check
+# diffs the PR head against the merge base and requires an added
+# line inside the ## [Unreleased] section OR an added changelog.d
+# fragment (a non-empty file whose first non-empty line is a '### '
+# section header followed by an entry line). No secrets, no network
+# beyond the checkout.
+#
+# OWNER STEP: add the job name "Policy Gate" to the protectmain
+# ruleset's required checks; until then this workflow runs but does
+# not block merges. Draft and workflow-changing PRs run through the
+# same policy checks as every other PR.
+
+name: Policy Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy-gate:
+    name: Policy Gate
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch for CHANGELOG comparison
+        run: git fetch origin main
+
+      - name: Run policy gate
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: python3 scripts/ci/policy_gate.py --base origin/main --head HEAD
+
