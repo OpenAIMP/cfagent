@@ -1,5 +1,5 @@
-import { generateText } from "ai";
-import { getWorkersAIModel, resolveAiModelName } from "../../../agents/model";
+import { resolveAiModelName } from "../../../agents/model";
+import { requireGatewayPorts } from "../../../gateway/createGatewayPorts";
 import { isNewsSentimentEnabled } from "../../../config/newsSentiment";
 import type { Env } from "../../../types";
 import type { FlowSentiment, NewsFlowItem } from "./types";
@@ -10,8 +10,8 @@ import type { FlowSentiment, NewsFlowItem } from "./types";
  * fetchRealMarketNews used to stamp every item sentiment "neutral" with no
  * analysis behind it. Sentiment now comes from ONE Workers AI call per news
  * cache fill (never per request, never per headline), through the same
- * model path as llmComparison (generateText + getWorkersAIModel with a task
- * key). Every item carries provenance: sentimentMethod "llm" (+ the model
+ * model path as llmComparison (gateway port with a task key).
+ * Every item carries provenance: sentimentMethod "llm" (+ the model
  * id) when the model labelled it, "unavailable" otherwise — and
  * "unavailable" items keep the neutral default WITHOUT presenting it as an
  * assessment.
@@ -137,11 +137,14 @@ export async function classifyNewsSentiment(env: Env | undefined, items: NewsFlo
   if (!hasAi) return;
 
   try {
-    const { text } = await generateText({
-      model: getWorkersAIModel(env as Env, NEWS_SENTIMENT_TASK),
+    // #1741: sentiment classification routes through the gateway port.
+    const gateway = requireGatewayPorts(env as Env);
+    const { text } = await gateway.generate({
+      models: [resolveAiModelName(env, NEWS_SENTIMENT_TASK)],
       temperature: 0,
       system: NEWS_SENTIMENT_SYSTEM_PROMPT,
       prompt: buildNewsSentimentPrompt(items),
+      caller: "news-sentiment",
     });
     const labels = parseNewsSentimentLabels(text, new Set(items.map((i) => i.id)));
     if (labels.size === 0) return;

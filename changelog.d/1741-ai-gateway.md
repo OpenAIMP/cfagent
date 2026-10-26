@@ -1,0 +1,3 @@
+### Added
+
+- **AI Gateway fallback integration (#1741):** port-first LLM gateway (`src/gateway/`) routing all inference calls through Cloudflare AI Gateway when `AI_GATEWAY_ID` is configured (direct Workers AI path otherwise, unchanged) — ordered multi-model failover on retryable errors, per-tenant caching (never cached without a tenant, with tools, or oversize), gateway-level rate limiting with no failover on limit, and #1745 breaker composition (open breaker skips the attempt). Gateway stats surface on the telemetry summary route; gateway events use the #1739 CloudEvents envelope (counts only, no prompts or outputs).

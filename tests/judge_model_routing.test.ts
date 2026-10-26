@@ -7,6 +7,14 @@
  *   in the chain;
  * - after all three models fail, the existing graceful fallbacks still apply;
  * - non-retryable errors do not retry.
+ *
+ * #1741: failover moved from runWithRouting into the gateway port.
+ * The tests now observe the modelId of the Workers AI model object
+ * the port's executor hands to generateText (instead of the old
+ * getWorkersAIModel routedName marker), and pass a fake AI binding
+ * because the gateway factory refuses an unbound binding (the old
+ * path called generateText with an undefined binding and relied
+ * on the mock to absorb it).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -15,18 +23,15 @@ vi.mock("ai", async (importOriginal) => {
   return { ...actual, generateText: vi.fn() };
 });
 
-// Observe which model names the judge requests; return a marker object.
-vi.mock("../src/agents/model", () => ({
-  getWorkersAIModel: (_env: any, name?: string) => ({ routedName: name ?? "default-model" }),
-  DEFAULT_AI_MODEL: "default-model",
-  resolveAiModelName: (_env: any, name?: string) => name ?? "default-model",
-}));
-
 import { generateText } from "ai";
 import { LLMJudge } from "../src/agents/judge";
 import { MODEL_CHAINS } from "../src/models/router";
 
 const generateTextMock = vi.mocked(generateText);
+
+// Fake AI binding: satisfies the gateway factory's run-function
+// guard. The mocked generateText intercepts before binding.run.
+const ENV = { AI: { run: async () => ({}) } };
 
 const retryableError = () => {
   const err: any = new Error("Rate limited");
@@ -35,7 +40,7 @@ const retryableError = () => {
 };
 
 const modelsSeen = () =>
-  generateTextMock.mock.calls.map((c: any) => c[0].model.routedName);
+  generateTextMock.mock.calls.map((c: any) => c[0].model.modelId);
 
 beforeEach(() => {
   generateTextMock.mockReset();
@@ -48,7 +53,7 @@ describe("LLMJudge model routing (#163)", () => {
       .mockResolvedValueOnce({
         text: JSON.stringify({ agent: "trading", confidence: 0.9, reason: "test" }),
       } as any);
-    const judge = new LLMJudge({} as any);
+    const judge = new LLMJudge(ENV as any);
     // No fast-path heuristic matches this text, so it reaches generateText.
     const decision = await judge.route("xyzzy quux flibbertigibbet");
     expect(decision.agent).toBe("trading");
@@ -63,7 +68,7 @@ describe("LLMJudge model routing (#163)", () => {
       .mockResolvedValueOnce({
         text: JSON.stringify({ score: 90, grounded: true, safe: true, issues: [] }),
       } as any);
-    const judge = new LLMJudge({} as any);
+    const judge = new LLMJudge(ENV as any);
     const quality = await judge.evaluate({ question: "q", answer: "a", agent: "general" });
     expect(quality.score).toBe(90);
     expect(generateTextMock).toHaveBeenCalledTimes(2);
@@ -72,7 +77,7 @@ describe("LLMJudge model routing (#163)", () => {
 
   it("uses the graceful fallback after all three models fail", async () => {
     generateTextMock.mockRejectedValue(retryableError());
-    const judge = new LLMJudge({} as any);
+    const judge = new LLMJudge(ENV as any);
     const decision = await judge.route("xyzzy quux flibbertigibbet");
     expect(decision.agent).toBe("general");
     expect(generateTextMock).toHaveBeenCalledTimes(3);
@@ -91,7 +96,7 @@ describe("LLMJudge model routing (#163)", () => {
 
   it("does not retry non-retryable errors", async () => {
     generateTextMock.mockRejectedValue(new Error("plain failure"));
-    const judge = new LLMJudge({} as any);
+    const judge = new LLMJudge(ENV as any);
     const decision = await judge.route("xyzzy quux flibbertigibbet");
     expect(decision.agent).toBe("general");
     expect(generateTextMock).toHaveBeenCalledTimes(1);
