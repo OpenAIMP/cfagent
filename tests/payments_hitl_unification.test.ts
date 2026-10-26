@@ -417,11 +417,17 @@ describe("Confirm-time gateway payload (#514 intent, moved with the checkout to 
   });
 });
 
-describe("Source pins (#1690)", () => {
-  it("the create/confirm routes delegate to the MCP commands and the route no longer emits payment.created", () => {
+describe("Source pins (#1690, updated by #1711)", () => {
+  it("the hitl create/confirm routes delegate to the MCP commands; payment.created exists ONLY in the immediate-mode branch (#1711)", () => {
     const routes = src("agents/routes/payments.ts");
     expect(routes).toContain('executeMCPTool("draft_payment"');
     expect(routes).toContain('executeMCPTool("confirm_payment_draft"');
-    expect(routes).not.toContain('ctx.audit("payment.created"');
+    // #1711: payment.created is restored for immediate mode only — the
+    // hitl path still emits payment.awaiting_confirmation via the
+    // command, never payment.created. The old blanket
+    // not-toContain(payment.created) pin is therefore replaced by the
+    // per-mode behavior pins in tests/payments_flow_mode.test.ts.
+    expect(routes).toContain('ctx.audit("payment.created"');
+    expect(routes).toContain("PAYMENTS_FLOW_MODE");
   });
 });

@@ -100,6 +100,20 @@ export interface Env {
   SERVICE_USER_LOGIN?: string;
   MAS_MAX_STEPS?: string;
   AI_MODEL?: string;
+  // #1711 — payments flow switch (ONE switch, non-secret, owner-set).
+  // PAYMENTS_FLOW_MODE: "hitl" | "immediate" (case-insensitive, padded
+  // values accepted). Default when unset or blank: "hitl" — the #1690
+  // HITL-draft behavior. "immediate" restores the pre-#1690 route
+  // behavior (checkout at create). Any other value FAILS CLOSED to
+  // "hitl" and is logged + audited as payment.config_error by the
+  // payments route — never silently treated as immediate. Set via a
+  // Worker plain-text var (wrangler.jsonc `vars` or the Cloudflare
+  // dashboard Variables) and redeploy; rollback is unsetting the var
+  // (or setting it to "hitl") and redeploying — no code change. This
+  // slice deliberately does NOT set a production value: production
+  // values are an owner action. Resolved by resolvePaymentsFlowMode
+  // in src/agents/routes/payments.ts.
+  PAYMENTS_FLOW_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;

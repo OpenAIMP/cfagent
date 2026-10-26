@@ -9,6 +9,24 @@
  * validation + DID attestation), POST /payments/confirm (HITL authorize &
  * execute via confirm_payment_draft), POST /payments/capture
  * (real capture), POST /payments/webhook (unified HMAC-verified listener).
+ *
+ * #1711 (owner directive 2026-10-26, verbatim: "never either/or,
+ * always configurable"): POST /payments/create and /payments/confirm
+ * are CONFIGURABLE via the single Worker env switch
+ * PAYMENTS_FLOW_MODE ("hitl" | "immediate", default "hitl", invalid
+ * fails closed to "hitl" with a payment.config_error audit — see
+ * resolvePaymentsFlowMode below). HITL mode is the unchanged #1690
+ * behavior; immediate mode is the pre-#1690 route behavior recovered
+ * verbatim from the parent tree of merge 0d538b10 (checkout at
+ * create, pending_checkout, PAYMENT_GATEWAY_ERROR at create, confirm
+ * creates a checkout only if missing). Neither flow is deleted.
+ * Setting the switch is an OWNER action: a plain-text Worker var in
+ * wrangler.jsonc `vars` or the Cloudflare dashboard Variables, then
+ * redeploy; this slice sets no production value. Per-mode audit
+ * vocabularies are kept separate (hitl: payment.awaiting_confirmation
+ * + the command's payment.confirmed/payment.rejected; immediate:
+ * payment.created + the route's payment.confirmed/payment.rejected
+ * with executorDid) — they are not merged.
  * The seven blocks were contiguous in routeRequest (between the
  * referrals+ads handler and the Cloudflare Agentic Payments block), so this
  * module exports ONE handler invoked from routeRequest at the EXACT position
@@ -21,10 +39,15 @@
  * preserved exactly as written inline: the #156 gateway 400-before-checkout
  * gate, the #148 webhook provider default-deny (401 before verification),
  * signature verification (401 on invalid), and the audit event names
- * (payment.awaiting_confirmation / payment.confirmed / payment.rejected /
- * payment.captured / payment.settled_webhook — #1690 replaced the old
- * payment.created create audit with the draft command's
- * payment.awaiting_confirmation audit).
+ * (hitl: payment.awaiting_confirmation / payment.confirmed /
+ * payment.rejected; immediate: payment.created / payment.confirmed /
+ * payment.rejected — #1690 replaced the old payment.created create
+ * audit with the draft command's payment.awaiting_confirmation audit
+ * in hitl mode only; #1711 restores payment.created in immediate
+ * mode. payment.config_error is emitted in either mode when
+ * PAYMENTS_FLOW_MODE holds an unrecognized value, before the
+ * request proceeds in fail-closed hitl mode / payment.captured /
+ * payment.settled_webhook).
  *
  * The PaymentGatewayService and DID helpers stay where they are — this
  * module moves the ROUTE layer only. Handlers that used OrchestratorAgent
@@ -40,9 +63,10 @@ import {
   SUPPORTED_GATEWAYS,
   type SupportedGateway,
 } from "../../services/payments";
-import { AGENT_DIDS, resolveAgentDidDocument } from "../did";
+import { AGENT_DIDS, getUserDid, resolveAgentDidDocument } from "../did";
 import {
   SETTLEMENT_OWNER_HEADER,
+  registerDraftOwner,
   resolveDraftOwner,
 } from "../../payments/draftOwners";
 import type { AgentName, Env } from "../../types";
@@ -66,6 +90,60 @@ export interface PaymentsRouteContext {
     agent: AgentName | "judge" | "nlq" | "orchestrator",
     payload: Record<string, unknown>
   ): void;
+}
+
+/** The two payments flows behind the #1711 switch. */
+export type PaymentsFlowMode = "hitl" | "immediate";
+
+export interface ResolvedPaymentsFlowMode {
+  mode: PaymentsFlowMode;
+  /** The raw env value, when it was a string (preserved for audit). */
+  raw?: string;
+  /** True only for an unrecognized non-blank value (fail-closed hitl). */
+  invalid: boolean;
+}
+
+/**
+ * #1711: resolves the ONE payments-flow switch, PAYMENTS_FLOW_MODE.
+ * Unset or blank → "hitl" (the #1690 default, NOT invalid).
+ * "hitl" / "immediate" (case-insensitive, surrounding whitespace
+ * ignored) → that mode. Anything else → "hitl" FAIL-CLOSED with
+ * invalid=true; callers must log + audit the config error (see
+ * flowModeForRequest) and must NEVER treat an invalid value as
+ * immediate. There is no second switch for this choice.
+ */
+export function resolvePaymentsFlowMode(
+  env: { PAYMENTS_FLOW_MODE?: unknown } | null | undefined
+): ResolvedPaymentsFlowMode {
+  const rawValue = env?.PAYMENTS_FLOW_MODE;
+  const raw = typeof rawValue === "string" ? rawValue : undefined;
+  const normalized = raw?.trim().toLowerCase();
+  if (!normalized) return { mode: "hitl", raw, invalid: false };
+  if (normalized === "hitl") return { mode: "hitl", raw, invalid: false };
+  if (normalized === "immediate") return { mode: "immediate", raw, invalid: false };
+  return { mode: "hitl", raw, invalid: true };
+}
+
+/**
+ * Resolves the flow for one request and, on an invalid value, logs
+ * and audits the config error BEFORE the request proceeds in
+ * fail-closed hitl mode. Auditing here (rather than only logging)
+ * makes a misconfigured deployment visible in the audit ledger, not
+ * just in Workers Logs.
+ */
+function flowModeForRequest(ctx: PaymentsRouteContext): PaymentsFlowMode {
+  const resolved = resolvePaymentsFlowMode(ctx.env);
+  if (resolved.invalid) {
+    console.error(
+      `[payments] invalid PAYMENTS_FLOW_MODE value ${JSON.stringify(resolved.raw)} — failing closed to "hitl"`
+    );
+    ctx.audit("payment.config_error", "payments", {
+      setting: "PAYMENTS_FLOW_MODE",
+      value: resolved.raw ?? "",
+      resolved: "hitl",
+    });
+  }
+  return resolved.mode;
 }
 
 /**
@@ -220,6 +298,103 @@ export async function handlePaymentsRoutes(
       // never a product line for a product that does not exist.
       const description = (body.description || "").trim();
 
+      // #1711: one switch, two flows. Invalid values fail closed to
+      // hitl (with a payment.config_error audit) via flowModeForRequest.
+      const flowMode = flowModeForRequest(ctx);
+
+      // #1711 immediate mode: the pre-#1690 route behavior, recovered
+      // verbatim from the parent tree of merge 0d538b10 (see the PR
+      // body for the diff-verification and the one deliberate
+      // non-deviation note: none — the recovered block is unchanged,
+      // including its PAYMENT_GATEWAY_ERROR-at-create path and its
+      // pending_checkout/completed initial-status rule). The shared
+      // #524/#156/#514 validations above run identically in both
+      // modes, before either flow's row write.
+      if (flowMode === "immediate") {
+        const draftId = `pay_${crypto.randomUUID().slice(0, 8)}`;
+        const userDid = getUserDid(sessionId);
+
+        const paymentService = new PaymentGatewayService(ctx.env);
+        const checkoutResult = await paymentService.createCheckout({
+          draftId,
+          amount,
+          currency,
+          customer,
+          description,
+          gateway,
+          userLogin: sessionId,
+        });
+
+        if (!checkoutResult.success) {
+          return Response.json({
+            success: false,
+            error: checkoutResult.message || `Failed to create checkout with ${gateway}`,
+            code: "PAYMENT_GATEWAY_ERROR",
+          }, { status: 400 });
+        }
+
+        const now = new Date().toISOString();
+        const initialStatus = checkoutResult.checkoutUrl ? "pending_checkout" : "completed";
+        sql.exec(
+          "INSERT INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          draftId,
+          sessionId,
+          action,
+          amount,
+          currency,
+          customer,
+          gateway,
+          checkoutResult.gatewayRef || "",
+          initialStatus,
+          checkoutResult.checkoutUrl,
+          AGENT_DIDS.PAYMENTS,
+          userDid,
+          checkoutResult.didAttestation.signature,
+          description,
+          now,
+          now
+        );
+
+        ctx.audit("payment.created", "payments", {
+          draftId,
+          amount,
+          currency,
+          customer,
+          gateway,
+          proposerDid: AGENT_DIDS.PAYMENTS,
+          authorizerDid: userDid,
+          proofSignature: checkoutResult.didAttestation.signature,
+        });
+
+        // Issue #932: record which instance owns this draft so a gateway
+        // settlement webhook — received by the shared
+        // system_webhook_receiver instance, not this one — can be routed
+        // back here. Written for every draft, whatever its initial status.
+        await registerDraftOwner(ctx.env, draftId, sessionId);
+
+        return Response.json({
+          success: true,
+          transaction: {
+            id: draftId,
+            sessionId,
+            action,
+            amount,
+            currency,
+            customer,
+            gateway,
+            gatewayRef: checkoutResult.gatewayRef,
+            status: initialStatus,
+            checkoutUrl: checkoutResult.checkoutUrl,
+            proposerDid: AGENT_DIDS.PAYMENTS,
+            authorizerDid: userDid,
+            proofSignature: checkoutResult.didAttestation.signature,
+            note: description,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      }
+
       // #1690 (owner decision: HITL-draft canonical): create executes
       // through the MCP draft_payment command via executeMCPTool — the
       // #1644 pattern, route keeps transport + presentation only. The
@@ -303,6 +478,99 @@ export async function handlePaymentsRoutes(
 
       if (!draftId) {
         return Response.json({ error: "draftId is required" }, { status: 400 });
+      }
+
+      // #1711: same single switch as create. Invalid values fail
+      // closed to hitl (with a payment.config_error audit).
+      const flowMode = flowModeForRequest(ctx);
+
+      // #1711 immediate mode: the pre-#1690 route behavior, recovered
+      // verbatim from the parent tree of merge 0d538b10. Deltas from
+      // hitl, all preserved deliberately (see the PR body): a missing
+      // draft does NOT 404 — the UPDATE matches 0 rows and the route
+      // still returns success/completed (the recovered silent-success
+      // behavior, kept as recovered, not re-decided here); an approved
+      // charge/invoice creates a checkout ONLY if none exists yet
+      // (an existing checkoutUrl/gatewayRef is kept, never
+      // overwritten); note text is "Confirmed by human authorizer" /
+      // "Rejected by reviewer"; audits are the route's own
+      // payment.confirmed (with executorDid) / payment.rejected
+      // ({draftId, authorizerDid}) payloads.
+      if (flowMode === "immediate") {
+        const userDid = getUserDid(sessionId);
+        const now = new Date().toISOString();
+
+        if (decision === "approved") {
+          // Retrieve draft from mas_transactions
+          const rows = Array.from(sql.exec("SELECT * FROM mas_transactions WHERE id = ?", draftId)) as any[];
+          const tx = rows[0];
+          const paymentService = new PaymentGatewayService(ctx.env);
+
+          let checkoutUrl = tx?.checkout_url || "";
+          let gatewayRef = tx?.gateway_ref || "";
+
+          if (tx && (tx.action === "charge" || tx.action === "invoice") && !checkoutUrl) {
+            const res = await paymentService.createCheckout({
+              draftId,
+              amount: Number(tx.amount),
+              currency: String(tx.currency || "USD"),
+              customer: String(tx.customer),
+              gateway: tx.gateway as SupportedGateway,
+              userLogin: sessionId,
+              description: tx.note || "Authorized payment intent",
+            });
+            checkoutUrl = res.checkoutUrl;
+            gatewayRef = res.gatewayRef;
+          } else if (tx && tx.action === "refund") {
+            const res = await paymentService.executeRefund({
+              transactionId: draftId,
+              amount: Number(tx.amount),
+              gateway: tx.gateway as SupportedGateway,
+              gatewayRef: tx.gateway_ref,
+              userLogin: sessionId,
+              reason: note,
+            });
+            gatewayRef = res.refundId;
+          }
+
+          sql.exec(
+            "UPDATE mas_transactions SET status = 'completed', gateway_ref = ?, checkout_url = ?, authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+            gatewayRef,
+            checkoutUrl,
+            userDid,
+            note || "Confirmed by human authorizer",
+            now,
+            draftId
+          );
+
+          ctx.audit("payment.confirmed", "payments", {
+            draftId,
+            authorizerDid: userDid,
+            executorDid: AGENT_DIDS.ORCHESTRATOR,
+            gatewayRef,
+            checkoutUrl,
+          });
+
+          return Response.json({
+            success: true,
+            status: "completed",
+            draftId,
+            checkoutUrl,
+            gatewayRef,
+            authorizerDid: userDid,
+          });
+        } else {
+          sql.exec(
+            "UPDATE mas_transactions SET status = 'rejected', authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+            userDid,
+            note || "Rejected by reviewer",
+            now,
+            draftId
+          );
+
+          ctx.audit("payment.rejected", "payments", { draftId, authorizerDid: userDid });
+          return Response.json({ success: true, status: "rejected", draftId });
+        }
       }
 
       let out: any;
