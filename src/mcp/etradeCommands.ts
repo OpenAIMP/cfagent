@@ -54,7 +54,7 @@ export class ETradeMarketScanCommand implements IMcpToolCommand<{
   });
 
   async execute(input: any, context: McpToolContext) {
-    const etrade = new ETradeService(context.orm, context.env, context.sessionId);
+    const etrade = new ETradeService(context.orm, context.env, context.sessionId, undefined, context.storage);
     const result = await etrade.screenMarketsAsync(input);
 
     context.audit("etrade.market_scanned", "trading", {
