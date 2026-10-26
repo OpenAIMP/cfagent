@@ -24,6 +24,8 @@
  *   family (TextInput adds ref forwarding + a multiline textarea mode)
  *   family, with hint/error wiring (aria-invalid + aria-describedby)
  *   via the shared FieldShell.
+ * - Checkbox — native boolean toggle (bare control; callers keep their
+ *   <label> wrappers; token accent + fixed box size).
  * - Modal — dialog on the tokens.css Universal Modal System classes:
  *   portal, Escape/backdrop close, focus trap + restore, scroll lock
  *   (sizes sm/md/lg/xl, optional footer).
@@ -45,6 +47,7 @@ export { Notice, type NoticeProps, type NoticeTone } from "./Notice";
 export { Tabs, TabPanel, type TabsProps, type TabOption, type TabPanelProps } from "./Tabs";
 export { TextInput, type TextInputProps } from "./TextInput";
 export { Select, type SelectProps } from "./Select";
+export { Checkbox, type CheckboxProps } from "./Checkbox";
 export { Modal, type ModalProps } from "./Modal";
 export { Table, type TableProps, type TableColumn } from "./Table";
 export { Skeleton, type SkeletonProps } from "./Skeleton";
