@@ -437,6 +437,9 @@ export async function autonomousStrategyDiscovery(ctx: ScheduledCallbacksContext
       }
       await ctx.agentCtx.storage.put(key, { slot, userLogin });
     }
+    // Issue #1661: platformDeps threads the DO storage handle so scheduled
+    // discovery listings fetch live + capture (behavior change from the
+    // missing-seam throw — disclosed, Q3).
     const service = new ScheduledTasksService(
       ctx.env,
       ctx.getOrm(),
@@ -446,7 +449,7 @@ export async function autonomousStrategyDiscovery(ctx: ScheduledCallbacksContext
       new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
       new SqlStrategyProfileStore(ctx.agentCtx.storage.sql),
       ctx.scheduleScreenerFollowups,
-      undefined,
+      { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env },
       undefined,
       new SqlFeedSnapshotStore(ctx.agentCtx.storage.sql)
     );
