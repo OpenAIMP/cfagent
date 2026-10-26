@@ -1414,7 +1414,7 @@ async function executeNLQQueryAsyncCore(
         executedAt,
       };
     }
-    const etrade = new ETradeService(orm, env, login);
+    const etrade = new ETradeService(orm, env, login, undefined, deps?.storage);
     const action = plan.tradingData?.action || "screen";
 
     if (action === "capabilities") {
@@ -2267,7 +2267,7 @@ export async function executeNaturalLanguageQuery(
   env: Env,
   userLoginOrOptions?: string | { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean },
   userDid?: string,
-  options?: { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort; stockScreenPort?: NLQStockScreenPort; socialBriefPort?: NLQSocialBriefPort; discoveryRunner?: NLQExecutionDeps["discoveryRunner"]; fitDiscoveryRunner?: NLQExecutionDeps["fitDiscoveryRunner"] }
+  options?: { context?: string; validateWithLLM?: boolean; untrustedContent?: boolean; scanRunStore?: ScanRunStore; profileStore?: StrategyProfileStore; schedulingPort?: NLQSchedulingPort; stockScreenPort?: NLQStockScreenPort; socialBriefPort?: NLQSocialBriefPort; discoveryRunner?: NLQExecutionDeps["discoveryRunner"]; fitDiscoveryRunner?: NLQExecutionDeps["fitDiscoveryRunner"]; storage?: NLQExecutionDeps["storage"] }
 ): Promise<{ plan: NLQPlan; result: NLQQueryResult }> {
   let userLogin: string | undefined;
   let resolvedOptions = options;
@@ -2287,8 +2287,8 @@ export async function executeNaturalLanguageQuery(
     env,
     userLogin,
     userDid,
-    resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort || resolvedOptions?.stockScreenPort || resolvedOptions?.socialBriefPort || resolvedOptions?.discoveryRunner || resolvedOptions?.fitDiscoveryRunner
-      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort, stockScreenPort: resolvedOptions?.stockScreenPort, socialBriefPort: resolvedOptions?.socialBriefPort, discoveryRunner: resolvedOptions?.discoveryRunner, fitDiscoveryRunner: resolvedOptions?.fitDiscoveryRunner }
+    resolvedOptions?.storage || resolvedOptions?.scanRunStore || resolvedOptions?.profileStore || resolvedOptions?.schedulingPort || resolvedOptions?.stockScreenPort || resolvedOptions?.socialBriefPort || resolvedOptions?.discoveryRunner || resolvedOptions?.fitDiscoveryRunner
+      ? { scanRunStore: resolvedOptions?.scanRunStore, profileStore: resolvedOptions?.profileStore, userLogin, schedulingPort: resolvedOptions?.schedulingPort, stockScreenPort: resolvedOptions?.stockScreenPort, socialBriefPort: resolvedOptions?.socialBriefPort, discoveryRunner: resolvedOptions?.discoveryRunner, fitDiscoveryRunner: resolvedOptions?.fitDiscoveryRunner, storage: resolvedOptions?.storage }
       : undefined,
   );
   if (!result.planSource && plan.planSource) {
