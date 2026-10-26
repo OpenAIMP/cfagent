@@ -114,23 +114,6 @@ export interface Env {
   // values are an owner action. Resolved by resolvePaymentsFlowMode
   // in src/agents/routes/payments.ts.
   PAYMENTS_FLOW_MODE?: string;
-  // #1721 (parent #1717) — ONE switch per categories / referrals /
-  // external-ads pair (non-secret, owner-set, same pattern as
-  // PAYMENTS_FLOW_MODE). Values "route" | "mcp" (case-insensitive,
-  // padded values accepted). Default when unset or blank: "route" —
-  // current public route behavior (notably external ads cpm 15.0 /
-  // cpc 1.25). Any other value FAILS CLOSED to "route" and is logged
-  // + audited as <domain>.config_error — never silently treated as
-  // "mcp". Set via a Worker plain-text var (wrangler.jsonc `vars` or
-  // the Cloudflare dashboard Variables) and redeploy; rollback is
-  // unsetting the var (or setting it to "route") and redeploying — no
-  // code change. This slice deliberately does NOT set a production
-  // value: production values are an owner action. Resolution order
-  // (run > session > user > global env > built-in) lives in
-  // src/config/adsRevenueModes.ts.
-  CATEGORIES_MODE?: string;
-  REFERRALS_MODE?: string;
-  EXTERNAL_ADS_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
@@ -510,6 +493,9 @@ export interface ETradeQuote {
  *  in src/trading/technicals.ts; slice 6's bias vote reads this value. */
 export type PriceRegime = "UP" | "DN" | "RNG";
 
+/** Issue #1654 slice 6: 6-vote composite bias label (see screeningIndicators). */
+export type CompositeBias = "Bullish" | "Bearish" | "Neutral";
+
 export interface StockScreenerFilter {
   sector?: string;
   minPrice?: number;
@@ -539,6 +525,9 @@ export interface StockScreenerFilter {
   /** Issue #1654 slice 5: reject candidates whose attached price-action
    *  regime (see regime) does not match. */
   regimeFilter?: PriceRegime;
+  /** Issue #1654 slice 6: reject candidates whose attached composite
+   *  bias score (see compositeBiasScore) is below this minimum. */
+  minCompositeBiasScore?: number;
   gainersOnly?: boolean;
   losersOnly?: boolean;
   rsiFilter?: "oversold" | "overbought" | "neutral" | "any";
@@ -597,6 +586,14 @@ export interface ScreenedStockItem extends ETradeQuote {
    *  data unavailable — the filter that needs it fail-closes, never
    *  estimated. */
   regime?: PriceRegime;
+  /** Issue #1654 slice 6: 6-vote composite bias score (bullish-vote
+   *  count, 0–6) from real bar history, attached upstream where bars
+   *  exist. Absent = bias data unavailable — the gate that needs it
+   *  fail-closes, never estimated. */
+  compositeBiasScore?: number;
+  /** Issue #1654 slice 6: 6-vote composite bias label for the attached
+   *  score (see compositeBiasScore). */
+  compositeBias?: CompositeBias;
   macdSignal: string;
   signal: "BULLISH_MOMENTUM" | "OVERSOLD_BOUNCE" | "RANGE_BOUND" | "OVERBOUGHT";
   technicalSignal: string;

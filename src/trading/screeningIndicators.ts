@@ -12,6 +12,13 @@
  */
 
 import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
+import {
+  computeSma,
+  classifyPriceRegime,
+  computeTechnicals,
+  type YahooDailyBar,
+} from "./technicals";
+import type { CompositeBias, PriceRegime } from "../types";
 
 export type Sentiment =
   | "very_bullish"
@@ -146,4 +153,143 @@ export function computeScreeningIndicators(
     screenScore,
     summary: parts.join(" · "),
   };
+}
+
+export type CompositeBiasVote = "bullish" | "bearish" | "abstain";
+
+/**
+ * Inputs to the 6-vote composite bias. Every field is nullable: a
+ * vote whose input is missing or non-finite ABSTAINS — it is never
+ * counted as bullish, bearish, or neutral-by-default. Callers must
+ * supply REAL bar-derived values (or item-attached values computed
+ * upstream from real bars): the screening path's feed `q.rsi` is not
+ * a bar RSI₁₄, and the `macdSignal` STRING is not a MACD line value
+ * and must never be coerced into a vote. Where a vote input is
+ * unavailable, leave it null and let it abstain; slice 8's
+ * enrichment supplies real bars.
+ */
+export interface CompositeBiasInputs {
+  /** Spot price (last close). Null/non-finite abstains every vote. */
+  price: number | null | undefined;
+  sma50: number | null | undefined;
+  sma200: number | null | undefined;
+  /** MACD line value (12,26,9), NOT the macdSignal string. */
+  macdLine: number | null | undefined;
+  /** Bar-computed RSI₁₄, NOT feed q.rsi. */
+  rsi14: number | null | undefined;
+  /** Price-action regime from classifyPriceRegime, or null. */
+  regime: PriceRegime | null | undefined;
+}
+
+export interface CompositeBiasVotes {
+  priceVsSma50: CompositeBiasVote;
+  priceVsSma200: CompositeBiasVote;
+  smaCross: CompositeBiasVote;
+  macd: CompositeBiasVote;
+  rsi: CompositeBiasVote;
+  regime: CompositeBiasVote;
+}
+
+export interface CompositeBiasResult {
+  /** Bullish-vote count (0–6). This is the doc's "score". */
+  score: number;
+  /** Bearish-vote count (0–6). */
+  bearish: number;
+  /** Abstained-vote count (0–6). */
+  abstentions: number;
+  bias: CompositeBias;
+  votes: CompositeBiasVotes;
+}
+
+function voteGt(
+  a: number | null | undefined,
+  b: number | null | undefined
+): CompositeBiasVote {
+  if (a == null || b == null) return "abstain";
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return "abstain";
+  return a > b ? "bullish" : "bearish";
+}
+
+/**
+ * 6-Vote Composite Bias (issue #1654 slice 6; screener-rules.md).
+ * One point each: P > SMA₅₀, P > SMA₂₀₀, SMA₅₀ > SMA₂₀₀, MACD line
+ * > 0, RSI₁₄ > 50, pivot structure UP (regime === "UP").
+ *
+ * Counting rule, documented because the doc states thresholds only
+ * for the all-vote case: every vote is bullish, bearish, or
+ * abstain. Numeric votes use STRICT > — equality is determinately
+ * false, hence bearish, never neutral. The regime vote earns its
+ * point only on "UP"; "DN" and "RNG" are determined non-UP
+ * structures, hence bearish; only a null regime abstains.
+ *
+ * Bias label: Bullish iff score ≥ 4; Bearish iff bearish ≥ 4;
+ * otherwise Neutral. When all six vote this coincides exactly with
+ * the doc (≥4 Bullish, ≤2 Bearish, 3 Neutral — the two thresholds
+ * are the same condition). With abstentions the symmetric ≥4 rule
+ * keeps both labels evidence-backed: a score ≤ 2 with abstentions
+ * is Neutral, NOT Bearish — bearishness is never invented from
+ * missing data. The abstention count is always reported.
+ */
+export function compute6VoteCompositeBias(
+  inputs: CompositeBiasInputs
+): CompositeBiasResult {
+  const votes: CompositeBiasVotes = {
+    priceVsSma50: voteGt(inputs.price, inputs.sma50),
+    priceVsSma200: voteGt(inputs.price, inputs.sma200),
+    smaCross: voteGt(inputs.sma50, inputs.sma200),
+    macd: voteGt(inputs.macdLine, 0),
+    rsi: voteGt(inputs.rsi14, 50),
+    regime:
+      inputs.regime == null
+        ? "abstain"
+        : inputs.regime === "UP"
+          ? "bullish"
+          : "bearish",
+  };
+  const all = Object.values(votes);
+  const score = all.filter((v) => v === "bullish").length;
+  const bearish = all.filter((v) => v === "bearish").length;
+  const abstentions = all.filter((v) => v === "abstain").length;
+  const bias: CompositeBias =
+    score >= 4 ? "Bullish" : bearish >= 4 ? "Bearish" : "Neutral";
+  return { score, bearish, abstentions, bias, votes };
+}
+
+/**
+ * Bar-derived 6-vote bias. Computes every vote input from real daily
+ * bars — SMA₅₀/SMA₂₀₀ via computeSma, RSI₁₄/MACD via computeTechnicals
+ * (whose 15/27-bar minimums gate honestly: below them the field is
+ * null and the vote abstains — the fossResearch 50.0/0-line defaults
+ * for short series are never allowed to vote), regime via
+ * classifyPriceRegime — and counts via compute6VoteCompositeBias.
+ * Returns null only when no price exists (empty bars or a
+ * non-finite last close). Short series degrade honestly: e.g. 10
+ * bars abstain on all six votes (Neutral, never estimated); 30 bars
+ * cast only RSI/MACD/regime. Nothing here fetches bars.
+ */
+export function compute6VoteCompositeBiasFromBars(
+  bars: readonly YahooDailyBar[]
+): CompositeBiasResult | null {
+  if (!bars || bars.length === 0) return null;
+  const price = bars[bars.length - 1].close;
+  if (!Number.isFinite(price)) return null;
+  const closes = bars.map((b) => b.close);
+  const tech = computeTechnicals("", [...bars]);
+  // Finiteness gate: fossResearch's RSI treats a NaN diff as a flat
+  // day (both gain and loss add 0) instead of propagating NaN, so a
+  // corrupt close series would still yield a confident RSI vote.
+  // The bias contract requires non-finite inputs to abstain, so RSI
+  // and MACD vote only when every close is finite. (SMA needs no
+  // extra gate: computeSma already nulls on a non-finite window.
+  // Regime needs none either: classifyPriceRegime nulls on
+  // non-finite highs/lows.)
+  const closesFinite = closes.every((c) => Number.isFinite(c));
+  return compute6VoteCompositeBias({
+    price,
+    sma50: computeSma(closes, 50),
+    sma200: computeSma(closes, 200),
+    macdLine: closesFinite ? tech.macdLine : null,
+    rsi14: closesFinite ? tech.rsi14 : null,
+    regime: classifyPriceRegime(bars),
+  });
 }

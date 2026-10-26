@@ -167,6 +167,9 @@ export class DynamicMarketScreener implements IMarketScreener {
     if (filter.regimeFilter !== undefined) {
       summaryParts.push(`Regime: ${filter.regimeFilter}`);
     }
+    if (filter.minCompositeBiasScore !== undefined) {
+      summaryParts.push(`Composite bias >= ${filter.minCompositeBiasScore}`);
+    }
     if (filter.gainersOnly) {
       summaryParts.push("Gainers Only");
     }
@@ -620,6 +623,37 @@ export class DynamicMarketScreener implements IMarketScreener {
         }
       }
 
+      // 15. 6-vote composite bias gate (issue #1654 slice 6;
+      // screener-rules.md). Candidates must carry an attached bias
+      // score at or above the minimum. The score is computed
+      // upstream from real bar history (see
+      // compute6VoteCompositeBiasFromBars); a requested gate with
+      // no attached score fail-closes (unavailable, never
+      // estimated). Like slices 1–2/5, evaluateUniverse itself sees
+      // no bar history — it gates on the attached value, it never
+      // fabricates it.
+      if (filter.minCompositeBiasScore !== undefined) {
+        const biasScore = stock.compositeBiasScore;
+        if (biasScore === undefined) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason:
+              "Composite bias unavailable — bias gate requested but no bias data attached",
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+        if (biasScore < filter.minCompositeBiasScore) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: `Composite bias score ${biasScore} below minimum ${filter.minCompositeBiasScore}`,
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+      }
 
       // Passed all checks!
       passedStocks.push({
