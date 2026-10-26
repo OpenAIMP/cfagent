@@ -51,6 +51,7 @@ import {
   DynamicMarketScreener,
   type DynamicOptionsScreener,
   type IMarketScreener,
+  type NasdaqUniverseSeam,
   type ScreeningProviderAssetClass,
   type ScreeningProviderRegistry,
   type YahooHistoryDeps,
@@ -98,11 +99,15 @@ import type { DatabaseORM } from "../orm";
  * production stock screen NLQ/MCP already run.
  */
 export function createLiveStockScreener(
-  inner: Pick<DynamicMarketScreener, "screenLive"> = new DynamicMarketScreener()
+  inner: Pick<DynamicMarketScreener, "screenLive"> = new DynamicMarketScreener(),
+  seam?: NasdaqUniverseSeam
 ): IMarketScreener {
   return {
     async screenMarkets(filter?: StockScreenerFilter): Promise<StockScreenResult> {
-      return inner.screenLive(filter);
+      // Issue #1378: forward the seam only when one is threaded —
+      // a no-seam call keeps the exact pre-slice call shape
+      // (single argument), which exact-args callers assert.
+      return seam === undefined ? inner.screenLive(filter) : inner.screenLive(filter, seam);
     },
   };
 }
