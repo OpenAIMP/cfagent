@@ -34,8 +34,22 @@ import { RevenueTab } from "./chat/tabs/RevenueTab";
 import { EndpointsTab } from "./chat/tabs/EndpointsTab";
 import { ApprovalsPanel } from "./ApprovalsPanel";
 import { SocialPostingPanel } from "./SocialPostingPanel";
+import {
+  isTabFeatureEnabled,
+  TAB_TO_FEATURE_MAP,
+  FeatureDisabledNotice,
+} from "./featureFlags";
 export function Chat({ user }: { user: User }) {
-  const [tab, setTab] = useState<NavTabId>("autopilot");
+  const [tab, setTab] = useState<NavTabId>(() => {
+    // Issue #1806: Screener-first rollout — if screener is enabled and autopilot is off, start on screeners
+    if (isTabFeatureEnabled("screeners") && !isTabFeatureEnabled("autopilot")) {
+      return "screeners";
+    }
+    if (!isTabFeatureEnabled("autopilot")) {
+      return isTabFeatureEnabled("screeners") ? "screeners" : "chat";
+    }
+    return "autopilot";
+  });
   const [brokerProps, setBrokerProps] = useState<ETradeDynamicMenuProps | null>(null);
   const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [tbdMenuOpen, setTbdMenuOpen] = useState(false);
@@ -1242,7 +1256,14 @@ export function Chat({ user }: { user: User }) {
 
       {/* Main Tab Content */}
       <main className="tab-viewport">
-        {tab === "chat" && (
+        {!isTabFeatureEnabled(tab) ? (
+          <FeatureDisabledNotice
+            featureName={TAB_TO_FEATURE_MAP[tab]}
+            tabLabel={tab}
+          />
+        ) : (
+          <>
+            {tab === "chat" && (
           <AgentChatTabContent
             key={chatNonce}
             user={user}
@@ -2053,7 +2074,7 @@ export function Chat({ user }: { user: User }) {
 
         {/* E*TRADE Agentic Trading Hub */}
         {/* Kept mounted (hidden) so in-flight and finished requests survive tab switches */}
-        <div className="trading-view" hidden={!isTradingTab(tab)}>
+        <div className="trading-view" hidden={!isTradingTab(tab) || !isTabFeatureEnabled(tab)}>
           <ErrorBoundary label="E*TRADE Hub">
           <ETradeTradingHub
             user={user}
@@ -2120,6 +2141,8 @@ export function Chat({ user }: { user: User }) {
           <ApprovalsPanel />
         )}
 
+          </>
+        )}
       </main>
       </div>
 

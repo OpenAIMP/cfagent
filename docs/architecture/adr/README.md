@@ -22,6 +22,7 @@ PR.
 | [0003](0003-messaging-port.md) | Queue-backed messaging: port-first, provider adapter + in-memory adapter | Accepted |
 | [0004](0004-ux-token-architecture-no-exemptions.md) | UX token architecture compliance is mandatory — no exemptions | Accepted |
 | [0005](0005-actor-port.md) | Agents SDK actors: actor port and AgentActorDO pattern | Accepted |
+| [0006](0006-cloudflare-feature-flags.md) | Cloudflare feature flags: native Flagship binding with fail-closed env-var fallback | Accepted |
 
 ## Template
 

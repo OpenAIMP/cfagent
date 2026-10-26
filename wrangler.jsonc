@@ -179,6 +179,11 @@
     // identity (tests/service_identity.test.ts). Rollback is removing
     // this var (or blanking it) and redeploying — goals return to
     // failing closed at the budget check.
-    "SERVICE_USER_LOGIN": "svc-background"
+    "SERVICE_USER_LOGIN": "svc-background",
+    // Issue #1806: Cloudflare feature flags — screener enabled first.
+    // "1" or "true" = ON. All other features default to closed (OFF).
+    // Rollback is removing this var (or setting to "0") and redeploying,
+    // or toggling off in Cloudflare Flagship without redeploying.
+    "FEATURE_SCREENER": "1"
   }
 }
