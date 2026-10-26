@@ -29,6 +29,7 @@ Competencies improved:
 Value proposition (how this takes us closer to it):
 Delivery channels:
 User journey (how users harness this value from UX):
+Completion report update: append this entry to the linked issue's §15 completion report — the single source of truth for value-creation, one entry per PR, never overwriting a previous PR's entry.
 
 ## Checklist
 - [ ] Required checks green on the current merge with `main`
