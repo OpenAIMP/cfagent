@@ -11,6 +11,25 @@
  * contract; the bundle consumes policies, not modules. All mappings
  * moved verbatim from buildRecommendationBundle, so bundle output is
  * unchanged.
+ *
+ * Issue #1642 DECISION (parent #1638, doc §6): explicit two-level
+ * contract over one proposal contract — NOT a single merged repair
+ * model. The levels are semantically different operations (ratio
+ * repair measures breakeven/max-recovery with no directly measurable
+ * risk removed; composition repair measures max-loss reduction when
+ * the composition gate measured it), so merging them would invent a
+ * number for one level or discard the other's measurement. This
+ * module IS the decision implemented; #1642 ratifies it, hardens it
+ * (composition costs clamp at zero, matching the ratio policy), and
+ * pins its caller map (tests/repair_contract_p1642.test.ts).
+ * Caller map: bundle → buildRepairOptions (only RepairOption
+ * consumer); generateRepairProposals is the position producer (bundle
+ * route input + standalone analyze endpoint); strategyComposition
+ * operators are construction uses, never proposal inputs — this
+ * policy takes priced inputs only and never imports that module.
+ * Known limitation: no production caller currently supplies
+ * compositionRepairs to the bundle (tests only); the composition
+ * policy is dormant-by-design until its first producer lands.
  */
 import type { RepairAnalysis } from "./repairProposals";
 import { round2 } from "./cvarOptimizer";
@@ -77,21 +96,28 @@ export class CompositionRepairPolicy implements RepairPolicy {
   readonly policyKind = "composition" as const;
 
   options(input: RepairPolicyInput): RepairOption[] {
-    return (input.compositionRepairs ?? []).map((r) => ({
+    // Issue #1642: costs clamp at zero, matching RatioRepairPolicy
+    // (which clamps via Math.max(0, ...)). A negative caller-supplied
+    // cost must never inflate rankScore. The unknown-risk branch
+    // normalizes -0 to 0 so money fields never carry signed zero.
+    return (input.compositionRepairs ?? []).map((r) => {
+      const cost = Math.max(0, r.costDollars);
+      return {
       kind: "composition" as const,
       label: r.label,
-      costDollars: r.costDollars,
+      costDollars: cost,
       riskRemovedDollars: r.riskRemovedDollars ?? null,
       rankScore:
         r.riskRemovedDollars !== undefined
-          ? round2(r.riskRemovedDollars - r.costDollars)
-          : -r.costDollars,
+          ? round2(r.riskRemovedDollars - cost)
+          : cost === 0 ? 0 : -cost,
       rankBasis:
         r.riskRemovedDollars !== undefined
           ? "Ranked by risk removed minus cost (composition gate measurement)."
           : "Risk removed unknown; ranked cost-first among unknowns.",
       detail: r.detail,
-    }));
+      };
+    });
   }
 }
 
