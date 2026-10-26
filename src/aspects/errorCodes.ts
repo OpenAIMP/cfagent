@@ -470,3 +470,91 @@ export class AgentError extends Error {
   }
 }
 
+
+/**
+ * Issue #1169 (S2) — Externalized Knowledge-Corpus Serving Error Codes.
+ *
+ * Mirrors the ETradeError pattern above (enum + metadata + catalog +
+ * typed error class) for the corpus-serving area, which the E*TRADE
+ * and agent catalogs do not cover. S2's new error messages live
+ * HERE, never as inline literals in the route or the mapping:
+ * the route returns catalog defaultMessages, and the logs carry
+ * the catalog codes. The shared 401 body is NOT cataloged here —
+ * it belongs to the shared unauthenticatedResponse() used by every
+ * route, and S2 must not fork it.
+ */
+export enum KnowledgeErrorCode {
+  SERVING_KEY_REQUIRED = "KNOWLEDGE_SERVING_KEY_REQUIRED",
+  SERVING_KEY_INVALID = "KNOWLEDGE_SERVING_KEY_INVALID",
+  SERVING_NOT_FOUND = "KNOWLEDGE_SERVING_NOT_FOUND",
+  SERVING_FAILED = "KNOWLEDGE_SERVING_FAILED",
+  MAPPING_INVALID_CHUNK = "KNOWLEDGE_MAPPING_INVALID_CHUNK",
+}
+
+export interface KnowledgeErrorMetadata {
+  code: KnowledgeErrorCode;
+  httpStatus: number;
+  defaultMessage: string;
+  remediation: string;
+}
+
+export const KNOWLEDGE_ERROR_CATALOG: Record<KnowledgeErrorCode, KnowledgeErrorMetadata> = {
+  [KnowledgeErrorCode.SERVING_KEY_REQUIRED]: {
+    code: KnowledgeErrorCode.SERVING_KEY_REQUIRED,
+    httpStatus: 400,
+    defaultMessage: "Query parameter 'key' (bucket key) is required.",
+    remediation: "Call GET /api/knowledge/file with a knowledge/ bucket key from a search result's servedFileLink.",
+  },
+  [KnowledgeErrorCode.SERVING_KEY_INVALID]: {
+    code: KnowledgeErrorCode.SERVING_KEY_INVALID,
+    httpStatus: 400,
+    defaultMessage: "Query parameter 'key' must be a knowledge/ bucket key (knowledge/<category>/<sha256>).",
+    remediation: "Use the servedFileLink from a search result; only knowledge/<category>/<sha256> keys are servable.",
+  },
+  [KnowledgeErrorCode.SERVING_NOT_FOUND]: {
+    code: KnowledgeErrorCode.SERVING_NOT_FOUND,
+    httpStatus: 404,
+    defaultMessage: "Knowledge document not found.",
+    remediation: "The document may have been removed or its bytes may have failed hash verification; re-upload it via POST /api/knowledge/corpus.",
+  },
+  [KnowledgeErrorCode.SERVING_FAILED]: {
+    code: KnowledgeErrorCode.SERVING_FAILED,
+    httpStatus: 500,
+    defaultMessage: "Failed to serve knowledge document.",
+    remediation: "Check application logs for the serving failure; verify the screener bucket binding is present.",
+  },
+  [KnowledgeErrorCode.MAPPING_INVALID_CHUNK]: {
+    code: KnowledgeErrorCode.MAPPING_INVALID_CHUNK,
+    httpStatus: 502,
+    defaultMessage: "Upstream AI Search chunk failed validation; the chunk was not mapped.",
+    remediation: "The upstream chunk shape differs from the mapped shape — run the Step 0 live probe and adjust the mapping before retrying.",
+  },
+};
+
+export class KnowledgeError extends Error {
+  public readonly code: KnowledgeErrorCode;
+  public readonly httpStatus: number;
+  public readonly remediation: string;
+  public readonly details?: unknown;
+
+  constructor(code: KnowledgeErrorCode, customMessage?: string, details?: unknown) {
+    const meta = KNOWLEDGE_ERROR_CATALOG[code] || KNOWLEDGE_ERROR_CATALOG[KnowledgeErrorCode.SERVING_FAILED];
+    super(customMessage || meta.defaultMessage);
+    this.name = "KnowledgeError";
+    this.code = code;
+    this.httpStatus = meta.httpStatus;
+    this.remediation = meta.remediation;
+    this.details = details;
+  }
+
+  toJSON() {
+    return {
+      success: false,
+      error: this.message,
+      code: this.code,
+      httpStatus: this.httpStatus,
+      remediation: this.remediation,
+      details: this.details,
+    };
+  }
+}
