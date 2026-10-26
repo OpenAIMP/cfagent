@@ -324,6 +324,9 @@ export async function handleFossCompareScreenRoutes(
         pdfStatus: result.pdfStatus,
         pdfError: result.pdfError,
         reportUrl: result.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}` : undefined,
+        xlsxKey: result.xlsxKey,
+        xlsxStatus: result.xlsxStatus,
+        xlsxUrl: result.xlsxKey ? `/api/screener/report.xlsx?key=${encodeURIComponent(result.xlsxKey)}` : undefined,
       });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to run Yahoo Finance screener" }, { status: 500 });

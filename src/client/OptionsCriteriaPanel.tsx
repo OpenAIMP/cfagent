@@ -247,10 +247,10 @@ export function OptionsCriteriaPanel({ criteria, onChange, lastSentFilters }: Op
     const field = criteria[key];
     const id = `options-criteria-${key}`;
     return (
-      <div className="options-criteria-row" key={key}>
+      <div className={`options-criteria-row${field.enabled ? " is-enabled" : ""}`} key={key}>
         <Button
           type="button"
-          variant="secondary"
+          variant={field.enabled ? "primary" : "secondary"}
           aria-pressed={field.enabled}
           aria-label={`Toggle ${label}`}
           onClick={setEnabled(key)}
@@ -280,10 +280,10 @@ export function OptionsCriteriaPanel({ criteria, onChange, lastSentFilters }: Op
     const field = criteria[key];
     const id = `options-criteria-${key}`;
     return (
-      <div className="options-criteria-row" key={key}>
+      <div className={`options-criteria-row${field.enabled ? " is-enabled" : ""}`} key={key}>
         <Button
           type="button"
-          variant="secondary"
+          variant={field.enabled ? "primary" : "secondary"}
           aria-pressed={field.enabled}
           aria-label={`Toggle ${label}`}
           onClick={setEnabled(key)}
