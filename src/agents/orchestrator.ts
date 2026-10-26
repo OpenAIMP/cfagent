@@ -49,6 +49,7 @@ import { runResearchAndPublish, deliverResearchReport, sendResearchSummaryEmail,
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
 import { runGovernanceSeed } from "./orchestrator/governanceSeed";
+import { runShardJobReconcile, type ReconcileShardJobsReport } from "./orchestrator/shardJobReconcile";
 import type { GovernedHaltState } from "../data/governedHalt";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
@@ -409,6 +410,10 @@ export class OrchestratorAgent extends Think<Env> {
     return runGovernanceSeed({ doSql: this.ctx.storage.sql, env: this.env }, setBy, tenantId);
   }
 
+  /** Issue #1676 — thin wrapper; execution in ./orchestrator/shardJobReconcile.ts. */
+  async reconcileShardJobProjection(tenantId: string): Promise<ReconcileShardJobsReport> {
+    return runShardJobReconcile({ env: this.env, listRailsJobs: () => this.listAsyncJobs(100), tenantId, nowMs: Date.now() });
+  }
   /** Cloudflare Agents lifecycle: initialize SQLite and recover durable work. */
   async onStart(props?: Record<string, unknown>): Promise<void> {
     this.ensureTables();

@@ -302,6 +302,108 @@ built here.
   `src/data/inMemoryChainScheduleAdapter.ts` (adapters), with
   the port/dialect suite passing unchanged against both.
 
+## Slice 2 addendum (issue #1676, shard jobs projection)
+
+- Status: accepted with slice 2; the R1–R9 contract above is
+  unchanged and governs this slice.
+- Table (migration 0003, DDL in exactly one file):
+  `agent_shard_jobs`. Every row carries `tenant_id`,
+  `workspace_id`, `chain_id`, `version`, `created_at_ms`,
+  `updated_at_ms`, and provenance (`provenance_writer`,
+  `provenance_source_do`, `provenance_source_version`, the
+  last being the row-shape version of the mapping, 1 in
+  slice 2). Grain: one row per (chain, job, version); the
+  composite primary key on
+  `(tenant_id, chain_id, job_key, version)` is the
+  idempotency guarantee, and replaying the same version is
+  a no-op under `onConflictDoNothing` writes. `job_key` is
+  an inline shard id (`chain-exec:*`) for completed legs, a
+  rails job id for submitted legs, or `leg:<stepId>` for a
+  failed leg with no job id. Rows carry `status`, `stage`,
+  `capability_id`, `detail`, and a capped `result_json`
+  (8000 chars + truncation marker). No row type carries auth
+  material of any kind, and no submitted row carries a
+  submission spec: a spec may carry operator identity or
+  query text, so submitted rows store only the job id and
+  detail.
+- The key correction from the program spec: lane-2 inline
+  execution never writes `mas_async_jobs`, so a projection
+  fed only from that table would miss every inline outcome.
+  The executor's completion callback is therefore a
+  projection writer input: `runChain`
+  (`src/mcp/goalChainCommands.ts`) accepts an optional
+  `onLegOutcome` callback, invoked once per leg that
+  actually ran (completed, submitted, failed) and never for
+  skipped, blocked, or unimplemented legs, awaited inside a
+  try/catch so a callback failure can never fail the run.
+  The ScheduledAgent firing paths (`onCron` and
+  `fireSynthesizedSchedule` in `src/agents/scheduled-agent.ts`)
+  supply a projector bound to env/tenant via
+  `executeChainForRecord` (writers
+  `scheduled-agent:onCron` /
+  `scheduled-agent:fireSynthesizedSchedule`; chain id is the
+  synthesized record id, matching slice 1's chain rows).
+  The MCP command context supplies no callback, so MCP legs
+  stay `unimplemented` and project nothing — no execution
+  is invented. Replaying an already-projected status is a
+  no-op; a status change writes version+1 and preserves the
+  first-seen timestamp.
+- Reconciliation design: `reconcileShardJobs`
+  (`src/data/shardJobProjection.ts`) converges rails state
+  into the projection: a submitted row whose rails job
+  reached a terminal state advances to that state
+  (version+1, first-seen time preserved); a rails job the
+  projector never saw creates a version-1 row; an
+  already-current row is untouched; per-record failures are
+  collected in the report, never thrown. Invocation is a
+  deliberate operator/maintenance step only:
+  `OrchestratorAgent.reconcileShardJobProjection` (execution
+  in `src/agents/orchestrator/shardJobReconcile.ts`, the #992
+  pattern) plus the admin-gated POST `/api/jobs/reconcile`
+  route (requireAuth → wired session → live platform-admin
+  membership, the slice-0 seed pattern; unbound AgentDB
+  answers 503). It is never boot logic, never auto-run on
+  deploy or tick. Honest limitation, recorded not hidden:
+  reconciliation can only converge what it can see. Rails
+  rows carry `chainId` (C3 consolidation), so terminal
+  rails jobs join their chain's history; inline outcomes
+  have no durable source beyond the run itself, so an inline
+  outcome that was never projected at completion cannot be
+  recovered by reconcile — which is why the run path
+  projects synchronously at completion and why a projector
+  failure is surfaced in the result, not swallowed.
+  Bounded window: the rails list is session-filtered and
+  clamped to 100 rows, so a reconcile pass covers the most
+  recent rails jobs only.
+- Query API: GET `/api/jobs/history?chainId=` (requireAuth;
+  tenant from IAAA resolution) reads the projection only via
+  `readJobHistory` — never the durable object — and returns
+  the latest row per job for that chain, newest first.
+  Unbound AgentDB answers 503. The route returns projection
+  fields only (jobKey, status, stage, capabilityId, detail,
+  version, timestamps).
+- Tenancy: the adapters inject `tenant_id` into every query;
+  there is no unscoped list-all method. Tenant and workspace
+  default to `"primary"` (the documented single-tenant
+  default, same as slices 0/1) until a tenant context is
+  threaded through ScheduledAgent; a multi-tenant deployment
+  must set it explicitly.
+- Retention: `agent_shard_jobs` is BOUNDED, mirroring the
+  `mas_async_jobs` discipline it projects (terminal rows 30d
+  + 500-row cap; see `src/security/storageRetention.ts`,
+  the single contract). Job rows are operational run
+  history, not lifecycle audit: unlike `agent_chains`, whose
+  versions are the audit trail the status read reasons
+  about, a pruned job version destroys no lifecycle fact
+  (the chain row keeps it), and the rails source already
+  discards the same rows at 30d. Enforcement lands with the
+  retention slice; until then rows accrue unbounded and the
+  contract line is what that enforcement implements.
+- Ports: `src/data/shardJobPorts.ts` (interfaces),
+  `src/data/d1ShardJobAdapter.ts` +
+  `src/data/inMemoryShardJobAdapter.ts` (adapters), with
+  the port/dialect suite passing unchanged against both.
+
 ## Consequences
 
 - A new dependency: `drizzle-orm` (runtime). No `drizzle-kit`
