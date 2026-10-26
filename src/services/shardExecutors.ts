@@ -85,26 +85,55 @@ async function symbolsForUniverse(chain: ShardChainContext, listings: any[]): Pr
  * to the chain). The return shape is unchanged ({ listings }), so
  * the etrade shard's sibling consumption is untouched; the retry
  * policy, bucket, and label are unchanged — only the fetch goes
- * through the adapter. The listings module stays the adapter's
- * fetcher; deps.fetchListings is the offline test seam only.
+ * through the adapter.
+ * Issue #1378: the production path resolves through the route
+ * table (nasdaqUniverseRouteBundle → reader → binder) instead of
+ * hand-building the adapter around the listings module directly.
+ * When deps.fetchListings is set, the pre-#1378 hand-built path
+ * runs byte-identical — that is the #1368 feed-shard pin's
+ * execution seam (stub fetcher + MockSqlStorage, seeded but not
+ * enabled, which route resolution would reject), and existing-test
+ * edits are out of scope for this slice.
  */
 async function feedNasdaq(deps: ShardExecutorDeps, chain: ShardChainContext): Promise<{ listings: unknown }> {
-  const { bootstrapDataProviders, createNasdaqDataProvider } = await import("../trading");
-  bootstrapDataProviders(deps.sql as any);
-  const fetchListings =
-    deps.fetchListings ?? (await import("./nasdaqListings")).fetchAllUsStockListings;
-  const adapter = createNasdaqDataProvider(fetchListings as never, {
-    capture: { sql: deps.sql as any, blobStorage: deps.storage as any, env: deps.env as any },
-  });
   const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
-  const listings = await withRetry(
-    () =>
-      adapter
-        .getScreenUniverse!({ runId: chain.chainId, userLogin: chain.userLogin })
-        .then((r) => r.result),
-    policy,
-    { label: "shard.feed.nasdaq" }
+  if (deps.fetchListings) {
+    const { bootstrapDataProviders, createNasdaqDataProvider } = await import("../trading");
+    bootstrapDataProviders(deps.sql as any);
+    const adapter = createNasdaqDataProvider(deps.fetchListings as never, {
+      capture: { sql: deps.sql as any, blobStorage: deps.storage as any, env: deps.env as any },
+    });
+    const listings = await withRetry(
+      () =>
+        adapter
+          .getScreenUniverse!({ runId: chain.chainId, userLogin: chain.userLogin })
+          .then((r) => r.result),
+      policy,
+      { label: "shard.feed.nasdaq" }
+    );
+    return { listings };
+  }
+  const {
+    nasdaqUniverseRouteBundle,
+    nasdaqUniverseProviderFromRoute,
+    bindNasdaqUniverseDeps,
+  } = await import("../trading");
+  const bundle = await nasdaqUniverseRouteBundle({
+    sql: deps.sql as any,
+    storage: deps.storage as any,
+    env: deps.env as any,
+    userLogin: chain.userLogin,
+    runId: chain.chainId,
+  });
+  const provider = nasdaqUniverseProviderFromRoute(
+    bundle.registry,
+    bundle.configs,
+    bundle.routes
   );
+  const bound = bindNasdaqUniverseDeps(provider, bundle.runContext);
+  const listings = await withRetry(() => bound.fetchListings(), policy, {
+    label: "shard.feed.nasdaq",
+  });
   return { listings };
 }
 
