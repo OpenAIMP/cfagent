@@ -190,6 +190,12 @@ export function createFitDiscoveryRunner(deps: {
   /** Test seam: supply a provider instead of the live E*TRADE-backed one. */
   provider?: ResearchDataProvider;
   config?: ResearchConfig;
+  /**
+   * Issue #1661: DO blob handle for full capture. When supplied, the
+   * history and universe legs write capture rows; without it they keep
+   * today's outcome-only contract (never a behavior change).
+   */
+  storage?: { get: (key: string) => Promise<unknown>; put: (key: string, value: unknown) => Promise<void> };
 }): FitDiscoveryRunner {
   const settingRead =
     deps.settingRead ?? (deps.sql ? settingReadFromSql(deps.sql) : null);
@@ -205,10 +211,10 @@ export function createFitDiscoveryRunner(deps: {
         };
       }
       // Issue #1331: history deps when sql is present (route-
-      // resolved, outcome-tracked; capture needs a blob handle
-      // the fit runner does not carry). Without sql the provider
-      // keeps working with honestly-null technicals — no fallback
-      // to the deleted direct fetch exists.
+      // resolved; #1661: full capture when the caller threads a
+      // blob handle, outcome-tracked otherwise). Without sql the
+      // provider keeps working with honestly-null technicals — no
+      // fallback to the deleted direct fetch exists.
       // Issue #1331 (fix): history resolution degrades to undefined
       // deps (honestly-null technicals) instead of failing the run
       // — the old yahooHistory contract. See
@@ -220,14 +226,15 @@ export function createFitDiscoveryRunner(deps: {
               env: deps.env,
               userLogin: deps.userLogin,
               runId: crypto.randomUUID(),
+              ...(deps.storage ? { blobStorage: deps.storage as never } : {}),
             })
           : undefined;
       // Issue #1378: universe deps when sql is present (route-
-      // resolved, outcome-tracked; capture needs a blob handle
-      // the fit runner does not carry). Without sql — or when the
-      // bundle cannot be built — the provider keeps working with
-      // honestly-empty universes (listings degrade to []), never a
-      // direct fetch. Decision D2: captures use a generated run id.
+      // resolved; #1661: full capture when the caller threads a
+      // blob handle, outcome-tracked otherwise). Without sql — or
+      // when the bundle cannot be built — the provider keeps working
+      // with honestly-empty universes (listings degrade to []), never
+      // a direct fetch. Decision D2: captures use a generated run id.
       let universeDeps: NasdaqUniverseDeps | undefined;
       if (deps.sql && deps.env) {
         try {
@@ -236,6 +243,7 @@ export function createFitDiscoveryRunner(deps: {
             env: deps.env,
             userLogin: deps.userLogin,
             runId: crypto.randomUUID(),
+            ...(deps.storage ? { storage: deps.storage as never } : {}),
           });
           const universeProvider = nasdaqUniverseProviderFromRoute(
             universeBundle.registry,

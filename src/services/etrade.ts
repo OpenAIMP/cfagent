@@ -162,13 +162,16 @@ export class ETradeService {
   /**
    * Issue #1378: the route-bound universe deps for options
    * discovery, for callers that cannot import trading internals
-   * (route handlers). Outcome-only (the service carries no DO
-   * blob handle — see nasdaqUniverseSeamFromSql). Undefined when
-   * the service has no ORM or the bundle cannot be built; the
+   * (route handlers). Issue #1661: when the caller threads a DO
+   * blob handle, fetches capture fully; without one the #1378
+   * outcome-only contract is preserved. Undefined when the
+   * service has no ORM or the bundle cannot be built; the
    * caller then degrades per its contract (resolveUnderlyings
    * throws naming the seam).
    */
-  async getUniverseDeps(): Promise<NasdaqUniverseDeps | undefined> {
+  async getUniverseDeps(
+    storage?: Parameters<typeof nasdaqUniverseSeamFromSql>[3]
+  ): Promise<NasdaqUniverseDeps | undefined> {
     // Degrade-to-undefined is this method's contract (route
     // handlers run with mock orms in tests and real orms in
     // production; either way a bundle failure must surface as the
@@ -177,7 +180,8 @@ export class ETradeService {
       const seam = await nasdaqUniverseSeamFromSql(
         this.orm?.getSql?.(),
         this.env,
-        this.userLogin
+        this.userLogin,
+        storage
       );
       if (!seam?.universeRoute) return undefined;
       const provider = nasdaqUniverseProviderFromRoute(
