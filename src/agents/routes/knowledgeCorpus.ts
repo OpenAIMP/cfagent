@@ -23,15 +23,18 @@
  * - 500 only on an unexpected failure; validation and bucket-binding
  *   failures are honest 400s via KnowledgeCorpusError.
  *
- * Exactly ONE path condition lives in this module (the inventory
- * scanner pins it): a single endsWith condition on /knowledge/corpus
- * combined with the POST method.
+ * TWO path conditions live in this module (the inventory scanner
+ * pins both, 216 -> 217): POST /knowledge/corpus (S1) and GET
+ * /knowledge/file (S2, flag-gated — see below).
  * Non-matching paths/methods return null so routeRequest falls
  * through to the next handler.
  *
- * S1 scope is POST only: the GET serving route is S2's slice, which
- * will stream bytes through getKnowledgeDoc (hash-verified) the way
- * GET /screener/report.pdf streams reports today.
+ * S2 serving route (flag-gated): GET /knowledge/file?key=<bucket key>
+ * streams bytes through getKnowledgeDoc (hash-verified) the way
+ * GET /screener/report.pdf streams reports today. When
+ * KNOWLEDGE_SERVING_ENABLED is off, the GET block returns null —
+ * exactly today's behavior (no such route). The POST upload route
+ * is unaffected by the flag.
  *
  * #1168 note: knowledge/ keys are corpus, not reports — they carry
  * no mas_reports row by design and are excluded from the #1168
@@ -42,9 +45,21 @@ import { unauthenticatedResponse } from "./routeIdentity";
 import { base64ToBytes } from "../../services/reportBlobStore";
 import {
   putKnowledgeDoc,
+  getKnowledgeDoc,
+  isKnowledgeServingEnabled,
+  parseKnowledgeBucketKey,
   KnowledgeCorpusError,
   type KnowledgeCategory,
 } from "../../services/knowledgeCorpus";
+// Issue #1169 (S2, cross-cutting: externalized messages): every
+// NEW serving-route message comes from the aspects catalog —
+// never an inline literal. The shared 401 body is the one
+// exception, deliberately: it belongs to unauthenticatedResponse()
+// (shared by every route) and S2 must not fork it.
+import {
+  KNOWLEDGE_ERROR_CATALOG,
+  KnowledgeErrorCode,
+} from "../../aspects/errorCodes";
 
 interface BlobStorage {
   get<T>(key: string): Promise<T | undefined>;
@@ -52,7 +67,7 @@ interface BlobStorage {
 }
 
 export interface KnowledgeCorpusRouteContext {
-  env: { REPORTS_BUCKET?: R2Bucket };
+  env: { REPORTS_BUCKET?: R2Bucket; KNOWLEDGE_SERVING_ENABLED?: string };
   storage: BlobStorage;
   userLogin: string;
 }
@@ -68,6 +83,86 @@ export async function handleKnowledgeCorpusRoutes(
   sessionId: string,
   ctx: KnowledgeCorpusRouteContext
 ): Promise<Response | null> {
+  // Issue #1169 (S2, flag-gated): authenticated corpus-file serving.
+  // Flag-OFF returns null here — fall-through, exactly today's
+  // behavior (no such route exists). Flag-ON: session gate (shared
+  // 401), bucket-key parsing (400 on malformed/non-corpus/missing
+  // key), hash-verified bytes via getKnowledgeDoc (404 when absent
+  // or tampered — a hash mismatch is never served, only refused).
+  if (path.endsWith("/knowledge/file") && request.method === "GET") {
+    if (!isKnowledgeServingEnabled(ctx.env)) return null;
+    // Cross-cutting (S2): structured access/denial logs via the
+    // repo's console-stream idiom (loggingAspect.ts). Logged:
+    // status, reason code, category, truncated hash prefix, byte
+    // count. NEVER logged: the login, the full bucket key, bytes,
+    // or any credential/token value. Denial reasons are categories
+    // ("missing"/"malformed"), never the submitted key value.
+    try {
+      if (!ctx.userLogin) {
+        // No catalog code here: the 401 body is the SHARED
+        // unauthenticatedResponse(), not an S2 catalog entry.
+        console.warn(
+          `[knowledgeServing] denied GET /knowledge/file status=401 reason=unauthenticated`
+        );
+        return unauthenticatedResponse();
+      }
+      const key = url.searchParams.get("key");
+      if (!key) {
+        console.warn(
+          `[knowledgeServing] denied GET /knowledge/file status=400 code=${KnowledgeErrorCode.SERVING_KEY_REQUIRED} reason=missing`
+        );
+        return badRequest(KNOWLEDGE_ERROR_CATALOG[KnowledgeErrorCode.SERVING_KEY_REQUIRED].defaultMessage);
+      }
+      const parsed = parseKnowledgeBucketKey(key);
+      if (!parsed) {
+        console.warn(
+          `[knowledgeServing] denied GET /knowledge/file status=400 code=${KnowledgeErrorCode.SERVING_KEY_INVALID} reason=malformed`
+        );
+        return badRequest(KNOWLEDGE_ERROR_CATALOG[KnowledgeErrorCode.SERVING_KEY_INVALID].defaultMessage);
+      }
+      const doc = await getKnowledgeDoc(
+        ctx.env,
+        ctx.storage,
+        ctx.userLogin,
+        `knowledge:${parsed.category}:${parsed.sha256}`
+      );
+      if (!doc) {
+        console.warn(
+          `[knowledgeServing] denied GET /knowledge/file status=404 code=${KnowledgeErrorCode.SERVING_NOT_FOUND} category=${parsed.category} shaPrefix=${parsed.sha256.slice(0, 12)}`
+        );
+        return Response.json(
+          { success: false, error: KNOWLEDGE_ERROR_CATALOG[KnowledgeErrorCode.SERVING_NOT_FOUND].defaultMessage },
+          { status: 404 }
+        );
+      }
+      console.info(
+        `[knowledgeServing] served GET /knowledge/file status=200 category=${parsed.category} shaPrefix=${parsed.sha256.slice(0, 12)} bytes=${doc.bytes.length}`
+      );
+      return new Response(doc.bytes as unknown as BodyInit, {
+        headers: {
+          "Content-Type": doc.meta.contentType,
+          "Content-Disposition": `attachment; filename="${doc.meta.fileName}"`,
+          "Content-Length": String(doc.bytes.length),
+        },
+      });
+    } catch (err) {
+      // NOTE: this differs deliberately from the POST block's
+      // KnowledgeCorpusError -> 400 mapping below it. getKnowledgeDoc
+      // throws KnowledgeCorpusError in exactly two cases: a missing
+      // login (unreachable here — the route gates login first) and
+      // an unbound REPORTS_BUCKET (server misconfiguration). Any
+      // KnowledgeCorpusError reaching THIS catch is therefore a
+      // server error, and 400 would mislabel it: exact 500 semantics.
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[knowledgeServing] failed GET /knowledge/file status=500 code=${KnowledgeErrorCode.SERVING_FAILED}: ${message}`
+      );
+      return Response.json(
+        { success: false, error: KNOWLEDGE_ERROR_CATALOG[KnowledgeErrorCode.SERVING_FAILED].defaultMessage },
+        { status: 500 }
+      );
+    }
+  }
   if (path.endsWith("/knowledge/corpus") && request.method === "POST") {
     try {
       if (!ctx.userLogin) return unauthenticatedResponse();
