@@ -219,6 +219,63 @@ export function computeAnchoredVwapFrom52wLow(
   if (volumeSum <= 0) return null;
   return priceVolumeSum / volumeSum;
 }
+/**
+ * Wilder's Average True Range (issue #1654 slice 3/8;
+ * docs/architecture/business/screener-rules.md §1.4 + fit-gap Gap 7).
+ * Pure function over bars supplied by the caller — nothing here
+ * fetches. Volume is intentionally NOT read: ATR uses price ranges
+ * only, so a zero-volume bar is valid input here (unlike VWAP).
+ *
+ * True range, stated exactly:
+ * - First bar: TR = high − low (no previous close exists).
+ * - Later bars: TR = max(high − low, |high − prevClose|,
+ *   |low − prevClose|), so overnight gaps dominate the range when
+ *   they exceed the intraday range.
+ * Wilder smoothing: the first ATR is the simple mean of the first
+ * `period` true ranges; each later ATR = (prevATR × (period − 1) +
+ * TR) / period. This is Wilder's original construction, not a simple
+ * moving average over the whole window — the two agree only on the
+ * first ATR and diverge as new bars arrive (pinned by test).
+ *
+ * The doc's ATR% = ATR₁₄ / P × 100 uses P = the latest bar's close:
+ * the price the range is measured against. Callers attaching atrPct
+ * to a ScreenedStockItem divide this function's result by that
+ * close and multiply by 100; the gate itself reads only atrPct.
+ *
+ * Returns null when the value cannot be built honestly: empty input,
+ * fewer than `period` bars (fewer true ranges than the period needs),
+ * a non-finite high/low/close, a malformed bar (high below low), or
+ * an invalid period (non-integer or < 1). Never divides by zero:
+ * period ≥ 1 is enforced before any division.
+ */
+export function computeAtr(
+  bars: readonly YahooDailyBar[],
+  period = 14
+): number | null {
+  if (!Number.isInteger(period) || period < 1) return null;
+  if (!bars || bars.length < period) return null;
+  if (bars.some((b) => !Number.isFinite(b.high) || !Number.isFinite(b.low) || !Number.isFinite(b.close) || b.high < b.low)) {
+    return null;
+  }
+  const trueRanges: number[] = [];
+  for (let i = 0; i < bars.length; i++) {
+    if (i === 0) {
+      trueRanges.push(bars[i].high - bars[i].low);
+    } else {
+      const prevClose = bars[i - 1].close;
+      trueRanges.push(Math.max(
+        bars[i].high - bars[i].low,
+        Math.abs(bars[i].high - prevClose),
+        Math.abs(bars[i].low - prevClose)
+      ));
+    }
+  }
+  let atr = trueRanges.slice(0, period).reduce((sum, tr) => sum + tr, 0) / period;
+  for (let i = period; i < trueRanges.length; i++) {
+    atr = (atr * (period - 1) + trueRanges[i]) / period;
+  }
+  return atr;
+}
 export function classifyGap(
   gapPercent: number | null,
   config: ScreenerConfig = DEFAULT_SCREENER_CONFIG

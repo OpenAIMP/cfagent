@@ -493,6 +493,12 @@ export interface StockScreenerFilter {
   /** Issue #1654 slice 2: reject candidates whose spot price is below
    *  the anchored VWAP (see anchoredVwap). */
   requireAboveAnchoredVwap?: boolean;
+  /** Issue #1654 slice 3: ATR% volatility gate (doc range [1.0, 8.0]).
+   *  When either bound is set, ATR% gating is active; the unset bound
+   *  defaults to the doc bound (min 1.0, max 8.0) — mirroring slice 1's
+   *  %B defaulting. Bounds are inclusive. */
+  minAtrPct?: number;
+  maxAtrPct?: number;
   gainersOnly?: boolean;
   losersOnly?: boolean;
   rsiFilter?: "oversold" | "overbought" | "neutral" | "any";
@@ -540,6 +546,12 @@ export interface ScreenedStockItem extends ETradeQuote {
    *  data unavailable — the gate that needs it fail-closes, never
    *  estimated. */
   anchoredVwap?: number;
+  /** Issue #1654 slice 3: ATR% = ATR₁₄ / last close × 100, attached
+   *  upstream where real bar history exists (see computeAtr). Absent
+   *  = ATR data unavailable — the gate that needs it fail-closes,
+   *  never estimated. No separate `atr` field: the gate reads only
+   *  this percentage, so a raw-ATR field would be speculative. */
+  atrPct?: number;
   macdSignal: string;
   signal: "BULLISH_MOMENTUM" | "OVERSOLD_BOUNCE" | "RANGE_BOUND" | "OVERBOUGHT";
   technicalSignal: string;
