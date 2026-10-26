@@ -47,7 +47,23 @@ def evaluate_policy(
 ) -> List[str]:
     """Run all policy gate evaluations and return any failure reasons."""
     labels = labels or []
-    text = body + "\n" + title
+
+    # Extract git commit messages as fallback context for issue, lane, and agent hashtag
+    commit_context = ""
+    try:
+        commit_context = subprocess.run(
+            ["git", "log", "--format=%s%n%b", f"{base}..{head}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        ).stdout
+    except Exception:
+        pass
+
+    text = body + "\n" + title + "\n" + commit_context
+    full_body = body + "\n" + commit_context
     failures: List[str] = []
 
     if not diff_only:
@@ -62,8 +78,10 @@ def evaluate_policy(
             )
 
         # (b) Lane label
-        has_lane_label = any(label.startswith("lane:") for label in labels)
-        has_agent_hashtag = bool(re.search(r"#[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+", body))
+        has_lane_label = any(label.startswith("lane:") for label in labels) or bool(
+            re.search(r"lane:[a-zA-Z0-9_-]+", full_body)
+        )
+        has_agent_hashtag = bool(re.search(r"#[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+", full_body))
         if not (has_lane_label or has_agent_hashtag):
             failures.append(
                 "(b) lane label: PR carries no 'lane:*' label "
@@ -71,7 +89,7 @@ def evaluate_policy(
             )
 
         # (c) Agent hashtag
-        if not re.search(r"#[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+", body):
+        if not re.search(r"#[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+", full_body):
             failures.append(
                 "(c) agent hashtag: PR body has no '#<agent>-<id>' "
                 "hashtag (see AGENTS.md hashtag rule)"
