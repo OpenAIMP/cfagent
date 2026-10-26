@@ -13,6 +13,8 @@ import { DatabaseORM } from "../orm";
 import { codedMessage } from "../errors/errorAspects";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
 import { getServiceUserLogin } from "../security/serviceIdentity";
+import { createMessagingPorts } from "../messaging/createMessagingPorts";
+import { toScreenerEnvelope } from "../messaging/screenerEventEnvelope";
 import {
   guardScheduledETradeAuth,
   type AuthEpisodeStore,
@@ -524,6 +526,32 @@ export class ScheduledTasksService {
           Boolean((event as { stageChain?: unknown }).stageChain) || event.type.startsWith("screener."),
         );
         return;
+      }
+      // Issue #1739: the durable queue is primary for the two
+      // bus-subscribed event types (screener.completed / screener.failed
+      // — screener.md §8.1). options.* events keep the legacy bus path:
+      // they have no bus subscribers today, and their delivery stays on
+      // the #223 direct path. The bus fallback below runs only when no
+      // subscriber stream received the event, so an event is never
+      // delivered twice and never lost in-process.
+      if (event.type.startsWith("screener.")) {
+        try {
+          const ports = createMessagingPorts(this.env);
+          if (ports) {
+            const report = await ports.publisher.publish(
+              toScreenerEnvelope(event, this.userLogin)
+            );
+            if (report.deliveredTo.length > 0) return;
+            console.warn(
+              "[ScheduledTasksService] queue publish reached no subscriber stream — falling back to the in-process bus."
+            );
+          }
+        } catch (err) {
+          console.warn(
+            "[ScheduledTasksService] queue publish failed, falling back to the in-process bus:",
+            err instanceof Error ? err.message : String(err)
+          );
+        }
       }
       if (!this.screenerBus) {
         this.screenerBus = new ScreenerEventBus();
