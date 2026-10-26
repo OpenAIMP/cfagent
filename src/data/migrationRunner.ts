@@ -68,8 +68,59 @@ CREATE INDEX IF NOT EXISTS agent_governance_tenant_scope_idx ON agent_governance
 `,
 };
 
+/**
+ * Migration 0002 — agent_chains + agent_synthesized_schedules
+ * (slice 1, issue #1651). Portable subset (R2): epoch-ms
+ * integers, no dialect date functions, no RETURNING. The `id`
+ * column is the deterministic replay key
+ * `<tenant_id>:<chain_or_schedule_id>:<version>`, so replaying
+ * the same version conflicts on the primary key and is a no-op
+ * under the adapters' onConflictDoNothing writes. The
+ * tenant/chain/version indexes serve the latest-row reads.
+ */
+export const MIGRATION_0002_AGENT_CHAINS_SCHEDULES: DataMigration = {
+  version: 2,
+  name: "0002_agent_chains_schedules",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_chains (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  chain_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  goal TEXT NOT NULL,
+  steps_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  provenance_writer TEXT NOT NULL,
+  provenance_source_do TEXT NOT NULL,
+  provenance_source_version TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_chains_tenant_chain_idx ON agent_chains (tenant_id, chain_id, version DESC);
+CREATE TABLE IF NOT EXISTS agent_synthesized_schedules (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  schedule_id TEXT NOT NULL,
+  chain_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  cron TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  provenance_writer TEXT NOT NULL,
+  provenance_source_do TEXT NOT NULL,
+  provenance_source_version TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_synthesized_schedules_tenant_schedule_idx ON agent_synthesized_schedules (tenant_id, schedule_id, version DESC);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
+  MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
 ];
 
 function splitStatements(sqlText: string): string[] {

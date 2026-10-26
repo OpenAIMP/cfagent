@@ -86,6 +86,15 @@
  * - RSI-loop state tables (mas_strategy_weights, mas_strategy_weight_caps,
  *   mas_strategy_gates) — KEEP. One row per strategy (strategy is the PK),
  *   upserted in place.
+ * - agent_chains / agent_synthesized_schedules (AgentDB projections,
+ *   slice 1, issue #1651) — KEEP. Versioned projection history of
+ *   the chain lifecycle (one row per transition per chain); row
+ *   count is bounded by transitions per chain, not per request,
+ *   and old versions are the audit trail of pending → approved →
+ *   killed. Pruning old versions would destroy exactly the
+ *   history the status read and reconciliation reason about. The
+ *   DO remains authoritative; these rows are never the sole
+ *   record of anything.
  * - usage_events (not a mas_* table) — PRUNE-CLASS, 365d, recorded here
  *   per issue #792's deferral, implementation deferred to its first
  *   production reader: rows are split across two DOs' databases
