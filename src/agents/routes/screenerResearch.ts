@@ -72,6 +72,12 @@ export interface ScreenerResearchRouteContext {
   }>;
   /** ORM accessor (owner: OrchestratorAgent.getOrm - was `this.getOrm()`); the #754 adaptation services take it as their SqlStorage (post-#887 the ORM satisfies that interface). */
   getOrm(): DatabaseORM;
+  /**
+   * Issue #1661: DO blob handle for full capture (mirrors the
+   * getStorageSql idiom). Optional — mock ctxs without it degrade
+   * to today's outcome-only contract via `ctx.getStorage?.()`.
+   */
+  getStorage?(): any;
   /** Worker environment (owner: OrchestratorAgent - `this.env`); the Phase 6 tick delivery builds its channel senders from it. */
   env: Record<string, any>;
   /** mas_settings raw read (owner: OrchestratorAgent.readSettingRaw - was `this.readSettingRaw`). */
@@ -1421,9 +1427,9 @@ export async function handleScreenerResearchRoutes(
       const { executeScreenBacktest } = await import("../../services/screeningRuntime");
       // Issue #1331: backtest bars through the platform — route-
       // resolved + outcome-tracked under a per-request run id.
-      // The route ctx carries no blob handle, so this binding
-      // writes outcome rows but no capture rows (follow-up:
-      // thread a storage handle into the route ctx).
+      // Issue #1661: the route ctx now carries a blob handle
+      // (getStorage), so this binding writes capture rows when
+      // present and keeps the outcome-only contract otherwise.
       const { resolveYahooHistoryDeps } = await import("../../trading");
       // Issue #1331 (fix): resolution failure degrades to undefined
       // deps, so fetchLivePriceBars returns null and the engine
@@ -1434,6 +1440,7 @@ export async function handleScreenerResearchRoutes(
         env: ctx.env as any,
         userLogin,
         runId: crypto.randomUUID(),
+        blobStorage: ctx.getStorage?.(),
       });
       const result = await executeScreenBacktest({
         symbols: body.symbols as string[],
