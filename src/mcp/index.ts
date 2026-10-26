@@ -20,6 +20,12 @@ import {
   memoryConfigErrorEvent,
   resolveMemoryReadMode,
 } from "../config/knowledgeMemoryModes";
+import {
+  HTTP_DELIVERY_MODE_SWITCH,
+  jobsConfigErrorEvent,
+  levelsForHttpDelivery,
+  resolveHttpDeliveryMode,
+} from "../config/asyncJobModes";
 
 export interface MCPRequest {
   jsonrpc: "2.0";
@@ -196,6 +202,8 @@ export async function executeMCPTool(
     /** #1723: KNOWLEDGE_MODE / MEMORY_READ_MODE carriers, spread likewise. */
     scopedKnowledgeModes?: import("../config/knowledgeMemoryModes").KnowledgeScopedModes;
     scopedMemoryModes?: import("../config/knowledgeMemoryModes").MemoryScopedModes;
+    /** #1724: JOB_LIST_ENVELOPE carrier, spread through to the tool context. */
+    scopedJobListModes?: import("../config/asyncJobModes").JobListScopedModes;
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
     submitJob?: (job: AsyncJobSubmission) => Promise<{
       jobId: string;
@@ -370,6 +378,11 @@ export async function handleMCPRequest(
     /** #1723: KNOWLEDGE_MODE / MEMORY_READ_MODE carriers, forwarded likewise. */
     scopedKnowledgeModes?: import("../config/knowledgeMemoryModes").KnowledgeScopedModes;
     scopedMemoryModes?: import("../config/knowledgeMemoryModes").MemoryScopedModes;
+    /** #1724: HTTP_DELIVERY_MODE / JOB_LIST_ENVELOPE carriers, forwarded likewise. */
+    scopedHttpDeliveryModes?: import("../config/asyncJobModes").HttpDeliveryScopedModes;
+    scopedJobListModes?: import("../config/asyncJobModes").JobListScopedModes;
+    /** #1724: HTTP_DELIVERY_MODE run level — the `x-delivery-mode` header on the /mcp POST. */
+    deliveryModeRun?: unknown;
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
     submitJob?: (job: AsyncJobSubmission) => Promise<{
       jobId: string;
@@ -428,7 +441,34 @@ export async function handleMCPRequest(
           };
         }
 
-        const data = context.submitJob && McpToolFactory.getTool(name) &&
+        // #1724: HTTP_DELIVERY_MODE over tools/call wrapping. Legacy =
+        // queued when a submitJob submitter is present, direct
+        // execution otherwise; an explicitly set level (run > session
+        // > user > env) overrides the submitter rule. The async-job
+        // tools are NEVER wrapped, in any mode. An invalid winning
+        // value fails closed to legacy, logged + audited as
+        // jobs.config_error. Queued without a submitter still executes
+        // directly — there is nothing to queue with.
+        const deliveryLegacy = context.submitJob ? "queued" : "sync";
+        const resolvedDelivery = resolveHttpDeliveryMode(
+          levelsForHttpDelivery(
+            context.scopedHttpDeliveryModes,
+            context.deliveryModeRun,
+            (context.env as unknown as Record<string, unknown> | undefined)?.[HTTP_DELIVERY_MODE_SWITCH]
+          ),
+          deliveryLegacy as "sync" | "queued"
+        );
+        if (resolvedDelivery.invalid) {
+          console.error(
+            `[jobs] invalid ${HTTP_DELIVERY_MODE_SWITCH} value ${JSON.stringify(resolvedDelivery.raw)} — failing closed to "${deliveryLegacy}"`
+          );
+          context.audit(jobsConfigErrorEvent(), "orchestrator", {
+            setting: HTTP_DELIVERY_MODE_SWITCH,
+            value: resolvedDelivery.raw ?? "",
+            resolved: deliveryLegacy,
+          });
+        }
+        const data = resolvedDelivery.mode === "queued" && context.submitJob && McpToolFactory.getTool(name) &&
           name !== "get_async_job" && name !== "list_async_jobs"
           ? await context.submitJob({
             capability: "mcp.tool",

@@ -85,6 +85,14 @@ import {
   resolveNlqMode,
 } from "../config/nlqModes";
 import {
+  JOB_LIST_ENVELOPE_SWITCH,
+  applyJobListEnvelope,
+  jobsConfigErrorEvent,
+  levelsForJobListEnvelope,
+  resolveJobListEnvelope,
+  type JobListEnvelope,
+} from "../config/asyncJobModes";
+import {
   ADS_REVENUE_SWITCHES,
   adsRevenueConfigErrorEvent,
   categoryCreateId,
@@ -195,6 +203,40 @@ function resolveMemoryReadForList(
     );
     context.audit(memoryConfigErrorEvent(), "orchestrator", {
       setting: MEMORY_READ_MODE_SWITCH,
+      value: resolved.raw ?? "",
+      resolved: legacy,
+    });
+  }
+  return resolved.mode;
+}
+
+/**
+ * #1724: resolves JOB_LIST_ENVELOPE for one list_async_jobs execution
+ * in run > session > user > env > builtin order. `legacy` is the
+ * calling surface's own legacy envelope (MCP list → "count"). Invalid
+ * wins fail closed to `legacy`, logged + audited as jobs.config_error.
+ * Callers resolve ONLY for list: the single-job full record is never
+ * enveloped by this switch.
+ */
+function resolveJobListEnvelopeForTool(
+  context: McpToolContext,
+  run: unknown,
+  legacy: JobListEnvelope
+): JobListEnvelope {
+  const resolved = resolveJobListEnvelope(
+    levelsForJobListEnvelope(
+      context.scopedJobListModes,
+      run,
+      (context.env as unknown as Record<string, unknown> | undefined)?.[JOB_LIST_ENVELOPE_SWITCH]
+    ),
+    legacy
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[jobs] invalid ${JOB_LIST_ENVELOPE_SWITCH} value ${JSON.stringify(resolved.raw)} — failing closed to "${legacy}"`
+    );
+    context.audit(jobsConfigErrorEvent(), "orchestrator", {
+      setting: JOB_LIST_ENVELOPE_SWITCH,
       value: resolved.raw ?? "",
       resolved: legacy,
     });
@@ -768,16 +810,31 @@ export class GetAsyncJobCommand implements IMcpToolCommand<{ jobId: string }> {
   }
 }
 
-export class ListAsyncJobsCommand implements IMcpToolCommand<{}> {
+export class ListAsyncJobsCommand implements IMcpToolCommand<{ envelope?: string }> {
   readonly name = "list_async_jobs";
   readonly description = "List recent asynchronous jobs and their status for this session.";
-  readonly jsonSchema = { type: "object" as const, properties: {} };
-  readonly zodSchema = z.object({});
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      envelope: { type: "string", description: "Optional JOB_LIST_ENVELOPE run override: \"count\" ({count, jobs}, default) or \"nocount\" ({jobs})" },
+    },
+  };
+  // NOTE: z.string(), not z.enum(), deliberately (the #1723 `mode`
+  // precedent): an unrecognized value must reach the resolver so it
+  // fails closed WITH a jobs.config_error audit, not die in schema
+  // validation with no audit trail.
+  readonly zodSchema = z.object({
+    envelope: z.string().optional().describe("JOB_LIST_ENVELOPE run override"),
+  });
 
-  async execute(_input: {}, context: McpToolContext) {
+  async execute(input: { envelope?: string }, context: McpToolContext) {
     if (!context.listJobs) throw new Error("Async job listing is unavailable in this MCP context.");
     const jobs = context.listJobs();
-    return { count: jobs.length, jobs };
+    // #1724: run-level JOB_LIST_ENVELOPE (the per-call `envelope`
+    // input); unset = MCP legacy ("count"). The rows themselves are
+    // result-stripped by the route context, unchanged in both modes.
+    const mode = resolveJobListEnvelopeForTool(context, input.envelope, "count");
+    return applyJobListEnvelope(jobs, mode);
   }
 }
 

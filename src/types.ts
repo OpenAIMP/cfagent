@@ -178,6 +178,29 @@ export interface Env {
   // production value for either switch: production values are an
   // owner action. Rollback is unsetting the var and redeploying.
   MEMORY_READ_MODE?: string;
+  // #1724 (parent #1717, slice (d)) — TWO async-jobs switches
+  // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
+  // HTTP_DELIVERY_MODE: "sync" | "queued" (case-insensitive, padded
+  // values accepted). Governs the DO /api queue decision and the MCP
+  // tools/call wrapping decision. Built-in default = the calling
+  // surface's own legacy: HTTP per-prefix rule (immediate prefixes
+  // sync, other /api or async-eligible requests queued), MCP
+  // submitter rule (submitter present → queued, absent → sync).
+  // Any other value FAILS CLOSED to the surface legacy and is logged
+  // + audited as jobs.config_error. Resolution order (run > session
+  // > user > global env > built-in) lives in
+  // src/config/asyncJobModes.ts.
+  HTTP_DELIVERY_MODE?: string;
+  // JOB_LIST_ENVELOPE: "count" | "nocount" (case-insensitive, padded
+  // values accepted). Governs the LIST envelope only (MCP
+  // list_async_jobs and REST GET /jobs). Built-in default = the
+  // calling surface's own legacy envelope (MCP → "count", REST →
+  // "nocount"). Any other value FAILS CLOSED to the surface legacy
+  // and is logged + audited as jobs.config_error. This slice
+  // deliberately does NOT set a production value for either switch:
+  // production values are an owner action. Rollback is unsetting the
+  // var and redeploying.
+  JOB_LIST_ENVELOPE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;

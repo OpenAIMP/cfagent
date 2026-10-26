@@ -53,6 +53,23 @@ export interface McpToolContext {
    * only — never remember/delete/clear.
    */
   scopedMemoryModes?: import("../config/knowledgeMemoryModes").MemoryScopedModes;
+  /**
+   * #1724: optional session/user carriers for the HTTP_DELIVERY_MODE
+   * switch (run comes from the per-request `x-delivery-mode` header
+   * on the /mcp POST, global env from `env`). Populated by the
+   * execution-context owner; unset carriers fall through to env.
+   * See src/config/asyncJobModes.ts. Governs tools/call wrapping
+   * only — get_async_job / list_async_jobs are never wrapped.
+   */
+  scopedHttpDeliveryModes?: import("../config/asyncJobModes").HttpDeliveryScopedModes;
+  /**
+   * #1724: optional session/user carriers for the JOB_LIST_ENVELOPE
+   * switch (run comes from the per-call `envelope` input, global env
+   * from `env`). Populated by the execution-context owner; unset
+   * carriers fall through to env. Covers the list envelope only —
+   * never the single-job full record. See src/config/asyncJobModes.ts.
+   */
+  scopedJobListModes?: import("../config/asyncJobModes").JobListScopedModes;
   requestId?: string;
   audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
   facade?: IMcpSystemFacade;
