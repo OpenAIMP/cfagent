@@ -24,12 +24,18 @@
  */
 
 import type { AgentName } from "../../types";
-import type { SqlStorage } from "../../orm";
+import { DatabaseORM, type SqlStorage } from "../../orm";
 import type { MemoryRecord } from "../../types";
+import { runRestTool } from "./restToolBridge";
 
 /** The subset of OrchestratorAgent surface the memory/reset handlers need. */
 export interface MemoryResetRouteContext {
   ensureTables(): SqlStorage;
+  /**
+   * #1644: ORM accessor for command execution. Optional — routes without
+   * it build a DatabaseORM over ensureTables() (same tables, no seeding).
+   */
+  getOrm?: () => DatabaseORM;
   audit(
     type: string,
     agent: AgentName | "judge" | "nlq" | "orchestrator",
@@ -59,17 +65,27 @@ export async function handleMemoryResetRoutes(
   ctx: MemoryResetRouteContext
 ): Promise<Response | null> {
   // Persistent Memory facts endpoint
+  // #1644: memory reads/writes execute through the manage_session_memory
+  // command. The route keeps its contract as presentation: the 100-cap
+  // and row mapping on GET, and its memory.deleted / memory.cleared audits
+  // plus {success:true} shapes on DELETE.
   if (path.endsWith("/memory")) {
+    const orm = ctx.getOrm?.() ?? new DatabaseORM(ctx.ensureTables());
+    const toolParts = {
+      orm,
+      sessionId,
+      audit: (type: string, agent: unknown, payload: Record<string, unknown>) =>
+        ctx.audit(type, agent as AgentName, payload),
+    };
     if (request.method === "GET") {
       try {
-        const sql = ctx.ensureTables();
-        const rawMemories = Array.from(
-          sql.exec("SELECT key, value, updated_at FROM mas_memory ORDER BY updated_at DESC LIMIT 100")
-        ) as Array<{ key: string; value: string; updated_at: string }>;
-        const memories: MemoryRecord[] = rawMemories.map((m) => ({
+        const out = (await runRestTool("manage_session_memory", { action: "list" }, toolParts)) as {
+          memories: Array<{ key: string; value: string; updatedAt: string }>;
+        };
+        const memories: MemoryRecord[] = out.memories.slice(0, 100).map((m) => ({
           key: String(m.key),
           value: String(m.value),
-          updatedAt: String(m.updated_at),
+          updatedAt: String(m.updatedAt),
         }));
         return Response.json({ count: memories.length, memories });
       } catch (err) {
@@ -79,13 +95,12 @@ export async function handleMemoryResetRoutes(
 
     if (request.method === "DELETE") {
       try {
-        const sql = ctx.ensureTables();
         const key = url.searchParams.get("key");
         if (key) {
-          sql.exec("DELETE FROM mas_memory WHERE key = ?", key);
+          await runRestTool("manage_session_memory", { action: "delete", key }, toolParts);
           ctx.audit("memory.deleted", "memory", { key });
         } else {
-          sql.exec("DELETE FROM mas_memory");
+          await runRestTool("manage_session_memory", { action: "clear" }, toolParts);
           ctx.audit("memory.cleared", "memory", {});
         }
         return Response.json({ success: true });

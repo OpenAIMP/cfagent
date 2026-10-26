@@ -1797,6 +1797,7 @@ export class OrchestratorAgent extends Think<Env> {
     // ads/revenue/referrals handler); a non-null return matched.
     const schemaResponse = await handleSchemaRoutes(request, url, path, sessionId, {
       getOrm: () => this.getOrm(),
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
     });
     if (schemaResponse) return schemaResponse;
 
@@ -1819,6 +1820,7 @@ export class OrchestratorAgent extends Think<Env> {
     // return matched.
     const auditResponse = await handleAuditRoutes(request, url, path, sessionId, {
       ensureTables: () => this.ensureTables(),
+      getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
     });
@@ -1875,6 +1877,7 @@ export class OrchestratorAgent extends Think<Env> {
     // return matched.
     const memoryResetResponse = await handleMemoryResetRoutes(request, url, path, sessionId, {
       ensureTables: () => this.ensureTables(),
+      getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       abortAllRequests: (_reason) => this.abortAllRequests(),
       resetTurnState: () => this.resetTurnState(),
@@ -1903,6 +1906,7 @@ export class OrchestratorAgent extends Think<Env> {
     const paymentsResponse = await handlePaymentsRoutes(request, url, path, sessionId, {
       env: this.env,
       ensureTables: () => this.ensureTables(),
+      getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
     });
     if (paymentsResponse) return paymentsResponse;

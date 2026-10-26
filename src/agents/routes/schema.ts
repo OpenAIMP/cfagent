@@ -18,11 +18,18 @@
  */
 
 import type { DatabaseORM } from "../../orm";
+import type { AgentName } from "../../types";
+import { runRestTool } from "./restToolBridge";
 
 /** The subset of OrchestratorAgent surface the schema handlers need. */
 export interface SchemaRouteContext {
   /** ORM accessor (owner: OrchestratorAgent.getOrm - was `this.getOrm()`). */
   getOrm(): DatabaseORM;
+  /**
+   * #1644: audit sink for command execution. Optional — the reduced schema
+   * commands never audit, so routes without it run with a no-op.
+   */
+  audit?: (type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) => void;
 }
 
 /**
@@ -38,17 +45,25 @@ export async function handleSchemaRoutes(
   ctx: SchemaRouteContext
 ): Promise<Response | null> {
   // Schema Introspection & Database Tables via ORM
+  // #1644: executed through the list_database_tables command — the route
+  // keeps only its response shape and error mapping.
   if (path.endsWith("/schema/tables") && request.method === "GET") {
     try {
-      const orm = ctx.getOrm();
-      const tables = orm.listTables();
-      return Response.json({ count: tables.length, tables });
+      const out = await runRestTool("list_database_tables", {}, {
+        orm: ctx.getOrm(),
+        sessionId,
+        audit: ctx.audit ?? (() => {}),
+      });
+      return Response.json(out);
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to inspect database tables" }, { status: 500 });
     }
   }
 
   // Direct Table Query Execution via ORM
+  // #1644: executed through the query_table_data command. The route keeps
+  // its mas_categories default and error mapping; limit/offset clamps live
+  // in the ORM call the command owns.
   if (path.endsWith("/schema/query") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as {
@@ -58,11 +73,15 @@ export async function handleSchemaRoutes(
         offset?: number;
       };
       const table = body.table || "mas_categories";
-      const orm = ctx.getOrm();
-      const data = orm.getTableData(table, {
+      const data = await runRestTool("query_table_data", {
+        tableName: table,
         search: body.search,
         limit: body.limit,
         offset: body.offset,
+      }, {
+        orm: ctx.getOrm(),
+        sessionId,
+        audit: ctx.audit ?? (() => {}),
       });
       return Response.json(data);
     } catch (err) {

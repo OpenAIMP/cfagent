@@ -44,7 +44,9 @@ import {
   resolveDraftOwner,
 } from "../../payments/draftOwners";
 import type { AgentName, Env } from "../../types";
-import type { SqlStorage } from "../../orm";
+import { DatabaseORM, type SqlStorage } from "../../orm";
+import { executeMCPTool } from "../../mcp/index";
+import { runRestTool } from "./restToolBridge";
 
 /** The subset of OrchestratorAgent surface the payments handlers need. */
 export interface PaymentsRouteContext {
@@ -52,6 +54,11 @@ export interface PaymentsRouteContext {
   env: Env;
   /** SQLite accessor (owner: OrchestratorAgent — was the routeRequest-local `sql`). */
   ensureTables(): SqlStorage;
+  /**
+   * #1644: ORM accessor for command execution. Optional — routes without
+   * it build a DatabaseORM over ensureTables() (same tables, no seeding).
+   */
+  getOrm?: () => DatabaseORM;
   audit(
     type: string,
     agent: AgentName | "judge" | "nlq" | "orchestrator",
@@ -76,13 +83,21 @@ export async function handlePaymentsRoutes(
   // ==========================================
 
   // Gateway status & DID registry
+  // #1644: executed through the get_payment_gateways command. The facade
+  // delegates to the same PaymentGatewayService the route called, so the
+  // data is identical; the route keeps its 3-field shape (the command's
+  // extra `count` is presentation the route does not carry).
   if ((path.endsWith("/payments/gateways") || path.endsWith("/payments/status")) && request.method === "GET") {
-    const paymentService = new PaymentGatewayService(ctx.env);
-    const gateways = paymentService.getGatewayStatuses();
+    const out = await executeMCPTool("get_payment_gateways", {}, {
+      env: ctx.env,
+      orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
+      sessionId,
+      audit: (type, agent, payload) => ctx.audit(type, agent, payload),
+    });
     return Response.json({
-      gateways,
-      agentDids: AGENT_DIDS,
-      userDid: getUserDid(sessionId),
+      gateways: out.gateways,
+      agentDids: out.agentDids,
+      userDid: out.userDid,
     });
   }
 
@@ -103,29 +118,33 @@ export async function handlePaymentsRoutes(
   if (path.endsWith("/payments/transactions")) {
     if (request.method === "GET") {
       try {
-        const raw = Array.from(
-          sql.exec(
-            "SELECT id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at FROM mas_transactions ORDER BY created_at DESC LIMIT 50"
-          )
-        ) as any[];
+        // #1644: the ledger query (created_at DESC, limit 50) executes
+        // through the get_transactions command. The route keeps its row
+        // coercions and summary stats as presentation — the command rows
+        // already carry the camelCase fields the old raw-SQL mapping built.
+        const out = (await runRestTool("get_transactions", { limit: 50 }, {
+          orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
+          sessionId,
+          audit: (type, agent, payload) => ctx.audit(type, agent, payload),
+        })) as { transactions: any[] };
 
-        const transactions = raw.map((t) => ({
+        const transactions = out.transactions.map((t) => ({
           id: String(t.id),
-          sessionId: String(t.session_id),
+          sessionId: String(t.sessionId),
           action: String(t.action),
           amount: Number(t.amount || 0),
           currency: String(t.currency || "USD"),
           customer: String(t.customer),
           gateway: String(t.gateway || "stripe"),
-          gatewayRef: String(t.gateway_ref || ""),
+          gatewayRef: String(t.gatewayRef || ""),
           status: String(t.status),
-          checkoutUrl: String(t.checkout_url || ""),
-          proposerDid: String(t.proposer_did || AGENT_DIDS.PAYMENTS),
-          authorizerDid: t.authorizer_did ? String(t.authorizer_did) : undefined,
-          proofSignature: String(t.proof_signature || ""),
+          checkoutUrl: String(t.checkoutUrl || ""),
+          proposerDid: String(t.proposerDid || AGENT_DIDS.PAYMENTS),
+          authorizerDid: t.authorizerDid ? String(t.authorizerDid) : undefined,
+          proofSignature: String(t.proofSignature || ""),
           note: String(t.note || ""),
-          createdAt: String(t.created_at),
-          updatedAt: String(t.updated_at),
+          createdAt: String(t.createdAt),
+          updatedAt: String(t.updatedAt),
         }));
 
         const totalVolume = transactions
