@@ -51,6 +51,7 @@ import {
 import { generateHedgeProposals, resolveSpyPutContract } from "../../services/hedgeProposals";
 import { buildRecommendationBundle, normalizeBundleCandidates, type BundleRouteCandidateBody } from "../../services/recommendationBundle";
 import { completeBundleRoute } from "./etradeBrokerBundle";
+import { orderPayloadHash } from "./orderPayloadHash";
 import type { ScreeningChannel, ScreeningChannelResult } from "../../services/screeningDelivery";
 import { buildScenario, type ScenarioConstraints, type ScenarioShockGrid } from "../../services/goalScenarioEngine";
 import type { GoalKind } from "../../services/goalScenarioStore";
@@ -747,7 +748,14 @@ export async function handleEtradeBrokerRoutes(
     try {
       const orm = ctx.getOrm();
       const trades = orm.trades.findMany({ orderBy: "created_at DESC", limit: 50 });
-      return Response.json({ count: trades.length, trades });
+      // Issue #1703 (A3-a): each listed draft carries its payload
+      // version, computed server-side from the stored fields — the same
+      // fields execution reads — so the approval card shows exactly
+      // what will execute. Existing fields pass through untouched.
+      const tradesWithVersions = await Promise.all(
+        trades.map(async (trade: any) => ({ ...trade, payloadHash: await orderPayloadHash(trade) }))
+      );
+      return Response.json({ count: tradesWithVersions.length, trades: tradesWithVersions });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch order history" }, { status: 500 });
     }
