@@ -560,6 +560,12 @@ export class UnifiedOptionsService {
           // each name, infers (or abstains), expresses, persists the
           // run, and classifies deltas against the previous run of
           // the same scope (here: this caller's universe).
+          // #1639 (D3, retained with stated reason): this is NOT a
+          // parallel recommendation path bypassing the kernel — the
+          // service's per-name expression runs runPanelPipeline, i.e.
+          // RecommendationService.discoverPanel. What stays outside
+          // the kernel is only the universe-scan / inference / run
+          // persistence pre-stage, which no kernel stage owns.
           if (!this.discoverySql) {
             executionData = { error: "Discovery isn't wired in this context." };
             summary = "Discovery isn't wired in this context.";
@@ -885,13 +891,19 @@ export class UnifiedOptionsService {
 
         case "llm_ideas":
         case "llm_evaluate": {
-          // Issue #29 disposition: llm_ideas no longer performs an independent
-          // raw-chain analysis. That path duplicated the recommender
-          // generatively, with no access to the user's risk constraints and
-          // only contract-existence verification (SSOT Section 10, F-1/F-4).
-          // The action now follows the compare pattern: the quant pipeline
-          // runs first and the LLM evaluates ITS verified candidates,
-          // side-by-side, never overwriting the quant ranking.
+          // Issue #29 disposition, updated by #1639 (D5/D8): this action
+          // still follows the compare pattern — the quant pipeline runs
+          // first and the LLM evaluates ITS verified candidates,
+          // side-by-side, never overwriting the quant ranking — so this
+          // action's output shape is unchanged. The independent LLM
+          // generation path is NOT retired: it lives in the kernel as
+          // LlmIdeaBuilder, runnable standalone via
+          // RecommendationService.discoverLlmIdeas (fed by llmIdeas via
+          // mapRawOptionsIdeasToLlmGeneratorResponse), under the same
+          // gates / pricing / falsification as the quant builders.
+          // That entry, not this action, is the kernel target for D8;
+          // wiring this action onto it would change its pinned
+          // compare-pattern output and is deliberately not done here.
           const symbol = (req.symbol || "NVDA").toUpperCase().trim();
           const question = req.question || "Find the strongest options strategy ideas across available chains.";
           const strategyRequest: StrategyRequest = {
@@ -933,7 +945,7 @@ export class UnifiedOptionsService {
             mode: "llm_evaluation_of_quant_candidates",
             ...(strategyProfile ? { profileRef: toProfileRef(strategyProfile) } : {}),
             deprecatedAction: req.action,
-            notice: "llm_ideas no longer analyzes raw chains independently (issue #29); it evaluates the quant pipeline's candidates, following the compare pattern.",
+            notice: "llm_ideas evaluates the quant pipeline's candidates, following the compare pattern (issue #29); standalone LLM generation lives in the kernel via RecommendationService.discoverLlmIdeas (#1639, D8).",
             symbol,
             question,
             quant: {
@@ -947,7 +959,7 @@ export class UnifiedOptionsService {
             llm: llmJudgment?.status === "error" ? llmJudgment : { status: "complete", ...llmJudgment },
             contracts: pipelineResult.snapshot.contracts,
           };
-          summary = `LLM evaluation of quant candidates for ${symbol}: evaluated ${candidates.length} candidates (llm_ideas retired as an independent recommender, issue #29).`;
+          summary = `LLM evaluation of quant candidates for ${symbol}: evaluated ${candidates.length} candidates (standalone LLM generation: kernel discoverLlmIdeas, #1639).`;
           break;
         }
 

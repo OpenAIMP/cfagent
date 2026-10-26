@@ -42,6 +42,11 @@ import {
   CACHED_UNIVERSE_QUOTE_SOURCE,
   isNonLivePricingQuoteStatus,
   nonLivePricingNotice,
+  nasdaqUniverseSeamFromSql,
+  nasdaqUniverseProviderFromRoute,
+  bindNasdaqUniverseDeps,
+  type NasdaqUniverseDeps,
+  type NasdaqUniverseSeam,
 } from "../trading";
 import { getCuratedStockBySymbol } from "../config/curatedStockUniverse";
 import { resolveEnvironmentConfig } from "../config/environment";
@@ -136,8 +141,57 @@ export class ETradeService {
     return this.screenMarketsAsync(filter);
   }
 
-  async screenMarketsAsync(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
-    return this.screener.screenLive(filter);
+  /**
+   * Issue #1378: threads the universe seam to screenLive. A
+   * caller-supplied seam wins; otherwise the service builds one
+   * internally from its ORM (outcome-only — no blob handle in the
+   * service; see nasdaqUniverseSeamFromSql). Without an ORM there
+   * is no bundle to build, and screenLive returns the missing-seam
+   * error result (never a direct fetch).
+   */
+  async screenMarketsAsync(
+    filter: StockScreenerFilter = {},
+    seam?: NasdaqUniverseSeam
+  ): Promise<StockScreenResult> {
+    const resolved =
+      seam ??
+      (await nasdaqUniverseSeamFromSql(this.orm?.getSql?.(), this.env, this.userLogin));
+    return this.screener.screenLive(filter, resolved);
+  }
+
+  /**
+   * Issue #1378: the route-bound universe deps for options
+   * discovery, for callers that cannot import trading internals
+   * (route handlers). Outcome-only (the service carries no DO
+   * blob handle — see nasdaqUniverseSeamFromSql). Undefined when
+   * the service has no ORM or the bundle cannot be built; the
+   * caller then degrades per its contract (resolveUnderlyings
+   * throws naming the seam).
+   */
+  async getUniverseDeps(): Promise<NasdaqUniverseDeps | undefined> {
+    // Degrade-to-undefined is this method's contract (route
+    // handlers run with mock orms in tests and real orms in
+    // production; either way a bundle failure must surface as the
+    // missing-seam throw at discovery time, never as a 500 here).
+    try {
+      const seam = await nasdaqUniverseSeamFromSql(
+        this.orm?.getSql?.(),
+        this.env,
+        this.userLogin
+      );
+      if (!seam?.universeRoute) return undefined;
+      const provider = nasdaqUniverseProviderFromRoute(
+        seam.universeRoute.registry,
+        seam.universeRoute.configs,
+        seam.universeRoute.routes
+      );
+      return bindNasdaqUniverseDeps(provider, seam.universeRoute.runContext);
+    } catch (err) {
+      console.warn(
+        `[etrade] universe deps unavailable, options discovery degrades to the missing-seam throw: ${err instanceof Error ? err.message : String(err)}`
+      );
+      return undefined;
+    }
   }
 
   /**

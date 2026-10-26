@@ -10,7 +10,7 @@
 import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote } from "../types";
 import type { IMarketScreener } from "./interfaces";
 import { type NasdaqStockListing } from "../services/nasdaqListings";
-import { acquireUniverse } from "./screenerPipeline";
+import { acquireUniverse, type NasdaqUniverseSeam } from "./screenerPipeline";
 
 import {
   CURATED_STOCK_UNIVERSE,
@@ -145,6 +145,15 @@ export class DynamicMarketScreener implements IMarketScreener {
     }
     if (filter.maxRsi !== undefined) {
       summaryParts.push(`RSI <= ${filter.maxRsi}`);
+    }
+    if (filter.minPercentB !== undefined) {
+      summaryParts.push(`%B >= ${filter.minPercentB}`);
+    }
+    if (filter.maxPercentB !== undefined) {
+      summaryParts.push(`%B <= ${filter.maxPercentB}`);
+    }
+    if (filter.requireSqueezeGate) {
+      summaryParts.push("Squeeze Gate (bandwidth at lookback minimum)");
     }
     if (filter.gainersOnly) {
       summaryParts.push("Gainers Only");
@@ -414,6 +423,88 @@ export class DynamicMarketScreener implements IMarketScreener {
         }
       }
 
+      // 11. Bollinger gates (issue #1654 slice 1; screener-rules.md §1.1).
+      // %B gating is opt-in: active when either %B bound is set. The
+      // overextension cap defaults to 1.0 (doc Extension Gate
+      // %B ∈ [0.0, 1.0]) when maxPercentB is unset. Band values are
+      // attached upstream where real bar history exists; a requested
+      // gate with no band data fail-closes (unavailable, never zero).
+      // evaluateUniverse itself sees no bar history — it gates on the
+      // attached values, it never fabricates them.
+      const percentBGatingActive = filter.maxPercentB !== undefined || filter.minPercentB !== undefined;
+      if (percentBGatingActive) {
+        const percentB = stock.percentB;
+        if (percentB === undefined || !Number.isFinite(percentB)) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: "Bollinger %B unavailable — %B gate requested but no band data attached",
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+        const maxPercentB = filter.maxPercentB ?? 1.0;
+        if (percentB > maxPercentB) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: `%B (${percentB.toFixed(2)}) above maximum ${maxPercentB.toFixed(2)} (overextended)`,
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+        if (filter.minPercentB !== undefined && percentB < filter.minPercentB) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: `%B (${percentB.toFixed(2)}) below minimum ${filter.minPercentB.toFixed(2)}`,
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+      }
+
+      if (filter.requireSqueezeGate) {
+        const bandwidth = stock.bollingerBandwidth;
+        const bandwidthMin = stock.bollingerBandwidthMin;
+        const barsUsed = stock.bollingerBarsUsed;
+        if (
+          bandwidth === undefined || !Number.isFinite(bandwidth) ||
+          bandwidthMin === undefined || !Number.isFinite(bandwidthMin) ||
+          barsUsed === undefined || !Number.isFinite(barsUsed)
+        ) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: "Bollinger squeeze data unavailable — squeeze gate requested but no band data attached",
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+        // Floor: 21 bars = default 20-period bands + 1 prior bandwidth
+        // point. Fewer bars cannot support a non-trivial minimum (a
+        // one-point "minimum" would pass everything) — reject, don't
+        // weaken the gate.
+        if (barsUsed < 21) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: `Bollinger squeeze data insufficient history (bars: ${barsUsed}, need ≥ 21)`,
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+        if (bandwidth > bandwidthMin + 1e-12) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: `Bandwidth (${bandwidth.toFixed(4)}) above lookback minimum (${bandwidthMin.toFixed(4)}) — squeeze gate not met`,
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+      }
+
       // Passed all checks!
       passedStocks.push({
         ...stock,
@@ -538,7 +629,10 @@ export class DynamicMarketScreener implements IMarketScreener {
     return this.evaluateUniverse(this.getUniverse(), filter);
   }
 
-  async screenLive(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
+  async screenLive(
+    filter: StockScreenerFilter = {},
+    seam?: NasdaqUniverseSeam
+  ): Promise<StockScreenResult> {
     // Unsupported-filter guard (manual-path-specific: the listing feed
     // cannot provide technical data). Behavior preserved.
     const unsupported: string[] = [];
@@ -563,9 +657,14 @@ export class DynamicMarketScreener implements IMarketScreener {
     if (filter.maxPeRatio !== undefined) unsupported.push("P/E");
 
     // Issue #259: universe acquisition via the shared pipeline.
+    // Issue #1378: the universe seam is threaded, never defaulted
+    // — without one, acquireUniverse returns the error-result
+    // shape naming the missing seam (decision D1).
     const acquired = await acquireUniverse({
       mode: "all-listings",
       exchange: filter.exchange,
+      universeDeps: seam?.universeDeps,
+      universeRoute: seam?.universeRoute,
     });
 
     // Narrow the pipeline's discovery to this trigger's literal type.

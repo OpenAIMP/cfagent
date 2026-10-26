@@ -746,11 +746,11 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
     badge: "Equity Screener",
     badgeColor: "green",
     governedWorkflows: ["A1", "A4"],
-    overview: "The Stock Screener (DynamicMarketScreener) discovers and evaluates equities across all US exchanges (NASDAQ, NYSE, AMEX). Options Flow and downstream modules do NOT default to a static list as their first option — they query DynamicMarketScreener first. The screener queries live all-exchange listings from api.nasdaq.com, and if that API is rate-limited, blocked, or unavailable, it decides whether to use a dynamic feed or fall back to the externalized curated universe (src/config/curatedStockUniverse.json).",
+    overview: "The Stock Screener (DynamicMarketScreener) discovers and evaluates equities across all US exchanges (NASDAQ, NYSE, AMEX). Options Flow and downstream modules do NOT default to a static list as their first option — they query DynamicMarketScreener first. The screener queries live all-exchange listings from api.nasdaq.com, and if that API is rate-limited, blocked, or unavailable, the listings feed FAILS EXPLICIT — no curated table is substituted (since issue 1554, parent issue 913); the screen reports the failure instead of presenting substitute rows. Issue 1378: every listings fetch is routed through the platform nasdaq provider (route table + capture), never a direct module call.",
     rules: [
       {
-        name: "Multi-Exchange Dynamic Listing Ingestion & Fallback Decision Tree",
-        description: "Executes a multi-tiered ingestion hierarchy across NASDAQ, NYSE, and AMEX (~8,500 active securities), prioritizing authentic remote exchange feeds before falling back gracefully.",
+        name: "Multi-Exchange Dynamic Listing Ingestion & Fail-Explicit Handling",
+        description: "Executes multi-exchange ingestion across NASDAQ, NYSE, and AMEX (~8,500 active securities) from the authentic remote exchange feed; on upstream failure or an empty result the feed FAILS EXPLICIT — no curated table is substituted (issue 1378 routes every listings fetch through the platform nasdaq provider).",
         formulaOrCode: "Priority 1: fetchAllUsStockListings() via api.nasdaq.com/api/screener/stocks (~8,500 rows, paginated)\nPriority 2 (since issue 1554, parent issue 913): If upstream is rate-limited, blocked, or returns empty, the listings feed FAILS EXPLICIT — no curated table is substituted, because NasdaqStockListing carries no provenance field and substituted rows would be indistinguishable from live rows\nAudit Stamp: discovery.mode = 'all_us_listings', tagged with source count audit statistics",
       },
       {

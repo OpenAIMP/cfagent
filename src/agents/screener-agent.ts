@@ -62,6 +62,7 @@ import {
   listCapabilityRoutes,
   listProviderConfigs,
   nasdaqUniverseProviderFromRoute,
+  nasdaqUniverseRouteBundle,
   resolveYahooHistoryDeps,
   transitionProvider,
   verifyNasdaqDataProvider,
@@ -1065,10 +1066,35 @@ export class ScreenerAgent extends Agent<Env> {
       }
       stockScreener = createYahooStockScreener(yahooDeps);
     }
+    // Issue #1378: thread the routed universe seam into options
+    // discovery (full capture via the agent's DO storage; the goal
+    // screen's idempotency key is the caller run id — decision D2).
+    // A bundle failure degrades to undefined, and discovery then
+    // throws naming the seam rather than fetching directly.
+    let goalUniverseDeps: import("../trading").NasdaqUniverseDeps | undefined;
+    try {
+      const goalBundle = await nasdaqUniverseRouteBundle({
+        sql: this.ctx.storage.sql,
+        storage: this.ctx.storage,
+        env: this.env,
+        userLogin,
+        runId: req.idempotencyKey,
+      });
+      const goalNasdaqProvider = nasdaqUniverseProviderFromRoute(
+        goalBundle.registry,
+        goalBundle.configs,
+        goalBundle.routes
+      );
+      goalUniverseDeps = bindNasdaqUniverseDeps(goalNasdaqProvider, goalBundle.runContext);
+    } catch (err) {
+      console.warn(
+        `[screener-agent] universe deps unavailable for goal screen, discovery degrades to the missing-seam throw: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
     const out = await runProductionGoalScreen({
       ledger: this.taskLedger(),
       ...(stockScreener ? { stockScreener } : {}),
-      optionsScreener: new DynamicOptionsScreener(etrade.client),
+      optionsScreener: new DynamicOptionsScreener(etrade.client, undefined, goalUniverseDeps),
       scenario: req.scenario,
       trigger: req.trigger,
       idempotencyKey: req.idempotencyKey,

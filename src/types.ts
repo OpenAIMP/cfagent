@@ -482,6 +482,14 @@ export interface StockScreenerFilter {
   maxPeRatio?: number;
   maxRsi?: number;
   minRsi?: number;
+  /** Issue #1654 slice 1: Bollinger %B extension gate. When either bound
+   *  is set, %B gating is active; the overextension cap defaults to 1.0
+   *  (doc Extension Gate %B ∈ [0.0, 1.0]) when maxPercentB is unset. */
+  maxPercentB?: number;
+  minPercentB?: number;
+  /** Issue #1654 slice 1: reject candidates whose bandwidth is not at
+   *  its lookback minimum (see bollingerBandwidthMin). */
+  requireSqueezeGate?: boolean;
   gainersOnly?: boolean;
   losersOnly?: boolean;
   rsiFilter?: "oversold" | "overbought" | "neutral" | "any";
@@ -511,6 +519,19 @@ export interface StockScreenLedger {
 export interface ScreenedStockItem extends ETradeQuote {
   price: number;
   rsi14?: number;
+  /** Issue #1654 slice 1: Bollinger %B from real bar history, attached
+   *  upstream where bars exist. Absent = band data unavailable — gates
+   *  that need it fail closed, never estimated. */
+  percentB?: number;
+  /** Current Bollinger bandwidth (Upper − Lower) / Middle. */
+  bollingerBandwidth?: number;
+  /** Minimum bandwidth over the lookback window (125 days when history
+   *  allows; fewer when history is short — see bollingerBarsUsed). */
+  bollingerBandwidthMin?: number;
+  /** Closes the attached band values were computed from. The squeeze
+   *  gate requires ≥ 21 (default 20-period bands + 1 prior bandwidth
+   *  point); fewer bars cannot support a non-trivial minimum. */
+  bollingerBarsUsed?: number;
   macdSignal: string;
   signal: "BULLISH_MOMENTUM" | "OVERSOLD_BOUNCE" | "RANGE_BOUND" | "OVERBOUGHT";
   technicalSignal: string;
