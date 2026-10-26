@@ -51,7 +51,7 @@ import {
 import { generateHedgeProposals, resolveSpyPutContract } from "../../services/hedgeProposals";
 import { buildRecommendationBundle, normalizeBundleCandidates, type BundleRouteCandidateBody } from "../../services/recommendationBundle";
 import { completeBundleRoute } from "./etradeBrokerBundle";
-import { orderPayloadHash } from "./orderPayloadHash";
+import { orderPayloadHash, parseStrategyOrder } from "./orderPayloadHash";
 import type { ScreeningChannel, ScreeningChannelResult } from "../../services/screeningDelivery";
 import { buildScenario, type ScenarioConstraints, type ScenarioShockGrid } from "../../services/goalScenarioEngine";
 import type { GoalKind } from "../../services/goalScenarioStore";
@@ -60,14 +60,22 @@ import type { StrategyCandidate } from "../../trading";
 import { sharedCorrelationService } from "../../services/correlationService";
 import { ETradeService } from "../../services/etrade";
 import { getUserDid } from "../did";
+import {
+  checkEtradeExecuteGate,
+  checkEtradeExecuteImmutability,
+  etradeGateErrorResponse,
+} from "../../services/etradeExecutionGate";
+import { resolveEtradeRestSwitch } from "../../config/etradeModes";
 import type { AgentName, Env } from "../../types";
 import type { DatabaseORM } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
 import { handleEtradeDiagnostics } from "./etradeBrokerDiagnostics";
-import { executeEtradeScreen } from "./etradeBrokerScreen";
+import { executeEtradeScreen, executeEtradeScreenListings } from "./etradeBrokerScreen";
+import { etradePositionsMcpEnvelope, etradeQuoteMcp, etradePreviewLocal } from "./etradeBrokerModes";
 import {
   completeEtradeOrderPreview,
   completeEtradeOrderExecution,
+  completeEtradeOrderRejection,
 } from "./etradeBrokerOrders";
 import {
   handleTradingSetupCatalog,
@@ -141,6 +149,8 @@ export interface EtradeBrokerRouteContext {
   schedule(when: number, callback: string, payload: any): Promise<Schedule>;
   /** SDK schedule cancellation (owner: OrchestratorAgent - was `this.cancelSchedule`). */
   cancelSchedule(id: string): Promise<boolean>;
+  /** #1726: optional session/user carriers for the E*TRADE switches. */
+  scopedEtradeModes?: import("../../config/etradeModes").EtradeScopedModes;
 }
 
 /**
@@ -197,7 +207,9 @@ export async function handleEtradeBrokerRoutes(
     try {
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
-      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      // #1726 E06: mcp ignores env override.
+      const statusMode = resolveEtradeRestSwitch(ctx, "status", url.searchParams.get("mode"), "rest");
+      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, statusMode === "mcp" ? undefined : requestedEnv);
       const status = await etrade.getStatusAsync();
       return Response.json(status);
     } catch (err) {
@@ -215,6 +227,8 @@ export async function handleEtradeBrokerRoutes(
     try {
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
+      // #1726 E06: mcp discovery envelope.
+      const discoveryMode = resolveEtradeRestSwitch(ctx, "discovery", url.searchParams.get("mode"), "rest");
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
       const accounts = await etrade.fetchAccountsRemote();
       if (accounts.length === 0) {
@@ -228,6 +242,9 @@ export async function handleEtradeBrokerRoutes(
         if (upstreamError) {
           return Response.json({ error: upstreamError }, { status: 502 });
         }
+      }
+      if (discoveryMode === "mcp") {
+        return Response.json({ count: accounts.length, accounts, asOf: new Date().toISOString() });
       }
       return Response.json({ count: accounts.length, accounts });
     } catch (err) {
@@ -262,6 +279,12 @@ export async function handleEtradeBrokerRoutes(
           ? (filters as { async?: unknown }).async === true
           : url.searchParams.get("async") === "1";
       if (request.method === "POST") delete (filters as { async?: unknown }).async;
+      // #1726 E01: listings in etradeBrokerScreen.ts.
+      const screenMode = resolveEtradeRestSwitch(ctx, "scan", request.method === "POST" ? (filters as { mode?: unknown }).mode : url.searchParams.get("mode"), "screened");
+      if (screenMode === "listings") {
+        const listingsEtrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+        return await executeEtradeScreenListings({ ctx, etrade: listingsEtrade, filters });
+      }
       // Issue #959: the body (POST) or assembled params (GET) validate
       // through the ONE shared stock-screen schema — a mis-shaped
       // filter is a 400 naming the field, never a silent engine run.
@@ -281,17 +304,25 @@ export async function handleEtradeBrokerRoutes(
   // Real-time equity quote (Real E*TRADE REST / OAuth 1.0a)
   if (path.endsWith("/etrade/quote") && request.method === "GET") {
     try {
-      const rawSym = url.searchParams.get("symbol") || "NVDA";
-      const symbol = rawSym.toUpperCase().trim() || "NVDA";
+      // #1726 E02: mcp in etradeBrokerModes.ts.
+      const quoteMode = resolveEtradeRestSwitch(ctx, "quote", url.searchParams.get("mode"), "rest");
+      const rawSym = quoteMode === "mcp" ? (url.searchParams.get("symbol") || "") : (url.searchParams.get("symbol") || "NVDA");
+      const symbol = rawSym.toUpperCase().trim() || (quoteMode === "mcp" ? "" : "NVDA");
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
-      // #291 Q3: registry-resolved platform + the LIVE_STRICT policy —
-      // the exact semantics fetchQuoteRemote enforced here (live failure
-      // throws into the 500 below; sandbox uses the platform chain).
-      const platform = TradingPlatformRegistry.getPlatform("etrade", ctx.env, ctx.getOrm(), userLogin, requestedEnv);
-      const quote = await fetchQuoteLiveStrict(platform, symbol, {
-        isLive: resolveEnvironmentConfig(ctx.env, requestedEnv).isLive,
-      });
+      let quote: unknown;
+      if (quoteMode === "mcp") {
+        if (!symbol) {
+          return Response.json({ error: "symbol is required" }, { status: 400 });
+        }
+        quote = await etradeQuoteMcp({ ctx, userLogin, symbol });
+      } else {
+        // #291 Q3: registry-resolved platform + the LIVE_STRICT policy.
+        const platform = TradingPlatformRegistry.getPlatform("etrade", ctx.env, ctx.getOrm(), userLogin, requestedEnv);
+        quote = await fetchQuoteLiveStrict(platform, symbol, {
+          isLive: resolveEnvironmentConfig(ctx.env, requestedEnv).isLive,
+        });
+      }
       return Response.json(quote, {
         headers: {
           "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -336,7 +367,15 @@ export async function handleEtradeBrokerRoutes(
 
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
+      // #1726 E03: local in etradeBrokerModes.ts.
+      const previewMode = resolveEtradeRestSwitch(ctx, "preview", body.mode, "broker");
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      if (previewMode === "local") {
+        if (optionLegs && optionLegs.length > 0) {
+          return Response.json({ error: "Local preview rejects option legs; use broker preview." }, { status: 400 });
+        }
+        return Response.json(etradePreviewLocal({ etrade, symbol, orderAction, quantity, orderType, limitPrice, stopPrice, sessionId }));
+      }
       const preview = await etrade.previewOrderRemote({
         assetClass,
         sessionId,
@@ -375,63 +414,31 @@ export async function handleEtradeBrokerRoutes(
       if (!userLogin) return unauthenticatedResponse();
       const userDid = getUserDid(sessionId);
 
-      // Strict HITL Gate: block autonomous agents
-      if (userDid.startsWith("did:agent:")) {
-        return Response.json({ error: "HITL Enforcement: Autonomous trade execution is strictly prohibited. Orders require verified human authorization." }, { status: 403 });
+      // #1726 E04: shared gate.
+      let existingRecord: any;
+      try {
+        existingRecord = checkEtradeExecuteGate(ctx.getOrm(), { orderId, authorizerDid: userDid });
+      } catch (gateErr) {
+        const gateResponse = etradeGateErrorResponse(gateErr);
+        if (gateResponse) return gateResponse;
+        throw gateErr;
       }
 
-      const existingRecord = ctx.getOrm().trades?.findById(orderId);
-      if (!existingRecord) {
-        return Response.json({ error: `Order draft '${orderId}' not found. All orders must be previewed and drafted prior to execution.` }, { status: 404 });
-      }
-
-      if (existingRecord.status !== "previewed") {
-        return Response.json({ error: `Order draft '${orderId}' cannot be executed. Current status is '${existingRecord.status}'. Only 'previewed' drafts may be executed.` }, { status: 400 });
-      }
-
-      // Handle user rejection / cancellation immediately
+      // Handle user rejection / cancellation immediately (tail in
+      // etradeBrokerOrders.ts).
       if (decision === "rejected") {
-        if (existingRecord.expirationScheduleId) {
-          try {
-            await ctx.cancelSchedule(existingRecord.expirationScheduleId);
-          } catch {
-            // Ignore cancel error if already triggered
-          }
-        }
-        if (ctx.getOrm().trades) {
-          ctx.getOrm().trades.update(orderId, {
-            status: "rejected",
-            authorizerDid: userDid,
-            updatedAt: new Date().toISOString(),
-          });
-        }
-        return Response.json({
-          success: true,
-          orderId,
-          status: "rejected",
-          message: `Order draft '${orderId}' cancelled by user. No broker order submitted.`,
-        });
+        return await completeEtradeOrderRejection({ ctx, orderId, userDid, existingRecord });
       }
 
-      // Strict Immutability Verification: Ensure submitted parameters strictly match the previewed draft
+      // Strict Immutability Verification (shared gate module).
       const reqAction = (body.action || body.orderAction || "").toUpperCase().trim();
-      if (reqAction && reqAction !== existingRecord.action.toUpperCase()) {
-        return Response.json({
-          error: `Order Action Mismatch: Previewed action is '${existingRecord.action}', but execution request specifies '${reqAction}'. Submission rejected. A fresh preview is required.`,
-        }, { status: 422 });
-      }
-
       const reqSymbol = (body.symbol || "").toUpperCase().trim();
-      if (reqSymbol && reqSymbol !== existingRecord.symbol.toUpperCase()) {
-        return Response.json({
-          error: `Order Symbol Mismatch: Previewed symbol is '${existingRecord.symbol}', but execution request specifies '${reqSymbol}'. Submission rejected.`,
-        }, { status: 422 });
-      }
-
-      if (body.quantity !== undefined && Number(body.quantity) !== Number(existingRecord.quantity)) {
-        return Response.json({
-          error: `Order Quantity Mismatch: Previewed quantity is ${existingRecord.quantity}, but execution request specifies ${body.quantity}. Submission rejected.`,
-        }, { status: 422 });
+      try {
+        checkEtradeExecuteImmutability(existingRecord, { action: reqAction, symbol: reqSymbol, quantity: body.quantity });
+      } catch (gateErr) {
+        const gateResponse = etradeGateErrorResponse(gateErr);
+        if (gateResponse) return gateResponse;
+        throw gateErr;
       }
 
       const symbol = existingRecord.symbol.toUpperCase();
@@ -439,15 +446,11 @@ export async function handleEtradeBrokerRoutes(
       const quantity = Number(existingRecord.quantity);
       const orderType = existingRecord.orderType || "MARKET";
       const limitPrice = existingRecord.orderType === "LIMIT" ? existingRecord.price : undefined;
-      let strategyOrder: any = undefined;
-      if (existingRecord.previewNotes?.startsWith("{")) {
-        try {
-          const stored = JSON.parse(existingRecord.previewNotes);
-          if (stored?.kind === "strategy-order-v1" && Array.isArray(stored.optionLegs)) strategyOrder = stored;
-        } catch {
-          // Legacy human-readable preview notes are not structured order payloads.
-        }
-      }
+      // #1726: dedup — the stored strategy-order parse already lives
+      // in orderPayloadHash.ts; only optionLegs/strategyNetDebit are
+      // consumed downstream, and both match the inline parse.
+      const parsedStrategy = parseStrategyOrder(existingRecord.previewNotes);
+      const strategyOrder = parsedStrategy.optionLegs.length > 0 ? parsedStrategy : undefined;
 
       // Autopilot policy envelope gate (autopilot Phase 1). Re-evaluated at
       // execution time because orders/day, drawdown, and exposure may have
@@ -506,7 +509,12 @@ export async function handleEtradeBrokerRoutes(
     try {
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
+      // #1726 E05: mcp in etradeBrokerModes.ts.
+      const positionsMode = resolveEtradeRestSwitch(ctx, "positions", url.searchParams.get("mode"), "rest");
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      if (positionsMode === "mcp") {
+        return Response.json(await etradePositionsMcpEnvelope(etrade));
+      }
       const holdings = await etrade.fetchPortfolioRemote(undefined, true);
       const lastError = etrade.getLastError();
       return Response.json({

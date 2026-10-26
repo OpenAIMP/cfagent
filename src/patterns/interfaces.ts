@@ -70,6 +70,14 @@ export interface McpToolContext {
    * never the single-job full record. See src/config/asyncJobModes.ts.
    */
   scopedJobListModes?: import("../config/asyncJobModes").JobListScopedModes;
+  /**
+   * #1726: optional session/user carriers for the E*TRADE switches
+   * (run comes from the per-call `mode` input, global env from
+   * `env`). Populated by the execution-context owner; unset carriers
+   * fall through to env. See src/config/etradeModes.ts. The execute
+   * gate is never carried here — it is not configurable.
+   */
+  scopedEtradeModes?: import("../config/etradeModes").EtradeScopedModes;
   requestId?: string;
   audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
   facade?: IMcpSystemFacade;

@@ -252,6 +252,27 @@ export interface Env {
   QUOTE_ETRADE_UNKNOWN_MODE?: string;
   QUOTE_YAHOO_OPEN_MODE?: string;
   QUOTE_YAHOO_INDICATORS_MODE?: string;
+  // #1726 (parent #1717, slice (f)) — SIX E*TRADE switches
+  // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
+  // ETRADE_SCAN_MODE: "listings" | "screened" (E01). ETRADE_QUOTE_MODE:
+  // "mcp" | "rest" (E02). ETRADE_PREVIEW_MODE: "local" | "broker"
+  // (E03). ETRADE_POSITIONS_MODE: "mcp" | "rest" (E05).
+  // ETRADE_STATUS_MODE: "mcp" | "rest" (E06 status).
+  // ETRADE_DISCOVERY_MODE: "mcp" | "rest" (E06 discovery). Built-in
+  // defaults are per surface (MCP legacy vs REST legacy), recorded in
+  // src/config/etradeModes.ts. Any other value FAILS CLOSED to the
+  // surface legacy, console-logged + audited as etrade.config_error.
+  // Resolution order (run > session > user > global env > built-in)
+  // lives in src/config/etradeModes.ts. This slice deliberately does
+  // NOT set production values: production values are an owner action.
+  // Rollback is unsetting the var and redeploying. The E04 execute
+  // gate is NOT a switch and has no env var.
+  ETRADE_SCAN_MODE?: string;
+  ETRADE_QUOTE_MODE?: string;
+  ETRADE_PREVIEW_MODE?: string;
+  ETRADE_POSITIONS_MODE?: string;
+  ETRADE_STATUS_MODE?: string;
+  ETRADE_DISCOVERY_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;

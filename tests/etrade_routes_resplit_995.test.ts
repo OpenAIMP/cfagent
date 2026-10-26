@@ -169,8 +169,11 @@ describe("route module re-split (#995)", () => {
     // Was 20 at the re-split; #291 Q3 migrated the quote route to the
     // registry + LIVE_STRICT policy (ledger 48 -> 47); #1135 added the
     // recommendation-bundle route, which constructs its own service
-    // like every sibling portfolio-risk route (19 -> 20).
-    expect(count(BROKER_FILE)).toBe(20);
+    // like every sibling portfolio-risk route (19 -> 20); #1726 adds
+    // the /etrade/screen listings branch, which constructs its own
+    // service like every sibling broker route (20 -> 21). The branch
+    // body lives in etradeBrokerScreen.ts, which constructs none.
+    expect(count(BROKER_FILE)).toBe(21);
     for (const file of NEW_MODULES) {
       expect(count(file), `${file} must not construct ETradeService`).toBe(0);
     }

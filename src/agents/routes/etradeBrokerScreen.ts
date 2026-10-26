@@ -15,6 +15,7 @@
 import { parseStockScreenRequest, shardableUniverses } from "../../trading";
 import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
 import { isPortfolioContextEnabled } from "../../services/screeningFlags";
+import type { ETradeService } from "../../services/etrade";
 import {
   manualWorkflowJobId,
   tryStartScreenerWorkflow,
@@ -49,6 +50,39 @@ async function publishOrBridge(
 }
 
 type StockScreenValue = Extract<ReturnType<typeof parseStockScreenRequest>, { ok: true }>["value"];
+
+/**
+ * #1726 E01: the REST /etrade/screen listings branch body. The
+ * dispatcher owns the condition and the ETradeService construction
+ * (the #995 ledger); this function only runs the listings engine
+ * (the MCP scan engine) and audits market_scanned. It never
+ * constructs the ScreenerAgent. Takes the constructed service as a
+ * parameter so this split module constructs no ETradeService.
+ */
+export async function executeEtradeScreenListings(args: {
+  ctx: EtradeBrokerRouteContext;
+  etrade: ETradeService;
+  filters: any;
+}): Promise<Response> {
+  const { ctx, etrade, filters } = args;
+  const result = await etrade.screenMarketsAsync({
+    exchange: filters.exchange,
+    minPrice: filters.minPrice,
+    maxPrice: filters.maxPrice,
+    minMarketCap: filters.minMarketCap,
+    gainersOnly: filters.gainersOnly,
+    losersOnly: filters.losersOnly,
+    search: filters.search,
+    limit: filters.limit,
+  });
+  ctx.audit("etrade.market_scanned", "trading", {
+    matchedCount: (result as any).matchedCount,
+    exchange: filters.exchange,
+    minPrice: filters.minPrice,
+    maxPrice: filters.maxPrice,
+  });
+  return Response.json(result);
+}
 
 export async function executeEtradeScreen(args: {
   ctx: EtradeBrokerRouteContext;
