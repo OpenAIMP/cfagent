@@ -304,13 +304,18 @@ describe("direct Slack delivery in autonomousOptionsAnalysis", () => {
     } as unknown as Env;
   });
 
-  const symbols100 = Array.from({ length: 100 }, (_, i) => `SYM${String(i).padStart(3, "0")}`);
+  // Issue #1785 routes scheduled runs with more than floor(35/12) = 2
+  // symbols to the sharded branch, so these direct-Slack tests exercise
+  // the monolithic branch with 2 symbols. Coverage assertions below
+  // come from the stubbed partial (evaluated/considered), not from the
+  // length of this list, so the floor semantics are unchanged.
+  const symbolsMonolithic = ["SYM000", "SYM001"];
 
   async function runScheduled(p: OptionsPartialQualification, evaluated: number) {
     (UnifiedOptionsService as any).scan = scanResult(p, evaluated);
     const service = new ScheduledTasksService(env, orm, sessionId);
     return service.autonomousOptionsAnalysis({
-      symbols: symbols100,
+      symbols: symbolsMonolithic,
       thesis: "bullish",
       trigger: "scheduled",
       pushToSlack: true,
@@ -374,7 +379,7 @@ describe("direct Slack delivery in autonomousOptionsAnalysis", () => {
     };
     const service = new ScheduledTasksService(env, orm, sessionId);
     const res = await service.autonomousOptionsAnalysis({
-      symbols: symbols100,
+      symbols: symbolsMonolithic,
       thesis: "bullish",
       trigger: "scheduled",
       pushToSlack: true,
