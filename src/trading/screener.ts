@@ -158,6 +158,12 @@ export class DynamicMarketScreener implements IMarketScreener {
     if (filter.requireAboveAnchoredVwap) {
       summaryParts.push("Above Anchored VWAP (52W low)");
     }
+    if (filter.minAtrPct !== undefined) {
+      summaryParts.push(`ATR% >= ${filter.minAtrPct}`);
+    }
+    if (filter.maxAtrPct !== undefined) {
+      summaryParts.push(`ATR% <= ${filter.maxAtrPct}`);
+    }
     if (filter.gainersOnly) {
       summaryParts.push("Gainers Only");
     }
@@ -532,6 +538,50 @@ export class DynamicMarketScreener implements IMarketScreener {
             symbol: stock.symbol,
             reason: `Price ($${stock.lastPrice.toFixed(2)}) below anchored VWAP ($${anchoredVwap.toFixed(2)})`,
             price: stock.lastPrice,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+      }
+
+      // 13. ATR% gate (issue #1654 slice 3; screener-rules.md §1.4 +
+      // fit-gap Gap 7: ATR% = ATR₁₄ / P × 100, gate [1.0%, 8.0%]).
+      // ATR% gating is opt-in: active when either bound is set, and
+      // the unset bound defaults to the doc bound (min 1.0, max 8.0)
+      // — mirroring slice 1's %B defaulting. Bounds are inclusive.
+      // The ATR% value is attached upstream where real bar history
+      // exists; a requested gate with no ATR data fail-closes
+      // (unavailable, never estimated). Like slices 1–2,
+      // evaluateUniverse itself sees no bar history — it gates on the
+      // attached value, it never fabricates it.
+      const atrPctGatingActive = filter.minAtrPct !== undefined || filter.maxAtrPct !== undefined;
+      if (atrPctGatingActive) {
+        const atrPct = stock.atrPct;
+        if (atrPct === undefined || !Number.isFinite(atrPct)) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: "ATR% unavailable — ATR% gate requested but no ATR data attached",
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+        const minAtrPct = filter.minAtrPct ?? 1.0;
+        const maxAtrPct = filter.maxAtrPct ?? 8.0;
+        if (atrPct < minAtrPct) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: `ATR% (${atrPct.toFixed(2)}) below minimum ${minAtrPct.toFixed(2)}`,
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+        if (atrPct > maxAtrPct) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: `ATR% (${atrPct.toFixed(2)}) above maximum ${maxAtrPct.toFixed(2)}`,
+            price: stock.price,
             changePercent: stock.changePercent,
           });
           continue;
