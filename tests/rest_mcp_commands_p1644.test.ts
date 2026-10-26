@@ -145,7 +145,11 @@ describe("delegation: reduced routes execute through IMcpToolCommand", () => {
     const body = await res!.json();
     expect(body.transactions[0].id).toBe("cmd-tx");
     expect(body.summary).toEqual({ totalVolume: 10, completedCount: 1, pendingCount: 0, verifiedDidCount: 1 });
-    expect(spy).toHaveBeenCalledWith("get_transactions", { limit: 50 }, expect.anything());
+    // #1728: the route carries its resolved mode as the command's run
+    // value, so the delegation call now includes mode: "rest" (the
+    // route legacy). The row-mapping + summary contract above is
+    // unchanged; only the call shape gained the mode carrier.
+    expect(spy).toHaveBeenCalledWith("get_transactions", { limit: 50, mode: "rest" }, expect.anything());
   });
 
   it("GET /audit filters by session, parses payloads, and clamps the limit", async () => {
