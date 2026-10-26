@@ -435,20 +435,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     // legacy flow are deleted. A disabled/unregistered provider
     // gets a 403, never a fallback. Logout is unchanged.
     if (path === "/login" && request.method === "GET") {
-      // #945 Google-as-plugin — composable login page: when wiring
-      // is on, the page renders one button per enabled, registered
-      // provider (computed here and passed in — githubOAuth.ts must
-      // not import providers.ts, which would create an import
-      // cycle). When nothing is enabled (wiring off, or no
-      // registered provider in the list), no argument is passed and
-      // the page is exactly the legacy GitHub-only page.
-      const enabled = enabledProviders(env)
-        .map((id) => getProvider(id))
-        .filter((p): p is NonNullable<typeof p> => p !== null)
-        .map((p) => ({ id: p.providerId, displayName: p.displayName ?? p.providerId }));
-      return new Response(renderLoginPage(env, enabled.length > 0 ? enabled : undefined), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return Response.redirect(new URL("/auth/login/github", request.url).toString(), 302);
     }
     // #945 Google-as-plugin — generic provider routes: the only
     // login routing since #1254 PR-B deleted the exact GitHub-only

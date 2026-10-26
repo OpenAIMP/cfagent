@@ -193,50 +193,11 @@ describe("generic provider login routes", () => {
   });
 });
 
-describe("composable /login page", () => {
-  it("wiring off → exactly the current GitHub-only page (no google button)", async () => {
+describe("/login route redirection", () => {
+  it("redirects /login directly to /auth/login/github", async () => {
     const { env } = makeEnv();
     const res = await worker.fetch(req("/login"), env);
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain("Sign in with GitHub");
-    expect(html).not.toContain("/auth/login/google");
-  });
-
-  it("wiring off → no-arg page renders the focused GitHub login button and subtitle", async () => {
-    const { env } = makeEnv();
-    const res = await worker.fetch(req("/login"), env);
-    const html = await res.text();
-    expect(html).toContain(
-      '<p class="subtitle">Sign in with your GitHub account to access your trading workspace.</p>'
-    );
-    // The sleek GitHub anchor block
-    expect(html).toContain('<a href="/auth/login" class="btn btn-github">');
-    expect(html).toContain("<span>Sign in with GitHub</span>");
-    expect(html).toContain('<span class="btn-arrow" aria-hidden="true">&rarr;</span>');
-  });
-
-  it("wiring on with google enabled → one button per enabled provider", async () => {
-    const { env } = makeEnv({
-      IAAA_WIRING_ENABLED: "1",
-      IAAA_ENABLED_PROVIDERS: "github,google",
-    });
-    const res = await worker.fetch(req("/login"), env);
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain("/auth/login/github");
-    expect(html).toContain("/auth/login/google");
-    expect(html).toContain("Sign in with Google");
-  });
-
-  it("wiring on with github only → no google button", async () => {
-    const { env } = makeEnv({
-      IAAA_WIRING_ENABLED: "1",
-      IAAA_ENABLED_PROVIDERS: "github",
-    });
-    const res = await worker.fetch(req("/login"), env);
-    const html = await res.text();
-    expect(html).toContain("Sign in with GitHub");
-    expect(html).not.toContain("/auth/login/google");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("https://agent.test/auth/login/github");
   });
 });

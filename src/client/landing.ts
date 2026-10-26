@@ -1068,7 +1068,7 @@ ${hcTokens}
   <aside class="announcement-bar" role="region" aria-label="Announcement">
     <span class="announcement-pill">Algo 2.0 Engine</span>
     <span>Multi-broker autonomous execution &amp; deterministic risk gates are now live.</span>
-    <a href="/login" class="announcement-link">Get early access &rarr;</a>
+    <a href="/auth/login/github" class="announcement-link">Get early access &rarr;</a>
   </aside>
 
   <!-- Navigation -->
@@ -1105,8 +1105,8 @@ ${hcTokens}
           <span id="themeIcon">🌙</span>
         </button>
 
-        <a href="/login" class="btn-nav-login">Sign in</a>
-        <a href="/login" class="btn-nav-cta">
+        <a href="/auth/login/github" class="btn-nav-login">Sign in</a>
+        <a href="/auth/login/github" class="btn-nav-cta">
           <span>Start on paper</span>
           &rarr;
         </a>
@@ -1151,7 +1151,7 @@ ${hcTokens}
       </p>
 
       <div class="hero-ctas">
-        <a href="/login" class="btn-hero-primary">
+        <a href="/auth/login/github" class="btn-hero-primary">
           <span>Launch Autopilot (Paper &amp; Live)</span>
           &rarr;
         </a>
@@ -1553,7 +1553,7 @@ ${hcTokens}
           <li><a href="#autopilot">Autopilot</a></li>
           <li><a href="#risk-engine">Risk Engine</a></li>
           <li><a href="#brokers">Broker Connectors</a></li>
-          <li><a href="/login">Paper Sandbox</a></li>
+          <li><a href="/auth/login/github">Paper Sandbox</a></li>
         </ul>
       </div>
 
@@ -1563,7 +1563,7 @@ ${hcTokens}
           <li><a href="#architecture">Options Greeks</a></li>
           <li><a href="#architecture">Black-Scholes Models</a></li>
           <li><a href="#architecture">Delta Neutrality</a></li>
-          <li><a href="/login">API &amp; MCP Endpoints</a></li>
+          <li><a href="/auth/login/github">API &amp; MCP Endpoints</a></li>
         </ul>
       </div>
 
@@ -1572,7 +1572,7 @@ ${hcTokens}
         <ul>
           <li><a href="#risk-engine">W3C Agent DIDs</a></li>
           <li><a href="#risk-engine">Risk Policies</a></li>
-          <li><a href="/login">Sign in</a></li>
+          <li><a href="/auth/login/github">Sign in</a></li>
         </ul>
       </div>
     </div>
@@ -1581,7 +1581,7 @@ ${hcTokens}
       <div class="disclaimer-box">
         <strong>Regulatory Disclaimers:</strong> ${name} is a financial technology software provider and is not a registered broker-dealer or investment adviser. Research outputs, strategy scoring, and simulations are informational and educational, not personalized investment advice. All options trading involves significant financial risk and is not suitable for all investors. Test all automated strategies in paper trading sandboxes before routing live capital.
       </div>
-      <a href="/login" class="btn-nav-cta">Launch Autopilot &rarr;</a>
+      <a href="/auth/login/github" class="btn-nav-cta">Launch Autopilot &rarr;</a>
     </div>
   </footer>
 
@@ -1600,7 +1600,7 @@ ${hcTokens}
       <li><a href="#risk-engine" class="search-res-item"><span>🛡️ Deterministic Risk Gate Policy</span><span class="kbd-shortcut">JUMP</span></a></li>
       <li><a href="#brokers" class="search-res-item"><span>🏦 Connected Brokers (E*TRADE, Schwab, IBKR)</span><span class="kbd-shortcut">JUMP</span></a></li>
       <li><a href="#architecture" class="search-res-item"><span>🧮 60+ Options Strategies &amp; Payoffs</span><span class="kbd-shortcut">JUMP</span></a></li>
-      <li><a href="/login" class="search-res-item"><span>🚀 Launch Paper Trading Sandbox</span><span class="kbd-shortcut">ENTER</span></a></li>
+      <li><a href="/auth/login/github" class="search-res-item"><span>🚀 Launch Paper Trading Sandbox</span><span class="kbd-shortcut">ENTER</span></a></li>
     </ul>
   </div>
 

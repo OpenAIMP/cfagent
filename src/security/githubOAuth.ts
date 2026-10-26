@@ -117,7 +117,7 @@ export function renderLoginPage(env: Env, providers?: LoginPageProvider[]): stri
           return `<a href="/auth/login/${encodeURIComponent(p.id)}" class="btn btn-${escapeHtml(p.id)}">\n        ${mark}<span>Sign in with ${escapeHtml(p.displayName)}</span>\n        <span class="btn-arrow" aria-hidden="true">&rarr;</span>\n      </a>`;
         })
         .join("\n      ")
-    : `<a href="/auth/login" class="btn btn-github">
+    : `<a href="/auth/login/github" class="btn btn-github">
         ${githubMark}
         <span>Sign in with GitHub</span>
         <span class="btn-arrow" aria-hidden="true">&rarr;</span>

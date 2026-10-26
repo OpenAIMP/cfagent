@@ -200,7 +200,7 @@ export function AgentChatTabContent({
         <Notice tone="success" variant="strip" icon={authExpired ? "🔒" : "✅"}>
           <span className="notice-text">{resetNotice}</span>
           {authExpired && (
-            <a href="/login" className="notice-link-btn">
+            <a href="/auth/login/github" className="notice-link-btn">
               Log In Again ➔
             </a>
           )}

@@ -10,13 +10,13 @@ describe("pre-login pages", () => {
     expect(html).toContain("trading-platform order preview");
     expect(html).toContain("Options strategy screening");
     expect(html).toContain("Signed, audited trade drafts");
-    expect(html).toContain('href="/login"');
+    expect(html).toContain('href="/auth/login/github"');
   });
 
   it("login card is focused strictly on authentication without feature clutter", () => {
     const html = renderLoginPage({} as any);
     expect(html).toContain("Sign in with GitHub");
-    expect(html).toContain('href="/auth/login"');
+    expect(html).toContain('href="/auth/login/github"');
     expect(html).not.toContain("trading-platform order preview");
     expect(html).not.toContain("RAG");
     expect(html).not.toContain("Payment");
