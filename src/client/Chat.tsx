@@ -32,6 +32,7 @@ import { ReferralsTab } from "./chat/tabs/ReferralsTab";
 import { AdsTab } from "./chat/tabs/AdsTab";
 import { RevenueTab } from "./chat/tabs/RevenueTab";
 import { EndpointsTab } from "./chat/tabs/EndpointsTab";
+import { ApprovalsPanel } from "./ApprovalsPanel";
 import { SocialPostingPanel } from "./SocialPostingPanel";
 export function Chat({ user }: { user: User }) {
   const [tab, setTab] = useState<NavTabId>("autopilot");
@@ -1035,6 +1036,8 @@ export function Chat({ user }: { user: User }) {
                     ? "Marketplace"
                     : tab === "social"
                     ? "Social"
+                    : tab === "approvals"
+                    ? "Approvals"
                     : "Revenue"}
                 </span>
                 <span className="crumb-divider">/</span>
@@ -2111,6 +2114,10 @@ export function Chat({ user }: { user: User }) {
               }}
             />
           </div>
+        )}
+
+        {tab === "approvals" && (
+          <ApprovalsPanel />
         )}
 
       </main>

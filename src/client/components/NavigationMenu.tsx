@@ -31,7 +31,8 @@ export type NavTabId =
   | "referrals"
   | "ads"
   | "revenue"
-  | "social";
+  | "social"
+  | "approvals";
 
 export type NavLayoutMode = "left" | "top";
 
@@ -127,6 +128,7 @@ export const DEFAULT_VISIBLE_NAV_TABS: Record<string, boolean> = {
   ads: true,
   revenue: true,
   social: true,
+  approvals: true,
 };
 
 export const NAV_TAB_PRESETS: Record<string, Record<string, boolean>> = {
@@ -432,6 +434,17 @@ export const NAVIGATION_ITEMS: NavItemDef[] = [
     badgeType: "pro",
     icon: NavIcons.Ledger,
     description: "Full chronological ledger of open, executed, and cancelled orders with upstream IDs",
+  },
+  {
+    // Issue #1705 (A3-c): the top-level Approvals surface — a composed
+    // view, not a new queue. No badge: this entry carries no live
+    // count, and a badge would imply one.
+    id: "approvals",
+    label: "Approvals",
+    shortLabel: "Approvals",
+    category: "Execution",
+    icon: NavIcons.Ledger,
+    description: "Every consequential action awaiting your decision — trade drafts and held deliveries, composed in one place",
   },
   {
     id: "options-flows",
