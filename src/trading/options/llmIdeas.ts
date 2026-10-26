@@ -19,6 +19,9 @@ import { generateText } from "ai";
 import { z } from "zod";
 import type { Env, ETradeOptionChain, ETradeOptionChainContract, ETradeOptionExpireDate } from "../../types";
 import { DEFAULT_AI_MODEL, getWorkersAIModel, resolveAiModelName } from "../../agents/model";
+// Type-only: the kernel's builder contract (panelPipeline / opportunityScanner
+// import the kernel the same way); erased at runtime, so no import cycle.
+import type { LlmGeneratorResponse } from "../../services/recommendationKernel";
 
 const responseSchema = z.object({
   answer: z.string().min(1).max(5000),
@@ -801,6 +804,46 @@ export async function generateRawOptionsIdeas(
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Raw-data LLM idea generation failed.");
+}
+
+/**
+ * #1639 (D8) — the llmIdeas → kernel bridge. Maps a verified
+ * RawOptionsIdeasResponse onto the LlmGeneratorResponse contract the
+ * kernel's LlmIdeaBuilder consumes, field for field, so the raw
+ * generator can feed RecommendationService.discoverLlmIdeas without
+ * the kernel ever calling an LLM or importing this module. Pure:
+ * no generation, no pricing, no re-verification — contractDetails
+ * already passed existence verification against the chains (see
+ * parseRawOptionsIdeas / getVerifiedContractDetails); a detail whose
+ * contract type is not CALL/PUT cannot be represented in the builder
+ * contract and is dropped, never coerced. contractWarnings are a
+ * presentation note of the raw path and do not enter the builder
+ * contract; the builder records its own limitations at build time.
+ */
+export function mapRawOptionsIdeasToLlmGeneratorResponse(
+  response: RawOptionsIdeasResponse,
+): LlmGeneratorResponse {
+  return {
+    model: response.model,
+    answer: response.answer,
+    contractSymbols: [...response.contractSymbols],
+    contractDetails: response.contractDetails
+      .filter((detail) => detail.contract.optionType === "CALL" || detail.contract.optionType === "PUT")
+      .map((detail) => ({
+        symbol: detail.symbol,
+        expiration: detail.expiration,
+        contract: {
+          optionType: detail.contract.optionType,
+          strikePrice: detail.contract.strikePrice,
+          symbol: detail.contract.symbol,
+          bid: detail.contract.bid,
+          ask: detail.contract.ask,
+          impliedVolatility: detail.contract.impliedVolatility,
+          volume: detail.contract.volume,
+          openInterest: detail.contract.openInterest,
+        },
+      })),
+  };
 }
 
 export async function generateRawOptionsIdeasRanking(
