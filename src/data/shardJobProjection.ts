@@ -122,6 +122,13 @@ export interface ProjectLegOutcomesInput {
   legs: LegOutcome[];
   nowMs: number;
   writer: string;
+  /**
+   * Issue #1737: source durable object that owns the
+   * authoritative state. Defaults to "ScheduledAgent" (the
+   * slice-2 caller); workflow rows pass "ScreenerWorkflow"
+   * so provenance names the actual writer.
+   */
+  provenanceSourceDo?: string;
 }
 
 export interface ProjectLegOutcomesResult {
@@ -176,7 +183,7 @@ export async function projectLegOutcomes(
           createdAtMs: latest?.createdAtMs ?? input.nowMs,
           updatedAtMs: input.nowMs,
           provenanceWriter: input.writer,
-          provenanceSourceDo: "ScheduledAgent",
+          provenanceSourceDo: input.provenanceSourceDo ?? "ScheduledAgent",
           provenanceSourceVersion: "1",
         });
         projectedJobs += 1;

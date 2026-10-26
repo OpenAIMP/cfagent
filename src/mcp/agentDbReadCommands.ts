@@ -90,6 +90,8 @@ export interface AgentDbJobsHistoryResult {
     detail: string;
     version: number;
     updatedAtMs: number;
+    /** Issue #1737: capped collation/summary JSON (see the route shape). */
+    resultJson: string;
   }>;
 }
 
@@ -162,6 +164,7 @@ export function jobsToMcpResult(
       detail: job.detail,
       version: job.version,
       updatedAtMs: job.updatedAtMs,
+      resultJson: job.resultJson,
     })),
   };
 }

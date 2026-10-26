@@ -254,6 +254,14 @@ export async function handleEtradeBrokerRoutes(
       // Issue #270: universe selection; "ALL" auto-shards into parallel runs.
       // Issue #289: default to NASDAQ100 (deterministic top-100) instead of
       // TECH (fuzzy keyword match with unpredictable symbol count).
+      // Issue #1737: the async flag rides the POST body or the
+      // GET query; it is stripped before schema validation so
+      // it can never leak into the screen filters.
+      const asyncRequested =
+        request.method === "POST"
+          ? (filters as { async?: unknown }).async === true
+          : url.searchParams.get("async") === "1";
+      if (request.method === "POST") delete (filters as { async?: unknown }).async;
       // Issue #959: the body (POST) or assembled params (GET) validate
       // through the ONE shared stock-screen schema — a mis-shaped
       // filter is a 400 naming the field, never a silent engine run.
@@ -264,7 +272,7 @@ export async function handleEtradeBrokerRoutes(
       const universe = parsedScreen.value.universe;
       const validatedFilters = parsedScreen.value.filters;
       const agent = ctx.getScreenerAgent(userLogin);
-      return await executeEtradeScreen({ ctx, sessionId, requestedEnv, userLogin, agent, universe, validatedFilters });
+      return await executeEtradeScreen({ ctx, sessionId, requestedEnv, userLogin, agent, universe, validatedFilters, asyncRequested });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to screen equities" }, { status: 500 });
     }
