@@ -1030,7 +1030,7 @@ export class ScreenerAgent extends Agent<Env> {
       userLogin,
       req.environment
     );
-    const { runProductionGoalScreen, createYahooStockScreener } = await import("../services/screeningRuntime");
+    const { runProductionGoalScreen, createYahooStockScreener, createLiveStockScreener } = await import("../services/screeningRuntime");
     // Issue #1571: a Yahoo goal run binds the platform Yahoo provider
     // exactly like runScreen's #1317 block — bootstrap, verify→enable,
     // and bind the pipeline deps over the quotes route. The options
@@ -1079,8 +1079,9 @@ export class ScreenerAgent extends Agent<Env> {
     // A bundle failure degrades to undefined, and discovery then
     // throws naming the seam rather than fetching directly.
     let goalUniverseDeps: import("../trading").NasdaqUniverseDeps | undefined;
+    let goalBundle: Awaited<ReturnType<typeof nasdaqUniverseRouteBundle>> | undefined;
     try {
-      const goalBundle = await nasdaqUniverseRouteBundle({
+      goalBundle = await nasdaqUniverseRouteBundle({
         sql: this.ctx.storage.sql,
         storage: this.ctx.storage,
         env: this.env,
@@ -1097,6 +1098,17 @@ export class ScreenerAgent extends Agent<Env> {
       console.warn(
         `[screener-agent] universe deps unavailable for goal screen, discovery degrades to the missing-seam throw: ${err instanceof Error ? err.message : String(err)}`
       );
+    }
+    // Issue #1686: non-Yahoo goal screens previously defaulted to a
+    // no-seam listings screener, so the stock leg returned the
+    // missing-seam error result. Reuse the storage-carrying goal
+    // bundle (built above for options discovery) as the stock leg's
+    // seam: the stock leg now fetches live + captures under the
+    // caller run id (D2, same id as discovery). Yahoo runs keep
+    // their Yahoo screener; a failed bundle keeps today's error
+    // result (no regression — the default still applies).
+    if (!stockScreener && goalBundle) {
+      stockScreener = createLiveStockScreener(new DynamicMarketScreener(), { universeRoute: goalBundle });
     }
     const out = await runProductionGoalScreen({
       ledger: this.taskLedger(),
