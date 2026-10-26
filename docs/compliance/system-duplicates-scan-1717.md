@@ -153,14 +153,37 @@ slice, not a scan row): (a) 4, (b) 3, (c) 2, (d) 4, (e) 14, (f) 6, (g) 5, (h) 8,
   owner-directed IAAA enforcement-gap slices in this program's scope (with
   branch-as-lock stand-down if CTO-lane work is already in flight).
 
-## Pending appendix (docs/architecture/ mining)
+## Pending appendix (docs/architecture/ mining) — FULFILLED BY AMENDMENT
 
-A separate mining scan of all of `docs/architecture/` is running in parallel and
-will feed the IAAA slices above plus further doc-sourced sub-issues. Its report
+A separate mining scan of all of `docs/architecture/` ran in parallel and
+fed the IAAA slices plus further doc-sourced sub-issues. Its report
 file (`~/workspace/tmp-issues/scan-docs-architecture.md`) did NOT exist when this
-doc PR was published, so no mining appendix is folded in here. The follow-up
-amendment step will add a findings appendix (doc → finding → sub-issue) to this
-document via its own gated PR. Do NOT reopen this doc PR to add it.
+doc PR was published, so no mining appendix was folded in here. The follow-up
+amendment step has now added it as appendix (p) below, together with the
+Cloudflare-coupling inventory as appendix (q). The original doc PR (#1719)
+was NOT reopened for either; both arrived via their own gated PR. Do NOT
+reopen this doc PR to add further appendices.
+
+## Amendment appendices (2026-10-26, parent #1717)
+
+- `system-duplicates-scan-1717-appendix-p-docs-architecture.md` — (p)
+  docs/architecture/ mining: all 61 files under `docs/architecture/`, 63
+  finding rows (F-01–F-63) mapped doc → finding → sub-issue, including the
+  six verified IAAA claims (legacy PDP exemption, no numeric revocation
+  target, no obligation/advice service, app-level TOTP/WebAuthn/magic links
+  not implemented, IdP-inherited 2FA). New sub-issues #1749–#1752 (IAAA-1–4)
+  and #1754–#1774 (docs-mining domains). Deferred/duplicated/referenced
+  items are recorded in the appendix, not silently dropped.
+- `system-duplicates-scan-1717-appendix-q-cloudflare-coupling.md` — (q)
+  Cloudflare-coupling inventory: 56 DIRECT-USE sites across 11 capabilities
+  (DO dispatch 29, DO RPC 6, R2 inline 6, Workers AI direct 3, AI Search
+  direct 1, platform entrypoints 3, DO-SQLite inline 2, static assets 2,
+  workflows 2, email 1, browser 1), with file + line, capability, and
+  existing adapter or none, plus per-capability remediation grouping S1–S8.
+  New sub-issues #1775–#1780 (adapter slices S1–S6) and #1781 (S7 wiring
+  centralisation, decision-only, not a build slice). S8 items (D1
+  projections, KV dead declaration, entrypoint handler names, agents-SDK
+  base classes) are documented no-slice items, not built work.
 
 ## Master register — all 84 unique pairs by domain
 
@@ -469,6 +492,8 @@ verdict — for their domain:
 - `system-duplicates-scan-1717-appendix-m-rest-rest-twins.md` — (m)
 - `system-duplicates-scan-1717-appendix-n-cloudflare-browser-misc.md` — (n)
 - `system-duplicates-scan-1717-appendix-o-payments-rescope.md` — (o)
+- `system-duplicates-scan-1717-appendix-p-docs-architecture.md` — (p) docs/architecture mining (amendment)
+- `system-duplicates-scan-1717-appendix-q-cloudflare-coupling.md` — (q) Cloudflare-coupling inventory (amendment)
 
 Sub-issue numbers for domains (a)–(o) are recorded in the index comment on #1717,
 not here, so this document never carries stale issue numbers. IAAA
