@@ -26,7 +26,7 @@ export type ResearchTaskStatus =
   | "escalated"
   | "cancelled";
 
-export type ResearchExecutionPath = "think" | "fallback";
+export type ResearchExecutionPath = "agent" | "fallback";
 
 export interface ResearchTaskTransition {
   status: ResearchTaskStatus;

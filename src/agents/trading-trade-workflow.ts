@@ -26,7 +26,6 @@ import {
   settleTradingOrder,
   type TradeApprovalDecision,
   type TradeApprovalParams,
-  type TradingAgent,
 } from "./trading-agent";
 
 /** How long a proposal waits for its decision before lapsing. */
@@ -85,7 +84,13 @@ export async function runTradeApprovalFlow(
 }
 
 export class TradingTradeWorkflow extends ThinkWorkflow<
-  TradingAgent,
+  // Issue #1738: TradingAgent is an Agents SDK actor now, not a
+  // Think class, so it cannot satisfy ThinkWorkflow's agent-type
+  // constraint. ADR 0004 W13 already prescribes `any` here (the
+  // screener workflow does the same); the workflow never calls
+  // agent methods — it settles through the shared core — so the
+  // type change is mechanical, not behavioral.
+  any,
   TradeApprovalParams,
   DefaultProgress,
   Env

@@ -6,7 +6,7 @@
  * (issue #686) the production class is the only consumer.
  *
  * Byte-identity with the pre-extraction template is pinned by
- * tests/orchestrator-think-cutover.test.ts against fixtures captured
+ * tests/orchestrator-actor-cutover.test.ts against fixtures captured
  * from the original source (tests/orchestrator-prompt-fixtures.ts).
  *
  * Issue #879 (parent #767, AISecOps path 2) — instruction/data

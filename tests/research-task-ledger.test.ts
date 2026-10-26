@@ -86,7 +86,7 @@ describe("ResearchTaskLedger lifecycle", () => {
     // Once the task reaches a terminal state, a new create is a new task.
     l.claim(first.task.id);
     l.start(first.task.id);
-    l.complete(first.task.id, { path: "think", reportRunId: "run-1", evaluation: GOOD_EVAL });
+    l.complete(first.task.id, { path: "agent", reportRunId: "run-1", evaluation: GOOD_EVAL });
     const next = l.create(INPUT);
     expect(next.created).toBe(true);
     expect(next.task.id).not.toBe(first.task.id);
@@ -133,7 +133,7 @@ describe("ResearchTaskLedger lifecycle", () => {
     const l = ledger(memStore());
     const { task } = l.create(INPUT);
     expect(() => l.start(task.id)).toThrow(/cannot move from queued to running/);
-    expect(() => l.complete(task.id, { path: "think", reportRunId: "r", evaluation: GOOD_EVAL })).toThrow();
+    expect(() => l.complete(task.id, { path: "agent", reportRunId: "r", evaluation: GOOD_EVAL })).toThrow();
     expect(l.cancel(task.id).status).toBe("cancelled");
     expect(() => l.claim(task.id)).toThrow(/cannot move from cancelled to claimed/);
     expect(() => l.claim("task-999")).toThrow(/not found/);
@@ -275,7 +275,7 @@ describe("stale detection and sweep (#615, R4)", () => {
   it("never flags terminal tasks, however old", () => {
     const { l, advance } = clockLedger(memStore());
     const done = runningTask(l, "k-done");
-    l.complete(done, { path: "think", reportRunId: "run-1", evaluation: GOOD_EVAL });
+    l.complete(done, { path: "agent", reportRunId: "run-1", evaluation: GOOD_EVAL });
     const dead = runningTask(l, "k-dead");
     l.fail(dead, "boom");
     advance(24 * 60 * MIN);
@@ -359,7 +359,7 @@ describe("record retention / pruneExpired (#635)", () => {
     const { task } = l.create({ ...INPUT, idempotencyKey: key });
     l.claim(task.id);
     l.start(task.id);
-    l.complete(task.id, { path: "think", reportRunId: "run-1", evaluation: GOOD_EVAL });
+    l.complete(task.id, { path: "agent", reportRunId: "run-1", evaluation: GOOD_EVAL });
     return task.id;
   }
 

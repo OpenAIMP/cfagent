@@ -8,9 +8,35 @@
  * shape, agent doors' guards) stays in place.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+
+// Issue #1738: TradingAgent is an Agents SDK actor now, so its
+// module graph pulls `cloudflare:` imports the node loader cannot
+// resolve — mock the SDK with a plain base class (the
+// api_chat_route.test.ts idiom). The ThinkWorkflow stub stays: the
+// workflow class is still ThinkWorkflow by ADR 0004 W13.
+vi.mock("agents", () => {
+  return {
+    Agent: class MockAgent {
+      ctx: any;
+      env: any;
+      constructor(ctx: any, env: any) {
+        this.ctx = ctx;
+        this.env = env;
+      }
+      // Schedule methods are inert under Node (the old Think stub's
+      // contract): production schedule calls resolve without firing.
+      async schedule(_when: unknown, _callback: string, _payload?: unknown, _options?: unknown) {
+        return { id: "mock-schedule" };
+      }
+      async scheduleEvery(_intervalSeconds: number, _callback: string, _payload?: unknown) {
+        return { id: "mock-schedule" };
+      }
+    },
+  };
+});
 import { ThinkWorkflow } from "@cloudflare/think/workflows";
 import {
   runTradeApprovalFlow,
