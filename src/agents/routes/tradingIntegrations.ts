@@ -87,8 +87,8 @@ function buildChannelNlqDeps(
     scanRunStore: new SqlScanRunStore(sql),
     profileStore: new SqlStrategyProfileStore(sql),
     schedulingPort: ctx.nlqSchedulingPort(),
-    discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql }),
-    fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql }),
+    discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql, blobStorage: ctx.agentCtx.storage }),
+    fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql, storage: ctx.agentCtx.storage }),
   };
 }
 
