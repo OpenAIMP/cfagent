@@ -14,7 +14,7 @@
  * its actual source.
  */
 
-import { fetchAllUsStockListings, type NasdaqStockListing } from "../services/nasdaqListings";
+import { type NasdaqStockListing } from "../services/nasdaqListings";
 import { withRetry } from "../services/resilience";
 
 const MAX_RETRIES = 3;
@@ -49,11 +49,16 @@ export async function withRetries<T>(
 }
 
 /**
- * Get Technology sector symbols from Nasdaq API (with retries).
- * This is universe discovery — the live quotes come from E*TRADE.
+ * Issue #1378: the technology name-heuristic filter, now pure.
+ * The fetch moved out: the pipeline symbol legs fetch through the
+ * threaded universe seam (resolveUniverseListings in
+ * screenerPipeline.ts) and filter here, so the universe leg is
+ * platform-routed like the quote leg. Predicate byte-identical to
+ * the retired fetchTechnologySymbols filter.
  */
-export async function fetchTechnologySymbols(): Promise<NasdaqStockListing[]> {
-  const listings = await withRetries(() => fetchAllUsStockListings(), "Nasdaq listings");
+export function filterTechnologySymbols(
+  listings: NasdaqStockListing[]
+): NasdaqStockListing[] {
   return listings.filter((l) => {
     const name = l.companyName.toLowerCase();
     return (
