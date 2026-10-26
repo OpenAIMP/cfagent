@@ -225,6 +225,17 @@ export class DatabaseORM {
   /** Scheduled-run reports (issue #278) — durable, searchable later. */
   public reports: Repository<ScheduledReportRecord>;
 
+  /**
+   * Issue #1378: the DO SqlStorage behind this ORM, for platform
+   * route-bundle construction by services (the screenLive universe
+   * seam). Zero behavior change — exposes an existing field; the
+   * provider-config/capture tables are not ORM repositories, so
+   * there is no repository-shaped way to reach them.
+   */
+  public getSql(): SqlStorage {
+    return this.sql;
+  }
+
   constructor(private sql: SqlStorage) {
     this.categories = new Repository<CategoryRecord>(sql, "mas_categories", "id", {
       id: "id",
