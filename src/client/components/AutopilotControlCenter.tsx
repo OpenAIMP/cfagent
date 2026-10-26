@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AGENT_DIDS } from "../../agents/did";
-import { EmptyState, Table, Badge, Button, PillGroup, TextInput, Select, type BadgeTone } from "./ui";
+import { EmptyState, Table, Badge, Button, PillGroup, TextInput, Select, Notice, type BadgeTone } from "./ui";
 import { BRAND } from "../branding";
 import { normalizeAutopilotLimits, type AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 import type { TradeRecord } from "../../types";
@@ -429,6 +429,12 @@ export function AutopilotControlCenter({
   const [killSwitchModalOpen, setKillSwitchModalOpen] = useState(false);
   const [isKillSwitched, setIsKillSwitched] = useState(false);
   const [isServerBacked, setIsServerBacked] = useState(false);
+  // Issue #1704 (A3-b): user-visible failure messages for the three
+  // server-confirmed actions below. A failed action never changes
+  // displayed state and never closes the dialog it started in.
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [killSwitchError, setKillSwitchError] = useState<string | null>(null);
+  const [limitsError, setLimitsError] = useState<string | null>(null);
   const [isLoadingLive, setIsLoadingLive] = useState(false);
   const [isLiveFeed, setIsLiveFeed] = useState(false);
 
@@ -580,7 +586,7 @@ export function AutopilotControlCenter({
       return;
     }
     const next = !isRunning;
-    setIsRunning(next);
+    setActionError(null);
     try {
       const res = await fetch("/api/autopilot/state", {
         method: "POST",
@@ -588,19 +594,27 @@ export function AutopilotControlCenter({
         body: JSON.stringify({ running: next }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Issue #1704 (A3-b): displayed state changes ONLY on server
+      // confirmation. The old code set the new state first and, on
+      // failure, left it in place with a console warning — the UI
+      // showed a running state the server never confirmed, and the
+      // localStorage sync then persisted that unconfirmed state.
+      setIsRunning(next);
       setIsServerBacked(true);
     } catch {
       setIsServerBacked(false);
-      console.warn("[Autopilot] Run state could not be persisted server-side; showing this tab only.");
+      setActionError(
+        next
+          ? "Autopilot could not be resumed — it is still paused."
+          : "Autopilot could not be paused — it is still running."
+      );
     }
   };
 
   const handleSaveLimits = async (e: React.FormEvent) => {
     e.preventDefault();
     const normalized = normalizeAutopilotLimits(editLimitsDraft);
-    setPolicyLimits(normalized);
-    setEditLimitsDraft(normalized);
-    setIsEditModalOpen(false);
+    setLimitsError(null);
     try {
       const res = await fetch("/api/autopilot/limits", {
         method: "PUT",
@@ -609,11 +623,18 @@ export function AutopilotControlCenter({
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json().catch(() => null)) as any;
-      if (data?.limits) setPolicyLimits(normalizeAutopilotLimits(data.limits));
+      // Issue #1704 (A3-b): same confirmation gate as the toggle — the
+      // old code applied the limits and closed the dialog before the
+      // PUT, so a failed save showed limits that were never stored.
+      // On failure the dialog stays open with the draft intact.
+      const confirmed = data?.limits ? normalizeAutopilotLimits(data.limits) : normalized;
+      setPolicyLimits(confirmed);
+      setEditLimitsDraft(confirmed);
       setIsServerBacked(true);
+      setIsEditModalOpen(false);
     } catch {
       setIsServerBacked(false);
-      console.warn("[Autopilot] Limits could not be persisted server-side; showing this tab only.");
+      setLimitsError("Policy limits could not be saved — the previous limits still apply.");
     }
   };
 
@@ -876,13 +897,21 @@ export function AutopilotControlCenter({
             <Button
             variant="danger"
               className="btn-kill-switch-trigger"
-              onClick={() => setKillSwitchModalOpen(true)}
+              onClick={() => {
+                setKillSwitchError(null);
+                setKillSwitchModalOpen(true);
+              }}
               title="Emergency Platform Kill Switch"
             >
               🛡️ Emergency Kill Switch
             </Button>
           </div>
 
+          {actionError && (
+            <Notice tone="danger" density="compact" onDismiss={() => setActionError(null)}>
+              {actionError}
+            </Notice>
+          )}
           <p className="autopilot-guardrail-note">
             Pausing sends new ideas to approval instead. The platform kill switch, if triggered by our
             risk team, blocks all new orders.
@@ -898,6 +927,7 @@ export function AutopilotControlCenter({
               className="btn-edit-limits"
               onClick={() => {
                 setEditLimitsDraft(policyLimits);
+                setLimitsError(null);
                 setIsEditModalOpen(true);
               }}
             >
@@ -1336,6 +1366,11 @@ export function AutopilotControlCenter({
             </div>
 
             <form onSubmit={handleSaveLimits} className="edit-limits-form">
+              {limitsError && (
+                <Notice tone="danger" density="compact" onDismiss={() => setLimitsError(null)}>
+                  {limitsError}
+                </Notice>
+              )}
               <div className="form-group-grid">
                 <div className="form-field">
                   <label htmlFor="maxPositionPct">Max position size (% of equity)</label>
@@ -1518,6 +1553,11 @@ export function AutopilotControlCenter({
               >
                 ⚠️ <strong>Kill switch status:</strong> {isKillSwitched ? "ACTIVATED (SYSTEM LOCKED)" : "DISARMED (NORMAL OPERATIONS)"}
               </div>
+              {killSwitchError && (
+                <Notice tone="danger" density="compact" onDismiss={() => setKillSwitchError(null)}>
+                  {killSwitchError}
+                </Notice>
+              )}
             </div>
             <div className="modal-actions-row">
               <Button
@@ -1529,26 +1569,39 @@ export function AutopilotControlCenter({
               </Button>
               <Button
               variant={isKillSwitched ? "secondary" : "danger"}
-                onClick={() => {
+                onClick={async () => {
                   const next = !isKillSwitched;
-                  setIsKillSwitched(next);
-                  if (next) setIsRunning(false);
-                  setKillSwitchModalOpen(false);
-                  // Persisted server-side so the kill switch survives a reload
-                  // and applies to every client (autopilot Phase 1).
-                  fetch("/api/autopilot/kill-switch", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      active: next,
-                      reason: next ? `Activated from control center by ${user?.login || "operator"}` : null,
-                    }),
-                  })
-                    .then((res) => {
-                      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                      setIsServerBacked(true);
-                    })
-                    .catch(() => setIsServerBacked(false));
+                  setKillSwitchError(null);
+                  try {
+                    // Issue #1704 (A3-b): the kill switch is a safety
+                    // control — its displayed state changes ONLY on
+                    // server confirmation. The old code flipped the
+                    // state and closed the dialog before a
+                    // fire-and-forget POST, so a failed activation
+                    // showed ACTIVATED (SYSTEM LOCKED) while the
+                    // server never locked. On failure the dialog
+                    // stays open with the true state named.
+                    const res = await fetch("/api/autopilot/kill-switch", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        active: next,
+                        reason: next ? `Activated from control center by ${user?.login || "operator"}` : null,
+                      }),
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    setIsServerBacked(true);
+                    setIsKillSwitched(next);
+                    if (next) setIsRunning(false);
+                    setKillSwitchModalOpen(false);
+                  } catch {
+                    setIsServerBacked(false);
+                    setKillSwitchError(
+                      next
+                        ? "Kill switch could not be activated — the system is NOT locked."
+                        : "Kill switch could not be disarmed — the system is still LOCKED."
+                    );
+                  }
                 }}
               >
                 {isKillSwitched ? "Disarm Kill Switch & Restore Access" : "ACTIVATE KILL SWITCH NOW"}

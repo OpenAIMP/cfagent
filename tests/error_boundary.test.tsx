@@ -25,6 +25,36 @@ function collectText(node: ReactNode): string {
   return "";
 }
 
+/** Find a primitive-button element by its exact label text (unrendered tree walk). */
+function findButtonByText(node: ReactNode, text: string): { onClick?: () => void } | null {
+  if (node === null || node === undefined || typeof node === "boolean") return null;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findButtonByText(child, text);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (isValidElement(node)) {
+    const props = node.props as { children?: ReactNode; onClick?: () => void };
+    if (props.children === text && props.onClick) return { onClick: props.onClick };
+    return findButtonByText(props.children, text);
+  }
+  return null;
+}
+
+function errorBoundary(): ErrorBoundary {
+  const boundary = new ErrorBoundary({ label: "Portfolio Risk panel", children: createElement("p", null, "never shown") });
+  boundary.state = {
+    error: new TypeError("Cannot read properties of undefined (reading 'positions')"),
+    componentStack: "at Boom",
+  };
+  boundary.setState = ((update: unknown) => {
+    Object.assign(boundary.state, typeof update === "function" ? (update as (s: unknown) => unknown)(boundary.state) : update);
+  }) as typeof boundary.setState;
+  return boundary;
+}
+
 describe("ErrorBoundary (issue #71)", () => {
   it("captures the error via getDerivedStateFromError", () => {
     const err = new TypeError("Cannot read properties of undefined (reading 'positions')");
@@ -60,5 +90,31 @@ describe("ErrorBoundary (issue #71)", () => {
     const boundary = new ErrorBoundary({ label: "Anything", children: createElement("p", null, "all good") });
     const out = boundary.render();
     expect(collectText(out)).toContain("all good");
+  });
+
+  it("A3-b: fallback leads with business language, not the technical error", () => {
+    const text = collectText(errorBoundary().render());
+    expect(text).toContain("Portfolio Risk panel");
+    expect(text).toContain("unavailable");
+    expect(text).toContain("rest of the app is affected");
+    expect(text).toContain("Retry");
+    expect(text).toContain("Reload page");
+    // Technical detail is kept (collapsed) for screenshot diagnosability (#71).
+    expect(text).toContain("TypeError");
+    expect(text).toContain("reading 'positions'");
+  });
+
+  it("A3-b: Retry clears the error state (view-only recovery)", () => {
+    const boundary = errorBoundary();
+    const retry = findButtonByText(boundary.render(), "Retry");
+    expect(retry).not.toBeNull();
+    retry!.onClick!();
+    expect(boundary.state.error).toBeNull();
+  });
+
+  it("A3-b: Reload page handler exists and is safe without a window", () => {
+    const reload = findButtonByText(errorBoundary().render(), "Reload page");
+    expect(reload).not.toBeNull();
+    expect(() => reload!.onClick!()).not.toThrow();
   });
 });
