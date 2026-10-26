@@ -11,6 +11,17 @@
 
 import type { Env } from "../types";
 import { resolveMarketDataQuotes } from "./marketDataService";
+import {
+  isAlpacaConfigured,
+  levelsForQuoteSwitch,
+  resolveQuoteAlpacaKeyMode,
+  resolveQuoteExpiryMode,
+  resolveQuoteFallbackMode,
+  resolveQuoteStreamProvenance,
+  type QuoteExpiryMode,
+  type QuoteScopedModes,
+  type QuoteStreamProvenance,
+} from "../config/quoteModes";
 
 export interface MarketTickData {
   symbol: string;
@@ -99,9 +110,26 @@ export const liveMarketCache = new Map<string, LiveMarketCacheEntry>();
 const failedQuoteRetryAfter = new Map<string, number>();
 
 /**
- * Fetch authentic real-time market quote from Yahoo Finance or Alpaca
+ * Fetch authentic real-time market quote from Yahoo Finance or Alpaca.
+ * #1725 (parent #1717, slice (e)): two switches, both defaulting to
+ * this function's legacy — QUOTE_ALPACA_KEY_MODE "either" (either
+ * key spelling, both sides) and QUOTE_FALLBACK_MODE "fallthrough"
+ * (Alpaca failure / no previous tick falls through to Yahoo).
+ * Under "no-substitution", an Alpaca-configured fetch that cannot
+ * produce an Alpaca tick returns null (unavailable) instead of
+ * Yahoo data; an Alpaca-unconfigured fetch still reads Yahoo.
+ * Method opts carry the run level + session/user carriers; the
+ * global env level reads from `env`.
  */
-export async function fetchRealMarketQuote(symbol: string, env?: Env): Promise<MarketTickData | null> {
+export async function fetchRealMarketQuote(
+  symbol: string,
+  env?: Env,
+  opts?: {
+    alpacaKeyMode?: unknown;
+    fallbackMode?: unknown;
+    scoped?: QuoteScopedModes;
+  },
+): Promise<MarketTickData | null> {
   const norm = symbol.toUpperCase().trim();
   const cached = liveMarketCache.get(norm);
   if (cached && cached.expiresAt > Date.now()) {
@@ -121,9 +149,19 @@ export async function fetchRealMarketQuote(symbol: string, env?: Env): Promise<M
   else if (norm.includes("/")) upstreamSym = norm.replace("/", "-");
 
   // 1. Try Alpaca if configured in env
-  const apiKey = env?.ALPACA_API_KEY || env?.ALPACA_API_KEY_ID;
-  const secretKey = env?.ALPACA_SECRET_KEY || env?.ALPACA_API_SECRET_KEY;
-  if (apiKey && secretKey) {
+  const keyMode = resolveQuoteAlpacaKeyMode(
+    levelsForQuoteSwitch(opts?.scoped, opts?.alpacaKeyMode, env?.QUOTE_ALPACA_KEY_MODE),
+    "either"
+  ).mode;
+  const fallbackMode = resolveQuoteFallbackMode(
+    levelsForQuoteSwitch(opts?.scoped, opts?.fallbackMode, env?.QUOTE_FALLBACK_MODE),
+    "fallthrough"
+  ).mode;
+  const alpacaConfigured = isAlpacaConfigured(env, keyMode);
+  const apiKey = keyMode === "id-only" ? env?.ALPACA_API_KEY_ID : env?.ALPACA_API_KEY || env?.ALPACA_API_KEY_ID;
+  const secretKey =
+    keyMode === "id-only" ? env?.ALPACA_API_SECRET_KEY : env?.ALPACA_SECRET_KEY || env?.ALPACA_API_SECRET_KEY;
+  if (alpacaConfigured && apiKey && secretKey) {
     try {
       const dataUrl = env?.ALPACA_DATA_URL || "https://data.alpaca.markets";
       const alpacaUrl = isCrypto
@@ -183,6 +221,16 @@ export async function fetchRealMarketQuote(symbol: string, env?: Env): Promise<M
     } catch {
       // Fall through to Yahoo Finance
     }
+  }
+
+  // #1725: under "no-substitution", an Alpaca-configured fetch that
+  // reached here (Alpaca error, or no previous tick for change
+  // derivation, or no usable price) is explicit unavailable — Yahoo
+  // data is never substituted for the configured primary. An
+  // Alpaca-unconfigured fetch still reads Yahoo below.
+  if (fallbackMode === "no-substitution" && alpacaConfigured) {
+    failedQuoteRetryAfter.set(norm, Date.now() + 30000);
+    return null;
   }
 
   // 2. Fetch live quote from Yahoo Finance v8 chart API
@@ -313,14 +361,39 @@ export function generateNextTick(prev: MarketTickData): MarketTickData {
  * Batch resolver for market quotes (used by HTTP endpoint and snapshots).
  * #929: emits only live-cached ticks. Symbols with no live tick are
  * omitted here; callers report them as unavailable.
+ * #1725: expiry is QUOTE_EXPIRY_MODE, default "continuity" (the WS
+ * legacy — an entry is served whenever it exists, regardless of
+ * expiresAt). Under "honour", expired entries are filtered out.
  */
-export function getBatchMarketQuotes(symbols: string[]): MarketTickData[] {
+export function getBatchMarketQuotes(symbols: string[], expiryMode: QuoteExpiryMode = "continuity"): MarketTickData[] {
   const quotes: MarketTickData[] = [];
+  const now = Date.now();
   for (const sym of symbols) {
     const cached = liveMarketCache.get(sym.toUpperCase().trim());
-    if (cached) quotes.push(cached.tick);
+    if (cached && (expiryMode === "continuity" || cached.expiresAt > now)) quotes.push(cached.tick);
   }
   return quotes;
+}
+
+/**
+ * #1725: annotate WS ticks with facade-style provenance when
+ * QUOTE_STREAM_PROVENANCE is "provenance". Under "bare" (the WS
+ * legacy) ticks pass through unchanged. Provenance is always
+ * "cached" — a cache read is never labelled "live" — with the
+ * tick's own fetch time and true age.
+ */
+export function annotateStreamTicks(
+  ticks: MarketTickData[],
+  provenanceMode: QuoteStreamProvenance,
+  nowMs: number = Date.now(),
+): Array<MarketTickData & { provenance?: "cached"; fetchedAtMs?: number; ageMs?: number }> {
+  if (provenanceMode !== "provenance") return ticks;
+  return ticks.map((tick) => ({
+    ...tick,
+    provenance: "cached" as const,
+    fetchedAtMs: tick.timestamp,
+    ageMs: nowMs - tick.timestamp,
+  }));
 }
 
 /**
@@ -334,14 +407,37 @@ export function getBatchMarketQuotes(symbols: string[]): MarketTickData[] {
  * time — per-quote freshness is `fetchedAtMs`/`ageMs`, never the
  * response time. The WebSocket stream is untouched (its continuity
  * design publishes the last cached quote; see marketDataService).
+ * #1725: QUOTE_EXPIRY_MODE, default "honour" (the HTTP legacy).
+ * Under "continuity" the HTTP surface serves expired entries as
+ * "cached" with their true age, like the WS stream. `env` is the
+ * FETCH env (undefined under the QUOTE_HTTP_PROVIDER_MODE
+ * "yahoo-only" default, so refreshes are Yahoo-only — M2b); mode
+ * resolution reads `opts.envForModes ?? env`, so the expiry env
+ * level survives even when the fetch env is withheld.
  */
-export function handleMarketQuotesHttp(symbols: string[], env?: Env): Response {
+export function handleMarketQuotesHttp(
+  symbols: string[],
+  env?: Env,
+  opts?: {
+    expiryMode?: unknown;
+    scoped?: QuoteScopedModes;
+    envForModes?: Env;
+  },
+): Response {
   // Fire background refresh of live quotes for symbols
   void refreshQuotesInBackground(symbols, env);
+
+  const modeEnv = opts?.envForModes ?? env;
+  const expiryMode = resolveQuoteExpiryMode(
+    levelsForQuoteSwitch(opts?.scoped, opts?.expiryMode, modeEnv?.QUOTE_EXPIRY_MODE),
+    "honour"
+  ).mode;
 
   const { quotes, unavailable } = resolveMarketDataQuotes(
     symbols,
     (symbol) => liveMarketCache.get(symbol),
+    Date.now(),
+    { expiry: expiryMode },
   );
   return Response.json(
     {
@@ -366,10 +462,36 @@ export function handleMarketQuotesHttp(symbols: string[], env?: Env): Response {
 
 /**
  * Handles a duplex WebSocket connection for real-time market data quote streaming.
+ * #1725: QUOTE_EXPIRY_MODE (default "continuity", the WS legacy —
+ * the 5s loop publishes the latest cached quote before waiting on
+ * I/O and leaves the last known quote visible on provider failure)
+ * and QUOTE_STREAM_PROVENANCE (default "bare", the WS legacy —
+ * ticks carry no provenance/age fields). Under "honour", expired
+ * entries are filtered from snapshots and ticks; under
+ * "provenance", each tick carries provenance "cached" plus
+ * fetchedAtMs/ageMs. Method opts carry the run level +
+ * session/user carriers; the global env level reads from `env`.
  */
-export async function handleMarketQuotesWebSocket(ws: WebSocket, env?: Env): Promise<void> {
+export async function handleMarketQuotesWebSocket(
+  ws: WebSocket,
+  env?: Env,
+  opts?: {
+    expiryMode?: unknown;
+    streamProvenance?: unknown;
+    scoped?: QuoteScopedModes;
+  },
+): Promise<void> {
   const subscribed = new Set<string>();
   let refreshInProgress = false;
+
+  const expiryMode = resolveQuoteExpiryMode(
+    levelsForQuoteSwitch(opts?.scoped, opts?.expiryMode, env?.QUOTE_EXPIRY_MODE),
+    "continuity"
+  ).mode;
+  const provenanceMode = resolveQuoteStreamProvenance(
+    levelsForQuoteSwitch(opts?.scoped, opts?.streamProvenance, env?.QUOTE_STREAM_PROVENANCE),
+    "bare"
+  ).mode;
 
   const sendLiveQuotes = async () => {
     try {
@@ -378,11 +500,16 @@ export async function handleMarketQuotesWebSocket(ws: WebSocket, env?: Env): Pro
       const symbols = Array.from(subscribed);
       // Keep the stream responsive even when an upstream quote provider is slow
       // or unavailable. Publish the latest cached quote before waiting on I/O.
-      ws.send(JSON.stringify({ type: "ticks", ticks: getBatchMarketQuotes(symbols) }));
+      ws.send(
+        JSON.stringify({
+          type: "ticks",
+          ticks: annotateStreamTicks(getBatchMarketQuotes(symbols, expiryMode), provenanceMode),
+        })
+      );
       await refreshQuotesInBackground(symbols, env);
       if (subscribed.size === 0) return;
-      const quotes = getBatchMarketQuotes(Array.from(subscribed));
-      ws.send(JSON.stringify({ type: "ticks", ticks: quotes }));
+      const quotes = getBatchMarketQuotes(Array.from(subscribed), expiryMode);
+      ws.send(JSON.stringify({ type: "ticks", ticks: annotateStreamTicks(quotes, provenanceMode) }));
     } catch (_err) {
       // A failed provider refresh leaves the last known quote visible.
     } finally {
@@ -414,14 +541,14 @@ export async function handleMarketQuotesWebSocket(ws: WebSocket, env?: Env): Pro
           const upper = sym.toUpperCase().trim();
           if (!upper) continue;
           subscribed.add(upper);
-          const found = getBatchMarketQuotes([upper])[0];
+          const found = getBatchMarketQuotes([upper], expiryMode)[0];
           if (found) newSnapshots.push(found);
           else unavailable.push(upper);
         }
         ws.send(
           JSON.stringify({
             type: "snapshot",
-            quotes: newSnapshots,
+            quotes: annotateStreamTicks(newSnapshots, provenanceMode),
             unavailable,
           })
         );

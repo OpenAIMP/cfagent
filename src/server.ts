@@ -138,6 +138,12 @@ import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
 import { handleMarketQuotesWebSocket, handleMarketQuotesHttp } from "./services/marketStream";
 import {
+  levelsForQuoteSwitch,
+  resolveQuoteExpiryMode,
+  resolveQuoteHttpProviderMode,
+  resolveQuoteStreamProvenance,
+} from "./config/quoteModes";
+import {
   filterLiveFlowItems,
   filterNewsFlowItems,
   filterInsiderFlowItems,
@@ -2189,7 +2195,14 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const [clientWs, serverWs] = Object.values(pair);
       serverWs.accept();
 
-      handleMarketQuotesWebSocket(serverWs, env).catch(console.warn);
+      // #1725: WS run carriers are the x-quote-expiry-mode /
+      // x-quote-stream-provenance headers; the WS branch always
+      // passes env (Alpaca possible), unlike the HTTP branch below.
+      // No auth and no audit on this surface, in every mode (M10).
+      handleMarketQuotesWebSocket(serverWs, env, {
+        expiryMode: request.headers.get("x-quote-expiry-mode") ?? undefined,
+        streamProvenance: request.headers.get("x-quote-stream-provenance") ?? undefined,
+      }).catch(console.warn);
 
       return new Response(null, { status: 101, webSocket: clientWs });
     }
@@ -2201,10 +2214,41 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+      // #1725 (M2b): QUOTE_HTTP_PROVIDER_MODE, default "yahoo-only"
+      // (the verified call-site fact — this branch previously passed
+      // no env at all). Run carriers: x-quote-http-provider-mode
+      // header, ?httpProviderMode= query param. Under "env" the
+      // Worker env is passed through and HTTP refreshes can use
+      // Alpaca when configured; under "yahoo-only" (and on any
+      // invalid value, which fails closed with a console warning)
+      // env is withheld. The handler still receives env for MODE
+      // resolution via envForModes, so the QUOTE_EXPIRY_MODE env
+      // level is not lost when the fetch env is withheld. No auth
+      // and no audit on this surface, in every mode (M10 stands);
+      // the response stays 200 with unavailable[] even when every
+      // symbol is unavailable.
+      const httpProviderMode = resolveQuoteHttpProviderMode(
+        levelsForQuoteSwitch(
+          undefined,
+          request.headers.get("x-quote-http-provider-mode") ?? url.searchParams.get("httpProviderMode") ?? undefined,
+          env.QUOTE_HTTP_PROVIDER_MODE
+        ),
+        "yahoo-only"
+      ).mode;
+      const expiryMode = resolveQuoteExpiryMode(
+        levelsForQuoteSwitch(
+          undefined,
+          request.headers.get("x-quote-expiry-mode") ?? url.searchParams.get("expiryMode") ?? undefined,
+          env.QUOTE_EXPIRY_MODE
+        ),
+        "honour"
+      ).mode;
       return handleMarketQuotesHttp(
         symbols.length > 0
           ? symbols
-          : ["NVDA", "AAPL", "MSFT", "TSLA", "SPY", "QQQ", "BTC/USD", "ETH/USD", "SOL/USD"]
+          : ["NVDA", "AAPL", "MSFT", "TSLA", "SPY", "QQQ", "BTC/USD", "ETH/USD", "SOL/USD"],
+        httpProviderMode === "env" ? env : undefined,
+        { expiryMode, envForModes: env }
       );
     }
 

@@ -201,6 +201,40 @@ export interface Env {
   // production values are an owner action. Rollback is unsetting the
   // var and redeploying.
   JOB_LIST_ENVELOPE?: string;
+  // #1725 (parent #1717, slice (e)) — EIGHT quote switches
+  // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
+  // QUOTE_EXPIRY_MODE: "honour" | "continuity" (M2). Built-in
+  // defaults are per surface: HTTP/facade → "honour", WS/getBatch
+  // → "continuity". QUOTE_STREAM_PROVENANCE: "bare" |
+  // "provenance" (M2 WS shape; default WS "bare", HTTP always
+  // provenance). QUOTE_HTTP_PROVIDER_MODE: "yahoo-only" | "env"
+  // (M2b; default HTTP "yahoo-only", the runtime-confirmed
+  // call-site fact; WS always passes env). QUOTE_ALPACA_KEY_MODE:
+  // "either" | "id-only" (M6; default hybrid "id-only",
+  // marketStream "either"). QUOTE_FALLBACK_MODE: "fallthrough" |
+  // "no-substitution" (M3/M9; default marketStream "fallthrough",
+  // registry "no-substitution" pinned). QUOTE_ETRADE_UNKNOWN_MODE:
+  // "throw" | "zero-object" (M7; default platform "throw",
+  // service sync "zero-object"; #922 curated-live throw stands in
+  // every mode). QUOTE_YAHOO_OPEN_MODE: "midpoint" | "wire" (M4;
+  // default single "midpoint", batch "wire" pinned).
+  // QUOTE_YAHOO_INDICATORS_MODE: "computed" | "unset" (M4; default
+  // single "computed", batch "unset" pinned). Any other value
+  // FAILS CLOSED to the surface legacy and is console-logged as
+  // quotes.config_error (quote surfaces are unaudited today, so no
+  // audit writer exists on these paths). Resolution order (run >
+  // session > user > global env > built-in) lives in
+  // src/config/quoteModes.ts. This slice deliberately does NOT set
+  // production values: production values are an owner action.
+  // Rollback is unsetting the var and redeploying.
+  QUOTE_EXPIRY_MODE?: string;
+  QUOTE_STREAM_PROVENANCE?: string;
+  QUOTE_HTTP_PROVIDER_MODE?: string;
+  QUOTE_ALPACA_KEY_MODE?: string;
+  QUOTE_FALLBACK_MODE?: string;
+  QUOTE_ETRADE_UNKNOWN_MODE?: string;
+  QUOTE_YAHOO_OPEN_MODE?: string;
+  QUOTE_YAHOO_INDICATORS_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
