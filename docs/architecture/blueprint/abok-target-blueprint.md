@@ -14,7 +14,7 @@
 
 However, critical architectural evaluation reveals that the system currently operates as a **Monolithic Edge Worker** with tight coupling between HTTP routing, synchronous market data fetching, stateful database operations, and agent execution. While edge-native via Cloudflare Workers, the architecture suffers from structural brittleness: synchronous external API dependency chains (e.g., Yahoo Finance, E*TRADE, Nasdaq), in-memory state leakage, fragmented data storage primitives (mixing D1, KV, R2, and Durable Objects inconsistently), and lack of formal event-driven decoupling.
 
-To transition `cfagent` into an enterprise-grade, autonomous, recursive self-improving (RSI) multi-agent platform, the architecture must undergo a systematic transformation toward event-driven Workflows, Durable Object-backed Agent actors, vector-graph hybrid knowledge stores, and Cloudflare-native Agentic SDK primitives.
+To transition `cfagent` into an enterprise-grade, autonomous, recursive self-improving (RSI) multi-agent platform, the architecture must undergo a systematic transformation toward event-driven Workflows, Durable Object-backed Agent actors, vector-graph hybrid knowledge stores, and agent SDK primitives behind adapter interfaces.
 
 ### Current State Architectural Profile
 - **Runtime:** Single Cloudflare Worker monolith (`src/index.ts`) routing HTTP requests, scheduled cron triggers, and background tasks.
@@ -26,7 +26,7 @@ To transition `cfagent` into an enterprise-grade, autonomous, recursive self-imp
 ### Key Risks, Strengths, Gaps, Architectural Debt & Future Readiness
 
 #### Strengths
-1. **Cloudflare-Native Foundation:** Native deployment on Workers runtime provides ultra-low latency globally with zero cold-start overhead.
+1. **Cloud-Native Foundation:** Deployment on a worker runtime (current implementation: Cloudflare Workers) provides ultra-low latency globally with zero cold-start overhead.
 2. **High Domain Coverage:** Built-in quant formulas for options strategies (Iron Condor, Covered Call, Cash Secured Put, Bull Put Spread), technical indicators (Anchored VWAP, Bollinger Squeeze, RSI, MACD), and compliance filters.
 3. **Multi-Channel Delivery Pipeline:** Integrated publishing engine supporting Slack webhooks, PDF generation (via `ReportAssetAgent`), and structured JSON/CSV exports.
 4. **Strong Test Suite & Policy Control:** Over 6,300 tests with automated pre-merge verification scripts and strict CI policy gates.
@@ -49,11 +49,11 @@ To transition `cfagent` into an enterprise-grade, autonomous, recursive self-imp
 | **Scalability** | 4 | 9 | Heavy synchronous screening loops hit Worker execution limits. |
 | **Reliability** | 5 | 9 | Lack of retriable event queues and circuit breakers. |
 | **Maintainability** | 6 | 9 | High file density in `/src`; needs clean domain boundaries. |
-| **Extensibility** | 5 | 9 | Dynamic agent tools require Cloudflare Agents SDK integration. |
+| **Extensibility** | 5 | 9 | Dynamic agent tools require agent SDK port integration (current implementation: Cloudflare Agents SDK). |
 | **Security** | 7 | 10 | Strong Zero Trust & IAAA foundation; needs fine-grained agent sandboxing. |
 | **Performance** | 6 | 9 | Edge execution is fast, but external API fetches bottleneck request cycles. |
 | **Observability** | 5 | 9 | Basic console logging; needs Analytics Engine & OpenTelemetry tracing. |
-| **Cloudflare Alignment**| 7 | 10 | Uses Workers/D1/KV; underutilizes Workflows, Queues, AI Gateway, and AI Search. |
+| **Provider-Agnostic Alignment**| 7 | 10 | Uses a worker runtime, relational store, and cache; underutilizes workflow engines, queues, LLM gateways, and AI search. |
 | **Agentic Readiness** | 4 | 9 | Agents lack autonomous decision-making loops and persistent state graphs. |
 | **RSI Readiness** | 2 | 9 | Missing code modification, prompt self-tuning, and automated eval loops. |
 
@@ -62,10 +62,10 @@ To transition `cfagent` into an enterprise-grade, autonomous, recursive self-imp
 ## SECTION 2: Architecture Vision & Quality Attributes
 
 ### Architectural Vision
-To establish `cfagent` as the premier Cloudflare-native, autonomous financial intelligence platform—operating as an extensible, resilient multi-agent swarm capable of real-time market discovery, risk-managed trade orchestration, multi-channel narrative synthesis, and recursive self-improvement (RSI) under strict safety and compliance guardrails.
+To establish `cfagent` as the premier cloud-native, cloud-agnostic, autonomous financial intelligence platform—operating as an extensible, resilient multi-agent swarm capable of real-time market discovery, risk-managed trade orchestration, multi-channel narrative synthesis, and recursive self-improvement (RSI) under strict safety and compliance guardrails.
 
 ### Guiding Principles & Design Tenets
-1. **Cloudflare Native First:** Maximize edge primitives (Workers, Durable Objects, Workflows, Queues, AI Gateway, Vectorize, D1) before introducing external SaaS dependencies.
+1. **Cloud-Native, Cloud-Agnostic, Pattern-Oriented:** Capabilities are expressed as ports (workflow orchestration, async messaging, actor runtime, relational ledger, semantic knowledge, LLM gateway, observability). Provider primitives — edge runtimes, actors, workflow engines, queues, gateways, vector stores, relational stores — are used ONLY behind adapter interfaces; no domain code depends on any single provider. Structure is governed by patterns: Adapter/ports, SOLID, GRASP, and GoF (Adapter, Strategy, Command, State, Decorator, Observer), with conformance suites proving adapter substitutability. Cloudflare products are the current adapter implementations, not the architecture.
 2. **Event-Driven Asynchrony:** Decouple data ingestion, analysis, report generation, and delivery via durable queues and background workflows.
 3. **Actor-Based Agent Autonomy:** Every agent operates as a stateful Durable Object actor with isolated memory, typed MCP tools, and deterministic state transitions.
 4. **Deterministic Preflight & Guardrails:** Algorithmic calculation, risk sizing, and compliance rules remain hard-coded and deterministic; AI models assist in synthesis, natural language query, and strategy generation.
@@ -116,7 +116,7 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 - **Data Lifecycles:** Ephemerality rules enforced per tier (KV: 5-minute TTL; D1: 90-day execution retention; R2: 1-year archive tier).
 
 ### Technology Architecture
-- **Platforms:** Cloudflare Developer Platform (Workers, Durable Objects, Workflows, Queues, Hyperdrive, D1, R2, KV, Vectorize, AI Gateway, Workers AI).
+- **Current implementation platform (adapter implementations, not the architecture):** Cloudflare Developer Platform (Workers, Durable Objects, Workflows, Queues, Hyperdrive, D1, R2, KV, Vectorize, AI Gateway, Workers AI).
 - **Runtime Environments:** Edge V8 Isolation (Cloudflare Workers Runtime), Node.js (Local testing/Vitest), Workers AI (Llama 3.3 70B, DeepSeek-R1, BGE Embeddings).
 
 ---
@@ -126,7 +126,7 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 1. **Business View:** Maps platform capabilities directly to trading desk value streams and risk management guardrails.
 2. **Product View:** Details user journey across multi-tab UI (Trading, Research, API/MCP, Options Flows, Workflows) and automated Slack notifications.
 3. **Capability View:** Categorizes system features into Feed, Gather, Analysis, Generate, Store, Serve, Deliver, Scheduling, and Meta-Cognition.
-4. **Service View:** Defines internal service interfaces, decoupling synchronous web handling from background execution via Cloudflare Queues.
+4. **Service View:** Defines internal service interfaces, decoupling synchronous web handling from background execution via durable queues.
 5. **Solution View:** Describes end-to-end integration between edge workers, stateful Durable Objects, and external market providers.
 6. **Runtime View:** Details execution lifecycles for HTTP requests, scheduled Cron triggers, Queue consumers, and Workflow steps.
 7. **Operational View:** Focuses on zero-downtime deployments via Wrangler, automated health checks, rate-limit handling, and graceful degradation.
@@ -134,13 +134,15 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 9. **Agent View:** Maps agent interaction protocols, task decomposition, tool invocation via MCP, and human-in-the-loop escalation paths.
 10. **Knowledge View:** Defines memory structures across working memory (DO), semantic memory (Vectorize), structured memory (D1), and document archives (R2).
 11. **Data View:** Schematizes entity-relationship models, transactional boundaries, and multi-tenant data isolation.
-12. **Deployment View:** Specifies global edge deployment topology across Cloudflare PoPs with automatic region routing.
+12. **Deployment View:** Specifies global edge deployment topology across edge points of presence (current implementation: Cloudflare PoPs) with automatic region routing.
 13. **Governance View:** Defines policy enforcement gates, code ownership (`AGENTS.md`), pre-merge verification scripts, and compliance tracking.
 14. **Evolution View:** Outlines the multi-stage migration path from monolithic edge script to autonomous RSI-capable agent platform.
 
 ---
 
 ## SECTION 5: C4 Architecture Model
+
+> Note: the diagrams in this section depict the current Cloudflare implementation of the capability architecture; the normative capability view is §10.
 
 ### Level 1: System Context Diagram
 
@@ -222,7 +224,7 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 - **`src/index.ts`:** Entrypoint router; maps HTTP routes to thin handlers, verifies JWT/I3A sessions, and dispatches async tasks to Queues.
 - **`src/agents/`:** Encapsulates agent state machines (`ScreenerAgent`, `ResearchAgent`, `SocialAgent`, `TradingAgent`) implementing standardized `AgentInterface`.
 - **`src/trading/`:** Core deterministic domain logic containing mathematical models for options pricing, Greeks calculations, indicator evaluations, and data provider adapters.
-- **`src/workflows/`:** Cloudflare Workflows definitions executing multi-step long-running pipelines (e.g., Scheduled Screening -> PDF Generation -> Slack Delivery).
+- **`src/workflows/`:** Workflow-engine definitions (current implementation: Cloudflare Workflows) executing multi-step long-running pipelines (e.g., Scheduled Screening -> PDF Generation -> Slack Delivery).
 - **`src/durable/`:** Durable Object implementations (`SessionStore`, `AgentActorDO`, `TradeApprovalDO`).
 
 ---
@@ -278,7 +280,7 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 ### Candidate Analysis: Asynchronous Processing Engine
 
 - **Candidate A:** In-Memory Event Bus + Direct Async Function Calls (Current State).
-- **Candidate B:** Cloudflare Workflows + Cloudflare Queues (Target Recommendation).
+- **Candidate B:** Workflow engine + durable queues (Target Recommendation; current implementation: Cloudflare Workflows + Cloudflare Queues).
 - **Candidate C:** External Event Broker (Kafka / RabbitMQ / AWS SQS).
 
 #### Evaluation Matrix
@@ -291,10 +293,10 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 | **Cost** | Minimal | Low (Included in CF Plan) | High (Infra overhead) |
 | **Maintainability** | Medium | High | Low |
 | **Security** | Medium | High (CF Edge Isolation) | Medium (VPC/Auth Setup) |
-| **Cloudflare Native** | Yes | Native (10/10) | No (0/10) |
+| **Provider Coupling** | Yes | Tight (10/10) | None (0/10) |
 | **Agentic Support** | Poor | Native Workflow Steps | Requires Connectors |
 
-**Recommendation:** Proceed with **Candidate B (Cloudflare Workflows + Queues)**. Eliminates timeout vulnerabilities while preserving single-pane-of-glass operational simplicity on Cloudflare.
+**Recommendation:** Proceed with **Candidate B (workflow engine + durable queues)**. Eliminates timeout vulnerabilities while preserving operational simplicity with the current implementation (Cloudflare Workflows + Queues).
 
 ---
 
@@ -307,36 +309,38 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 | Decision Topic                      | Key Trade-Off                     | Selected Target Choice      |
 +-------------------------------------+-----------------------------------+-----------------------------+
 | Edge Monolith vs. Decomposed Workers| Deployment Simplicity vs.         | Modular Monolith router     |
-|                                     | Execution Isolation & Memory Caps | backed by Worker Workflows  |
+|                                     | Execution Isolation & Memory Caps | backed by workflow-engine steps |
 +-------------------------------------+-----------------------------------+-----------------------------+
-| D1 SQL vs. Durable Object Storage   | SQL Queryability vs.              | D1 for tabular history; DO  |
-|                                     | Strong Consistency & Single-Key DO| for real-time Agent actors  |
+| Relational store vs. actor-runtime storage | SQL Queryability vs.              | Relational store for tabular history; actor runtime |
+|                                     | Strong Consistency & Single-Key actor | for real-time agent actors  |
 +-------------------------------------+-----------------------------------+-----------------------------+
-| Vector DB vs. Graph + Vector        | Pure Similarity vs. Strategic     | Vectorize + D1 Adjacency    |
+| Vector DB vs. Graph + Vector        | Pure Similarity vs. Strategic     | Vector store + relational adjacency |
 |                                     | Relationship Navigation           | Graph for Market Knowledge  |
 +-------------------------------------+-----------------------------------+-----------------------------+
-| External LLMs vs. Workers AI Native | Model Capacity (GPT-4o/Claude) vs.| Hybrid: Workers AI (Fast/   |
-|                                     | Zero Egress / Cloudflare AI Gate  | Local) + Gateway (Fallback) |
+| External LLMs vs. embedded inference | Model Capacity (GPT-4o/Claude) vs.| Hybrid: embedded/fast inference |
+|                                     | Zero Egress / LLM gateway         | + Gateway (Fallback; current implementation: Workers AI + AI Gateway) |
 +-------------------------------------+-----------------------------------+-----------------------------+
 ```
 
 ---
 
-## SECTION 9: Cloudflare Product Mapping & Native Optimization
+## SECTION 9: Capability Mapping & Implementation Notes (current Cloudflare adapters)
 
-| Cloudflare Product | Current Status | Target Role & Transformation Plan |
+> The table below maps capabilities to their current Cloudflare adapter implementations. The architecture is defined by the capabilities; providers are interchangeable adapters, and no domain code depends on any single provider.
+
+| Capability (current Cloudflare implementation) | Current Status | Target Role & Transformation Plan |
 | :--- | :--- | :--- |
-| **Workers** | Monolithic HTTP Engine | Decoupled Router & Stateless Execution Endpoints |
-| **Durable Objects** | Sessions & Social Drafts | Core Stateful Actor Primitives for Agents (`AgentActorDO`) |
-| **Workflows** | Unused | Primary Orchestration Engine for Long-Running Screener Runs |
-| **Queues** | Unused | Asynchronous Event Bus (`market-data-q`, `social-deliveries-q`) |
-| **D1** | Relational DB | Transactional Execution & Audit Ledger (`cfagent-db`) |
-| **R2** | Artifact Storage | Immutable Storage for PDF/XLSX Reports & Market Snapshots |
-| **Vectorize** | Basic Search | Semantic Knowledge Index (`reports-index`) for RAG & Agent Memory |
-| **AI Gateway** | Partial Usage | Unified Observability, Fallback, & Rate-Limiting for LLM Calls |
-| **Workers AI** | Primary Inference | Real-time fast inference (Llama 3.3, BGE Embeddings) |
-| **Agents SDK** | Unused | Migration Target for Standardized Agent Memory & Tool Execution |
-| **Analytics Engine**| Unused | Telemetry, Quant Execution Performance, & RSI Metric Tracking |
+| **Edge runtime (Workers)** | Monolithic HTTP Engine | Decoupled Router & Stateless Execution Endpoints |
+| **Stateful actors (Durable Objects)** | Sessions & Social Drafts | Core Stateful Actor Primitives for Agents (`AgentActorDO`) |
+| **Workflow orchestration (Workflows)** | Unused | Primary Orchestration Engine for Long-Running Screener Runs |
+| **Async messaging (Queues)** | Unused | Asynchronous Event Bus (`market-data-q`, `social-deliveries-q`) |
+| **Relational ledger (D1)** | Relational DB | Transactional Execution & Audit Ledger (`cfagent-db`) |
+| **Blob storage (R2)** | Artifact Storage | Immutable Storage for PDF/XLSX Reports & Market Snapshots |
+| **Semantic knowledge (Vectorize)** | Basic Search | Semantic Knowledge Index (`reports-index`) for RAG & Agent Memory |
+| **LLM gateway (AI Gateway)** | Partial Usage | Unified Observability, Fallback, & Rate-Limiting for LLM Calls |
+| **Embedded inference (Workers AI)** | Primary Inference | Real-time fast inference (Llama 3.3, BGE Embeddings) |
+| **Agent SDK port (Agents SDK)** | Unused | Migration Target for Standardized Agent Memory & Tool Execution |
+| **Telemetry (Analytics Engine)**| Unused | Telemetry, Quant Execution Performance, & RSI Metric Tracking |
 
 ---
 
@@ -344,14 +348,14 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 
 ```
                                 +-------------------------------------------+
-                                |             Target Edge Architecture      |
+                                |        Target Architecture (capability view) |
                                 +-------------------------------------------+
                                                       |
             +-----------------------------------------+-----------------------------------------+
             |                                         |                                         |
             v                                         v                                         v
 +-----------------------+                 +-----------------------+                 +-----------------------+
-|   HTTP/API Gateway    |                 | Cloudflare Workflows  |                 | Cloudflare Queues     |
+|   HTTP/API Gateway    |                 | Workflow Engine     |                 | Async Event Pipeline  |
 |   (Stateless Router)  |                 | Orchestration Engine  |                 | Async Event Pipeline  |
 +-----------------------+                 +-----------------------+                 +-----------------------+
             |                                         |                                         |
@@ -359,7 +363,7 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
                                                       |
                                                       v
                                 +-------------------------------------------+
-                                | Cloudflare Agents SDK & Durable Objects   |
+                                | Agent SDK & Actor Runtime                 |
                                 | (Screener, Research, Social, Trading DOs) |
                                 +-------------------------------------------+
                                                       |
@@ -367,7 +371,9 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
             |                                         |                                         |
             v                                         v                                         v
 +-----------------------+                 +-----------------------+                 +-----------------------+
-|  D1 Relational Ledger |                 | Vectorize + R2 Store  |                 | Workers AI & Gateway  |
+|  Relational Ledger    |                 | Vector + Blob Store |                 | LLM Inference & Gateway |
+
+> Capability labels above are the architecture. Current adapter implementations: Cloudflare Workflows (workflow engine), Queues (async event pipeline), Agents SDK & Durable Objects (agent SDK & actor runtime), D1 (relational ledger), Vectorize + R2 (vector + blob store), Workers AI & AI Gateway (LLM inference & gateway).
 |  (State & History)    |                 | (Semantic Knowledge)  |                 | (LLM & Embeddings)    |
 +-----------------------+                 +-----------------------+                 +-----------------------+
 ```
@@ -399,18 +405,21 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 - **Context:** Market screening across full equities/options universes frequently exceeds Worker wall-clock limits and HTTP timeout windows.
 - **Decision:** Migrate all multi-step screening runs from synchronous Workers to Cloudflare Workflows with explicit step retries and checkpoints.
 - **Consequences:** Eliminates request timeouts, enforces deterministic retry states, enables multi-hour async executions.
+> Annotation (2026-10-26, cloud-agnostic restatement, issue #1795): this decision selects a Cloudflare product as the current adapter implementation for the capability port named above. It does not make the architecture dependent on that provider; the capability is defined by the port, and the implementation is replaceable behind it. The decision itself is recorded unchanged.
 
 ### ADR-0004: Standardizing Agent State Machines on Durable Objects & Agents SDK
 - **Status:** Approved
 - **Context:** Procedural agent classes lack persistent long-term memory, real-time message coordination, and state isolation.
 - **Decision:** Wrap every agent domain in a stateful Durable Object implementing the Cloudflare Agents SDK framework.
 - **Consequences:** Enables persistent agent memory, WebSocket streaming, stateful tool orchestration, and actor-isolated security bounds.
+> Annotation (2026-10-26, cloud-agnostic restatement, issue #1795): this decision selects a Cloudflare product as the current adapter implementation for the capability port named above. It does not make the architecture dependent on that provider; the capability is defined by the port, and the implementation is replaceable behind it. The decision itself is recorded unchanged.
 
 ### ADR-0005: Hybrid RAG Knowledge Engine via Vectorize and D1 Adjacency Graphs
 - **Status:** Approved
 - **Context:** Vector search alone lacks structural awareness of market relationships (e.g., Sector -> Industry -> Ticker -> Option Chain).
 - **Decision:** Pair Cloudflare Vectorize embeddings with D1 relational graph tables to construct a hybrid RAG knowledge engine.
 - **Consequences:** Significantly improves context retrieval accuracy for market research and strategy synthesis.
+> Annotation (2026-10-26, cloud-agnostic restatement, issue #1795): this decision selects a Cloudflare product as the current adapter implementation for the capability port named above. It does not make the architecture dependent on that provider; the capability is defined by the port, and the implementation is replaceable behind it. The decision itself is recorded unchanged.
 
 ---
 
@@ -418,12 +427,12 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 
 | Metric Dimension | Target Standard | SLA / Threshold | Enforcement Mechanism |
 | :--- | :--- | :--- | :--- |
-| **Read Availability** | 99.95% | Edge multi-region failover | Cloudflare Global Anycast |
+| **Read Availability** | 99.95% | Edge multi-region failover | Global anycast (current implementation: Cloudflare) |
 | **API Latency (p95)** | < 200ms | Ephemeral KV quote caching | Ephemeral Read Cache |
-| **Screener Pipeline Execution**| 100% Retriable | Max 3 retries per step | Cloudflare Workflows Engine |
-| **Data Integrity** | Zero Event Loss | At-least-once Queue delivery | Cloudflare Queues |
+| **Screener Pipeline Execution**| 100% Retriable | Max 3 retries per step | Workflow engine (current implementation: Cloudflare Workflows) |
+| **Data Integrity** | Zero Event Loss | At-least-once Queue delivery | Durable queues (current implementation: Cloudflare Queues) |
 | **Security Gate** | 100% HITL Approval | Trade order execution gate | Crypto-Signed TradeDO |
-| **AI Gateway Reliability** | 99.9% Up-time | Multi-provider fallback | Cloudflare AI Gateway |
+| **LLM Gateway Reliability** | 99.9% Up-time | Multi-provider fallback | LLM gateway (current implementation: Cloudflare AI Gateway) |
 
 ---
 
@@ -444,16 +453,16 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 ```
 
 ### Security Maturity Assessment
-- **Current Security Level:** Level 3 (Defined & Guarded). Enforces Zero Trust access, HMAC verification, and secure secret handling via Cloudflare Secrets.
-- **Target Security Level:** Level 5 (Optimized & Autonomous). Introduces cryptographic proof-of-execution ledgers, fine-grained agent tool permissioning, and dynamic prompt injection firewalls via AI Gateway.
+- **Current Security Level:** Level 3 (Defined & Guarded). Enforces Zero Trust access, HMAC verification, and secure secret handling via the platform secret store (current implementation: Cloudflare Secrets).
+- **Target Security Level:** Level 5 (Optimized & Autonomous). Introduces cryptographic proof-of-execution ledgers, fine-grained agent tool permissioning, and dynamic prompt injection firewalls via the LLM gateway.
 
 ---
 
 ## SECTION 15: Operational Architecture & SRE Controls
 
 - **CI/CD Pipeline:** Automated GitHub Actions with strict policy gates, pre-merge verification (`scripts/verify-before-merge.sh`), and linting.
-- **Observability Stack:** OpenTelemetry tracing via Workers Analytics Engine, centralized aspect-oriented logging (`[Aspect]`), structured JSON metrics.
-- **Disaster Recovery:** Automated D1 daily backups, multi-region Cloudflare Worker failover, immutable R2 artifact retention.
+- **Observability Stack:** OpenTelemetry tracing via the analytics engine (current implementation: Workers Analytics Engine), centralized aspect-oriented logging (`[Aspect]`), structured JSON metrics.
+- **Disaster Recovery:** Automated relational-store daily backups, multi-region worker failover, immutable blob artifact retention (current implementations: D1, Cloudflare Workers, R2).
 - **Chaos & Resilience:** Injected fault testing for external market providers (e.g., simulated 429 rate limits, 503 service outages) verified via Vitest suites.
 
 ---
@@ -491,14 +500,14 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 +----------------------+----------------------------------------------------------+-----------------------+
 | Phase                | Key Initiatives & Milestones                             | Timeline              |
 +----------------------+----------------------------------------------------------+-----------------------+
-| Phase 1: Foundation  | Decouple Worker Monolith via Cloudflare Workflows &      | Months 0 - 3          |
+| Phase 1: Foundation  | Decouple Worker Monolith via workflow engines &        | Months 0 - 3          |
 |                      | Queues. Eliminate synchronous API bottleneck timeouts.   |                       |
 +----------------------+----------------------------------------------------------+-----------------------+
-| Phase 2: Agent Actors| Migrate Agents to Cloudflare Agents SDK & Durable        | Months 3 - 6          |
+| Phase 2: Agent Actors| Migrate Agents to the agent SDK port & actor runtime     | Months 3 - 6          |
 |                      | Objects. Implement typed MCP tool boundaries.            |                       |
 +----------------------+----------------------------------------------------------+-----------------------+
-| Phase 3: RAG Knowledge| Deploy Vectorize + D1 Hybrid Knowledge Graph. Deploy      | Months 6 - 12         |
-|                      | AI Gateway fallback mechanisms across LLM models.        |                       |
+| Phase 3: RAG Knowledge| Deploy vector + relational hybrid knowledge graph. Deploy | Months 6 - 12         |
+|                      | LLM-gateway fallback mechanisms across LLM models.        |                       |
 +----------------------+----------------------------------------------------------+-----------------------+
 | Phase 4: RSI Engine  | Implement autonomous calibration feedback loops, automated| Months 12 - 24        |
 |                      | backtesting, and dynamic prompt optimization.            |                       |
@@ -514,7 +523,7 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 
 ### Risk & Debt Heat Map
 
-| Architectural Subsystem | Technical Debt | Security Risk | Scalability Risk | Cloudflare Native Alignment | RSI Readiness |
+| Architectural Subsystem | Technical Debt | Security Risk | Scalability Risk | Provider-Agnostic Alignment | RSI Readiness |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **HTTP Routing Engine** | HIGH | LOW | MEDIUM | HIGH | LOW |
 | **Market Ingestion Providers**| HIGH | MEDIUM | HIGH | MEDIUM | LOW |
@@ -530,7 +539,7 @@ To establish `cfagent` as the premier Cloudflare-native, autonomous financial in
 
 ### Core Component Retention / Replacement Blueprint
 
-To transform `cfagent` into an enterprise-grade Cloudflare-native RSI agent platform, existing codebase components are evaluated and categorized into specific architectural actions:
+To transform `cfagent` into an enterprise-grade cloud-native, cloud-agnostic RSI agent platform, existing codebase components are evaluated and categorized into specific architectural actions:
 
 ```
 +---------------------------------------------------------------------------------------------------------+
@@ -538,12 +547,12 @@ To transform `cfagent` into an enterprise-grade Cloudflare-native RSI agent plat
 +-----------------------------------+--------------------+------------------------------------------------+
 | Component                         | Action             | Target Architectural State                     |
 +-----------------------------------+--------------------+------------------------------------------------+
-| `src/index.ts` Router             | Decompose          | Extract synchronous pipelines into Workflows   |
-| `src/agents/ScreenerAgent.ts`     | Replace / Refactor | Wrap into `ScreenerAgentDO` via Agents SDK     |
-| `src/agents/ResearchAgent.ts`     | Refactor           | Integrate with Vectorize + Workers AI Search   |
+| `src/index.ts` Router             | Decompose          | Extract synchronous pipelines into workflow-engine steps |
+| `src/agents/ScreenerAgent.ts`     | Replace / Refactor | Wrap into an actor-based `ScreenerAgent` via the agent SDK port |
+| `src/agents/ResearchAgent.ts`     | Refactor           | Integrate with vector store + LLM search (current implementations: Vectorize + Workers AI Search) |
 | `src/agents/SocialAgent.ts`       | Retain             | Preserve drafting logic, bind to Queues delivery|
 | `src/agents/TradingAgent.ts`      | Retain             | Retain hard-coded compliance & HITL guardrails |
-| In-Memory `ScreenerEventBus`      | Eliminate          | Replace completely with Cloudflare Queues      |
+| In-Memory `ScreenerEventBus`      | Eliminate          | Replace completely with durable queues (current implementation: Cloudflare Queues) |
 | Ephemeral Market Cache (`KV`)     | Retain / Refactor | Formalize 5-min TTL with circuit breakers      |
 | `SessionStore` Durable Object     | Retain             | Maintain secure session state management       |
 | D1 Execution Tables               | Merge              | Consolidate fragmented schemas into `cfagent-db`|
@@ -552,13 +561,13 @@ To transform `cfagent` into an enterprise-grade Cloudflare-native RSI agent plat
 
 ### Top 10 High-Impact Initiatives
 
-1. **Immediate Decoupling of Screener Executions:** Convert synchronous screening routes to async Cloudflare Workflows triggered by background events.
-2. **Standardization on Cloudflare Agents SDK:** Refactor procedural agent classes into actor-based Durable Objects (`AgentActorDO`).
-3. **Queue-Backed Messaging Pipeline:** Replace in-memory event buses with durable Cloudflare Queues for guaranteed delivery.
-4. **Hybrid RAG Knowledge Deployment:** Combine Vectorize embeddings with D1 market adjacency graphs for agent contextual retrieval.
-5. **AI Gateway Fallback Integration:** Route all LLM inference calls through Cloudflare AI Gateway for rate limiting, caching, and multi-provider failover.
-6. **RSI Telemetry & Calibration Engine:** Deploy automated thesis realization tracking in D1 to dynamically calibrate agent prompts.
-7. **Aspect-Oriented Observability:** Expand structured logging to stream directly into Cloudflare Analytics Engine.
+1. **Immediate Decoupling of Screener Executions:** Convert synchronous screening routes to async workflow-engine steps (current implementation: Cloudflare Workflows) triggered by background events.
+2. **Standardization on the agent SDK port:** Refactor procedural agent classes into actor-based agents (current implementation: Cloudflare Agents SDK, `AgentActorDO`).
+3. **Queue-Backed Messaging Pipeline:** Replace in-memory event buses with durable queues (current implementation: Cloudflare Queues) for guaranteed delivery.
+4. **Hybrid RAG Knowledge Deployment:** Combine vector-store embeddings with relational market adjacency graphs (current implementations: Vectorize + D1) for agent contextual retrieval.
+5. **LLM Gateway Fallback Integration:** Route all LLM inference calls through the LLM gateway (current implementation: Cloudflare AI Gateway) for rate limiting, caching, and multi-provider failover.
+6. **RSI Telemetry & Calibration Engine:** Deploy automated thesis realization tracking in the relational ledger (current implementation: D1) to dynamically calibrate agent prompts.
+7. **Aspect-Oriented Observability:** Expand structured logging to stream directly into the analytics engine (current implementation: Cloudflare Analytics Engine).
 8. **Granular MCP Tool Permissions:** Enforce cryptographic isolation and permission scopes on all agent tool executions.
 9. **Automated Market Data Circuit Breakers:** Wrap external market APIs (Yahoo, Nasdaq, E*TRADE) in resilient retry policies with instant fallback states.
 10. **Zero-Downtime Migration Testing:** Maintain 100% test suite parity (`npm run check`) across all architectural refactor steps.
