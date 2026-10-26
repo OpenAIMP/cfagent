@@ -1,0 +1,141 @@
+/**
+ * Issue #1676 ([AGENTIC] Slice 2) — job-history and
+ * jobs-reconcile route handlers (mirrors
+ * src/data/chainStatusRoute.ts).
+ *
+ * Pure handlers: no env, no binding, no store client. The
+ * server wires them to the composition root; these handlers
+ * decide only status codes and response shape.
+ *
+ * Decision order for the history route: 401 (no wired
+ * session) → 405 (non-GET) → 400 (missing chainId) → 200
+ * (projection rows) / 500 (read failure). The history route
+ * answers from the projection only, never from the durable
+ * object; an unbound store is answered 503 by the server
+ * wiring, not here.
+ *
+ * Decision order for the reconcile route: 401 → 405 →
+ * 403 (unwired session) → 403 (non-admin) → 200 (report) /
+ * 500 (reconcile failure). Reconciliation is a deliberate
+ * operator action; it is never invoked by boot, deploy, or
+ * tick logic.
+ */
+import type { ShardJobRow } from "./shardJobPorts";
+import type { ReconcileShardJobsReport } from "./shardJobProjection";
+
+export interface JobHistoryRouteInput {
+  /** Wired session, or null when unauthenticated. */
+  session: unknown;
+  method: string;
+  tenantId: string;
+  chainId: string;
+  readHistory: () => Promise<ShardJobRow[]>;
+}
+
+export async function handleJobHistoryRoute(
+  input: JobHistoryRouteInput,
+): Promise<Response> {
+  if (!input.session) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (input.method !== "GET") {
+    return new Response(JSON.stringify({ error: "method_not_allowed" }), {
+      status: 405,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (!input.chainId) {
+    return new Response(JSON.stringify({ error: "chainId_required" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  try {
+    const jobs = await input.readHistory();
+    return new Response(
+      JSON.stringify({
+        chainId: input.chainId,
+        jobs: jobs.map((job) => ({
+          jobKey: job.jobKey,
+          status: job.status,
+          stage: job.stage,
+          capabilityId: job.capabilityId,
+          detail: job.detail,
+          version: job.version,
+          updatedAtMs: job.updatedAtMs,
+        })),
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  } catch (err) {
+    console.error(
+      "[data-foundation] Job history read failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return new Response(JSON.stringify({ error: "job_history_failed" }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
+}
+
+export interface ReconcileJobsRouteInput {
+  /** Wired session, or null when unauthenticated. */
+  session: unknown;
+  method: string;
+  /** False when the caller lacks platform-admin membership. */
+  isPlatformAdmin: boolean;
+  tenantId: string;
+  runReconcile: (args: {
+    tenantId: string;
+  }) => Promise<ReconcileShardJobsReport>;
+}
+
+export async function handleReconcileJobsRoute(
+  input: ReconcileJobsRouteInput,
+): Promise<Response> {
+  if (!input.session) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (input.method !== "POST") {
+    return new Response(JSON.stringify({ error: "method_not_allowed" }), {
+      status: 405,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  const sessionRecord = input.session as { internalUserId?: unknown };
+  if (typeof sessionRecord.internalUserId !== "string") {
+    return new Response(JSON.stringify({ error: "forbidden" }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (!input.isPlatformAdmin) {
+    return new Response(JSON.stringify({ error: "forbidden" }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  try {
+    const report = await input.runReconcile({ tenantId: input.tenantId });
+    return new Response(JSON.stringify(report), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  } catch (err) {
+    console.error(
+      "[data-foundation] Shard job reconcile failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return new Response(JSON.stringify({ error: "reconcile_failed" }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
+}

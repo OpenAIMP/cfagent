@@ -95,6 +95,17 @@
  *   history the status read and reconciliation reason about. The
  *   DO remains authoritative; these rows are never the sole
  *   record of anything.
+ * - agent_shard_jobs (AgentDB projection, slice 2, issue #1676) —
+ *   BOUNDED, mirroring the mas_async_jobs discipline it projects
+ *   (terminal rows 30d + 500-row cap): job rows are operational
+ *   run history, not lifecycle audit — unlike agent_chains, whose
+ *   versions are the audit trail the status read reasons about,
+ *   a pruned job version destroys no lifecycle fact (the chain
+ *   row keeps it), and the rails source already discards the
+ *   same rows at 30d, so an older projection row would outlive
+ *   its source. Enforcement lands with the retention slice;
+ *   until then rows accrue unbounded and this line is the
+ *   contract that enforcement implements.
  * - usage_events (not a mas_* table) — PRUNE-CLASS, 365d, recorded here
  *   per issue #792's deferral, implementation deferred to its first
  *   production reader: rows are split across two DOs' databases

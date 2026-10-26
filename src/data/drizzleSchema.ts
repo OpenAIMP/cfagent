@@ -8,7 +8,12 @@
  * this mapping and that DDL agree on columns. If they ever drift,
  * the migration file wins and this mapping is fixed to match.
  */
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 
 /** Mirror of governance transitions (slice 0: halt rows only). */
 export const agentGovernance = sqliteTable("agent_governance", {
@@ -42,6 +47,37 @@ export const agentChains = sqliteTable("agent_chains", {
 });
 
 /** Projection of a synthesized schedule (slice 1, issue #1651). */
+/**
+ * Issue #1676: agent_shard_jobs projection table. Grain: one
+ * row per (tenant, chain, job, version). Column names match
+ * migration 0003 exactly; the test pins the two together.
+ */
+export const agentShardJobs = sqliteTable(
+  "agent_shard_jobs",
+  {
+    tenantId: text("tenant_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    chainId: text("chain_id").notNull(),
+    jobKey: text("job_key").notNull(),
+    version: integer("version").notNull(),
+    status: text("status").notNull(),
+    stage: text("stage").notNull(),
+    capabilityId: text("capability_id").notNull(),
+    detail: text("detail").notNull(),
+    resultJson: text("result_json").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+    provenanceWriter: text("provenance_writer").notNull(),
+    provenanceSourceDo: text("provenance_source_do").notNull(),
+    provenanceSourceVersion: text("provenance_source_version").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.tenantId, table.chainId, table.jobKey, table.version],
+    }),
+  ],
+);
+
 export const agentSynthesizedSchedules = sqliteTable(
   "agent_synthesized_schedules",
   {

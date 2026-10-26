@@ -118,9 +118,44 @@ CREATE INDEX IF NOT EXISTS agent_synthesized_schedules_tenant_schedule_idx ON ag
 `,
 };
 
+/**
+ * Issue #1676: agent_shard_jobs. Grain: one row per (chain,
+ * job, version). The PRIMARY KEY on (tenant_id, chain_id,
+ * job_key, version) is the idempotency guarantee: replaying
+ * the same version is ON CONFLICT DO NOTHING, so at-least-once
+ * projection delivery is safe. Row shape mirrors the R4
+ * columns: tenant/workspace/chain/version, timestamps,
+ * provenance. The result_json column is capped by the
+ * projector (see src/data/shardJobProjection.ts), never by
+ * the database.
+ */
+export const MIGRATION_0003_AGENT_SHARD_JOBS: DataMigration = {
+  version: 3,
+  name: "0003_agent_shard_jobs",
+  sql: `CREATE TABLE IF NOT EXISTS agent_shard_jobs (
+  tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  chain_id TEXT NOT NULL,
+  job_key TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  capability_id TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  provenance_writer TEXT NOT NULL,
+  provenance_source_do TEXT NOT NULL,
+  provenance_source_version TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, chain_id, job_key, version)
+);`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
+  MIGRATION_0003_AGENT_SHARD_JOBS,
 ];
 
 function splitStatements(sqlText: string): string[] {
