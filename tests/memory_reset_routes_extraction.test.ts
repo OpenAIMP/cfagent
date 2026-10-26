@@ -111,9 +111,13 @@ describe("handleMemoryResetRoutes behavior", () => {
     const ctx = baseCtx();
     expect(await handleMemoryResetRoutes(req("GET", "/api/audit"), urlOf("/api/audit"), "/api/audit", "s", ctx)).toBeNull();
     expect(await handleMemoryResetRoutes(req("POST", "/memoryx"), urlOf("/memoryx"), "/memoryx", "s", ctx)).toBeNull();
-    // /memory with a method the original block did not handle falls through
-    // (verbatim from the original inline block — no response, orchestrator continues).
-    expect(await handleMemoryResetRoutes(req("POST", "/api/memory"), urlOf("/api/memory"), "/api/memory", "s", ctx)).toBeNull();
+    // #1723: POST /api/memory is NO LONGER a fall-through — it is the new
+    // remember route (same command, transport + envelope only). An
+    // empty-body POST is a 400, not a null fall-through; the old pin
+    // asserting null here is superseded by this slice.
+    const postRes = await handleMemoryResetRoutes(req("POST", "/api/memory"), urlOf("/api/memory"), "/api/memory", "s", ctx);
+    expect(postRes).not.toBeNull();
+    expect(postRes!.status).toBe(400);
     expect(ctx.audit).not.toHaveBeenCalled();
   });
 

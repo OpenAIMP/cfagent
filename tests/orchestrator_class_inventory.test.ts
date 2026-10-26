@@ -94,8 +94,13 @@ const ORCH = "agents/orchestrator.ts";
  *  pre-#1236 tree; budget lines rise to 2150 and bytes keep
  *  Combined #1661 merge tree measured 2,148 lines / 99,936 B;
  *  budget lines keep 2150 and bytes keep 103_300, which still
- *  cover the combined tree. */
-const BUDGET_LINES = 2150;
+ *  cover the combined tree.
+ *  Knowledge + memory unification (#1723, parent #1717 slice (c))
+ *  passes Worker env into the memory route call site (MEMORY_READ_MODE
+ *  env level on GET /memory) — measured 2,152 lines / 100,195 B
+ *  after the addition; budget lines rise to 2160, bytes keep
+ *  103_300, which still cover the tree. */
+const BUDGET_LINES = 2160;
 const BUDGET_BYTES = 103_300;
 
 const count = (haystack: string, needle: string) =>

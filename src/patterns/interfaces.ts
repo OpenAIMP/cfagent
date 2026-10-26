@@ -38,6 +38,21 @@ export interface McpToolContext {
    * fall through to env. See src/config/nlqModes.ts.
    */
   scopedNlqModes?: import("../config/nlqModes").NlqScopedModes;
+  /**
+   * #1723: optional session/user carriers for the KNOWLEDGE_MODE switch
+   * (run comes from the per-call `mode` input, global env from
+   * `env`). Populated by the execution-context owner; unset carriers
+   * fall through to env. See src/config/knowledgeMemoryModes.ts.
+   */
+  scopedKnowledgeModes?: import("../config/knowledgeMemoryModes").KnowledgeScopedModes;
+  /**
+   * #1723: optional session/user carriers for the MEMORY_READ_MODE
+   * switch (run comes from the per-call `mode` input / REST `?mode=`,
+   * global env from `env`). Populated by the execution-context
+   * owner; unset carriers fall through to env. Covers the read cap
+   * only — never remember/delete/clear.
+   */
+  scopedMemoryModes?: import("../config/knowledgeMemoryModes").MemoryScopedModes;
   requestId?: string;
   audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
   facade?: IMcpSystemFacade;

@@ -156,6 +156,28 @@ export interface Env {
   // enforcement exclusions (x-user-login gate, webhook social-port
   // withholding) live in src/config/nlqModes.ts.
   NLQ_MODE?: string;
+  // #1723 (parent #1717, slice (c)) — TWO knowledge + memory switches
+  // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
+  // KNOWLEDGE_MODE: "search" | "platform" (case-insensitive, padded
+  // values accepted). Built-in default = the calling tool's own
+  // legacy contract (knowledge_search → "search",
+  // query_platform_knowledge → "platform") — there is no REST search
+  // route whose behavior could serve as a single default. Any other
+  // value FAILS CLOSED to the calling tool's legacy and is logged +
+  // audited as knowledge.config_error — never silently treated as the
+  // other contract. Resolution order (run > session > user > global
+  // env > built-in) lives in src/config/knowledgeMemoryModes.ts.
+  KNOWLEDGE_MODE?: string;
+  // MEMORY_READ_MODE: "capped" | "uncapped" (case-insensitive, padded
+  // values accepted). Governs the memory READ CAP ONLY (never
+  // remember/delete/clear). Built-in default = the calling surface's
+  // own legacy cap (REST GET /memory → "capped" at 100 rows; MCP
+  // list / memory resource → "uncapped"). Any other value FAILS
+  // CLOSED to the surface legacy and is logged + audited as
+  // memory.config_error. This slice deliberately does NOT set a
+  // production value for either switch: production values are an
+  // owner action. Rollback is unsetting the var and redeploying.
+  MEMORY_READ_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;

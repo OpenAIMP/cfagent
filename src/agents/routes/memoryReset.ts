@@ -2,7 +2,7 @@
  * Issue #359-06: memory + reset routes extracted from OrchestratorAgent.routeRequest
  * (src/agents/orchestrator.ts). Pure move — no behavior change.
  *
- * Owns the Persistent Memory facts endpoint (GET /memory, DELETE /memory)
+ * Owns the Persistent Memory facts endpoint (GET /memory, POST /memory, DELETE /memory)
  * and the session reset endpoint (POST|DELETE|GET /clear or /reset). The two
  * blocks were contiguous in routeRequest (between the autopilot handler and
  * the referrals+ads handler), so this module exports ONE handler invoked from
@@ -27,10 +27,30 @@ import type { AgentName } from "../../types";
 import { DatabaseORM, type SqlStorage } from "../../orm";
 import type { MemoryRecord } from "../../types";
 import { runRestTool } from "./restToolBridge";
+import {
+  MEMORY_READ_MODE_SWITCH,
+  applyMemoryReadCap,
+  levelsForMemory,
+  memoryConfigErrorEvent,
+  resolveMemoryReadMode,
+  type MemoryScopedModes,
+} from "../../config/knowledgeMemoryModes";
 
 /** The subset of OrchestratorAgent surface the memory/reset handlers need. */
 export interface MemoryResetRouteContext {
   ensureTables(): SqlStorage;
+  /**
+   * #1723: Worker env for the MEMORY_READ_MODE env level on GET
+   * /memory (optional — unset falls through to the builtin "capped").
+   * Populated by the orchestrator call site.
+   */
+  env?: { MEMORY_READ_MODE?: unknown };
+  /**
+   * #1723: optional session/user carriers for MEMORY_READ_MODE on GET
+   * /memory (run = the `?mode=` query param). Populated by the
+   * execution-context owner; unset carriers fall through to env.
+   */
+  scopedMemoryModes?: MemoryScopedModes;
   /**
    * #1644: ORM accessor for command execution. Optional — routes without
    * it build a DatabaseORM over ensureTables() (same tables, no seeding).
@@ -66,9 +86,16 @@ export async function handleMemoryResetRoutes(
 ): Promise<Response | null> {
   // Persistent Memory facts endpoint
   // #1644: memory reads/writes execute through the manage_session_memory
-  // command. The route keeps its contract as presentation: the 100-cap
+  // command. The route keeps its contract as presentation: the read cap
   // and row mapping on GET, and its memory.deleted / memory.cleared audits
   // plus {success:true} shapes on DELETE.
+  // #1723: GET resolves MEMORY_READ_MODE at the route (run = `?mode=`
+  // query param > session/user carriers > env > builtin "capped",
+  // the REST legacy). Invalid wins fail closed to "capped", logged +
+  // audited as memory.config_error. The command's own resolution
+  // applies on the MCP surface; the route deliberately does NOT
+  // forward its carriers into the command call, so an invalid value
+  // is audited exactly once, here.
   if (path.endsWith("/memory")) {
     const orm = ctx.getOrm?.() ?? new DatabaseORM(ctx.ensureTables());
     const toolParts = {
@@ -82,7 +109,25 @@ export async function handleMemoryResetRoutes(
         const out = (await runRestTool("manage_session_memory", { action: "list" }, toolParts)) as {
           memories: Array<{ key: string; value: string; updatedAt: string }>;
         };
-        const memories: MemoryRecord[] = out.memories.slice(0, 100).map((m) => ({
+        const resolved = resolveMemoryReadMode(
+          levelsForMemory(
+            ctx.scopedMemoryModes,
+            url.searchParams.get("mode") ?? undefined,
+            ctx.env?.MEMORY_READ_MODE
+          ),
+          "capped"
+        );
+        if (resolved.invalid) {
+          console.error(
+            `[memory] invalid ${MEMORY_READ_MODE_SWITCH} value ${JSON.stringify(resolved.raw)} — failing closed to "capped"`
+          );
+          ctx.audit(memoryConfigErrorEvent(), "orchestrator", {
+            setting: MEMORY_READ_MODE_SWITCH,
+            value: resolved.raw ?? "",
+            resolved: "capped",
+          });
+        }
+        const memories: MemoryRecord[] = applyMemoryReadCap(out.memories, resolved.mode).map((m) => ({
           key: String(m.key),
           value: String(m.value),
           updatedAt: String(m.updatedAt),
@@ -106,6 +151,51 @@ export async function handleMemoryResetRoutes(
         return Response.json({ success: true });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to delete memory" }, { status: 500 });
+      }
+    }
+
+    // #1723: POST /memory closes the M09 gap — REST could list and
+    // delete facts it could not create. This is transport + envelope
+    // ONLY: it reuses the same manage_session_memory command (same
+    // mas_memory store, same upsert-by-key, same non-empty key+value
+    // validation) and adds NO new store or engine. The MCP write path
+    // is NOT removed. Validation failures map to 400 (transport
+    // error-status mapping, as the route owns); the command already
+    // audits memory.remembered, so — unlike DELETE, whose audits the
+    // command does not emit — the route adds no second audit.
+    if (request.method === "POST") {
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Request body must be valid JSON" }, { status: 400 });
+      }
+      const key = typeof (body as { key?: unknown })?.key === "string"
+        ? ((body as { key: string }).key.trim())
+        : "";
+      const value = typeof (body as { value?: unknown })?.value === "string"
+        ? ((body as { value: string }).value.trim())
+        : "";
+      if (!key || !value) {
+        return Response.json({ error: "key and value are required to remember fact" }, { status: 400 });
+      }
+      try {
+        const out = (await runRestTool("manage_session_memory", { action: "remember", key, value }, toolParts)) as {
+          success: boolean;
+          stored: boolean;
+          key: string;
+          value: string;
+          memory: { updatedAt: string };
+        };
+        return Response.json({
+          success: true,
+          stored: out.stored,
+          key: out.key,
+          value: out.value,
+          updatedAt: out.memory?.updatedAt,
+        });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "Failed to remember fact" }, { status: 500 });
       }
     }
   }

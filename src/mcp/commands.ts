@@ -66,6 +66,19 @@ import {
 
 import { searchPlatformKnowledge } from "../services/platformKnowledge";
 import {
+  KNOWLEDGE_MODE_SWITCH,
+  MEMORY_READ_MODE_SWITCH,
+  applyMemoryReadCap,
+  knowledgeConfigErrorEvent,
+  levelsForKnowledge,
+  levelsForMemory,
+  memoryConfigErrorEvent,
+  resolveKnowledgeMode,
+  resolveMemoryReadMode,
+  type KnowledgeMode,
+  type MemoryReadMode,
+} from "../config/knowledgeMemoryModes";
+import {
   NLQ_MODE_SWITCH,
   levelsForNlq,
   nlqConfigErrorEvent,
@@ -123,107 +136,216 @@ function resolveCommandMode(
 }
 
 /**
+ * #1723: resolves KNOWLEDGE_MODE for one knowledge-tool execution in
+ * run > session > user > env > builtin order. Run = the per-call
+ * `mode` input; session/user = context.scopedKnowledgeModes carriers;
+ * env = context.env. `legacy` is the calling tool's own legacy
+ * contract. An invalid winning value fails closed to `legacy` and is
+ * logged + audited as knowledge.config_error.
+ */
+function resolveKnowledgeForTool(
+  context: McpToolContext,
+  run: unknown,
+  legacy: KnowledgeMode
+): KnowledgeMode {
+  const resolved = resolveKnowledgeMode(
+    levelsForKnowledge(
+      context.scopedKnowledgeModes,
+      run,
+      (context.env as unknown as Record<string, unknown> | undefined)?.[KNOWLEDGE_MODE_SWITCH]
+    ),
+    legacy
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[knowledge] invalid ${KNOWLEDGE_MODE_SWITCH} value ${JSON.stringify(resolved.raw)} — failing closed to "${legacy}"`
+    );
+    context.audit(knowledgeConfigErrorEvent(), "orchestrator", {
+      setting: KNOWLEDGE_MODE_SWITCH,
+      value: resolved.raw ?? "",
+      resolved: legacy,
+    });
+  }
+  return resolved.mode;
+}
+
+/**
+ * #1723: resolves MEMORY_READ_MODE for one memory-list execution in
+ * run > session > user > env > builtin order. `legacy` is the calling
+ * surface's own legacy cap. Invalid wins fail closed to `legacy`,
+ * logged + audited as memory.config_error. Callers resolve ONLY for
+ * list: remember/delete/clear never consult the switch.
+ */
+function resolveMemoryReadForList(
+  context: McpToolContext,
+  run: unknown,
+  legacy: MemoryReadMode
+): MemoryReadMode {
+  const resolved = resolveMemoryReadMode(
+    levelsForMemory(
+      context.scopedMemoryModes,
+      run,
+      (context.env as unknown as Record<string, unknown> | undefined)?.[MEMORY_READ_MODE_SWITCH]
+    ),
+    legacy
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[memory] invalid ${MEMORY_READ_MODE_SWITCH} value ${JSON.stringify(resolved.raw)} — failing closed to "${legacy}"`
+    );
+    context.audit(memoryConfigErrorEvent(), "orchestrator", {
+      setting: MEMORY_READ_MODE_SWITCH,
+      value: resolved.raw ?? "",
+      resolved: legacy,
+    });
+  }
+  return resolved.mode;
+}
+
+/** #1723: maps a platform-knowledge result into the search `chunks` shape (score 1.0, legacy verbatim). */
+function platformResultToChunks(result: ReturnType<typeof searchPlatformKnowledge>) {
+  return result.results.map((r) => ({
+    id: r.id,
+    title: r.title,
+    text: `${r.summary}\n\nDetails: ${r.details}\n\nHow to Use:\n${r.howToUse.join("\n")}`,
+    targetTab: r.targetTab,
+    samplePrompt: r.samplePrompt,
+    score: 1.0,
+  }));
+}
+
+/**
+ * #1723: the "search" contract — KnowledgeSearchCommand legacy verbatim
+ * (AI-search attempt, platform fallback max 3, chunks ≤5, no-throw
+ * error shape). Shared by both tools when the switch resolves to
+ * "search"; `toolName` is the invoked tool, for audit attribution.
+ */
+async function runSearchContract(query: string, context: McpToolContext, toolName: string) {
+  const isPlatformQuery = /\b(platform|capability|capabilities|workflow|workflows|screener|screening|options\s*flow|builder|payoff|hitl|guardrail|etrade|did|schedule|cron|nlq|how\s+to|pickbesttrades|faq)\b/i.test(query);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const endpoint = (context.env as any)?.AI_SEARCH_ENDPOINT;
+    let chunks: any[] = [];
+    if (endpoint) {
+      const response = await fetch(`${endpoint}/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [{ role: "user", content: query }] }),
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        const data = (await response.json()) as any;
+        const rawChunks = data?.result?.chunks ?? (Array.isArray(data) ? data : []);
+        chunks = Array.isArray(rawChunks) ? rawChunks : [];
+      }
+    }
+    clearTimeout(timeout);
+
+    // If no chunks from external AI search or if this is a platform query, ground with platform knowledge
+    if (chunks.length === 0 || isPlatformQuery) {
+      const platformResult = searchPlatformKnowledge(query, { maxResults: 3 });
+      if (platformResult.count > 0) {
+        context.audit("mcp.tool_called", "orchestrator", { tool: toolName, query, count: platformResult.count, source: "platform_knowledge" });
+        return {
+          query,
+          count: platformResult.count,
+          chunks: platformResultToChunks(platformResult),
+          answer: platformResult.formattedAnswer,
+          message: `Retrieved ${platformResult.count} platform capability documentation guides from the internal Platform Knowledge Base.`,
+        };
+      }
+    }
+
+    context.audit("mcp.tool_called", "orchestrator", { tool: toolName, query, count: chunks.length });
+    return {
+      query,
+      count: chunks.length,
+      chunks: chunks.slice(0, 5),
+      message: chunks.length > 0
+        ? `Retrieved ${chunks.length} factual documents from Cloudflare AI Search.`
+        : "No custom indexed documents found in the Cloudflare AI Search knowledge base. Synthesize a helpful, authoritative response from general knowledge, clearly informing the user that no specific internal documents were indexed.",
+    };
+  } catch (err: any) {
+    clearTimeout(timeout);
+    const platformResult = searchPlatformKnowledge(query, { maxResults: 3 });
+    if (platformResult.count > 0) {
+      return {
+        query,
+        count: platformResult.count,
+        chunks: platformResultToChunks(platformResult),
+        answer: platformResult.formattedAnswer,
+        message: `Retrieved ${platformResult.count} platform capability documentation guides from the internal Platform Knowledge Base.`,
+      };
+    }
+    return { error: err.message || "Search request failed", query, count: 0, chunks: [] };
+  }
+}
+
+/**
+ * #1723: the "platform" contract — QueryPlatformKnowledgeCommand legacy
+ * verbatim (always platform, max 5, optional category filter, `results`
+ * shape). Shared by both tools when the switch resolves to "platform".
+ */
+function runPlatformContract(
+  query: string,
+  category: string | undefined,
+  context: McpToolContext,
+  toolName: string
+) {
+  const result = searchPlatformKnowledge(query, { category, maxResults: 5 });
+  context.audit("mcp.tool_called", "orchestrator", { tool: toolName, query, count: result.count });
+  return {
+    query,
+    count: result.count,
+    results: result.results,
+    answer: result.formattedAnswer,
+  };
+}
+
+/**
  * 1. Knowledge Search Command (RAG Vectorize & Cloudflare AI Search)
  */
-export class KnowledgeSearchCommand implements IMcpToolCommand<{ query: string }> {
+export class KnowledgeSearchCommand implements IMcpToolCommand<{ query: string; mode?: string; category?: string }> {
   readonly name = "knowledge_search";
   readonly description = "Search the organization's enterprise knowledge base using Cloudflare AI Search RAG with Vectorize index retrieval, with automatic fallback to platform capabilities and workflows.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
       query: { type: "string", description: "Search query or natural language inquiry" },
+      // #1723: run-level KNOWLEDGE_MODE ("search" | "platform"); unset = tool legacy ("search").
+      mode: { type: "string", description: "Optional KNOWLEDGE_MODE run override: \"search\" (AI-first, default) or \"platform\" (always platform catalog)" },
+      // #1723: honored only in "platform" mode (mirrors query_platform_knowledge).
+      category: { type: "string", description: "Optional category filter, honored only in \"platform\" mode (e.g. stocks, options, flows, brokerage, scheduled, nlq, all)" },
     },
     required: ["query"],
   };
   readonly zodSchema = z.object({
     query: z.string().min(1).describe("Search query or natural language inquiry"),
+    mode: z.string().optional().describe("KNOWLEDGE_MODE run override"),
+    category: z.string().optional().describe("Category filter, honored only in platform mode"),
   });
 
-  async execute(input: { query: string }, context: McpToolContext) {
+  async execute(input: { query: string; mode?: string; category?: string }, context: McpToolContext) {
     const query = String(input.query || "").trim();
     if (!query) throw new Error("query is required");
 
-    const isPlatformQuery = /\b(platform|capability|capabilities|workflow|workflows|screener|screening|options\s*flow|builder|payoff|hitl|guardrail|etrade|did|schedule|cron|nlq|how\s+to|pickbesttrades|faq)\b/i.test(query);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
-    try {
-      const endpoint = (context.env as any)?.AI_SEARCH_ENDPOINT;
-      let chunks: any[] = [];
-      if (endpoint) {
-        const response = await fetch(`${endpoint}/search`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: [{ role: "user", content: query }] }),
-          signal: controller.signal,
-        });
-        if (response.ok) {
-          const data = (await response.json()) as any;
-          const rawChunks = data?.result?.chunks ?? (Array.isArray(data) ? data : []);
-          chunks = Array.isArray(rawChunks) ? rawChunks : [];
-        }
-      }
-      clearTimeout(timeout);
-
-      // If no chunks from external AI search or if this is a platform query, ground with platform knowledge
-      if (chunks.length === 0 || isPlatformQuery) {
-        const platformResult = searchPlatformKnowledge(query, { maxResults: 3 });
-        if (platformResult.count > 0) {
-          context.audit("mcp.tool_called", "orchestrator", { tool: this.name, query, count: platformResult.count, source: "platform_knowledge" });
-          return {
-            query,
-            count: platformResult.count,
-            chunks: platformResult.results.map((r) => ({
-              id: r.id,
-              title: r.title,
-              text: `${r.summary}\n\nDetails: ${r.details}\n\nHow to Use:\n${r.howToUse.join("\n")}`,
-              targetTab: r.targetTab,
-              samplePrompt: r.samplePrompt,
-              score: 1.0,
-            })),
-            answer: platformResult.formattedAnswer,
-            message: `Retrieved ${platformResult.count} platform capability documentation guides from the internal Platform Knowledge Base.`,
-          };
-        }
-      }
-
-      context.audit("mcp.tool_called", "orchestrator", { tool: this.name, query, count: chunks.length });
-      return {
-        query,
-        count: chunks.length,
-        chunks: chunks.slice(0, 5),
-        message: chunks.length > 0
-          ? `Retrieved ${chunks.length} factual documents from Cloudflare AI Search.`
-          : "No custom indexed documents found in the Cloudflare AI Search knowledge base. Synthesize a helpful, authoritative response from general knowledge, clearly informing the user that no specific internal documents were indexed.",
-      };
-    } catch (err: any) {
-      clearTimeout(timeout);
-      const platformResult = searchPlatformKnowledge(query, { maxResults: 3 });
-      if (platformResult.count > 0) {
-        return {
-          query,
-          count: platformResult.count,
-          chunks: platformResult.results.map((r) => ({
-            id: r.id,
-            title: r.title,
-            text: `${r.summary}\n\nDetails: ${r.details}\n\nHow to Use:\n${r.howToUse.join("\n")}`,
-            targetTab: r.targetTab,
-            samplePrompt: r.samplePrompt,
-            score: 1.0,
-          })),
-          answer: platformResult.formattedAnswer,
-          message: `Retrieved ${platformResult.count} platform capability documentation guides from the internal Platform Knowledge Base.`,
-        };
-      }
-      return { error: err.message || "Search request failed", query, count: 0, chunks: [] };
+    // #1723: KNOWLEDGE_MODE dispatch. Legacy "search" is the builtin
+    // default for this tool; an explicit run/session/user/env level
+    // may select "platform" (category honored only in that mode).
+    const mode = resolveKnowledgeForTool(context, input.mode, "search");
+    if (mode === "platform") {
+      return runPlatformContract(query, input.category, context, this.name);
     }
+    return runSearchContract(query, context, this.name);
   }
 }
 
 /**
  * 1b. Query Platform Knowledge & Capabilities Command
  */
-export class QueryPlatformKnowledgeCommand implements IMcpToolCommand<{ query: string; category?: string }> {
+export class QueryPlatformKnowledgeCommand implements IMcpToolCommand<{ query: string; category?: string; mode?: string }> {
   readonly name = "query_platform_knowledge";
   readonly description = "Retrieve authoritative information on platform capabilities, 8 core workflows, 8 quantitative FAQs/playbooks, 6 decisioning & logic engines (including PickBestTrades and screeners), and step-by-step instructions on how to use them through chat or UI tabs.";
   readonly jsonSchema = {
@@ -231,26 +353,31 @@ export class QueryPlatformKnowledgeCommand implements IMcpToolCommand<{ query: s
     properties: {
       query: { type: "string", description: "Question or topic regarding platform capabilities, workflows, or usage" },
       category: { type: "string", description: "Optional category filter (e.g. stocks, options, flows, brokerage, scheduled, nlq, all)" },
+      // #1723: run-level KNOWLEDGE_MODE ("search" | "platform"); unset = tool legacy ("platform").
+      mode: { type: "string", description: "Optional KNOWLEDGE_MODE run override: \"platform\" (always platform catalog, default) or \"search\" (AI-first)" },
     },
     required: ["query"],
   };
   readonly zodSchema = z.object({
     query: z.string().min(1).describe("Question or topic regarding platform capabilities, workflows, or usage"),
     category: z.string().optional().describe("Optional category filter"),
+    mode: z.string().optional().describe("KNOWLEDGE_MODE run override"),
   });
 
-  async execute(input: { query: string; category?: string }, context: McpToolContext) {
+  async execute(input: { query: string; category?: string; mode?: string }, context: McpToolContext) {
     const query = String(input.query || "").trim();
     if (!query) throw new Error("query is required");
 
-    const result = searchPlatformKnowledge(query, { category: input.category, maxResults: 5 });
-    context.audit("mcp.tool_called", "orchestrator", { tool: this.name, query, count: result.count });
-    return {
-      query,
-      count: result.count,
-      results: result.results,
-      answer: result.formattedAnswer,
-    };
+    // #1723: KNOWLEDGE_MODE dispatch. Legacy "platform" is the builtin
+    // default for this tool; an explicit run/session/user/env level
+    // may select "search" (the AI-first contract; `category` is
+    // ignored in that mode, matching knowledge_search legacy, which
+    // has no category input on its fallback).
+    const mode = resolveKnowledgeForTool(context, input.mode, "platform");
+    if (mode === "search") {
+      return runSearchContract(query, context, this.name);
+    }
+    return runPlatformContract(query, input.category, context, this.name);
   }
 }
 
@@ -1103,6 +1230,7 @@ export class ManageSessionMemoryCommand implements IMcpToolCommand<{
   action: "list" | "remember" | "delete" | "clear";
   key?: string;
   value?: string;
+  mode?: string;
 }> {
   readonly name = "manage_session_memory";
   readonly description = "Read, persist, or clear persistent grounding session facts stored in mas_memory SQLite key-value store.";
@@ -1112,6 +1240,10 @@ export class ManageSessionMemoryCommand implements IMcpToolCommand<{
       action: { type: "string", enum: ["list", "remember", "delete", "clear"], description: "Memory action" },
       key: { type: "string", description: "Memory key (e.g. preferred_gateway)" },
       value: { type: "string", description: "Memory value fact to store" },
+      // #1723: run-level MEMORY_READ_MODE ("capped" | "uncapped"),
+      // honored ONLY for action:"list" (read cap). Unset = MCP legacy
+      // ("uncapped"). Remember/delete/clear are never gated by it.
+      mode: { type: "string", description: "Optional MEMORY_READ_MODE run override for list only: capped (first 100) or uncapped (all, default)" },
     },
     required: ["action"],
   };
@@ -1119,13 +1251,20 @@ export class ManageSessionMemoryCommand implements IMcpToolCommand<{
     action: z.enum(["list", "remember", "delete", "clear"]).describe("Memory action"),
     key: z.string().optional().describe("Memory key"),
     value: z.string().optional().describe("Memory value fact"),
+    mode: z.string().optional().describe("MEMORY_READ_MODE run override, list only"),
   });
 
   async execute(input: any, context: McpToolContext) {
     const action = input.action;
 
     if (action === "list") {
-      const memories = context.orm.memory.findMany({ orderBy: "updated_at DESC" });
+      // #1723: the switch covers the read cap only. MCP legacy is
+      // "uncapped"; an explicit run/session/user/env level may cap.
+      const mode = resolveMemoryReadForList(context, input.mode, "uncapped");
+      const memories = applyMemoryReadCap(
+        context.orm.memory.findMany({ orderBy: "updated_at DESC" }),
+        mode
+      );
       return { count: memories.length, memories };
     }
 
