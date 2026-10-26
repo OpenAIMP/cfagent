@@ -114,6 +114,23 @@ export interface Env {
   // values are an owner action. Resolved by resolvePaymentsFlowMode
   // in src/agents/routes/payments.ts.
   PAYMENTS_FLOW_MODE?: string;
+  // #1721 (parent #1717) — ONE switch per categories / referrals /
+  // external-ads pair (non-secret, owner-set, same pattern as
+  // PAYMENTS_FLOW_MODE). Values "route" | "mcp" (case-insensitive,
+  // padded values accepted). Default when unset or blank: "route" —
+  // current public route behavior (notably external ads cpm 15.0 /
+  // cpc 1.25). Any other value FAILS CLOSED to "route" and is logged
+  // + audited as <domain>.config_error — never silently treated as
+  // "mcp". Set via a Worker plain-text var (wrangler.jsonc `vars` or
+  // the Cloudflare dashboard Variables) and redeploy; rollback is
+  // unsetting the var (or setting it to "route") and redeploying — no
+  // code change. This slice deliberately does NOT set a production
+  // value: production values are an owner action. Resolution order
+  // (run > session > user > global env > built-in) lives in
+  // src/config/adsRevenueModes.ts.
+  CATEGORIES_MODE?: string;
+  REFERRALS_MODE?: string;
+  EXTERNAL_ADS_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;

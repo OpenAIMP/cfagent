@@ -65,6 +65,56 @@ import {
 } from "./agentDbReadCommands";
 
 import { searchPlatformKnowledge } from "../services/platformKnowledge";
+import {
+  ADS_REVENUE_SWITCHES,
+  adsRevenueConfigErrorEvent,
+  categoryCreateId,
+  categoryCreateSlug,
+  categoryCreateValues,
+  categoryListOptions,
+  categoryUpdatePatch,
+  externalAdClickEarnings,
+  externalAdCreateId,
+  externalAdCreateValues,
+  externalAdImpressionEarnings,
+  externalAdListOptions,
+  externalAdUpdatePatch,
+  levelsForDomain,
+  referralCreateValues,
+  referralListOptions,
+  resolveAdsRevenueMode,
+  type AdsRevenueDomain,
+  type AdsRevenueMode,
+} from "../config/adsRevenueModes";
+
+/**
+ * #1721: resolves one ads/revenue switch for an MCP execution in
+ * run > session > user > env > builtin order. Run = the per-call
+ * `mode` input; session/user = context.scopedModes carriers; env =
+ * context.env. An invalid winning value fails closed to "route" and
+ * is logged + audited as `<domain>.config_error`.
+ */
+function resolveCommandMode(
+  context: McpToolContext,
+  domain: AdsRevenueDomain,
+  run: unknown
+): AdsRevenueMode {
+  const switchName = ADS_REVENUE_SWITCHES[domain];
+  const resolved = resolveAdsRevenueMode(
+    levelsForDomain(context.scopedModes, domain, run, (context.env as unknown as Record<string, unknown> | undefined)?.[switchName])
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[ads-revenue] invalid ${switchName} value ${JSON.stringify(resolved.raw)} — failing closed to "route"`
+    );
+    context.audit(adsRevenueConfigErrorEvent(domain), "orchestrator", {
+      setting: switchName,
+      value: resolved.raw ?? "",
+      resolved: "route",
+    });
+  }
+  return resolved.mode;
+}
 
 /**
  * 1. Knowledge Search Command (RAG Vectorize & Cloudflare AI Search)
@@ -617,14 +667,23 @@ export class QueryTableDataCommand implements IMcpToolCommand<{
 
 /**
  * 9. Manage Categories Command
+ * #1721: value contract switched by CATEGORIES_MODE (default route).
+ * Audit parity: this command audits category.created/updated/deleted
+ * in BOTH modes (pre-#1721 it audited nothing). New additive inputs:
+ * `mode` (per-call run override), `slug` and `isActive` (needed for
+ * route-mode create/update fidelity; ignored in mcp mode, where the
+ * legacy contract never took them).
  */
 export class ManageCategoriesCommand implements IMcpToolCommand<{
   action: "list" | "create" | "update" | "delete";
   id?: string;
   name?: string;
+  slug?: string;
   icon?: string;
   description?: string;
   sortOrder?: number;
+  isActive?: boolean;
+  mode?: string;
 }> {
   readonly name = "manage_categories";
   readonly description = "Full CRUD management for referral categories taxonomy in mas_categories via DatabaseORM.";
@@ -634,9 +693,12 @@ export class ManageCategoriesCommand implements IMcpToolCommand<{
       action: { type: "string", enum: ["list", "create", "update", "delete"], description: "Category operation" },
       id: { type: "string", description: "Category ID (required for update/delete)" },
       name: { type: "string", description: "Category name (required for create)" },
+      slug: { type: "string", description: "Category slug (route mode only; ignored in mcp mode)" },
       icon: { type: "string", description: "Emoji or icon for category" },
       description: { type: "string", description: "Category description" },
       sortOrder: { type: "number", description: "Sort priority order" },
+      isActive: { type: "boolean", description: "Whether the category is active (route mode only; mcp mode forces true on create and never touches it on update)" },
+      mode: { type: "string", description: "Per-call contract variant: route (default) or mcp" },
     },
     required: ["action"],
   };
@@ -644,53 +706,72 @@ export class ManageCategoriesCommand implements IMcpToolCommand<{
     action: z.enum(["list", "create", "update", "delete"]).describe("Category operation"),
     id: z.string().optional().describe("Category ID"),
     name: z.string().optional().describe("Category name"),
+    slug: z.string().optional().describe("Category slug"),
     icon: z.string().optional().describe("Category icon"),
     description: z.string().optional().describe("Category description"),
     sortOrder: z.number().optional().describe("Sort priority order"),
+    isActive: z.boolean().optional().describe("Whether the category is active"),
+    mode: z.string().optional().describe("Per-call contract variant"),
   });
 
   async execute(input: any, context: McpToolContext) {
     const action = input.action;
+    const mode = resolveCommandMode(context, "categories", input.mode);
 
     if (action === "list") {
-      const categories = context.orm.categories.findMany({ orderBy: "sort_order ASC" });
+      const categories = context.orm.categories.findMany(categoryListOptions());
       return { count: categories.length, categories };
     }
 
     if (action === "create") {
       const name = String(input.name || "").trim();
       if (!name) throw new Error("Category name is required for create");
-      const id = input.id || `cat_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+      const slug = categoryCreateSlug(name, input.slug, mode);
+      const id = categoryCreateId(slug, name, input.id, mode);
+      const values = categoryCreateValues(name, input, mode, context.orm.categories.count());
       const now = new Date().toISOString();
       const category = context.orm.categories.create({
         id,
         name,
-        slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        icon: input.icon || "🏷️",
-        description: input.description || `${name} category tools and services`,
-        isActive: true,
-        sortOrder: Number(input.sortOrder) || 10,
+        slug,
+        ...values,
         createdAt: now,
         updatedAt: now,
       });
+      context.audit("category.created", "orchestrator", { id, name });
       return { success: true, created: true, category };
     }
 
     if (action === "update") {
       if (!input.id) throw new Error("Category id is required for update");
+      const existing = context.orm.categories.findById(input.id);
+      if (mode === "route" && !existing) throw new Error(`Category ${input.id} not found`);
+      const patch = existing
+        ? categoryUpdatePatch(existing, input, mode)
+        : categoryUpdatePatch(
+            { name: "", slug: "", description: "", icon: "", isActive: true, sortOrder: 0 },
+            input,
+            mode
+          );
       const updated = context.orm.categories.update(input.id, {
-        ...(input.name ? { name: input.name } : {}),
-        ...(input.icon ? { icon: input.icon } : {}),
-        ...(input.description ? { description: input.description } : {}),
-        ...(input.sortOrder !== undefined ? { sortOrder: Number(input.sortOrder) } : {}),
+        ...patch,
         updatedAt: new Date().toISOString(),
       });
+      if (updated) {
+        context.audit("category.updated", "orchestrator", { id: input.id, name: updated.name });
+      }
       return { success: true, updated: true, category: updated };
     }
 
     if (action === "delete") {
-      if (!input.id) throw new Error("Category id is required for delete");
+      // #1721: route mode is silent-success without an id (the route's
+      // {success: true}); mcp mode keeps the legacy throw.
+      if (!input.id) {
+        if (mode === "route") return { success: true };
+        throw new Error("Category id is required for delete");
+      }
       const deleted = context.orm.categories.delete(input.id);
+      context.audit("category.deleted", "orchestrator", { id: input.id });
       return { success: true, deleted, id: input.id };
     }
 
@@ -700,6 +781,12 @@ export class ManageCategoriesCommand implements IMcpToolCommand<{
 
 /**
  * 10. Manage Referrals Command
+ * #1721: value contract switched by REFERRALS_MODE (default route).
+ * Audit parity: create/delete audit in BOTH modes (pre-#1721 this
+ * command audited nothing); click audits on neither surface, in
+ * either mode, as before. No update action exists on either surface
+ * and this slice adds none. New additive input: `mode` (per-call
+ * run override).
  */
 export class ManageReferralsCommand implements IMcpToolCommand<{
   action: "list" | "create" | "track_click" | "delete";
@@ -708,6 +795,7 @@ export class ManageReferralsCommand implements IMcpToolCommand<{
   url?: string;
   category?: string;
   rewardText?: string;
+  mode?: string;
 }> {
   readonly name = "manage_referrals";
   readonly description = "Manage developer referral links and track click attribution in mas_referrals via DatabaseORM.";
@@ -720,6 +808,7 @@ export class ManageReferralsCommand implements IMcpToolCommand<{
       url: { type: "string", description: "Destination referral URL" },
       category: { type: "string", description: "Associated category name" },
       rewardText: { type: "string", description: "Reward bonus offer text" },
+      mode: { type: "string", description: "Per-call contract variant: route (default) or mcp" },
     },
     required: ["action"],
   };
@@ -730,13 +819,16 @@ export class ManageReferralsCommand implements IMcpToolCommand<{
     url: z.string().optional().describe("Destination referral URL"),
     category: z.string().optional().describe("Associated category name"),
     rewardText: z.string().optional().describe("Reward bonus offer text"),
+    mode: z.string().optional().describe("Per-call contract variant"),
   });
 
   async execute(input: any, context: McpToolContext) {
     const action = input.action;
+    const mode = resolveCommandMode(context, "referrals", input.mode);
 
     if (action === "list") {
-      const referrals = context.orm.referrals.findMany({ orderBy: "clicks DESC" });
+      const options = referralListOptions(mode);
+      const referrals = context.orm.referrals.findMany(options);
       return { count: referrals.length, referrals };
     }
 
@@ -745,31 +837,46 @@ export class ManageReferralsCommand implements IMcpToolCommand<{
       const url = String(input.url || "").trim();
       if (!title || !url) throw new Error("title and url are required for referral creation");
 
+      const defaults = referralCreateValues(input, mode);
       const referral = context.orm.referrals.create({
         id: `ref_${crypto.randomUUID().slice(0, 8)}`,
         userLogin: context.sessionId,
         title,
         url,
-        category: input.category || "AI Tools",
-        rewardText: input.rewardText || "$10 Free Credits",
+        ...defaults,
         clicks: 0,
         signups: 0,
         createdAt: new Date().toISOString(),
       });
+      context.audit("referral.created", "orchestrator", { id: referral.id, title, targetUrl: url });
       return { success: true, created: true, referral };
     }
 
     if (action === "track_click") {
-      if (!input.id) throw new Error("Referral id is required for track_click");
+      // #1721: route mode is silent-success (the route's {success:
+      // true} even with no id or a nonexistent id); mcp mode keeps
+      // the legacy throw + new-count return.
+      if (!input.id) {
+        if (mode === "route") return { success: true };
+        throw new Error("Referral id is required for track_click");
+      }
       const current = context.orm.referrals.findById(input.id);
-      if (!current) throw new Error(`Referral ${input.id} not found`);
+      if (!current) {
+        if (mode === "route") return { success: true };
+        throw new Error(`Referral ${input.id} not found`);
+      }
       const updated = context.orm.referrals.update(input.id, { clicks: (current.clicks || 0) + 1 });
+      if (mode === "route") return { success: true };
       return { success: true, clicks: updated?.clicks || 1 };
     }
 
     if (action === "delete") {
-      if (!input.id) throw new Error("Referral id is required for delete");
+      if (!input.id) {
+        if (mode === "route") return { success: true };
+        throw new Error("Referral id is required for delete");
+      }
       const deleted = context.orm.referrals.delete(input.id);
+      context.audit("referral.deleted", "orchestrator", { id: input.id });
       return { success: true, deleted, id: input.id };
     }
 
@@ -779,11 +886,21 @@ export class ManageReferralsCommand implements IMcpToolCommand<{
 
 /**
  * 11. Manage External Ads Command
+ * #1721: value contract switched by EXTERNAL_ADS_MODE (default route:
+ * cpm 15.0 / cpc 1.25, initial impression, 3dp/2dp rounding). Audit
+ * parity: create/update/click audit in BOTH modes (pre-#1721 this
+ * command audited nothing); impression audits on neither surface, in
+ * either mode, as before. New action: `update` — it works in route
+ * mode (the route field set) and throws `Unsupported action: update`
+ * in mcp mode, preserving the legacy MCP contract verbatim. New
+ * additive inputs: `mode` (per-call run override), `name` and
+ * `isActive` (route-mode update only).
  */
 export class ManageExternalAdsCommand implements IMcpToolCommand<{
-  action: "list" | "create" | "impression" | "click";
+  action: "list" | "create" | "update" | "impression" | "click";
   id?: string;
   title?: string;
+  name?: string;
   network?: "ethicalads" | "carbon" | "adsense" | "direct" | "google";
   placement?: "header_leaderboard" | "in_stream" | "footer_deck" | "sidebar";
   tagline?: string;
@@ -791,15 +908,18 @@ export class ManageExternalAdsCommand implements IMcpToolCommand<{
   ctaText?: string;
   cpmRate?: number;
   cpcRate?: number;
+  isActive?: boolean;
+  mode?: string;
 }> {
   readonly name = "manage_external_ads";
   readonly description = "Manage external ad placements (EthicalAds, Carbon Ads, AdSense, Direct) and record CPM/CPC revenue monetization.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
-      action: { type: "string", enum: ["list", "create", "impression", "click"], description: "Ad operation" },
-      id: { type: "string", description: "Ad placement ID (required for impression/click)" },
+      action: { type: "string", enum: ["list", "create", "update", "impression", "click"], description: "Ad operation" },
+      id: { type: "string", description: "Ad placement ID (required for update/impression/click)" },
       title: { type: "string", description: "Campaign title" },
+      name: { type: "string", description: "Placement name (route-mode update only)" },
       network: { type: "string", enum: ["ethicalads", "carbon", "adsense", "direct", "google"], description: "Ad network partner" },
       placement: { type: "string", enum: ["header_leaderboard", "in_stream", "footer_deck", "sidebar"], description: "Placement slot" },
       tagline: { type: "string", description: "Promotional copy" },
@@ -807,13 +927,16 @@ export class ManageExternalAdsCommand implements IMcpToolCommand<{
       ctaText: { type: "string", description: "Button text" },
       cpmRate: { type: "number", description: "CPM rate ($/1,000 impressions)" },
       cpcRate: { type: "number", description: "CPC rate ($/click)" },
+      isActive: { type: "boolean", description: "Whether the ad is active (route-mode update only)" },
+      mode: { type: "string", description: "Per-call contract variant: route (default) or mcp" },
     },
     required: ["action"],
   };
   readonly zodSchema = z.object({
-    action: z.enum(["list", "create", "impression", "click"]).describe("Ad operation"),
+    action: z.enum(["list", "create", "update", "impression", "click"]).describe("Ad operation"),
     id: z.string().optional().describe("Ad placement ID"),
     title: z.string().optional().describe("Campaign title"),
+    name: z.string().optional().describe("Placement name"),
     network: z.enum(["ethicalads", "carbon", "adsense", "direct", "google"]).optional().describe("Ad network partner"),
     placement: z.enum(["header_leaderboard", "in_stream", "footer_deck", "sidebar"]).optional().describe("Placement slot"),
     tagline: z.string().optional().describe("Promotional copy"),
@@ -821,13 +944,16 @@ export class ManageExternalAdsCommand implements IMcpToolCommand<{
     ctaText: z.string().optional().describe("Button text"),
     cpmRate: z.number().optional().describe("CPM rate"),
     cpcRate: z.number().optional().describe("CPC rate"),
+    isActive: z.boolean().optional().describe("Whether the ad is active"),
+    mode: z.string().optional().describe("Per-call contract variant"),
   });
 
   async execute(input: any, context: McpToolContext) {
     const action = input.action;
+    const mode = resolveCommandMode(context, "externalAds", input.mode);
 
     if (action === "list") {
-      const ads = context.orm.externalAds.findMany({ orderBy: "created_at DESC" });
+      const ads = context.orm.externalAds.findMany(externalAdListOptions(mode));
       return { count: ads.length, ads };
     }
 
@@ -836,49 +962,70 @@ export class ManageExternalAdsCommand implements IMcpToolCommand<{
       const targetUrl = String(input.targetUrl || "").trim();
       if (!title || !targetUrl) throw new Error("title and targetUrl are required for external ad creation");
 
+      const values = externalAdCreateValues(title, input, mode);
       const ad = context.orm.externalAds.create({
-        id: `ext_ad_${crypto.randomUUID().slice(0, 8)}`,
-        name: title,
+        id: externalAdCreateId(input.network, mode),
         title,
-        network: input.network || "ethicalads",
-        placement: input.placement || "in_stream",
-        tagline: input.tagline || `Verified developer partner: ${title}`,
         targetUrl,
-        ctaText: input.ctaText || "Learn More",
-        cpmRate: Number(input.cpmRate) || 2.5,
-        cpcRate: Number(input.cpcRate) || 0.45,
-        impressions: 0,
-        clicks: 0,
-        earnings: 0,
-        isActive: true,
+        ...values,
         createdAt: new Date().toISOString(),
       });
+      context.audit("external_ad.created", "orchestrator", { id: ad.id, title });
       return { success: true, created: true, ad };
     }
 
+    if (action === "update") {
+      // #1721: legacy MCP had no update action — mcp mode keeps the
+      // verbatim throw; route mode applies the route field set.
+      if (mode === "mcp") throw new Error("Unsupported action: update");
+      if (!input.id) throw new Error("Ad id is required for update");
+      const existing = context.orm.externalAds.findById(input.id);
+      if (!existing) throw new Error(`Ad ${input.id} not found`);
+      const updated = context.orm.externalAds.update(input.id, externalAdUpdatePatch(existing, input));
+      if (updated) {
+        context.audit("external_ad.updated", "orchestrator", { id: updated.id, title: updated.title });
+      }
+      return { success: true, updated: true, ad: updated };
+    }
+
     if (action === "impression") {
-      if (!input.id) throw new Error("Ad id is required for impression recording");
+      // #1721: route mode returns {success: false} for a missing id
+      // or a missing ad (the route's silent shape); mcp mode throws.
+      if (!input.id) {
+        if (mode === "route") return { success: false };
+        throw new Error("Ad id is required for impression recording");
+      }
       const ad = context.orm.externalAds.findById(input.id);
-      if (!ad) throw new Error(`Ad ${input.id} not found`);
+      if (!ad) {
+        if (mode === "route") return { success: false };
+        throw new Error(`Ad ${input.id} not found`);
+      }
       const newImp = (ad.impressions || 0) + 1;
-      const earningsIncrement = (ad.cpmRate || 2.5) / 1000;
       const updated = context.orm.externalAds.update(input.id, {
         impressions: newImp,
-        earnings: Number(((ad.earnings || 0) + earningsIncrement).toFixed(4)),
+        earnings: externalAdImpressionEarnings(ad.earnings || 0, ad.cpmRate, mode),
       });
       return { success: true, impressions: updated?.impressions, earnings: updated?.earnings };
     }
 
     if (action === "click") {
-      if (!input.id) throw new Error("Ad id is required for click recording");
+      if (!input.id) {
+        if (mode === "route") return { success: false };
+        throw new Error("Ad id is required for click recording");
+      }
       const ad = context.orm.externalAds.findById(input.id);
-      if (!ad) throw new Error(`Ad ${input.id} not found`);
+      if (!ad) {
+        if (mode === "route") return { success: false };
+        throw new Error(`Ad ${input.id} not found`);
+      }
       const newClicks = (ad.clicks || 0) + 1;
-      const earningsIncrement = ad.cpcRate || 0.45;
       const updated = context.orm.externalAds.update(input.id, {
         clicks: newClicks,
-        earnings: Number(((ad.earnings || 0) + earningsIncrement).toFixed(4)),
+        earnings: externalAdClickEarnings(ad.earnings || 0, ad.cpcRate, mode),
       });
+      if (updated) {
+        context.audit("external_ad.clicked", "orchestrator", { id: input.id, clicks: updated.clicks, earnings: updated.earnings });
+      }
       return { success: true, clicks: updated?.clicks, earnings: updated?.earnings };
     }
 

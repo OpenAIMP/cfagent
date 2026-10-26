@@ -1826,6 +1826,7 @@ export class OrchestratorAgent extends Think<Env> {
       getOrm: () => this.getOrm(),
       ensureTables: () => this.ensureTables(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
+      env: this.env, // #1721: global-env fallback for the ads/revenue switches.
     });
     if (adsRevenueReferralsResponse) return adsRevenueReferralsResponse;
 
@@ -1911,6 +1912,7 @@ export class OrchestratorAgent extends Think<Env> {
       getOrm: () => this.getOrm(),
       ensureTables: () => this.ensureTables(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
+      env: this.env, // #1721: global-env fallback for the ads/revenue switches.
     });
     if (referralsAdsResponse) return referralsAdsResponse;
 
