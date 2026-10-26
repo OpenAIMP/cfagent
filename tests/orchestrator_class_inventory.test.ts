@@ -72,6 +72,9 @@ const ORCH = "agents/orchestrator.ts";
  *  similar headroom. This is the documented deliberate-growth
  *  update, not a weakened assertion: the pin still fails on any
  *  further unintentional regrowth.
+ *  Service-path blob capture (#1661) adds two getStorage
+ *  delegating accessors + comments — measured 2,124 lines /
+ *  98,517 B after the addition on the pre-merge tree.
  *  Slice 2 shard jobs projection (#1676) adds the
  *  reconcileShardJobProjection delegating wrapper + its import
  *  (execution in orchestrator/shardJobReconcile.ts) — measured
@@ -89,7 +92,9 @@ const ORCH = "agents/orchestrator.ts";
  *  (execution in orchestrator/canonicalReportSeed.ts) —
  *  measured 2,143 lines / 99,642 B after the addition on the
  *  pre-#1236 tree; budget lines rise to 2150 and bytes keep
- *  #1236's 103_300, which still covers the combined tree. */
+ *  Combined #1661 merge tree measured 2,148 lines / 99,936 B;
+ *  budget lines keep 2150 and bytes keep 103_300, which still
+ *  cover the combined tree. */
 const BUDGET_LINES = 2150;
 const BUDGET_BYTES = 103_300;
 
