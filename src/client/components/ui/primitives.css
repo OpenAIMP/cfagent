@@ -533,3 +533,66 @@ div.ui-modal-title { font-size: inherit; font-weight: inherit; }
   .ui-spinner { animation-duration: 1.6s; }
   .ui-skeleton { animation: none; }
 }
+
+/* ---------- PageShell + PageSection (#1804 S1, issue #1808) ---------- */
+/* Token colors only; spacing follows this file's rem convention (density
+ * tokens arrive with E4 stage 2). No inline-style layout on pages. */
+.ui-page-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  width: 100%;
+  min-height: 0;
+}
+
+.ui-page-shell-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ui-page-shell-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.ui-page-shell-scope {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.ui-page-shell-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+}
+
+.ui-page-shell-state {
+  display: flex;
+  justify-content: center;
+  padding: 2.5rem 0;
+}
+
+.ui-page-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.ui-page-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.ui-page-section-description {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  margin: 0;
+}
