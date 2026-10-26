@@ -500,7 +500,7 @@ export async function executeUnifiedOptions(args: {
     return Response.json(result.toVoice());
   }
   if (channel === "webhook") {
-    return Response.json({ ...result.toWebhook(), reportUrl, xlsxUrl: scannerXlsxUrl, csvUrl: scannerCsvUrl });
+    return Response.json({ ...result.toWebhook(), reportUrl, xlsxUrl: scannerXlsxUrl, csvKey: scannerCsvKey, csvUrl: scannerCsvUrl });
   }
   if (channel === "mcp") {
     return Response.json(result.toMcp());
