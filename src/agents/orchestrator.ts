@@ -50,6 +50,7 @@ import { ETradeEmailTradingService } from "../trading";
 import { ETradeBrowserService } from "../services/browserAgent";
 import { runGovernanceSeed } from "./orchestrator/governanceSeed";
 import { runShardJobReconcile, type ReconcileShardJobsReport } from "./orchestrator/shardJobReconcile";
+import { runCanonicalReportSeed, type SeedCanonicalReportsResult } from "./orchestrator/canonicalReportSeed";
 import type { GovernedHaltState } from "../data/governedHalt";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
@@ -413,6 +414,19 @@ export class OrchestratorAgent extends Think<Env> {
   /** Issue #1676 — thin wrapper; execution in ./orchestrator/shardJobReconcile.ts. */
   async reconcileShardJobProjection(tenantId: string): Promise<ReconcileShardJobsReport> {
     return runShardJobReconcile({ env: this.env, listRailsJobs: () => this.listAsyncJobs(100), tenantId, nowMs: Date.now() });
+  }
+
+  /** Issue #1688 — thin wrapper for the operator route's one-time canonical report seed (execution in ./orchestrator/canonicalReportSeed.ts). Reads this instance's mas_reports (the canonical copy); never writes the DO table; a second run is a no-op. */
+  async seedCanonicalReports(setBy: string, tenantId: string): Promise<SeedCanonicalReportsResult> {
+    this.ensureTables();
+    const orm = new DatabaseORM(this.ctx.storage.sql);
+    return runCanonicalReportSeed({
+      env: this.env,
+      listCanonicalReports: () => orm.reports.findMany({ orderBy: "created_at ASC" }),
+      tenantId,
+      setBy,
+      nowMs: Date.now(),
+    });
   }
   /** Cloudflare Agents lifecycle: initialize SQLite and recover durable work. */
   async onStart(props?: Record<string, unknown>): Promise<void> {
