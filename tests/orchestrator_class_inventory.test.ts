@@ -71,9 +71,15 @@ const ORCH = "agents/orchestrator.ts";
  *  #1495's presets, already sat at 2,093 lines); budget keeps
  *  similar headroom. This is the documented deliberate-growth
  *  update, not a weakened assertion: the pin still fails on any
- *  further unintentional regrowth. */
-const BUDGET_LINES = 2125;
-const BUDGET_BYTES = 98_300;
+ *  further unintentional regrowth.
+ *  Slice 2 shard jobs projection (#1676) adds the
+ *  reconcileShardJobProjection delegating wrapper + its import
+ *  (execution in orchestrator/shardJobReconcile.ts) — measured
+ *  2,125 lines / 98,706 B after the addition (main alone already
+ *  sat at 2,120 lines / 98,291 B, 9 B of headroom); budget keeps
+ *  similar headroom. */
+const BUDGET_LINES = 2130;
+const BUDGET_BYTES = 99_000;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

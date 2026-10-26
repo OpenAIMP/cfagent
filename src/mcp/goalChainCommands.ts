@@ -391,6 +391,18 @@ export interface RunChainOptions {
    * contract any future wiring must satisfy.
    */
   budgetCheck?: (budgetCents: number) => Promise<boolean> | boolean;
+  /**
+   * Issue #1676: optional completion callback, invoked once
+   * per leg that actually ran (completed, submitted, failed).
+   * Skipped, blocked, and unimplemented legs are never
+   * reported: nothing ran, so there is no job to project.
+   * The callback is awaited inside a try/catch — a callback
+   * failure never fails the run; the projector reports it
+   * and reconciliation converges later. The ScheduledAgent
+   * firing path supplies a projector bound to env/tenant;
+   * the MCP command never does.
+   */
+  onLegOutcome?: (leg: ChainLegResult) => Promise<unknown> | unknown;
 }
 
 /**
@@ -429,6 +441,20 @@ export async function runChain(
   let ranAnything = false;
   let submittedAnything = false;
   let ok = true;
+  // Issue #1676: report each ran leg to the optional
+  // projector. A callback failure is logged, never thrown:
+  // projection is best-effort and must never fail the run.
+  const emitOutcome = async (leg: ChainLegResult): Promise<void> => {
+    if (!opts.onLegOutcome) return;
+    try {
+      await opts.onLegOutcome(leg);
+    } catch (err) {
+      console.error(
+        "[chain.run] Leg outcome callback failed (run unaffected):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  };
   for (const step of validated.steps) {
     if (stopped) {
       legs.push({
@@ -478,25 +504,29 @@ export async function runChain(
       // serve before the deliver jobs its completion hook plans.
       if (isSubmittedLeg(result)) {
         submittedAnything = true;
-        legs.push({
+        const submittedLeg: ChainLegResult = {
           stepId: step.id,
           capabilityId: step.capabilityId,
           stage: step.stage,
           status: "submitted",
           detail: result.detail,
           result,
-        });
+        };
+        legs.push(submittedLeg);
+        await emitOutcome(submittedLeg);
         continue;
       }
       ranAnything = true;
-      legs.push({
+      const completedLeg: ChainLegResult = {
         stepId: step.id,
         capabilityId: step.capabilityId,
         stage: step.stage,
         status: "completed",
         detail: "Completed via the caller-supplied existing execution path.",
         result,
-      });
+      };
+      legs.push(completedLeg);
+      await emitOutcome(completedLeg);
     } catch (err) {
       // #1523: a leg the executor cannot run in this context is
       // `unimplemented` with its real reason — not a failure, and
@@ -515,13 +545,15 @@ export async function runChain(
       }
       ok = false;
       stopped = true;
-      legs.push({
+      const failedLeg: ChainLegResult = {
         stepId: step.id,
         capabilityId: step.capabilityId,
         stage: step.stage,
         status: "failed",
         detail: `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      });
+      };
+      legs.push(failedLeg);
+      await emitOutcome(failedLeg);
     }
   }
   // A run whose legs are all unimplemented did not fail — it
