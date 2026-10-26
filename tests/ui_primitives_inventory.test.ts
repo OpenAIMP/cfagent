@@ -37,7 +37,6 @@ const INVENTORY: Record<string, string[]> = {
   "Modal.tsx": ["Modal"],
   "Table.tsx": ["Table"],
   "Skeleton.tsx": ["Skeleton"],
-  "PageShell.tsx": ["PageShell", "PageSection"],
 };
 
 /** Non-primitive files allowed in components/ui (helpers + styles). */
