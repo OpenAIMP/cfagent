@@ -5,6 +5,7 @@ import { Badge, Button, type BadgeTone } from "./ui";
 import { MarketStatusPill } from "./MarketStatusPill";
 import { adjustFontScale, getStoredFontScale } from "../typography";
 import { BRAND } from "../branding";
+import { isTabFeatureEnabled } from "../featureFlags";
 
 export type NavTabId =
   | "trading"
@@ -630,12 +631,14 @@ export function NavigationMenu({
   }, []);
 
   const isTabVisible = (id: string) => {
+    if (!isTabFeatureEnabled(id as NavTabId)) return false;
     if (!visibleTabs) return true;
     return visibleTabs[id] !== false;
   };
 
   const filteredNavItems = NAVIGATION_ITEMS.filter((i) => isTabVisible(i.id));
-  const effectiveNavItems = filteredNavItems.length > 0 ? filteredNavItems : NAVIGATION_ITEMS.slice(0, 4);
+  const fallbackEnabledItems = NAVIGATION_ITEMS.filter((i) => isTabFeatureEnabled(i.id as NavTabId));
+  const effectiveNavItems = filteredNavItems.length > 0 ? filteredNavItems : fallbackEnabledItems;
 
   // Group items by category for sidebar navigation
   const executionItems = effectiveNavItems.filter((i) => i.category === "Execution");

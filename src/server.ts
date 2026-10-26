@@ -118,6 +118,12 @@ import {
 } from "./security/publicOAuth";
 import { ETradeRestClient } from "./trading";
 import { resolveEnvironmentConfig } from "./config/environment";
+import {
+  isFeatureEnabled,
+  getAllFeatureFlags,
+  createFeatureDisabledResponse,
+  matchFeatureForRoute,
+} from "./config/featureFlags";
 import { handleCloudflareEmailMessage, ETradeEmailTradingService } from "./trading";
 import { ETradeSlackTradingService, confirmSlackLink } from "./trading";
 import {
@@ -372,6 +378,26 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (path.startsWith("/a2a/") || path.startsWith("/.well-known/")) {
       const { handleA2A } = await import("./a2a");
       return handleA2A(request, env as any);
+    }
+
+    // Issue #1806: Cloudflare feature flags — dynamic feature flags query
+    if (path === "/api/features" && request.method === "GET") {
+      const session = await requireAuth(request, env).catch(() => null);
+      const features = await getAllFeatureFlags(env, { userLogin: session?.githubLogin });
+      return Response.json({ features });
+    }
+
+    // Issue #1806: Server-side feature flag enforcement (default-closed, fail-closed).
+    // An endpoint for a disabled feature is completely unreachable (HTTP 404 FEATURE_DISABLED).
+    const gatedFeature = matchFeatureForRoute(path);
+    if (gatedFeature) {
+      const session = await requireAuth(request, env).catch(() => null);
+      const isEnabled = await isFeatureEnabled(env, gatedFeature, {
+        userLogin: session?.githubLogin,
+      });
+      if (!isEnabled) {
+        return createFeatureDisabledResponse(gatedFeature, 404);
+      }
     }
 
     if ((path === "/nlq/webhook" || path === "/api/trading/nlq/webhook" || path === "/api/nlq/webhook") && request.method === "POST") {
@@ -2753,7 +2779,11 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           avatar: session.githubAvatar,
         }).replace(/</g, "\\u003c");
 
-        const userScript = `<script>window.__USER__=${safeUser};</script>`;
+        // Issue #1806: Inject evaluated feature flags for zero-latency client boot
+        const flags = await getAllFeatureFlags(env, { userLogin: session.githubLogin });
+        const safeFeatures = JSON.stringify(flags).replace(/</g, "\\u003c");
+
+        const userScript = `<script>window.__USER__=${safeUser};window.__FEATURES__=${safeFeatures};</script>`;
         const modified = html.replace("</head>", `${userScript}</head>`);
         const sessionId = getSessionId(request)!;
 

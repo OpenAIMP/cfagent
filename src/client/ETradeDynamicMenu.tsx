@@ -5,6 +5,7 @@ import {
   DEFAULT_VISIBLE_NAV_TABS,
   NAV_TAB_PRESETS,
 } from "./components/NavigationMenu";
+import { isTabFeatureEnabled } from "./featureFlags";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
 import { ApiKeysPanel } from "./ApiKeysPanel";
 import { DataProvidersPanel } from "./DataProvidersPanel";
@@ -935,7 +936,7 @@ export function SettingsMenu({
             </div>
 
             <div className="nav-tabs-grid">
-              {NAVIGATION_ITEMS.map((item) => {
+              {NAVIGATION_ITEMS.filter((item) => isTabFeatureEnabled(item.id)).map((item) => {
                 const isChecked = effectiveVisibleTabs[item.id] !== false;
                 return (
                   <button

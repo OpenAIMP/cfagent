@@ -22,6 +22,23 @@ export interface Env {
   // (legacy KV fallback removed in #604; the leftover KV bindings in
   // wrangler.jsonc are #606).
   SESSION_STORE?: DurableObjectNamespace;
+  // Issue #1806: Cloudflare Flagship native feature flags binding.
+  // Conforms to OpenFeature boolean/value evaluation. Optional so code
+  // is safe before the flagship binding is provisioned in wrangler.jsonc.
+  FLAGS?: {
+    getBooleanValue(flag: string, defaultValue: boolean, context?: Record<string, unknown>): Promise<boolean>;
+    getValue?(flag: string, defaultValue: unknown, context?: Record<string, unknown>): Promise<unknown>;
+  };
+  FEATURE_SCREENER?: string;
+  FEATURE_OPTIONS_RESEARCH?: string;
+  FEATURE_AUTOPILOT?: string;
+  FEATURE_TRADING_ORDERS?: string;
+  FEATURE_VOICE_TRADING?: string;
+  FEATURE_SOCIAL_PUBLISHING?: string;
+  FEATURE_NLQ?: string;
+  FEATURE_PAYMENTS?: string;
+  FEATURE_SCHEDULES?: string;
+  FEATURE_FLAGS?: string;
   SEARCH_AGENT: DurableObjectNamespace;
   // Issue #1387 — OrchestratorAgent root namespace for sub-agent
   // bootstrap (agents SDK resolves ctx.exports by constructor.name).
