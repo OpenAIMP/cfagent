@@ -130,6 +130,19 @@
  *   destroy the governance audit the halt read reasons
  *   about. The tick reads only the latest row, but the
  *   history is the record of who halted what and why.
+ * - agent_market_nodes / agent_market_edges (AgentDB market
+ *   graph, issue #1740, Hybrid RAG) — KEEP, decided up front
+ *   per R8. Derived reference data, not per-request rows:
+ *   nodes derive from the curated stock universe (161 symbols
+ *   + sectors + explicitly supplied events) and edges from
+ *   sector membership, same-sector peers, and supplied
+ *   events; growth is bounded by universe × relations, and
+ *   repopulation is idempotent. The universe JSON and the
+ *   event sources remain authoritative, so these rows are
+ *   never the sole record of anything; pruning would only
+ *   force a repopulation, but no purge exists for them —
+ *   the retention slice enforces only the BOUNDED table
+ *   (agent_shard_jobs).
  * - usage_events (not a mas_* table) — PRUNE-CLASS, 365d, recorded here
  *   per issue #792's deferral, implementation deferred to its first
  *   production reader: rows are split across two DOs' databases

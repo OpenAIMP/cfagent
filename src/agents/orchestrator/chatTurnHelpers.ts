@@ -142,16 +142,53 @@ export async function assembleGrounding(ctx: ChatTurnHelpersContext, userText: s
     ? `\nActive Persistent Memory (SQLite Session Facts):\n` + activeMemories.map((m) => `- ${m.key}: "${m.value}"`).join("\n")
     : "";
   let vectorContext = "";
+  let recalledSummaries: string[] = [];
   const vectorizeBinding = (ctx.env as any).VECTOR_MEMORY;
   if (userText && userText.trim().length > 0 && ctx.env.AI && vectorizeBinding) {
     try {
       const vm = new VectorMemory(ctx.env.AI, vectorizeBinding, undefined);
       const chunks = await vm.recallForPlan(userText);
+      recalledSummaries = chunks.map((c) => c.summary);
       if (chunks.length > 0) {
         vectorContext = `\nRelevant past outcomes (vector memory, most similar first):\n${VectorMemory.brief(chunks)}`;
       }
     } catch (err) {
       console.warn("[VectorMemory] recall failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+  // Issue #1740 (Hybrid RAG): append graph-adjacent market
+  // context to the turn prompt ONLY when expansion yields rows.
+  // Unbound graph, empty graph, or any graph error means
+  // byte-identical prior behavior (formatGraphContext("") is "").
+  // This plugs retrieval into the actor turn path; it does not
+  // replace the turn path or the dense leg above.
+  if (userText && userText.trim().length > 0 && (ctx.env as any).AGENT_DB) {
+    try {
+      const { createMarketGraphAdapter, ensureMarketGraphTables } =
+        await import("../../retrieval/createRetrievalPorts");
+      const { expandGraphContext, formatGraphContext } = await import(
+        "../../retrieval/hybridRetrieval"
+      );
+      const { resolveIaaaTenant } = await import(
+        "../../security/iaaaGithubEndToEnd"
+      );
+      const adapter = createMarketGraphAdapter(ctx.env as any);
+      if (adapter) {
+        await ensureMarketGraphTables(adapter);
+        const expanded = await expandGraphContext(
+          adapter,
+          resolveIaaaTenant(ctx.env as any),
+          userText,
+          recalledSummaries,
+          { graphTopK: 12 },
+        );
+        vectorContext += formatGraphContext(expanded.rows);
+      }
+    } catch (err) {
+      console.warn(
+        "[retrieval] turn graph expansion failed, dense-only:",
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
   return { memoryContext, vectorContext };

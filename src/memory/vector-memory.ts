@@ -77,6 +77,40 @@ export class VectorMemory {
     }));
   }
 
+  /**
+   * Generic dense search over the same index (#1740 hybrid RAG).
+   * EXTENSION of the existing path, not a second model: same
+   * embed(), same model, same index as recallForPlan/recallPlans.
+   * Returns raw hits (id, score, text, metadata) so the retrieval
+   * port can fuse them with graph context; text prefers the
+   * summary field, then goal, then "".
+   */
+  async searchDense(
+    query: string,
+    topK: number = RECALL_TOP_K,
+    filter?: Record<string, unknown>,
+  ): Promise<
+    Array<{
+      id: string;
+      score: number;
+      text: string;
+      metadata: Record<string, unknown>;
+    }>
+  > {
+    const values = await embed(this.ai, query);
+    const results = await this.vectorize.query(values, {
+      topK: Math.max(1, Math.min(50, Math.floor(topK) || RECALL_TOP_K)),
+      filter,
+      returnMetadata: true,
+    });
+    return (results.matches ?? []).map((m: any) => ({
+      id: String(m.id ?? ""),
+      score: typeof m.score === "number" ? m.score : 0,
+      text: String(m.metadata?.summary ?? m.metadata?.goal ?? ""),
+      metadata: (m.metadata ?? {}) as Record<string, unknown>,
+    }));
+  }
+
   /** Format recalled chunks as a planner-prompt brief. */
   static brief(chunks: RecalledChunk[]): string {
     if (chunks.length === 0) return "No relevant past outcomes.";

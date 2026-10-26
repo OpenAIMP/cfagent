@@ -11,6 +11,7 @@
 import {
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
@@ -154,6 +155,61 @@ export const agentReports = sqliteTable(
   (table) => [
     primaryKey({
       columns: [table.tenantId, table.reportId, table.version],
+    }),
+  ],
+);
+
+/**
+ * Issue #1740: agent_market_nodes projection table. Grain: one
+ * row per (tenant, node type, node key). Column names match
+ * migration 0005 exactly; the test pins the two together.
+ */
+export const agentMarketNodes = sqliteTable(
+  "agent_market_nodes",
+  {
+    tenantId: text("tenant_id").notNull(),
+    nodeType: text("node_type").notNull(),
+    nodeKey: text("node_key").notNull(),
+    label: text("label").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.tenantId, table.nodeType, table.nodeKey],
+    }),
+  ],
+);
+
+/**
+ * Issue #1740: agent_market_edges projection table. Grain: one
+ * row per (tenant, from, relation, to). Column names match
+ * migration 0005 exactly; the test pins the two together.
+ */
+export const agentMarketEdges = sqliteTable(
+  "agent_market_edges",
+  {
+    tenantId: text("tenant_id").notNull(),
+    fromType: text("from_type").notNull(),
+    fromKey: text("from_key").notNull(),
+    relation: text("relation").notNull(),
+    toType: text("to_type").notNull(),
+    toKey: text("to_key").notNull(),
+    weight: real("weight").notNull(),
+    provenance: text("provenance").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.tenantId,
+        table.fromType,
+        table.fromKey,
+        table.relation,
+        table.toType,
+        table.toKey,
+      ],
     }),
   ],
 );
