@@ -387,7 +387,8 @@ const EXPECTED_INVENTORY = [
   "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-options-analysis\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-retention\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-iv-collection\")",
-  "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-discovery\")"
+  "handleSchedulesRoutes :: endsWith(\"/schedules/trigger-discovery\")",
+  "handleSchedulesRoutes :: endsWith(\"/schedules/feed-snapshot\")"
 ];
 
 function routeRequestBody(orchSrc: string): string {

@@ -73,7 +73,11 @@ const ORCH = "agents/orchestrator.ts";
  *  update, not a weakened assertion: the pin still fails on any
  *  further unintentional regrowth. */
 const BUDGET_LINES = 2125;
-const BUDGET_BYTES = 98_300;
+// 98_300 → 103_300 in #1236 (measured 98_359 + ~5% headroom, the
+// pin's convention): the schedules route context gains one binding
+// arrow, submitAsyncJob, for the feed-snapshot route. The class
+// itself gains no logic.
+const BUDGET_BYTES = 103_300;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

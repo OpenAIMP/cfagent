@@ -722,6 +722,20 @@ export const strategyDiscoveryScheduleCriteriaSchema = z.strictObject({
   emailTo: z.string().optional(),
   slackChannel: z.string().optional(),
   webhookUrl: z.string().optional(),
+  /** Consolidation #1236 (feed seam): snapshot-input mode for the
+   *  run — exact artifacts per symbol, latest per symbol, or both
+   *  (artifacts win per symbol). At least one of artifacts/latest
+   *  is required; a snapshotInput naming neither is rejected here,
+   *  not at fire time. maxAgeSeconds bounds generate-time freshness
+   *  (absent ⇒ no staleness judgment). Other callbacks' strict
+   *  objects reject this field. */
+  snapshotInput: z.object({
+    artifacts: z.record(z.string(), z.string()).optional(),
+    latest: z.boolean().optional(),
+    maxAgeSeconds: z.number().int().positive().optional(),
+  }).refine((v) => v.artifacts !== undefined || v.latest === true, {
+    message: "snapshotInput needs artifacts or latest.",
+  }).optional(),
   ...stageChainFields,
   ...triggerField,
 });
