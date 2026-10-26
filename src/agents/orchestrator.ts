@@ -1236,6 +1236,46 @@ export class OrchestratorAgent extends Think<Env> {
     return persistScreenerReportCanonical(this.reportDispatchContext(), result);
   }
 
+  /**
+   * Issue #1737: workflow doors. Thin PUBLIC wrappers over the
+   * same two functions the synchronous routes use, so the
+   * async path stores and delivers through identical code —
+   * no new delivery path, no duplicated logic. Called by
+   * ScreenerScreenWorkflow via the shared orchestrator stub.
+   */
+  async recordWorkflowScreenReport(result: {
+    timestamp: string;
+    universe?: unknown;
+    sector?: unknown;
+    provider?: unknown;
+    success: boolean;
+    totalScanned: number;
+    matchedCount: number;
+    opportunities: unknown[];
+    allStocks: unknown[];
+    pdfKey?: string;
+    error?: string;
+    trigger?: unknown;
+    userLogin?: string;
+  }): Promise<void> {
+    return this.persistScreenerReportCanonical(result);
+  }
+
+  async deliverWorkflowScreenOutcome(
+    outcome: ScreenerRunOutcome,
+    userLogin: string,
+    deliveryId?: string,
+  ): Promise<void> {
+    // A caller-supplied deterministic deliveryId lets a
+    // retried deliver step converge in the outcome sink
+    // instead of forking a second tracked record.
+    await scheduleScreenerFollowups(
+      this.asyncJobsContext(),
+      deliveryId ? { ...outcome, deliveryId } : outcome,
+      userLogin,
+    );
+  }
+
   // Issue #992: extracted to ./orchestrator/reportDispatch.ts (sendReportEmail);
   private async sendReportEmail(
     recipient: string,

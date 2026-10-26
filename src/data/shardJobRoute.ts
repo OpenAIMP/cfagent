@@ -66,6 +66,12 @@ export async function handleJobHistoryRoute(
           detail: job.detail,
           version: job.version,
           updatedAtMs: job.updatedAtMs,
+          // Issue #1737: the collation record rides here —
+          // the parent row's resultJson IS the workflow
+          // collation (lifecycle, coverage, shard flags).
+          // Already capped (8000) + spec-free + auth-free
+          // per the slice-2 contract, so it is safe to expose.
+          resultJson: job.resultJson,
         })),
       }),
       { status: 200, headers: { "content-type": "application/json" } },

@@ -99,8 +99,13 @@ const ORCH = "agents/orchestrator.ts";
  *  passes Worker env into the memory route call site (MEMORY_READ_MODE
  *  env level on GET /memory) — measured 2,152 lines / 100,195 B
  *  after the addition; budget lines rise to 2160, bytes keep
- *  103_300, which still cover the tree. */
-const BUDGET_LINES = 2160;
+ *  103_300, which still cover the tree.
+ *  Screener workflows (#1737) add the two PUBLIC workflow
+ *  doors (recordWorkflowScreenReport +
+ *  deliverWorkflowScreenOutcome) + their doc comment —
+ *  measured 2,192 lines / 101,411 B on the rebased tree;
+ *  budget lines rise to 2200, bytes keep 103_300. */
+const BUDGET_LINES = 2200;
 const BUDGET_BYTES = 103_300;
 
 const count = (haystack: string, needle: string) =>

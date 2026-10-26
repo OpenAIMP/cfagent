@@ -292,6 +292,8 @@ export interface Env {
   A2A_API_TOKEN?: string;
   /** Trade approval workflow binding (#291 T3b). */
   TRADE_WORKFLOW?: Workflow;
+  /** Screener screen workflow binding (#1737). */
+  SCREENER_WORKFLOW?: Workflow;
 }
 
 export interface TransactionRecord {

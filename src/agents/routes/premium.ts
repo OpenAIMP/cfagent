@@ -38,6 +38,11 @@ import type { CaptureBlobStorage } from "../../trading";
 import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
 import type { NasdaqStockListing } from "../../services/nasdaqListings";
 import { sha256Hex } from "../../services/scheduledReports";
+import {
+  manualWorkflowJobId,
+  tryStartScreenerWorkflow,
+  workflowTenantId,
+} from "../../workflows/screenerWorkflowRoutes";
 import type { Env } from "../../types";
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
@@ -335,12 +340,16 @@ export async function handlePremiumRoutes(
       tier.description,
       async (receipt) => {
         let symbols = ["NVDA", "AAPL", "MSFT", "TSLA"];
+        // Issue #1737: the async flag rides the POST body or the GET query.
+        let asyncRequested = false;
         if (request.method === "POST") {
           const body = (await request.json().catch(() => ({}))) as any;
           if (Array.isArray(body.symbols) && body.symbols.length > 0) symbols = body.symbols;
+          asyncRequested = body.async === true;
         } else {
           const sym = url.searchParams.get("symbols") || url.searchParams.get("symbol");
           if (sym) symbols = sym.split(",").map(s => s.trim().toUpperCase());
+          asyncRequested = url.searchParams.get("async") === "1";
         }
         symbols = symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean);
 
@@ -367,6 +376,39 @@ export async function handlePremiumRoutes(
           };
         });
         const agent = ctx.getScreenerAgent(userLogin);
+        // Issue #1737: async path. The fulfillment IS the handle:
+        // the payer polls job/report paths (jobs/history +
+        // canonical reports) for the result. Store only, no
+        // deliver step (this route has none). Unbound → fall
+        // through to the synchronous fulfillment below.
+        if (asyncRequested) {
+          const jobId = manualWorkflowJobId("symbols");
+          const handle = await tryStartScreenerWorkflow(ctx.env, {
+            jobId,
+            type: "run-screen",
+            source: "manual",
+            trigger: "manual",
+            userLogin,
+            role: "parent",
+            tenantId: workflowTenantId(ctx.env),
+            shards: [{ shardId: "symbols", symbols: listings }],
+            provider: "yahoo",
+            deliver: false,
+            maxItems: listings.length,
+            maxSymbols: listings.length,
+          });
+          if (handle) {
+            return {
+              success: true,
+              service: tier.name,
+              receipt,
+              async: true,
+              jobId: handle.jobId,
+              workflowId: handle.workflowId,
+              statusUrl: handle.statusUrl,
+            };
+          }
+        }
         let result;
         try {
           result = await agent.runScreen({

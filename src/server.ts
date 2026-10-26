@@ -174,6 +174,7 @@ export { ScreenerAgent } from "./agents/screener-agent";
 export { ResearchAgent } from "./agents/research-agent";
 export { TradingAgent } from "./agents/trading-agent";
 export { TradingTradeWorkflow } from "./agents/trading-trade-workflow";
+export { ScreenerScreenWorkflow } from "./workflows/screenerWorkflow";
 export { ReportAssetAgent } from "./agents/report-asset-agent";
 export { SessionStore } from "./security/sessionStore";
 
