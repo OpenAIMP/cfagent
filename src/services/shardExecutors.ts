@@ -29,6 +29,7 @@ import {
   shardProvenanceIds,
 } from "./shardJobs";
 import { resolvePipelinePolicy } from "./pipelinePolicy";
+import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
 import { withRetry } from "./resilience";
 
 export interface ShardExecutorDeps {
@@ -235,6 +236,8 @@ async function feedYahoo(
     bootstrapDataProviders(deps.sql as any);
     const historyAdapter = createYahooDataProvider(new YahooFinanceProvider(deps.env as any), deps.env as any, {
       capture: { sql: deps.sql as any, blobStorage: deps.storage as any, env: deps.env as any },
+      // Issue #1745: shard Yahoo history runs behind the yahoo breaker.
+      breaker: defaultBreakerRegistry().breakerFor("yahoo"),
     });
     historyDeps = bindYahooHistoryDeps(historyAdapter, {
       runId: chain.chainId,

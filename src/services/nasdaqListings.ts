@@ -1,3 +1,8 @@
+import { withBreaker } from "../breakers/breakerDecorator";
+import { BreakerOpenError } from "../breakers/breakerPorts";
+import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
+import type { CircuitBreaker } from "../breakers/breakerPorts";
+
 export type NasdaqExchange = "nasdaq" | "nyse" | "amex";
 
 export interface NasdaqStockListing {
@@ -60,10 +65,18 @@ function parseRow(row: NasdaqScreenerRow, exchange: NasdaqExchange): NasdaqStock
 import { getExternalApisConfig } from "../config/etapiConfig";
 import { getCachedQuote, setCachedQuote } from "./quoteCache";
 
-export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Promise<NasdaqStockListing[]> {
+export async function fetchAllUsStockListings(
+  fetcher: typeof fetch = fetch,
+  // Issue #1745: breaker (tests inject an isolated one; production
+  // shares the per-isolate default). No fallback: listings have no
+  // stale cache beyond the 5-minute quoteCache checked above, and
+  // #1554 forbids substituting the curated universe.
+  opts?: { breaker?: CircuitBreaker }
+): Promise<NasdaqStockListing[]> {
   // #411: the full-universe sweep is cached for 5 minutes in memory.
   const cachedListings = getCachedQuote<NasdaqStockListing[]>("nasdaq:listings:all");
   if (cachedListings && cachedListings.length > 0) return cachedListings;
+  const nasdaqBreaker = opts?.breaker ?? defaultBreakerRegistry().breakerFor("nasdaq");
   const extConfig = getExternalApisConfig();
   const exchanges: NasdaqExchange[] = (extConfig?.nasdaqListings?.exchanges as NasdaqExchange[]) || ["nasdaq", "nyse", "amex"];
   const pageSize = extConfig?.nasdaqListings?.pageSize || 5000;
@@ -72,7 +85,9 @@ export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Pr
 
   let pages: NasdaqStockListing[][] = [];
   try {
-    pages = await Promise.all(exchanges.map(async (exchange) => {
+    pages = (
+      await withBreaker(nasdaqBreaker, () =>
+        Promise.all(exchanges.map(async (exchange) => {
       const listings: NasdaqStockListing[] = [];
       let offset = 0;
       let totalRecords = Number.POSITIVE_INFINITY;
@@ -115,8 +130,11 @@ export async function fetchAllUsStockListings(fetcher: typeof fetch = fetch): Pr
       }
 
       return listings;
-    }));
+    })))).value;
   } catch (err) {
+    // Issue #1745: a tripped breaker surfaces as its business error,
+    // unwrapped — the #1554 wrap below is for provider errors only.
+    if (err instanceof BreakerOpenError) throw err;
     // #1554 (parent #913): fail explicit. The curated universe must
     // never be substituted for a failed live feed, and a failed feed
     // must never be cached: NasdaqStockListing carries no provenance
