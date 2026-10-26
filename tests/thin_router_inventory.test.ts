@@ -95,6 +95,12 @@
  * handleKnowledgeCorpusRoutes, after the data-provider handler) —
  * bringing the pinned array to 216 entries and the delegation
  * sequence to 24 calls.
+ * Issue #1169 (S2) added one more — GET /knowledge/file (in
+ * handleKnowledgeCorpusRoutes, before POST /knowledge/corpus in
+ * source order, flag-gated: returns null when
+ * KNOWLEDGE_SERVING_ENABLED is off) — bringing the pinned array
+ * to 217 entries; the delegation sequence is unchanged (same
+ * handler, same position).
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -193,6 +199,7 @@ const EXPECTED_INVENTORY = [
   "handleAuditRoutes :: endsWith(\"/audit/event\")",
   "handleDataProviderRoutes :: === \"/data-providers\"",
   "handleDataProviderRoutes :: === \"/data-providers/\"",
+  "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/file\")",
   "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/corpus\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/jobs\")",
