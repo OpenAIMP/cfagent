@@ -22,7 +22,8 @@ import type {
   ETradeOptionChainContract,
 } from "../types";
 import type { ETradeRestClient } from "./etrade/client";
-import { fetchAllUsStockListings, type NasdaqStockListing } from "../services/nasdaqListings";
+import { type NasdaqStockListing } from "../services/nasdaqListings";
+import type { NasdaqUniverseDeps } from "./screenerPipeline";
 import { getScreenerConfig, type EtapiScreenerConfig } from "../config/etapiConfig";
 
 const baseScreenerConfig = getScreenerConfig();
@@ -278,13 +279,20 @@ export function sanitizeOptionScreenerFilter(raw: OptionScreenerFilter = {}, con
 export class DynamicOptionsScreener {
   private client?: ETradeRestClient;
   public config: EtapiScreenerConfig;
+  /** Issue #1378: threaded universe seam (route-bound by the caller); absent → resolveUnderlyings throws. */
+  private universeDeps?: NasdaqUniverseDeps;
   private static testChainsFixture: Record<string, ETradeOptionChain> = {};
   private static testListingsFixture: NasdaqStockListing[] | null = null;
 
-  constructor(client?: ETradeRestClient, config?: Partial<EtapiScreenerConfig>) {
+  constructor(
+    client?: ETradeRestClient,
+    config?: Partial<EtapiScreenerConfig>,
+    universeDeps?: NasdaqUniverseDeps
+  ) {
     this.client = client;
     const base = getScreenerConfig((client as any)?.env, (client as any)?.overrideEnv);
     this.config = config ? { ...base, ...config } : base;
+    this.universeDeps = universeDeps;
   }
 
   /**
@@ -302,6 +310,14 @@ export class DynamicOptionsScreener {
     DynamicOptionsScreener.testListingsFixture = fixture;
   }
 
+  /** Issue #1378: the threaded universe seam, or a named throw when neither fixture nor seam exists. */
+  private async fetchUniverseListings(): Promise<NasdaqStockListing[]> {
+    if (this.universeDeps) return this.universeDeps.fetchListings();
+    throw new Error(
+      "options discovery requires universeDeps — no dep-less listings fetch exists (#1378)"
+    );
+  }
+
   /**
    * Resolve explicit underlyings or discover from all current U.S. exchange listings.
    * Discovery is deterministic (alphabetically sorted) and always capped at
@@ -312,7 +328,11 @@ export class DynamicOptionsScreener {
       return Array.from(new Set(filter.underlyingSymbols.map((s) => s.toUpperCase().trim()).filter(Boolean)));
     }
 
-    const listings = DynamicOptionsScreener.testListingsFixture ?? await fetchAllUsStockListings();
+    // Issue #1378: discovery routes through the threaded universe
+    // seam — never a direct listings-module call. Neither fixture
+    // nor seam is an honest throw naming the seam, not a fetch.
+    const listings =
+      DynamicOptionsScreener.testListingsFixture ?? (await this.fetchUniverseListings());
     const discovered = Array.from(new Set(listings.map((listing) => listing.symbol.toUpperCase()))).sort();
     const cap = filter.maxUnderlyings && filter.maxUnderlyings > 0 ? filter.maxUnderlyings : this.config.maxScanSymbols;
     return discovered.slice(0, cap);
