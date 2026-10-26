@@ -25,6 +25,12 @@ export interface McpToolContext {
   orm: DatabaseORM;
   sessionId: string;
   /**
+   * #1686: optional DO blob handle for full capture, populated by the
+   * execution-context owner (chat turns); unset → today's outcome-only
+   * contract. Tools that ignore it are unaffected.
+   */
+  storage?: import("../trading").NasdaqUniverseRouteBundleInput["storage"];
+  /**
    * #1721: optional session/user carriers for the categories /
    * referrals / external-ads switches (run comes from the per-call
    * `mode` input, global env from `env`). Populated by the
