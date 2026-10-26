@@ -5,8 +5,9 @@
  * Owns the Multi-Gateway Payments & DID Management API section:
  * GET /payments/gateways|/payments/status, GET /payments/dids,
  * /payments/transactions (ledger with DID provenance), POST /payments/create
- * (checkout/draft with gateway validation + DID attestation), POST
- * /payments/confirm (HITL authorize & execute), POST /payments/capture
+ * (#1690: HITL draft via draft_payment — no checkout at create, gateway
+ * validation + DID attestation), POST /payments/confirm (HITL authorize &
+ * execute via confirm_payment_draft), POST /payments/capture
  * (real capture), POST /payments/webhook (unified HMAC-verified listener).
  * The seven blocks were contiguous in routeRequest (between the
  * referrals+ads handler and the Cloudflare Agentic Payments block), so this
@@ -20,8 +21,10 @@
  * preserved exactly as written inline: the #156 gateway 400-before-checkout
  * gate, the #148 webhook provider default-deny (401 before verification),
  * signature verification (401 on invalid), and the audit event names
- * (payment.created / payment.confirmed / payment.rejected /
- * payment.captured / payment.settled_webhook).
+ * (payment.awaiting_confirmation / payment.confirmed / payment.rejected /
+ * payment.captured / payment.settled_webhook — #1690 replaced the old
+ * payment.created create audit with the draft command's
+ * payment.awaiting_confirmation audit).
  *
  * The PaymentGatewayService and DID helpers stay where they are — this
  * module moves the ROUTE layer only. Handlers that used OrchestratorAgent
@@ -37,10 +40,9 @@ import {
   SUPPORTED_GATEWAYS,
   type SupportedGateway,
 } from "../../services/payments";
-import { AGENT_DIDS, getUserDid, resolveAgentDidDocument } from "../did";
+import { AGENT_DIDS, resolveAgentDidDocument } from "../did";
 import {
   SETTLEMENT_OWNER_HEADER,
-  registerDraftOwner,
   resolveDraftOwner,
 } from "../../payments/draftOwners";
 import type { AgentName, Env } from "../../types";
@@ -170,7 +172,8 @@ export async function handlePaymentsRoutes(
     }
   }
 
-  // Create payment checkout / draft
+  // Create a payment draft (#1690: delegated to draft_payment — no
+  // checkout at create; the checkout happens at confirm).
   if (path.endsWith("/payments/create") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as {
@@ -217,86 +220,55 @@ export async function handlePaymentsRoutes(
       // never a product line for a product that does not exist.
       const description = (body.description || "").trim();
 
-      const draftId = `pay_${crypto.randomUUID().slice(0, 8)}`;
-      const userDid = getUserDid(sessionId);
-
-      const paymentService = new PaymentGatewayService(ctx.env);
-      const checkoutResult = await paymentService.createCheckout({
-        draftId,
+      // #1690 (owner decision: HITL-draft canonical): create executes
+      // through the MCP draft_payment command via executeMCPTool — the
+      // #1644 pattern, route keeps transport + presentation only. The
+      // command mints the draft id + DID attestation, writes the
+      // awaiting_confirmation row (checkoutUrl/gatewayRef ""), records
+      // the #932 draft owner, and audits payment.awaiting_confirmation.
+      // NO checkout is attempted here: the old PAYMENT_GATEWAY_ERROR
+      // -at-create path disappears, and checkout failures surface at
+      // confirm instead. The gateway 400 above still runs BEFORE any
+      // command call (hence before any row write), because the draft
+      // command does not itself validate the gateway.
+      const out = await executeMCPTool("draft_payment", {
         amount,
         currency,
         customer,
-        description,
-        gateway,
-        userLogin: sessionId,
-      });
-
-      if (!checkoutResult.success) {
-        return Response.json({
-          success: false,
-          error: checkoutResult.message || `Failed to create checkout with ${gateway}`,
-          code: "PAYMENT_GATEWAY_ERROR",
-        }, { status: 400 });
-      }
-
-      const now = new Date().toISOString();
-      const initialStatus = checkoutResult.checkoutUrl ? "pending_checkout" : "completed";
-      sql.exec(
-        "INSERT INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        draftId,
-        sessionId,
         action,
-        amount,
-        currency,
-        customer,
         gateway,
-        checkoutResult.gatewayRef || "",
-        initialStatus,
-        checkoutResult.checkoutUrl,
-        AGENT_DIDS.PAYMENTS,
-        userDid,
-        checkoutResult.didAttestation.signature,
+        // Explicitly passed even when "" so the command's #1690/#514
+        // rule keeps the pinned empty note (an omitted description
+        // keeps the command's generic default only for direct MCP
+        // callers that omit the field entirely).
         description,
-        now,
-        now
-      );
-
-      ctx.audit("payment.created", "payments", {
-        draftId,
-        amount,
-        currency,
-        customer,
-        gateway,
-        proposerDid: AGENT_DIDS.PAYMENTS,
-        authorizerDid: userDid,
-        proofSignature: checkoutResult.didAttestation.signature,
+      }, {
+        env: ctx.env,
+        orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
+        sessionId,
+        audit: (type, agent, payload) => ctx.audit(type, agent, payload),
       });
-
-      // Issue #932: record which instance owns this draft so a gateway
-      // settlement webhook — received by the shared
-      // system_webhook_receiver instance, not this one — can be routed
-      // back here. Written for every draft, whatever its initial status.
-      await registerDraftOwner(ctx.env, draftId, sessionId);
+      const tx = out.transaction;
 
       return Response.json({
         success: true,
         transaction: {
-          id: draftId,
-          sessionId,
-          action,
-          amount,
-          currency,
-          customer,
-          gateway,
-          gatewayRef: checkoutResult.gatewayRef,
-          status: initialStatus,
-          checkoutUrl: checkoutResult.checkoutUrl,
-          proposerDid: AGENT_DIDS.PAYMENTS,
-          authorizerDid: userDid,
-          proofSignature: checkoutResult.didAttestation.signature,
-          note: description,
-          createdAt: now,
-          updatedAt: now,
+          id: String(tx.id),
+          sessionId: String(tx.sessionId),
+          action: String(tx.action),
+          amount: Number(tx.amount),
+          currency: String(tx.currency),
+          customer: String(tx.customer),
+          gateway: String(tx.gateway),
+          gatewayRef: String(tx.gatewayRef || ""),
+          status: String(tx.status),
+          checkoutUrl: String(tx.checkoutUrl || ""),
+          proposerDid: String(tx.proposerDid),
+          authorizerDid: tx.authorizerDid ? String(tx.authorizerDid) : undefined,
+          proofSignature: String(tx.proofSignature || ""),
+          note: String(tx.note || ""),
+          createdAt: String(tx.createdAt),
+          updatedAt: String(tx.updatedAt),
         },
       });
     } catch (err) {
@@ -305,6 +277,18 @@ export async function handlePaymentsRoutes(
   }
 
   // Authorize & Execute a pending payment draft (HITL)
+  // #1690 (owner decision: HITL-draft canonical): confirm executes
+  // through the MCP confirm_payment_draft command via executeMCPTool —
+  // the #1644 pattern, route keeps transport + presentation only.
+  // Deltas from the old REST confirm, all owned by the command now:
+  // a missing draft THROWS before the decision branch (mapped to 404
+  // here — no more silent success); an approved charge/invoice creates
+  // a checkout UNCONDITIONALLY via the facade (overwriting any
+  // checkoutUrl an old-immediate-checkout row already carries — see
+  // the migration note in the issue); note text is the command's
+  // ("Approved by human authorizer" / "Rejected by human reviewer");
+  // and the confirm/reject audits are the command's payloads
+  // (decision/status fields in, executorDid out).
   if (path.endsWith("/payments/confirm") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as {
@@ -321,80 +305,39 @@ export async function handlePaymentsRoutes(
         return Response.json({ error: "draftId is required" }, { status: 400 });
       }
 
-      const userDid = getUserDid(sessionId);
-      const now = new Date().toISOString();
-
-      if (decision === "approved") {
-        // Retrieve draft from mas_transactions
-        const rows = Array.from(sql.exec("SELECT * FROM mas_transactions WHERE id = ?", draftId)) as any[];
-        const tx = rows[0];
-        const paymentService = new PaymentGatewayService(ctx.env);
-
-        let checkoutUrl = tx?.checkout_url || "";
-        let gatewayRef = tx?.gateway_ref || "";
-
-        if (tx && (tx.action === "charge" || tx.action === "invoice") && !checkoutUrl) {
-          const res = await paymentService.createCheckout({
-            draftId,
-            amount: Number(tx.amount),
-            currency: String(tx.currency || "USD"),
-            customer: String(tx.customer),
-            gateway: tx.gateway as SupportedGateway,
-            userLogin: sessionId,
-            description: tx.note || "Authorized payment intent",
-          });
-          checkoutUrl = res.checkoutUrl;
-          gatewayRef = res.gatewayRef;
-        } else if (tx && tx.action === "refund") {
-          const res = await paymentService.executeRefund({
-            transactionId: draftId,
-            amount: Number(tx.amount),
-            gateway: tx.gateway as SupportedGateway,
-            gatewayRef: tx.gateway_ref,
-            userLogin: sessionId,
-            reason: note,
-          });
-          gatewayRef = res.refundId;
-        }
-
-        sql.exec(
-          "UPDATE mas_transactions SET status = 'completed', gateway_ref = ?, checkout_url = ?, authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
-          gatewayRef,
-          checkoutUrl,
-          userDid,
-          note || "Confirmed by human authorizer",
-          now,
-          draftId
-        );
-
-        ctx.audit("payment.confirmed", "payments", {
+      let out: any;
+      try {
+        out = await executeMCPTool("confirm_payment_draft", {
           draftId,
-          authorizerDid: userDid,
-          executorDid: AGENT_DIDS.ORCHESTRATOR,
-          gatewayRef,
-          checkoutUrl,
+          decision,
+          note,
+        }, {
+          env: ctx.env,
+          orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
+          sessionId,
+          audit: (type, agent, payload) => ctx.audit(type, agent, payload),
         });
+      } catch (err) {
+        // The command throws on a missing draft before either decision
+        // branch; that is a client error, not a 500 — and it replaces
+        // the old route's silent success on a missing draft.
+        if (err instanceof Error && /not found/i.test(err.message)) {
+          return Response.json({ error: err.message }, { status: 404 });
+        }
+        throw err;
+      }
 
+      if (out.decision === "approved") {
         return Response.json({
           success: true,
           status: "completed",
           draftId,
-          checkoutUrl,
-          gatewayRef,
-          authorizerDid: userDid,
+          checkoutUrl: out.checkoutUrl || "",
+          gatewayRef: out.gatewayRef || "",
+          authorizerDid: out.authorizerDid,
         });
-      } else {
-        sql.exec(
-          "UPDATE mas_transactions SET status = 'rejected', authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
-          userDid,
-          note || "Rejected by reviewer",
-          now,
-          draftId
-        );
-
-        ctx.audit("payment.rejected", "payments", { draftId, authorizerDid: userDid });
-        return Response.json({ success: true, status: "rejected", draftId });
       }
+      return Response.json({ success: true, status: "rejected", draftId });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to confirm payment draft" }, { status: 500 });
     }

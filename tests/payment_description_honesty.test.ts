@@ -27,6 +27,15 @@
  * (#156): agent-SDK module mocks, MockSqlStorage, and fetch stubbed at
  * the real gateway endpoints with request bodies captured, so assertions
  * cover the stored row AND the payload each gateway actually receives.
+ *
+ * UPDATE (#1690, owner HITL-draft decision 2026-10-26): the checkout —
+ * and therefore the gateway payload — moved from create to confirm.
+ * The stored-note pins below are unchanged ("" when omitted, caller's
+ * text when supplied); the gateway-payload assertions changed WITH
+ * that decision: at create time there is now NO gateway call at all
+ * (captured.* undefined), and the payload pin lives at confirm time
+ * in tests/payments_hitl_unification.test.ts (Stripe product name =
+ * caller's description at confirm).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -170,9 +179,9 @@ describe("POST /payments/create — no invented description or customer (#514)",
     const rows = newTx(sql, base);
     expect(rows).toHaveLength(1);
     expect(rows[0].note).toBe("");
-    const name = captured.stripe?.get("line_items[0][price_data][product_data][name]");
-    expect(name).toBe("Payment");
-    for (const bad of FABRICATED) expect(name ?? "").not.toContain(bad);
+    // #1690: no checkout at create, so no Stripe call at all — the
+    // neutral-label payload pin now lives at confirm time.
+    expect(captured.stripe).toBeUndefined();
   });
 
   it("stripe, description supplied: it reaches the stored row and the Stripe product name unchanged", async () => {
@@ -190,7 +199,9 @@ describe("POST /payments/create — no invented description or customer (#514)",
     const rows = newTx(sql, base);
     expect(rows).toHaveLength(1);
     expect(rows[0].note).toBe("Q3 consulting engagement");
-    expect(captured.stripe?.get("line_items[0][price_data][product_data][name]")).toBe("Q3 consulting engagement");
+    // #1690: no checkout at create, so the description reaches Stripe
+    // only at confirm (pinned in tests/payments_hitl_unification.test.ts).
+    expect(captured.stripe).toBeUndefined();
   });
 
   it("no customer supplied: the stored row records an empty customer, not a fabricated organization", async () => {
@@ -217,14 +228,13 @@ describe("POST /payments/create — no invented description or customer (#514)",
     const rows = newTx(sql, base);
     expect(rows).toHaveLength(1);
     expect(rows[0].note).toBe("");
-    const unit = captured.paypal?.purchase_units?.[0];
-    expect(unit).toBeDefined();
-    expect("description" in unit).toBe(false);
-    expect(JSON.stringify(captured.paypal)).not.toContain("AI Compute Credits");
+    // #1690: no checkout at create, so no PayPal call at all.
+    expect(captured.paypal).toBeUndefined();
   });
 
-  it("paypal, description supplied: the purchase unit carries it unchanged", async () => {
-    const { agent } = makeAgent(makeEnv());
+  it("paypal, description supplied: stored unchanged, and no PayPal call happens at create (#1690)", async () => {
+    const { agent, sql } = makeAgent(makeEnv());
+    const base = baselineIds(sql);
     const res = await postCreate(agent, {
       amount: 25,
       customer: "Acme Corp",
@@ -232,7 +242,11 @@ describe("POST /payments/create — no invented description or customer (#514)",
       description: "Hosting renewal — October",
     });
     expect(res.status).toBe(200);
-    expect(captured.paypal?.purchase_units?.[0]?.description).toBe("Hosting renewal — October");
+    const json = (await res.json()) as any;
+    expect(json.transaction.note).toBe("Hosting renewal — October");
+    expect(newTx(sql, base)[0].note).toBe("Hosting renewal — October");
+    // #1690: the description reaches PayPal only at confirm time.
+    expect(captured.paypal).toBeUndefined();
   });
 
   it("lemonsqueezy, no description supplied: neutral product name and an empty product description", async () => {
@@ -245,14 +259,13 @@ describe("POST /payments/create — no invented description or customer (#514)",
     const rows = newTx(sql, base);
     expect(rows).toHaveLength(1);
     expect(rows[0].note).toBe("");
-    const opts = captured.lemonsqueezy?.data?.attributes?.product_options;
-    expect(opts?.name).toBe("Payment");
-    expect(opts?.description).toBe("");
-    for (const bad of FABRICATED) expect(JSON.stringify(captured.lemonsqueezy)).not.toContain(bad);
+    // #1690: no checkout at create, so no Lemon Squeezy call at all.
+    expect(captured.lemonsqueezy).toBeUndefined();
   });
 
-  it("lemonsqueezy, description supplied: name and product description both carry it", async () => {
-    const { agent } = makeAgent(makeEnv());
+  it("lemonsqueezy, description supplied: stored unchanged, and no Lemon Squeezy call happens at create (#1690)", async () => {
+    const { agent, sql } = makeAgent(makeEnv());
+    const base = baselineIds(sql);
     const res = await postCreate(agent, {
       amount: 25,
       customer: "Acme Corp",
@@ -260,9 +273,11 @@ describe("POST /payments/create — no invented description or customer (#514)",
       description: "API usage — September",
     });
     expect(res.status).toBe(200);
-    const opts = captured.lemonsqueezy?.data?.attributes?.product_options;
-    expect(opts?.name).toBe("API usage — September");
-    expect(opts?.description).toBe("API usage — September");
+    const json = (await res.json()) as any;
+    expect(json.transaction.note).toBe("API usage — September");
+    expect(newTx(sql, base)[0].note).toBe("API usage — September");
+    // #1690: the description reaches Lemon Squeezy only at confirm time.
+    expect(captured.lemonsqueezy).toBeUndefined();
   });
 });
 
