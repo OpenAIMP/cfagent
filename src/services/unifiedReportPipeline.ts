@@ -4,6 +4,8 @@
  * Single implementation for generate → store → serve → deliver used by:
  * - Stock screener (manual + scheduled)
  * - Options screener (manual + scheduled)
+ * - Research runs (issue #1641: generate via generateReportStage;
+ *   canonical store + semantic index already lived in researchPublish)
  *
  * Issue #680: PDF generation is owned by ReportAssetAgent (single owner).
  * This pipeline delegates to generatePdfAsset — it does NOT bypass the
@@ -28,8 +30,8 @@
  */
 
 export interface UnifiedReportInput {
-  /** "screener" for stock, "options" for options screener */
-  type: "screener" | "options";
+  /** "screener" for stock, "options" for options screener, "research" for research runs (#1641) */
+  type: "screener" | "options" | "research";
   /** "manual" or "scheduled" */
   trigger: "manual" | "scheduled";
   /** The run result data (type-specific) */
@@ -121,7 +123,10 @@ export async function generateReportStage(
   try {
     // Issue #680: delegate to ReportAssetAgent (single owner for PDF gen).
     const { generatePdfAsset } = await import("../agents/report-asset-agent");
-    const assetType = input.type === "screener" ? "screener" : "options";
+    // Issue #1641: the asset type IS the input type — the old
+    // screener-else-options mapping silently generated an OPTIONS pdf
+    // for a research input. ReportAssetAgent supports all three.
+    const assetType = input.type;
     // Issue #1278 (#1173 R5): retry under the R1 pipeline policy
     // (retry.report — PIPELINE_REPORT_RETRY_* / pipeline.retry.report).
     // generatePdfAsset never throws: null IS its failure signal, so a
