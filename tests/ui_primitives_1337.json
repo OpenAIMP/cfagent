@@ -85,10 +85,5 @@
     "src/client/scheduledOptionsManager/SchedulesSection.tsx",
     "src/client/scheduledOptionsManager/ThesisRiskFields.tsx"
   ],
-  "exemptions": [
-    {
-      "path": "src/client/ApprovalsPanel.tsx",
-      "reason": "Composition-only surface: renders no controls itself; all interactive UI comes from TradingApprovalsQueue and PendingReviewQueue, both built from ui/ primitives. Importing a primitive here would be decorative."
-    }
-  ]
+  "exemptions": []
 }

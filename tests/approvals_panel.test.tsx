@@ -118,6 +118,16 @@ describe("Issue #1705 — Approvals surface composes the existing queues", () =>
     expect(panel).not.toContain("/api/trading/reports/confirm");
   });
 
+  it("source pin: the panel complies with the UX token architecture with no exemption (ADR-0004)", () => {
+    const panel = readFileSync("src/client/ApprovalsPanel.tsx", "utf8");
+    expect(panel).toContain('from "./components/ui"');
+    expect(panel).toContain("<Card");
+    const gov = JSON.parse(readFileSync("tests/ui_primitives_1337.json", "utf8")) as {
+      exemptions: Array<{ path: string; reason: string }>;
+    };
+    expect(gov.exemptions.find((e) => e.path === "src/client/ApprovalsPanel.tsx")).toBeUndefined();
+  });
+
   it("source pin: the Approvals tab is wired in the nav and the shell", () => {
     const nav = readFileSync("src/client/components/NavigationMenu.tsx", "utf8");
     expect(nav).toContain('id: "approvals"');
