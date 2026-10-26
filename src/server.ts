@@ -64,6 +64,19 @@ import {
   handleSeedReportsRoute,
 } from "./data/auditReportRoute";
 import {
+  handleTelemetryDecisionActionRoute,
+  handleTelemetryDecisionsRoute,
+  handleTelemetryReconcileRoute,
+  handleTelemetrySummaryRoute,
+} from "./telemetry/telemetryRoute";
+import type { TrackRecordIdeaInput } from "./telemetry/telemetryProjection";
+import {
+  createTelemetryAdapter,
+  ensureTelemetryTables,
+} from "./telemetry/createTelemetryPorts";
+import { defaultBreakerRegistry } from "./breakers/createBreakerPorts";
+import { retrievalStatsSnapshot } from "./telemetry/retrievalStats";
+import {
   createAuditReportAdapter,
   readAuditHistory,
   readReports,
@@ -870,6 +883,29 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           graphDegraded = true;
         }
       }
+      // Issue #1742: consume #1740's retrieval.completed hook —
+      // fold this retrieval's counts into the telemetry summary.
+      // Best-effort, swallowed: telemetry never fails a search.
+      try {
+        const { toRetrievalCompletedEnvelope } = await import(
+          "./retrieval/hybridRetrieval"
+        );
+        const { ingestRetrievalCompleted } = await import(
+          "./telemetry/retrievalStats"
+        );
+        ingestRetrievalCompleted(
+          toRetrievalCompletedEnvelope({
+            denseCount: chunks.length,
+            graphCount: graph.length,
+            degraded: graphDegraded,
+          }),
+        );
+      } catch (err) {
+        console.warn(
+          "[telemetry] retrieval.completed ingestion failed (ignored):",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
       return Response.json({ ok: true, chunks, graph, graphDegraded });
     }
 
@@ -1554,6 +1590,136 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           }
           return report;
         },
+      });
+    }
+
+    // --- Telemetry & calibration (issue #1742) ---
+    // GET /api/telemetry/summary: any signed-in user; D1 metrics
+    // (all five dimensions) + active calibrated notes + live
+    // breaker health (#1745 registry snapshots) + retrieval
+    // stats (folded #1740 retrieval.completed envelopes).
+    // GET /api/telemetry/decisions: any signed-in user.
+    // POST /api/telemetry/decisions/:id/decide|apply|supersede|expire:
+    // platform-admin only (IAAA admin pattern, same as the
+    // reconcile routes). POST /api/telemetry/reconcile:
+    // platform-admin only; imports scored track-record ideas
+    // for one research:<login> instance (default: the admin's
+    // login; ?userLogin= overrides), bounded 500/call, repeat
+    // calls converge. Never auto-run: no boot, deploy, or tick
+    // path calls these. Reads pass a null store through to the
+    // handler (401/503 there); governance paths check the
+    // binding first, like the reconcile routes.
+    if (
+      path === "/api/telemetry/summary" ||
+      path === "/api/telemetry/decisions" ||
+      path === "/api/telemetry/reconcile" ||
+      /^\/api\/telemetry\/decisions\/[^/]+\/(decide|apply|supersede|expire)$/.test(path)
+    ) {
+      const session = await requireAuth(request, env);
+      const tenantId = resolveIaaaTenant(env);
+      const store = createTelemetryAdapter(env as any);
+      if (path === "/api/telemetry/summary") {
+        if (store) await ensureTelemetryTables(store);
+        return handleTelemetrySummaryRoute({
+          session,
+          method: request.method,
+          tenantId,
+          store,
+          breakerSnapshots: () => defaultBreakerRegistry().snapshots(),
+          retrievalStats: () => retrievalStatsSnapshot(),
+        });
+      }
+      if (path === "/api/telemetry/decisions") {
+        if (store) await ensureTelemetryTables(store);
+        return handleTelemetryDecisionsRoute({
+          session,
+          method: request.method,
+          tenantId,
+          store,
+          status: url.searchParams.get("status") ?? undefined,
+          actorKey: url.searchParams.get("actorKey") ?? undefined,
+          promptKey: url.searchParams.get("promptKey") ?? undefined,
+        });
+      }
+      let isPlatformAdmin = false;
+      if (session?.internalUserId) {
+        try {
+          const overview = await buildAdminOverview(
+            {
+              membershipStore: createKvMembershipStore(sessionStore(env)),
+              auditStore: createWiredAuditStore(env),
+              kv: sessionStore(env),
+              tenantId: resolveIaaaTenant(env),
+              nowMs: Date.now(),
+            },
+            { callerInternalUserId: session.internalUserId },
+          );
+          isPlatformAdmin = overview.allowed;
+        } catch {
+          return Response.json({ error: "Telemetry operation unavailable." }, { status: 500 });
+        }
+      }
+      if (!store) {
+        return Response.json(
+          { error: "Telemetry unavailable: AgentDB is not bound." },
+          { status: 503 },
+        );
+      }
+      await ensureTelemetryTables(store);
+      if (path === "/api/telemetry/reconcile") {
+        const userLogin =
+          url.searchParams.get("userLogin") ?? session?.githubLogin ?? "default";
+        const researchNs = (env as any).RESEARCH_AGENT as
+          | {
+              idFromName(name: string): unknown;
+              get(id: unknown): unknown;
+            }
+          | undefined;
+        return handleTelemetryReconcileRoute({
+          session,
+          method: request.method,
+          isPlatformAdmin,
+          tenantId,
+          store,
+          userLogin,
+          loadTrackRecord: async () => {
+            if (!researchNs) {
+              throw new Error("ResearchAgent binding not configured.");
+            }
+            const id = researchNs.idFromName(`research:${userLogin}`);
+            const agent = researchNs.get(id) as unknown as {
+              getTrackRecord(): Promise<{ ideas: unknown[] }>;
+            };
+            const record = await agent.getTrackRecord();
+            return { ideas: record.ideas as unknown as TrackRecordIdeaInput[] };
+          },
+        });
+      }
+      const match = path.match(
+        /^\/api\/telemetry\/decisions\/([^/]+)\/(decide|apply|supersede|expire)$/,
+      );
+      const decisionId = match ? decodeURIComponent(match[1]) : "";
+      const action = (match ? match[2] : "decide") as
+        | "decide"
+        | "apply"
+        | "supersede"
+        | "expire";
+      let verdict: string | undefined;
+      if (action === "decide") {
+        const body = (await request.json().catch(() => null)) as {
+          verdict?: unknown;
+        } | null;
+        verdict = typeof body?.verdict === "string" ? body.verdict : undefined;
+      }
+      return handleTelemetryDecisionActionRoute({
+        session,
+        method: request.method,
+        isPlatformAdmin,
+        tenantId,
+        store,
+        decisionId,
+        action,
+        verdict,
       });
     }
 
