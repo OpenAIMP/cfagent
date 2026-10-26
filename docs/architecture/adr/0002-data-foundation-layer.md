@@ -229,6 +229,79 @@ The canonical `mas_reports` seed is approved but ships with the
 later reports slice; that table does not exist yet and is not
 built here.
 
+## Slice 1 addendum (issue #1651, chains + schedules projection)
+
+- Status: accepted with slice 1; the R1–R9 contract above is
+  unchanged and governs this slice.
+- Tables (migration 0002, DDL in exactly one file): `agent_chains`
+  and `agent_synthesized_schedules`. Every row carries
+  `tenant_id`, `workspace_id`, `chain_id`, `version`,
+  `created_at_ms`, `updated_at_ms`, and provenance
+  (`provenance_writer`, `provenance_source_do`,
+  `provenance_source_version`, the last being the row-shape
+  version of the DO record mapping, 1 in slice 1). The `id`
+  primary key is the deterministic replay key
+  `<tenant_id>:<id>:<version>`; replaying the same version
+  conflicts and is a no-op under `onConflictDoNothing` writes.
+  Tenant/chain/version indexes serve the latest-row reads.
+  Chain rows carry `goal` + `steps_json` (capability ids and
+  stages only); schedule rows carry `kind` + `cron`. Neither
+  row type carries auth material of any kind.
+- Writer wiring points (the real transitions, no parallel
+  paths): `ScheduledAgent.synthesizeSchedule`,
+  `approveSynthesizedSchedule`, and `killSynthesizedSchedule`
+  in `src/agents/scheduled-agent.ts`. Each saves DO state
+  first, then best-effort projects via the composition root
+  (`src/data/createChainSchedulePorts.ts`); a projection
+  failure is logged and reported, never thrown to the
+  transition. Honesty note: the pure compilers
+  (`compileGoal`/`compileChain` in `src/orchestrate.ts`) and
+  the registry produce no persisted identity, so no chain row
+  is written at compile time — the chain row is created at
+  synthesize (the first persisted transition) with `chainId`
+  equal to the synthesized record id, and approve/kill advance
+  it. Wiring a projection into the compiler would have
+  fabricated an id and invented a parallel path; it was
+  deliberately not done. `scheduleId` equals `chainId` in
+  slice 1 because one synthesized record is one chain instance.
+- Reconciliation design: `reconcileChainSchedules`
+  (`src/data/chainScheduleProjection.ts`) compares each DO
+  record's status against the latest projected chain and
+  schedule rows; a missing or stale projection is re-projected
+  as a new version row, a current one is left untouched, and
+  per-record failures are collected in the report, never
+  thrown. Invocation is a deliberate operator/maintenance
+  step only: `ScheduledAgent.reconcileChainScheduleProjection`
+  plus the admin-gated POST `/api/chains/reconcile` route
+  (requireAuth → wired session → live platform-admin
+  membership, the slice-0 seed pattern). It is never boot
+  logic, never auto-run on deploy or tick — R5 justification:
+  reconciliation is a repair pass over already-persisted
+  state, not a firing path, so running it on a schedule would
+  silently rewrite query state outside any operator decision.
+  The operator invokes it after a recorded projection failure,
+  and its report states exactly what changed.
+- Query API: GET `/api/chains/status?chainId=` (requireAuth;
+  tenant from IAAA resolution) reads the projection only via
+  `readChainStatus` — never the durable object — and returns
+  the latest chain + schedule rows for that tenant, or
+  `projected:false` when nothing is projected. Unbound
+  AgentDB answers 503. The route returns projection fields
+  only (id, status, version, kind, cron, timestamps).
+- Tenancy: the adapters inject `tenant_id` into every query;
+  there is no unscoped list-all method. Tenant and workspace
+  default to `"primary"` (the documented single-tenant
+  default, same as the slice-0 tick) until a tenant context is
+  threaded through ScheduledAgent; a multi-tenant deployment
+  must set it explicitly.
+- Retention: `agent_chains` and `agent_synthesized_schedules`
+  are KEEP (versioned projection history; see
+  `src/security/storageRetention.ts`, the single contract).
+- Ports: `src/data/chainSchedulePorts.ts` (interfaces),
+  `src/data/d1ChainScheduleAdapter.ts` +
+  `src/data/inMemoryChainScheduleAdapter.ts` (adapters), with
+  the port/dialect suite passing unchanged against both.
+
 ## Consequences
 
 - A new dependency: `drizzle-orm` (runtime). No `drizzle-kit`
