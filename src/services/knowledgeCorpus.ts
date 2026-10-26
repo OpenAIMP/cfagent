@@ -39,6 +39,12 @@
  * Out of scope for S1 (later slices): the serving route (S2), the
  * index (S2), fallback removal (S3), consumers + UI (S4), corpus
  * listing (S4 — DO storage here has get/put only, no key listing).
+ *
+ * S2 ADDENDUM (issue #1169, flag-gated): the serving helpers below
+ * (flag reader, bucket-key parsing, served-file links, seed
+ * verification) live here so the serving route, the search mapping,
+ * and MAS provenance share ONE implementation. They change nothing
+ * about storage: flag-OFF, every caller behaves exactly as before.
  */
 
 import { r2KeyForStorageKey } from "./reportBlobStore";
@@ -185,6 +191,192 @@ export async function putKnowledgeDoc(
   };
   await storage.put(key, meta);
   return { meta, idempotent: false };
+}
+
+/**
+ * Issue #1169 (S2, flag-gated): the serving flag.
+ *
+ * Mirrors the IAAA_WIRING_ENABLED idiom in src/types.ts exactly: the
+ * var is a plain string, "1"/"true"/"on" (case-insensitive, trimmed)
+ * means ON, and ABSENCE means OFF. The var is deliberately NOT added
+ * to wrangler.jsonc — S2 ships default-off, and enablement is a
+ * config change only (set the var, redeploy), never a code change.
+ * Rollback is unsetting it (or setting "0") and redeploying.
+ */
+export function isKnowledgeServingEnabled(
+  env?: { KNOWLEDGE_SERVING_ENABLED?: string } | null
+): boolean {
+  const v = env?.KNOWLEDGE_SERVING_ENABLED;
+  if (typeof v !== "string") return false;
+  const norm = v.trim().toLowerCase();
+  return norm === "1" || norm === "true" || norm === "on";
+}
+
+/**
+ * Issue #1169 (S2): bucket key -> storage coordinates, or null.
+ * Only keys of the exact shape knowledge/<category>/<sha256-hex>
+ * are servable; anything else (report keys, malformed keys) is not
+ * a corpus document and must never produce a served-file link.
+ */
+export function parseKnowledgeBucketKey(
+  bucketKey: unknown
+): { category: KnowledgeCategory; sha256: string } | null {
+  if (typeof bucketKey !== "string") return null;
+  const m = /^knowledge\/([^/]+)\/([0-9a-f]{64})$/.exec(bucketKey);
+  if (!m) return null;
+  const [, category, sha256] = m;
+  if (!isKnowledgeCategory(category)) return null;
+  return { category, sha256 };
+}
+
+/**
+ * Issue #1169 (S2): the authenticated serving-route link for a
+ * corpus bucket key, or undefined when the key is not servable.
+ * The route itself (GET /knowledge/file) enforces the session gate
+ * and hash-verifies bytes before streaming — a link is a promise
+ * the route keeps, never public bucket access.
+ */
+export function servedFileLinkFor(bucketKey: unknown): string | undefined {
+  const parsed = parseKnowledgeBucketKey(bucketKey);
+  if (!parsed || typeof bucketKey !== "string") return undefined;
+  return `/api/knowledge/file?key=${encodeURIComponent(bucketKey)}`;
+}
+
+/**
+ * Issue #1169 (S2): attach corpus provenance to one raw upstream
+ * search chunk (MAS path). Index-returned chunks are, by definition,
+ * indexed; a served-file link is attached ONLY when the chunk's key
+ * is a servable corpus key (a link to anything else would 404, which
+ * is a worse lie than no link). Non-object chunks pass through
+ * untouched. Report chunks are never passed through here — callers
+ * attach provenance to index chunks only.
+ */
+export function attachCorpusProvenance(chunk: unknown): unknown {
+  if (typeof chunk !== "object" || chunk === null || Array.isArray(chunk)) return chunk;
+  const record = chunk as Record<string, unknown>;
+  const bucketKey = typeof record.key === "string" ? record.key : undefined;
+  const servedFileLink = bucketKey ? servedFileLinkFor(bucketKey) : undefined;
+  return {
+    ...record,
+    ...(bucketKey ? { bucketKey } : {}),
+    ...(servedFileLink ? { servedFileLink } : {}),
+    indexingState: "indexed",
+  };
+}
+
+export interface SeedManifestEntry {
+  title: string;
+  category: string;
+  sha256: string | null;
+  fetchStatus?: string;
+}
+
+export interface SeedVerificationResult {
+  title: string;
+  category: string;
+  expectedSha256: string | null;
+  storedHash?: string;
+  status: "match" | "mismatch" | "missing" | "skipped-not-seeded";
+}
+
+export interface SeedVerificationReport {
+  results: SeedVerificationResult[];
+  /** True when every non-skipped entry matches. */
+  allMatch: boolean;
+  /**
+   * ALWAYS false: stored-in-R2 is not indexed. Index confirmation
+   * requires the Step 0 live probe (owner dashboard + probe gate) —
+   * no code path may report a seeded document as indexed until a
+   * probe proves it. This field exists so no caller can mistake a
+   * storage check for an index check.
+   */
+  indexConfirmed: false;
+  indexNote: string;
+}
+
+/**
+ * Issue #1169 (S2, Step 4): hash-check stored corpus documents
+ * against the seed manifest (docs/knowledge-corpus-seed-manifest.json).
+ * `stored` maps storage keys (knowledge:<category>:<sha256>) to their
+ * recorded content hashes. Entries with no hash or a non-"verified"
+ * fetchStatus (e.g. the NVIDIA 10-K, blocked-by-source-bot-gate) are
+ * SKIPPED, never reported missing — they are not seeded by automation,
+ * and reporting them missing would demand an automated fetch the
+ * manifest forbids. This verifies STORAGE only; see indexConfirmed.
+ */
+export function verifySeedManifest(
+  entries: readonly SeedManifestEntry[],
+  stored: ReadonlyMap<string, { contentHash: string }>
+): SeedVerificationReport {
+  // Cross-cutting (S2): seeding hash-check pass/fail is logged via
+  // the repo's console-stream idiom (loggingAspect.ts). Logged per
+  // entry: manifest title (a public document label, never PII),
+  // category, status, truncated hash prefix. NEVER logged: bytes,
+  // full hashes, credentials, or tokens. A mismatch/missing is a
+  // WARN (actionable failure); match/skipped is INFO.
+  const results: SeedVerificationResult[] = entries.map((entry) => {
+    const shaPrefix = entry.sha256 ? entry.sha256.slice(0, 12) : "none";
+    if (entry.sha256 === null || (entry.fetchStatus !== undefined && entry.fetchStatus !== "verified")) {
+      console.info(
+        `[knowledgeSeed] hash-check title="${entry.title}" category=${entry.category} status=skipped-not-seeded shaPrefix=${shaPrefix}`
+      );
+      return {
+        title: entry.title,
+        category: entry.category,
+        expectedSha256: entry.sha256,
+        status: "skipped-not-seeded",
+      };
+    }
+    const record = stored.get(`knowledge:${entry.category}:${entry.sha256}`);
+    if (!record) {
+      console.warn(
+        `[knowledgeSeed] hash-check title="${entry.title}" category=${entry.category} status=missing shaPrefix=${shaPrefix}`
+      );
+      return {
+        title: entry.title,
+        category: entry.category,
+        expectedSha256: entry.sha256,
+        status: "missing",
+      };
+    }
+    const status = record.contentHash === entry.sha256 ? "match" : "mismatch";
+    if (status === "match") {
+      console.info(
+        `[knowledgeSeed] hash-check title="${entry.title}" category=${entry.category} status=match shaPrefix=${shaPrefix}`
+      );
+    } else {
+      console.warn(
+        `[knowledgeSeed] hash-check title="${entry.title}" category=${entry.category} status=mismatch shaPrefix=${shaPrefix}`
+      );
+    }
+    return {
+      title: entry.title,
+      category: entry.category,
+      expectedSha256: entry.sha256,
+      storedHash: record.contentHash,
+      status,
+    };
+  });
+  const counts = results.reduce(
+    (acc, r) => {
+      acc[r.status] = (acc[r.status] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
+  const allMatch = results
+    .filter((r) => r.status !== "skipped-not-seeded")
+    .every((r) => r.status === "match");
+  console.info(
+    `[knowledgeSeed] summary match=${counts.match ?? 0} mismatch=${counts.mismatch ?? 0} missing=${counts.missing ?? 0} skipped-not-seeded=${counts["skipped-not-seeded"] ?? 0} allMatch=${allMatch}`
+  );
+  return {
+    results,
+    allMatch,
+    indexConfirmed: false,
+    indexNote:
+      "Stored-in-R2 is not indexed: live-index confirmation requires the Step 0 probe (owner dashboard + live probe gate).",
+  };
 }
 
 export async function getKnowledgeDoc(
