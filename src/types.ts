@@ -9,6 +9,11 @@ export interface Env {
   // absence means the tick keeps legacy behavior (no cross-DO
   // halt read). Never a session or credential store.
   AGENT_DB?: D1Database;
+  // Issue #1743: Analytics Engine dataset for the
+  // observability stream. Optional so code is safe before the
+  // dataset is provisioned; absence means the sink degrades
+  // to local logging (never fails the request).
+  OBSERVABILITY?: AnalyticsEngineDataset;
   // Issue #1739: queue-backed messaging bindings. Optional so code is
   // safe before the bindings propagate; absence means the legacy
   // in-process bus (the composition root returns null). The work

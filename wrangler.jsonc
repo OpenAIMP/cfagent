@@ -23,6 +23,10 @@
   // Issue #1546 — D1 AgentDB (owner-created): shared cross-agent query
   // projection. DO storage stays authoritative for execution state.
   "d1_databases": [{ "binding": "AGENT_DB", "database_name": "agentdb", "database_id": "8d1bebf1-b2c4-4a55-8673-03140afb8023" }],
+  // Issue #1743 — Analytics Engine dataset for the observability
+  // stream (owner-provisioned dataset name; unbound degrades to
+  // local logging, never fails the request).
+  "analytics_engine_datasets": [{ "binding": "OBSERVABILITY", "dataset": "observability" }],
   "ai": { "binding": "AI" },
   // Issue #1739 — queue-backed messaging. The work queue is
   // producer-only in this slice (its consumer arrives with the first

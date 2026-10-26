@@ -51,7 +51,13 @@ import {
 } from "./data/createShardJobPorts";
 import { handleRetentionPurgeRoute } from "./data/retentionRoute";
 import { dispatchSubscriberBatch } from "./messaging/cfQueueMessagingAdapter";
-import type { SubscriberHandlers } from "./messaging/messagingPorts";
+import {
+  isMessageEnvelope,
+  type SubscriberHandlers,
+} from "./messaging/messagingPorts";
+import { withRequestObservability } from "./observability/aspects";
+import { createObservabilitySink } from "./observability/createObservabilityPorts";
+import { writeEnvelopeToSink } from "./observability/observabilityPorts";
 import { createScreenerQueueHandler } from "./messaging/screenerQueueConsumer";
 import {
   createRetentionPurgeStore,
@@ -1722,6 +1728,14 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         decisionId,
         action,
         verdict,
+        // Issue #1743 — calibration envelopes flow to the stream
+        // (calibration_applied on apply); best-effort by engine.
+        emit: (envelope) => {
+          void writeEnvelopeToSink(
+            createObservabilitySink(env),
+            envelope,
+          );
+        },
       });
     }
 
@@ -3082,7 +3096,12 @@ export default {
   // every visitor saw an edge error page. The boundary turns any failure into a
   // real 5xx with a machine-readable code (and stops KV quota throws from
   // taking authentication, and therefore the site, down).
-  fetch: withErrorBoundary(handleFetch),
+  // Issue #1743 — HTTP boundary observability: honor the
+  // incoming traceparent (or start a fresh trace), time the
+  // request, stream one http.request event. Purely
+  // observational — the response passes through unchanged,
+  // and the error boundary still converts throws to 5xx.
+  fetch: withRequestObservability(withErrorBoundary(handleFetch)),
   async email(message: any, env: Env, ctx?: any): Promise<void> {
     await handleCloudflareEmailMessage(message, env, ctx);
   },
@@ -3211,6 +3230,24 @@ export default {
         handlers,
         screenerDeliverySeen
       );
+      // Issue #1743 — passive observability tap: fold the same
+      // delivery envelopes into the Analytics Engine stream.
+      // This tap NEVER owns ack/retry (delivery above does) and
+      // NEVER fails the batch — a tap failure is warned, and
+      // the delivery outcome stands.
+      try {
+        const sink = createObservabilitySink(env);
+        for (const msg of batch.messages ?? []) {
+          if (isMessageEnvelope(msg.body)) {
+            await writeEnvelopeToSink(sink, msg.body);
+          }
+        }
+      } catch (tapErr) {
+        console.warn(
+          "[observability] delivery tap failed (ignored):",
+          tapErr,
+        );
+      }
       return;
     }
     // #1185 / #1066 — queue work runs under the message payload's stored
