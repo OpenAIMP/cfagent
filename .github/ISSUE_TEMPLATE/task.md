@@ -13,6 +13,11 @@ assignees: []
 
 ## Outcome
 
+## User journey
+Journey (which user journey this change serves):
+User (who the user is):
+How value surfaces in UX (what the user sees/does differently):
+
 ## Scope
 Included:
 Excluded:
@@ -23,6 +28,29 @@ Excluded:
 ## Test plan
 
 ## Dependencies
+
+## Change management (expected)
+Expected impact:
+Migration and data impact:
+Rollout plan:
+Rollback plan:
+Communication:
+
+## Conformance (no drift — docs/compliance)
+No UX drift, no architecture drift, no rework, no regression — reuse is mandatory.
+UX surfaces touched + primitives/tokens used (or none):
+Architecture surfaces touched + patterns/boundaries/ADRs followed (or none):
+Reused surfaces (existing implementations reused):
+Rework justification (if rebuilding an existing capability, why — otherwise none):
+Regression risk + pins preserving existing behavior:
+
+## Agentic design (docs/agents)
+Allocation is a decision, not a default — do NOT turn every service into an agent.
+Capability allocation (agent judgment vs deterministic service/tool, and why the agent earns its cost):
+Coordinator / delegation path + evaluator (independent criteria):
+Task state + records (durable task ledger, execution path recorded):
+Adaptive policies + budgets (explicit, recorded; never-list compliance):
+Deterministic rules kept in code (calculations, risk limits, authorization, accounting, schema validation — never in a model loop):
 
 ## Engineering standards
 All development on this issue must follow:
@@ -43,9 +71,16 @@ All development on this issue must follow:
 - Branch-as-lock when collaborating: check live fix/<issue>-* branches and open PRs before claiming
 - Never place or cancel a trade/order without explicit confirmation
 
-## Completion report (gitops §15 — fill on close)
-- Value created:
-- Capabilities enabled:
-- Competencies improved:
+## Completion report (gitops §15 — fill on close; the single document for this issue)
+- Issue / Pull request / Integration (merged, target, resulting commit):
+- Implementation (key decisions, alternatives, scope exclusions):
+- Test evidence (red, green, regression, integration/evaluation; CI runs; post-merge checks):
+- Change management (actual: change type, impacted surfaces, migration and data impact, rollout plan, rollback plan, communication, changelog entry):
+- Conformance (actual: UX primitives/tokens used, architecture boundaries followed, reused surfaces, rework justification, regression pins):
+- Agentic design (actual: allocation as built, delegation path, evaluator, task records, policies/budgets, never-list compliance):
+- Value and impact (value created, capabilities enhanced, competencies improved, value proposition, delivery channels, user journey):
+- Risk and limitations (security, tenant isolation, compatibility, performance/cost; known test-coverage gaps stated explicitly):
+- Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
 - Workflows operationalized:
 - How to harness this value from UX:
+- Next-step gate (PASS / BLOCKED + reason):

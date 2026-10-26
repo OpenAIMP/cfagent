@@ -505,5 +505,5 @@ export async function executeUnifiedOptions(args: {
   if (channel === "mcp") {
     return Response.json(result.toMcp());
   }
-  return Response.json({ ...result.toUi(), reportUrl, xlsxUrl: scannerXlsxUrl });
+  return Response.json({ ...result.toUi(), reportUrl, xlsxUrl: scannerXlsxUrl, csvKey: scannerCsvKey, csvUrl: scannerCsvUrl });
 }
