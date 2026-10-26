@@ -65,8 +65,13 @@ describe("#478 — new-payment description carries no seed product text", () => 
 
   it("the description placeholder is neutral copy, not a product claim", () => {
     const chat = src("client/Chat.tsx");
+    // #1576 (E2) converted the field from a raw <input> to the TextInput
+    // primitive; the pin asserts the placeholder property (present,
+    // neutral, bound to state), not the element type, so it accepts
+    // either form. The freeze test separately pins zero raw inputs in
+    // Chat.tsx, so the primitive form is what CI enforces.
     const inputMatch = chat.match(
-      /<label>Purpose \/ Description<\/label>\s*<input[^>]*placeholder="([^"]*)"[^>]*value=\{newPayDesc\}/,
+      /<label>Purpose \/ Description<\/label>\s*<(?:input|TextInput)[^>]*placeholder="([^"]*)"[^>]*value=\{newPayDesc\}/,
     );
     expect(inputMatch).not.toBeNull();
     const placeholder = inputMatch![1];
