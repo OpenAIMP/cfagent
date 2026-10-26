@@ -294,9 +294,48 @@ Large work ships as phases, not as one PR. The structure is:
   closes only when every sub-issue is closed, with a §15 report covering
   the whole outcome.
 - One PR per issue (§2 rule 5) is not waived by phasing: related work
-  distributed across sub-issues still ships as one PR per sub-issue.
-  Bundling sub-issues into one PR breaks clean revert, coherent review,
+  distributed across sub-issues still ships as one PR per sub-issue,
+  except the small-slice combination rule below. Bundling sub-issues into
+  one PR outside that rule breaks clean revert, coherent review,
   and §15 traceability, and stays forbidden.
+
+### Combining small slices into one PR (owner direction 2026-10-26)
+
+Default stays one issue → one PR. Several small sub-issues of ONE epic
+may share one PR — to save a full CI + merge cycle per slice — only when
+every condition below holds. If any condition fails, the slices ship as
+separate PRs.
+
+1. **Same epic only.** Every combined slice is a sub-issue of one epic.
+   Cross-epic bundling is never allowed.
+2. **Jointly reviewable.** The COMBINED diff passes §5 test 1: a reviewer
+   can hold the whole change and its tests in mind in a single sitting.
+   No line-count cap is set here (§1303 deliberately sets none); test 1
+   governs.
+3. **Independently shippable, independently revertible in principle.**
+   Each slice passes §5 test 2 on its own merits. Slices are combined for
+   efficiency, not because they are entangled — entangled work is one
+   issue, not a bundle.
+4. **Excluded categories always ride alone,** even when small:
+   production activations, flag/provider enablement, migrations/schemas,
+   workflow files, pinned security modules, deploys, and
+   permission/secret changes. A bundle containing any of these is split
+   before it opens.
+5. **Traceability is preserved, not waived.** The PR body lists EVERY
+   linked issue, and EACH linked issue gets its own §15 slice report
+   (implementation, test evidence, change management actuals for that
+   slice). The one-document record stays per-issue; the combined PR is a
+   pointer to N issues, not a second record and not a merged report.
+   Each combined issue's body notes it ships in the combined PR.
+6. **No failing slice merges.** A slice that fails review or its own
+   acceptance is split out of the bundle before merge; the bundle never
+   merges with a known-failing slice inside it.
+7. **Rollback is atomic.** Reverting the PR reverts all slices together.
+   That shared fate is the price of combining, and it is stated in the
+   PR, not discovered at revert time.
+8. **The PR closes all listed issues** only when every slice's §15 is
+   finalized; the epic still closes only when every sub-issue is closed,
+   with a §15 report covering the whole outcome.
 
 ***
 
@@ -483,7 +522,7 @@ One issue, one PR, one record. The issue holds everything; the PR body is a poin
 1. **The issue is the document.** Intent at creation (Problem, Outcome, Scope, Acceptance criteria, Test plan, Dependencies, Change management expected); the full PR report in the completion report (§15) at close.
 2. **The PR body is a pointer.** Summary, linked issue, and checklist only. Implementation, test evidence, change management actuals, value and impact, risk, and delivery live in the linked issue's completion report, not in the PR body.
 3. **The author writes the report into the issue.** When opening the PR, the author writes the full report into the linked issue's completion report; it is finalized at close. A PR whose report is not in the linked issue is sent back, not merged — the same gate pattern as Reuse before you build item 6.
-4. **One issue, one PR.** Each issue has exactly one PR; follow-up work is a new issue, not a second PR — so the completion report never needs a per-PR log.
+4. **One issue, one PR.** Each issue has exactly one PR, except that several small slices of one epic may share one PR under §5's small-slice combination rule — each issue still gets its own §15 slice report, so the completion report never needs a per-PR log. Follow-up work is a new issue, not a second PR.
 5. **The completion report is the single source of truth** for the change record and for value-creation: what was built, what proves it, how it landed, and what value it created, in one place. Change management is required in every issue (expected field at creation, actuals in the completion report); production-behavior changes additionally name the owner approval or activation step, and agent work stops at that step.
 
 ### No drift (UX and architecture conformance — docs/compliance)
@@ -648,7 +687,7 @@ A pull request MUST contain one logical set of related changes — the complete 
 The unit of this rule is the ISSUE, not the epic (§2 rule 5: one PR per issue):
 
 - Phases of a single issue default to one PR. That is why the #1185 consolidation (one issue → one PR, #1289) was correct — and why the #1185 stack, five PRs for one issue, violated §2 rule 5.
-- Sub-issues of an epic keep one PR each per §5: this rule does NOT authorize bundling sub-issues into one PR. A phase gets its own PR only when it passes §5's test 2 (independently shippable, independently revertible) — e.g. #1262 Phase 1 (#1279) as an independently mergeable foundation — with the justification recorded in the tracker issue.
+- Sub-issues of an epic keep one PR each per §5, except §5's small-slice combination rule: this rule does NOT authorize bundling sub-issues into one PR outside that rule. A phase gets its own PR only when it passes §5's test 2 (independently shippable, independently revertible) — e.g. #1262 Phase 1 (#1279) as an independently mergeable foundation — with the justification recorded in the tracker issue.
 - Stacked PRs (base on a non-main branch) register ZERO CI checks — workflows are main-scoped — and that is not a failure. A stacked PR MUST state its base, its merge order, and that its gate runs only after retargeting to main; the author retargets, re-gates, and only then is it mergeable.
 - A large-but-logical PR stays reviewable by organization, not by splitting the logical set: organize it as phase-grouped commits with a file-group map in the PR body (how the 88-file #1289 stays reviewable). §5's "reviewable in one pass" test is satisfied by commit grouping, not by breaking the set apart.
 
