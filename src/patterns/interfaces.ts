@@ -31,6 +31,13 @@ export interface McpToolContext {
    * execution-context owner; unset carriers fall through to env.
    */
   scopedModes?: AdsRevenueScopedModes;
+  /**
+   * #1722: optional session/user carriers for the NLQ_MODE switch
+   * (run comes from the per-call `mode` input, global env from
+   * `env`). Populated by the execution-context owner; unset carriers
+   * fall through to env. See src/config/nlqModes.ts.
+   */
+  scopedNlqModes?: import("../config/nlqModes").NlqScopedModes;
   requestId?: string;
   audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
   facade?: IMcpSystemFacade;
