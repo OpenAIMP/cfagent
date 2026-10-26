@@ -39,5 +39,8 @@ npm run typecheck || fail "typecheck failed"
 echo "--- Full test suite ---"
 npm run test:ci || fail "test suite failed"
 
+echo "--- Policy gate regression check ---"
+python3 scripts/ci/policy_gate.py --diff-only --base origin/main --head HEAD || fail "policy gate regression check failed"
+
 echo "VERIFY-BEFORE-MERGE OK: $BRANCH @ $(git rev-parse --short HEAD) is rebased onto origin/main and passes typecheck + full suite."
 echo "Next (gitops §17.4): merge, then verify the CI run on main for the merged commit before marking this issue Done. Unrelated work may continue in parallel."
