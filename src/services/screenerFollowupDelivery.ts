@@ -19,9 +19,11 @@ import { ETradeWebhookService } from "./tradingWebhooks";
 import { deliverScreenerToSlack } from "./screenerSlackDelivery";
 import {
   formatFollowupDeliveryText,
+  followupDeliveryEmailSubject,
   resolveScreenerFollowupConfig,
   type ScreenerRunOutcome,
 } from "./screenerFollowups";
+import { SCREENING_DRAFT_FOOTER } from "./screeningDelivery";
 import type { AsyncJobChannel } from "../types";
 
 export interface FollowupDeliveryDeps {
@@ -37,6 +39,19 @@ export interface FollowupDeliveryInput {
   artifacts: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" | "csv" }>;
 }
 
+/**
+ * Consolidation #1236 (discovery notifications): the text a delivery
+ * sends for a run outcome. Discovery outcomes carry the draft-only
+ * footer — the chain text path never appended it, while every direct
+ * path did, and draft-only posture for this new notification surface
+ * is preserved by content, not by a hold. All other kinds render
+ * byte-identically to formatFollowupDeliveryText.
+ */
+export function followupDeliveryText(outcome: ScreenerRunOutcome): string {
+  const text = formatFollowupDeliveryText(outcome);
+  return outcome.kind === "discovery" ? `${text}\n\n${SCREENING_DRAFT_FOOTER}` : text;
+}
+
 const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const CSV_CONTENT_TYPE = "text/csv";
 
@@ -47,7 +62,7 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
   return {
     deliver: async ({ channel, userLogin, outcome, artifacts }) => {
       const config = resolveScreenerFollowupConfig(deps.env as unknown as Record<string, unknown>);
-      const text = formatFollowupDeliveryText(outcome);
+      const text = followupDeliveryText(outcome);
       const agent = deps.getScreenerAgent(userLogin);
       // Issue #1191 (#1173 R3): fetch bytes per artifact kind — PDF
       // via the PDF getters, XLSX via the XLSX getters (stock since
@@ -102,11 +117,10 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
           for (let i = 0; i < f.bytes.length; i += 8192) binary += String.fromCharCode(...f.bytes.subarray(i, i + 8192));
           return { fileName: f.fileName, contentType: f.contentType, contentBase64: btoa(binary) };
         });
-        const scope = outcome.kind === "stock" ? outcome.universe : outcome.thesis;
         const email = new ETradeEmailTradingService(deps.env, deps.getOrm(), userLogin);
         await email.sendOutboundEmail(
           to,
-          `📊 ${outcome.kind === "stock" ? "Stock" : "Options"} Screen${scope ? ` [${scope}]` : ""} — ${outcome.matchedCount ?? "?"} matched`,
+          followupDeliveryEmailSubject(outcome),
           `<pre>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`,
           text,
           attachments.length > 0 ? attachments : undefined,

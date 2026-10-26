@@ -16,7 +16,6 @@ export interface NotificationFieldsProps {
 
 export function NotificationFields(props: NotificationFieldsProps) {
   const {
-    jobType,
     pushToSlack,
     setPushToSlack,
     slackChannel,
@@ -26,7 +25,10 @@ export function NotificationFields(props: NotificationFieldsProps) {
     webhookUrl,
     setWebhookUrl,
   } = props;
-  if (jobType === "strategyDiscovery") return null;
+  // Consolidation #1236 (discovery notifications): discovery
+  // schedules name delivery recipients too (panel surface of the
+  // full-surface decision) — the strategyDiscovery early return
+  // that hid this section is gone.
   return (
                 <div className="sched-form-group">
                   <label className="sched-form-label">

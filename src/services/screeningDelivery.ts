@@ -32,6 +32,14 @@ import { ETradeEmailTradingService } from "../trading";
 import { validateEmailRecipient } from "../security/webhookReplay";
 import { deliverScreenerToSlack } from "./screenerSlackDelivery";
 import { ETradeWebhookService } from "./tradingWebhooks";
+import { codedMessage } from "../errors/errorAspects";
+import {
+  isEmailAllowed,
+  type ScreenerFollowupConfig,
+  type ScreenerRunOutcome,
+} from "./screenerFollowups";
+import type { FollowupDeliveryInput } from "./screenerFollowupDelivery";
+import type { AsyncJobChannel } from "../types";
 import {
   formatRecommendationBundleReport,
   type RecommendationBundle,
@@ -321,4 +329,69 @@ export function createScreeningDeliverySenders(
   };
 
   return senders;
+}
+
+export interface DiscoveryDirectResult {
+  channel: AsyncJobChannel;
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * The delivery port surface this helper needs. Declared structurally
+ * (not by importing the port factory) so this module keeps no
+ * runtime import of screenerFollowupDelivery — that module imports
+ * SCREENING_DRAFT_FOOTER from here, and a value import back would
+ * be a cycle. The port type itself is imported type-only above
+ * (erased at compile time).
+ */
+export interface DiscoveryDirectPort {
+  deliver: (input: FollowupDeliveryInput) => Promise<{ ok: boolean; error?: string; detail?: string }>;
+}
+
+/**
+ * Consolidation #1236 Phase 1: deliver a non-chain discovery
+ * notification directly through the delivery port — the same
+ * rendering (draft footer included), transports, and per-channel
+ * isolation as the chain path, so direct and chain texts are
+ * identical for the same outcome. Channels come ONLY from the
+ * outcome's own fields, in CHANNEL_ORDER (slack, email, webhook);
+ * a task naming no channels sends nothing. Email is gated by the
+ * screener allowlist exactly as the chain executor gates it: a
+ * violation is recorded as DELIVER_001 and email is dropped while
+ * the other channels still send. A port throw for one channel is
+ * recorded as that channel's failure. This helper NEVER throws, so
+ * a delivery problem can never fail the run.
+ */
+export async function deliverDiscoveryDirect(input: {
+  port: DiscoveryDirectPort;
+  outcome: ScreenerRunOutcome;
+  config: ScreenerFollowupConfig;
+  userLogin: string;
+}): Promise<DiscoveryDirectResult[]> {
+  const { port, outcome, config, userLogin } = input;
+  const channels: AsyncJobChannel[] = [];
+  if (outcome.slackChannel) channels.push("slack");
+  if (outcome.emailTo) channels.push("email");
+  if (outcome.webhookUrl) channels.push("webhook");
+  const results: DiscoveryDirectResult[] = [];
+  for (const channel of channels) {
+    if (channel === "email" && outcome.emailTo && !isEmailAllowed(config, outcome.emailTo, outcome)) {
+      results.push({
+        channel,
+        ok: false,
+        error: codedMessage("DELIVER_001", `recipient ${outcome.emailTo}`),
+      });
+      continue;
+    }
+    try {
+      const delivered = await port.deliver({ channel, userLogin, outcome, artifacts: [] });
+      results.push(delivered.ok
+        ? { channel, ok: true }
+        : { channel, ok: false, error: delivered.error ?? delivered.detail ?? "delivery failed" });
+    } catch (err) {
+      results.push({ channel, ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return results;
 }

@@ -714,6 +714,14 @@ export const strategyDiscoveryScheduleCriteriaSchema = z.strictObject({
   profileId: z.unknown().optional(),
   constraintSets: z.unknown().optional(),
   scheduleId: z.unknown().optional(),
+  /** Consolidation #1236 (discovery notifications): per-task delivery
+   *  recipients. Exactly these three — NOT the full deliveryFields
+   *  spread: pushToSlack is a panel checkbox artifact, not a
+   *  discovery channel selector, and the strict object keeps
+   *  rejecting it for discovery payloads (as before). */
+  emailTo: z.string().optional(),
+  slackChannel: z.string().optional(),
+  webhookUrl: z.string().optional(),
   ...stageChainFields,
   ...triggerField,
 });
