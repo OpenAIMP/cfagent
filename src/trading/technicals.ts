@@ -67,7 +67,104 @@ export function fossBarsToDailyBars(
   }));
 }
 
-/** Gap classification (percent thresholds from config). */
+/**
+ * Bollinger Bands (issue #1654 slice 1/7; docs/architecture/business/
+ * screener-rules.md §1.1). Pure function over closes supplied by the
+ * caller — nothing here fetches.
+ *
+ * Convention, documented because the repo has no prior sigma helper:
+ * sigma is the POPULATION standard deviation (divide by N), the
+ * canonical Bollinger construction — Middle is the SMA over the same
+ * window, so the band is symmetric around the mean of exactly the
+ * closes it summarizes. Sample sigma (divide by N−1) would deviate
+ * from every reference Bollinger implementation and from the doc
+ * formula (sigma_20).
+ *
+ * Returns null when the window cannot be built honestly: fewer than
+ * `period` closes, a non-positive period, a negative stdDev, or a
+ * non-finite close in the window. P is the last close in the window.
+ * Flat series (sigma = 0): upper == lower == middle, percentB is 0.5
+ * (price at the middle by construction) and bandwidth is 0 — never
+ * NaN from a 0/0 division.
+ */
+export interface BollingerBands {
+  middle: number;
+  upper: number;
+  lower: number;
+  /** %B = (P − Lower) / (Upper − Lower); 0.5 on a flat series. */
+  percentB: number;
+  /** Bandwidth = (Upper − Lower) / Middle; 0 when Middle is 0. */
+  bandwidth: number;
+}
+
+export function computeBollingerBands(
+  closes: readonly number[],
+  period = 20,
+  stdDev = 2.0
+): BollingerBands | null {
+  if (!Number.isInteger(period) || period < 1 || !Number.isFinite(stdDev) || stdDev < 0) return null;
+  if (!closes || closes.length < period) return null;
+  const window = closes.slice(closes.length - period);
+  if (window.some((c) => !Number.isFinite(c))) return null;
+  const middle = window.reduce((sum, c) => sum + c, 0) / period;
+  const variance = window.reduce((sum, c) => sum + (c - middle) * (c - middle), 0) / period;
+  const sigma = Math.sqrt(variance);
+  const upper = middle + stdDev * sigma;
+  const lower = middle - stdDev * sigma;
+  const price = window[window.length - 1];
+  const percentB = upper === lower ? 0.5 : (price - lower) / (upper - lower);
+  const bandwidth = middle === 0 ? 0 : (upper - lower) / middle;
+  return { middle, upper, lower, percentB, bandwidth };
+}
+
+/**
+ * Squeeze gate (issue #1654 slice 1/7): bandwidth at its lookback
+ * minimum. `bandwidthMin` is the minimum bandwidth over the trailing
+ * `lookback` bandwidth values (each from a `period`-close window).
+ * `isSqueeze` is true only when the current bandwidth IS that minimum
+ * (within float epsilon) — the doc's literal "at N-day minimum".
+ *
+ * History floor, stated not silent: a true 125-day minimum needs
+ * lookback + period − 1 closes (144 at the defaults). With fewer
+ * closes the minimum is over the available bandwidth values and
+ * `barsUsed` reports it — but below `period + 1` closes there is only
+ * ONE bandwidth value, and a "minimum" over one point would be
+ * trivially true, so the gate returns null instead of silently
+ * weakening to "current bandwidth is low". Callers must treat null
+ * as "gate cannot be evaluated", never as a pass.
+ */
+export interface BollingerSqueezeGate {
+  bandwidth: number;
+  bandwidthMin: number;
+  /** Closes supplied; the minimum covers at most `lookback` values. */
+  barsUsed: number;
+  isSqueeze: boolean;
+}
+
+export function computeBollingerSqueezeGate(
+  closes: readonly number[],
+  period = 20,
+  stdDev = 2.0,
+  lookback = 125
+): BollingerSqueezeGate | null {
+  if (!closes || closes.length < period + 1) return null;
+  if (!Number.isInteger(lookback) || lookback < 1) return null;
+  const bandwidths: number[] = [];
+  for (let end = period; end <= closes.length; end++) {
+    const bands = computeBollingerBands(closes.slice(0, end), period, stdDev);
+    if (bands === null) return null;
+    bandwidths.push(bands.bandwidth);
+  }
+  const window = bandwidths.slice(Math.max(0, bandwidths.length - lookback));
+  const bandwidth = window[window.length - 1];
+  const bandwidthMin = Math.min(...window);
+  return {
+    bandwidth,
+    bandwidthMin,
+    barsUsed: closes.length,
+    isSqueeze: bandwidth <= bandwidthMin + 1e-12,
+  };
+}
 export function classifyGap(
   gapPercent: number | null,
   config: ScreenerConfig = DEFAULT_SCREENER_CONFIG

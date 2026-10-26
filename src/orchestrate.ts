@@ -61,8 +61,15 @@ export const OPERATION_CATALOG: CatalogEntry[] = [
   {
     agent: "qa",
     binding: "SEARCH_AGENT",
-    operations: ["qa.supervised_fix"],
-    blurb: "Investigate a QA failure and propose a supervised fix (issue #162).",
+    // #1655: qa.run_sweep is the DEFAULT_SCHEDULES daily-qa-sweep
+    // operation (src/schedule.ts). It was missing from this catalog,
+    // so every due tick threw "Unknown operation: qa.run_sweep" in
+    // createJob and the goal stayed due. createJob is descriptor-only,
+    // so registration is the complete op-registry fix — no executor
+    // is added here, and no sweep implementation is claimed.
+    operations: ["qa.supervised_fix", "qa.run_sweep"],
+    blurb:
+      "Investigate a QA failure and propose a supervised fix (issue #162); run the scheduled QA sweep (issue #1655).",
   },
   {
     agent: "trading",
