@@ -34,6 +34,7 @@
  *    names the deferred remainder.
  */
 import type { BreakerSnapshot } from "../breakers/breakerPorts";
+import type { MessageEnvelope } from "../messaging/messagingPorts";
 import {
   CalibrationError,
   TelemetryCalibrationEngine,
@@ -217,6 +218,13 @@ export interface TelemetryDecisionActionRouteDeps {
   action: "decide" | "apply" | "supersede" | "expire";
   verdict?: string;
   engine?: TelemetryCalibrationEngine;
+  /**
+   * Issue #1743 — stream sink for calibration envelopes
+   * (calibration_applied on apply; calibration_proposed when a
+   * propose path runs). Best-effort: the engine swallows emit
+   * failures, so the stream never blocks the decision.
+   */
+  emit?: (envelope: MessageEnvelope) => void | Promise<void>;
 }
 
 export async function handleTelemetryDecisionActionRoute(
@@ -233,7 +241,12 @@ export async function handleTelemetryDecisionActionRoute(
   if (!deps.decisionId) {
     return Response.json({ error: "decisionId is required." }, { status: 400 });
   }
-  const engine = deps.engine ?? new TelemetryCalibrationEngine(deps.store);
+  const engine =
+    deps.engine ??
+    new TelemetryCalibrationEngine(
+      deps.store,
+      deps.emit ? { emit: deps.emit } : {},
+    );
   const actor = actorOf(deps.session!);
   try {
     let row: CalibrationDecisionRow;

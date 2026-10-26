@@ -897,6 +897,17 @@ export class ResearchAgent extends Agent<Env> {
             const { projectEvaluationRealizations } = await import(
               "../telemetry/telemetryProjection"
             );
+            // Issue #1743: realization_recorded envelopes flow
+            // to the observability stream (best-effort, inside
+            // this block's try/catch — the stream never blocks
+            // evaluateRun, and unbound degrades to local logs).
+            const { createObservabilitySink } = await import(
+              "../observability/createObservabilityPorts"
+            );
+            const { writeEnvelopeToSink } = await import(
+              "../observability/observabilityPorts"
+            );
+            const observabilitySink = createObservabilitySink(this.env);
             await projectEvaluationRealizations(
               adapter,
               {
@@ -906,6 +917,12 @@ export class ResearchAgent extends Agent<Env> {
               },
               evaluation,
               resolveIaaaTenant(this.env),
+              undefined,
+              {
+                emit: (envelope) => {
+                  void writeEnvelopeToSink(observabilitySink, envelope);
+                },
+              },
             );
           }
         }
