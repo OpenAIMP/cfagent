@@ -31,6 +31,18 @@ export interface StrategyContext {
   underlying: number;
   chains: ChainView[];
   stockShares: number;
+  /**
+   * Issue #1654 slice 4: Fibonacci retracement price levels for the
+   * underlying, computed where real bar history exists (see
+   * computeFibonacciRetracements in technicals.ts). Template specs
+   * that opt in via `preferFibLevels` rank combinations by distance
+   * to these levels instead of distance to spot. The template never
+   * computes levels itself — it has no bar history — and no caller
+   * supplies them yet: the engine builds contexts without bars, so
+   * this stays dormant until slice 8's enrichment attaches computed
+   * values. Absent levels, ranking is exactly today's spot distance.
+   */
+  fibLevels?: number[];
 }
 
 export interface GenerationResult {

@@ -276,6 +276,136 @@ export function computeAtr(
   }
   return atr;
 }
+
+/**
+ * Fractal pivots (issue #1654 slice 4/8; docs/architecture/business/
+ * screener-rules.md: "Identified High/Low pivots require P_t to be
+ * extreme compared to n preceding and trailing bars"). Pure function
+ * over bars supplied by the caller — nothing here fetches.
+ *
+ * Semantics, stated not silent:
+ * - A HIGH pivot at index i requires high[i] STRICTLY greater than
+ *   the high of every one of the n preceding and n trailing bars; a
+ *   LOW pivot requires low[i] STRICTLY less than every neighboring
+ *   low. A tie with any neighbor kills the pivot — the classic
+ *   fractal definition, and the only reading under which "extreme
+ *   compared to" is unambiguous. Equal neighboring highs/lows are
+ *   common in flat sessions; treating them as pivots would invent
+ *   turning points the data does not show.
+ * - Only indices with n bars on BOTH sides can confirm, so the first
+ *   and last n bars never yield pivots however extreme they look.
+ * - Returns null when the value cannot be evaluated honestly: null/
+ *   empty input, a non-finite high/low, or a non-integer or
+ *   non-positive n. Valid bars too short to confirm any pivot
+ *   (length < 2n + 1) return EMPTY lists — "evaluated, none
+ *   confirmed" — which callers must not confuse with "no pivots
+ *   exist". Slice 5's regime classification consumes these pivots.
+ */
+export interface FractalPivot {
+  index: number;
+  date: string;
+  price: number;
+}
+
+export interface FractalPivots {
+  highs: FractalPivot[];
+  lows: FractalPivot[];
+}
+
+export function computeFractalPivots(
+  bars: readonly YahooDailyBar[],
+  n = 5
+): FractalPivots | null {
+  if (!bars || bars.length === 0) return null;
+  if (!Number.isInteger(n) || n < 1) return null;
+  if (bars.some((b) => !Number.isFinite(b.high) || !Number.isFinite(b.low))) return null;
+  const highs: FractalPivot[] = [];
+  const lows: FractalPivot[] = [];
+  for (let i = n; i + n < bars.length; i++) {
+    let isHigh = true;
+    let isLow = true;
+    for (let j = i - n; j <= i + n; j++) {
+      if (j === i) continue;
+      if (bars[j].high >= bars[i].high) isHigh = false;
+      if (bars[j].low <= bars[i].low) isLow = false;
+      if (!isHigh && !isLow) break;
+    }
+    if (isHigh) highs.push({ index: i, date: bars[i].date, price: bars[i].high });
+    if (isLow) lows.push({ index: i, date: bars[i].date, price: bars[i].low });
+  }
+  return { highs, lows };
+}
+
+/**
+ * Fibonacci retracements (issue #1654 slice 4/8; screener-rules.md:
+ * "Key Fib levels computed at 38.2%, 50.0%, 61.8% over the 6-month
+ * swing range"). Pure function over bars supplied by the caller —
+ * nothing here fetches.
+ *
+ * Swing-endpoint semantics, stated not silent:
+ * - The window is the TRAILING `lookbackBars` bars (125 ≈ six months
+ *   of trading days, the fit-gap target). A shorter supplied series
+ *   uses all of it and reports `barsUsed`; the "6-month" qualifier
+ *   is the caller's window responsibility, as with the AVWAP anchor.
+ * - Swing high = maximum high over the window (first occurrence on
+ *   a tie, matching the AVWAP earliest-tie convention); swing low =
+ *   minimum low over the window (first occurrence on a tie).
+ * - Direction is the direction of the move being retraced: "up"
+ *   when the swing low precedes the swing high (retracement measured
+ *   DOWN from the high: high − ratio × range), "down" when the high
+ *   precedes the low (measured UP from the low: low + ratio ×
+ *   range). The levels are support/resistance candidates for the
+ *   pullback against that move, not price predictions.
+ * - Returns null when the swing cannot be built honestly: empty
+ *   input, a non-finite high/low in the window, a non-integer or
+ *   non-positive lookbackBars, or a zero range (a flat window has
+ *   no swing to retrace; returning degenerate equal levels would
+ *   dress up "no move" as three support levels).
+ */
+export interface FibonacciLevel {
+  ratio: number;
+  price: number;
+}
+
+export interface FibonacciRetracements {
+  high: number;
+  low: number;
+  range: number;
+  highIndex: number;
+  lowIndex: number;
+  direction: "up" | "down";
+  levels: FibonacciLevel[];
+  barsUsed: number;
+}
+
+const FIB_RATIOS = [0.382, 0.5, 0.618];
+
+export function computeFibonacciRetracements(
+  bars: readonly YahooDailyBar[],
+  lookbackBars = 125
+): FibonacciRetracements | null {
+  if (!bars || bars.length === 0) return null;
+  if (!Number.isInteger(lookbackBars) || lookbackBars < 1) return null;
+  const window = bars.slice(Math.max(0, bars.length - lookbackBars));
+  if (window.some((b) => !Number.isFinite(b.high) || !Number.isFinite(b.low))) return null;
+  let highIndex = 0;
+  let lowIndex = 0;
+  for (let i = 1; i < window.length; i++) {
+    if (window[i].high > window[highIndex].high) highIndex = i;
+    if (window[i].low < window[lowIndex].low) lowIndex = i;
+  }
+  const high = window[highIndex].high;
+  const low = window[lowIndex].low;
+  const range = high - low;
+  if (range <= 0) return null;
+  const direction: "up" | "down" = lowIndex < highIndex ? "up" : "down";
+  const levels = FIB_RATIOS.map((ratio) => ({
+    ratio,
+    price: direction === "up" ? high - ratio * range : low + ratio * range,
+  }));
+  return { high, low, range, highIndex, lowIndex, direction, levels, barsUsed: window.length };
+}
+
 export function classifyGap(
   gapPercent: number | null,
   config: ScreenerConfig = DEFAULT_SCREENER_CONFIG

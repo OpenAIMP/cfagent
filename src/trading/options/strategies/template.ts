@@ -25,6 +25,23 @@ export interface TemplateSpec {
   /** Extra chain horizon to search beyond the minimum DTE floor. */
   searchMaxDte?: number;
   strikeFilter?: (strikes: number[], underlying: number) => boolean;
+  /**
+   * Issue #1654 slice 4: prefer combinations whose strikes sit near
+   * the Fibonacci levels supplied on the StrategyContext (ctx.fibLevels).
+   * Opt-in per spec — only the vertical debit/credit and butterfly
+   * specs in catalog.ts set it, per the issue's target. When set AND
+   * finite levels are supplied, proposals rank by mean distance of
+   * each strike to its NEAREST Fib level (favoring spreads and
+   * butterflies centered on a level); otherwise ranking is the
+   * existing mean distance to spot. The flag alone changes nothing:
+   * with no levels supplied the ranking is exactly today's, so the
+   * wiring is dormant until slice 8's enrichment supplies levels.
+   * It never invents strikes — every candidate still comes from the
+   * loaded chain — and it is a preference, not a filter: a
+   * combination far from every level can still win if nothing is
+   * closer.
+   */
+  preferFibLevels?: boolean;
 }
 
 export interface TemplateStrategyOptions {
@@ -126,9 +143,20 @@ function proposals(spec: TemplateSpec, ctx: StrategyContext): { items: Proposal[
         if (leg.type === "STOCK") return toStockLeg(ctx.symbol, ctx.underlying, leg.side, ctx.stockShares * (leg.qty ?? 1), near.expiration);
         return toLeg(contracts[optionIndex++]!, leg.side, leg.qty ?? 1);
       });
+      // Issue #1654 slice 4: Fib-aware ranking, opt-in per spec.
+      // Finite levels only — non-finite entries are dropped, and
+      // with no usable levels the ranking is exactly today's spot
+      // distance. `distance` is only a sort key (see generate()),
+      // so the absolute-dollar Fib distance needs no normalization.
+      const fibLevels = spec.preferFibLevels
+        ? (ctx.fibLevels ?? []).filter((level) => Number.isFinite(level))
+        : [];
+      const distance = fibLevels.length > 0
+        ? ks.reduce((sum, strike) => sum + Math.min(...fibLevels.map((level) => Math.abs(strike - level))), 0) / ks.length
+        : ks.reduce((sum, strike) => sum + Math.abs(strike - ctx.underlying), 0) / Math.max(ctx.underlying, 1);
       items.push({
         legs,
-        distance: ks.reduce((sum, strike) => sum + Math.abs(strike - ctx.underlying), 0) / Math.max(ctx.underlying, 1),
+        distance,
         tie: `${near.dte}|${far?.dte ?? 0}|${ks.join(",")}`,
       });
     }
