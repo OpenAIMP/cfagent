@@ -471,6 +471,292 @@ export function classifyPriceRegime(
   return "RNG";
 }
 
+/**
+ * 15-min Opening Range Breakout (ORB) — issue #1654 slice 7/8;
+ * docs/architecture/business/screener-rules.md §1.4, fit-gap Gap 6.
+ * Pure functions over intraday bars supplied by the caller — nothing
+ * here fetches, and NOTHING here is wired to a production bars feed,
+ * because the repo has no minute-bar source to wire to (read this
+ * before adding one):
+ *
+ * - The Yahoo historical-bars provider (fossResearch.ts yfinance
+ *   getHistoricalBars) maps timeframes to 1wk/1mo/1h/1d ONLY. A
+ *   "1Min"/"15Min" timeframe silently collapses to interval=1d
+ *   (daily bars). Wiring ORB to it would compute OR_H/OR_L from
+ *   daily bars — fabrication by mislabeling.
+ * - The Alpaca provider maps the same way (1Week/1Month/1Hour/1Day)
+ *   and requires configuration on top.
+ * - BOTH providers truncate bar timestamps to DATE-ONLY
+ *   (toISOString().split("T")[0] / String(b.t).split("T")[0]), so
+ *   even a minute interval could not identify a 09:30–09:45 ET
+ *   window from their output.
+ * - The hybrid provider just delegates to the same two. The
+ *   data-provider adapter passes timeframes through unchanged. The
+ *   snapshot `minuteBar` is a single latest-minute bar, not a
+ *   session series. liveScreener.ts (73 lines) holds no intraday
+ *   processing at all. No caller anywhere passes a minute
+ *   timeframe to getHistoricalBars.
+ *
+ * The missing capability, precisely: a historical intraday-bar
+ * provider that (a) accepts a 1-minute (or 15-minute) timeframe and
+ * returns bars at that granularity, and (b) preserves full
+ * timestamps (time-of-day, not date-only). The seam is
+ * FossHistoricalBar-producing getHistoricalBars in
+ * src/services/fossResearch.ts (yfinance + alpaca implementations)
+ * plus the adapter in src/trading/dataProviders/adapters.ts — slice 8
+ * owns that provider work. Until it lands, these functions compute
+ * only on bars a caller supplies, and every no-data case returns
+ * null (gate cannot be evaluated), never an estimate.
+ *
+ * ET/session semantics, stated not silent:
+ * - Regular session is 09:30–16:00 America/New_York; the opening
+ *   range window is [09:30, 09:45). A bar belongs to the window by
+ *   its ET START time, so the rule works at either granularity: a
+ *   15-min bar stamped 09:30 covers the window, and fifteen 1-min
+ *   bars stamped 09:30–09:44 cover it. A bar stamped 09:45 starts
+ *   the next window and is excluded; pre-market and other-date
+ *   bars are excluded. ET conversion uses Intl with
+ *   timeZone "America/New_York", so DST is handled by the tz
+ *   database (09:30 ET is 13:30Z in EDT, 14:30Z in EST — pinned).
+ * - Bars with unparseable timestamps are skipped (they cannot be
+ *   placed in any window). Bars with non-finite OHLCV or negative
+ *   volume that DO fall in the evaluated window/session make the
+ *   function return null — corrupt in-window data fail-closes;
+ *   corrupt bars outside the evaluated window are ignored.
+ * - Session VWAP uses the standard typical price (H+L+C)/3,
+ *   volume-weighted over completed 15-min bars. "Completed" means
+ *   the bar's 15-min window has fully elapsed by `asOf`
+ *   (window end <= asOf). Hold % is a RETROSPECTIVE session
+ *   measure (VWAP over all completed bars, then the share of those
+ *   bars closing above it), not a real-time signal — the doc's
+ *   "Session VWAP" is the full-session value.
+ * - The trigger's RVOL is time-prorated: expected volume at this
+ *   point in the session = avgDailyVolume × (elapsed / 390), and
+ *   RVOL = sessionVolume / expected. elapsedMinutes must be > 0
+ *   (at 09:30 exactly, expected volume is 0 and RVOL is undefined
+ *   — the trigger returns null rather than dividing by zero).
+ */
+export interface IntradayBar {
+  /** ISO 8601 timestamp WITH time-of-day; the ET window derives from it. */
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+/** Regular session open 09:30 ET, in minutes since ET midnight. */
+const ORB_SESSION_OPEN_MIN = 570;
+/** Opening-range window end 09:45 ET, exclusive. */
+const ORB_WINDOW_END_MIN = 585;
+/** Regular session close 16:00 ET, exclusive. */
+const ORB_SESSION_CLOSE_MIN = 960;
+/** Regular session length in minutes (09:30–16:00 ET). */
+const ORB_SESSION_MINUTES = 390;
+/** 15-min bar length in milliseconds. */
+const ORB_BAR_MS = 15 * 60 * 1000;
+
+function orbEtParts(epochMs: number): { date: string; minutes: number } | null {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(epochMs));
+    const get = (type: Intl.DateTimeFormatPartTypes): string =>
+      parts.find((p) => p.type === type)?.value ?? "";
+    const hour = Number(get("hour"));
+    const minute = Number(get("minute"));
+    if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+    return { date: `${get("year")}-${get("month")}-${get("day")}`, minutes: hour * 60 + minute };
+  } catch {
+    return null;
+  }
+}
+
+function orbIsValidSessionDate(sessionDate: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(sessionDate);
+}
+
+function orbBarIsClean(b: IntradayBar): boolean {
+  return (
+    Number.isFinite(b.open) &&
+    Number.isFinite(b.high) &&
+    Number.isFinite(b.low) &&
+    Number.isFinite(b.close) &&
+    Number.isFinite(b.volume) &&
+    b.volume >= 0
+  );
+}
+
+export interface OpeningRange {
+  orHigh: number;
+  orLow: number;
+  barsUsed: number;
+}
+
+export function computeOpeningRange(
+  bars: readonly IntradayBar[],
+  sessionDate: string
+): OpeningRange | null {
+  if (!bars || !orbIsValidSessionDate(sessionDate)) return null;
+  let orHigh = -Infinity;
+  let orLow = Infinity;
+  let barsUsed = 0;
+  for (const b of bars) {
+    const epoch = Date.parse(b.timestamp);
+    if (Number.isNaN(epoch)) continue;
+    const et = orbEtParts(epoch);
+    if (et === null || et.date !== sessionDate) continue;
+    if (et.minutes < ORB_SESSION_OPEN_MIN || et.minutes >= ORB_WINDOW_END_MIN) continue;
+    if (!orbBarIsClean(b)) return null;
+    if (b.high > orHigh) orHigh = b.high;
+    if (b.low < orLow) orLow = b.low;
+    barsUsed++;
+  }
+  if (barsUsed === 0) return null;
+  return { orHigh, orLow, barsUsed };
+}
+
+export interface OrbTrigger {
+  triggered: boolean;
+  /** OR_H × 1.001 — price must STRICTLY clear this to trigger. */
+  triggerPrice: number;
+  rvol: number;
+}
+
+export function evaluateOrbTrigger(args: {
+  orHigh: number;
+  price: number;
+  sessionVolume: number;
+  avgDailyVolume: number;
+  elapsedMinutes: number;
+}): OrbTrigger | null {
+  const { orHigh, price, sessionVolume, avgDailyVolume, elapsedMinutes } = args;
+  if (
+    !Number.isFinite(orHigh) ||
+    !Number.isFinite(price) ||
+    !Number.isFinite(sessionVolume) ||
+    !Number.isFinite(avgDailyVolume) ||
+    !Number.isFinite(elapsedMinutes) ||
+    orHigh <= 0 ||
+    price <= 0 ||
+    sessionVolume < 0 ||
+    avgDailyVolume <= 0 ||
+    elapsedMinutes <= 0
+  ) {
+    return null;
+  }
+  const expectedVolume = avgDailyVolume * (elapsedMinutes / ORB_SESSION_MINUTES);
+  const rvol = sessionVolume / expectedVolume;
+  const triggerPrice = orHigh * 1.001;
+  return { triggered: price > triggerPrice && rvol >= 1.5, triggerPrice, rvol };
+}
+
+export interface VwapHold {
+  sessionVwap: number;
+  barsAbove: number;
+  barsTotal: number;
+  holdPct: number;
+  /** True when holdPct >= 0.70 (the doc's ≥70% rule). */
+  confirmed: boolean;
+}
+
+export function computeVwapHold(
+  bars: readonly IntradayBar[],
+  sessionDate: string,
+  asOf: string
+): VwapHold | null {
+  if (!bars || !orbIsValidSessionDate(sessionDate)) return null;
+  const asOfEpoch = Date.parse(asOf);
+  if (Number.isNaN(asOfEpoch)) return null;
+  let priceVolumeSum = 0;
+  let volumeSum = 0;
+  const completed: IntradayBar[] = [];
+  for (const b of bars) {
+    const epoch = Date.parse(b.timestamp);
+    if (Number.isNaN(epoch)) continue;
+    const et = orbEtParts(epoch);
+    if (et === null || et.date !== sessionDate) continue;
+    if (et.minutes < ORB_SESSION_OPEN_MIN || et.minutes >= ORB_SESSION_CLOSE_MIN) continue;
+    if (epoch + ORB_BAR_MS > asOfEpoch) continue;
+    if (!orbBarIsClean(b)) return null;
+    completed.push(b);
+    priceVolumeSum += ((b.high + b.low + b.close) / 3) * b.volume;
+    volumeSum += b.volume;
+  }
+  if (completed.length === 0 || volumeSum <= 0) return null;
+  const sessionVwap = priceVolumeSum / volumeSum;
+  const barsAbove = completed.filter((b) => b.close > sessionVwap).length;
+  const holdPct = barsAbove / completed.length;
+  return { sessionVwap, barsAbove, barsTotal: completed.length, holdPct, confirmed: holdPct >= 0.7 };
+}
+
+/**
+ * Buckets 1-min (or finer) bars into 15-min regular-session bars.
+ * Buckets start at 09:30, 09:45, … ET; a bar joins the bucket its ET
+ * start falls in. Output bucket timestamps are the bucket starts,
+ * reconstructed from the first bar's epoch minus its within-bucket
+ * offset — exact because DST transitions occur at 02:00 ET, never
+ * inside the 09:30–16:00 session. Bars are sorted chronologically
+ * first (open = first bar's open, close = last bar's close).
+ * Bars outside the session, on other dates, or with unparseable
+ * timestamps or corrupt OHLCV are skipped, never invented.
+ */
+export function aggregateIntradayBarsTo15Min(
+  bars: readonly IntradayBar[],
+  sessionDate: string
+): IntradayBar[] {
+  if (!bars || !orbIsValidSessionDate(sessionDate)) return [];
+  const placed: { epoch: number; etMinutes: number; bar: IntradayBar }[] = [];
+  for (const b of bars) {
+    const epoch = Date.parse(b.timestamp);
+    if (Number.isNaN(epoch) || !orbBarIsClean(b)) continue;
+    const et = orbEtParts(epoch);
+    if (et === null || et.date !== sessionDate) continue;
+    if (et.minutes < ORB_SESSION_OPEN_MIN || et.minutes >= ORB_SESSION_CLOSE_MIN) continue;
+    placed.push({ epoch, etMinutes: et.minutes, bar: b });
+  }
+  placed.sort((a, b) => a.epoch - b.epoch);
+  const buckets = new Map<number, IntradayBar & { firstEpoch: number; firstEtMinutes: number }>();
+  for (const p of placed) {
+    const bucketStart = ORB_SESSION_OPEN_MIN + Math.floor((p.etMinutes - ORB_SESSION_OPEN_MIN) / 15) * 15;
+    const existing = buckets.get(bucketStart);
+    if (!existing) {
+      buckets.set(bucketStart, {
+        timestamp: "",
+        open: p.bar.open,
+        high: p.bar.high,
+        low: p.bar.low,
+        close: p.bar.close,
+        volume: p.bar.volume,
+        firstEpoch: p.epoch,
+        firstEtMinutes: p.etMinutes,
+      });
+    } else {
+      existing.high = Math.max(existing.high, p.bar.high);
+      existing.low = Math.min(existing.low, p.bar.low);
+      existing.close = p.bar.close;
+      existing.volume += p.bar.volume;
+    }
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([bucketStart, b]) => ({
+      timestamp: new Date(b.firstEpoch - (b.firstEtMinutes - bucketStart) * 60 * 1000).toISOString(),
+      open: b.open,
+      high: b.high,
+      low: b.low,
+      close: b.close,
+      volume: b.volume,
+    }));
+}
+
 export function classifyGap(
   gapPercent: number | null,
   config: ScreenerConfig = DEFAULT_SCREENER_CONFIG
