@@ -426,6 +426,9 @@
 
 .ui-input:disabled, .ui-select:disabled { opacity: 0.55; cursor: not-allowed; }
 
+/* Range inputs render natively inside TextInput (sliders, #1835). */
+.ui-input[type="range"] { background: transparent; border: 0; padding: 0; }
+
 /* ---------- Checkbox ---------- */
 .ui-checkbox {
   accent-color: var(--color-accent);

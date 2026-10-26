@@ -28,7 +28,6 @@
     "src/client/options/ResearchRunsPanel.tsx": 9,
     "src/client/options/RiskAnalysisModal.tsx": 2,
     "src/client/options/ScreeningActivityPanel.tsx": 3,
-    "src/client/options/StrategyDiscoveryPanel.tsx": 2,
     "src/client/options/StrategyLibraryModal.tsx": 1,
     "src/client/options/flows/FlowSummaryDualBars.tsx": 2,
     "src/client/options/flows/OptionsFlowsHub.tsx": 16,
