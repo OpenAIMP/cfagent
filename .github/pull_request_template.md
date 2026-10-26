@@ -6,32 +6,11 @@
 ## Linked issue
 Closes #
 
-## Implementation
-Key decisions:
-Alternatives:
-Scope exclusions:
-
-## Test evidence
-
-## Change management
-Change type:
-Impacted surfaces:
-Migration and data impact:
-Rollout plan:
-Rollback plan:
-Communication:
-Changelog entry:
-
-## Value and impact
-Value created:
-Capabilities enhanced:
-Competencies improved:
-Value proposition (how this takes us closer to it):
-Delivery channels:
-User journey (how users harness this value from UX):
-Completion report update: append this entry to the linked issue's §15 completion report — the single source of truth for value-creation, one entry per PR, never overwriting a previous PR's entry.
+## Full report
+The full report for this PR — implementation, test evidence, change management, value and impact, risk, delivery, and release — lives in the linked issue's completion report (gitops §15). This PR body is a pointer, not a second record.
 
 ## Checklist
 - [ ] Required checks green on the current merge with `main`
 - [ ] Pins my change alters are updated in this PR (gitops §7)
 - [ ] CHANGELOG entry added (additive, under Unreleased)
+- [ ] Linked issue's completion report updated with this PR's full report

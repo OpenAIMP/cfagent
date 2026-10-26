@@ -164,41 +164,52 @@ What observable result is required?
 Included:
 Excluded:
 
-## Requirements
-Functional:
-Security/tenant isolation:
-Accessibility:
-Reliability:
-AI-specific, if applicable:
-
 ## Acceptance criteria
 - [ ] Observable, testable criterion
 - [ ] Failure/recovery criterion
 - [ ] Relevant regression criterion
 
 ## Test plan
-Unit:
-Integration:
-End-to-end:
-AI evaluation:
-Manual verification:
 
 ## Dependencies
-Blocking issues:
-Affected components:
 
-## Rollout
-Migration:
-Feature flag:
-Rollback:
+## Change management (expected)
+Expected impact:
+Migration and data impact:
+Rollout plan:
+Rollback plan:
+Communication:
 
-## Risks and open decisions
-...
+## Engineering standards
+All development on this issue must follow:
+- SOLID principles
+- GoF design patterns
+- GRASP patterns
+- 15-factor app methodology
+- Design thinking — start from the user journey and UX: name the journey this change serves and how its value surfaces in UX
 
-## Traceability
-Specification:
-Epic/feature:
-Architecture decisions:
+## Standing guardrails
+- TDD (gitops §7): every behavior change updates its pin tests in the same PR
+- No silent nulls, no lazy fallbacks — fix root causes
+- User-facing messages carry business errors, not technical errors; technical detail stays in logs
+- Everything user-scoped, session-scoped, run-scoped — no shared mutable client state
+- Incremental changes only — never silently remove a capability
+- Verify against live production before calling it done — merged is not working
+- Pre-merge: rebase onto fresh main, run scripts/verify-before-merge.sh, green gate expires when main advances; post-merge CI is mandatory
+- Branch-as-lock when collaborating: check live fix/<issue>-* branches and open PRs before claiming
+- Never place or cancel a trade/order without explicit confirmation
+
+## Completion report (gitops §15 — fill on close; the single document for this issue)
+- Issue / Pull request / Integration (merged, target, resulting commit):
+- Implementation (key decisions, alternatives, scope exclusions):
+- Test evidence (red, green, regression, integration/evaluation; CI runs; post-merge checks):
+- Change management (actual: change type, impacted surfaces, migration and data impact, rollout plan, rollback plan, communication, changelog entry):
+- Value and impact (value created, capabilities enhanced, competencies improved, value proposition, delivery channels, user journey):
+- Risk and limitations (security, tenant isolation, compatibility, performance/cost; known test-coverage gaps stated explicitly):
+- Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
+- Workflows operationalized:
+- How to harness this value from UX:
+- Next-step gate (PASS / BLOCKED + reason):
 ```
 
 ### Required issue metadata
@@ -437,20 +448,20 @@ Every change MUST start from what already exists. Locate the capability, then ex
 
 1. **Search before writing.** Look for the behavior you are about to add, its synonyms, its tests, and its documentation (§4). "There was nothing to reuse" is a finding to state, not an assumption to skip.
 2. **Choose in this order: reuse, enhance, optimize, consolidate, extend.** Reuse the surface as it stands; enhance it when the gap is real; optimize it when it is correct but too slow or too blunt; consolidate when several partial implementations already cover the case; extend when the need is genuinely new. A new parallel implementation is the last option, never the first.
-3. **Justify the exception in the PR.** A second implementation of something the repository already does requires an explicit note: the existing surface you found, why extending or consolidating it was not viable, and what keeps the two from drifting. Silence is not a waiver — state it under the PR template's `## Implementation` field (§9).
+3. **Justify the exception in the PR.** A second implementation of something the repository already does requires an explicit note: the existing surface you found, why extending or consolidating it was not viable, and what keeps the two from drifting. Silence is not a waiver — state it in the linked issue's completion report (§15).
 4. **A copy is a second source of truth.** Duplicated validation rules, regexes, parsers, prompt text, and config blocks are defects even while they agree. Where a surface must be reached from a context that cannot import it — a client bundle, a separate runtime, a workflow file — extract the shared piece, or pin the copies together with a test that fails when they diverge (§7, the pin rule).
 5. **Consolidate on contact.** A change touching a duplicated implementation MUST fold it into the canonical one when the scope allows. When it does not, open the follow-up issue in the same PR and link it.
 6. **Reviewers enforce this gate.** A PR that adds a parallel implementation without the note in item 3 is sent back, not merged.
 
-### Change management
+### One document
 
-Every issue and every PR states how its change lands and how it is undone. A change without a landing plan is not ready for review.
+One issue, one PR, one record. The issue holds everything; the PR body is a pointer.
 
-1. **State it in the issue.** The issue template's `## Change management` field names the expected impact, migration and data impact, rollout plan, rollback plan, and communication (who is notified: owner, users, lanes).
-2. **State it in the PR.** The PR template's `## Change management` section names the change type, impacted surfaces (code, config, secrets, data, public surfaces), migration and data impact, rollout plan (flag, staged, immediate), rollback plan, communication, and changelog entry.
-3. **Production-behavior changes name the owner step.** A change that alters production behavior, configuration, secrets, or data additionally names the owner approval or activation step it requires; agent work stops at that step.
-4. **Reviewers enforce this gate.** An issue without change management is incomplete; a PR without it is sent back, not merged — the same gate pattern as Reuse before you build item 6.
-5. **Value and impact — one source of truth.** The PR template's `## Value and impact` section names the value this PR creates (value created, capabilities enhanced, competencies improved, value-proposition linkage, delivery channels, user journey). That entry is appended to the linked issue's §15 completion report on merge — one report per issue, one entry per PR, never overwriting a previous PR's entry. The completion report is the single source of truth for value-creation: PR sections are inputs, the report is the record; at close, the report's roll-up fields summarize all PR entries.
+1. **The issue is the document.** Intent at creation (Problem, Outcome, Scope, Acceptance criteria, Test plan, Dependencies, Change management expected); the full PR report in the completion report (§15) at close.
+2. **The PR body is a pointer.** Summary, linked issue, and checklist only. Implementation, test evidence, change management actuals, value and impact, risk, and delivery live in the linked issue's completion report, not in the PR body.
+3. **The author writes the report into the issue.** When opening the PR, the author writes the full report into the linked issue's completion report; it is finalized at close. A PR whose report is not in the linked issue is sent back, not merged — the same gate pattern as Reuse before you build item 6.
+4. **One issue, one PR.** Each issue has exactly one PR; follow-up work is a new issue, not a second PR — so the completion report never needs a per-PR log.
+5. **The completion report is the single source of truth** for the change record and for value-creation: what was built, what proves it, how it landed, and what value it created, in one place. Change management is required in every issue (expected field at creation, actuals in the completion report); production-behavior changes additionally name the owner approval or activation step, and agent work stops at that step.
 
 ### The pin rule
 
@@ -555,42 +566,14 @@ What changed and why?
 ## Linked issue
 Closes #123
 
-## Specification
-Relevant requirements and acceptance criteria:
-
-## Implementation
-Key decisions:
-Alternatives:
-Scope exclusions:
-
-## Test evidence
-Red:
-Green:
-Regression:
-Integration/evaluation:
-
-## Risk
-Security:
-Tenant isolation:
-Compatibility:
-Performance/cost:
-
-## Delivery
-Migration:
-Feature flag:
-Deployment impact:
-Rollback:
-
-## Evidence
-Screenshots/logs/results, appropriately redacted:
+## Full report
+The full report for this PR lives in the linked issue's completion report (gitops §15). This PR body is a pointer, not a second record.
 
 ## Checklist
-- [ ] Scope matches issue
-- [ ] Tests and evaluations completed
-- [ ] Documentation updated
-- [ ] No secrets
-- [ ] Required checks pass
-- [ ] Review comments resolved
+- [ ] Required checks green on the current merge with `main`
+- [ ] Pins my change alters are updated in this PR (gitops §7)
+- [ ] CHANGELOG entry added (additive, under Unreleased)
+- [ ] Linked issue's completion report updated with this PR's full report
 ```
 
 Use automatic closing keywords only when the PR fully resolves the issue.
@@ -931,35 +914,17 @@ Agents cannot approve their own exceptions.
 ## 15. Required completion report
 
 ```markdown
-## Issue
-#123 — Title
-
-## Pull request
-#456 — URL
-
-## Integration
-Merged: yes/no
-Target: main
-Resulting commit: SHA
-
-## Verification
-Commands:
-CI runs:
-AI evaluations:
-Post-merge checks:
-Delivery state:
-
-## Release
-Not yet released / release candidate / released
-Version:
-Environment:
-
-## Risks and limitations
-...
-
-## Next-step gate
-PASS / BLOCKED
-Reason:
+## Completion report (gitops §15 — fill on close; the single document for this issue)
+- Issue / Pull request / Integration (merged, target, resulting commit):
+- Implementation (key decisions, alternatives, scope exclusions):
+- Test evidence (red, green, regression, integration/evaluation; CI runs; post-merge checks):
+- Change management (actual: change type, impacted surfaces, migration and data impact, rollout plan, rollback plan, communication, changelog entry):
+- Value and impact (value created, capabilities enhanced, competencies improved, value proposition, delivery channels, user journey):
+- Risk and limitations (security, tenant isolation, compatibility, performance/cost; known test-coverage gaps stated explicitly):
+- Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
+- Workflows operationalized:
+- How to harness this value from UX:
+- Next-step gate (PASS / BLOCKED + reason):
 ```
 
 Do not report `PASS` when:

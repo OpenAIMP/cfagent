@@ -24,7 +24,7 @@ Excluded:
 
 ## Dependencies
 
-## Change management
+## Change management (expected)
 Expected impact:
 Migration and data impact:
 Rollout plan:
@@ -50,13 +50,14 @@ All development on this issue must follow:
 - Branch-as-lock when collaborating: check live fix/<issue>-* branches and open PRs before claiming
 - Never place or cancel a trade/order without explicit confirmation
 
-## Completion report (gitops §15 — fill on close; single source of truth for value-creation)
-- Value delivered by PR (append one entry per PR merge, never overwrite a previous entry):
-  - PR #___: value created; capabilities; competencies; value proposition; delivery channels; user journey
-- Value created (roll-up at close):
-- Capabilities enabled:
-- Competencies improved:
-- Value proposition (how this takes us closer to it):
-- Delivery channels:
+## Completion report (gitops §15 — fill on close; the single document for this issue)
+- Issue / Pull request / Integration (merged, target, resulting commit):
+- Implementation (key decisions, alternatives, scope exclusions):
+- Test evidence (red, green, regression, integration/evaluation; CI runs; post-merge checks):
+- Change management (actual: change type, impacted surfaces, migration and data impact, rollout plan, rollback plan, communication, changelog entry):
+- Value and impact (value created, capabilities enhanced, competencies improved, value proposition, delivery channels, user journey):
+- Risk and limitations (security, tenant isolation, compatibility, performance/cost; known test-coverage gaps stated explicitly):
+- Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
 - Workflows operationalized:
 - How to harness this value from UX:
+- Next-step gate (PASS / BLOCKED + reason):
