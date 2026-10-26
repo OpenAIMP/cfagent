@@ -1,3 +1,18 @@
+/**
+ * #1639 (D7 disposition, parent #1638, doc §1) — CLIENT MODELING LAYER
+ * ONLY, not an engine of record. The functions here (analyzeStrategy,
+ * evaluateStrategyPnL, calculateNetGreeks, payoff matrices, leg edits)
+ * model legs the user is actively editing in the Builder: pure,
+ * synchronous math over caller-supplied legs, with no server fetch,
+ * no chain load, and no ranking of record. Discovery ranking is the
+ * server panel path — POST /api/trading/options/strategies via
+ * runPanelPipeline → RecommendationService.discoverPanel — reached
+ * from the client through serverDiscovery.fetchServerDiscovery, which
+ * maps the server-ranked candidates back into this module's view
+ * types. Nothing here may call the server or rank a discovery: if a
+ * Builder change ever needs a ranked recommendation, it goes through
+ * serverDiscovery, never through a local ranker in this module.
+ */
 import { blackScholes, calculateProbabilityOfProfit, normalCdf } from "./blackScholes";
 
 export type SentimentType =
