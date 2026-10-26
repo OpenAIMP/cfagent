@@ -1,0 +1,2 @@
+### Added
+- **RSI telemetry & calibration engine in D1 (#1742):** automated thesis-realization tracking in AgentDB (migration 0006) with a governed prompt-calibration loop — falsification-gated proposals, frozen snapshots, human approval, and auditable applied notes plugged into the actor turn. Consumes #1745 breaker snapshots and #1740 `retrieval.completed` counts; emits CloudEvents telemetry events for the later #1743 stream. OpenAIMP/cfagent#1736.

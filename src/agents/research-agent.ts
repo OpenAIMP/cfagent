@@ -872,6 +872,48 @@ export class ResearchAgent extends Agent<Env> {
       } catch {
         // Metering is advisory.
       }
+      // Issue #1742: best-effort thesis-realization projection —
+      // scored ideas from this evaluation land in D1 telemetry
+      // (idempotent by outcome id). Failure-isolated in its own
+      // try/catch: a projection failure is warned, never fails
+      // evaluateRun (calibration never blocks a thesis run).
+      // Unbound AgentDB skips silently, exactly as before.
+      // Covers both callers (manual /research/evaluate and the
+      // due-runs pass) because both flow through evaluateRun.
+      try {
+        const agentDb = (this.env as unknown as { AGENT_DB?: unknown }).AGENT_DB;
+        if (agentDb) {
+          const { createTelemetryAdapter, ensureTelemetryTables } =
+            await import("../telemetry/createTelemetryPorts");
+          const { resolveIaaaTenant } = await import(
+            "../security/iaaaGithubEndToEnd"
+          );
+          const adapter = createTelemetryAdapter({ AGENT_DB: agentDb });
+          if (adapter) {
+            await ensureTelemetryTables(adapter);
+            const { reportRegime } = await import(
+              "../services/researchTrackRecord"
+            );
+            const { projectEvaluationRealizations } = await import(
+              "../telemetry/telemetryProjection"
+            );
+            await projectEvaluationRealizations(
+              adapter,
+              {
+                runId: report.runId,
+                regime: reportRegime(report.regime),
+                ideas: report.ideas,
+              },
+              evaluation,
+              resolveIaaaTenant(this.env),
+            );
+          }
+        }
+      } catch (err) {
+        console.warn(
+          `[telemetry] realization projection failed (ignored): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       return evaluation;
     } catch {
       return null;

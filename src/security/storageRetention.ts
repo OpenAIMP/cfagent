@@ -143,6 +143,22 @@
  *   force a repopulation, but no purge exists for them —
  *   the retention slice enforces only the BOUNDED table
  *   (agent_shard_jobs).
+ * - agent_thesis_realizations / agent_calibration_decisions
+ *   (AgentDB telemetry, issue #1742, RSI telemetry &
+ *   calibration) — KEEP, decided up front per R8. Realizations
+ *   accrue at evaluation pace (due-runs pass: capped runs,
+ *   min-age gated — not per request), one row per evaluated
+ *   idea; decisions accrue per proposal (trigger-gated, not
+ *   per request). Both tables ARE the governance record the
+ *   calibration engine reasons about (frozen snapshots +
+ *   proposer/decider/applier actors); pruning realizations
+ *   would rewrite history the metrics aggregate over, and
+ *   pruning decisions would destroy the approval trail. The
+ *   DO track record remains authoritative for evaluations;
+ *   these rows are never the sole record of an evaluation,
+ *   but they are the sole record of a calibration decision.
+ *   No purge exists for them — the retention slice enforces
+ *   only the BOUNDED table (agent_shard_jobs).
  * - usage_events (not a mas_* table) — PRUNE-CLASS, 365d, recorded here
  *   per issue #792's deferral, implementation deferred to its first
  *   production reader: rows are split across two DOs' databases

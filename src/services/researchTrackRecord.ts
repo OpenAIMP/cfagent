@@ -85,7 +85,12 @@ const TRACK_RECORD_REGIMES: ReadonlySet<string> = new Set([
 ]);
 
 /** The regime a run recorded on its report; anything else is "unknown" — never inferred from the outlook. */
-function reportRegime(raw: unknown): TrackRecordRegime {
+/**
+ * Issue #1742: exported so the D1 telemetry projector derives
+ * the same regime string the dashboard reads (reuse, not a
+ * second derivation). Pure; behavior unchanged.
+ */
+export function reportRegime(raw: unknown): TrackRecordRegime {
   const value =
     typeof raw === "string"
       ? raw

@@ -246,12 +246,85 @@ CREATE INDEX IF NOT EXISTS agent_market_edges_tenant_from_idx ON agent_market_ed
 `,
 };
 
+/**
+ * Migration 0006 — agent_thesis_realizations +
+ * agent_calibration_decisions (issue #1742, RSI telemetry &
+ * calibration engine). Portable subset (R2): epoch-ms
+ * integers, booleans as INTEGER 0/1, no dialect date
+ * functions, no RETURNING. Grain: realizations one row per
+ * (tenant, outcome) — the PRIMARY KEY is the idempotency
+ * guarantee, so at-least-once projection delivery is safe
+ * (adapters check-then-insert and report duplicates);
+ * decisions one row per decision id, updated in place through
+ * the governed lifecycle (the row IS the audit trail: frozen
+ * snapshot + proposer/decider/applier actors + timestamps).
+ * The 4-space PRIMARY KEY lines are constraint lines, not
+ * columns, for the parity test's two-space column matcher
+ * (same shape as migrations 0004/0005).
+ */
+export const MIGRATION_0006_AGENT_TELEMETRY_CALIBRATION: DataMigration = {
+  version: 6,
+  name: "0006_agent_telemetry_calibration",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_thesis_realizations (
+  tenant_id TEXT NOT NULL,
+  outcome_id TEXT NOT NULL,
+  thesis TEXT NOT NULL,
+  agent_key TEXT NOT NULL,
+  structure TEXT NOT NULL,
+  regime TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  report_id TEXT,
+  chain_id TEXT,
+  predicted_direction TEXT NOT NULL,
+  realized_direction TEXT NOT NULL,
+  direction_correct INTEGER NOT NULL,
+  falsified INTEGER NOT NULL,
+  invalidated INTEGER NOT NULL,
+  pnl_estimate_per_unit REAL,
+  r_multiple REAL,
+  evaluated_at_ms INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (tenant_id, outcome_id)
+);
+CREATE INDEX IF NOT EXISTS agent_thesis_realizations_tenant_evaluated_idx ON agent_thesis_realizations (tenant_id, evaluated_at_ms DESC);
+CREATE INDEX IF NOT EXISTS agent_thesis_realizations_tenant_thesis_idx ON agent_thesis_realizations (tenant_id, thesis);
+CREATE TABLE IF NOT EXISTS agent_calibration_decisions (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  actor_key TEXT NOT NULL,
+  prompt_key TEXT NOT NULL,
+  dimension TEXT NOT NULL,
+  slice_key TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  falsifying_outcome_ids_json TEXT NOT NULL,
+  calibration_note TEXT NOT NULL,
+  proposed_by TEXT NOT NULL,
+  proposed_at_ms INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  decided_by TEXT,
+  decided_at_ms INTEGER,
+  applied_by TEXT,
+  applied_at_ms INTEGER,
+  prior_note TEXT,
+  superseded_by TEXT,
+  expired_by TEXT,
+  expired_at_ms INTEGER,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_calibration_decisions_tenant_actor_prompt_idx ON agent_calibration_decisions (tenant_id, actor_key, prompt_key, status);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
   MIGRATION_0003_AGENT_SHARD_JOBS,
   MIGRATION_0004_AGENT_AUDIT_REPORTS,
   MIGRATION_0005_AGENT_MARKET_GRAPH,
+  MIGRATION_0006_AGENT_TELEMETRY_CALIBRATION,
 ];
 
 function splitStatements(sqlText: string): string[] {
