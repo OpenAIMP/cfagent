@@ -934,8 +934,18 @@ export class ScheduledTasksService {
     status?: string;
     hits?: number;
     goalKind?: string;
+    /** Issue #1571: the fallback marker when the stock leg fell back
+     *  to Yahoo (mirrors the #1527 market-screen data shape). */
+    providerFallback?: {
+      from: "etrade";
+      reason: string;
+    };
   }>> {
     const timestamp = new Date().toISOString();
+    // Issue #1571: whole-run fallback marker, set when the E*TRADE
+    // guard blocks a stocks-requesting goal run. Declared here so the
+    // catch below can name it on a fallback-run failure.
+    let providerFallback: { from: "etrade"; reason: string } | undefined;
     try {
       const userLogin = options.userLogin || this.userLogin;
       if (!userLogin) {
@@ -998,6 +1008,38 @@ export class ScheduledTasksService {
       ];
       const chainMode = Boolean(options.stageChain);
       const deliver: ("slack" | "email" | "webhook" | "voice")[] = chainMode ? [] : directChannels;
+      // Issue #1571: the goal path never went through the scheduled
+      // auth guard — unlike the market and options screens, which
+      // both pre-flight it. A stocks-requesting goal run now guards
+      // too: when E*TRADE auth is dead it falls back to a whole-run
+      // Yahoo stock leg (the agent's provider-"yahoo" goal path),
+      // with the #1527 marker semantics. The guard's deduped episode
+      // alert already fired inside the guard; a fallback success
+      // emits no failure notice. Options-only runs never consult the
+      // guard — there is no stock leg to fall back, and the options
+      // path is unchanged (stocks only, per the 2026-10-25 ruling).
+      // A fallback that itself fails takes the normal failure path
+      // in the catch below.
+      const stocksRequested = !options.assetClasses || options.assetClasses.includes("stocks");
+      if (stocksRequested) {
+        const guard = await this.guardScheduledAuth(
+          userLogin,
+          options.environment,
+          "stock",
+          "goal screen"
+        );
+        if (guard.blocked) {
+          providerFallback = { from: "etrade", reason: "etrade-auth-dead" };
+          this.audit("goal_screen.run_fallback", {
+            kind: "stock",
+            goalKind: scenario.goalKind,
+            from: "etrade",
+            to: "yahoo",
+            reason: "etrade-auth-dead",
+            error: guard.error,
+          });
+        }
+      }
       const out = await runtime.executeGoalScreenRun({
         agent: this.getScreenerAgent(userLogin),
         orm: this.orm,
@@ -1012,6 +1054,11 @@ export class ScheduledTasksService {
         symbols: options.symbols,
         ...(deliver.length > 0 ? { deliver } : {}),
         ...(options.emailTo ? { emailTo: options.emailTo } : {}),
+        // Issue #1571: a fallback run rides provider "yahoo" plus the
+        // marker; an E*TRADE-live run is unchanged.
+        ...(providerFallback
+          ? { provider: "yahoo" as const, providerFallback }
+          : {}),
       });
       if (!out.executed) {
         return { success: true, taskType: "goal_screen", skipped: true, timestamp } as any;
@@ -1021,6 +1068,7 @@ export class ScheduledTasksService {
         status: out.result?.status,
         hits: out.result?.counts.hits,
         taskId: out.taskId,
+        ...(providerFallback ? { providerFallback } : {}),
       });
       if (out.result?.status === "failed") {
         throw new Error("Goal-driven screen failed on every requested asset class.");
@@ -1050,6 +1098,8 @@ export class ScheduledTasksService {
               totalScanned: (out.result?.counts.stocksScanned ?? 0)
                 + (out.result?.counts.optionsUnderlyingsScanned ?? 0),
               stageChain: options.stageChain,
+              // Issue #1571: the bridge outcome names the fallback.
+              ...(providerFallback ? { providerFallback } : {}),
             },
             userLogin,
             true,
@@ -1067,13 +1117,18 @@ export class ScheduledTasksService {
           status: out.result?.status,
           hits: out.result?.counts.hits,
           goalKind: out.result?.goalKind,
+          ...(providerFallback ? { providerFallback } : {}),
         },
       };
     } catch (err: any) {
+      // Issue #1571: a fallback run that itself fails takes this same
+      // path; the audit names the fallback so the failure record
+      // shows it was a fallback attempt, not an E*TRADE-live failure.
       this.audit("goal_screen.run_failed", {
         goalKind: options.goalKind,
         scenarioId: options.scenarioId,
         error: err.message,
+        ...(providerFallback ? { providerFallback } : {}),
       });
       if (this.orm?.messages) {
         try {
@@ -1081,7 +1136,7 @@ export class ScheduledTasksService {
             id: crypto.randomUUID(),
             sessionId: this.userLogin,
             role: "assistant",
-            content: `⚠️ Scheduled Goal Screen failed: ${err.message || "Goal screen execution error"}`,
+            content: `⚠️ Scheduled Goal Screen failed: ${err.message || "Goal screen execution error"}${providerFallback ? " (Yahoo fallback after E*TRADE auth failure)" : ""}`,
             agent: "orchestrator",
             createdAt: timestamp,
           });
