@@ -22,6 +22,7 @@ import type {
   ScheduleRow,
 } from "./chainSchedulePorts";
 import type { ReconcileReport } from "./chainScheduleProjection";
+import { isChainOperationAllowed } from "./chainAuthority";
 
 export interface ChainStatusRouteSession {
   githubLogin?: string;
@@ -136,7 +137,13 @@ export async function handleReconcileChainsRoute(
       { status: 403 },
     );
   }
-  if (!deps.isPlatformAdmin) {
+  // Issue #1688 (slice 3): reconcile is gated by the chain
+  // authority matrix, not an ad-hoc flag — only the
+  // platform-admin role may reconcile. Behavior is
+  // unchanged (non-admin → 403); the matrix is now the
+  // single statement of that rule.
+  const role = deps.isPlatformAdmin ? "platform-admin" : "signed-in";
+  if (!isChainOperationAllowed(role, "reconcile")) {
     return Response.json(
       { error: "Forbidden: chain reconciliation requires platform-admin membership." },
       { status: 403 },

@@ -152,10 +152,65 @@ export const MIGRATION_0003_AGENT_SHARD_JOBS: DataMigration = {
 );`,
 };
 
+/**
+ * Issue #1688: agent_chain_audit + agent_reports. Grain:
+ * agent_chain_audit is one row per lifecycle event (never a
+ * log blob); agent_reports is one row per (tenant, report,
+ * version). The PRIMARY KEY lines below use four-space
+ * indent so the DDL/schema parity test's two-space column
+ * matcher reads columns only, not the constraint line.
+ */
+export const MIGRATION_0004_AGENT_AUDIT_REPORTS: DataMigration = {
+  version: 4,
+  name: "0004_agent_audit_reports",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_chain_audit (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  chain_id TEXT,
+  event_kind TEXT NOT NULL,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  detail_json TEXT NOT NULL,
+  occurred_at_ms INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  version INTEGER NOT NULL,
+  provenance_writer TEXT NOT NULL,
+  provenance_source_do TEXT NOT NULL,
+  provenance_source_version TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_chain_audit_tenant_chain_idx ON agent_chain_audit (tenant_id, chain_id, occurred_at_ms DESC);
+CREATE INDEX IF NOT EXISTS agent_chain_audit_tenant_kind_idx ON agent_chain_audit (tenant_id, event_kind, occurred_at_ms DESC);
+CREATE TABLE IF NOT EXISTS agent_reports (
+  tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  report_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  generation_id TEXT,
+  title TEXT NOT NULL,
+  source TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  version INTEGER NOT NULL,
+  provenance_writer TEXT NOT NULL,
+  provenance_source_do TEXT NOT NULL,
+  provenance_source_version TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, report_id, version)
+);
+CREATE INDEX IF NOT EXISTS agent_reports_tenant_report_idx ON agent_reports (tenant_id, report_id, version DESC);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
   MIGRATION_0003_AGENT_SHARD_JOBS,
+  MIGRATION_0004_AGENT_AUDIT_REPORTS,
 ];
 
 function splitStatements(sqlText: string): string[] {

@@ -99,6 +99,66 @@ export const agentSynthesizedSchedules = sqliteTable(
 );
 
 /**
+ * Issue #1688: agent_chain_audit projection table. Grain: one
+ * row per lifecycle event (append-only; version is the
+ * row-shape version, always 1, not a per-subject counter).
+ * chain_id is nullable: tenant-wide events (reconcile, seed)
+ * have no single chain subject. Column names match migration
+ * 0004 exactly; the test pins the two together.
+ */
+export const agentChainAudit = sqliteTable("agent_chain_audit", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  chainId: text("chain_id"),
+  eventKind: text("event_kind").notNull(),
+  subjectType: text("subject_type").notNull(),
+  subjectId: text("subject_id").notNull(),
+  actor: text("actor").notNull(),
+  detailJson: text("detail_json").notNull(),
+  occurredAtMs: integer("occurred_at_ms").notNull(),
+  createdAtMs: integer("created_at_ms").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+  version: integer("version").notNull(),
+  provenanceWriter: text("provenance_writer").notNull(),
+  provenanceSourceDo: text("provenance_source_do").notNull(),
+  provenanceSourceVersion: text("provenance_source_version").notNull(),
+});
+
+/**
+ * Issue #1688: agent_reports projection table. Grain: one row
+ * per (tenant, report, version). Canonical rows are written
+ * only by the projection path; deletion happens only via
+ * deleteCanonicalReport. Column names match migration 0004
+ * exactly; the test pins the two together.
+ */
+export const agentReports = sqliteTable(
+  "agent_reports",
+  {
+    tenantId: text("tenant_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    reportId: text("report_id").notNull(),
+    runId: text("run_id").notNull(),
+    generationId: text("generation_id"),
+    title: text("title").notNull(),
+    source: text("source").notNull(),
+    summary: text("summary").notNull(),
+    body: text("body").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+    version: integer("version").notNull(),
+    provenanceWriter: text("provenance_writer").notNull(),
+    provenanceSourceDo: text("provenance_source_do").notNull(),
+    provenanceSourceVersion: text("provenance_source_version").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.tenantId, table.reportId, table.version],
+    }),
+  ],
+);
+
+/**
  * Runner bookkeeping, owned by the migration runner — not a
  * domain table, and not part of any migration file's DDL.
  */

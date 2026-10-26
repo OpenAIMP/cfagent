@@ -404,6 +404,104 @@ built here.
   `src/data/inMemoryShardJobAdapter.ts` (adapters), with
   the port/dialect suite passing unchanged against both.
 
+## Slice 3 addendum (issue #1688, audit + reports projection)
+
+- Status: accepted with slice 3; the R1–R9 contract above is
+  unchanged and governs this slice. Scope note: the Postgres
+  adapter slice is deferred by the owner (2026-10-26,
+  "for now do R1/sqlite"); this program proceeds R1
+  port-first on SQLite (D1 + in-memory/local SQLite).
+- Tables (migration 0004, DDL in exactly one file):
+  `agent_chain_audit` and `agent_reports`. Every row carries
+  `tenant_id`, `workspace_id`, `version`, `created_at_ms`,
+  `updated_at_ms`, and provenance (`provenance_writer`,
+  `provenance_source_do`, `provenance_source_version`, the
+  last being the row-shape version of the mapping, 1 in
+  slice 3).
+- Audit grain (the correction to the original #1546 design):
+  one row per event, never a JSON log blob. The id is the
+  deterministic replay key `<tenant_id>:<eventId>`, so
+  replaying the same event is a no-op under
+  `onConflictDoNothing`. Audit rows are append-only;
+  `version` is the row-shape version (always 1), not a
+  per-subject counter. `chain_id` is nullable: tenant-wide
+  events (reconcile, seed) have no single chain subject.
+  Events recorded: chain/schedule transitions
+  (synthesize/approve/kill, one event per subject, written
+  by `projectAfterTransition` after the DO transition
+  commits), job projections (one event per run that
+  projected jobs, written by `projectRunLegs`), and
+  reconcile passes (one tenant-wide event carrying the
+  report counts, written by the reconcile invocation
+  points). All audit writes are best-effort and never
+  block the originating step; a lost audit write is a
+  visible gap (a missing event id), never a wrong state.
+- Authority matrix (`src/data/chainAuthority.ts`): the
+  small, explicit, chain-scoped mapping — read for any
+  signed-in role (the tenant predicate, not the role,
+  scopes the rows), reconcile and seed for platform-admin
+  only, project for the system writer only. Enforced at
+  the boundary: the chains-reconcile route handler now
+  derives its role from the admin check and consults the
+  matrix (behavior unchanged, non-admin still 403), and
+  canonical-report deletion takes the same platform-admin
+  gravity. This is deliberately NOT a repo-wide authority
+  system; it covers chain operations only.
+- Canonical reports: `agent_reports` mirrors the
+  `mas_reports` canonical copy. Grain: one row per
+  (tenant, report, version) with a composite primary key.
+  Rows are written only by the projection path
+  (`seedCanonicalReports`); deletion happens ONLY via
+  `deleteCanonicalReport` (platform-admin only), pinned
+  by a source scan test. Bodies are capped at 8000 chars
+  with a truncation marker; the durable object holds the
+  full copy. `detail_json` on audit rows carries counts
+  and statuses only, never payloads.
+- The approved bounded mas_reports seed: one-time,
+  idempotent, operator-step pattern (the slice-0 halt seed
+  shape): `OrchestratorAgent.seedCanonicalReports`
+  (execution in `src/agents/orchestrator/canonicalReportSeed.ts`,
+  the #992 pattern) reads this instance's `mas_reports`
+  via the ORM repository and mirrors exactly those rows;
+  a second run seeds zero rows. Invoked deliberately only
+  via the admin-gated POST `/api/reports/seed-canonical`
+  route (requireAuth → wired session → live platform-admin
+  membership, fail-closed; unbound AgentDB answers 503).
+  It never writes the DO table and never auto-runs on
+  boot, deploy, or tick. Scope is exactly the current
+  `mas_reports` rows at invoke time — no historical
+  backfill beyond that approved set. The seed invoke
+  itself is a separate operator step after merge, not
+  part of this slice's landing.
+- Query API: GET `/api/audit/history?chainId=`
+  (requireAuth; tenant from IAAA resolution) reads the
+  audit projection only, newest first; GET
+  `/api/reports/list[?reportId=]` reads the report
+  projection only (latest per report, newest first, or
+  the one report). Both answer 503 when AgentDB is
+  unbound. The reports list shape omits bodies. All three
+  new routes (including the seed route) are catalogued in
+  `src/client/iaaaEndpointCatalog.ts`.
+- Retention: both tables are KEEP in
+  `src/security/storageRetention.ts` (the single contract);
+  audit rows are the trail the audit read reasons about,
+  and report rows mirror the KEEP discipline of
+  `mas_reports` itself. Enforcement lands with the
+  retention slice; until then rows accrue unbounded and
+  the contract lines are what that enforcement implements.
+- Honest limitation: audit is a trail of projection
+  events, not a second source of truth — a projection
+  failure that is never reconciled leaves a gap, and the
+  seed mirrors only the rows present at invoke time
+  (reports created later need the projection path, not
+  another seed, to appear).
+- Ports: `src/data/auditReportPorts.ts` (interfaces),
+  `src/data/chainAuthority.ts` (matrix),
+  `src/data/d1AuditReportAdapter.ts` +
+  `src/data/inMemoryAuditReportAdapter.ts` (adapters),
+  with the port/dialect suite passing unchanged against
+  both.
+
 ## Consequences
 
 - A new dependency: `drizzle-orm` (runtime). No `drizzle-kit`
