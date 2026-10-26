@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { TabHoverItem } from "./TabHoverItem";
+import { Button, TextInput, Select } from "./components/ui";
 import {
   MCP_TOOLS_CATALOG,
   MCP_RESOURCES_CATALOG,
@@ -269,12 +270,12 @@ export function McpApiExplorer() {
           title="Callable Agent Tools"
           description="Browse and execute Model Context Protocol tools exposed to autonomous agent swarms."
         >
-          <button
-            className={`subnav-btn ${subTab === "tools" ? "active" : ""}`}
+          <Button
+          variant={subTab === "tools" ? "primary" : "secondary"}
             onClick={() => setSubTab("tools")}
           >
             🛠️ MCP Tools (14)
-          </button>
+          </Button>
         </TabHoverItem>
 
         <TabHoverItem
@@ -282,12 +283,12 @@ export function McpApiExplorer() {
           title="Context Resources"
           description="Read static and dynamic context resources provided by connected MCP servers."
         >
-          <button
-            className={`subnav-btn ${subTab === "resources" ? "active" : ""}`}
+          <Button
+          variant={subTab === "resources" ? "primary" : "secondary"}
             onClick={() => setSubTab("resources")}
           >
             📦 MCP Resources (6)
-          </button>
+          </Button>
         </TabHoverItem>
 
         <TabHoverItem
@@ -295,12 +296,12 @@ export function McpApiExplorer() {
           title="Agent Prompt Templates"
           description="Pre-configured system and agent prompt templates for specialized workflows."
         >
-          <button
-            className={`subnav-btn ${subTab === "prompts" ? "active" : ""}`}
+          <Button
+          variant={subTab === "prompts" ? "primary" : "secondary"}
             onClick={() => setSubTab("prompts")}
           >
             💡 MCP Prompts (3)
-          </button>
+          </Button>
         </TabHoverItem>
 
         <TabHoverItem
@@ -308,12 +309,12 @@ export function McpApiExplorer() {
           title="REST Endpoints Explorer"
           description="Interactive cURL commands and response samples for all serverless HTTP routes."
         >
-          <button
-            className={`subnav-btn ${subTab === "rest" ? "active" : ""}`}
+          <Button
+          variant={subTab === "rest" ? "primary" : "secondary"}
             onClick={() => setSubTab("rest")}
           >
             🚀 REST APIs (16)
-          </button>
+          </Button>
         </TabHoverItem>
 
         <TabHoverItem
@@ -321,12 +322,12 @@ export function McpApiExplorer() {
           title="Claude & Cursor Config"
           description="Ready-to-copy JSON configuration files to connect Claude Desktop and Cursor IDE."
         >
-          <button
-            className={`subnav-btn ${subTab === "config" ? "active" : ""}`}
+          <Button
+          variant={subTab === "config" ? "primary" : "secondary"}
             onClick={() => setSubTab("config")}
           >
             📋 Claude / Cursor Config
-          </button>
+          </Button>
         </TabHoverItem>
       </div>
 
@@ -337,7 +338,7 @@ export function McpApiExplorer() {
           <div className="endpoints-list-pane">
             <div className="pane-header">
               <h4>Available MCP Tools ({filteredTools.length})</h4>
-              <input
+              <TextInput
                 type="text"
                 placeholder="Filter tools by name or description..."
                 value={toolSearch}
@@ -402,15 +403,16 @@ export function McpApiExplorer() {
             <div className="arguments-section">
               <div className="args-header">
                 <h5>Call Arguments (JSON):</h5>
-                <button
-                  type="button"
+                <Button
+                variant="secondary"
+                size="sm"
                   className="reset-args-btn"
                   onClick={() => setToolArgsJson(JSON.stringify(activeTool.sampleArgs, null, 2))}
                 >
                   ↺ Reset Sample
-                </button>
+                </Button>
               </div>
-              <textarea
+              <TextInput multiline
                 className="code-editor"
                 rows={5}
                 value={toolArgsJson}
@@ -420,14 +422,14 @@ export function McpApiExplorer() {
 
             {/* Execution Trigger */}
             <div className="runner-actions">
-              <button
-                type="button"
+              <Button
+              variant="primary"
                 className="run-mcp-btn"
                 disabled={mcpLoading}
                 onClick={handleExecuteMcpTool}
               >
                 {mcpLoading ? "Executing JSON-RPC Call…" : "▶️ Send MCP Tool Call (Live)"}
-              </button>
+              </Button>
             </div>
 
             {/* Live Result View */}
@@ -436,13 +438,14 @@ export function McpApiExplorer() {
               <div className="runner-result-box">
                 <div className="result-header">
                   <span className="result-tag success">JSON-RPC 2.0 Response</span>
-                  <button
-                    type="button"
+                  <Button
+                  variant="ghost"
+                  size="sm"
                     className="copy-btn"
                     onClick={() => copyToClipboard(JSON.stringify(mcpResult, null, 2), "mcp-res")}
                   >
                     {copiedId === "mcp-res" ? "✓ Copied!" : "📋 Copy"}
-                  </button>
+                  </Button>
                 </div>
                 <pre className="result-pre">{JSON.stringify(mcpResult, null, 2)}</pre>
               </div>
@@ -483,14 +486,14 @@ export function McpApiExplorer() {
                 <span className="runner-badge">Live Resource Inspector</span>
                 <h4><code>{activeResource.uri}</code></h4>
               </div>
-              <button
-                type="button"
+              <Button
+              variant="primary"
                 className="run-mcp-btn"
                 disabled={resourceLoading}
                 onClick={() => handleReadResource(activeResource)}
               >
                 {resourceLoading ? "Reading Resource…" : "📖 Read Resource"}
-              </button>
+              </Button>
             </div>
             <p className="runner-desc">{activeResource.description}</p>
 
@@ -498,13 +501,14 @@ export function McpApiExplorer() {
               <div className="runner-result-box">
                 <div className="result-header">
                   <span className="result-tag success">Live Resource Content</span>
-                  <button
-                    type="button"
+                  <Button
+                  variant="ghost"
+                  size="sm"
                     className="copy-btn"
                     onClick={() => copyToClipboard(JSON.stringify(resourceResult, null, 2), "res-res")}
                   >
                     {copiedId === "res-res" ? "✓ Copied!" : "📋 Copy"}
-                  </button>
+                  </Button>
                 </div>
                 <pre className="result-pre">{JSON.stringify(resourceResult, null, 2)}</pre>
               </div>
@@ -544,14 +548,14 @@ export function McpApiExplorer() {
                 <span className="runner-badge">Prompt Generator</span>
                 <h4><code>{activePrompt.name}</code></h4>
               </div>
-              <button
-                type="button"
+              <Button
+              variant="primary"
                 className="run-mcp-btn"
                 disabled={promptLoading}
                 onClick={() => handleGetPrompt(activePrompt)}
               >
                 {promptLoading ? "Generating…" : "💬 Get Prompt Preview"}
-              </button>
+              </Button>
             </div>
             <p className="runner-desc">{activePrompt.description}</p>
 
@@ -585,7 +589,7 @@ export function McpApiExplorer() {
           <div className="endpoints-list-pane">
             <div className="pane-header">
               <h4>Platform REST Endpoints ({filteredRest.length})</h4>
-              <select
+              <Select
                 className="category-filter-select"
                 value={restCategoryFilter}
                 onChange={(e) => setRestCategoryFilter(e.target.value)}
@@ -597,7 +601,7 @@ export function McpApiExplorer() {
                 <option value="Monetization & Ads">Monetization & Ads</option>
                 <option value="Referrals & Community">Referrals & Community</option>
                 <option value="System & Audit">System & Audit</option>
-              </select>
+              </Select>
             </div>
 
             <div className="tools-cards-scroll">
@@ -641,16 +645,17 @@ export function McpApiExplorer() {
                 <div className="args-header">
                   <h5>Request Body (JSON):</h5>
                   {activeRest.sampleBody && (
-                    <button
-                      type="button"
+                    <Button
+                    variant="secondary"
+                    size="sm"
                       className="reset-args-btn"
                       onClick={() => setRestBodyJson(JSON.stringify(activeRest.sampleBody, null, 2))}
                     >
                       ↺ Load Sample
-                    </button>
+                    </Button>
                   )}
                 </div>
-                <textarea
+                <TextInput multiline
                   className="code-editor"
                   rows={4}
                   value={restBodyJson}
@@ -661,27 +666,28 @@ export function McpApiExplorer() {
 
             {/* Execute Request */}
             <div className="runner-actions">
-              <button
-                type="button"
+              <Button
+              variant="primary"
                 className="run-mcp-btn"
                 disabled={restLoading}
                 onClick={handleSendRestRequest}
               >
                 {restLoading ? "Sending API Request…" : `▶️ Send ${activeRest.method} Request (Live)`}
-              </button>
+              </Button>
             </div>
 
             {/* Copyable cURL */}
             <div className="curl-section">
               <div className="curl-header">
                 <h5>Sample cURL Command:</h5>
-                <button
-                  type="button"
+                <Button
+                variant="ghost"
+                size="sm"
                   className="copy-btn"
                   onClick={() => copyToClipboard(activeRest.sampleCurl, `curl-${activeRest.id}`)}
                 >
                   {copiedId === `curl-${activeRest.id}` ? "✓ Copied!" : "📋 Copy cURL"}
-                </button>
+                </Button>
               </div>
               <pre className="curl-code"><code>{activeRest.sampleCurl}</code></pre>
             </div>
@@ -707,13 +713,14 @@ export function McpApiExplorer() {
                     </span>
                     {restLatencyMs !== null && <span className="latency-tag">⚡ {restLatencyMs}ms</span>}
                   </div>
-                  <button
-                    type="button"
+                  <Button
+                  variant="ghost"
+                  size="sm"
                     className="copy-btn"
                     onClick={() => copyToClipboard(JSON.stringify(restResponse, null, 2), "rest-res")}
                   >
                     {copiedId === "rest-res" ? "✓ Copied!" : "📋 Copy JSON"}
-                  </button>
+                  </Button>
                 </div>
                 <pre className="result-pre">{JSON.stringify(restResponse, null, 2)}</pre>
               </div>
@@ -737,13 +744,14 @@ export function McpApiExplorer() {
               </div>
               <div className="code-box-header">
                 <span><code>claude_desktop_config.json</code></span>
-                <button
-                  type="button"
+                <Button
+                variant="ghost"
+                size="sm"
                   className="copy-btn"
                   onClick={() => copyToClipboard(claudeConfigSnippet, "claude-cfg")}
                 >
                   {copiedId === "claude-cfg" ? "✓ Copied Config!" : "📋 Copy Config"}
-                </button>
+                </Button>
               </div>
               <pre className="config-pre"><code>{claudeConfigSnippet}</code></pre>
             </div>
@@ -759,13 +767,14 @@ export function McpApiExplorer() {
               </div>
               <div className="code-box-header">
                 <span>Cursor MCP Settings</span>
-                <button
-                  type="button"
+                <Button
+                variant="ghost"
+                size="sm"
                   className="copy-btn"
                   onClick={() => copyToClipboard(cursorConfigSnippet, "cursor-cfg")}
                 >
                   {copiedId === "cursor-cfg" ? "✓ Copied Config!" : "📋 Copy Config"}
-                </button>
+                </Button>
               </div>
               <pre className="config-pre"><code>{cursorConfigSnippet}</code></pre>
             </div>

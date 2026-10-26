@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, Modal, Table, Skeleton } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, Modal, Table, Skeleton, Checkbox } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -338,5 +338,30 @@ describe("Button subtle tone + warning variant (#628)", () => {
   it("carries the warning variant", () => {
     const element = React.createElement(Button, { variant: "warning", tone: "subtle" }, "Risk Analysis");
     expect(element.props.variant).toBe("warning");
+  });
+});
+
+describe("Checkbox (#1577)", () => {
+  it("carries the boolean control contract (checked, onChange, id, disabled)", () => {
+    const element = React.createElement(Checkbox, {
+      id: "gate-enabled",
+      checked: true,
+      onChange: () => {},
+      disabled: false,
+    });
+    expect(element.type).toBe(Checkbox);
+    expect(element.props.checked).toBe(true);
+    expect(element.props.id).toBe("gate-enabled");
+    expect(element.props.disabled).toBe(false);
+  });
+
+  it("is implemented as a native checkbox with the token class, not a text field", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/client/components/ui/Checkbox.tsx"),
+      "utf8",
+    );
+    expect(source).toContain('type="checkbox"');
+    expect(source).toContain("ui-checkbox");
+    expect(source).not.toContain("ui-input");
   });
 });
