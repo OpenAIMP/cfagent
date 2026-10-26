@@ -11,10 +11,14 @@
  * replayed version is a no-op even under at-least-once
  * delivery.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, lt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { agentShardJobs } from "./drizzleSchema";
 import type { ShardJobRow, ShardJobStore, ShardJobStatus } from "./shardJobPorts";
+import type {
+  RetentionPurgeStore,
+  ShardJobKey,
+} from "./retentionPorts";
 import {
   MIGRATION_0003_AGENT_SHARD_JOBS,
   applyMigrations,
@@ -65,7 +69,17 @@ function latestPerJob(rows: ShardJobRow[]): ShardJobRow[] {
   );
 }
 
-export class D1ShardJobAdapter implements ShardJobStore {
+/**
+ * Issue #1701 (slice 6): the purge surface. Every method is
+ * tenant-scoped and touches agent_shard_jobs only — the one
+ * declared-BOUNDED AgentDB table. Deletes are one single
+ * statement per row (atomic on D1 without a transaction);
+ * batching is enforced by the runner's per-round limit, not
+ * by statement batching.
+ */
+export class D1ShardJobAdapter
+  implements ShardJobStore, RetentionPurgeStore
+{
   constructor(readonly db: D1ShardJobDb) {}
 
   async recordJob(row: ShardJobRow): Promise<void> {
@@ -141,5 +155,81 @@ export class D1ShardJobAdapter implements ShardJobStore {
     return latestPerJob(allForTenant.map(toRow)).filter(
       (row) => row.status === status,
     );
+  }
+
+  async listAgedShardJobKeys(
+    tenantId: string,
+    cutoffMs: number,
+    limit: number,
+  ): Promise<ShardJobKey[]> {
+    const rows = await this.db
+      .select({
+        chainId: agentShardJobs.chainId,
+        jobKey: agentShardJobs.jobKey,
+        version: agentShardJobs.version,
+      })
+      .from(agentShardJobs)
+      .where(
+        and(
+          eq(agentShardJobs.tenantId, tenantId),
+          lt(agentShardJobs.createdAtMs, cutoffMs),
+        ),
+      )
+      .orderBy(
+        asc(agentShardJobs.createdAtMs),
+        asc(agentShardJobs.chainId),
+        asc(agentShardJobs.jobKey),
+        asc(agentShardJobs.version),
+      )
+      .limit(limit);
+    return rows;
+  }
+
+  async listOldestShardJobKeys(
+    tenantId: string,
+    limit: number,
+  ): Promise<ShardJobKey[]> {
+    const rows = await this.db
+      .select({
+        chainId: agentShardJobs.chainId,
+        jobKey: agentShardJobs.jobKey,
+        version: agentShardJobs.version,
+      })
+      .from(agentShardJobs)
+      .where(eq(agentShardJobs.tenantId, tenantId))
+      .orderBy(
+        asc(agentShardJobs.createdAtMs),
+        asc(agentShardJobs.chainId),
+        asc(agentShardJobs.jobKey),
+        asc(agentShardJobs.version),
+      )
+      .limit(limit);
+    return rows;
+  }
+
+  async countShardJobs(tenantId: string): Promise<number> {
+    const rows = await this.db
+      .select({ n: count() })
+      .from(agentShardJobs)
+      .where(eq(agentShardJobs.tenantId, tenantId));
+    return rows.length === 0 ? 0 : rows[0].n;
+  }
+
+  async deleteShardJobs(
+    tenantId: string,
+    keys: ShardJobKey[],
+  ): Promise<void> {
+    for (const key of keys) {
+      await this.db
+        .delete(agentShardJobs)
+        .where(
+          and(
+            eq(agentShardJobs.tenantId, tenantId),
+            eq(agentShardJobs.chainId, key.chainId),
+            eq(agentShardJobs.jobKey, key.jobKey),
+            eq(agentShardJobs.version, key.version),
+          ),
+        );
+    }
   }
 }

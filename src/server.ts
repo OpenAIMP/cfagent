@@ -49,6 +49,11 @@ import {
   createShardJobAdapter,
   readJobHistory,
 } from "./data/createShardJobPorts";
+import { handleRetentionPurgeRoute } from "./data/retentionRoute";
+import {
+  createRetentionPurgeStore,
+  runRetentionPurgeForTenant,
+} from "./data/createRetentionPorts";
 import type { ReconcileShardJobsReport } from "./data/shardJobProjection";
 import {
   handleAuditHistoryRoute,
@@ -1418,6 +1423,67 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         tenantId: resolveIaaaTenant(env),
         runReconcile: ({ tenantId }) =>
           stub.reconcileShardJobProjection(tenantId),
+      });
+    }
+
+    // --- AgentDB retention purge (issue #1701, slice 6) ---
+    // POST /api/retention/purge: the deliberate operator
+    // invocation point for retention enforcement. Gating
+    // reuses the IAAA admin pattern exactly (requireAuth →
+    // wired session → live platform-admin membership,
+    // fail-closed, no data on 403). Never auto-run: no boot,
+    // deploy, or tick path calls it. Unlike reconciliation,
+    // the purge needs no durable-object hop — it touches
+    // only the AgentDB projection, so the server calls it
+    // directly. Unbound AgentDB → 503 (checked before the
+    // handler runs). The governed job definition
+    // (RETENTION_PURGE_JOB) is activated by an operator as
+    // a separate step; nothing here schedules it.
+    if (path === "/api/retention/purge") {
+      const session = await requireAuth(request, env);
+      let isPlatformAdmin = false;
+      if (session?.internalUserId) {
+        try {
+          const overview = await buildAdminOverview(
+            {
+              membershipStore: createKvMembershipStore(sessionStore(env)),
+              auditStore: createWiredAuditStore(env),
+              kv: sessionStore(env),
+              tenantId: resolveIaaaTenant(env),
+              nowMs: Date.now(),
+            },
+            { callerInternalUserId: session.internalUserId },
+          );
+          isPlatformAdmin = overview.allowed;
+        } catch {
+          return Response.json({ error: "Retention purge unavailable." }, { status: 500 });
+        }
+      }
+      if (!createRetentionPurgeStore(env)) {
+        return Response.json(
+          { error: "Retention purge unavailable: AgentDB is not bound." },
+          { status: 503 },
+        );
+      }
+      return handleRetentionPurgeRoute({
+        session,
+        method: request.method,
+        isPlatformAdmin,
+        tenantId: resolveIaaaTenant(env),
+        runPurge: async ({ tenantId }) => {
+          // Null is unreachable here (unbound store returned 503
+          // above); the throw keeps the handler's contract total
+          // and maps to 500 rather than a silent null.
+          const report = await runRetentionPurgeForTenant(env, tenantId, {
+            nowMs: Date.now(),
+          });
+          if (!report) {
+            throw new Error(
+              "Retention purge unavailable: AgentDB is not bound.",
+            );
+          }
+          return report;
+        },
       });
     }
 

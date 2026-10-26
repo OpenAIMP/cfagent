@@ -553,6 +553,98 @@ built here.
   consumer that cannot tolerate lag reads the durable
   object directly.
 
+## Slice 6 addendum (issue #1701, retention enforcement)
+
+- Status: accepted with slice 6; the R1–R9 contract above is
+  unchanged and governs this slice. This is the final code
+  slice of the program: slices 0–4 landed the projections
+  and reads, and this slice enforces the retention contract
+  R8 declared for them. No new tables, no new migrations,
+  no Postgres work (deferred by the owner 2026-10-26,
+  "for now do R1/sqlite").
+- What the contract actually declares, re-verified from
+  `src/security/storageRetention.ts` rather than assumed:
+  exactly one AgentDB table is BOUNDED — `agent_shard_jobs`
+  (30d + 500-row cap, mirroring the rails async-jobs
+  discipline) — and every other projection table is KEEP
+  (chains, schedules, audit, reports). One gap found while
+  verifying: `agent_governance` had no declared line at all,
+  though R8 requires each table's rule up front. Slice 6
+  adds it first (KEEP: one row per halt transition, not
+  per request, so volume is transitions; pruning it would
+  destroy the governance audit the halt read reasons
+  about). `_migrations` is runner bookkeeping, not a domain
+  table, and is out of purge scope by construction.
+- Enforcement: a port-first purge (`src/data/retentionPorts.ts`
+  + `retentionPurge.ts`, D1 + in-memory adapters behind the
+  same port, dialect suite unchanged). Age phase deletes
+  rows with `created_at_ms` strictly older than now − 30d,
+  oldest first, in bounded batches (500) under a per-run cap
+  (5000) — the loop shape mirrors `runStorageRetention`.
+  Cap phase then trims a tenant holding more than 500
+  shard-job rows oldest-first to 500. All versions of a job
+  share `createdAtMs` (first projection time, slice 2), so
+  an expired job purges whole; a live job keeps every
+  version. Repeated purge is a no-op; window ≤ 0 skips
+  everything. The purge allowlist is exactly
+  `["agent_shard_jobs"]`, pinned by test, and the purge
+  modules name no KEEP table and no `mas_*` table.
+- Invocation is operator/maintenance only, following the
+  established pattern: admin-gated `POST /api/retention/purge`
+  (requireAuth → wired session → live platform-admin,
+  fail-closed; unbound AgentDB → 503; decision order
+  401 → 405 → 403 → 200/500), catalogued in the IAAA
+  endpoint catalog. It needs no durable-object hop — the
+  purge touches only the projection, so the server calls
+  it directly, unlike reconciliation, which reads DO state.
+  The governed job definition (`RETENTION_PURGE_JOB`,
+  nightly `0 4 * * *` mirroring the mas pass) is the
+  second invocation path: `runRetentionPurgeJob` skips
+  without purging while halted and never throws a store
+  failure into a firing path (logged and returned). The
+  job is single-tenant per invocation; multi-tenant
+  enumeration at activation is an operator step, and
+  activation itself is an operator step — this slice
+  creates no live scheduled job and changes no production
+  schedule.
+- R2 lifecycle/orphan-sweep decision (#338) — RECORDED:
+  **accepted-unbounded, for now.** Evidence: #338 itself
+  is closed (design-first sub-task); its design landed as
+  the R2 pointer shape + `deleteCanonicalReport`, which
+  deletes the R2 object in the same scope as the row and
+  logs a stranded object as sweep-owned only when that
+  delete fails or no bucket is bound. Stranding therefore
+  requires a rare, deliberate admin delete of a KEEP row
+  to coincide with an R2 failure — not a steady stream —
+  and stranded objects are inert report JSON, not a cost
+  cliff at this volume. A correct sweep would need
+  cross-instance DO enumeration plus paginated R2
+  listing, which is a design cycle of its own, not a
+  slice-6 appendage. The slice-6 purge cannot strand
+  anything (shard-job rows carry no R2 pointers). The
+  "orphan sweep owns it" comments in `scheduledReports.ts`
+  remain the pointer to the eventual sweep. Revisit
+  triggers: the first stranded-object log line in
+  production, or bucket object-count growth attributable
+  to `reports/` objects. No sweep is scheduled by this
+  slice, and no sweep body is implemented.
+- Honest limitations: a purge report is returned per
+  invocation but is not itself written as an audit event —
+  no new audit table is created for purge runs, so the
+  operator invocation is the record; if purge-run audit
+  history is later wanted, it belongs in
+  `agent_chain_audit` via the slice-3 event path, not in
+  a new table. The per-tenant 500-row cap counts rows,
+  not jobs, so a tenant with many versions of few jobs
+  trims versions first (oldest rows go first). Purge
+  failures surface as 500 to the operator; the firing
+  paths never call the purge, so a failure cannot block a
+  chain firing.
+- Explicitly out of scope: the two production seed invokes
+  (halt seed, canonical `mas_reports` seed) — they are
+  operator steps after the program, and OpenAIMP/cfagent#1546
+  stays open until they land. This slice does not close it.
+
 ## Consequences
 
 - A new dependency: `drizzle-orm` (runtime). No `drizzle-kit`
