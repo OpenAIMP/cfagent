@@ -39,6 +39,10 @@ import {
 import { EtradeResearchDataProvider } from "../services/researchProviders";
 import {
   resolveYahooHistoryDeps,
+  nasdaqUniverseRouteBundle,
+  nasdaqUniverseProviderFromRoute,
+  bindNasdaqUniverseDeps,
+  type NasdaqUniverseDeps,
 } from "../trading";
 import {
   runGoalScenarioDiscovery,
@@ -414,10 +418,37 @@ export class ResearchAgent extends Think<Env> {
         blobStorage: this.ctx.storage,
         runId: crypto.randomUUID(),
       });
+      // Issue #1378: universe deps, bound the same way as
+      // historyDeps above (route-resolved + capture; a bundle
+      // failure degrades to undefined, and listings() then
+      // degrades to empty — never a direct fetch). Decision D2:
+      // captures use a generated run id (research has no caller
+      // run id).
+      let universeDeps: NasdaqUniverseDeps | undefined;
+      try {
+        const universeBundle = await nasdaqUniverseRouteBundle({
+          sql: this.ctx.storage.sql,
+          storage: this.ctx.storage,
+          env: this.env,
+          userLogin: userLogin,
+          runId: crypto.randomUUID(),
+        });
+        const universeProvider = nasdaqUniverseProviderFromRoute(
+          universeBundle.registry,
+          universeBundle.configs,
+          universeBundle.routes
+        );
+        universeDeps = bindNasdaqUniverseDeps(universeProvider, universeBundle.runContext);
+      } catch (err) {
+        console.warn(
+          `[research-agent] universe deps unavailable, listings degrade to empty: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
       const provider = new EtradeResearchDataProvider(
         this.env,
         userLogin,
-        historyDeps
+        historyDeps,
+        universeDeps
       );
       // Issue #773: feed historical evaluation outcomes into the pipeline's Decide stage.
       let trackRecord: import("../services/researchTrackRecord").TrackRecord | undefined;
@@ -468,10 +499,37 @@ export class ResearchAgent extends Think<Env> {
         blobStorage: this.ctx.storage,
         runId: crypto.randomUUID(),
       });
+      // Issue #1378: universe deps, bound the same way as
+      // historyDeps above (route-resolved + capture; a bundle
+      // failure degrades to undefined, and listings() then
+      // degrades to empty — never a direct fetch). Decision D2:
+      // captures use a generated run id (research has no caller
+      // run id).
+      let universeDeps: NasdaqUniverseDeps | undefined;
+      try {
+        const universeBundle = await nasdaqUniverseRouteBundle({
+          sql: this.ctx.storage.sql,
+          storage: this.ctx.storage,
+          env: this.env,
+          userLogin: userLogin,
+          runId: crypto.randomUUID(),
+        });
+        const universeProvider = nasdaqUniverseProviderFromRoute(
+          universeBundle.registry,
+          universeBundle.configs,
+          universeBundle.routes
+        );
+        universeDeps = bindNasdaqUniverseDeps(universeProvider, universeBundle.runContext);
+      } catch (err) {
+        console.warn(
+          `[research-agent] universe deps unavailable, listings degrade to empty: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
       const provider = new EtradeResearchDataProvider(
         this.env,
         userLogin,
-        historyDeps
+        historyDeps,
+        universeDeps
       );
       const out = await runGoalScenarioDiscovery({
         provider,
@@ -605,10 +663,37 @@ export class ResearchAgent extends Think<Env> {
         blobStorage: this.ctx.storage,
         runId: crypto.randomUUID(),
       });
+      // Issue #1378: universe deps, bound the same way as
+      // historyDeps above (route-resolved + capture; a bundle
+      // failure degrades to undefined, and listings() then
+      // degrades to empty — never a direct fetch). Decision D2:
+      // captures use a generated run id (research has no caller
+      // run id).
+      let universeDeps: NasdaqUniverseDeps | undefined;
+      try {
+        const universeBundle = await nasdaqUniverseRouteBundle({
+          sql: this.ctx.storage.sql,
+          storage: this.ctx.storage,
+          env: this.env,
+          userLogin: userLogin || report.userLogin || "default",
+          runId: crypto.randomUUID(),
+        });
+        const universeProvider = nasdaqUniverseProviderFromRoute(
+          universeBundle.registry,
+          universeBundle.configs,
+          universeBundle.routes
+        );
+        universeDeps = bindNasdaqUniverseDeps(universeProvider, universeBundle.runContext);
+      } catch (err) {
+        console.warn(
+          `[research-agent] universe deps unavailable, listings degrade to empty: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
       const provider = new EtradeResearchDataProvider(
         this.env,
         userLogin || report.userLogin || "default",
-        historyDeps
+        historyDeps,
+        universeDeps
       );
       for (const idea of (report.ideas ?? []).slice(0, 5)) {
         let quote: { price?: number | null } | null = null;
@@ -723,10 +808,37 @@ export class ResearchAgent extends Think<Env> {
         blobStorage: this.ctx.storage,
         runId: crypto.randomUUID(),
       });
+      // Issue #1378: universe deps, bound the same way as
+      // historyDeps above (route-resolved + capture; a bundle
+      // failure degrades to undefined, and listings() then
+      // degrades to empty — never a direct fetch). Decision D2:
+      // captures use a generated run id (research has no caller
+      // run id).
+      let universeDeps: NasdaqUniverseDeps | undefined;
+      try {
+        const universeBundle = await nasdaqUniverseRouteBundle({
+          sql: this.ctx.storage.sql,
+          storage: this.ctx.storage,
+          env: this.env,
+          userLogin: userLogin || "default",
+          runId: crypto.randomUUID(),
+        });
+        const universeProvider = nasdaqUniverseProviderFromRoute(
+          universeBundle.registry,
+          universeBundle.configs,
+          universeBundle.routes
+        );
+        universeDeps = bindNasdaqUniverseDeps(universeProvider, universeBundle.runContext);
+      } catch (err) {
+        console.warn(
+          `[research-agent] universe deps unavailable, listings degrade to empty: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
       const provider = new EtradeResearchDataProvider(
         this.env,
         userLogin || "default",
-        historyDeps
+        historyDeps,
+        universeDeps
       );
       const config = this.configService().load();
       const evaluation = await runResearchEvaluation(
