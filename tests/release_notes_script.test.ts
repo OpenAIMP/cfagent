@@ -15,6 +15,8 @@
  *  - an absent section degrades to generated notes instead of failing a deploy
  *    that already shipped;
  *  - GitHub's 125k body limit is respected.
+ *  - changelog.d fragments (issue #1801) append to the curated block above
+ *    the commits, grouped by their `### ` section header.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -23,6 +25,8 @@ import {
   extractSection,
   normalizeVersion,
   parseArgs,
+  readFragmentDir,
+  renderFragments,
 } from "../scripts/ci/release-notes.mjs";
 
 const CHANGELOG = [
@@ -263,5 +267,65 @@ describe("release-notes — CLI arguments", () => {
     expect(() => parseArgs(["--tag"])).toThrow(/missing value/);
     expect(() => parseArgs(["--tag", "v0.1.0", "--notes", "x"])).toThrow(/unknown flag/);
     expect(() => parseArgs(["v0.1.0"])).toThrow(/unexpected argument/);
+  });
+
+  it("parses the fragments directory flag", () => {
+    expect(parseArgs(["--tag", "v0.1.0", "--fragments-dir", "changelog.d"])).toEqual({
+      tag: "v0.1.0",
+      fragmentsDir: "changelog.d",
+    });
+  });
+});
+
+describe("release-notes — changelog.d fragments (issue #1801)", () => {
+  const generated = "## What's Changed\n\n* Fix the thing by @someone in #1\n";
+
+  it("groups fragment bullets by section header in filename order", () => {
+    const body = renderFragments([
+      { name: "2-second.md", content: "### Added\n\n- second\n" },
+      { name: "1-first.md", content: "### Added\n\n- first\n\n### Fixed\n\n- fix\n" },
+    ]);
+    expect(body).toBe("### Added\n\n- first\n- second\n\n### Fixed\n\n- fix");
+  });
+
+  it("throws on a fragment without a section header and drops header-only fragments", () => {
+    expect(() =>
+      renderFragments([{ name: "bad.md", content: "- no header\n" }])
+    ).toThrow(/no '### ' section header/);
+    expect(renderFragments([{ name: "empty.md", content: "### Added\n" }])).toBe("");
+  });
+
+  it("appends fragments after the section body and above the commits", () => {
+    const { body } = buildReleaseNotes({
+      changelog: CHANGELOG,
+      tag: "v0.2.0",
+      generated,
+      repo: "OpenAIMP/cfagent",
+      fragments: [{ name: "9-frag.md", content: "### Added\n\n- **Fragment feature (#9):** new work\n" }],
+    });
+    const versionedAt = body.indexOf("Versioned feature (#2)");
+    const fragmentAt = body.indexOf("Fragment feature (#9)");
+    const commitsAt = body.indexOf("### Commits");
+    expect(versionedAt).toBeGreaterThan(-1);
+    expect(fragmentAt).toBeGreaterThan(versionedAt);
+    expect(commitsAt).toBeGreaterThan(fragmentAt);
+  });
+
+  it("publishes fragments as the curated block when no section exists", () => {
+    const { body, fragmentBody } = buildReleaseNotes({
+      changelog: "# Changelog\n\nNothing yet.\n",
+      tag: "v0.9.9",
+      generated,
+      repo: "OpenAIMP/cfagent",
+      fragments: [{ name: "9-frag.md", content: "### Fixed\n\n- **Fragment fix (#9):** only content\n" }],
+    });
+    expect(fragmentBody).toContain("Fragment fix (#9)");
+    expect(body.indexOf("Fragment fix (#9)")).toBeLessThan(body.indexOf("### Commits"));
+  });
+
+  it("returns an empty fragment body for a missing fragments directory", () => {
+    const { fragments, skipped } = readFragmentDir("/tmp/does-not-exist-cfagent-fragments");
+    expect(fragments).toEqual([]);
+    expect(skipped).toEqual([]);
   });
 });

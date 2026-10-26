@@ -23,16 +23,27 @@
  * can pin the section matching, the ordering, the honest empty case, and the
  * length cap without a network call.
  *
+ * Changelog fragments (issue #1801): a PR adds one file under
+ * `changelog.d/` instead of touching CHANGELOG.md, so rebase merges no
+ * longer collide on the shared file. This script reads that directory
+ * by default when it exists and appends the fragment entries to the
+ * curated body, above the generated commits. The release PR still
+ * moves entries into a versioned section — see
+ * scripts/ci/assemble-changelog.mjs, which folds fragments into the
+ * versioned section and deletes them so the next release cannot
+ * double-count.
+ *
  * CLI:
  *   node scripts/ci/release-notes.mjs --tag v0.1.4
  *        [--changelog CHANGELOG.md] [--generated generated.md]
+ *        [--fragments-dir changelog.d]
  *        [--repo owner/name] [--out notes.md]
  *
  * Exit codes: 0 whenever notes were produced (including "no curated section" —
  * a missing changelog entry must not block a deploy that already happened);
  * 2 on a usage error, so a broken invocation is visible instead of silent.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 /** GitHub rejects release bodies over 125,000 characters; stay well clear. */
@@ -147,17 +158,99 @@ function tidy(body) {
 }
 
 /**
+ * Render changelog.d fragments into one section body, grouped by their
+ * `### <Section>` header (issue #1801).
+ *
+ * Fragments sort by filename so output is deterministic; headers keep
+ * first-seen order and bullets keep fragment order within a header. A
+ * fragment whose first non-empty line is not a `### ` header throws —
+ * the Policy Gate rejects such fragments at PR time, so a throw here
+ * means a fragment bypassed the gate (e.g. a direct push) and must not
+ * silently vanish from the notes.
+ *
+ * @param {{name: string, content: string}[]} fragments
+ * @returns {string} "" when no fragment contributes a bullet.
+ */
+export function renderFragments(fragments) {
+  const groups = new Map();
+  const ordered = [...(fragments ?? [])].sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+  );
+  for (const fragment of ordered) {
+    const lines = String(fragment.content ?? "").replace(/\r\n?/g, "\n").split("\n");
+    let current = null;
+    for (const raw of lines) {
+      const line = raw.replace(/[ \t]+$/, "");
+      if (line.trim() === "") continue;
+      if (line.startsWith("### ")) {
+        current = line.trim();
+        if (!groups.has(current)) groups.set(current, []);
+        continue;
+      }
+      if (!current) {
+        throw new Error(
+          `changelog fragment ${fragment.name} has no '### ' section header`
+        );
+      }
+      groups.get(current).push(line);
+    }
+  }
+  const parts = [];
+  for (const [header, bullets] of groups) {
+    if (bullets.length === 0) continue;
+    parts.push(`${header}\n\n${bullets.join("\n")}`);
+  }
+  return parts.join("\n\n");
+}
+
+/**
+ * Read a fragments directory. A missing directory is the normal
+ * pre-migration state and yields no fragments, not an error. Malformed
+ * fragments are reported in `skipped` so the caller can warn loudly
+ * instead of failing a deploy that already shipped.
+ *
+ * @returns {{fragments: {name: string, content: string}[], skipped: {name: string, reason: string}[]}}
+ */
+export function readFragmentDir(dir) {
+  let names;
+  try {
+    names = readdirSync(dir, "utf-8").filter((name) => name.endsWith(".md")).sort();
+  } catch {
+    return { fragments: [], skipped: [] };
+  }
+  const fragments = [];
+  const skipped = [];
+  for (const name of names) {
+    try {
+      const content = readFileSync(`${dir}/${name}`, "utf-8");
+      renderFragments([{ name, content }]);
+      fragments.push({ name, content });
+    } catch (error) {
+      skipped.push({ name, reason: error.message });
+    }
+  }
+  return { fragments, skipped };
+}
+
+/**
  * Compose the release body: curated entries first (what a user reads), the
  * generated commit list second, and a link to the changelog at the tag last.
  *
- * @returns {{body: string, curated: object|null, hasGenerated: boolean}}
+ * `fragments` (changelog.d entries, issue #1801) append to the curated
+ * block: they are unfolded work describing this deploy, and the fold step
+ * deletes exactly the fragments it folds, so appending them can neither
+ * lose an entry nor double-count one.
+ *
+ * @returns {{body: string, curated: object|null, hasGenerated: boolean, fragmentBody: string}}
  */
-export function buildReleaseNotes({ changelog, tag, generated = "", repo = "" } = {}) {
+export function buildReleaseNotes({ changelog, tag, generated = "", repo = "", fragments = [] } = {}) {
   const curated = extractSection(changelog, tag);
+  const fragmentBody = renderFragments(fragments);
+  const curatedBlock = [curated?.body, fragmentBody].filter((part) => part).join("\n\n");
   const blocks = [];
 
-  if (curated && curated.body) {
-    blocks.push({ text: curated.body });
+  if (curatedBlock) {
+    blocks.push({ text: curatedBlock });
   }
 
   const commits = tidy(String(generated ?? "").replace(/\r\n?/g, "\n"));
@@ -185,12 +278,12 @@ export function buildReleaseNotes({ changelog, tag, generated = "", repo = "" } 
     body = `${body.slice(0, cut > 0 ? cut : MAX_BODY_CHARS).trimEnd()}\n\n_…truncated; see CHANGELOG.md for the full history._`;
   }
 
-  return { body, curated, hasGenerated: commits.length > 0 };
+  return { body, curated, hasGenerated: commits.length > 0, fragmentBody };
 }
 
 /** Parse `--flag value` pairs; unknown flags are a usage error. */
 export function parseArgs(argv) {
-  const known = new Set(["tag", "changelog", "generated", "repo", "out"]);
+  const known = new Set(["tag", "changelog", "generated", "repo", "out", "fragments-dir"]);
   const args = {};
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
@@ -201,7 +294,7 @@ export function parseArgs(argv) {
     if (value === undefined || value.startsWith("--")) {
       throw new Error(`missing value for ${flag}`);
     }
-    args[name] = value;
+    args[name === "fragments-dir" ? "fragmentsDir" : name] = value;
     i += 1;
   }
   if (!args.tag) throw new Error("--tag is required");
@@ -234,21 +327,28 @@ function main(argv) {
   const changelog = readIfPossible(args.changelog ?? "CHANGELOG.md", "changelog");
   const generated = readIfPossible(args.generated, "generated notes");
   const repo = args.repo ?? process.env.GITHUB_REPOSITORY ?? "";
+  const { fragments, skipped } = readFragmentDir(args.fragmentsDir ?? "changelog.d");
+  for (const item of skipped) {
+    process.stderr.write(
+      `::warning title=Changelog fragment skipped::${item.name}: ${item.reason}\n`
+    );
+  }
 
-  const { body, curated, hasGenerated } = buildReleaseNotes({
+  const { body, curated, hasGenerated, fragmentBody } = buildReleaseNotes({
     changelog,
     tag: args.tag,
     generated,
     repo,
+    fragments,
   });
 
-  if (!curated) {
+  if (!curated && !fragmentBody) {
     process.stderr.write(
       `::warning title=Curated changelog missing::no [${normalizeVersion(args.tag)}] or [Unreleased] section found in ${
         args.changelog ?? "CHANGELOG.md"
       }; the release will carry generated notes only\n`
     );
-  } else if (curated.source === "unreleased") {
+  } else if (curated && curated.source === "unreleased") {
     process.stdout.write(
       `release-notes: no versioned section for ${args.tag}; using [Unreleased]\n`
     );
@@ -264,7 +364,7 @@ function main(argv) {
     writeFileSync(args.out, out, "utf-8");
     process.stdout.write(
       `release-notes: wrote ${out.length} characters to ${args.out} (source: ${
-        curated ? curated.source : "generated only"
+        curated ? curated.source : fragmentBody ? "fragments" : "generated only"
       })\n`
     );
   } else {

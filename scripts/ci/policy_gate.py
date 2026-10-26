@@ -5,7 +5,9 @@ Evaluates GitOps compliance:
 (a) Linked issue reference
 (b) Lane label (lane:*)
 (c) Agent hashtag (#<agent>-<id>)
-(d) CHANGELOG entry under ## [Unreleased]
+(d) CHANGELOG entry under ## [Unreleased], or a changelog.d fragment
+    (issue #1801: fragments end the prepend race — a PR adds one file
+    under changelog.d/ and never touches CHANGELOG.md)
 (e) Docs scope guard (docs PR cannot touch src/ or tests/)
 (f) Stale base reversion guard (cannot delete files added to main since branching)
 (g) Test deletion guard (cannot delete tests without allow-test-deletion label)
@@ -75,7 +77,10 @@ def evaluate_policy(
                 "hashtag (see AGENTS.md hashtag rule)"
             )
 
-    # (d) CHANGELOG entry under ## [Unreleased]
+    # (d) CHANGELOG entry under ## [Unreleased], or a changelog.d fragment.
+    # Fragments (issue #1801) end the prepend race: a PR adds one file
+    # under changelog.d/ and never touches CHANGELOG.md, so no two PRs
+    # write the same file. A direct CHANGELOG entry still passes.
     try:
         base_changelog = subprocess.run(
             ["git", "show", f"{base}:CHANGELOG.md"],
@@ -93,9 +98,45 @@ def evaluate_policy(
         added_entry = any(
             line.strip() and line not in base_lines for line in head_lines
         )
+        added_fragment = False
         if not added_entry:
+            added_files = subprocess.run(
+                ["git", "diff", "--name-only", "--diff-filter=A", f"{base}...{head}"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=True,
+            ).stdout.splitlines()
+            for candidate in added_files:
+                if not candidate.startswith("changelog.d/"):
+                    continue
+                try:
+                    fragment_text = subprocess.run(
+                        ["git", "show", f"{head}:{candidate}"],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        check=True,
+                    ).stdout
+                except Exception:
+                    continue
+                first = next(
+                    (line.strip() for line in fragment_text.splitlines() if line.strip()),
+                    "",
+                )
+                non_empty = [line.strip() for line in fragment_text.splitlines() if line.strip()]
+                has_bullet = len(non_empty) > 1
+                if first.startswith("### ") and has_bullet:
+                    added_fragment = True
+                    break
+        if not added_entry and not added_fragment:
             failures.append(
-                "(d) CHANGELOG: PR adds no entry under ## [Unreleased] in CHANGELOG.md"
+                "(d) CHANGELOG: PR adds no entry under ## [Unreleased] in CHANGELOG.md "
+                "and no changelog.d fragment (an added fragment whose first "
+                "non-empty line is a '### ' section header followed by at least "
+                "one entry line)"
             )
     except Exception as e:
         failures.append(f"(d) CHANGELOG verification error: {e}")
@@ -243,7 +284,8 @@ def main() -> int:
 
     print(
         "Policy gate passed: linked issue, lane label, agent hashtag, "
-        "CHANGELOG [Unreleased] entry, docs scope, and non-regression guards verified."
+        "CHANGELOG [Unreleased] entry or changelog.d fragment, docs scope, "
+        "and non-regression guards verified."
     )
     return 0
 

@@ -106,6 +106,32 @@ describe("Policy Gate Guards (#1684)", () => {
     fs.writeFileSync(path.join(tempRepoDir, "src", "feature.ts"), "export const feat = 1;\n");
     runGit(tempRepoDir, ["add", "-A"]);
     runGit(tempRepoDir, ["commit", "-m", "feat: valid feature"]);
+
+    // Branch 5: fragment-only PR (issue #1801) — no CHANGELOG change.
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["checkout", "-b", "branch-fragment"]);
+    fs.mkdirSync(path.join(tempRepoDir, "changelog.d"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempRepoDir, "changelog.d", "1684-feature.md"),
+      "### Added\n\n- **Fragment feature (#1684):** changelog.d entry\n"
+    );
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "feat: fragment-only change"]);
+
+    // Branch 6: header-only fragment — passes no gate: no entry line.
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["checkout", "-b", "branch-fragment-empty"]);
+    fs.mkdirSync(path.join(tempRepoDir, "changelog.d"), { recursive: true });
+    fs.writeFileSync(path.join(tempRepoDir, "changelog.d", "1684-empty.md"), "### Added\n");
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "feat: header-only fragment"]);
+
+    // Branch 7: neither a CHANGELOG entry nor a fragment.
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["checkout", "-b", "branch-no-changelog"]);
+    fs.writeFileSync(path.join(tempRepoDir, "src", "nochange.ts"), "export const n = 1;\n");
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "feat: no changelog at all"]);
   });
 
   afterAll(() => {
@@ -200,6 +226,7 @@ describe("Policy Gate Guards (#1684)", () => {
   });
 
   it("validates that a compliant PR format passes all policy gate checks", () => {
+    runGit(tempRepoDir, ["checkout", "branch-compliant"]);
     const res = runPolicyGate(
       {
         PR_TITLE: "feat: add awesome feature (#1684) #CTO-mbshr",
@@ -210,5 +237,47 @@ describe("Policy Gate Guards (#1684)", () => {
     );
     expect(res.status).toBe(0);
     expect(res.stdout).toContain("Policy gate passed");
+  });
+
+  it("passes Policy Gate (d) with only a changelog.d fragment (issue #1801)", () => {
+    runGit(tempRepoDir, ["checkout", "branch-fragment"]);
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "feat: fragment-only change (#1684) #CTO-mbshr",
+        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr",
+        PR_LABELS: "lane:cto-mbshr",
+      },
+      ["--base", "main", "--head", "branch-fragment"]
+    );
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Policy gate passed");
+  });
+
+  it("rejects a header-only changelog.d fragment with no entry line", () => {
+    runGit(tempRepoDir, ["checkout", "branch-fragment-empty"]);
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "feat: header-only fragment (#1684) #CTO-mbshr",
+        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr",
+        PR_LABELS: "lane:cto-mbshr",
+      },
+      ["--base", "main", "--head", "branch-fragment-empty"]
+    );
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("(d) CHANGELOG");
+  });
+
+  it("rejects a PR with neither a CHANGELOG entry nor a fragment", () => {
+    runGit(tempRepoDir, ["checkout", "branch-no-changelog"]);
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "feat: no changelog at all (#1684) #CTO-mbshr",
+        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr",
+        PR_LABELS: "lane:cto-mbshr",
+      },
+      ["--base", "main", "--head", "branch-no-changelog"]
+    );
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("(d) CHANGELOG");
   });
 });
