@@ -10,7 +10,7 @@
 import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote } from "../types";
 import type { IMarketScreener } from "./interfaces";
 import { type NasdaqStockListing } from "../services/nasdaqListings";
-import { acquireUniverse } from "./screenerPipeline";
+import { acquireUniverse, type NasdaqUniverseSeam } from "./screenerPipeline";
 
 import {
   CURATED_STOCK_UNIVERSE,
@@ -629,7 +629,10 @@ export class DynamicMarketScreener implements IMarketScreener {
     return this.evaluateUniverse(this.getUniverse(), filter);
   }
 
-  async screenLive(filter: StockScreenerFilter = {}): Promise<StockScreenResult> {
+  async screenLive(
+    filter: StockScreenerFilter = {},
+    seam?: NasdaqUniverseSeam
+  ): Promise<StockScreenResult> {
     // Unsupported-filter guard (manual-path-specific: the listing feed
     // cannot provide technical data). Behavior preserved.
     const unsupported: string[] = [];
@@ -654,9 +657,14 @@ export class DynamicMarketScreener implements IMarketScreener {
     if (filter.maxPeRatio !== undefined) unsupported.push("P/E");
 
     // Issue #259: universe acquisition via the shared pipeline.
+    // Issue #1378: the universe seam is threaded, never defaulted
+    // — without one, acquireUniverse returns the error-result
+    // shape naming the missing seam (decision D1).
     const acquired = await acquireUniverse({
       mode: "all-listings",
       exchange: filter.exchange,
+      universeDeps: seam?.universeDeps,
+      universeRoute: seam?.universeRoute,
     });
 
     // Narrow the pipeline's discovery to this trigger's literal type.
