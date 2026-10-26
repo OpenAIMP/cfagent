@@ -691,6 +691,9 @@ export async function handleSchedulesRoutes(
         const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD"
           ? rawEnvironment
           : context?.environment;
+        // Issue #1661: platformDeps threads the DO storage handle so
+        // trigger-discovery listings fetch live + capture (behavior change
+        // from the missing-seam throw — disclosed, Q3).
         const service = new ScheduledTasksService(
           ctx.env,
           ctx.getOrm(),
@@ -700,7 +703,7 @@ export async function handleSchedulesRoutes(
           new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
           new SqlStrategyProfileStore(ctx.agentCtx.storage.sql),
           ctx.scheduleScreenerFollowups,
-          undefined,
+          { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env },
           undefined,
           new SqlFeedSnapshotStore(ctx.agentCtx.storage.sql)
         );
