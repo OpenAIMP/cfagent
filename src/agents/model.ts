@@ -1,4 +1,5 @@
 import { createWorkersAI } from "workers-ai-provider";
+import { getGatewayOptions } from "../gateway/gatewayConfig";
 import type { Env } from "../types";
 import { getAiConfig, getAvailableAiModels, type AiModelDefinition, type AiConfig } from "../config/etapiConfig";
 
@@ -36,7 +37,11 @@ export function resolveAiModelName(env?: Partial<Env>, taskOrCustomModel?: strin
 
 export function getWorkersAIModel(env: Env, taskOrCustomModel?: string) {
   const modelName = resolveAiModelName(env, taskOrCustomModel);
-  return createWorkersAI({ binding: env.AI })(modelName);
+  // #1741 Layer 1: when AI_GATEWAY_ID is configured, every model
+  // built here routes through AI Gateway; unconfigured behavior
+  // is byte-identical to the direct path (no gateway options).
+  const gateway = getGatewayOptions(env);
+  return createWorkersAI({ binding: env.AI, ...(gateway ? { gateway } : {}) })(modelName);
 }
 
 /**

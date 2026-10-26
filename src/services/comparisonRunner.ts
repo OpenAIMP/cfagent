@@ -35,8 +35,8 @@
  * would produce a different candidate set than the ranked order
  * refers to), carried by FixedCandidateBuilder.
  */
-import { generateText } from "ai";
-import { getWorkersAIModel, resolveAiModelName } from "../agents/model";
+import { requireGatewayPorts } from "../gateway/createGatewayPorts";
+import { resolveAiModelName } from "../agents/model";
 import {
   extractAndRepairJson,
   rankCandidatesWithLlm,
@@ -147,11 +147,14 @@ export async function generateLlmIdeaDetails(
   question: string,
 ): Promise<LlmGeneratorResponse & { citedCount: number; droppedCount: number; model: string }> {
   const model = resolveAiModelName(env);
-  const { text } = await generateText({
-    model: getWorkersAIModel(env),
+  // #1741: idea generation routes through the gateway port.
+  const gateway = requireGatewayPorts(env);
+  const { text } = await gateway.generate({
+    models: [model],
     temperature: 0,
     system: RAW_OPTIONS_IDEAS_SYSTEM_PROMPT,
     prompt: buildComparisonPrompt(question, snapshot),
+    caller: "comparison-ideas",
   });
   const mapped = mapGeneratedDetailsToResponse(extractAndRepairJson(text), snapshot);
   return { ...mapped.response, citedCount: mapped.citedCount, droppedCount: mapped.droppedCount, model };

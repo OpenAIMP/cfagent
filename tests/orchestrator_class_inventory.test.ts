@@ -119,9 +119,15 @@ const ORCH = "agents/orchestrator.ts";
  *  for the memory-reset route, turnEpoch) + comment updates —
  *  measured on the pre-rebase tree 2,315 lines / 106,258 B; the
  *  combined tree with #1724/#1725 measures 2,401 lines /
- *  109,911 B, so budget lines rise to 2410 and bytes to 110_500. */
-const BUDGET_LINES = 2410;
-const BUDGET_BYTES = 110_500;
+ *  109,911 B, so budget lines rise to 2410 and bytes to 110_500.
+ *  AI Gateway (#1741) wires the actor turn through the gateway
+ *  port (two imports + gateway/modelTurn selection in
+ *  createActorTurnRunner; the turn execution itself lives in
+ *  src/gateway/, the class gains no logic) — measured 2,411
+ *  lines / 110,562 B on the rebased tree, so budget lines rise
+ *  to 2420 and bytes to 111_200. */
+const BUDGET_LINES = 2420;
+const BUDGET_BYTES = 111_200;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

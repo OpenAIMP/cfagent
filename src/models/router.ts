@@ -57,6 +57,16 @@ export function isRetryable(err: unknown): boolean {
  * Run fn with model fallback. Starts at the chain's cheap tier,
  * advances on retryable errors. Non-retryable errors throw immediately.
  */
+/**
+ * #1741: the ordered failover list for a task chain (cheap ->
+ * primary -> fallback). The gateway port consumes this list so
+ * the chain order stays defined here, once, not per call site.
+ */
+export function chainModels(task: TaskKind): string[] {
+  const chain = MODEL_CHAINS[task];
+  return [chain.cheap, chain.primary, chain.fallback];
+}
+
 export async function runWithRouting<T>(
   task: TaskKind,
   fn: (model: string) => Promise<T>

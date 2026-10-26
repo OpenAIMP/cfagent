@@ -26,9 +26,8 @@ import { getServiceUserLogin } from "../security/serviceIdentity";
 import { ETradeSlackTradingService } from "../trading";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
-import { runWithRouting } from "../models/router";
-import { getWorkersAIModel } from "../agents/model";
-import { generateText } from "ai";
+import { requireGatewayPorts } from "../gateway/createGatewayPorts";
+import { chainModels } from "../models/router";
 import type { ScreenerAgent } from "../agents/screener-agent";
 import type { Env } from "../types";
 import type { DatabaseORM } from "../orm";
@@ -239,13 +238,11 @@ export async function generateScreenerDigest(
     `Lead with the count and the top names. Be specific, no hype.\n\n` +
     `Universe: ${event.universe || "TECH"}\n${summary}`;
   try {
-    const { result } = await runWithRouting("summarize", async (modelName) => {
-      const { text } = await generateText({
-        model: getWorkersAIModel(env, modelName),
-        prompt,
-      });
-      return text.trim();
-    });
+    // #1741: summarize-chain failover now lives in the gateway port.
+    const gateway = requireGatewayPorts(env);
+    const result = (
+      await gateway.generate({ models: chainModels("summarize"), prompt, caller: "screener-digest" })
+    ).text.trim();
     return result || null;
   } catch {
     return null;
