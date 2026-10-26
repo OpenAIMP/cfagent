@@ -25,6 +25,7 @@ PR.
 | [0006](0006-cloudflare-feature-flags.md) | Cloudflare feature flags: port-first architecture with Flagship adapter and fail-closed fallbacks | Accepted |
 | [0007](0007-hybrid-rag.md) | Hybrid RAG: Vectorize embeddings + D1 market adjacency graphs | Accepted |
 | [0008](0008-market-data-circuit-breakers.md) | Market data circuit breakers: port-first breaker Decorator over provider calls | Accepted |
+| [0009](0009-telemetry-calibration.md) | RSI telemetry & calibration engine in D1: falsification-gated, governed prompt notes | Accepted |
 
 ## Template
 

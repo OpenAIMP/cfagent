@@ -215,6 +215,77 @@ export const agentMarketEdges = sqliteTable(
 );
 
 /**
+ * Issue #1742: agent_thesis_realizations projection table.
+ * Grain: one row per (tenant, outcome). Booleans are INTEGER
+ * 0/1 (portable subset); the adapter converts at the boundary.
+ * Column names match migration 0006 exactly; the test pins the
+ * two together.
+ */
+export const agentThesisRealizations = sqliteTable(
+  "agent_thesis_realizations",
+  {
+    tenantId: text("tenant_id").notNull(),
+    outcomeId: text("outcome_id").notNull(),
+    thesis: text("thesis").notNull(),
+    agentKey: text("agent_key").notNull(),
+    structure: text("structure").notNull(),
+    regime: text("regime").notNull(),
+    symbol: text("symbol").notNull(),
+    runId: text("run_id").notNull(),
+    reportId: text("report_id"),
+    chainId: text("chain_id"),
+    predictedDirection: text("predicted_direction").notNull(),
+    realizedDirection: text("realized_direction").notNull(),
+    directionCorrect: integer("direction_correct").notNull(),
+    falsified: integer("falsified").notNull(),
+    invalidated: integer("invalidated").notNull(),
+    pnlEstimatePerUnit: real("pnl_estimate_per_unit"),
+    rMultiple: real("r_multiple"),
+    evaluatedAtMs: integer("evaluated_at_ms").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.tenantId, table.outcomeId],
+    }),
+  ],
+);
+
+/**
+ * Issue #1742: agent_calibration_decisions table. Grain: one
+ * row per decision id, updated in place through the governed
+ * lifecycle (proposed → approved/rejected → applied →
+ * superseded/expired). The row IS the audit trail: frozen
+ * snapshot JSON + proposer/decider/applier actors + prior
+ * note. Column names match migration 0006 exactly; the test
+ * pins the two together.
+ */
+export const agentCalibrationDecisions = sqliteTable("agent_calibration_decisions", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  actorKey: text("actor_key").notNull(),
+  promptKey: text("prompt_key").notNull(),
+  dimension: text("dimension").notNull(),
+  sliceKey: text("slice_key").notNull(),
+  snapshotJson: text("snapshot_json").notNull(),
+  falsifyingOutcomeIdsJson: text("falsifying_outcome_ids_json").notNull(),
+  calibrationNote: text("calibration_note").notNull(),
+  proposedBy: text("proposed_by").notNull(),
+  proposedAtMs: integer("proposed_at_ms").notNull(),
+  status: text("status").notNull(),
+  decidedBy: text("decided_by"),
+  decidedAtMs: integer("decided_at_ms"),
+  appliedBy: text("applied_by"),
+  appliedAtMs: integer("applied_at_ms"),
+  priorNote: text("prior_note"),
+  supersededBy: text("superseded_by"),
+  expiredBy: text("expired_by"),
+  expiredAtMs: integer("expired_at_ms"),
+  createdAtMs: integer("created_at_ms").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+/**
  * Runner bookkeeping, owned by the migration runner — not a
  * domain table, and not part of any migration file's DDL.
  */
