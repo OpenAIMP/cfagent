@@ -970,7 +970,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         ctx.env,
         typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey(),
         getUserDid(ctx.sessionKey()),
-        { scanRunStore: new SqlScanRunStore(ctx.agentCtx.storage.sql), profileStore: new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), schedulingPort: ctx.nlqSchedulingPort(), stockScreenPort: ctx.nlqStockScreenPort(), discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin: typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey(), orm: ctx.getOrm(), sql: ctx.agentCtx.storage.sql }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin: typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey(), sql: ctx.agentCtx.storage.sql }) },
+        { scanRunStore: new SqlScanRunStore(ctx.agentCtx.storage.sql), profileStore: new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), schedulingPort: ctx.nlqSchedulingPort(), stockScreenPort: ctx.nlqStockScreenPort(), discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin: typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey(), orm: ctx.getOrm(), sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin: typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey(), sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }) },
       );
     } else {
       throw new Error(`Unsupported async capability: ${job.capability}`);
