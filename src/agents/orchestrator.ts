@@ -1,5 +1,13 @@
-import { Think, type ChatResponseResult, type TurnConfig, type TurnContext } from "@cloudflare/think";
-import type { AgentContext, Schedule } from "agents";
+import { Agent, type AgentContext, type Schedule } from "agents";
+import type {
+  ChatResponseResult,
+  TurnConfig,
+  TurnContext,
+  UiChatMessage,
+} from "../actors/actorPorts";
+import { createCfActorSession } from "../actors/cfAgentsAdapter";
+import { AgentChatTurnRunner, generateTextModelTurn } from "../actors/actorTurnRunner";
+import type { ActorSessionPort, ActorTurnPort } from "../actors/actorPorts";
 import type { ToolSet } from "ai";
 import { getWorkersAIModel } from "./model";
 import { resolveScreenerAgentName } from "./screenerAgentName";
@@ -125,9 +133,11 @@ import type {
 
 /**
  * Issue #686: message normalization for the model call now lives
- * in Think's session assembly (the agents-SDK session store); the
- * AIChatAgent-era normalizeMessagesForSDK helper was removed with
- * the cutover.
+ * in the actor turn runner (toModelMessages, text-only mapping);
+ * the AIChatAgent-era normalizeMessagesForSDK helper was removed
+ * with the cutover. Issue #1738: Think's session assembly is gone;
+ * the runner performs the same normalization over the actor's own
+ * transcript store.
  */
 
 /**
@@ -176,7 +186,7 @@ export const STRATEGY_SCAN_CRON = "35 * * * *";
 /** Issue #624: research task heartbeat interval while a run is in flight (2 minutes). */
 const RESEARCH_TASK_HEARTBEAT_MS = 120_000;
 
-export class OrchestratorAgent extends Think<Env> {
+export class OrchestratorAgent extends Agent<Env> {
   constructor(ctx: AgentContext, env: Env) {
     super(ctx, env);
     // Issue #686 (R8): the sanitized step clamp is the production
@@ -200,6 +210,111 @@ export class OrchestratorAgent extends Think<Env> {
    */
   scopedHttpDeliveryModes?: HttpDeliveryScopedModes;
   scopedJobListModes?: JobListScopedModes;
+
+  /** Step bound for chat turns (sanitized clamp; see resolveShadowMaxSteps). */
+  maxSteps: number;
+
+  // ---------------------------------------------------------------------
+  // Issue #1738 (AgentActorDO): the actor session + turn runner.
+  // Think's session store and runTurn are replaced by the port's own
+  // implementations over this DO's storage; the hooks they drive
+  // (beforeTurn/onChatResponse/onChatError) are this class's own
+  // methods, unchanged. Lazily built (Object.create test instances
+  // run without a constructor) and memoized per instance.
+  // ---------------------------------------------------------------------
+  private actorSession?: ActorSessionPort;
+
+  private getActorSession(): ActorSessionPort {
+    return (this.actorSession ??= createCfActorSession({
+      get: (key) => this.ctx.storage.get(key) as Promise<unknown>,
+      put: (key, value) => this.ctx.storage.put(key, value),
+      delete: async (key) => {
+        await this.ctx.storage.delete(key);
+      },
+    }));
+  }
+
+  /**
+   * Issue #1738: reset epoch for in-flight turns. abortAllRequests
+   * bumps it; the turn runner checks it before appending the
+   * assistant message and firing onChatResponse, so a memory reset
+   * cannot land a stale turn's side effects after the clear.
+   */
+  private turnEpoch = 0;
+
+  private createActorTurnRunner(): ActorTurnPort {
+    const epoch = this.turnEpoch;
+    return new AgentChatTurnRunner({
+      hooks: {
+        getModel: () => this.getModel(),
+        getSystemPrompt: () => this.getSystemPrompt(),
+        getTools: () => this.getTools(),
+        beforeTurn: (ctx) => this.beforeTurn(ctx),
+        onChatResponse: (result) => this.onChatResponse(result),
+        onChatError: (error) => this.onChatError(error),
+        maxSteps: this.maxSteps,
+      },
+      session: this.getActorSession(),
+      modelTurn: generateTextModelTurn,
+      isAborted: () => this.turnEpoch !== epoch,
+    });
+  }
+
+  /** Actor session transcript (replaces Think's session store). */
+  private getMessages(): Promise<UiChatMessage[]> {
+    return this.getActorSession().getMessages();
+  }
+
+  /** Upsert-by-id transcript append (Think saveMessages semantics). */
+  private addMessages(messages: UiChatMessage[]): Promise<void> {
+    return this.getActorSession().appendMessages(messages);
+  }
+
+  /** Agent-native chat turn (replaces Think's runTurn). */
+  private runTurn(input: Parameters<ActorTurnPort["runTurn"]>[0]): Promise<ChatResponseResult> {
+    return this.createActorTurnRunner().runTurn(input);
+  }
+
+  /**
+   * Issue #1738: Agent-native abort for the memory-reset route.
+   * Bumps the turn epoch; in-flight turns check it before landing
+   * side effects (see createActorTurnRunner). The route calls
+   * resetTurnState + clearConversationMessages separately, so each
+   * method keeps its own scope.
+   */
+  private abortAllRequests(_reason?: unknown): void {
+    this.turnEpoch++;
+  }
+
+  /** Reset the in-flight turn stash. */
+  private resetTurnState(): void {
+    this.pendingTurn = undefined;
+  }
+
+  /**
+   * Clear the actor transcript (Think clearMessages scope:
+   * transcript only — mas_messages audit rows are untouched).
+   */
+  private clearMessages(): Promise<void> {
+    return this.getActorSession().clear();
+  }
+
+  /**
+   * Issue #1738: Agent-native replacement for Think's
+   * waitUntilStable. Polls the in-flight turn stash — the only
+   * in-flight work this class tracks — until it clears or the
+   * timeout elapses. Best-effort: the single caller already
+   * catches and continues on timeout.
+   */
+  private async waitUntilStable(options?: { timeout?: number }): Promise<boolean> {
+    const timeout = options?.timeout ?? 30_000;
+    const deadline = Date.now() + timeout;
+    while (this.pendingTurn !== undefined) {
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return true;
+  }
 
   // ---------------------------------------------------------------------
   // Issue #992: context builders for the modules extracted under
@@ -319,7 +434,11 @@ export class OrchestratorAgent extends Think<Env> {
       getAsyncJob: (jobId) => this.getAsyncJob(jobId),
       listAsyncJobs: (limit) => this.listAsyncJobs(limit),
       getMessages: () => this.getMessages(),
-      activeTurnMetadata: this.activeTurnMetadata,
+      // Issue #1738: Think's active-turn metadata went away with
+      // the base change. deriveTurn falls back to the last user
+      // message's metadata, which carries sourceTab/userLogin for
+      // turns the HTTP driver builds (pendingTurn).
+      activeTurnMetadata: undefined,
     };
   }
 
@@ -1376,10 +1495,11 @@ export class OrchestratorAgent extends Think<Env> {
   /**
    * Issue #686 (Think migration step 4 — CUTOVER): the turn stash.
    * runAgenticChatTurn (the HTTP driver) fills it before driving
-   * runTurn; beforeTurn creates it for turns Think itself drives
-   * (WebSocket chat, saveMessages admissions). onChatResponse
-   * consumes it. One in-flight chat turn per DO instance is the live
-   * semantic — the AIChatAgent base serialized turns the same way.
+   * runTurn; beforeTurn creates it when a turn arrives without one.
+   * onChatResponse consumes it. One in-flight chat turn per DO
+   * instance is the live semantic — the AIChatAgent base serialized
+   * turns the same way. Issue #1738: the stash is in-memory only;
+   * there is no durable turn sealing on eviction (see ADR 0005).
    */
   private pendingTurn?: {
     userText: string;
@@ -1394,13 +1514,13 @@ export class OrchestratorAgent extends Think<Env> {
     requestId: string;
   };
 
-  /** Think configuration: the constructed model arm (step-2 decision). */
+  /** Actor configuration: the constructed model arm (step-2 decision). */
   getModel() {
     return getWorkersAIModel(this.env);
   }
 
   /**
-   * Think configuration: the fallback system prompt for turns that
+   * Actor configuration: the fallback system prompt for turns that
    * reach inference without beforeTurn instructions — the shared
    * builder with a neutral route, mirroring the live prompt's shape.
    */
@@ -1414,7 +1534,7 @@ export class OrchestratorAgent extends Think<Env> {
     });
   }
 
-  /** Think configuration: the live per-turn tool factory (#312 single owner). */
+  /** Actor configuration: the live per-turn tool factory (#312 single owner). */
   getTools(): ToolSet {
     return this.createTurnTools(crypto.randomUUID());
   }
@@ -1425,9 +1545,12 @@ export class OrchestratorAgent extends Think<Env> {
   }
 
   /**
-   * Think configuration: the session-memory context block (top-8
-   * mas_memory facts), refreshed by Think before every turn — the
-   * configureContext form of the grounding the live prompt inlined.
+   * Actor configuration: the session-memory context block (top-8
+   * mas_memory facts). Under Think it was merged into every turn;
+   * under the actor turn runner (#1738) nothing merges it — the
+   * live prompt already inlines the identical content via
+   * assembleGrounding, so the method stays as the block's resolver
+   * (pinned by the actor-cutover suite) rather than a live hook.
    */
   configureContext() {
     return [
@@ -1465,7 +1588,7 @@ export class OrchestratorAgent extends Think<Env> {
   }
 
   /**
-   * Issue #686: Think lifecycle — runs before every chat turn,
+   * Issue #686: actor turn lifecycle — runs before every chat turn,
    * whatever entry point drove it. Carries the duties the
    * AIChatAgent-era onChatMessage + runAgenticChatTurn split between
    * them: Judge routing (+ route.decided audit), the session-hygiene
@@ -1499,7 +1622,7 @@ export class OrchestratorAgent extends Think<Env> {
           return !hasText && !hasTool;
         })
         .map((m: any) => m.id as string);
-      if (staleIds.length > 0) await this.session.deleteMessages(staleIds);
+      if (staleIds.length > 0) await this.getActorSession().deleteMessages(staleIds);
     } catch {
       // Best-effort hygiene; never break the turn.
     }
@@ -1573,7 +1696,7 @@ export class OrchestratorAgent extends Think<Env> {
   }
 
   /**
-   * Issue #686: Think lifecycle — fires after a chat turn completes
+   * Issue #686: actor turn lifecycle — fires after a chat turn completes
    * (any entry point) once the assistant message is persisted.
    * Applies the live streamText onFinish side-effects: the assistant
    * mas_messages record (route.agent attribution), judge.evaluate →
@@ -1614,7 +1737,7 @@ export class OrchestratorAgent extends Think<Env> {
   }
 
   /**
-   * Issue #686: Think lifecycle — a chat turn that fails terminally
+   * Issue #686: actor turn lifecycle — a chat turn that fails terminally
    * surfaces the aspect format the AIChatAgent-era UI stream's
    * onError produced ([code] title: message + remediation steps),
    * after logging the same aspect event that handler recorded.
@@ -1635,11 +1758,12 @@ export class OrchestratorAgent extends Think<Env> {
   /**
    * Issue #312: the single-owner agentic chat turn. Judge routing, sub-agent
    * tools, memory/vector grounding, and the model call live here and only here.
-   * The WebSocket chat streams the result (Think's native chat, driven by the
-   * same beforeTurn/onChatResponse lifecycle); POST /api/chat awaits the final
-   * text via this driver. Never duplicate this pipeline.
-   * Issue #686: the driver runs the turn through Think (runTurn, wait
-   * mode) and returns the adapter shape the routes expect, {result,
+   * POST /api/chat awaits the final text via this driver. Never duplicate
+   * this pipeline. Issue #1738: Think's native WebSocket chat transport
+   * went away with the base change (no in-repo client used it); the HTTP
+   * driver is the supported chat entry.
+   * Issue #686: the driver runs the turn through the actor turn runner
+   * and returns the adapter shape the routes expect, {result,
    * route}. The user message enters the session through the factory
    * input (delta-by-id), so an HTTP re-send of the history tail does
    * not duplicate it.
@@ -1662,19 +1786,18 @@ export class OrchestratorAgent extends Think<Env> {
       const tailUser = [...existing].reverse().find((m: any) => m?.role === "user");
       const isResend = !!tailUser && this.extractMessageText(tailUser) === opts.userText;
       if (isResend) turn.suppressUserRecord = true;
-      const result = await this.runTurn({
-        input: (current: any[]) =>
-          isResend
-            ? current
-            : [
-                ...current,
-                {
-                  id: crypto.randomUUID(),
-                  role: "user",
-                  parts: [{ type: "text", text: opts.userText }],
-                } as any,
-              ],
-      });
+      const result = await this.runTurn((current: any[]) =>
+        isResend
+          ? current
+          : [
+              ...current,
+              {
+                id: crypto.randomUUID(),
+                role: "user",
+                parts: [{ type: "text", text: opts.userText }],
+              } as any,
+            ]
+      );
       const text = result?.message ? this.extractMessageText(result.message) : "";
       const route = turn.route ?? {
         agent: "search",
