@@ -121,7 +121,7 @@ const PINNED_NAMED_REEXPORTS = ["MAX_SCAN_SYMBOLS from ./options/opportunityScan
 const CONSTRUCTION_LEDGER: Record<string, number> = {
   "agents/nlq/execution.ts": 2,
   "agents/orchestrator/asyncJobs.ts": 2,
-  "agents/routes/etradeBroker.ts": 20,
+  "agents/routes/etradeBroker.ts": 21,
   "agents/routes/etradeOptions.ts": 6,
   "agents/routes/watchlists.ts": 5,
   "agents/screener-agent.ts": 2,
@@ -167,6 +167,8 @@ describe("trading extraction ledger (issue #291 T0)", () => {
     // 50 → 51 in #1236: the feed.snapshot executor dispatch
     // constructs its ETradeService for the feed job, like the shard
     // executor dispatch it mirrors.
-    expect(total).toBe(51);
+    // 51 → 52 in #1726: the /etrade/screen listings branch constructs
+    // its ETradeService like every sibling broker route.
+    expect(total).toBe(52);
   });
 });

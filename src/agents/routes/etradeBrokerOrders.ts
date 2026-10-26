@@ -19,6 +19,43 @@ import type { EtradeBrokerRouteContext } from "./etradeBroker";
 import type { ETradeService } from "../../services/etrade";
 import type { PolicyVerdict } from "../../services/riskPolicyEngine";
 
+/**
+ * #1726: the execute route's rejection tail, moved here from the
+ * dispatcher (the #995 family home for execute completion tails).
+ * Cancels the expiry timer, marks the draft rejected, and returns
+ * the cancellation response. Rejecting moves no funds, so it runs
+ * after the gate but before the immutability checks, exactly as the
+ * dispatcher did.
+ */
+export async function completeEtradeOrderRejection(args: {
+  ctx: EtradeBrokerRouteContext;
+  orderId: string;
+  userDid: string;
+  existingRecord: any;
+}): Promise<Response> {
+  const { ctx, orderId, userDid, existingRecord } = args;
+  if (existingRecord.expirationScheduleId) {
+    try {
+      await ctx.cancelSchedule(existingRecord.expirationScheduleId);
+    } catch {
+      // Ignore cancel error if already triggered
+    }
+  }
+  if (ctx.getOrm().trades) {
+    ctx.getOrm().trades.update(orderId, {
+      status: "rejected",
+      authorizerDid: userDid,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  return Response.json({
+    success: true,
+    orderId,
+    status: "rejected",
+    message: `Order draft '${orderId}' cancelled by user. No broker order submitted.`,
+  });
+}
+
 export async function completeEtradeOrderPreview(args: {
   ctx: EtradeBrokerRouteContext;
   sessionId: string;
