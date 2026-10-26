@@ -207,11 +207,23 @@ describe("#1726 divergent pairs behind switches (MCP surface)", () => {
   it("quote rest mode honors a TEST/PROD environment override (PROD takes the live path, which refuses without live creds)", async () => {
     const cmd = McpToolFactory.getTool("etrade_get_quote");
     // Sandbox (no env override) returns a quote; PROD flips isLive on,
-    // and LIVE_STRICT refuses without live credentials — the refusal
+    // and the live path refuses without live credentials — the refusal
     // itself proves the override was honored (the sandbox path would
     // have returned a quote, as the mcp-mode test above does).
+    // #1726 fix: which pre-existing refusal string is reached depends on
+    // environment credentials, NOT on the code under test. CI's test-shard
+    // job injects ET_API_KEY/ET_API_SECRET into the test process env
+    // (ci.yml), and resolveEnvironmentConfig (src/config/environment.ts)
+    // falls back to process.env, so in CI fetchQuoteDetailed
+    // (src/trading/etrade/client.ts:183-203) passes its consumer-credentials
+    // check and reaches the token check ("OAuth access token is missing");
+    // without consumer credentials it stops at the credentials check
+    // ("not configured for live quote"). Both are pre-existing REST
+    // contract strings, untouched by this slice, and both mean "refused
+    // without live creds" with no quote returned — so the test accepts
+    // either. Intent unchanged: a refusal, not a quote.
     const err = await cmd.execute({ symbol: "AAPL", mode: "rest", environment: "PROD" }, ctx.mcpContext).catch((e: any) => e);
-    expect(err.message).toMatch(/not configured for live quote/);
+    expect(err.message).toMatch(/not configured for live quote|OAuth access token is missing/);
   });
 
   it("an invalid switch value fails closed to the legacy path and audits etrade.config_error", async () => {
@@ -240,13 +252,25 @@ describe("#1726 divergent pairs behind switches (MCP surface)", () => {
   });
 
   it("discovery rest mode in sandbox surfaces the credential failure as 502 (REST parity: empty + upstream error)", async () => {
-    // No broker credentials in this env: the client returns [] with a
+    // No broker session in this env: the client returns [] with a
     // recorded error, so the REST shape is a 502 naming the cause —
     // exactly what GET /etrade/accounts returns for the same state.
+    // #1726 fix: which pre-existing credential-refusal string is reached
+    // depends on environment credentials, as in the quote test above.
+    // Without consumer credentials, fetchAccounts
+    // (src/trading/etrade/client.ts:1406-1407) stops at "not configured
+    // for account"; with CI-injected ET_API_KEY/ET_API_SECRET it passes
+    // that check and generateOAuthHeader (client.ts:131) records the
+    // pre-existing "OAuth Token Missing: No active session" message,
+    // which the discovery command surfaces as the 502 (see
+    // src/mcp/etradeCommands.ts, etrade_account_discovery). Both are
+    // pre-existing contract strings, untouched by this slice. The 502
+    // assertion above is unchanged — intent unchanged: credential
+    // failure surfaced as 502.
     const cmd = McpToolFactory.getTool("etrade_account_discovery");
     const err = await cmd.execute({ mode: "rest" }, ctx.mcpContext).catch((e: any) => e);
     expect(err.status).toBe(502);
-    expect(err.message).toMatch(/not configured for account/);
+    expect(err.message).toMatch(/not configured for account|OAuth Token Missing/);
   });
 
   it("discovery rest mode returns {count, accounts} without asOf when accounts exist", async () => {
