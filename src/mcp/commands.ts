@@ -13,7 +13,23 @@
 
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
-import type { SupportedGateway } from "../services/payments";
+import {
+  isSupportedGateway,
+  SUPPORTED_GATEWAYS,
+  type SupportedGateway,
+} from "../services/payments";
+import {
+  AGENTIC_WALLET_MODE_SWITCH,
+  paymentsConfigErrorEvent,
+  PAYMENTS_CONFIRM_MODE_SWITCH,
+  PAYMENTS_CREATE_MODE_SWITCH,
+  PAYMENTS_TRANSACTIONS_MODE_SWITCH,
+  PREMIUM_RESEARCH_MODE_SWITCH,
+  PREMIUM_SCREENER_MODE_SWITCH,
+  resolvePaymentsSwitchByKey,
+  type PaymentsModeValues,
+  type PaymentsSurfaceMode,
+} from "../config/agenticPaymentsModes";
 import { AGENT_DIDS, createDidAttestation, getUserDid } from "../agents/did";
 import { executeNaturalLanguageQuery } from "../agents/nlq";
 import { registerDraftOwner } from "../payments/draftOwners";
@@ -142,6 +158,51 @@ function resolveCommandMode(
   }
   return resolved.mode;
 }
+
+/**
+ * #1728: resolves one agentic-payments switch for an MCP execution in
+ * run > session > user > env > builtin order. Run = the per-call
+ * `mode` input; session/user = context.scopedPaymentsModes carriers;
+ * env = context.env. `legacy` is the calling tool's own legacy
+ * contract ("mcp" for every MCP command here). An invalid winning
+ * value fails closed to `legacy` and is logged + audited as
+ * payment.config_error.
+ */
+function resolvePaymentsCommandMode(
+  context: McpToolContext,
+  key: keyof PaymentsModeValues,
+  run: unknown,
+  legacy: PaymentsSurfaceMode
+): PaymentsSurfaceMode {
+  const { resolved, switchName } = resolvePaymentsSwitchByKey(
+    context.scopedPaymentsModes,
+    key,
+    run,
+    (context.env as unknown as Record<string, unknown> | undefined)?.[PAYMENTS_SWITCH_NAMES[key]],
+    legacy
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[payments] invalid ${switchName} value ${JSON.stringify(resolved.raw)} — failing closed to "${legacy}"`
+    );
+    context.audit(paymentsConfigErrorEvent(), "orchestrator", {
+      setting: switchName,
+      value: resolved.raw ?? "",
+      resolved: legacy,
+    });
+  }
+  return resolved.mode;
+}
+
+/** Env var name per switch key (for the env level lookup above). */
+const PAYMENTS_SWITCH_NAMES: Record<keyof PaymentsModeValues, string> = {
+  create: PAYMENTS_CREATE_MODE_SWITCH,
+  confirm: PAYMENTS_CONFIRM_MODE_SWITCH,
+  transactions: PAYMENTS_TRANSACTIONS_MODE_SWITCH,
+  wallet: AGENTIC_WALLET_MODE_SWITCH,
+  screener: PREMIUM_SCREENER_MODE_SWITCH,
+  research: PREMIUM_RESEARCH_MODE_SWITCH,
+};
 
 /**
  * #1723: resolves KNOWLEDGE_MODE for one knowledge-tool execution in
@@ -433,6 +494,7 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
   gateway?: SupportedGateway;
   action?: "charge" | "refund" | "invoice";
   description?: string;
+  mode?: string;
 }> {
   readonly name = "draft_payment";
   readonly description = "Prepare an explicit human-authorized payment intent draft (charge, refund, invoice) with Agent Decentralized Identifier (DID) attestation across Stripe, PayPal, or Lemon Squeezy.";
@@ -445,6 +507,7 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
       gateway: { type: "string", enum: ["stripe", "paypal", "lemonsqueezy", "sandbox"], description: "Payment gateway processor" },
       action: { type: "string", enum: ["charge", "refund", "invoice"], description: "Payment action type" },
       description: { type: "string", description: "Order description or note" },
+      mode: { type: "string", description: "#1728 run-level PAYMENTS_CREATE_MODE override (mcp | rest)" },
     },
     required: ["amount", "customer"],
   };
@@ -455,6 +518,7 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
     gateway: z.enum(["stripe", "paypal", "lemonsqueezy", "sandbox"]).default("stripe").describe("Payment gateway processor"),
     action: z.enum(["charge", "refund", "invoice"]).default("charge").describe("Payment action type"),
     description: z.string().optional().describe("Order description or note"),
+    mode: z.string().optional().describe("#1728 run-level PAYMENTS_CREATE_MODE override (mcp | rest)"),
   });
 
   async execute(input: any, context: McpToolContext) {
@@ -468,16 +532,34 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
     // No invented customer name (issue #514), matching the create route.
     const customer = (input.customer || "").trim();
     const action = (input.action || "charge") as "charge" | "refund" | "invoice";
+    // #1728: the create switch. Mode "rest" adopts the route contract
+    // (gateway validated BEFORE any row is written, with the route's
+    // UNSUPPORTED_GATEWAY wording; omitted description stores "").
+    // Mode "mcp" (legacy) keeps the command's historic behavior. The
+    // route still runs its own guard before delegation in both modes,
+    // so the rest-mode validation below is unreachable from the route
+    // — it exists for DIRECT MCP callers. Zod is not parsed at
+    // execution time, so this check is written explicitly here, not
+    // left to the zod enum.
+    const createMode = resolvePaymentsCommandMode(context, "create", input.mode, "mcp");
+    const gatewayInput =
+      input.gateway == null || (typeof input.gateway === "string" && input.gateway.trim() === "")
+        ? "stripe"
+        : String(input.gateway);
+    if (createMode === "rest" && !isSupportedGateway(gatewayInput)) {
+      throw new Error(
+        `Unsupported payment gateway: "${gatewayInput}". Supported gateways: ${SUPPORTED_GATEWAYS.join(", ")}.`
+      );
+    }
     const gateway = (input.gateway || "stripe") as SupportedGateway;
     // #1690/#514: an EXPLICITLY supplied description — including an
     // explicitly empty string, which the POST /payments/create route
     // passes when the caller omits one — stays exactly as supplied
     // (trimmed), so the route's pinned empty-note behavior survives
-    // delegation. Only an OMITTED description falls back to the
-    // generic default, which is derived from caller input (customer),
-    // not an invented product line.
+    // delegation. Only an OMITTED description falls back: to the
+    // generic default in mcp mode, to "" in rest mode (the route pin).
     const description = (input.description == null
-      ? `Payment intent for ${customer}`
+      ? (createMode === "rest" ? "" : `Payment intent for ${customer}`)
       : String(input.description)).trim();
 
     const draftId = `pay_${crypto.randomUUID().slice(0, 8)}`;
@@ -554,6 +636,7 @@ export class ConfirmPaymentDraftCommand implements IMcpToolCommand<{
   draftId: string;
   decision: "approved" | "rejected";
   note?: string;
+  mode?: string;
 }> {
   readonly name = "confirm_payment_draft";
   readonly description = "Authorize or reject a pending payment draft using Human-in-the-Loop (HITL) approval with cryptographic verification.";
@@ -563,6 +646,7 @@ export class ConfirmPaymentDraftCommand implements IMcpToolCommand<{
       draftId: { type: "string", description: "The unique payment draft identifier (e.g. pay_12345)" },
       decision: { type: "string", enum: ["approved", "rejected"], description: "Human authorization decision" },
       note: { type: "string", description: "Optional review note or justification" },
+      mode: { type: "string", description: "#1728 run-level PAYMENTS_CONFIRM_MODE override (mcp | rest)" },
     },
     required: ["draftId", "decision"],
   };
@@ -570,14 +654,21 @@ export class ConfirmPaymentDraftCommand implements IMcpToolCommand<{
     draftId: z.string().describe("The unique payment draft identifier (e.g. pay_12345)"),
     decision: z.enum(["approved", "rejected"]).describe("Human authorization decision"),
     note: z.string().optional().describe("Optional review note or justification"),
+    mode: z.string().optional().describe("#1728 run-level PAYMENTS_CONFIRM_MODE override (mcp | rest)"),
   });
 
-  async execute(input: { draftId: string; decision: "approved" | "rejected"; note?: string }, context: McpToolContext) {
+  async execute(input: { draftId: string; decision: "approved" | "rejected"; note?: string; mode?: string }, context: McpToolContext) {
     const { draftId, decision, note } = input;
     const tx = context.orm.transactions.findById(draftId);
     if (!tx) {
       throw new Error(`Draft ${draftId} not found in transactions repository`);
     }
+    // #1728: the confirm switch governs the RESPONSE ENVELOPE only.
+    // The state transition, the HITL decision, and the audits are
+    // identical in both modes. (The P-2 shared gap — no facade
+    // success-flag check before writing "completed" — is NOT changed
+    // here; see the #1728 §15 follow-up.)
+    const confirmMode = resolvePaymentsCommandMode(context, "confirm", input.mode, "mcp");
 
     const now = new Date().toISOString();
     const userDid = getUserDid(context.sessionId);
@@ -630,6 +721,18 @@ export class ConfirmPaymentDraftCommand implements IMcpToolCommand<{
         authorizerDid: userDid,
       });
 
+      // #1728: rest mode returns exactly the REST confirm envelope;
+      // mcp mode (legacy) returns the full envelope.
+      if (confirmMode === "rest") {
+        return {
+          success: true,
+          status: "completed",
+          draftId,
+          checkoutUrl,
+          gatewayRef,
+          authorizerDid: userDid,
+        };
+      }
       return {
         draftId,
         status: "completed",
@@ -651,6 +754,9 @@ export class ConfirmPaymentDraftCommand implements IMcpToolCommand<{
 
       context.audit("payment.rejected", "payments", { draftId, decision: "rejected", authorizerDid: userDid });
 
+      if (confirmMode === "rest") {
+        return { success: true, status: "rejected", draftId };
+      }
       return {
         draftId,
         status: "rejected",
@@ -689,7 +795,7 @@ export class GetPaymentGatewaysCommand implements IMcpToolCommand<{}> {
 /**
  * 5. Get Transactions Command
  */
-export class GetTransactionsCommand implements IMcpToolCommand<{ limit?: number; status?: string }> {
+export class GetTransactionsCommand implements IMcpToolCommand<{ limit?: number; status?: string; mode?: string }> {
   readonly name = "get_transactions";
   readonly description = "Query settled payment transactions, drafts, and cryptographic proof signatures from the mas_transactions ledger.";
   readonly jsonSchema = {
@@ -697,14 +803,62 @@ export class GetTransactionsCommand implements IMcpToolCommand<{ limit?: number;
     properties: {
       limit: { type: "number", description: "Maximum number of transactions to return (default: 50)" },
       status: { type: "string", description: "Filter by status: completed, awaiting_confirmation, rejected" },
+      mode: { type: "string", description: "#1728 run-level PAYMENTS_TRANSACTIONS_MODE override (mcp | rest)" },
     },
   };
   readonly zodSchema = z.object({
     limit: z.number().optional().default(50).describe("Maximum number of transactions to return"),
     status: z.string().optional().describe("Filter by status: completed, awaiting_confirmation, rejected"),
+    mode: z.string().optional().describe("#1728 run-level PAYMENTS_TRANSACTIONS_MODE override (mcp | rest)"),
   });
 
-  async execute(input: { limit?: number; status?: string }, context: McpToolContext) {
+  async execute(input: { limit?: number; status?: string; mode?: string }, context: McpToolContext) {
+    const transactionsMode = resolvePaymentsCommandMode(context, "transactions", input.mode, "mcp");
+    // #1728 rest mode: the REST list contract verbatim — limit fixed
+    // at 50, the status filter ignored, rows coerced exactly as the
+    // route remaps them, plus the route's summary. The route's own
+    // rest branch re-applies the same mapping/summary, so the two
+    // rest shapes are identical by construction (pinned by the #1728
+    // test comparing them row-for-row).
+    if (transactionsMode === "rest") {
+      const rows = context.orm.transactions.findMany({
+        orderBy: "created_at DESC",
+        limit: 50,
+      });
+      const transactions = rows.map((t: any) => ({
+        id: String(t.id),
+        sessionId: String(t.sessionId),
+        action: String(t.action),
+        amount: Number(t.amount || 0),
+        currency: String(t.currency || "USD"),
+        customer: String(t.customer),
+        gateway: String(t.gateway || "stripe"),
+        gatewayRef: String(t.gatewayRef || ""),
+        status: String(t.status),
+        checkoutUrl: String(t.checkoutUrl || ""),
+        proposerDid: String(t.proposerDid || AGENT_DIDS.PAYMENTS),
+        authorizerDid: t.authorizerDid ? String(t.authorizerDid) : undefined,
+        proofSignature: String(t.proofSignature || ""),
+        note: String(t.note || ""),
+        createdAt: String(t.createdAt),
+        updatedAt: String(t.updatedAt),
+      }));
+      const totalVolume = transactions
+        .filter((t) => t.status === "completed" || t.status === "authorized")
+        .reduce((sum, t) => sum + (t.action === "charge" ? t.amount : -t.amount), 0);
+      const pendingCount = transactions.filter((t) => t.status === "awaiting_confirmation").length;
+      const completedCount = transactions.filter((t) => t.status === "completed" || t.status === "authorized").length;
+      return {
+        count: transactions.length,
+        transactions,
+        summary: {
+          totalVolume: Math.max(0, totalVolume),
+          completedCount,
+          pendingCount,
+          verifiedDidCount: transactions.length,
+        },
+      };
+    }
     const limit = Number(input.limit) || 50;
     const filter = input.status ? { status: input.status } : undefined;
     const transactions = context.orm.transactions.findMany({

@@ -73,6 +73,13 @@ import type { AgentName, Env } from "../../types";
 import { DatabaseORM, type SqlStorage } from "../../orm";
 import { executeMCPTool } from "../../mcp/index";
 import { runRestTool } from "./restToolBridge";
+import {
+  paymentsConfigErrorEvent,
+  resolvePaymentsSwitchByKey,
+  type PaymentsModeValues,
+  type PaymentsScopedModes,
+  type PaymentsSurfaceMode,
+} from "../../config/agenticPaymentsModes";
 
 /** The subset of OrchestratorAgent surface the payments handlers need. */
 export interface PaymentsRouteContext {
@@ -90,7 +97,58 @@ export interface PaymentsRouteContext {
     agent: AgentName | "judge" | "nlq" | "orchestrator",
     payload: Record<string, unknown>
   ): void;
+  /**
+   * #1728: optional session/user carriers for the payments switches
+   * (run comes from the per-request `mode` / `?mode=`, global env
+   * from `env`). Populated by the execution-context owner; unset
+   * carriers fall through to env. See
+   * src/config/agenticPaymentsModes.ts.
+   */
+  scopedPaymentsModes?: PaymentsScopedModes;
 }
+
+/**
+ * #1728: resolves one payments switch for a route in run > session
+ * > user > env > builtin order. An invalid winning value fails
+ * closed to the route legacy and is logged + audited as
+ * payment.config_error (agent "payments", the route's audit vocab).
+ */
+function resolvePaymentsRouteMode(
+  ctx: PaymentsRouteContext,
+  key: keyof PaymentsModeValues,
+  run: unknown,
+  legacy: PaymentsSurfaceMode
+): PaymentsSurfaceMode {
+  const envRecord = ctx.env as unknown as Record<string, unknown> | undefined;
+  const { resolved, switchName } = resolvePaymentsSwitchByKey(
+    ctx.scopedPaymentsModes,
+    key,
+    run,
+    envRecord?.[PAYMENTS_ROUTE_SWITCH_NAMES[key]],
+    legacy
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[payments] invalid ${switchName} value ${JSON.stringify(resolved.raw)} — failing closed to "${legacy}"`
+    );
+    ctx.audit(paymentsConfigErrorEvent(), "payments", {
+      setting: switchName,
+      value: resolved.raw ?? "",
+      resolved: legacy,
+    });
+  }
+  return resolved.mode;
+}
+
+/** Env var name per switch key (for the env level lookup above). */
+const PAYMENTS_ROUTE_SWITCH_NAMES: Record<keyof PaymentsModeValues, string> = {
+  create: "PAYMENTS_CREATE_MODE",
+  confirm: "PAYMENTS_CONFIRM_MODE",
+  transactions: "PAYMENTS_TRANSACTIONS_MODE",
+  wallet: "AGENTIC_WALLET_MODE",
+  screener: "PREMIUM_SCREENER_MODE",
+  research: "PREMIUM_RESEARCH_MODE",
+};
 
 /** The two payments flows behind the #1711 switch. */
 export type PaymentsFlowMode = "hitl" | "immediate";
@@ -198,14 +256,44 @@ export async function handlePaymentsRoutes(
   if (path.endsWith("/payments/transactions")) {
     if (request.method === "GET") {
       try {
+        // #1728: the transactions switch. Mode "mcp" adopts the MCP
+        // list contract: the query limit + status filter are honored
+        // and the command's raw output is returned as-is (no remap,
+        // no summary). Mode "rest" (legacy) keeps the route contract
+        // below: limit fixed at 50, status ignored, rows remapped,
+        // summary added. The resolved mode is passed as the command's
+        // run value so the two resolutions cannot disagree.
+        const transactionsMode = resolvePaymentsRouteMode(
+          ctx, "transactions", url.searchParams.get("mode"), "rest"
+        );
+        if (transactionsMode === "mcp") {
+          const limitParam = url.searchParams.get("limit");
+          const statusParam = url.searchParams.get("status");
+          const out = await runRestTool("get_transactions", {
+            limit: limitParam === null ? 50 : Number(limitParam),
+            ...(statusParam ? { status: statusParam } : {}),
+            mode: "mcp",
+          }, {
+            orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
+            sessionId,
+            audit: (type, agent, payload) => ctx.audit(type, agent, payload),
+            scopedPaymentsModes: ctx.scopedPaymentsModes,
+          });
+          return Response.json(out);
+        }
         // #1644: the ledger query (created_at DESC, limit 50) executes
         // through the get_transactions command. The route keeps its row
         // coercions and summary stats as presentation — the command rows
         // already carry the camelCase fields the old raw-SQL mapping built.
-        const out = (await runRestTool("get_transactions", { limit: 50 }, {
+        // #1728: in rest mode the command already returns the coerced
+        // rows + summary; the remap/summary below are idempotent over
+        // them, so the route rest shape and the command rest shape are
+        // identical (pinned by the #1728 test).
+        const out = (await runRestTool("get_transactions", { limit: 50, mode: "rest" }, {
           orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
           sessionId,
           audit: (type, agent, payload) => ctx.audit(type, agent, payload),
+          scopedPaymentsModes: ctx.scopedPaymentsModes,
         })) as { transactions: any[] };
 
         const transactions = out.transactions.map((t) => ({
@@ -261,6 +349,7 @@ export async function handlePaymentsRoutes(
         action?: "charge" | "refund" | "invoice";
         gateway?: string;
         description?: string;
+        mode?: string;
       };
 
       // #524: an omitted or unparseable amount is a validation error, never
@@ -404,8 +493,21 @@ export async function handlePaymentsRoutes(
       // NO checkout is attempted here: the old PAYMENT_GATEWAY_ERROR
       // -at-create path disappears, and checkout failures surface at
       // confirm instead. The gateway 400 above still runs BEFORE any
-      // command call (hence before any row write), because the draft
-      // command does not itself validate the gateway.
+      // command call (hence before any row write) in both modes: it
+      // is the route's guard, and the command's own rest-mode
+      // validation (#1728) exists for direct MCP callers, not as a
+      // substitute for this check.
+      // #1728: the create switch, resolved here (HITL path only —
+      // the immediate branch above never delegates, so it never
+      // resolves this switch). The route's own gateway 400 above
+      // runs in BOTH modes (it is a guard, not a presentation
+      // delta), and the description is passed explicitly in both
+      // modes, so the resolved mode changes nothing on this route —
+      // it is carried as the command's run value so the delegation
+      // cannot resolve differently from the route. An invalid value
+      // fails closed to "rest" with a payment.config_error audit.
+      const createMode = resolvePaymentsRouteMode(ctx, "create", body.mode, "rest");
+
       const out = await executeMCPTool("draft_payment", {
         amount,
         currency,
@@ -415,8 +517,10 @@ export async function handlePaymentsRoutes(
         // Explicitly passed even when "" so the command's #1690/#514
         // rule keeps the pinned empty note (an omitted description
         // keeps the command's generic default only for direct MCP
-        // callers that omit the field entirely).
+        // callers that omit the field entirely — and only in mcp
+        // mode; rest mode stores "" for direct callers too, #1728).
         description,
+        mode: createMode,
       }, {
         env: ctx.env,
         orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
@@ -470,6 +574,7 @@ export async function handlePaymentsRoutes(
         draftId?: string;
         decision?: "approved" | "rejected";
         note?: string;
+        mode?: string;
       };
 
       const draftId = (body.draftId || "").trim();
@@ -573,12 +678,23 @@ export async function handlePaymentsRoutes(
         }
       }
 
+      // #1728: the confirm switch, resolved here (HITL path only —
+      // the immediate branch above returns its verbatim envelope and
+      // never resolves this switch). The resolved mode is carried as
+      // the command's run value so the delegation cannot resolve
+      // differently from the route. Mode "mcp" returns the command's
+      // full envelope (with success added); mode "rest" (legacy)
+      // returns the historic REST subset. An invalid value fails
+      // closed to "rest" with a payment.config_error audit.
+      const confirmMode = resolvePaymentsRouteMode(ctx, "confirm", body.mode, "rest");
+
       let out: any;
       try {
         out = await executeMCPTool("confirm_payment_draft", {
           draftId,
           decision,
           note,
+          mode: confirmMode,
         }, {
           env: ctx.env,
           orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
@@ -595,7 +711,10 @@ export async function handlePaymentsRoutes(
         throw err;
       }
 
-      if (out.decision === "approved") {
+      if (confirmMode === "mcp") {
+        return Response.json({ success: true, ...out });
+      }
+      if (out.status === "completed") {
         return Response.json({
           success: true,
           status: "completed",

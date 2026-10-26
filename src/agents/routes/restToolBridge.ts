@@ -32,6 +32,8 @@ export interface RestToolParts {
   /** #1723: KNOWLEDGE_MODE / MEMORY_READ_MODE carriers, forwarded likewise. */
   scopedKnowledgeModes?: McpToolContext["scopedKnowledgeModes"];
   scopedMemoryModes?: McpToolContext["scopedMemoryModes"];
+  /** #1728: agentic-payments carriers, forwarded likewise. */
+  scopedPaymentsModes?: McpToolContext["scopedPaymentsModes"];
 }
 
 /**
@@ -49,6 +51,7 @@ export function restToolContext(parts: RestToolParts): McpToolContext {
     scopedNlqModes: parts.scopedNlqModes,
     scopedKnowledgeModes: parts.scopedKnowledgeModes,
     scopedMemoryModes: parts.scopedMemoryModes,
+    scopedPaymentsModes: parts.scopedPaymentsModes,
   };
 }
 

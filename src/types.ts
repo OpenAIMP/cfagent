@@ -307,6 +307,34 @@ export interface Env {
   FOSS_SNAPSHOT_MODE?: string;
   FOSS_ALPACA_READS_MODE?: string;
   FOSS_ALPACA_ORDER_MODE?: string;
+  // #1728 (parent #1717, slice (h)) — SIX agentic-payments +
+  // premium-gating switches (non-secret, owner-set, same pattern as
+  // PAYMENTS_FLOW_MODE). PAYMENTS_CREATE_MODE: "mcp" | "rest" (P-1).
+  // PAYMENTS_CONFIRM_MODE: "mcp" | "rest" (P-2 envelope only).
+  // PAYMENTS_TRANSACTIONS_MODE: "mcp" | "rest" (P-3).
+  // AGENTIC_WALLET_MODE: "mcp" | "rest" (P-5).
+  // PREMIUM_SCREENER_MODE: "mcp" | "rest" (P-6a envelope only).
+  // PREMIUM_RESEARCH_MODE: "mcp" | "rest" (P-6b envelope only).
+  // Built-in defaults are per surface (MCP legacy "mcp", REST legacy
+  // "rest"), recorded in src/config/agenticPaymentsModes.ts — unset
+  // switches change nothing on either surface. Any other value FAILS
+  // CLOSED to the surface legacy, console-logged + audited as
+  // payment.config_error (premium routes log only: their context has
+  // no audit writer). Resolution order (run > session > user >
+  // global env > built-in) lives in
+  // src/config/agenticPaymentsModes.ts. This slice deliberately does
+  // NOT set production values: production values are an owner action.
+  // Rollback is unsetting the var and redeploying. The switches do
+  // NOT govern: the route gateway 400, HITL, PAYMENTS_FLOW_MODE, the
+  // P-2 facade success-flag gap (follow-up), premium verification /
+  // prices / channels / identity / capture, or any single-surface
+  // route (capture, webhook, dids, agentic ledger, stock-signals).
+  PAYMENTS_CREATE_MODE?: string;
+  PAYMENTS_CONFIRM_MODE?: string;
+  PAYMENTS_TRANSACTIONS_MODE?: string;
+  AGENTIC_WALLET_MODE?: string;
+  PREMIUM_SCREENER_MODE?: string;
+  PREMIUM_RESEARCH_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;

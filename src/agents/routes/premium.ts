@@ -46,6 +46,12 @@ import {
 import type { Env } from "../../types";
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
+import {
+  resolvePaymentsSwitchByKey,
+  type PaymentsModeValues,
+  type PaymentsScopedModes,
+  type PaymentsSurfaceMode,
+} from "../../config/agenticPaymentsModes";
 
 /** The subset of OrchestratorAgent surface the premium handlers need. */
 export interface PremiumRouteContext {
@@ -81,7 +87,57 @@ export interface PremiumRouteContext {
   /** Durable Object storage (owner: OrchestratorAgent — was
    *  `this.ctx.storage`): the capture blob seam's storage half. */
   blobStorage?: CaptureBlobStorage;
+  /**
+   * #1728: optional session/user carriers for the premium switches
+   * (run comes from the per-request `?mode=` query param — the POST
+   * body is NOT read before the payment gate, so there is no body
+   * mode on these routes — global env from `env`). Populated by the
+   * execution-context owner; unset carriers fall through to env. See
+   * src/config/agenticPaymentsModes.ts.
+   */
+  scopedPaymentsModes?: PaymentsScopedModes;
 }
+
+/**
+ * #1728: resolves one premium switch for a route in run > session >
+ * user > env > builtin order. An invalid winning value fails closed
+ * to the route legacy and is LOGGED ONLY: PremiumRouteContext has no
+ * audit writer (the quoteModes precedent for unaudited surfaces) —
+ * the misconfiguration is visible in Workers Logs, not the audit
+ * ledger. The gate, price, identity, channel, and capture behavior
+ * are identical in both modes regardless.
+ */
+function resolvePremiumRouteMode(
+  ctx: PremiumRouteContext,
+  key: keyof PaymentsModeValues,
+  run: unknown,
+  legacy: PaymentsSurfaceMode
+): PaymentsSurfaceMode {
+  const envRecord = ctx.env as unknown as Record<string, unknown> | undefined;
+  const { resolved, switchName } = resolvePaymentsSwitchByKey(
+    ctx.scopedPaymentsModes,
+    key,
+    run,
+    envRecord?.[PREMIUM_ROUTE_SWITCH_NAMES[key]],
+    legacy
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[payments] invalid ${switchName} value ${JSON.stringify(resolved.raw)} — failing closed to "${legacy}"`
+    );
+  }
+  return resolved.mode;
+}
+
+/** Env var name per switch key (for the env level lookup above). */
+const PREMIUM_ROUTE_SWITCH_NAMES: Record<keyof PaymentsModeValues, string> = {
+  create: "PAYMENTS_CREATE_MODE",
+  confirm: "PAYMENTS_CONFIRM_MODE",
+  transactions: "PAYMENTS_TRANSACTIONS_MODE",
+  wallet: "AGENTIC_WALLET_MODE",
+  screener: "PREMIUM_SCREENER_MODE",
+  research: "PREMIUM_RESEARCH_MODE",
+};
 
 /**
  * Issue #1206 (E5b): the OrchestratorAgent surface the factory below
@@ -159,6 +215,13 @@ export async function handlePremiumRoutes(
   if (path.includes("/premium/options-scan") && (request.method === "GET" || request.method === "POST")) {
     const paymentService = premiumPaymentService(ctx, sessionId, request);
     const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
+    // #1728: the screener switch governs the RESPONSE ENVELOPE only
+    // (mode "mcp" → the MCP flat envelope; mode "rest" (legacy) →
+    // the REST envelope below). The gate, price, engine, channel,
+    // identity, and canonical capture are identical in both modes.
+    // Run level is the `?mode=` query param: the POST body is owned
+    // by the fulfillment below and is never read before the gate.
+    const screenerMode = resolvePremiumRouteMode(ctx, "screener", url.searchParams.get("mode"), "rest");
 
     return paymentService.handleGatedEndpoint(
       request,
@@ -260,6 +323,35 @@ export async function handlePremiumRoutes(
         } catch {
           // Non-critical: persistence failure must not break the scan.
         }
+        // #1728: mode "mcp" returns the MCP paid_options_screener
+        // envelope verbatim (same fields, same error fallback) over
+        // the same screen result; canonical persistence above still
+        // ran — it is a route duty (#307/#308), not part of the
+        // response contract, and is unchanged in both modes.
+        if (screenerMode === "mcp") {
+          return {
+            status: 200,
+            paid: true,
+            receipt,
+            matchesCount: result.matchedCount,
+            totalMatches: result.totalMatches,
+            screenStatus: result.status,
+            rejectionCount: result.rejectionCount,
+            ...(failed
+              ? {
+                  error:
+                    result.validationError ||
+                    result.fetchErrors?.[0]?.reason ||
+                    "Options screen failed upstream; no data could be fetched.",
+                }
+              : {}),
+            ...(result.fetchErrors && result.fetchErrors.length > 0 ? { fetchErrors: result.fetchErrors } : {}),
+            ...(result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+            quoteQuality: result.quoteQuality,
+            contracts: result.contracts,
+            timestamp: new Date().toISOString(),
+          };
+        }
         return {
           success: !failed,
           service: tier.name,
@@ -282,6 +374,10 @@ export async function handlePremiumRoutes(
   if (path.includes("/premium/market-research") && (request.method === "GET" || request.method === "POST")) {
     const paymentService = premiumPaymentService(ctx, sessionId, request);
     const tier = TRADING_PAID_SERVICES.MARKET_RESEARCH;
+    // #1728: the research switch governs the RESPONSE ENVELOPE only
+    // (same boundaries and `?mode=` run level as the screener
+    // switch above).
+    const researchMode = resolvePremiumRouteMode(ctx, "research", url.searchParams.get("mode"), "rest");
 
     return paymentService.handleGatedEndpoint(
       request,
@@ -317,6 +413,17 @@ export async function handlePremiumRoutes(
           });
         } catch {
           // Non-critical: persistence failure must not break the report.
+        }
+        // #1728: mode "mcp" returns the MCP paid_market_research
+        // envelope verbatim; canonical persistence above still ran
+        // (route duty, unchanged in both modes).
+        if (researchMode === "mcp") {
+          return {
+            status: 200,
+            paid: true,
+            receipt,
+            report,
+          };
         }
         return {
           success: true,

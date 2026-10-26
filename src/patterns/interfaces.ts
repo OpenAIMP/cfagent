@@ -91,6 +91,15 @@ export interface McpToolContext {
    * fall through to env. See src/config/fossModes.ts.
    */
   scopedFossModes?: import("../config/fossModes").FossScopedModes;
+  /**
+   * #1728: optional session/user carriers for the agentic-payments +
+   * premium-gating switches (run comes from the per-call `mode`
+   * input, global env from `env`). Populated by the execution-context
+   * owner; unset carriers fall through to env. See
+   * src/config/agenticPaymentsModes.ts. The confirm gap and the
+   * premium gate are never carried here — they are not configurable.
+   */
+  scopedPaymentsModes?: import("../config/agenticPaymentsModes").PaymentsScopedModes;
   requestId?: string;
   audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
   facade?: IMcpSystemFacade;
