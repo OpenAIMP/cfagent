@@ -204,6 +204,8 @@ export async function executeMCPTool(
     scopedMemoryModes?: import("../config/knowledgeMemoryModes").MemoryScopedModes;
     /** #1724: JOB_LIST_ENVELOPE carrier, spread through to the tool context. */
     scopedJobListModes?: import("../config/asyncJobModes").JobListScopedModes;
+    /** #1686: optional DO blob handle, spread through to the tool context like the scoped carriers (the factory spread forwards it to the tool command). */
+    storage?: import("../trading").NasdaqUniverseRouteBundleInput["storage"];
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
     submitJob?: (job: AsyncJobSubmission) => Promise<{
       jobId: string;
