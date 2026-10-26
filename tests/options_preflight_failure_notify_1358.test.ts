@@ -27,19 +27,27 @@ describe("autonomousOptionsAnalysis preflight-blocked failure path (#1358)", () 
     mockOrm = new DatabaseORM(mockSql as any);
   });
 
-  function blockedService() {
+  function blockedService(options: { episodeAlerted?: boolean } = {}) {
     const service = new ScheduledTasksService(mockEnv, mockOrm, "test_trader");
     const publish = vi.fn(async () => {});
     (service as any).publishScreenerEvent = publish;
-    (service as any).guardScheduledAuth = async () => ({
-      blocked: true,
-      error: "⚠️ [AUTH_003] E*TRADE connection missing — scheduled options screen is blocked.",
-    });
+    let callCount = 0;
+    (service as any).guardScheduledAuth = async () => {
+      callCount++;
+      const alerted = options.episodeAlerted !== undefined ? options.episodeAlerted : callCount === 1;
+      return {
+        blocked: true,
+        alerted,
+        error: alerted
+          ? "⚠️ [AUTH_003] E*TRADE connection missing — scheduled options screen is blocked. A connect alert has been sent for this episode."
+          : "⚠️ [AUTH_003] E*TRADE connection missing — scheduled options screen is blocked. A connect alert was already sent for this episode; further runs today stay quiet.",
+      };
+    };
     return { service, publish };
   }
 
-  it("a blocked run publishes options.failed with the coded error instead of returning silently", async () => {
-    const { service, publish } = blockedService();
+  it("an initial blocked run in an episode publishes options.failed with the coded error", async () => {
+    const { service, publish } = blockedService({ episodeAlerted: true });
     const result = await service.autonomousOptionsAnalysis({
       symbols: ["AAPL"],
       thesis: "bullish",
@@ -54,11 +62,20 @@ describe("autonomousOptionsAnalysis preflight-blocked failure path (#1358)", () 
     expect(failed.trigger).toBe("scheduled");
   });
 
-  it("a second blocked run in the same episode notifies again (no dedup on the per-run notice)", async () => {
+  it("a subsequent blocked run in the same episode stays quiet (#1583)", async () => {
     const { service, publish } = blockedService();
-    await service.autonomousOptionsAnalysis({ symbols: ["AAPL"], thesis: "bullish" });
-    await service.autonomousOptionsAnalysis({ symbols: ["AAPL"], thesis: "bullish" });
+    // Run 1: initial blocked run in episode (alerted: true) -> publishes options.failed
+    const r1 = await service.autonomousOptionsAnalysis({ symbols: ["AAPL"], thesis: "bullish" });
+    expect(r1.success).toBe(false);
+
+    // Run 2: subsequent blocked run in same episode (alerted: false) -> quiet contract
+    const r2 = await service.autonomousOptionsAnalysis({ symbols: ["AAPL"], thesis: "bullish" });
+    expect(r2.success).toBe(false);
+    expect(String((r2 as any).error)).toContain("[AUTH_003]");
+    expect(String((r2 as any).error)).toContain("further runs today stay quiet");
+
+    // Only run 1 published failure event; run 2 stayed quiet
     const failed = publish.mock.calls.map((c) => c[0]).filter((e: any) => e.type === "options.failed");
-    expect(failed).toHaveLength(2);
+    expect(failed).toHaveLength(1);
   });
 });

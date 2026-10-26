@@ -296,7 +296,7 @@ export class ScheduledTasksService {
     environment: string | undefined,
     kind: "stock" | "options",
     label: string
-  ): Promise<{ blocked: true; error: string } | { blocked: false }> {
+  ): Promise<{ blocked: true; error: string; alerted: boolean } | { blocked: false }> {
     const blob = this.platformDeps?.blobStorage as unknown as
       | AuthEpisodeStore
       | undefined;
@@ -315,7 +315,7 @@ export class ScheduledTasksService {
     });
     if (res.blocked) {
       this.audit("etrade.auth_blocked", { userLogin, kind, alerted: res.alerted });
-      return { blocked: true, error: res.error };
+      return { blocked: true, error: res.error, alerted: res.alerted };
     }
     return { blocked: false };
   }
@@ -1360,6 +1360,9 @@ export class ScheduledTasksService {
       // Issue #1174 (#1173 S1): same auth pre-flight as the stock
       // screen — options scans die on the same midnight-ET token
       // cliff; block up front with one alert per episode instead.
+      // Issue #1583: when an alert was already sent for this episode
+      // (!guard.alerted), honor the contract ("further runs today stay quiet")
+      // and return quietly without repeat notification spam.
       {
         const guard = await this.guardScheduledAuth(
           userLogin,
@@ -1368,11 +1371,19 @@ export class ScheduledTasksService {
           "options screen"
         );
         if (guard.blocked) {
-          // Issue #1358: a blocked run is a failure, not a quiet
-          // return — throw so the catch below runs the full failure
-          // path (audit + session message + Slack notice + bus
-          // event). The episode alert itself stays deduped inside
-          // the guard; the per-run notice here is never deduped.
+          if (!guard.alerted) {
+            this.audit("options.scheduled_analysis_blocked_quiet", {
+              userLogin,
+              thesis: targetThesis,
+              error: guard.error,
+            });
+            return {
+              success: false,
+              taskType: "options_analysis" as any,
+              error: guard.error,
+              timestamp,
+            };
+          }
           throw new Error(guard.error);
         }
       }
