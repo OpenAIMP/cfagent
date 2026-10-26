@@ -9,6 +9,10 @@ import type { AdItem, User } from "./types";
 import { MarkdownContent } from "./MarkdownContent";
 import { ReasoningView } from "./ReasoningView";
 import { ToolResultView } from "./ToolResultView";
+import { Badge } from "../components/ui/Badge";
+import { Button } from "../components/ui/Button";
+import { Notice } from "../components/ui/Notice";
+import { TextInput } from "../components/ui/TextInput";
 interface AgentChatTabContentProps {
   user: User;
   ads: AdItem[];
@@ -157,22 +161,21 @@ export function AgentChatTabContent({
             <strong>{ads[0].title}</strong> — {ads[0].tagline}
           </div>
           <div className="sponsor-actions">
-            <button
-              type="button"
+            <Button
               className="sponsor-cta-btn"
               style={{ background: ads[0].accentColor }}
               onClick={() => onAdClick(ads[0])}
             >
               {ads[0].ctaText}
-            </button>
-            <button
-              type="button"
-              className="sponsor-more-btn"
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={onOpenAdsTab}
               title="View all partner offers"
             >
               All Deals ↗
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -181,28 +184,27 @@ export function AgentChatTabContent({
       <div className="chat-action-bar">
         <span className="chat-subtitle">Stateful Distributed Ledger Session</span>
         {messages.length > 0 && (
-          <button
-            type="button"
-            className="clear-btn"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={handleClearWithConfirm}
             disabled={isResetting}
             title="Clear conversation and reset session"
           >
             {isResetting ? "⏳ Resetting…" : "🗑️ Clear chat"}
-          </button>
+          </Button>
         )}
       </div>
 
       {resetNotice && (
-        <div className="chat-notice-banner">
-          <span className="notice-icon">{authExpired ? "🔒" : "✅"}</span>
+        <Notice tone="success" variant="strip" icon={authExpired ? "🔒" : "✅"}>
           <span className="notice-text">{resetNotice}</span>
           {authExpired && (
             <a href="/login" className="notice-link-btn">
               Log In Again ➔
             </a>
           )}
-        </div>
+        </Notice>
       )}
 
       {/* Messages Stream */}
@@ -215,78 +217,87 @@ export function AgentChatTabContent({
               Ask any question about platform capabilities, workflows, algorithmic decisioning, or command tools directly through chat. Your prompt is routed by an <strong>LLM Judge</strong> and orchestrated across specialized sub-agents with neural strategy intelligence and transactional ledger persistence.
             </p>
             <div className="quick-chips">
-              <button
-                type="button"
-                className="chip-btn highlight-chip"
+              <Button
+                variant="primary"
+                tone="subtle"
+                size="sm"
                 disabled={isBusy || isResetting}
                 onClick={() => handleChipClick("What are the capabilities of this platform and how do I use the 8 core workflows?", "Platform Capabilities")}
               >
                 ⚡ What can this platform do?
-              </button>
-              <button
-                type="button"
-                className="chip-btn highlight-chip"
+              </Button>
+              <Button
+                variant="primary"
+                tone="subtle"
+                size="sm"
                 disabled={isBusy || isResetting}
                 onClick={() => handleChipClick("How do I use the Stock Screener to find oversold tech stocks with RSI < 35?", "Stock Screener Guide")}
               >
                 📈 How do I screen stocks?
-              </button>
-              <button
-                type="button"
-                className="chip-btn highlight-chip"
+              </Button>
+              <Button
+                variant="primary"
+                tone="subtle"
+                size="sm"
                 disabled={isBusy || isResetting}
                 onClick={() => handleChipClick("How do I screen for options strategies with max profit > 0 and max loss <= $30?", "Options Strategy Guide")}
               >
                 🎯 Options: Max Profit &amp; Loss &le; $30
-              </button>
-              <button
-                type="button"
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 disabled={isBusy || isResetting}
                 onClick={() => handleChipClick("Explain how the PickBestTrades algorithm evaluates and scores setups.", "PickBestTrades Engine")}
               >
                 🧠 How does PickBestTrades work?
-              </button>
-              <button
-                type="button"
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 disabled={isBusy || isResetting}
                 onClick={() => handleChipClick("How does Human-in-the-Loop (HITL) order execution and DID attestation work?", "Trading Safety Guide")}
               >
                 🛡️ How does HITL order execution work?
-              </button>
-              <button
-                type="button"
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 disabled={isBusy || isResetting}
                 onClick={() => handleChipClick("How does the real-time Options Flow tracker identify institutional sweeps and sentiment?", "Options Flow Guide")}
               >
                 🌊 How do options flow alerts work?
-              </button>
-              <button
-                type="button"
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 disabled={isBusy || isResetting}
                 onClick={() => handleChipClick("Perform FOSS equity research on NVDA using yfinance and Alpaca", "Equity Research")}
               >
                 🔬 Research NVDA (FOSS)
-              </button>
-              <button
-                type="button"
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 disabled={isBusy || isResetting}
                 onClick={() => handleChipClick("Draft a high-priority task: Complete SOC2 compliance review by next Monday", "Task Management")}
               >
                 📋 Draft High-Priority Task
-              </button>
-              <button
-                type="button"
-                className="chip-btn"
+              </Button>
+              <Button
+                variant="secondary"
+                tone="subtle"
+                size="sm"
                 disabled={isBusy || isResetting}
                 onClick={() => handleChipClick("Remember that our enterprise team prefers TypeScript and dark-mode designs", "Memory Management")}
               >
                 🧠 Store Session Fact
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -383,14 +394,14 @@ export function AgentChatTabContent({
 
       {/* Aspect-Oriented Error Diagnostic Card with Code, Cause & Actionable Resolution Playbook */}
       {errorAspect && (
-        <div className="chat-error-diagnostic-card" role="alert">
+        <Notice tone="danger" variant="box" className="chat-error-diagnostic-card">
           <div className="chat-error-card-header">
             <span className="error-badge-icon">⚠️</span>
             <div className="error-title-group">
               <div className="error-badge-row">
-                <span className="error-code-badge">{errorAspect.code}</span>
+                <Badge size="xs" tone="danger">{errorAspect.code}</Badge>
                 {errorAspect.isAiQuota && (
-                  <span className="error-quota-badge">Daily Free Quota Limit</span>
+                  <Badge size="xs" uppercase tone="warning">Daily Free Quota Limit</Badge>
                 )}
               </div>
               <strong className="error-headline">{errorAspect.title}</strong>
@@ -412,18 +423,17 @@ export function AgentChatTabContent({
 
           <div className="error-card-actions">
             {errorAspect.suggestedTab && onNavigateTab && (
-              <button
-                type="button"
-                className="error-action-btn primary"
+              <Button
+                variant="primary"
                 onClick={() => onNavigateTab(errorAspect.suggestedTab as any)}
                 title={`Navigate directly to ${errorAspect.suggestedTabLabel || errorAspect.suggestedTab}`}
               >
                 🔍 {errorAspect.suggestedTabLabel || `Open ${errorAspect.suggestedTab.toUpperCase()} Tab`}
-              </button>
+              </Button>
             )}
-            <button
-              type="button"
-              className="error-action-btn secondary"
+            <Button
+              variant="secondary"
+              tone="subtle"
               disabled={isResetting}
               onClick={() => {
                 if (typeof (agent as any).reconnect === "function") {
@@ -438,19 +448,20 @@ export function AgentChatTabContent({
               title="Reconnect agent WebSocket without clearing history"
             >
               🔄 Reconnect
-            </button>
-            <button
-              type="button"
-              className="error-action-btn danger"
+            </Button>
+            <Button
+              variant="danger"
+              tone="subtle"
               disabled={isResetting}
               onClick={() => onResetSession(true)}
               title="Reset conversation state and clear history"
             >
               {isResetting ? "Resetting…" : "Reset & Clear History"}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
               className="error-action-btn copy"
+              variant="secondary"
+              tone="subtle"
               onClick={() => {
                 const info = `Error Code: ${errorAspect.code}\nTitle: ${errorAspect.title}\nDetails: ${errorAspect.message}\nRemediation:\n${errorAspect.resolutionSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
                 navigator.clipboard.writeText(info);
@@ -459,9 +470,9 @@ export function AgentChatTabContent({
               title="Copy error code and diagnostic information"
             >
               📋 Copy Diagnostics
-            </button>
+            </Button>
           </div>
-        </div>
+        </Notice>
       )}
 
 
@@ -482,71 +493,71 @@ export function AgentChatTabContent({
         <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--color-text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
           💡 Guides:
         </span>
-        <button
-          type="button"
-          className="cap-pill-btn"
+        <Button
+          variant="accent"
+          tone="subtle"
+          size="sm"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("What are the capabilities of this platform and how do I use the 8 core workflows?", "Platform Capabilities")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-accent-subtle)", color: "var(--color-accent)", border: "1px solid var(--color-border-focus)", cursor: "pointer" }}
           title="Overview of all 8 platform workflows"
         >
           ⚡ Platform Capabilities
-        </button>
-        <button
-          type="button"
-          className="cap-pill-btn"
+        </Button>
+        <Button
+          variant="primary"
+          tone="subtle"
+          size="sm"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("How do I use the Stock Screener to find equities and what fallback logic does it use?", "Stock Screener Guide")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)", cursor: "pointer" }}
           title="Stock screener steps & fallback logic"
         >
           📈 Stock Screener
-        </button>
-        <button
-          type="button"
-          className="cap-pill-btn"
+        </Button>
+        <Button
+          variant="accent"
+          tone="subtle"
+          size="sm"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("How do I screen for options strategies with max profit > 0 and max loss <= $30?", "Options Strategy Guide")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-sentiment-directional-subtle)", color: "var(--color-sentiment-directional)", border: "1px solid var(--color-sentiment-directional-border)", cursor: "pointer" }}
           title="Screen options with budget risk limits"
         >
           🎯 Options: Max Profit & Loss
-        </button>
-        <button
-          type="button"
-          className="cap-pill-btn"
+        </Button>
+        <Button
+          variant="warning"
+          tone="subtle"
+          size="sm"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("Explain how the PickBestTrades algorithm evaluates and scores setups.", "PickBestTrades Engine")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-warning-subtle)", color: "var(--color-warning)", border: "1px solid var(--color-warning)", cursor: "pointer" }}
           title="Multivariate opportunity scoring"
         >
           🧠 PickBestTrades Logic
-        </button>
-        <button
-          type="button"
-          className="cap-pill-btn"
+        </Button>
+        <Button
+          variant="danger"
+          tone="subtle"
+          size="sm"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("How does Human-in-the-Loop (HITL) order execution and DID attestation work?", "Trading Safety Guide")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-danger-subtle)", color: "var(--color-danger)", border: "1px solid var(--color-danger)", cursor: "pointer" }}
           title="Safe trading with DID attestations"
         >
           🛡️ HITL Trading Guardrails
-        </button>
-        <button
-          type="button"
-          className="cap-pill-btn"
+        </Button>
+        <Button
+          variant="accent"
+          tone="subtle"
+          size="sm"
           disabled={isBusy || isResetting}
           onClick={() => handleChipClick("How does the real-time Options Flow tracker identify institutional sweeps and sentiment?", "Options Flow Guide")}
-          style={{ fontSize: "11px", padding: "3px 9px", borderRadius: "var(--radius-full, 12px)", background: "var(--color-accent-subtle)", color: "var(--color-accent)", border: "1px solid var(--color-border-focus)", cursor: "pointer" }}
           title="Smart money sweeps and sentiment"
         >
           🌊 Options Flows & Sweeps
-        </button>
+        </Button>
       </div>
 
       {/* Chat Input Bar */}
       <form className="chat-input-bar" onSubmit={handleSendChat}>
-        <input
+        <TextInput
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -560,13 +571,13 @@ export function AgentChatTabContent({
           disabled={isBusy || isResetting}
           autoFocus
         />
-        <button
+        <Button
           type="submit"
-          className="send-button"
+          variant="primary"
           disabled={!input.trim() || isBusy || isResetting}
         >
           {isBusy ? "Thinking…" : "Send ➔"}
-        </button>
+        </Button>
       </form>
     </div>
   );

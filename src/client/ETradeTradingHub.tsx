@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
-import { Card, Badge, TextInput, Button, EmptyState } from "./components/ui";
+import { Card, Badge, TextInput, Button, EmptyState, Select, Table, Modal } from "./components/ui";
 import {
   ETradeQuote,
   ScreenedStockItem,
@@ -1332,20 +1332,8 @@ export function ETradeTradingHub({
   return (
     <div className="etrade-trading-hub">
       {/* OAuth PIN Verification Modal */}
-      {showPinModal && typeof document !== "undefined" && createPortal(
-        <div className="modal-backdrop">
-          <div className="etrade-pin-modal">
-            <div className="modal-header">
-              <h3>Authorize E*TRADE Application</h3>
-              <button
-                type="button"
-                className="btn-close-modal"
-                onClick={() => setShowPinModal(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
+      {showPinModal && (
+        <Modal open size="none" panelClassName="etrade-pin-modal" title="Authorize E*TRADE Application" onClose={() => setShowPinModal(false)}>
               <p style={{ margin: "0 0 1rem 0", color: "var(--color-text-secondary)", fontSize: "0.88rem", lineHeight: "1.4" }}>
                 An E*TRADE authorization window has opened in a new tab. Log in, authorize application access, and enter the verification PIN provided by E*TRADE.
               </p>
@@ -1368,7 +1356,7 @@ export function ETradeTradingHub({
                 <span>Copy the verification code (PIN) displayed by E*TRADE and paste it here:</span>
               </div>
               <form onSubmit={handleSubmitPin} className="pin-form">
-                <input
+                <TextInput
                   type="text"
                   className="pin-input"
                   placeholder="Enter E*TRADE Verification Code (e.g. ABC1234)"
@@ -1378,26 +1366,24 @@ export function ETradeTradingHub({
                 />
                 {oauthMsg && <div style={{ color: "var(--color-danger)", fontSize: "0.82rem", marginBottom: "0.75rem" }}>⚠️ {oauthMsg}</div>}
                 <div className="modal-btn-row">
-                  <button
+                  <Button
                     type="submit"
                     className="btn-submit-pin"
+                    variant="primary"
                     disabled={oauthSubmitting || !oauthPin.trim()}
                   >
                     {oauthSubmitting ? "Verifying…" : "✓ Complete Authorization & Store Token"}
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
                     className="btn-cancel-modal"
+                    variant="secondary"
                     onClick={() => setShowPinModal(false)}
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </form>
-            </div>
-          </div>
-        </div>,
-        document.body
+      </Modal>
       )}
 
 
@@ -1486,24 +1472,24 @@ export function ETradeTradingHub({
 
             <div className="hitl-action-buttons">
               {(orderError.includes("timed out") || orderError.includes("resubmit") || lastExecutionResult?.message?.includes("timed out") || lastExecutionResult?.message?.includes("resubmit")) ? (
-                <button
-                  type="button"
+                <Button
                   className="btn-approve-order"
+                  variant="primary"
                   style={{ background: "var(--color-accent)", borderColor: "var(--color-border-focus)" }}
                   disabled={executingDraft}
                   onClick={handleRefreshAndExecuteDraft}
                 >
                   {executingDraft ? "Refreshing & Executing…" : "⚡ Re-preview & Resubmit Now"}
-                </button>
+                </Button>
               ) : (
-                <button
-                  type="button"
+                <Button
                   className="btn-approve-order"
+                  variant="primary"
                   disabled={executingDraft}
                   onClick={() => handleExecuteDraft(activeDraft.orderId, "approved")}
                 >
                   {executingDraft ? "Executing on E*TRADE…" : "✅ Approve & Submit Trade to E*TRADE"}
-                </button>
+                </Button>
               )}
               <Button variant="primary"
                 type="button"
@@ -1528,14 +1514,15 @@ export function ETradeTradingHub({
                 <span className="risk-shield-icon" aria-hidden="true">🛡️</span>
                 <span>Risk Analysis</span>
               </Button>
-              <button
-                type="button"
+              <Button
                 className="btn-reject-order"
+                variant="danger"
+                tone="subtle"
                 disabled={executingDraft}
                 onClick={() => handleExecuteDraft(activeDraft.orderId, "rejected")}
               >
                 ❌ Cancel Draft
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1564,13 +1551,14 @@ export function ETradeTradingHub({
               </div>
             )}
           </div>
-          <button
-            type="button"
+          <Button
             className="btn-dismiss-exec"
+            variant="ghost"
+            size="sm"
             onClick={() => setLastExecutionResult(null)}
           >
             ✕
-          </button>
+          </Button>
         </div>
       )}
 
@@ -1624,16 +1612,17 @@ export function ETradeTradingHub({
                   </span>
                 </div>
                 {orderSymbol && (
-                  <button
-                    type="button"
+                  <Button
                     className="btn-options-refresh"
+                    variant="secondary"
+                    size="sm"
                     onClick={() => fetchSymbolQuote(orderSymbol)}
                     disabled={quoteLoading}
                     title={`Refresh live quote for ${orderSymbol}`}
                   >
                     <span className={quoteLoading ? "strat-spin" : ""}>↻</span>
                     <span>{quoteLoading ? "Refreshing…" : "Refresh Quote"}</span>
-                  </button>
+                  </Button>
                 )}
               </div>
 
@@ -1660,35 +1649,35 @@ export function ETradeTradingHub({
                           <strong>Build your order</strong>
                           <span>Review and edit every contract before requesting E*TRADE’s preview.</span>
                         </div>
-                        <button type="button" className="options-leg-add" onClick={addOptionLeg} disabled={orderLegs.length >= 4 || orderLegs.some((leg) => leg.securityType === "EQ")}>
+                        <Button type="button" variant="secondary" size="sm" className="options-leg-add" onClick={addOptionLeg} disabled={orderLegs.length >= 4 || orderLegs.some((leg) => leg.securityType === "EQ")}>
                           + Add leg
-                        </button>
+                        </Button>
                       </div>
                       {orderLegs.map((leg, index) => (
                         <div className="options-leg-row" key={`option-leg-${index}`}>
                           <div className="options-leg-title"><strong>Leg {index + 1}</strong><span>{leg.securityType === "OPTN" ? "OPTION" : "STOCK"}</span></div>
                           <label>Side
-                            <select value={leg.side} onChange={(event) => updateOptionLeg(index, { side: event.target.value as "BUY" | "SELL" })}>
+                            <Select value={leg.side} onChange={(event) => updateOptionLeg(index, { side: event.target.value as "BUY" | "SELL" })}>
                               <option value="BUY">Buy</option><option value="SELL">Sell</option>
-                            </select>
+                            </Select>
                           </label>
                           {leg.securityType === "OPTN" && <>
                             <label>Type
-                              <select value={leg.optionType || "CALL"} onChange={(event) => updateOptionLeg(index, { optionType: event.target.value as "CALL" | "PUT" })}>
+                              <Select value={leg.optionType || "CALL"} onChange={(event) => updateOptionLeg(index, { optionType: event.target.value as "CALL" | "PUT" })}>
                                 <option value="CALL">Call</option><option value="PUT">Put</option>
-                              </select>
+                              </Select>
                             </label>
                             <label>Strike ($)
-                              <input type="number" min="0.01" step="0.5" value={leg.strike ?? ""} onChange={(event) => updateOptionLeg(index, { strike: Number(event.target.value) })} />
+                              <TextInput type="number" min="0.01" step="0.5" value={leg.strike ?? ""} onChange={(event) => updateOptionLeg(index, { strike: Number(event.target.value) })} />
                             </label>
                             <label>Expiration
-                              <input type="date" value={leg.expirationDate || ""} onChange={(event) => updateOptionLeg(index, { expirationDate: event.target.value })} />
+                              <TextInput type="date" value={leg.expirationDate || ""} onChange={(event) => updateOptionLeg(index, { expirationDate: event.target.value })} />
                             </label>
                           </>}
                           <label>{leg.securityType === "OPTN" ? "Contracts" : "Shares"}
-                            <input type="number" min="1" step="1" value={leg.quantity} onChange={(event) => updateOptionLeg(index, { quantity: Math.max(1, Number.parseInt(event.target.value, 10) || 1) })} />
+                            <TextInput type="number" min="1" step="1" value={leg.quantity} onChange={(event) => updateOptionLeg(index, { quantity: Math.max(1, Number.parseInt(event.target.value, 10) || 1) })} />
                           </label>
-                          <button type="button" className="options-leg-remove" onClick={() => removeOptionLeg(index)} aria-label={`Remove leg ${index + 1}`} disabled={(orderContext.optionLegs?.length ?? 0) <= 1}>Remove</button>
+                          <Button type="button" variant="danger" tone="subtle" size="sm" className="options-leg-remove" onClick={() => removeOptionLeg(index)} aria-label={`Remove leg ${index + 1}`} disabled={(orderContext.optionLegs?.length ?? 0) <= 1}>Remove</Button>
                         </div>
                       ))}
                       <p className="options-leg-editor-help">1. Edit the contracts and net limit. 2. Request E*TRADE’s preview. 3. Review and approve only if the broker accepts it. Nothing is submitted before your approval; E*TRADE still validates account approval, buying power, and existing positions.</p>
@@ -1704,7 +1693,7 @@ export function ETradeTradingHub({
                 <div className="form-group">
                   <label>{orderAssetClass === "options" ? "Underlying Symbol" : "Ticker Symbol"}</label>
                   <div className="symbol-input-row">
-                    <input
+                    <TextInput
                       type="text"
                       className="ticker-input"
                       placeholder="e.g. NVDA, AAPL"
@@ -1719,22 +1708,23 @@ export function ETradeTradingHub({
                       }}
                       onBlur={() => fetchSymbolQuote(orderSymbol)}
                     />
-                    <button
-                      type="button"
+                    <Button
                       className="btn-peek-quote"
+                      variant="secondary"
+                      size="sm"
                       disabled={quoteLoading}
                       onClick={() => fetchSymbolQuote(orderSymbol)}
                       title="Fetch live quote from E*TRADE"
                     >
                       {quoteLoading ? "Fetching…" : "🔍 Get Live Quote"}
-                    </button>
+                    </Button>
                   </div>
                   {!oauthStatus?.authenticated && (
                     <div className="order-auth-notice">
                       <span>🔒 Connect your E*TRADE account to fetch authenticated live market quotes.</span>
-                      <button type="button" onClick={handleStartOAuth}>
+                      <Button type="button" variant="ghost" size="sm" onClick={handleStartOAuth}>
                         Connect E*TRADE →
-                      </button>
+                      </Button>
                     </div>
                   )}
                   {orderQuote && (
@@ -1765,9 +1755,9 @@ export function ETradeTradingHub({
                 {!orderContext?.optionLegs?.length && <div className="form-group">
                   <label>Order Action</label>
                   <div className="action-toggle-grid">
-                    <button
+                    <Button
                       type="button"
-                      className={`action-btn buy ${orderAction === "BUY" ? "active" : ""}`}
+                      variant={orderAction === "BUY" ? "primary" : "secondary"} tone={orderAction === "BUY" ? "solid" : "subtle"}
                       onClick={() => {
                         setOrderAction("BUY");
                         setActiveDraft(null);
@@ -1779,10 +1769,10 @@ export function ETradeTradingHub({
                       }}
                     >
                       BUY
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className={`action-btn sell ${orderAction === "SELL" ? "active" : ""}`}
+                      variant={orderAction === "SELL" ? "danger" : "secondary"} tone={orderAction === "SELL" ? "solid" : "subtle"}
                       onClick={() => {
                         setOrderAction("SELL");
                         setActiveDraft(null);
@@ -1794,10 +1784,10 @@ export function ETradeTradingHub({
                       }}
                     >
                       SELL
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className={`action-btn short ${orderAction === "SELL_SHORT" ? "active" : ""}`}
+                      variant={orderAction === "SELL_SHORT" ? "danger" : "secondary"} tone={orderAction === "SELL_SHORT" ? "solid" : "subtle"}
                       onClick={() => {
                         setOrderAction("SELL_SHORT");
                         setActiveDraft(null);
@@ -1809,10 +1799,10 @@ export function ETradeTradingHub({
                       }}
                     >
                       SHORT
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className={`action-btn cover ${orderAction === "BUY_TO_COVER" ? "active" : ""}`}
+                      variant={orderAction === "BUY_TO_COVER" ? "primary" : "secondary"} tone={orderAction === "BUY_TO_COVER" ? "solid" : "subtle"}
                       onClick={() => {
                         setOrderAction("BUY_TO_COVER");
                         setActiveDraft(null);
@@ -1824,7 +1814,7 @@ export function ETradeTradingHub({
                       }}
                     >
                       COVER
-                    </button>
+                    </Button>
                   </div>
                 </div>}
 
@@ -1832,14 +1822,14 @@ export function ETradeTradingHub({
                 {(orderContext?.optionLegs?.filter((leg) => leg.securityType === "OPTN").length ?? 0) > 1 && (
                   <div className="options-net-order-control" role="group" aria-label="Net order direction">
                     <span>Net order</span>
-                    <button type="button" className={(orderContext?.strategyNetDebit ?? 0) >= 0 ? "active" : ""} onClick={() => setOptionNetOrderDirection(false)}>Debit</button>
-                    <button type="button" className={(orderContext?.strategyNetDebit ?? 0) < 0 ? "active" : ""} onClick={() => setOptionNetOrderDirection(true)}>Credit</button>
+                    <Button type="button" variant={(orderContext?.strategyNetDebit ?? 0) >= 0 ? "primary" : "secondary"} tone={(orderContext?.strategyNetDebit ?? 0) >= 0 ? "solid" : "subtle"} onClick={() => setOptionNetOrderDirection(false)}>Debit</Button>
+                    <Button type="button" variant={(orderContext?.strategyNetDebit ?? 0) < 0 ? "primary" : "secondary"} tone={(orderContext?.strategyNetDebit ?? 0) < 0 ? "solid" : "subtle"} onClick={() => setOptionNetOrderDirection(true)}>Credit</Button>
                   </div>
                 )}
                 <div className="form-row-2">
                   <div className="form-group">
                     <label>Order Type</label>
-                    <select
+                    <Select
                       value={orderType}
                       disabled={Boolean(orderContext?.optionLegs?.length)}
                       onChange={(e) => {
@@ -1852,12 +1842,12 @@ export function ETradeTradingHub({
                       <option value="LIMIT">Limit</option>
                       <option value="STOP">Stop</option>
                       <option value="STOP_LIMIT">Stop Limit</option>
-                    </select>
+                    </Select>
                   </div>
 
                   <div className="form-group">
                     <label>{orderContext?.optionLegs?.length ? "Net Limit Price per Strategy Unit ($)" : orderType === "LIMIT" ? "Limit Price ($)" : "Stop Price ($)"}</label>
-                    <input
+                    <TextInput
                       type="number"
                       step="0.01"
                       disabled={orderType === "MARKET"}
@@ -1914,9 +1904,10 @@ export function ETradeTradingHub({
                 <div className="form-group">
                   <label>{orderContext?.optionLegs?.length ? "Strategy Units" : "Quantity (Shares)"}</label>
                   <div className="quantity-stepper-row">
-                    <button
-                      type="button"
+                    <Button
                       className="qty-btn"
+                      variant="secondary"
+                      size="sm"
                       onClick={() => {
                         setOrderQuantity(Math.max(1, orderQuantity - (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? 1 : 5)));
                         setActiveDraft(null);
@@ -1924,8 +1915,8 @@ export function ETradeTradingHub({
                       }}
                     >
                       {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "−1" : "−5"}
-                    </button>
-                    <input
+                    </Button>
+                    <TextInput
                       type="number"
                       min="1"
                       className="qty-input"
@@ -1936,9 +1927,10 @@ export function ETradeTradingHub({
                         setLastExecutionResult(null);
                       }}
                     />
-                    <button
-                      type="button"
+                    <Button
                       className="qty-btn"
+                      variant="secondary"
+                      size="sm"
                       onClick={() => {
                         setOrderQuantity(orderQuantity + (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? 1 : 5));
                         setActiveDraft(null);
@@ -1946,14 +1938,15 @@ export function ETradeTradingHub({
                       }}
                     >
                       {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "+1" : "+5"}
-                    </button>
+                    </Button>
                   </div>
                   <div className="qty-preset-chips">
                     {(orderAssetClass === "options" ? [1, 2, 5, 10, 25] : [5, 10, 25, 50, 100]).map((q) => (
-                      <button
+                      <Button
                         key={q}
-                        type="button"
-                        className={`qty-chip ${orderQuantity === q ? "selected" : ""}`}
+                        size="sm"
+                        variant={orderQuantity === q ? "primary" : "secondary"}
+                        tone="subtle"
                         onClick={() => {
                           setOrderQuantity(q);
                           setActiveDraft(null);
@@ -1961,7 +1954,7 @@ export function ETradeTradingHub({
                         }}
                       >
                         {q} {orderContext?.optionLegs?.length ? "units" : "shs"}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 </div>
@@ -1992,9 +1985,10 @@ export function ETradeTradingHub({
 
                 {/* Submit Preview and Pre-Trade Risk Analysis Buttons */}
                 <div style={{ display: "flex", gap: "0.5rem" }}>
-                  <button
+                  <Button
                     type="submit"
                     className="btn-submit-preview"
+                    variant="primary"
                     style={{ flex: 1 }}
                     disabled={previewLoading || !orderSymbol.trim()}
                     title="Generate cryptographic order preview with Trading Agent DID"
@@ -2008,7 +2002,7 @@ export function ETradeTradingHub({
                         {orderAssetClass === "options" ? "Preview Options Order" : "Preview Equity Order"}
                       </>
                     )}
-                  </button>
+                  </Button>
                   <Button variant="primary"
                     type="button"
                     style={{ padding: "0.75rem 1rem", fontSize: "0.85rem" }}
@@ -2085,27 +2079,30 @@ export function ETradeTradingHub({
                 <h5>💬 NLQ Voice &amp; Text Prompts</h5>
                 <p>You can also place trades effortlessly through conversational natural language:</p>
                 <div className="nlq-example-links">
-                  <button
-                    type="button"
+                  <Button
                     className="example-link"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => sendNlqToChat("Preview buy 10 shares of NVDA limit 125.50")}
                   >
                     👉 "Preview buy 10 shares of NVDA limit 125.50"
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
                     className="example-link"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => sendNlqToChat("Screen oversold tech stocks")}
                   >
                     👉 "Screen oversold tech stocks"
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
                     className="example-link"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => sendNlqToChat("Show my portfolio positions")}
                   >
                     👉 "Show my portfolio positions"
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -2132,16 +2129,17 @@ export function ETradeTradingHub({
               </p>
             </div>
             <div className="hero-actions-row">
-              <button
-                type="button"
+              <Button
                 className="btn-options-refresh"
+                variant="secondary"
+                size="sm"
                 onClick={() => fetchPositions()}
                 disabled={positionsLoading}
                 title="Refresh live portfolio positions from broker"
               >
                 <span className={positionsLoading ? "strat-spin" : ""}>↻</span>
                 <span>{positionsLoading ? "Refreshing…" : "Refresh Positions"}</span>
-              </button>
+              </Button>
               <Button variant="trade"
                 type="button"
                 onClick={() => handleNavigateSubTab("order")}
@@ -2199,24 +2197,20 @@ export function ETradeTradingHub({
           </div>
 
           <div className="portfolio-table-wrap" id="section-positions" style={{ scrollMarginTop: 80 }}>
-            <table className="trading-table">
-              <thead>
-                <tr>
-                  <th>Symbol &amp; Company</th>
-                  <th>Quantity</th>
-                  <th>Avg Cost Basis</th>
-                  <th>Current Price</th>
-                  <th>Total Market Value</th>
-                  <th>Unrealized Gain / Loss</th>
-                  <th>Day's Gain</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions.length === 0 ? (
-                  <tr>
-                    <td colSpan={8}>
-                      <EmptyState
+            <Table
+                      columns={[
+                        { key: "symbol", header: "Symbol & Company", render: (pos: any) => (<><div className="ticker-company"><span className="ticker-badge">{pos.symbol}</span><span className="company-title">{pos.securityType === "OPTN" ? `${pos.optionType || "Option"} $${Number(pos.strikePrice || 0).toFixed(2)} · ${pos.expirationDate || "Expiry unavailable"}` : pos.description}</span></div>{pos.securityType === "OPTN" && <span className="position-type-badge">{pos.positionType === "SHORT" ? "Short option" : "Long option"}</span>}</>) },
+                        { key: "qty", header: "Quantity", render: (pos: any) => <span className="qty-val">{pos.quantity} {pos.securityType === "OPTN" ? "contracts" : "shares"}</span> },
+                        { key: "cost", header: "Avg Cost Basis", render: (pos: any) => <span>${Number(pos.costBasis ?? pos.pricePaid ?? 0).toFixed(2)}</span> },
+                        { key: "price", header: "Current Price", render: (pos: any) => <span className="price-tag">${Number(pos.currentPrice ?? pos.marketPrice ?? 0).toFixed(2)}</span> },
+                        { key: "mkt", header: "Total Market Value", render: (pos: any) => <span className="mkt-val">${Number(pos.marketValue ?? (Number(pos.currentPrice ?? pos.marketPrice ?? 0) * Number(pos.quantity ?? 0))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
+                        { key: "unreal", header: "Unrealized Gain / Loss", render: (pos: any) => { const g = Number(pos.unrealizedGainLoss ?? pos.totalGain ?? 0); const gp = Number(pos.unrealizedGainLossPercent ?? pos.totalGainPercent ?? 0); const isPos = g >= 0; return <span className={`change-pill ${isPos ? "positive" : "negative"}`}>{isPos ? "+" : ""}${g.toFixed(2)} ({isPos ? "+" : ""}{gp.toFixed(2)}%)</span>; } },
+                        { key: "day", header: "Day's Gain", render: (pos: any) => { const d = Number(pos.daysGain ?? 0); const dp = Number(pos.daysGainPercent ?? 0); const isPos = d >= 0; return <span className={`change-pill ${isPos ? "positive" : "negative"}`}>{isPos ? "+" : ""}${d.toFixed(2)} ({isPos ? "+" : ""}{dp.toFixed(2)}%)</span>; } },
+                        { key: "actions", header: "Actions", render: (pos: any) => { const costBasis = Number(pos.costBasis ?? pos.pricePaid ?? 0); const curPrice = Number(pos.currentPrice ?? pos.marketPrice ?? 0); const mktVal = Number(pos.marketValue ?? (curPrice * Number(pos.quantity ?? 0))); const unrealizedGain = Number(pos.unrealizedGainLoss ?? pos.totalGain ?? 0); return (<div className="table-actions-cell">{pos.securityType === "OPTN" && pos.optionType && pos.strikePrice && pos.expirationDate ? (<Button variant="danger" tone="subtle" size="sm" type="button" onClick={() => handleCloseOptionPosition(pos)} title="Build a broker-priced closing order for this option position">- Close Option</Button>) : pos.securityType === "OPTN" ? (<span className="position-action-unavailable" title="The broker did not return enough contract details to build a closing order.">Contract details unavailable</span>) : (<><Button variant="trade" tone="subtle" size="sm" type="button" onClick={() => handleQuickTrade(pos, "BUY")} title="Add more shares">+ Buy</Button><Button variant="danger" tone="subtle" size="sm" type="button" onClick={() => handleQuickTrade(pos, "SELL")} title="Sell to close position">- Close</Button></>)}<Button variant="warning" tone="subtle" size="sm" type="button" onClick={() => { setRiskSubject({ title: `${pos.quantity}x ${pos.symbol} (${pos.description || "Long Equity"})`, underlyingSymbol: pos.symbol, underlyingPrice: curPrice, strategyType: "Long Equity Position", sentiment: "bullish", quantity: pos.quantity, positionType: "EQUITY", costBasis: costBasis, unrealizedPnL: unrealizedGain, maxLoss: mktVal, maxProfit: null, breakevens: [costBasis], breakevenText: `Cost basis: $${costBasis.toFixed(2)}/share` }); }} title="Analyze position risk profile and hedging strategies">🛡️ Risk</Button></div>); } },
+                      ]}
+                      rows={positions}
+                      rowKey={(pos: any) => pos.symbol}
+                      empty={<EmptyState
                         icon="💼"
                         title={positionsLoading ? "Loading portfolio positions from broker…" : "No Active Holdings Found"}
                         description={
@@ -2240,115 +2234,8 @@ export function ETradeTradingHub({
                             </div>
                           ) : undefined
                         }
-                      />
-                    </td>
-                  </tr>
-                ) : (
-                  positions.map((pos) => {
-                    const unrealizedGain = Number(pos.unrealizedGainLoss ?? pos.totalGain ?? 0);
-                    const unrealizedGainPct = Number(pos.unrealizedGainLossPercent ?? pos.totalGainPercent ?? 0);
-                    const dayGain = Number(pos.daysGain ?? 0);
-                    const dayGainPct = Number(pos.daysGainPercent ?? 0);
-                    const isTotalPos = unrealizedGain >= 0;
-                    const isDayPos = dayGain >= 0;
-                    const costBasis = Number(pos.costBasis ?? pos.pricePaid ?? 0);
-                    const curPrice = Number(pos.currentPrice ?? pos.marketPrice ?? 0);
-                    const mktVal = Number(pos.marketValue ?? (curPrice * Number(pos.quantity ?? 0)));
-
-                    return (
-                      <tr key={pos.symbol}>
-                        <td>
-                          <div className="ticker-company">
-                            <span className="ticker-badge">{pos.symbol}</span>
-                            <span className="company-title">
-                              {pos.securityType === "OPTN"
-                                ? `${pos.optionType || "Option"} $${Number(pos.strikePrice || 0).toFixed(2)} · ${pos.expirationDate || "Expiry unavailable"}`
-                                : pos.description}
-                            </span>
-                          </div>
-                          {pos.securityType === "OPTN" && <span className="position-type-badge">{pos.positionType === "SHORT" ? "Short option" : "Long option"}</span>}
-                        </td>
-                        <td>
-                          <span className="qty-val">{pos.quantity} {pos.securityType === "OPTN" ? "contracts" : "shares"}</span>
-                        </td>
-                        <td>
-                          <span>${costBasis.toFixed(2)}</span>
-                        </td>
-                        <td>
-                          <span className="price-tag">${curPrice.toFixed(2)}</span>
-                        </td>
-                        <td>
-                          <span className="mkt-val">${mktVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        </td>
-                        <td>
-                          <span className={`change-pill ${isTotalPos ? "positive" : "negative"}`}>
-                            {isTotalPos ? "+" : ""}${unrealizedGain.toFixed(2)} ({isTotalPos ? "+" : ""}{unrealizedGainPct.toFixed(2)}%)
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`change-pill ${isDayPos ? "positive" : "negative"}`}>
-                            {isDayPos ? "+" : ""}${dayGain.toFixed(2)} ({isDayPos ? "+" : ""}{dayGainPct.toFixed(2)}%)
-                          </span>
-                        </td>
-                        <td>
-                          <div className="table-actions-cell">
-                            {pos.securityType === "OPTN" && pos.optionType && pos.strikePrice && pos.expirationDate ? (
-                              <Button variant="danger" tone="subtle" size="sm"
-                                type="button"
-                                onClick={() => handleCloseOptionPosition(pos)}
-                                title="Build a broker-priced closing order for this option position"
-                              >
-                                - Close Option
-                              </Button>
-                            ) : pos.securityType === "OPTN" ? (
-                              <span className="position-action-unavailable" title="The broker did not return enough contract details to build a closing order.">Contract details unavailable</span>
-                            ) : <>
-                              <Button variant="trade" tone="subtle" size="sm"
-                                type="button"
-                                onClick={() => handleQuickTrade(pos, "BUY")}
-                                title="Add more shares"
-                              >
-                                + Buy
-                              </Button>
-                              <Button variant="danger" tone="subtle" size="sm"
-                                type="button"
-                                onClick={() => handleQuickTrade(pos, "SELL")}
-                                title="Sell to close position"
-                              >
-                                - Close
-                              </Button>
-                            </>}
-                            <Button variant="warning" tone="subtle" size="sm"
-                              type="button"
-                              onClick={() => {
-                                setRiskSubject({
-                                  title: `${pos.quantity}x ${pos.symbol} (${pos.description || "Long Equity"})`,
-                                  underlyingSymbol: pos.symbol,
-                                  underlyingPrice: curPrice,
-                                  strategyType: "Long Equity Position",
-                                  sentiment: "bullish",
-                                  quantity: pos.quantity,
-                                  positionType: "EQUITY",
-                                  costBasis: costBasis,
-                                  unrealizedPnL: unrealizedGain,
-                                  maxLoss: mktVal,
-                                  maxProfit: null,
-                                  breakevens: [costBasis],
-                                  breakevenText: `Cost basis: $${costBasis.toFixed(2)}/share`,
-                                });
-                              }}
-                              title="Analyze position risk profile and hedging strategies"
-                            >
-                              🛡️ Risk
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                      />}
+                    />
           </div>
 
           {/* Portfolio Risk (issue #63): surfaces the #34/#35/#36/#54 backends —
@@ -2364,14 +2251,15 @@ export function ETradeTradingHub({
               ["Orders", "section-orders"],
               ["Portfolio Risk", "section-portfolio-risk"],
             ].map(([label, id]) => (
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 key={id}
-                type="button"
                 style={{ padding: "0.35rem 0.75rem", borderRadius: 999, border: "1px solid var(--color-border-medium)", background: "var(--color-muted)", color: "inherit", cursor: "pointer", fontSize: "0.82rem" }}
                 onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
               >
                 {label}
-              </button>
+              </Button>
             ))}
           </nav>
 
@@ -2400,87 +2288,24 @@ export function ETradeTradingHub({
           </div>
 
           <div className="ledger-table-wrap">
-            <table className="trading-table">
-              <thead>
-                <tr>
-                  <th>Order ID</th>
-                  <th>Symbol</th>
-                  <th>Action</th>
-                  <th>Shares</th>
-                  <th>Price</th>
-                  <th>Total Value</th>
-                  <th>Status</th>
-                  <th>Broker Ref</th>
-                  <th>Proposer DID</th>
-                  <th>Date &amp; Time</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.length === 0 ? (
-                  <tr>
-                    <td colSpan={11}>
-                      <EmptyState title={ordersLoading ? "Loading orders ledger…" : "No trade orders recorded yet."} />
-                    </td>
-                  </tr>
-                ) : (
-                  orders.map((ord) => (
-                    <tr key={ord.id}>
-                      <td>
-                        <code>{ord.id}</code>
-                      </td>
-                      <td>
-                        <span className="ticker-badge">{ord.symbol}</span>
-                      </td>
-                      <td>
-                        <span className={`action-pill ${ord.action.toLowerCase()}`}>{ord.action}</span>
-                      </td>
-                      <td>{ord.quantity}</td>
-                      <td>${ord.price.toFixed(2)}</td>
-                      <td>${ord.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                      <td>
-                        <span className={`tx-status-pill ${ord.status}`}>
-                          {ord.status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td>
-                        <code className="broker-ref-snippet">{ord.orderRef || "—"}</code>
-                      </td>
-                      <td>
-                        <code className="did-snippet" title={ord.proposerDid}>
-                          {ord.proposerDid.replace("did:agent:openaimp:", "")}
-                        </code>
-                      </td>
-                      <td>
-                        <span className="time-snippet">{new Date(ord.createdAt).toLocaleString()}</span>
-                      </td>
-                      <td>
-                        <Button variant="warning" tone="subtle" size="sm"
-                          type="button"
-                          onClick={() => {
-                            setRiskSubject({
-                              title: `${ord.action} ${ord.quantity}x ${ord.symbol}`,
-                              underlyingSymbol: ord.symbol,
-                              underlyingPrice: ord.price,
-                              strategyType: `${ord.action} Trade`,
-                              sentiment: ord.action.toLowerCase().includes("buy") ? "bullish" : "bearish",
-                              quantity: ord.quantity,
-                              positionType: "EQUITY",
-                              maxLoss: ord.totalValue,
-                              breakevens: [ord.price],
-                              breakevenText: `Price: $${ord.price.toFixed(2)}`,
-                            });
-                          }}
-                          title="Analyze risk profile for this ledger trade"
-                        >
-                          🛡️ Risk
-                        </Button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+            <Table
+                      columns={[
+                        { key: "id", header: "Order ID", render: (ord: any) => <code>{ord.id}</code> },
+                        { key: "symbol", header: "Symbol", render: (ord: any) => <span className="ticker-badge">{ord.symbol}</span> },
+                        { key: "action", header: "Action", render: (ord: any) => <span className={`action-pill ${ord.action.toLowerCase()}`}>{ord.action}</span> },
+                        { key: "qty", header: "Shares", render: (ord: any) => <>{ord.quantity}</> },
+                        { key: "price", header: "Price", render: (ord: any) => <>${ord.price.toFixed(2)}</> },
+                        { key: "total", header: "Total Value", render: (ord: any) => <>${ord.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</> },
+                        { key: "status", header: "Status", render: (ord: any) => <span className={`tx-status-pill ${ord.status}`}>{ord.status.toUpperCase()}</span> },
+                        { key: "ref", header: "Broker Ref", render: (ord: any) => <code className="broker-ref-snippet">{ord.orderRef || "—"}</code> },
+                        { key: "did", header: "Proposer DID", render: (ord: any) => <code className="did-snippet" title={ord.proposerDid}>{ord.proposerDid.replace("did:agent:openaimp:", "")}</code> },
+                        { key: "date", header: "Date & Time", render: (ord: any) => <span className="time-snippet">{new Date(ord.createdAt).toLocaleString()}</span> },
+                        { key: "actions", header: "Action", render: (ord: any) => <Button variant="warning" tone="subtle" size="sm" type="button" onClick={() => { setRiskSubject({ title: `${ord.action} ${ord.quantity}x ${ord.symbol}`, underlyingSymbol: ord.symbol, underlyingPrice: ord.price, strategyType: `${ord.action} Trade`, sentiment: ord.action.toLowerCase().includes("buy") ? "bullish" : "bearish", quantity: ord.quantity, positionType: "EQUITY", maxLoss: ord.totalValue, breakevens: [ord.price], breakevenText: `Price: $${ord.price.toFixed(2)}` }); }} title="Analyze risk profile for this ledger trade">🛡️ Risk</Button> },
+                      ]}
+                      rows={orders}
+                      rowKey={(ord: any) => ord.id}
+                      empty={<EmptyState title={ordersLoading ? "Loading orders ledger…" : "No trade orders recorded yet."} />}
+                    />
           </div>
         </Card>
       )}
@@ -2590,19 +2415,16 @@ export function ETradeTradingHub({
                         <summary style={{ cursor: "pointer", color: "var(--color-danger)" }}>
                           View {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).length} Rejection Details (showing first 200)
                         </summary>
-                        <table className="trading-table" style={{ marginTop: "0.5rem" }}>
-                          <thead>
-                            <tr><th>SYMBOL</th><th>REASON</th></tr>
-                          </thead>
-                          <tbody>
-                            {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).slice(0, 200).map((rej: any, rIdx: number) => (
-                              <tr key={rIdx}>
-                                <td><strong style={{ color: "var(--color-danger)" }}>{rej.symbol}</strong></td>
-                                <td>{rej.reason}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                        <div style={{ marginTop: "0.5rem" }}>
+                      <Table
+                        columns={[
+                          { key: "symbol", header: "SYMBOL", render: (rej: any) => <strong style={{ color: "var(--color-danger)" }}>{rej.symbol}</strong> },
+                          { key: "reason", header: "REASON", render: (rej: any) => <>{rej.reason}</> },
+                        ]}
+                        rows={((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).slice(0, 200).map((rej: any, rIdx: number) => ({ ...rej, __rowKey: String(rIdx) }))}
+                        rowKey={(row: any) => row.__rowKey}
+                      />
+                    </div>
                       </details>
                     )}
                   </div>
@@ -2618,62 +2440,25 @@ export function ETradeTradingHub({
                 {/* Portfolio / Query Rows Table */}
                 {Array.isArray(nlqResult.rows || nlqResult.result?.rows) && (nlqResult.rows || nlqResult.result?.rows).length > 0 && (
                   <div className="nlq-rows-table-wrap" style={{ margin: "1rem 0", overflowX: "auto" }}>
-                    <table className="trading-table">
-                      <thead>
-                        <tr>
-                          {Object.keys((nlqResult.rows || nlqResult.result?.rows)[0]).map((col) => (
-                            <th key={col}>{formatNlqColumn(col)}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(nlqResult.rows || nlqResult.result?.rows).slice(0, NLQ_ROW_RENDER_LIMIT).map((row: any, idx: number) => (
-                          <tr key={idx}>
-                            {Object.entries(row).map(([key, val]: [string, any], cidx: number) => {
-                              if (key === "actionAvailable") {
-                                const isDisabled = String(val).includes("DISABLED");
-                                return (
-                                  <td key={cidx}>
-                                    {isDisabled ? (
-                                      <span style={{ color: "var(--color-danger)", fontSize: "0.75rem", fontWeight: "bold" }}>
-                                        ⛔ {String(val)}
-                                      </span>
-                                    ) : (
-                                      <Button variant="secondary" size="sm"
-                                        type="button"
-                                        onClick={() => {
-                                          if (row.symbol) handleOpenInspectQuote(row.symbol);
-                                        }}
-                                      >
-                                        ⚡ {String(val)}
-                                      </Button>
-                                    )}
-                                  </td>
-                                );
-                              }
-                              if (key === "candidateStrategies" && Array.isArray(val)) {
-                                return (
-                                  <td key={cidx}>
-                                    <ul className="ledger-candidates">
-                                      {val.map((candidate: any) => (
-                                        <li key={candidate.id} className={`ledger-candidate ledger-${candidate.status}`}>
-                                          <a href={`/strategies/${candidate.id}.html`} target="_blank" rel="noopener noreferrer" title={candidate.description || candidate.name}>
-                                            {candidate.name}
-                                          </a>{" "}
-                                          <span className="ledger-verdict">{candidate.status === "accepted" ? "PASSED" : candidate.status === "rejected" ? "FAILED" : "SKIPPED"}</span>{" "}
-                                          <span className="ledger-why">{candidate.why}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </td>
-                                );
-                              }
-                              return <td key={cidx}>{val !== null && typeof val === "object" ? JSON.stringify(val) : String(val)}</td>;
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <Table
+                      columns={Object.keys((nlqResult.rows || nlqResult.result?.rows)[0]).map((col) => ({
+                        key: col,
+                        header: formatNlqColumn(col),
+                        render: (row: any) => {
+                          const val = row[col];
+                          if (col === "actionAvailable") {
+                            const isDisabled = String(val).includes("DISABLED");
+                            return isDisabled ? (<span style={{ color: "var(--color-danger)", fontSize: "0.75rem", fontWeight: "bold" }}>⛔ {String(val)}</span>) : (<Button variant="secondary" size="sm" type="button" onClick={() => { if (row.symbol) handleOpenInspectQuote(row.symbol); }}>⚡ {String(val)}</Button>);
+                          }
+                          if (col === "candidateStrategies" && Array.isArray(val)) {
+                            return (<ul className="ledger-candidates">{val.map((candidate: any) => (<li key={candidate.id} className={`ledger-candidate ledger-${candidate.status}`}><a href={`/strategies/${candidate.id}.html`} target="_blank" rel="noopener noreferrer" title={candidate.description || candidate.name}>{candidate.name}</a>{" "}<span className="ledger-verdict">{candidate.status === "accepted" ? "PASSED" : candidate.status === "rejected" ? "FAILED" : "SKIPPED"}</span>{" "}<span className="ledger-why">{candidate.why}</span></li>))}</ul>);
+                          }
+                          return val !== null && typeof val === "object" ? JSON.stringify(val) : String(val);
+                        },
+                      }))}
+                      rows={(nlqResult.rows || nlqResult.result?.rows).slice(0, NLQ_ROW_RENDER_LIMIT).map((row: any, idx: number) => ({ ...row, __rowKey: String(idx) }))}
+                      rowKey={(row: any) => row.__rowKey}
+                    />
                     {(nlqResult.rows || nlqResult.result?.rows).length > NLQ_ROW_RENDER_LIMIT && (
                       <p className="nlq-rows-truncated" role="status">
                         Showing first {NLQ_ROW_RENDER_LIMIT} of {(nlqResult.rows || nlqResult.result?.rows).length.toLocaleString()} rows. Narrow the query or use the scanner filters to see the rest.
@@ -2685,38 +2470,18 @@ export function ETradeTradingHub({
                 {/* Stock Screener Results */}
                 {nlqResult.result?.screener?.stocks && (
                   <div className="nlq-rows-table-wrap" style={{ margin: "1rem 0", overflowX: "auto" }}>
-                    <table className="trading-table">
-                      <thead>
-                        <tr>
-                          <th>SYMBOL &amp; COMPANY</th>
-                          <th>PRICE</th>
-                          <th>RSI</th>
-                          <th>SIGNAL</th>
-                          <th>REASON</th>
-                          <th>ACTIONS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {nlqResult.result.screener.stocks.slice(0, NLQ_ROW_RENDER_LIMIT).map((stock: ScreenedStockItem) => (
-                          <tr key={stock.symbol}>
-                            <td>
-                              <div className="ticker-company">
-                                <span className="ticker-badge">{stock.symbol}</span>
-                                <span className="company-title">{stock.companyName}</span>
-                              </div>
-                            </td>
-                            <td>${stock.price.toFixed(2)}</td>
-                            <td><span className={`rsi-badge ${getRsiBadgeClass(stock.rsi14)}`}>{stock.rsi14 === undefined ? "N/A" : stock.rsi14.toFixed(1)}</span></td>
-                            <td><span className="signal-badge">{stock.technicalSignal}</span></td>
-                            <td>{stock.highlightReason}</td>
-                            <td>
-                              <Button variant="secondary" size="sm" type="button" onClick={() => handleOpenInspectQuote(stock.symbol, stock)}>Quote</Button>{" "}
-                              <Button variant="trade" size="sm" type="button" onClick={() => handleQuickTrade(stock, "BUY")}>⚡ Trade</Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <Table
+                      columns={[
+                        { key: "symbol", header: "SYMBOL & COMPANY", render: (stock: any) => <div className="ticker-company"><span className="ticker-badge">{stock.symbol}</span><span className="company-title">{stock.companyName}</span></div> },
+                        { key: "price", header: "PRICE", render: (stock: any) => <>${stock.price.toFixed(2)}</> },
+                        { key: "rsi", header: "RSI", render: (stock: any) => <span className={`rsi-badge ${getRsiBadgeClass(stock.rsi14)}`}>{stock.rsi14 === undefined ? "N/A" : stock.rsi14.toFixed(1)}</span> },
+                        { key: "signal", header: "SIGNAL", render: (stock: any) => <span className="signal-badge">{stock.technicalSignal}</span> },
+                        { key: "reason", header: "REASON", render: (stock: any) => <>{stock.highlightReason}</> },
+                        { key: "actions", header: "ACTIONS", render: (stock: any) => <><Button variant="secondary" size="sm" type="button" onClick={() => handleOpenInspectQuote(stock.symbol, stock)}>Quote</Button>{" "}<Button variant="trade" size="sm" type="button" onClick={() => handleQuickTrade(stock, "BUY")}>⚡ Trade</Button></> },
+                      ]}
+                      rows={nlqResult.result.screener.stocks.slice(0, NLQ_ROW_RENDER_LIMIT)}
+                      rowKey={(stock: any) => stock.symbol}
+                    />
                   </div>
                 )}
 
@@ -2814,46 +2579,49 @@ export function ETradeTradingHub({
 
                   {/* Preset Quick Chips */}
                   <div className="omnichannel-chip-row">
-                    <button
-                      type="button"
+                    <Button
                       onClick={() => { setEmailSubject("Quote NVDA"); setEmailBody("What is the current price and technicals?"); }}
-                      className="omnichannel-chip"
+                      variant="secondary"
+                      tone="subtle"
+                      size="sm"
                     >
                       📈 Quote NVDA
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
                       onClick={() => { setEmailSubject("Screen stock price range"); setEmailBody("Show stocks priced between $20 and $200"); }}
-                      className="omnichannel-chip"
+                      variant="secondary"
+                      tone="subtle"
+                      size="sm"
                     >
                       🔍 Screen Price Range
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
                       onClick={() => { setEmailSubject("Order Preview"); setEmailBody("Buy 10 shares of NVDA limit 125.00"); }}
-                      className="omnichannel-chip"
+                      variant="secondary"
+                      tone="subtle"
+                      size="sm"
                     >
                       🛡️ Buy 10 NVDA
-                    </button>
+                    </Button>
                     {activeDraft && (
-                      <button
-                        type="button"
+                      <Button
                         onClick={() => { setEmailSubject("Order Approval"); setEmailBody(`APPROVE ${activeDraft.orderId}`); }}
-                        className="omnichannel-chip approve"
+                        variant="primary"
+                        tone="subtle"
+                        size="sm"
                       >
                         ✓ APPROVE {activeDraft.orderId}
-                      </button>
+                      </Button>
                     )}
                   </div>
 
-                  <button
-                    type="button"
+                  <Button
                     disabled={emailLoading}
                     onClick={handleSimulateEmail}
-                    className="omnichannel-btn-submit email"
+                    variant="primary"
                   >
                     {emailLoading ? "Processing Inbound Email…" : "⚡ Send Test Email to Agent"}
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -2923,44 +2691,47 @@ export function ETradeTradingHub({
 
                   {/* Preset Quick Chips */}
                   <div className="omnichannel-chip-row">
-                    <button
-                      type="button"
+                    <Button
                       onClick={() => handleSimulateSlack("@ETradeAgent quote NVDA")}
-                      className="omnichannel-chip"
+                      variant="secondary"
+                      tone="subtle"
+                      size="sm"
                     >
                       📈 Quote NVDA
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
                       onClick={() => handleSimulateSlack("@ETradeAgent screen stocks priced between $20 and $200")}
-                      className="omnichannel-chip"
+                      variant="secondary"
+                      tone="subtle"
+                      size="sm"
                     >
                       🔍 Screen Price Range
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
                       onClick={() => handleSimulateSlack("@ETradeAgent preview buy 10 NVDA limit 125.00")}
-                      className="omnichannel-chip"
+                      variant="secondary"
+                      tone="subtle"
+                      size="sm"
                     >
                       ⚡ Buy 10 NVDA Ticket
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
                       onClick={() => handleSimulateSlack("@ETradeAgent show my portfolio positions")}
-                      className="omnichannel-chip"
+                      variant="secondary"
+                      tone="subtle"
+                      size="sm"
                     >
                       💼 Portfolio
-                    </button>
+                    </Button>
                   </div>
 
-                  <button
-                    type="button"
+                  <Button
                     disabled={slackLoading}
                     onClick={() => handleSimulateSlack()}
-                    className="omnichannel-btn-submit slack"
+                    variant="primary"
                   >
                     {slackLoading ? "Simulating Slack Agent…" : "⚡ Simulate Slack Message"}
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -3001,9 +2772,9 @@ export function ETradeTradingHub({
                         return (
                           <div key={bIdx} className="slack-actions-row">
                             {block.elements?.map((btn: any, btnIdx: number) => (
-                              <button
+                              <Button
+                                variant={btn.style === "primary" ? "primary" : "danger"}
                                 key={btnIdx}
-                                type="button"
                                 disabled={slackActionLoading}
                                 onClick={() => handleSlackActionButton(btn.action_id, btn.value)}
                                 style={{
@@ -3018,7 +2789,7 @@ export function ETradeTradingHub({
                                 }}
                               >
                                 {btn.text?.text}
-                              </button>
+                              </Button>
                             ))}
                           </div>
                         );
@@ -3070,21 +2841,21 @@ export function ETradeTradingHub({
             {/* Visualizer & Mic Control Bar */}
             <div className="voice-control-card">
               <div className="voice-control-actions">
-                <button
+                <Button
                   type="button"
                   onClick={handleToggleVoiceRecording}
-                  className={`btn-voice-toggle ${speechRecognitionActive ? "listening" : "idle"}`}
+                  variant={speechRecognitionActive ? "danger" : "primary"}
                 >
                   <span>{speechRecognitionActive ? "🛑 Stop Listening" : "🎙️ Push to Talk / Speak"}</span>
-                </button>
+                </Button>
 
-                <button
+                <Button
                   type="button"
                   onClick={() => setVoiceIsMuted(!voiceIsMuted)}
-                  className={`btn-voice-mute ${voiceIsMuted ? "muted" : "unmuted"}`}
+                  variant="secondary"
                 >
                   {voiceIsMuted ? "🔇 Voice Muted" : "🔊 Audio On"}
-                </button>
+                </Button>
               </div>
 
               {/* Animated Audio Visualizer Bars */}
@@ -3109,50 +2880,56 @@ export function ETradeTradingHub({
 
               {/* Quick Spoken Chips */}
               <div className="voice-chips-row">
-                <button
-                  type="button"
+                <Button
                   onClick={() => handleVoiceTurn("What is Nvidia trading at?")}
-                  className="voice-chip"
+                  variant="secondary"
+                  tone="subtle"
+                  size="sm"
                 >
                   📈 "What is Nvidia trading at?"
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
                   onClick={() => handleVoiceTurn("Screen stocks priced between $20 and $200")}
-                  className="voice-chip"
+                  variant="secondary"
+                  tone="subtle"
+                  size="sm"
                 >
                   🔍 "Screen price range"
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
                   onClick={() => handleVoiceTurn("What is my portfolio balance?")}
-                  className="voice-chip"
+                  variant="secondary"
+                  tone="subtle"
+                  size="sm"
                 >
                   💼 "Check portfolio balance"
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
                   onClick={() => handleVoiceTurn("Buy 10 shares of NVDA at market")}
-                  className="voice-chip buy-action"
+                  variant="primary"
+                  tone="subtle"
+                  size="sm"
                 >
                   ⚡ "Buy 10 NVDA at market"
-                </button>
+                </Button>
                 {activeDraft && (
                   <>
-                    <button
-                      type="button"
+                    <Button
                       onClick={() => handleVoiceTurn(`Confirm order ${activeDraft.orderId}`)}
-                      className="voice-chip confirm-action"
+                      variant="primary"
+                      tone="subtle"
+                      size="sm"
                     >
                       ✓ "Confirm order {activeDraft.orderId}"
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
                       onClick={() => handleVoiceTurn(`Cancel order ${activeDraft.orderId}`)}
-                      className="voice-chip cancel-action"
+                      variant="danger"
+                      tone="subtle"
+                      size="sm"
                     >
                       ✕ "Cancel order {activeDraft.orderId}"
-                    </button>
+                    </Button>
                   </>
                 )}
               </div>
@@ -3162,20 +2939,21 @@ export function ETradeTradingHub({
                 onSubmit={(e) => { e.preventDefault(); handleVoiceTurn(); }}
                 className="voice-input-form"
               >
-                <input
+                <TextInput
                   type="text"
                   placeholder="Or type a spoken command: e.g. 'What is Apple trading at?' or 'Buy 10 NVDA at market'"
                   value={voiceInputText}
                   onChange={(e) => setVoiceInputText(e.target.value)}
                   className="voice-text-input"
                 />
-                <button
+                <Button
                   type="submit"
                   disabled={voiceLoading || !voiceInputText.trim()}
                   className="btn-voice-send"
+                  variant="primary"
                 >
                   {voiceLoading ? "Processing…" : "Send Voice Turn"}
-                </button>
+                </Button>
               </form>
             </div>
 
@@ -3211,20 +2989,20 @@ export function ETradeTradingHub({
                             <div><strong>Estimated Total:</strong> ${msg.orderDraft.estimatedTotal?.toFixed(2)} USD</div>
                           </div>
                           <div className="voice-order-preview-actions">
-                            <button
-                              type="button"
+                            <Button
                               onClick={() => handleVoiceOrderAction("approve", msg.orderDraft.orderId)}
-                              className="btn-voice-order approve"
+                              variant="primary"
+                              tone="subtle"
                             >
                               ✓ Voice Approve &amp; Execute
-                            </button>
-                            <button
-                              type="button"
+                            </Button>
+                            <Button
                               onClick={() => handleVoiceOrderAction("cancel", msg.orderDraft.orderId)}
-                              className="btn-voice-order cancel"
+                              variant="danger"
+                              tone="subtle"
                             >
                               ✕ Cancel Draft
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       )}
@@ -3246,26 +3024,16 @@ export function ETradeTradingHub({
 
       {/* Quote Inspection Modal */}
       {inspectSymbol && (
-        <div className="quote-modal-backdrop" onClick={() => setInspectSymbol(null)}>
-          <div className="quote-modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="ticker-group">
-                <span className="modal-ticker">{inspectSymbol}</span>
-                <span className="modal-company">{inspectQuote?.companyName || "Loading…"}</span>
-              </div>
-              <button
-                type="button"
-                className="btn-close-modal"
-                onClick={() => setInspectSymbol(null)}
-              >
-                ✕
-              </button>
-            </div>
+        <Modal open size="none" panelClassName="quote-modal-content" onClose={() => setInspectSymbol(null)}
+          title={<div className="ticker-group">
+            <span className="modal-ticker">{inspectSymbol}</span>
+            <span className="modal-company">{inspectQuote?.companyName || "Loading…"}</span>
+          </div>}>
 
             {inspectLoading ? (
               <div className="modal-loading">Fetching real-time Level 1 Quote…</div>
-            ) : inspectQuote ? (
-              <div className="modal-body">
+            ) : inspectQuote ? (<>
+
                 <div className="price-big-row">
                   <span className="big-price">${inspectQuote.lastPrice.toFixed(2)}</span>
                   <span className={`big-change ${inspectQuote.change >= 0 ? "positive" : "negative"}`}>
@@ -3329,46 +3097,33 @@ export function ETradeTradingHub({
                 </div>
 
                 <div className="modal-actions-bar">
-                  <button
-                    type="button"
+                  <Button
                     className="btn-modal-buy"
+                    variant="trade"
                     onClick={() => {
                       handleQuickTrade(inspectQuote, "BUY");
                       setInspectSymbol(null);
                     }}
                   >
                     ⚡ Trade {inspectQuote.symbol}
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
                     className="btn-modal-dismiss"
+                    variant="secondary"
                     onClick={() => setInspectSymbol(null)}
                   >
                     Close
-                  </button>
+                  </Button>
                 </div>
-              </div>
+              </>
             ) : (
               <div className="modal-error">Could not retrieve quote details.</div>
             )}
-          </div>
-        </div>
+      </Modal>
       )}
       {/* E*TRADE Live REST Diagnostics Modal */}
-      {showDiagnosticsModal && typeof document !== "undefined" && createPortal(
-        <div className="modal-backdrop" onClick={() => setShowDiagnosticsModal(false)}>
-          <div className="etrade-pin-modal diagnostics-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "680px" }}>
-            <div className="modal-header">
-              <h3>⚡ E*TRADE Live REST Diagnostics [{diagnostics?.environment || activeEnv}]</h3>
-              <button
-                type="button"
-                className="btn-close-modal"
-                onClick={() => setShowDiagnosticsModal(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
+      {showDiagnosticsModal && (
+        <Modal open size="none" panelClassName="etrade-pin-modal diagnostics-modal" title={`⚡ E*TRADE Live REST Diagnostics [${diagnostics?.environment || activeEnv}]`} onClose={() => setShowDiagnosticsModal(false)}>
               {diagnostics ? (
                 <>
                   <div className="diag-header-row">
@@ -3391,9 +3146,9 @@ export function ETradeTradingHub({
                           <span className="diag-sandbox-hint">
                             💡 This Consumer Key belongs to E*TRADE Sandbox (apisb.etrade.com). Switch to TEST to test with this key!
                           </span>
-                          <button
-                            type="button"
-                            className="btn-env-toggle active-env"
+                          <Button
+                            variant="primary"
+                            size="sm"
                             onClick={async () => {
                               setShowDiagnosticsModal(false);
                               await handleSwitchEnvironment("TEST");
@@ -3401,7 +3156,7 @@ export function ETradeTradingHub({
                             }}
                           >
                             🧪 Switch to TEST &amp; Re-run
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -3475,32 +3230,32 @@ export function ETradeTradingHub({
 
                   <div className="diag-modal-actions">
                     {(!diagnostics.oauthToken?.present || diagnostics.status === "auth_required") && (
-                      <button
-                        type="button"
+                      <Button
                         className="btn-oauth-connect"
+                        variant="primary"
                         onClick={() => {
                           setShowDiagnosticsModal(false);
                           handleStartOAuth();
                         }}
                       >
                         ⚡ Connect E*TRADE Account
-                      </button>
+                      </Button>
                     )}
-                    <button
-                      type="button"
+                    <Button
                       className="btn-sync-diagnostics"
+                      variant="secondary"
                       disabled={diagnosticsLoading}
                       onClick={() => runDiagnostics()}
                     >
                       {diagnosticsLoading ? "⏳ Testing..." : "🔄 Re-run Diagnostics"}
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
                       className="btn-cancel-modal"
+                      variant="secondary"
                       onClick={() => setShowDiagnosticsModal(false)}
                     >
                       Close
-                    </button>
+                    </Button>
                   </div>
                 </>
               ) : (
@@ -3508,10 +3263,7 @@ export function ETradeTradingHub({
                   Running diagnostics against E*TRADE upstream API...
                 </div>
               )}
-            </div>
-          </div>
-        </div>,
-        document.body
+      </Modal>
       )}
 
       {/* Dynamic ETAPI Engine Tuning & Configuration Modal */}
