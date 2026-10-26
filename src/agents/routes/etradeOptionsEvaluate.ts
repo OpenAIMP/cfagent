@@ -209,7 +209,16 @@ export async function executeLlmIdeasEvaluation(args: {
   const llmStatus = llmJudgment ? "complete" as const : "error" as const;
   const llmModel = llmJudgment?.model || ctx.env.AI_MODEL || DEFAULT_AI_MODEL;
   const llmErrorText = llmError ?? "The quant pipeline produced no candidates for this symbol.";
-  const rationaleByCandidate = new Map((llmJudgment?.ranked ?? []).map((judgment) => [judgment.candidateId, judgment.rationale]));
+  // Issue #1640 (doc §2): the rankings field is the quant order with
+  // LLM judgments attached as annotations only — annotateQuantRanking
+  // cannot reorder, drop, or invent a candidate. The `answer` prose
+  // below remains the LLM's own top-3 list, labeled as the LLM
+  // evaluation; it is not the ranking.
+  const { annotateQuantRanking } = await import("../../services/rankingCore");
+  const annotatedRanked = annotateQuantRanking(topRanked, llmJudgment?.ranked ?? []);
+  const rationaleByCandidate = new Map(
+    annotatedRanked.map(({ ranked, annotation }) => [ranked.candidate.id, annotation?.rationale ?? ""])
+  );
   const answer = llmJudgment
     ? llmJudgment.ranked.slice(0, 3).map((judgment, idx) => {
         const candidate = candidates.find((c) => c.id === judgment.candidateId);
