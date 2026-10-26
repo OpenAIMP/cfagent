@@ -23,11 +23,17 @@
  */
 
 import type { AgentName } from "../../types";
-import type { SqlStorage } from "../../orm";
+import { DatabaseORM, type SqlStorage } from "../../orm";
+import { runRestTool } from "./restToolBridge";
 
 /** The subset of OrchestratorAgent surface the audit handlers need. */
 export interface AuditRouteContext {
   ensureTables(): SqlStorage;
+  /**
+   * #1644: ORM accessor for command execution. Optional — routes without
+   * it build a DatabaseORM over ensureTables() (same tables, no seeding).
+   */
+  getOrm?: () => DatabaseORM;
   audit(
     type: string,
     agent: AgentName | "judge" | "nlq" | "orchestrator",
@@ -53,28 +59,36 @@ export async function handleAuditRoutes(
   ctx: AuditRouteContext
 ): Promise<Response | null> {
   // Audit logs endpoint
+  // #1644: the event query executes through the get_audit_events command.
+  // The route keeps its contract as presentation: the 1..100 limit clamp,
+  // the session_id filter (defense-in-depth — the ORM is per-DO-instance,
+  // and recordAudit writes this instance's session key on every row),
+  // the payload-JSON parse with { raw } fallback, and the 5-field
+  // projection. The command is fetched without a limit so the filter-then-
+  // slice order matches the old WHERE-then-LIMIT order exactly.
   if (path.endsWith("/audit") && request.method === "GET") {
     try {
       const limitParam = Number(url.searchParams.get("limit") || 50);
       const limit = Math.max(1, Math.min(100, limitParam));
-      const sql = ctx.ensureTables();
-      const events = Array.from(
-        sql.exec(
-          "SELECT id, type, agent, payload, created_at FROM mas_events WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
-          sessionId,
-          limit
-        )
-      ) as Array<{ id: string; type: string; agent: string; payload: string; created_at: string }>;
+      const orm = ctx.getOrm?.() ?? new DatabaseORM(ctx.ensureTables());
+      const out = (await runRestTool("get_audit_events", {}, {
+        orm,
+        sessionId,
+        audit: (type, agent, payload) => ctx.audit(type, agent, payload),
+      })) as { events: Array<{ id: string; sessionId: string; type: string; agent: string; payload: string; createdAt: string }> };
 
-      const parsed = events.map((e) => {
-        let payload: Record<string, unknown> = {};
-        try {
-          payload = JSON.parse(e.payload);
-        } catch {
-          payload = { raw: e.payload };
-        }
-        return { ...e, payload };
-      });
+      const parsed = out.events
+        .filter((e) => e.sessionId === sessionId)
+        .slice(0, limit)
+        .map((e) => {
+          let payload: Record<string, unknown> = {};
+          try {
+            payload = JSON.parse(e.payload);
+          } catch {
+            payload = { raw: e.payload };
+          }
+          return { id: e.id, type: e.type, agent: e.agent, payload, created_at: e.createdAt };
+        });
 
       return Response.json({ count: parsed.length, events: parsed });
     } catch (err) {

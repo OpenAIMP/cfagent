@@ -23,6 +23,7 @@
 
 import type { AgentName, CategoryRecord, ExternalAdRecord } from "../../types";
 import type { DatabaseORM, SqlStorage } from "../../orm";
+import { runRestTool } from "./restToolBridge";
 
 /** The subset of OrchestratorAgent surface the ads/revenue/referrals handlers need. */
 export interface AdsRevenueReferralsRouteContext {
@@ -127,10 +128,15 @@ export async function handleAdsRevenueReferralsRoutes(
   }
 
   // Revenue Management Summary API
+  // #1644: executed through the get_revenue_summary command — the route
+  // keeps only its response passthrough and error mapping.
   if (path.endsWith("/revenue") && request.method === "GET") {
     try {
-      const orm = ctx.getOrm();
-      const summary = orm.getRevenueSummary();
+      const summary = await runRestTool("get_revenue_summary", {}, {
+        orm: ctx.getOrm(),
+        sessionId,
+        audit: (type, agent, payload) => ctx.audit(type, agent, payload),
+      });
       return Response.json(summary);
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to calculate revenue" }, { status: 500 });
