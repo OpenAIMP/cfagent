@@ -66,6 +66,12 @@ import {
 
 import { searchPlatformKnowledge } from "../services/platformKnowledge";
 import {
+  NLQ_MODE_SWITCH,
+  levelsForNlq,
+  nlqConfigErrorEvent,
+  resolveNlqMode,
+} from "../config/nlqModes";
+import {
   ADS_REVENUE_SWITCHES,
   adsRevenueConfigErrorEvent,
   categoryCreateId,
@@ -542,27 +548,66 @@ export class GetTransactionsCommand implements IMcpToolCommand<{ limit?: number;
 }
 
 /**
+ * #1722: resolves the NLQ_MODE switch for an MCP execution in
+ * run > session > user > env > builtin order. Run = the per-call
+ * `mode` input; session/user = context.scopedNlqModes carriers; env =
+ * context.env. An invalid winning value fails closed to "rest" and
+ * is logged + audited as nlq.config_error.
+ */
+function resolveNlqCommandMode(
+  context: McpToolContext,
+  run: unknown
+): import("../config/nlqModes").NlqMode {
+  const resolved = resolveNlqMode(
+    levelsForNlq(context.scopedNlqModes, run, (context.env as unknown as Record<string, unknown> | undefined)?.[NLQ_MODE_SWITCH])
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[nlq] invalid ${NLQ_MODE_SWITCH} value ${JSON.stringify(resolved.raw)} — failing closed to "rest"`
+    );
+    context.audit(nlqConfigErrorEvent(), "orchestrator", {
+      setting: NLQ_MODE_SWITCH,
+      value: resolved.raw ?? "",
+      resolved: "rest",
+    });
+  }
+  return resolved.mode;
+}
+
+/**
  * 6. Execute NLQ Command (Natural Language Database Query Engine)
  */
-export class ExecuteNlqCommand implements IMcpToolCommand<{ query: string }> {
+export class ExecuteNlqCommand implements IMcpToolCommand<{ query: string; mode?: unknown }> {
   readonly name = "execute_nlq";
   readonly description = "Submit a natural-language database, market-data, or options-strategy query as an asynchronous job.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
       query: { type: "string", description: "Natural language query (e.g. 'List all tables and schema', 'Show referral categories')" },
+      mode: { type: "string", description: "NLQ port contract for this call: 'rest' (full-function execution, default) or 'mcp' (this surface's legacy execution). Run-level override of the NLQ_MODE switch; see src/config/nlqModes.ts." },
     },
     required: ["query"],
   };
   readonly zodSchema = z.object({
     query: z.string().min(1).describe("Natural language query to execute over SQLite database"),
+    mode: z.string().optional().describe("NLQ port contract for this call: 'rest' or 'mcp'"),
   });
 
-  async execute(input: { query: string }, context: McpToolContext) {
+  async execute(input: { query: string; mode?: unknown }, context: McpToolContext) {
     const query = String(input.query || "").trim();
     if (!query) throw new Error("query is required");
 
-    if (context.facade) {
+    // #1722: "mcp" preserves this surface's own legacy execution
+    // verbatim (facade path: planNLQ + executeNLQQueryAsync via the
+    // facade, no validation patch; direct path: the full function
+    // with no options). "rest" runs the full function everywhere —
+    // for the facade path that RESTORES the LLM validation +
+    // planSource patch the legacy facade path skipped; MCP contexts
+    // bind no ports, so rest still carries no ports/stores/runners
+    // here (the REST route and async job bind theirs). Identity is
+    // not switched: userLogin stays sessionId in both modes.
+    const mode = resolveNlqCommandMode(context, input.mode);
+    if (mode === "mcp" && context.facade) {
       return context.facade.executeNlq(query);
     }
 

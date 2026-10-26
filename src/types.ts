@@ -131,6 +131,23 @@ export interface Env {
   CATEGORIES_MODE?: string;
   REFERRALS_MODE?: string;
   EXTERNAL_ADS_MODE?: string;
+  // #1722 (parent #1717, slice (b)) — ONE NLQ port-contract switch
+  // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
+  // Values "rest" | "mcp" (case-insensitive, padded values
+  // accepted). Default when unset or blank: "rest" — the REST-sync
+  // public route behavior (full port set on the REST route; the
+  // async-job contract is the other "public route" spelling and is
+  // NOT the default). Any other value FAILS CLOSED to "rest" and is
+  // logged + audited as nlq.config_error — never silently treated as
+  // "mcp". Set via a Worker plain-text var (wrangler.jsonc `vars` or
+  // the Cloudflare dashboard Variables) and redeploy; rollback is
+  // unsetting the var (or setting it to "rest") and redeploying — no
+  // code change. This slice deliberately does NOT set a production
+  // value: production values are an owner action. Resolution order
+  // (run > session > user > global env > built-in) and the
+  // enforcement exclusions (x-user-login gate, webhook social-port
+  // withholding) live in src/config/nlqModes.ts.
+  NLQ_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
@@ -1954,7 +1971,16 @@ export type AsyncJobSubmission =
     } & AsyncJobGraphFields)
   | ({
       capability: "nlq.execute";
-      payload: { query: string; userLogin: string };
+      payload: {
+        query: string;
+        userLogin: string;
+        // #1722: run-level NLQ_MODE value for this job, plus the
+        // optional session/user carriers set by the job submitter
+        // (see src/config/nlqModes.ts). Absent levels fall through
+        // to the Worker env NLQ_MODE, then the built-in "rest".
+        mode?: unknown;
+        scopedNlqModes?: { session?: unknown; user?: unknown };
+      };
     } & AsyncJobGraphFields)
   | ({
       capability: "task.draft";

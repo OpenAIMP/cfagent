@@ -26,6 +26,12 @@ import type { NLQSchedulingPort, NLQStockScreenPort } from "../nlq";
 import { codedMessage } from "../../errors/errorAspects";
 import { executeMCPTool } from "../../mcp";
 import { executeNaturalLanguageQuery } from "../nlq";
+import {
+  NLQ_MODE_SWITCH,
+  levelsForNlq,
+  nlqConfigErrorEvent,
+  resolveNlqMode,
+} from "../../config/nlqModes";
 import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
 import { createDiscoveryService } from "../../services/discoveryService";
@@ -963,15 +969,53 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
     } else if (job.capability === "nlq.execute") {
       const query = String(payload.query || "").trim();
       if (!query) throw new Error("NLQ job requires a non-empty query.");
-      result = await executeNaturalLanguageQuery(
-        ctx.getOrm(),
-        ctx.sessionKey(),
-        query,
-        ctx.env,
-        typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey(),
-        getUserDid(ctx.sessionKey()),
-        { scanRunStore: new SqlScanRunStore(ctx.agentCtx.storage.sql), profileStore: new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), schedulingPort: ctx.nlqSchedulingPort(), stockScreenPort: ctx.nlqStockScreenPort(), discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin: typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey(), orm: ctx.getOrm(), sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin: typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey(), sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }) },
+      // #1722: NLQ_MODE, run (payload `mode`) > session > user
+      // (payload scopedNlqModes, set by the job submitter) > global
+      // env > built-in "rest". An invalid winning value fails closed
+      // to "rest" and is logged + audited as nlq.config_error.
+      // "rest" (default) is the pre-#1722 async contract verbatim —
+      // scheduling, stock screen, discovery + fit runners, stores
+      // (the async context binds NO social port, in either mode, so
+      // async NLQ can never set a social brief). "mcp" is the
+      // MCP-direct shape — the full function with NO options (no
+      // ports, no stores, no runners). Identity is not switched:
+      // payload userLogin / session key in both modes.
+      const jobUserLoginForNlq = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
+      const resolvedNlqMode = resolveNlqMode(
+        levelsForNlq(
+          (payload as { scopedNlqModes?: { session?: unknown; user?: unknown } }).scopedNlqModes,
+          (payload as { mode?: unknown }).mode,
+          (ctx.env as unknown as Record<string, unknown> | undefined)?.[NLQ_MODE_SWITCH]
+        )
       );
+      if (resolvedNlqMode.invalid) {
+        console.error(
+          `[nlq] invalid ${NLQ_MODE_SWITCH} value ${JSON.stringify(resolvedNlqMode.raw)} — failing closed to "rest"`
+        );
+        ctx.audit(nlqConfigErrorEvent(), "orchestrator", {
+          setting: NLQ_MODE_SWITCH,
+          value: resolvedNlqMode.raw ?? "",
+          resolved: "rest",
+        });
+      }
+      result = resolvedNlqMode.mode === "mcp"
+        ? await executeNaturalLanguageQuery(
+            ctx.getOrm(),
+            ctx.sessionKey(),
+            query,
+            ctx.env,
+            jobUserLoginForNlq,
+            getUserDid(ctx.sessionKey()),
+          )
+        : await executeNaturalLanguageQuery(
+            ctx.getOrm(),
+            ctx.sessionKey(),
+            query,
+            ctx.env,
+            jobUserLoginForNlq,
+            getUserDid(ctx.sessionKey()),
+            { scanRunStore: new SqlScanRunStore(ctx.agentCtx.storage.sql), profileStore: new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), schedulingPort: ctx.nlqSchedulingPort(), stockScreenPort: ctx.nlqStockScreenPort(), discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin: jobUserLoginForNlq, orm: ctx.getOrm(), sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin: jobUserLoginForNlq, sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }) },
+          );
     } else {
       throw new Error(`Unsupported async capability: ${job.capability}`);
     }
