@@ -273,6 +273,31 @@ export interface Env {
   ETRADE_POSITIONS_MODE?: string;
   ETRADE_STATUS_MODE?: string;
   ETRADE_DISCOVERY_MODE?: string;
+  // #1727 (parent #1717, slice (g)) — SEVEN FOSS switches
+  // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
+  // FOSS_QUOTE_MODE: "mcp" | "rest" (F01). FOSS_FUNDAMENTALS_MODE:
+  // "mcp" | "rest" (F01). FOSS_RESEARCH_MODE: "mcp" | "rest" (F01;
+  // audit-name decision: rest spelling foss.research_generated is
+  // canonical for new consumers, mcp spelling preserved under
+  // mode=mcp). FOSS_BARS_MODE: "mcp" | "rest" (F02).
+  // FOSS_SNAPSHOT_MODE: "mcp" | "rest" (F03).
+  // FOSS_ALPACA_READS_MODE: "mcp" | "rest" | "none" (F04, three-way).
+  // FOSS_ALPACA_ORDER_MODE: "mcp" | "foss" | "trading" (F05,
+  // three-way). Built-in defaults are per surface (MCP legacy vs
+  // /foss legacy vs /trading legacy), recorded in
+  // src/config/fossModes.ts. Any other value FAILS CLOSED to the
+  // surface legacy, console-logged + audited as foss.config_error.
+  // Resolution order (run > session > user > global env > built-in)
+  // lives in src/config/fossModes.ts. This slice deliberately does
+  // NOT set production values: production values are an owner action.
+  // Rollback is unsetting the var and redeploying.
+  FOSS_QUOTE_MODE?: string;
+  FOSS_FUNDAMENTALS_MODE?: string;
+  FOSS_RESEARCH_MODE?: string;
+  FOSS_BARS_MODE?: string;
+  FOSS_SNAPSHOT_MODE?: string;
+  FOSS_ALPACA_READS_MODE?: string;
+  FOSS_ALPACA_ORDER_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
