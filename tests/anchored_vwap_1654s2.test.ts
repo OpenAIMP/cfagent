@@ -119,11 +119,12 @@ describe("evaluateUniverse anchored-VWAP gate", () => {
     expect(result.ledger.rejections[0].reason).toMatch(/anchored vwap/i);
   });
 
-  it("passes at exact equality (slice spec: reject only when lastPrice < anchoredVwap)", () => {
+  it("rejects at exact equality (Venus ruling 2026-10-26: strict — spot must remain strictly above AVWAP)", () => {
     const result = screen([makeItem({ lastPrice: 100, anchoredVwap: 100 })], {
       requireAboveAnchoredVwap: true,
     });
-    expect(result.matchedCount).toBe(1);
+    expect(result.matchedCount).toBe(0);
+    expect(result.ledger.rejections[0].reason).toMatch(/anchored vwap/i);
   });
 
   it("fail-closes when the gate is requested but no anchoredVwap is attached", () => {
