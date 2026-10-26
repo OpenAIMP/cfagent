@@ -46,6 +46,7 @@ import type {
   StockScreenerFilter,
 } from "../types";
 import {
+  acquireUniverse,
   createDefaultScreeningRegistry,
   DynamicMarketScreener,
   type DynamicOptionsScreener,
@@ -53,6 +54,7 @@ import {
   type ScreeningProviderAssetClass,
   type ScreeningProviderRegistry,
   type YahooHistoryDeps,
+  type YahooScreenerDeps,
 } from "../trading";
 import {
   runGoalDrivenScreenWithLedger,
@@ -115,6 +117,32 @@ export function createProductionScreeningRegistry(deps: {
   });
 }
 
+/**
+ * Issue #1571: a Yahoo-backed IMarketScreener for goal-screen
+ * fallback runs. Composes the shared pipeline's Yahoo acquisition
+ * (acquireUniverse mode "yahoo" — live Yahoo quotes adapted to the
+ * pipeline quote shape, never fabricated rows) with the same
+ * screenWithQuotes evaluator the listings-feed leg uses, so filter
+ * semantics are identical and only the quote source changes.
+ * Honest failure: a Yahoo acquisition that returns no live quote
+ * throws — the runGoalDrivenScreen per-class catch records the
+ * stocks leg as failed, never as a partial fabrication.
+ */
+export function createYahooStockScreener(
+  yahooDeps: YahooScreenerDeps
+): IMarketScreener {
+  const inner = new DynamicMarketScreener();
+  return {
+    async screenMarkets(filter?: StockScreenerFilter): Promise<StockScreenResult> {
+      const acquired = await acquireUniverse({ mode: "yahoo", yahooDeps });
+      if (acquired.error) {
+        throw new Error(acquired.error);
+      }
+      return inner.screenWithQuotes(acquired.quotes, filter, false);
+    },
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Goal-driven screen composition                                      */
 /* ------------------------------------------------------------------ */
@@ -129,6 +157,21 @@ export interface GoalScreenRunRequest {
   symbols?: string[];
   baseStockFilter?: StockScreenerFilter;
   baseOptionsFilter?: OptionScreenerFilter;
+  /** Issue #1571: data provider for this run's stock leg (default:
+   *  the listings-feed leg). "yahoo" runs the stock leg on the Yahoo
+   *  engine. Serializable — the request crosses the agent RPC stub. */
+  provider?: "yahoo";
+  /** Issue #1571: set when the run fell back to Yahoo because the
+   *  configured provider's auth was dead. Carried onto the result
+   *  so the PDF provenance names it as a Yahoo fallback. */
+  providerFallback?: {
+    from: "etrade";
+    reason: string;
+  };
+  /** Issue #1571: Yahoo fetcher override for the stock leg (test
+   *  seam, mirroring runScreen's req.yahooDeps). Production binds
+   *  the platform Yahoo provider inside the agent. */
+  yahooDeps?: YahooScreenerDeps;
 }
 
 /** The ScreenerAgent surface executeGoalScreenRun depends on (RPC stub in production). */
@@ -219,6 +262,12 @@ export interface GoalScreenRunOutcome {
    *  this run (the serve stage verifies it). Undefined when the run
    *  was not executed or the store write was skipped. */
   canonicalReportId?: string;
+  /** Issue #1571: the fallback marker for this run, when the stock
+   *  leg fell back to Yahoo. Mirrors the marker on the result. */
+  providerFallback?: {
+    from: "etrade";
+    reason: string;
+  };
 }
 
 /**
@@ -244,6 +293,14 @@ export async function executeGoalScreenRun(input: {
   deliver?: ScreeningChannel[];
   emailTo?: string;
   actor?: string;
+  /** Issue #1571: provider + fallback marker for the stock leg,
+   *  forwarded to the agent request (see GoalScreenRunRequest). */
+  provider?: "yahoo";
+  providerFallback?: {
+    from: "etrade";
+    reason: string;
+  };
+  yahooDeps?: YahooScreenerDeps;
 }): Promise<GoalScreenRunOutcome> {
   const run = await input.agent.runGoalScreen({
     scenario: input.scenario,
@@ -255,11 +312,26 @@ export async function executeGoalScreenRun(input: {
     symbols: input.symbols,
     baseStockFilter: input.baseStockFilter,
     baseOptionsFilter: input.baseOptionsFilter,
+    ...(input.provider ? { provider: input.provider } : {}),
+    ...(input.providerFallback ? { providerFallback: input.providerFallback } : {}),
+    ...(input.yahooDeps ? { yahooDeps: input.yahooDeps } : {}),
   });
   if (!run.executed || !run.result) {
     return { taskId: run.task.id, taskStatus: run.task.status, executed: false };
   }
   const result = run.result;
+  // Issue #1571: the recorded result carries the fallback marker even
+  // if the agent did not stamp it — the canonical report body embeds
+  // `result`, so this is what the Runs read surface and the PDF
+  // generator see. The agent stamps it too, before generating
+  // artifacts; this is the caller-side guarantee, not a second
+  // source of truth.
+  if (input.providerFallback && !result.providerFallback) {
+    result.providerFallback = input.providerFallback;
+  }
+  if (input.provider && !result.provider) {
+    result.provider = input.provider;
+  }
   const summary =
     `Goal screen (${result.goalKind}/${result.outlook}) ${result.status}: ` +
     `${result.counts.hits} hit(s) from ${result.counts.stocksScanned} stocks + ` +
@@ -334,6 +406,7 @@ export async function executeGoalScreenRun(input: {
     result,
     ...(delivery ? { delivery } : {}),
     ...(canonical?.reportId ? { canonicalReportId: canonical.reportId } : {}),
+    ...(input.providerFallback ? { providerFallback: input.providerFallback } : {}),
   };
 }
 

@@ -159,6 +159,17 @@ export interface GoalDrivenScreenResult {
     reasons: Record<string, string>;
   };
   completedAt: string;
+  /** Issue #1571: the data provider that produced this run's stock
+   *  leg. Absent keeps the default (listings-feed) shape. */
+  provider?: string;
+  /** Issue #1571: set when the run's stock leg fell back to Yahoo
+   *  because the configured provider's auth was dead — carried so
+   *  the PDF provenance names it as a Yahoo fallback, never as
+   *  E*TRADE live. Mirrors the #1527 market-screen marker. */
+  providerFallback?: {
+    from: "etrade";
+    reason: string;
+  };
   /** Issue #1335: stored report artifacts (PDF + XLSX + CSV), set by
    *  the agent after the run completes — 0-hit runs included. Each
    *  format records its own generated/failed state; a failed artifact
