@@ -36,6 +36,7 @@ import { Button } from "./components/ui/Button";
 import { Notice } from "./components/ui/Notice";
 import { EmptyState } from "./components/ui/EmptyState";
 import { Modal } from "./components/ui/Modal";
+import { Badge } from "./components/ui/Badge";
 import {
   stockFilterToCriteria,
   type StockCriteriaState,
@@ -233,8 +234,15 @@ export function ScreenerPresetManager<C>({
 
   return (
     <Card>
-      <h3>Saved presets</h3>
-      <p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+        <h3 style={{ margin: 0 }}>Saved presets</h3>
+        {visible.length > 0 && (
+          <Badge tone="accent" size="sm">
+            {visible.length} preset{visible.length === 1 ? "" : "s"}
+          </Badge>
+        )}
+      </div>
+      <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "0.75rem" }}>
         Save the current criteria to reuse them later. Loading a preset puts
         its criteria into the panel; the form&apos;s Run button then sends
         them. Runs never carry a preset id — the run request schema would
@@ -243,45 +251,64 @@ export function ScreenerPresetManager<C>({
       {error && <Notice tone="danger">{error}</Notice>}
       {notice && <Notice tone="success">{notice}</Notice>}
       {loading ? (
-        <p>Loading presets…</p>
+        <p style={{ color: "var(--color-text-muted)" }}>Loading presets…</p>
       ) : error ? (
-        <p>Presets could not be loaded.</p>
+        <p style={{ color: "var(--color-danger)" }}>Presets could not be loaded.</p>
       ) : visible.length === 0 ? (
         <EmptyState
           title="No saved presets yet"
           description="Save the current criteria to reuse them later."
         />
       ) : (
-        <ul>
+        <ul className="preset-list-container">
           {visible.map((preset) => (
-            <li key={preset.id}>
-              {preset.name} ({Object.keys(preset.criteria).length} criteria){" "}
-              <Button type="button" variant="secondary" onClick={() => void handleLoad(preset)}>
-                Load
-              </Button>{" "}
-              <Button type="button" variant="secondary" onClick={() => setConfirmDelete(preset)}>
-                Delete
-              </Button>
+            <li key={preset.id} className="preset-list-item">
+              <div className="preset-item-meta">
+                <span className="preset-item-name">{preset.name}</span>{" "}
+                <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                  ({Object.keys(preset.criteria).length} criteria)
+                </span>
+                {Object.entries(preset.criteria).slice(0, 3).map(([k, v]) => (
+                  <Badge key={k} tone="neutral" size="xs">
+                    {k}: {String(v)}
+                  </Badge>
+                ))}
+                {Object.keys(preset.criteria).length > 3 && (
+                  <Badge tone="neutral" size="xs">
+                    +{Object.keys(preset.criteria).length - 3} more
+                  </Badge>
+                )}
+              </div>
+              <div className="preset-item-actions">
+                <Button type="button" variant="primary" size="sm" onClick={() => void handleLoad(preset)}>
+                  Load
+                </Button>{" "}
+                <Button type="button" variant="secondary" size="sm" onClick={() => setConfirmDelete(preset)}>
+                  Delete
+                </Button>
+              </div>
             </li>
           ))}
         </ul>
       )}
-      <FieldShell id="preset-manager-name" label="Preset name">
-        <TextInput
-          id="preset-manager-name"
-          value={name}
-          placeholder="e.g. RSI bounce"
-          onChange={(event) => setName(event.target.value)}
-        />
-      </FieldShell>
-      <Button
-        type="button"
-        variant="secondary"
-        disabled={name.trim() === "" || saving}
-        onClick={() => void handleSave()}
-      >
-        Save preset
-      </Button>
+      <div className="preset-save-bar">
+        <FieldShell id="preset-manager-name" label="Preset name">
+          <TextInput
+            id="preset-manager-name"
+            value={name}
+            placeholder="e.g. RSI bounce"
+            onChange={(event) => setName(event.target.value)}
+          />
+        </FieldShell>
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={name.trim() === "" || saving}
+          onClick={() => void handleSave()}
+        >
+          Save preset
+        </Button>
+      </div>
       <Modal
         open={confirmDelete !== null}
         onClose={() => setConfirmDelete(null)}

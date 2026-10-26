@@ -185,10 +185,10 @@ export function StockCriteriaPanel({ criteria, onChange, lastSentFilters }: Stoc
     const field = criteria[key];
     const id = `stock-criteria-${key}`;
     return (
-      <div className="stock-criteria-row" key={key}>
+      <div className={`stock-criteria-row${field.enabled ? " is-enabled" : ""}`} key={key}>
         <Button
           type="button"
-          variant="secondary"
+          variant={field.enabled ? "primary" : "secondary"}
           aria-pressed={field.enabled}
           aria-label={`Toggle ${label}`}
           onClick={setEnabled(key)}
@@ -218,10 +218,10 @@ export function StockCriteriaPanel({ criteria, onChange, lastSentFilters }: Stoc
     const field = criteria[key];
     const id = `stock-criteria-${key}`;
     return (
-      <div className="stock-criteria-row" key={key}>
+      <div className={`stock-criteria-row${field.enabled ? " is-enabled" : ""}`} key={key}>
         <Button
           type="button"
-          variant="secondary"
+          variant={field.enabled ? "primary" : "secondary"}
           aria-pressed={field.enabled}
           aria-label={`Toggle ${label}`}
           onClick={setEnabled(key)}

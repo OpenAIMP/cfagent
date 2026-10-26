@@ -17,7 +17,7 @@ import {
 } from "./StockCriteriaPanel";
 import { ScreenerPresetManager } from "./ScreenerPresetManager";
 import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "./components/CapabilityNavBar";
-import { ScreenerResultsView } from "./ScreenerResultsView";
+import { ScreenerResultsView, type ScreenerResultData } from "./ScreenerResultsView";
 import { RunDetailView, type RunDetailConfirmation } from "./RunDetailView";
 import { MorningDigest } from "./MorningDigest";
 import { ScannerPanel } from "./ScannerPanel";
@@ -314,41 +314,7 @@ export function ScreenersHub({
   const [sector, setSector] = useState("ALL");
   const [minScore, setMinScore] = useState("");
   const [shardedResults, setShardedResults] = useState<any[]>([]);
-  const [manualResult, setManualResult] = useState<{
-    timestamp: string;
-    pdfKey?: string;
-    reportUrl?: string;
-    trigger: "manual" | "scheduled";
-    sector: string;
-    success: boolean;
-    totalScanned: number;
-    matchedCount: number;
-    opportunities: Array<{
-      symbol: string;
-      companyName: string;
-      signal: string;
-      momentumScore: number;
-      lastPrice: number;
-      changePercent: number;
-    }>;
-    allStocks: Array<{
-      symbol: string;
-      companyName: string;
-      signal: string;
-      momentumScore: number;
-      lastPrice: number;
-      changePercent: number;
-      rsi14: number | null;
-      source: string;
-    }>;
-    discoveryMessage?: string;
-    pdfStatus?: "generated" | "failed" | "skipped";
-    pdfError?: string;
-    xlsxKey?: string;
-    xlsxStatus?: "generated" | "failed" | "skipped";
-    xlsxError?: string;
-    xlsxUrl?: string;
-  } | null>(null);
+  const [manualResult, setManualResult] = useState<ScreenerResultData | null>(null);
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -543,7 +509,13 @@ export function ScreenersHub({
       setManualResult({
         timestamp: data.scannedAt || new Date().toISOString(),
         pdfKey: data.pdfKey,
+        pdfStatus: (data as any).pdfStatus,
+        pdfError: (data as any).pdfError,
         reportUrl: data.reportUrl,
+        xlsxKey: (data as any).xlsxKey,
+        xlsxStatus: (data as any).xlsxStatus,
+        xlsxUrl: (data as any).xlsxUrl,
+        quoteTrace: (data as any).quoteTrace,
         trigger: "manual",
         sector: "Technology",
         success: true,
@@ -558,6 +530,7 @@ export function ScreenersHub({
       setDiscovery(data.discovery || null);
       setScannedAt(data.scannedAt || new Date().toLocaleTimeString());
       onStocksLoaded?.(stockResults);
+      void loadAuto();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Screening request failed.");
     } finally {
@@ -1095,17 +1068,19 @@ export function ScreenersHub({
             {providerSupportsFilter(activeProvider, assetClass, "limit") && (
               <label className="options-field"><span>Max results</span><input type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)} /></label>
             )}
-            <ScreenerPresetManager
-              assetClass="stocks"
-              userLogin={userLogin}
-              currentFilter={stockCriteriaToFilter(stockCriteria)}
-              onApplyPreset={setStockCriteria}
-            />
-            <StockCriteriaPanel
-              criteria={stockCriteria}
-              onChange={setStockCriteria}
-              lastSentFilters={lastSentStockFilters}
-            />
+            <div className="screener-criteria-presets-deck">
+              <ScreenerPresetManager
+                assetClass="stocks"
+                userLogin={userLogin}
+                currentFilter={stockCriteriaToFilter(stockCriteria)}
+                onApplyPreset={setStockCriteria}
+              />
+              <StockCriteriaPanel
+                criteria={stockCriteria}
+                onChange={setStockCriteria}
+                lastSentFilters={lastSentStockFilters}
+              />
+            </div>
             <div className="options-form-footer">
               <button type="submit" disabled={loading || !endpoint}>{loading ? "Screening…" : "Run stock screen"}</button>
             </div>

@@ -1331,15 +1331,10 @@ export class ScreenerAgent extends Agent<Env> {
   }
 
   private async persistRun(result: ScreenerRunResult): Promise<void> {
-    await this.ctx.storage.put(LATEST_KEY, result);
-    const history =
-      (await this.ctx.storage.get<ScreenerRunResult[]>(HISTORY_KEY)) ?? [];
-    await this.ctx.storage.put(
-      HISTORY_KEY,
-      [result, ...history].slice(0, DEFAULT_SCREENER_CONFIG.acquisition.historyLimit)
-    );
     // Issue #269/#914: PDF generation + storage lives in generateRunPdf
     // (shared with regeneration, #1278).
+    // Issue #1793: Generate PDF + XLSX BEFORE writing result into storage
+    // so LATEST and HISTORY retain pdfKey, pdfStatus, xlsxKey, and xlsxStatus.
     await this.generateRunPdf(result);
 
     // XLSX Multi-tab report generation (Screened Stocks + Formulas & Methodology)
@@ -1365,6 +1360,14 @@ export class ScreenerAgent extends Agent<Env> {
       result.xlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
       console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
     }
+
+    await this.ctx.storage.put(LATEST_KEY, result);
+    const history =
+      (await this.ctx.storage.get<ScreenerRunResult[]>(HISTORY_KEY)) ?? [];
+    await this.ctx.storage.put(
+      HISTORY_KEY,
+      [result, ...history].slice(0, DEFAULT_SCREENER_CONFIG.acquisition.historyLimit)
+    );
     // Issue #783: no report-store write happens here. The #732 block that
     // persisted a second copy into this DO's own report table is removed:
     // nothing read that copy. The canonical report copy for a run is
