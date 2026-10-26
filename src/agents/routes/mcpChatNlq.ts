@@ -54,6 +54,10 @@ import {
   resolveNlqMode,
 } from "../../config/nlqModes";
 import type { NlqScopedModes } from "../../config/nlqModes";
+import type {
+  HttpDeliveryScopedModes,
+  JobListScopedModes,
+} from "../../config/asyncJobModes";
 import { resolveAiModelName } from "../model";
 import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
@@ -120,6 +124,16 @@ export interface McpChatNlqRouteContext {
    * fall through to env. See src/config/nlqModes.ts.
    */
   scopedNlqModes?: NlqScopedModes;
+  /**
+   * #1724: optional HTTP_DELIVERY_MODE / JOB_LIST_ENVELOPE
+   * session/user carriers for the /mcp route (delivery run comes
+   * from the `x-delivery-mode` header on the /mcp POST, envelope
+   * run from the per-call `envelope` input, global env from `env`).
+   * Populated by the execution-context owner; unset carriers fall
+   * through to env. See src/config/asyncJobModes.ts.
+   */
+  scopedHttpDeliveryModes?: HttpDeliveryScopedModes;
+  scopedJobListModes?: JobListScopedModes;
 }
 
 /**
@@ -159,6 +173,9 @@ export async function handleMcpChatNlqRoutes(
           orm,
           sessionId,
           scopedNlqModes: ctx.scopedNlqModes,
+          scopedHttpDeliveryModes: ctx.scopedHttpDeliveryModes,
+          scopedJobListModes: ctx.scopedJobListModes,
+          deliveryModeRun: request.headers.get("x-delivery-mode"),
           audit: (type, agent, payload) => ctx.audit(type, agent, payload),
           submitJob: (job) => ctx.submitAsyncJob(job),
           getJob: (jobId) => ctx.getAsyncJob(jobId),

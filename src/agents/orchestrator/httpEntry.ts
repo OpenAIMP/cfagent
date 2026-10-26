@@ -48,6 +48,13 @@ export async function logChatActivity(ctx: HttpEntryContext, request: Request): 
   return Response.json({ id });
 }
 
+/**
+ * #1724 note: the `x-delivery-mode` header is intentionally NOT
+ * forwarded into the job payload — the delivery decision is made at
+ * DO entry (onRequest) before queueing, and the replay runs
+ * routeRequest directly. Only content-type / accept / x-environment
+ * plus the validated x-user-login (or the session key) ride the job.
+ */
 export async function enqueueHttpRequest(ctx: HttpEntryContext, request: Request, url: URL): Promise<Response> {
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength > 8_000_000) {
