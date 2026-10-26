@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { ThemeMode } from "../theme";
 import { StockSearchBar } from "./StockSearchBar";
-import { Badge, type BadgeTone } from "./ui";
+import { Badge, Button, type BadgeTone } from "./ui";
 import { MarketStatusPill } from "./MarketStatusPill";
 import { adjustFontScale, getStoredFontScale } from "../typography";
 import { BRAND } from "../branding";
@@ -650,15 +650,15 @@ export function NavigationMenu({
           </div>
 
           {onToggleCollapse && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               className="sidebar-collapse-btn"
               onClick={onToggleCollapse}
               title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               {collapsed ? <NavIcons.ChevronRight /> : <NavIcons.ChevronLeft />}
-            </button>
+            </Button>
           )}
         </div>
 
@@ -672,9 +672,9 @@ export function NavigationMenu({
               const active = isTabActive(item.id, activeTab);
               const Icon = item.icon;
               return (
-                <button
+                <Button
+                  variant="ghost"
                   key={item.id}
-                  type="button"
                   className={`sidebar-nav-item ${active ? "active" : ""}`}
                   onClick={() => onSelectTab(item.id)}
                   title={`${item.label} — ${item.description}`}
@@ -694,7 +694,7 @@ export function NavigationMenu({
                       </Badge>
                     )}
                   {active && <span className="active-pill-bar" />}
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -706,9 +706,9 @@ export function NavigationMenu({
               const active = isTabActive(item.id, activeTab);
               const Icon = item.icon;
               return (
-                <button
+                <Button
+                  variant="ghost"
                   key={item.id}
-                  type="button"
                   className={`sidebar-nav-item ${active ? "active" : ""}`}
                   onClick={() => onSelectTab(item.id)}
                   title={`${item.label} — ${item.description}`}
@@ -718,17 +718,17 @@ export function NavigationMenu({
                   </span>
                   {!collapsed && <span className="item-label">{item.label}</span>}
                   {!collapsed && item.badge && (
-                    <span className={`item-badge badge-${item.badgeType || "default"}`}>
+                    <Badge size="sm" tone={NAV_BADGE_TONES[item.badgeType || "default"]}>
                       {item.badge}
-                    </span>
+                    </Badge>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <Badge size="sm" tone="danger" title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
-                      </span>
+                      </Badge>
                     )}
                   {active && <span className="active-pill-bar" />}
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -740,9 +740,9 @@ export function NavigationMenu({
               const active = isTabActive(item.id, activeTab);
               const Icon = item.icon;
               return (
-                <button
+                <Button
+                  variant="ghost"
                   key={item.id}
-                  type="button"
                   className={`sidebar-nav-item ${active ? "active" : ""}`}
                   onClick={() => onSelectTab(item.id)}
                   title={`${item.label} — ${item.description}`}
@@ -752,17 +752,17 @@ export function NavigationMenu({
                   </span>
                   {!collapsed && <span className="item-label">{item.label}</span>}
                   {!collapsed && item.badge && (
-                    <span className={`item-badge badge-${item.badgeType || "default"}`}>
+                    <Badge size="sm" tone={NAV_BADGE_TONES[item.badgeType || "default"]}>
                       {item.badge}
-                    </span>
+                    </Badge>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <Badge size="sm" tone="danger" title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
-                      </span>
+                      </Badge>
                     )}
                   {active && <span className="active-pill-bar" />}
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -774,9 +774,9 @@ export function NavigationMenu({
               const active = isTabActive(item.id, activeTab);
               const Icon = item.icon;
               return (
-                <button
+                <Button
+                  variant="ghost"
                   key={item.id}
-                  type="button"
                   className={`sidebar-nav-item ${active ? "active" : ""}`}
                   onClick={() => onSelectTab(item.id)}
                   title={`${item.label} — ${item.description}`}
@@ -786,17 +786,17 @@ export function NavigationMenu({
                   </span>
                   {!collapsed && <span className="item-label">{item.label}</span>}
                   {!collapsed && item.badge && (
-                    <span className={`item-badge badge-${item.badgeType || "default"}`}>
+                    <Badge size="sm" tone={NAV_BADGE_TONES[item.badgeType || "default"]}>
                       {item.badge}
-                    </span>
+                    </Badge>
                   )}
                     {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <span className="item-badge" style={{ background: "var(--color-danger)", color: "var(--color-danger-foreground)" }} title={`${alertBadgeCount} unread broker alert(s)`}>
+                      <Badge size="sm" tone="danger" title={`${alertBadgeCount} unread broker alert(s)`}>
                         🔔 {alertBadgeCount}
-                      </span>
+                      </Badge>
                     )}
                   {active && <span className="active-pill-bar" />}
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -831,8 +831,8 @@ export function NavigationMenu({
 
           {/* Universal Top Bar Refresh Button */}
           {onRefresh && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               className={`nav-refresh-btn ${isRefreshing ? "refreshing" : ""}`}
               onClick={onRefresh}
               disabled={isRefreshing}
@@ -842,13 +842,13 @@ export function NavigationMenu({
               <span className={`nav-refresh-icon ${isRefreshing ? "spin" : ""}`}>↻</span>
               <span className="nav-refresh-text">Refresh</span>
               {lastRefreshedAt && <span className="nav-refresh-time">{lastRefreshedAt}</span>}
-            </button>
+            </Button>
           )}
 
           {/* Quick Font Size Controls */}
           <div className="nav-font-size-ctrl" title="Adjust application font size throughout the app">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               className="nav-font-btn"
               onClick={() => {
                 const next = adjustFontScale(-0.05);
@@ -859,12 +859,12 @@ export function NavigationMenu({
               disabled={navFontScale <= 0.75}
             >
               A-
-            </button>
+            </Button>
             <span className="nav-font-scale-text" title={`Current font zoom: ${Math.round(navFontScale * 100)}%`}>
               {Math.round(navFontScale * 100)}%
             </span>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               className="nav-font-btn"
               onClick={() => {
                 const next = adjustFontScale(0.05);
@@ -875,18 +875,18 @@ export function NavigationMenu({
               disabled={navFontScale >= 1.5}
             >
               A+
-            </button>
+            </Button>
           </div>
 
           {/* Quick Trade Button */}
-          <button
-            type="button"
+          <Button
+            variant="ghost"
             className="nav-trade-btn"
             onClick={() => onSelectTab("autopilot")}
             title="Open Autopilot & Trading execution center"
           >
             Trade
-          </button>
+          </Button>
 
           {headerChildren}
 
@@ -911,9 +911,9 @@ export function NavigationMenu({
             const active = isTabActive(item.id, activeTab);
             const Icon = item.icon;
             return (
-              <button
+              <Button
+                variant="ghost"
                 key={item.id}
-                type="button"
                 className={`top-menu-item-btn ${active ? "active" : ""}`}
                 onClick={() => onSelectTab(item.id)}
                 title={item.description}
@@ -921,11 +921,11 @@ export function NavigationMenu({
                 <Icon active={active} />
                 <span className="top-menu-label">{item.label}</span>
                 {item.badge && (
-                  <span className={`item-badge badge-${item.badgeType || "default"}`}>
+                  <Badge size="sm" tone={NAV_BADGE_TONES[item.badgeType || "default"]}>
                     {item.badge}
-                  </span>
+                  </Badge>
                 )}
-              </button>
+              </Button>
             );
           })}
         </div>

@@ -1,5 +1,6 @@
 import { BRAND } from "../branding";
 import React from "react";
+import { Button } from "./ui";
 import { TabHoverItem } from "../TabHoverItem";
 
 export interface CapabilityTabTooltip {
@@ -89,8 +90,8 @@ export function CapabilityNavBar({
           const isActive = tab.id === activeTabId;
 
           const tabButton = (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               id={`cap-tab-${tab.id}`}
               role="tab"
               aria-selected={isActive}
@@ -111,7 +112,7 @@ export function CapabilityNavBar({
                   {tab.badge}
                 </span>
               )}
-            </button>
+            </Button>
           );
 
           if (tab.tooltip) {
@@ -150,8 +151,8 @@ export function CopilotTriggerButton({
   className?: string;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
       className={`btn-capability-copilot ${className}`}
       onClick={() => {
         window.dispatchEvent(new CustomEvent("open-ask-agent", { detail: { prompt } }));
@@ -160,6 +161,6 @@ export function CopilotTriggerButton({
     >
       <span style={{ fontSize: "0.85rem" }}>🤖</span>
       <span>{label}</span>
-    </button>
+    </Button>
   );
 }
