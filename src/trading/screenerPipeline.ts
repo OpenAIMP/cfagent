@@ -496,19 +496,19 @@ export interface NasdaqUniverseSeam {
 
 /**
  * Issue #1378: build the screenLive seam from a service-held ORM.
- * Outcome-only (the service carries no DO blob handle — the #1331
- * fit-runner precedent): route resolution is enforced and fetch
- * failures are outcome-recorded, but successful fetches leave no
- * capture row. Full blob capture for these paths requires storage
- * threading (named follow-up, not hidden). A bundle-build failure
- * (verify/network) degrades to undefined + warn — never a throw
- * out of screenLive — so the caller gets the missing-seam
- * error-result shape, matching screenLive's contract.
+ * Issue #1661: when the caller threads a DO blob handle, the bundle
+ * captures fully; without one the #1378 outcome-only contract is
+ * preserved (route resolution enforced, fetch failures
+ * outcome-recorded, successful fetches leave no capture row). A
+ * bundle-build failure (verify/network) degrades to undefined +
+ * warn — never a throw out of screenLive — so the caller gets the
+ * missing-seam error-result shape, matching screenLive's contract.
  */
 export async function nasdaqUniverseSeamFromSql(
   sql: SqlStorage | undefined,
   env: Env,
-  userLogin: string
+  userLogin: string,
+  storage?: NasdaqUniverseRouteBundleInput["storage"]
 ): Promise<NasdaqUniverseSeam | undefined> {
   if (!sql) return undefined;
   try {
@@ -517,6 +517,7 @@ export async function nasdaqUniverseSeamFromSql(
       env,
       userLogin,
       runId: crypto.randomUUID(),
+      ...(storage ? { storage } : {}),
     });
     return { universeRoute: bundle };
   } catch (err) {
