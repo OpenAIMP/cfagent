@@ -339,6 +339,49 @@ export class ScheduledTasksService {
   }
 
   /**
+   * Issue #1378: the route-bound universe deps for scheduled
+   * options discovery (full capture via platformDeps when its blob
+   * handle is present, outcome-only otherwise — the same split as
+   * the options_analysis site). Undefined when no platform store
+   * is configured or the bundle cannot be built; discovery then
+   * throws naming the seam rather than fetching directly. The run
+   * id is minted per call (decision D2 recorded exception: these
+   * discovery sites have no caller run id).
+   */
+  private async scheduledUniverseDeps(
+    userLogin: string
+  ): Promise<import("../trading").NasdaqUniverseDeps | undefined> {
+    if (!this.platformDeps?.sql) return undefined;
+    try {
+      const {
+        nasdaqUniverseRouteBundle,
+        nasdaqUniverseProviderFromRoute,
+        bindNasdaqUniverseDeps,
+      } = await import("../trading");
+      const bundle = await nasdaqUniverseRouteBundle({
+        sql: this.platformDeps.sql as never,
+        ...(this.platformDeps.blobStorage
+          ? { storage: this.platformDeps.blobStorage as never }
+          : {}),
+        env: this.platformDeps.env as never,
+        userLogin,
+        runId: crypto.randomUUID(),
+      });
+      const provider = nasdaqUniverseProviderFromRoute(
+        bundle.registry,
+        bundle.configs,
+        bundle.routes
+      );
+      return bindNasdaqUniverseDeps(provider, bundle.runContext);
+    } catch (err) {
+      console.warn(
+        `[scheduled] universe deps unavailable, options discovery degrades to the missing-seam throw: ${err instanceof Error ? err.message : String(err)}`
+      );
+      return undefined;
+    }
+  }
+
+  /**
    * ScreenerAgent stub (issue #261) — one agent owns all screening.
    */
   private getScreenerAgent(userLogin = this.userLogin): import("../agents/screener-agent").ScreenerAgent {
@@ -1510,9 +1553,46 @@ export class ScheduledTasksService {
       // and E*TRADE errors reach the scheduled failure notification path.
       const effectiveUniverse = options.universe || (options.symbols && options.symbols.length > 0 ? null : "NASDAQ100");
       if (effectiveUniverse) {
-        const { fetchAllUsStockListings } = await import("../services/nasdaqListings");
-        const { resolveUniverse, UNIVERSES } = await import("../trading");
-        const listings = await fetchAllUsStockListings();
+        // Issue #1378: the universe resolves through the route
+        // table (bundle → reader → binder), never by direct
+        // listings-module call. Without a platform store there is
+        // no bundle to build: the named throw below reaches the
+        // scheduled failure notification path (this block is inside
+        // the failure boundary), never a silent empty run.
+        // Decision D2 recorded exception: no run id exists at
+        // universe-resolution time (the sharded chain id is minted
+        // only after symbols resolve, below), so the universe
+        // capture is recorded under a minted id.
+        if (!this.platformDeps?.sql) {
+          throw new Error(
+            "options_analysis universe resolution requires platformDeps.sql — no platform store is configured (#1378)"
+          );
+        }
+        const {
+          nasdaqUniverseRouteBundle,
+          nasdaqUniverseProviderFromRoute,
+          bindNasdaqUniverseDeps,
+          resolveUniverse,
+          UNIVERSES,
+        } = await import("../trading");
+        const bundle = await nasdaqUniverseRouteBundle({
+          sql: this.platformDeps.sql as never,
+          ...(this.platformDeps.blobStorage
+            ? { storage: this.platformDeps.blobStorage as never }
+            : {}),
+          env: this.platformDeps.env as never,
+          userLogin,
+          runId: crypto.randomUUID(),
+        });
+        const provider = nasdaqUniverseProviderFromRoute(
+          bundle.registry,
+          bundle.configs,
+          bundle.routes
+        );
+        const listings = await bindNasdaqUniverseDeps(
+          provider,
+          bundle.runContext
+        ).fetchListings();
         const universeDef = UNIVERSES[effectiveUniverse as keyof typeof UNIVERSES];
         const resolved = resolveUniverse(effectiveUniverse as any, listings);
         const maxSymbols = options.maxItems ?? universeDef?.defaultMaxSymbols ?? 50;
@@ -2269,7 +2349,7 @@ export class ScheduledTasksService {
       // schedule owner's identity and environment (#447/#461).
       const etrade = this.createETradeService(userLogin, options.environment);
       const agents: PanelAgents = {
-        data: new OptionsDataAgent(new DynamicOptionsScreener(etrade.client)),
+        data: new OptionsDataAgent(new DynamicOptionsScreener(etrade.client, undefined, await this.scheduledUniverseDeps(userLogin))),
         risk: new StrategyRiskAgent(),
         recommender: new RecommendationAgent(),
       };
@@ -2760,7 +2840,7 @@ export class ScheduledTasksService {
       // environment (#447/#461, #672).
       const etrade = this.createETradeService(userLogin, options.environment);
       const agents: PanelAgents = {
-        data: new OptionsDataAgent(new DynamicOptionsScreener(etrade.client)),
+        data: new OptionsDataAgent(new DynamicOptionsScreener(etrade.client, undefined, await this.scheduledUniverseDeps(userLogin))),
         risk: new StrategyRiskAgent(),
         recommender: new RecommendationAgent(),
       };
@@ -3101,7 +3181,7 @@ export class ScheduledTasksService {
       // environment (#447/#461).
       const etrade = this.createETradeService(userLogin, options.environment);
       const agents: PanelAgents = {
-        data: new OptionsDataAgent(new DynamicOptionsScreener(etrade.client)),
+        data: new OptionsDataAgent(new DynamicOptionsScreener(etrade.client, undefined, await this.scheduledUniverseDeps(userLogin))),
         risk: new StrategyRiskAgent(),
         recommender: new RecommendationAgent(),
       };
@@ -3362,7 +3442,7 @@ export class ScheduledTasksService {
       // service uses, so collection reads chains under the same
       // identity/environment as every other options path.
       const etrade = this.createETradeService(this.userLogin, options.environment);
-      const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client));
+      const dataAgent = new OptionsDataAgent(new DynamicOptionsScreener(etrade.client, undefined, await this.scheduledUniverseDeps(this.userLogin)));
 
       const fetchChain = async (symbol: string) => {
         const snapshot = await dataAgent.loadSnapshot({ symbol });
