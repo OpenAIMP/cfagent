@@ -5,12 +5,20 @@
  * any panel unmounted the entire React tree and left a blank page with
  * no diagnostics (the Portfolio & Holdings crash, issue #71). This
  * boundary (1) contains the failure to the wrapped subtree so the rest
- * of the app keeps working, and (2) renders the error name, message,
- * and React component stack on screen, so the failure is diagnosable
- * from a screenshot without devtools. A Retry button re-mounts the
- * children (useful for transient data states).
+ * of the app keeps working, and (2) renders a business-language
+ * fallback first — what is unavailable, what is unaffected, and the
+ * recovery actions — with the technical detail (error name/message,
+ * component and error stacks) collapsed under "Technical details" for
+ * diagnosability from a screenshot without devtools.
+ *
+ * Recovery (issue #1704, A3-b): Retry re-mounts the children (useful
+ * for transient data states); Reload page recovers a panel stuck on a
+ * stale bundle. Neither action places orders or changes anything —
+ * recovery here is view-only, which is why retry is always safe to
+ * offer for a render failure.
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Button } from "./components/ui";
 
 interface ErrorBoundaryProps {
   /** Human label naming the wrapped area, shown in the fallback. */
@@ -40,6 +48,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.setState({ error: null, componentStack: null });
   };
 
+  private handleReloadPage = (): void => {
+    if (typeof window !== "undefined" && window.location) {
+      window.location.reload();
+    }
+  };
+
   render(): ReactNode {
     const { error, componentStack } = this.state;
     if (!error) return this.props.children;
@@ -57,43 +71,39 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         }}
       >
         <div style={{ fontWeight: 700, marginBottom: 6 }}>
-          ⚠ {this.props.label} hit an error and was stopped so the rest of the app keeps working.
+          ⚠ {this.props.label} hit a problem and was stopped so the rest of the app keeps working.
         </div>
-        <div style={{ fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-          {error.name}: {error.message}
+        <div style={{ marginBottom: 6 }}>
+          What this panel was showing is unavailable. Nothing in the rest of the app is affected.
         </div>
-        {componentStack && (
-          <details style={{ marginTop: 8 }}>
-            <summary style={{ cursor: "pointer" }}>Component stack</summary>
+        <div style={{ marginBottom: 10 }}>
+          Retry reloads just this panel&apos;s view. If it fails again, reload the whole page — it
+          may be running an older version.
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <Button size="sm" onClick={this.handleRetry}>
+            Retry
+          </Button>
+          <Button variant="secondary" size="sm" onClick={this.handleReloadPage}>
+            Reload page
+          </Button>
+        </div>
+        <details style={{ marginTop: 8 }}>
+          <summary style={{ cursor: "pointer" }}>Technical details</summary>
+          <div style={{ fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            {error.name}: {error.message}
+          </div>
+          {componentStack && (
             <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11, margin: "6px 0 0" }}>
               {componentStack.trim()}
             </pre>
-          </details>
-        )}
-        {error.stack && (
-          <details style={{ marginTop: 4 }}>
-            <summary style={{ cursor: "pointer" }}>Error stack</summary>
+          )}
+          {error.stack && (
             <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11, margin: "6px 0 0" }}>
               {error.stack}
             </pre>
-          </details>
-        )}
-        <button
-          type="button"
-          onClick={this.handleRetry}
-          style={{
-            marginTop: 10,
-            padding: "5px 12px",
-            borderRadius: 8,
-            border: "1px solid var(--color-danger)",
-            background: "transparent",
-            color: "inherit",
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
-        >
-          Retry
-        </button>
+          )}
+        </details>
       </div>
     );
   }
