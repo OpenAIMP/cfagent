@@ -24,6 +24,13 @@ Excluded:
 
 ## Dependencies
 
+## Change management
+Expected impact:
+Migration and data impact:
+Rollout plan:
+Rollback plan:
+Communication:
+
 ## Engineering standards
 All development on this issue must follow:
 - SOLID principles

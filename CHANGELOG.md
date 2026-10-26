@@ -19,6 +19,8 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **Change management requirement (#1647):** every issue and PR now carries change management — issue template and PR template gain the Change management fields (impact, migration, rollout, rollback, communication), and gitops gains the Change management rule section with the reviewer gate. #ceo-aimp
+
 - **PR template: ## Implementation section (#1636):** the pull request template now carries the gitops §9 ## Implementation section (Key decisions / Alternatives / Scope exclusions), giving the reuse-before-you-build exception note its prescribed home. #ceo-aimp
 
 - **UX exceptions Phase 2 (#1576, part of #1519):** ToolResultView, AgentChatTabContent, ReferralsTab, RevenueTab, Chat, and ETradeTradingHub render through `src/client/components/ui/` primitives only (Button, Card, Badge, Notice, TextInput, Select, Table, Modal, EmptyState); the freeze allowlist ratchets 60 files / 791 raw elements down to 54 files / 616. Deliberately kept: dynamic data-color spans and pills with no Badge tone equivalent (sponsor pills, gateway pills, DID pills, per-agent tags, ad-net tags, rsi/signal pills, action/status pills), unstyled section containers (referral-form-card/list-card), centered text placeholders (empty-notice/empty-results), and ETradeTradingHub's alert/banner divs (not counted controls; the audit's row for that file targets its tables). Chat's DID proof modal and ETradeTradingHub's PIN, quote-inspection, and diagnostics modals now use the Modal primitive (backdrop, Escape, focus trap, built-in close); ETradeTradingHub's portfolio/ledger tables preserve their empty-state messages and actions via the Table `empty` prop. #cpo-dhmp
