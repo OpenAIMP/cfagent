@@ -22,6 +22,13 @@
  * chain snapshot per expressed name (the panel pipeline's
  * contract) — characterization deliberately reads a separate,
  * earlier snapshot so inference never sees the expression's screen.
+ *
+ * #1639 (D3, retained with stated reason): this service is a
+ * universe-scan / characterization / inference / persistence
+ * pre-stage, not a parallel recommendation engine — every name it
+ * expresses goes through runPanelPipeline, i.e. the kernel's
+ * discoverPanel. It is therefore retained alongside the kernel,
+ * not removed as a duplicate path.
  */
 
 import {

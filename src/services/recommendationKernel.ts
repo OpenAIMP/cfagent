@@ -1486,6 +1486,48 @@ export class RecommendationService {
     };
   }
 
+  /**
+   * discoverLlmIdeas (#1639, D8 — the kernel target for llmIdeas):
+   * the standalone LLM configuration of the template method. Before
+   * this slice, LlmIdeaBuilder ran only inside the 3-way comparison
+   * arms (via comparisonRunner, pre-generated); this entry runs it
+   * directly: LlmIdeaBuilder → research gate chain → price (snapshot
+   * quotes, never fabricated) → falsify → generation-order ranking.
+   * The generator is always injected — this module never calls an
+   * LLM itself, and never in tests. Honesty, unchanged from every
+   * other kernel path: the builder asserts no falsification evidence,
+   * so the falsify stage lands priced LLM candidates at most
+   * Unverified; an idea with no usable quote has no legs and is
+   * rejected by the contract-integrity gate (recorded in rejected),
+   * never carried as a candidate with invented economics. Ranking is generation order (LlmRankPolicy over the build
+   * order) — the LLM's order is the ranking signal for this arm, and
+   * no quant re-ranking overwrites it.
+   */
+  async discoverLlmIdeas(input: {
+    snapshot: KernelSnapshot;
+    request: unknown;
+    generateFn: (input: BuilderInput) => Promise<LlmGeneratorResponse>;
+    model?: string;
+    temperature?: number;
+    gateContext?: Partial<KernelGateContext>;
+  }): Promise<KernelDiscoveryResult> {
+    const builder = new LlmIdeaBuilder({
+      generateFn: input.generateFn,
+      model: input.model,
+      temperature: input.temperature,
+    });
+    const kernel = new RecommendationKernel({
+      builders: [builder],
+      gateHandlers: createResearchGateHandlers(),
+      rankingPolicy: new LlmRankPolicy({ orderFn: (ids) => ids }),
+    });
+    return kernel.run({
+      snapshot: input.snapshot,
+      request: input.request,
+      gateContext: input.gateContext,
+    });
+  }
+
   /** Comparison runs delegate to the standalone runComparison. */
   async runComparison(input: ComparisonInput): Promise<ComparisonArtifact> {
     return runComparison(input);
