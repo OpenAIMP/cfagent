@@ -18,7 +18,7 @@
  */
 
 import type { AsyncJobChannel, AsyncJobSubmission, StageChainConfig } from "../types";
-import type { OptionsPartialQualification } from "../trading/options/opportunityScanner";
+import type { OptionsPartialQualification } from "../trading";
 
 /** Consolidation C4 (#1329): discovery + goal runs join the bridge, so
  *  the outcome kind covers them too. kindLabel (below) names each. */

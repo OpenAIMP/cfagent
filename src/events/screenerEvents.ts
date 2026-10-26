@@ -136,7 +136,7 @@ export interface OptionsCompletedEvent {
    * consumers (lifecycle notifications) can apply the broadcast
    * coverage floor. Absent on complete runs.
    */
-  partial?: import("../trading/options/opportunityScanner").OptionsPartialQualification;
+  partial?: import("../trading").OptionsPartialQualification;
   /** Consolidation C4 (#1329): the run's PDF key, so a chained
    *  options run's serve stage adopts the same artifact the direct
    *  path delivered. Absent on runs that produced no PDF. */
