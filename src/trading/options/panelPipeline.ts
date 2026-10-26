@@ -39,6 +39,12 @@ export interface PipelineOptions {
   strategyFilter?: StrategyScreenFilter;
   riskProfile?: RiskProfile;
   alternatives?: number;
+  /** Consolidation #1236 (feed seam): a stored snapshot to run on
+   *  instead of live-loading. The pipeline downstream (gates,
+   *  pricing, ranking, falsification) is unchanged — only the
+   *  snapshot's source differs, so a snapshot-fed run is judged
+   *  exactly like a live run on the same bytes. */
+  snapshotOverride?: OptionsDataSnapshot;
 }
 
 export interface PipelineResult {
@@ -69,7 +75,7 @@ export async function runPanelWithAgents(
   const panel = await new RecommendationService().discoverPanel({
     dataAgent: {
       loadSnapshot: async (params: unknown) => {
-        const s = await agents.data.loadSnapshot(params as StrategyRequest);
+        const s = options.snapshotOverride ?? await agents.data.loadSnapshot(params as StrategyRequest);
         return {
           symbol: s.symbol,
           contracts: s.contracts,

@@ -174,6 +174,15 @@ export interface DiscoverySymbolOutcome {
     screen: OptionsDataSnapshot["screen"];
     validationError?: string;
   };
+  /** Consolidation #1236 (feed seam): present when this symbol ran
+   *  in snapshot-input mode — which stored artifact fed generate,
+   *  its asOf, and whether it was stale against the run's
+   *  maxAgeSeconds. Absent on live-loaded symbols. */
+  snapshotInput?: {
+    artifactId: string;
+    asOf: string;
+    stale: boolean;
+  };
   /** Present when status is "failed" or "abstained": the honest
    *  reason (pipeline throw, snapshot validation error, the recorded
    *  upstream cause, or the abstention reason) — never secret

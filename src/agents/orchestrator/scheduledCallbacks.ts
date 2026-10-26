@@ -14,6 +14,7 @@ import {
   ScheduledTasksService,
   type AutonomousStrategyDiscoveryOptions,
 } from "../../services/scheduledTasks";
+import { SqlFeedSnapshotStore } from "../../services/feedSnapshotStore";
 import {
   SqlDiscoveryRunStore,
   SqlIvHistoryStore,
@@ -444,7 +445,10 @@ export async function autonomousStrategyDiscovery(ctx: ScheduledCallbacksContext
       undefined,
       new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
       new SqlStrategyProfileStore(ctx.agentCtx.storage.sql),
-      ctx.scheduleScreenerFollowups
+      ctx.scheduleScreenerFollowups,
+      undefined,
+      undefined,
+      new SqlFeedSnapshotStore(ctx.agentCtx.storage.sql)
     );
     const res = await service.autonomousStrategyDiscovery({ ...payload, userLogin, environment });
     if ((res as any).skipped) return;
