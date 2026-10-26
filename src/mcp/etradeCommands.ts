@@ -111,7 +111,7 @@ export class ETradeMarketScanCommand implements IMcpToolCommand<{
     if (resolved.mode === "screened") {
       throw new Error("ETRADE_SCAN_MODE=screened: the ScreenerAgent screened pipeline is not available in MCP context; use listings mode or the REST /etrade/screen route.");
     }
-    const etrade = new ETradeService(context.orm, context.env, context.sessionId);
+    const etrade = new ETradeService(context.orm, context.env, context.sessionId, undefined, context.storage);
     const result = await etrade.screenMarketsAsync(input);
 
     context.audit("etrade.market_scanned", "trading", {
