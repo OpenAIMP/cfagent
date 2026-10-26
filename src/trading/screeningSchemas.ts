@@ -146,6 +146,7 @@ export const stockScreenerFilterFields = {
   requireAboveAnchoredVwap: z.boolean().optional(),
   minAtrPct: fin().optional(),
   maxAtrPct: fin().optional(),
+  regimeFilter: z.enum(["UP", "DN", "RNG"]).optional(),
   gainersOnly: z.boolean().optional(),
   losersOnly: z.boolean().optional(),
   rsiFilter: z.enum(["oversold", "overbought", "neutral", "any"]).optional(),

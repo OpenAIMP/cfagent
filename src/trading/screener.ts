@@ -164,6 +164,9 @@ export class DynamicMarketScreener implements IMarketScreener {
     if (filter.maxAtrPct !== undefined) {
       summaryParts.push(`ATR% <= ${filter.maxAtrPct}`);
     }
+    if (filter.regimeFilter !== undefined) {
+      summaryParts.push(`Regime: ${filter.regimeFilter}`);
+    }
     if (filter.gainersOnly) {
       summaryParts.push("Gainers Only");
     }
@@ -587,6 +590,36 @@ export class DynamicMarketScreener implements IMarketScreener {
           continue;
         }
       }
+
+      // 14. HH/HL regime filter (issue #1654 slice 5; screener-rules.md).
+      // Candidates must carry the requested regime. The regime value
+      // is attached upstream where real bar history exists; a requested
+      // filter with no regime data fail-closes (unavailable, never
+      // estimated). Like slices 1–2, evaluateUniverse itself sees no
+      // bar history — it gates on the attached value, it never
+      // fabricates it.
+      if (filter.regimeFilter !== undefined) {
+        const regime = stock.regime;
+        if (regime === undefined) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: "Regime unavailable — regime filter requested but no regime data attached",
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+        if (regime !== filter.regimeFilter) {
+          rejections.push({
+            symbol: stock.symbol,
+            reason: `Regime (${regime}) does not match filter (${filter.regimeFilter})`,
+            price: stock.price,
+            changePercent: stock.changePercent,
+          });
+          continue;
+        }
+      }
+
 
       // Passed all checks!
       passedStocks.push({
