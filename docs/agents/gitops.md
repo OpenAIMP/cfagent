@@ -188,6 +188,14 @@ Reused surfaces (existing implementations reused):
 Rework justification (if rebuilding an existing capability, why — otherwise none):
 Regression risk + pins preserving existing behavior:
 
+## Agentic design (docs/agents)
+Allocation is a decision, not a default — do NOT turn every service into an agent.
+Capability allocation (agent judgment vs deterministic service/tool, and why the agent earns its cost):
+Coordinator / delegation path + evaluator (independent criteria):
+Task state + records (durable task ledger, execution path recorded):
+Adaptive policies + budgets (explicit, recorded; never-list compliance):
+Deterministic rules kept in code (calculations, risk limits, authorization, accounting, schema validation — never in a model loop):
+
 ## Engineering standards
 All development on this issue must follow:
 - SOLID principles
@@ -213,6 +221,7 @@ All development on this issue must follow:
 - Test evidence (red, green, regression, integration/evaluation; CI runs; post-merge checks):
 - Change management (actual: change type, impacted surfaces, migration and data impact, rollout plan, rollback plan, communication, changelog entry):
 - Conformance (actual: UX primitives/tokens used, architecture boundaries followed, reused surfaces, rework justification, regression pins):
+- Agentic design (actual: allocation as built, delegation path, evaluator, task records, policies/budgets, never-list compliance):
 - Value and impact (value created, capabilities enhanced, competencies improved, value proposition, delivery channels, user journey):
 - Risk and limitations (security, tenant isolation, compatibility, performance/cost; known test-coverage gaps stated explicitly):
 - Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
@@ -481,6 +490,16 @@ No UX drift, no architecture drift, no rework, no regression — reuse is mandat
 3. **Architecture drift is boundary bypass.** Routes stay thin and delegate to domain services/DOs (thin router pin); no direct SQL or business logic in route handlers; no frontend/backend schema duplication (single-source schema pin); authorization through the PDP seam; agentic work through the Judge with step caps and HITL for consequential actions. A PR that bypasses a boundary is sent back.
 4. **Reuse is mandatory; rework needs justification.** Before building, consult `docs/compliance/multiple-implementations.md` — the catalog of existing parallel engines, rankers, weight systems, promotion pipelines, and report generators. Do not add another parallel implementation; reuse, enhance, or consolidate the canonical one (see Reuse before you build). Rebuilding an existing capability without a stated justification is drift, and the PR is sent back.
 5. **No regression.** Existing behavior and pins are preserved; any behavior change updates its pin tests in the same PR (§7). The completion report's Conformance line confirms the actuals at close.
+
+### Agentic design (docs/agents)
+
+Every solution states its agentic design per docs/agents/agentic-architecture.md. Allocation is a decision, not a default.
+
+1. **State it in the issue.** The issue template's `## Agentic design` field names the capability allocation (which parts are agent judgment vs deterministic service/tool, and why the agent earns its cost), the coordinator/delegation path, the evaluator with independent criteria, the task state and records, the adaptive policies and budgets, and the deterministic rules kept in code. An issue without it is incomplete.
+2. **Agent only where judgment earns its cost.** An agent is assigned only where judgment, uncertain planning, interpretation, or dynamic tool selection earns its cost (agentic-architecture.md §2). Turning a service into an agent merely for architectural symmetry is drift, and the PR is sent back.
+3. **Deterministic rules stay in code.** Calculations, risk limits, authorization, accounting, and schema validation stay in independently testable code — never inside a model loop. Model self-assessment is never sufficient evidence; evaluation is independent and, wherever possible, deterministic.
+4. **The never-list is absolute.** No adaptive behavior may expand permissions, remove approvals, raise spend, rewrite evaluation criteria, change production config, deploy, or take unauthorized financial actions. Every adaptive behavior is an explicit, recorded policy with budgets.
+5. **Confirm at close.** The completion report's Agentic design line confirms the allocation as built, the delegation path, the evaluator, the task records, and the policies/budgets.
 
 ### The pin rule
 
@@ -939,6 +958,7 @@ Agents cannot approve their own exceptions.
 - Test evidence (red, green, regression, integration/evaluation; CI runs; post-merge checks):
 - Change management (actual: change type, impacted surfaces, migration and data impact, rollout plan, rollback plan, communication, changelog entry):
 - Conformance (actual: UX primitives/tokens used, architecture boundaries followed, reused surfaces, rework justification, regression pins):
+- Agentic design (actual: allocation as built, delegation path, evaluator, task records, policies/budgets, never-list compliance):
 - Value and impact (value created, capabilities enhanced, competencies improved, value proposition, delivery channels, user journey):
 - Risk and limitations (security, tenant isolation, compatibility, performance/cost; known test-coverage gaps stated explicitly):
 - Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
