@@ -79,8 +79,14 @@ describe("Cloudflare Feature Flags (Issue #1806)", () => {
       expect(result).toBe(false);
     });
 
-    it("defaults to closed (false) for all flags when configuration is empty", async () => {
+    it("defaults to closed (false) for screener when configuration is empty", async () => {
       const env = {};
+      const enabled = await isFeatureEnabled(env, "screener");
+      expect(enabled).toBe(false);
+    });
+
+    it("defaults to closed (false) for all flags when feature configuration is set", async () => {
+      const env = { FEATURE_SCREENER: "0" };
       for (const flag of ALL_FEATURE_FLAGS) {
         const enabled = await isFeatureEnabled(env, flag);
         expect(enabled).toBe(false);

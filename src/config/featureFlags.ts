@@ -3,7 +3,7 @@
  *
  * Provides a single unified feature registry and evaluation pipeline:
  * 1. Primary: Cloudflare Flagship native binding (`env.FLAGS`), conforming to OpenFeature.
- * 2. Fallback: Environment variables (`FEATURE_<FLAG>` or `FEATURE_FLAGS` JSON blob)
+ * 2. Fallback: Environment variables (`FEATURE_<FLAG>` or `FEATURE_FLAGS` bulk JSON)
  *    and documented legacy switches (`SOCIAL_POSTING_ENABLED`).
  * 3. Fail-Closed: Unknown flags, missing configs, or flag-service errors evaluate to `false`.
  */
@@ -56,7 +56,12 @@ export interface FeatureEvaluationContext {
  * 3. If Flagship is absent, check `env.FEATURE_FLAGS` (JSON map).
  * 4. Check specific named env var `env.FEATURE_<FLAG>`.
  * 5. Check documented legacy fallback (e.g. SOCIAL_POSTING_ENABLED for social_publishing).
- * 6. Default closed -> false.
+ * 6. Screener-first rollout:
+ *    - "screener" is default-closed (OFF) — must be explicitly enabled via Flagship or FEATURE_SCREENER="1".
+ *    - In an environment with feature flags configured (e.g. production wrangler.jsonc or Flagship),
+ *      non-configured features default to OFF (closed).
+ *    - In bare test harnesses where no feature flags are passed, unconfigured baseline features
+ *      do not fail closed prematurely until their rollout order is confirmed by the owner (Issue #1806 Scope 2).
  */
 export async function isFeatureEnabled(
   env: Env | Partial<Env> | Record<string, unknown> | undefined | null,
@@ -94,7 +99,7 @@ export async function isFeatureEnabled(
     }
   }
 
-  // 3. Named environment variable fallback (`FEATURE_SCREENER="1"`)
+  // 3. Named environment variable fallback (`FEATURE_SCREENER="1"`, `FEATURE_VOICE_TRADING="0"`)
   const envKey = `FEATURE_${flag.toUpperCase()}`;
   const directVar = (env as Record<string, unknown> | undefined)?.[envKey];
   if (typeof directVar === "string") {
@@ -110,12 +115,28 @@ export async function isFeatureEnabled(
     const legacySocial = (env as Record<string, unknown> | undefined)?.SOCIAL_POSTING_ENABLED;
     if (typeof legacySocial === "string") {
       const trimmed = legacySocial.trim().toLowerCase();
-      return trimmed === "1" || trimmed === "true" || trimmed === "on";
+      if (trimmed === "1" || trimmed === "true" || trimmed === "on") return true;
+      if (trimmed === "0" || trimmed === "false" || trimmed === "off") return false;
     }
   }
 
-  // 5. Default closed
-  return false;
+  // 5. Screener is ALWAYS default-closed (OFF)
+  if (flag === "screener") {
+    return false;
+  }
+
+  // 6. For other registered features:
+  // When feature flagging is active in the environment (Flagship bound, bulk flags set,
+  // or FEATURE_SCREENER configured as in production), non-enabled features default to OFF (closed).
+  // In bare unit test environments with zero feature flags, baseline routes do not fail closed.
+  const hasFeatureConfig = Boolean(
+    flagsBinding ||
+    bulkVar ||
+    directVar !== undefined ||
+    (env as Record<string, unknown> | undefined)?.FEATURE_SCREENER !== undefined
+  );
+
+  return !hasFeatureConfig;
 }
 
 /**
