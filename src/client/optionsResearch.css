@@ -121,6 +121,117 @@
   padding: 0.55rem 1rem;
 }
 
+/* Screener Criteria & Presets Responsive Layout (#1793) */
+.screener-criteria-presets-deck {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 1.25rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  width: 100%;
+}
+
+.screener-criteria-presets-deck > div {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.stock-criteria-row,
+.options-criteria-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+  margin-bottom: 0.65rem;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.stock-criteria-row:hover,
+.options-criteria-row:hover {
+  border-color: var(--color-border-medium);
+}
+
+.stock-criteria-row.is-enabled,
+.options-criteria-row.is-enabled {
+  border-color: var(--color-accent);
+  background: var(--color-surface-raised);
+}
+
+.stock-criteria-row > button,
+.options-criteria-row > button {
+  margin-top: 1.5rem;
+  min-width: 54px;
+}
+
+.stock-criteria-row > .field-shell,
+.options-criteria-row > .field-shell {
+  flex: 1;
+}
+
+/* Presets Manager Styling (#1793) */
+.preset-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  max-height: 280px;
+  overflow-y: auto;
+  list-style: none;
+  padding: 0;
+}
+
+.preset-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.preset-list-item:hover {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border-medium);
+}
+
+.preset-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.preset-item-name {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.preset-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.preset-save-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.preset-save-bar > .field-shell {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+
 .options-nlq-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(140px, 0.3fr) minmax(160px, 0.35fr) auto;
