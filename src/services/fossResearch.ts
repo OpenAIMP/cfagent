@@ -34,6 +34,14 @@ import type {
 import type { IFossMarketDataProvider } from "../patterns/interfaces";
 import { AGENT_DIDS, createDidAttestationSync } from "../agents/did";
 import { getCachedQuoteWithAge, setCachedQuote } from "./quoteCache";
+import {
+  isAlpacaConfigured,
+  levelsForQuoteSwitch,
+  resolveQuoteAlpacaKeyMode,
+  resolveQuoteYahooIndicatorsMode,
+  resolveQuoteYahooOpenMode,
+  type QuoteScopedModes,
+} from "../config/quoteModes";
 
 export interface StockMarketProfile {
   symbol: string;
@@ -1756,8 +1764,29 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
     return fossSyncUnavailable(symbol, "quote", "yfinance");
   }
 
-  async getQuote(symbol: string): Promise<FossQuote> {
+  async getQuote(
+    symbol: string,
+    opts?: { yahooOpenMode?: unknown; yahooIndicatorsMode?: unknown; scoped?: QuoteScopedModes },
+  ): Promise<FossQuote> {
     const cleanSym = symbol.toUpperCase().trim();
+    // #1725 (M4): QUOTE_YAHOO_OPEN_MODE, default "midpoint" (the
+    // single-quote legacy: (dayHigh+dayLow)/2), and
+    // QUOTE_YAHOO_INDICATORS_MODE, default "computed" (rsi14 +
+    // macdSignal from 1mo closes). The batch method keeps its
+    // pinned wire-open / unset-indicators contract and is untouched.
+    // Under "wire", a missing wire open falls back to the midpoint
+    // formula; under "unset", indicator fields are undefined, never
+    // zero-filled. Method opts carry the run level + session/user
+    // carriers; the global env level reads from this.env. The cache
+    // hit below serves the stored fetch-time shape unchanged.
+    const openMode = resolveQuoteYahooOpenMode(
+      levelsForQuoteSwitch(opts?.scoped, opts?.yahooOpenMode, this.env?.QUOTE_YAHOO_OPEN_MODE),
+      "midpoint"
+    ).mode;
+    const indicatorsMode = resolveQuoteYahooIndicatorsMode(
+      levelsForQuoteSwitch(opts?.scoped, opts?.yahooIndicatorsMode, this.env?.QUOTE_YAHOO_INDICATORS_MODE),
+      "computed"
+    ).mode;
     // #411: serve repeat quotes from the 5-minute in-memory cache.
     // #930: a cache hit is stamped "cached" with its age — never bare
     // "live". Values are unchanged (no substitute numbers); only the
@@ -1850,15 +1879,25 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
               bid: meta.bid !== undefined && meta.bid !== null ? Number(meta.bid) : undefined,
               ask: meta.ask !== undefined && meta.ask !== null ? Number(meta.ask) : undefined,
               volume: Number(meta.regularMarketVolume || 0),
-              open: Number(meta.regularMarketDayHigh ? ((meta.regularMarketDayHigh + meta.regularMarketDayLow) / 2).toFixed(2) : price),
+              open: Number(
+                // Wire open must be a real price: 0/negative/NaN falls
+                // back to the midpoint formula (mirrors the batch's
+                // `regularMarketOpen || price` guard, with midpoint
+                // instead of price as the single-quote fallback).
+                openMode === "wire" && Number(meta.regularMarketOpen) > 0
+                  ? Number(meta.regularMarketOpen)
+                  : meta.regularMarketDayHigh
+                    ? ((meta.regularMarketDayHigh + meta.regularMarketDayLow) / 2).toFixed(2)
+                    : price
+              ),
               high: Number(meta.regularMarketDayHigh || meta.fiftyTwoWeekHigh || price),
               low: Number(meta.regularMarketDayLow || meta.fiftyTwoWeekLow || price),
               previousClose: prevClose,
               vwap: price,
               trailingPE,
               marketCap,
-              rsi14,
-              macdSignal: macd.macdSignal,
+              rsi14: indicatorsMode === "computed" ? rsi14 : undefined,
+              macdSignal: indicatorsMode === "computed" ? macd.macdSignal : undefined,
               timestamp: new Date().toISOString(),
               currency: meta.currency || "USD",
             };
@@ -2490,12 +2529,24 @@ export class HybridFossProvider implements IFossMarketDataProvider {
     return fossSyncUnavailable(symbol, "quote", "hybrid");
   }
 
-  async getQuote(symbol: string): Promise<FossQuote> {
+  async getQuote(
+    symbol: string,
+    opts?: { alpacaKeyMode?: unknown; scoped?: QuoteScopedModes },
+  ): Promise<FossQuote> {
     // #923: the price leg must be live or this throws; the fundamentals
     // leg is optional — when live fundamentals are unavailable the live
     // price is still served, WITHOUT backfilling valuation fields from
     // any static table or formula. A missing field stays missing.
-    const isAlpacaLive = Boolean(this.env?.ALPACA_API_KEY_ID && this.env?.ALPACA_API_SECRET_KEY);
+    // #1725 (M6): QUOTE_ALPACA_KEY_MODE, default "id-only" (the
+    // hybrid legacy gate: _ID + _SECRET_KEY spellings only). Under
+    // "either", the marketStream/platform rule applies instead.
+    // Method opts carry the run level + session/user carriers; the
+    // global env level reads from this.env.
+    const keyMode = resolveQuoteAlpacaKeyMode(
+      levelsForQuoteSwitch(opts?.scoped, opts?.alpacaKeyMode, this.env?.QUOTE_ALPACA_KEY_MODE),
+      "id-only"
+    ).mode;
+    const isAlpacaLive = isAlpacaConfigured(this.env, keyMode);
     const priceQuote = await (isAlpacaLive ? this.alpaca.getQuote(symbol) : this.yfinance.getQuote(symbol));
     let yfFundamentals: FossCompanyFundamentals | undefined;
     try {
@@ -2579,14 +2630,26 @@ export class FossResearchService {
     }
   }
 
-  async getQuote(symbol: string, provider: "yfinance" | "alpaca" | "hybrid" = "hybrid"): Promise<FossQuote> {
+  async getQuote(
+    symbol: string,
+    provider: "yfinance" | "alpaca" | "hybrid" = "hybrid",
+    // #1725: quote-switch run level + session/user carriers, forwarded
+    // to the provider (hybrid: alpacaKeyMode; yfinance: yahooOpenMode
+    // / yahooIndicatorsMode). Absent = env levels + surface legacy.
+    opts?: {
+      alpacaKeyMode?: unknown;
+      yahooOpenMode?: unknown;
+      yahooIndicatorsMode?: unknown;
+      scoped?: QuoteScopedModes;
+    },
+  ): Promise<FossQuote> {
     switch (provider) {
       case "yfinance":
-        return this.yfinance.getQuote(symbol);
+        return this.yfinance.getQuote(symbol, opts);
       case "alpaca":
         return this.alpaca.getQuote(symbol);
       default:
-        return this.hybrid.getQuote(symbol);
+        return this.hybrid.getQuote(symbol, opts);
     }
   }
 

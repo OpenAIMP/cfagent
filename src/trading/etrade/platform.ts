@@ -19,6 +19,11 @@ import {
   type NasdaqUniverseSeam,
 } from "../screenerPipeline";
 import { resolveEnvironmentConfig } from "../../config/environment";
+import {
+  levelsForQuoteSwitch,
+  resolveQuoteEtradeUnknownMode,
+  type QuoteScopedModes,
+} from "../../config/quoteModes";
 import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
 import { getETradeAuthStatus } from "../../security/etradeOAuth";
 import { AGENT_DIDS, createDidAttestationSync, getUserDid } from "../../agents/did";
@@ -133,7 +138,17 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     };
   }
 
-  async getQuote(symbol: string): Promise<ETradeQuote> {
+  async getQuote(
+    symbol: string,
+    // #1725 (M7): QUOTE_ETRADE_UNKNOWN_MODE, default "throw" (the
+    // #294 fail-fast legacy). Under "zero-object" the unknown tail
+    // returns the AUTH_REQUIRED zero-price object (the service sync
+    // legacy shape) instead of throwing. The #922 curated-live throw
+    // above precedes this tail and stands in every mode. Method opts
+    // carry the run level + session/user carriers; the global env
+    // level reads from this.env.
+    opts?: { unknownMode?: unknown; scoped?: QuoteScopedModes },
+  ): Promise<ETradeQuote> {
     const cleanSym = symbol.trim().toUpperCase();
 
     // 1. Direct E*TRADE REST API call
@@ -218,6 +233,34 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     // Issue #294: Fail fast with auth error instead of returning a zero-price
     // stub. The stub masked auth failures as "api-zero-price", hiding the real
     // root cause. Throwing ensures correct categorization as "auth".
+    // #1725: under QUOTE_ETRADE_UNKNOWN_MODE "zero-object", return
+    // the zero-price AUTH_REQUIRED object instead (the service sync
+    // legacy shape) — same fields, same stamp, no priced value.
+    const unknownMode = resolveQuoteEtradeUnknownMode(
+      levelsForQuoteSwitch(opts?.scoped, opts?.unknownMode, this.env?.QUOTE_ETRADE_UNKNOWN_MODE),
+      "throw"
+    ).mode;
+    if (unknownMode === "zero-object") {
+      return {
+        symbol: cleanSym,
+        companyName: `${cleanSym} Inc.`,
+        lastPrice: 0.0,
+        price: 0.0,
+        change: 0,
+        changePercent: 0,
+        bid: 0.0,
+        ask: 0.0,
+        volume: 0,
+        open: 0.0,
+        high: 0.0,
+        low: 0.0,
+        week52High: 0.0,
+        week52Low: 0.0,
+        quoteStatus: "AUTH_REQUIRED",
+        timestamp: new Date().toISOString(),
+        source: "E*TRADE Market Data Feed",
+      };
+    }
     throw new Error(
       `E*TRADE auth required for ${cleanSym}: no valid OAuth tokens available ` +
       `(quoteStatus=AUTH_REQUIRED, env=${envConfig.name})`

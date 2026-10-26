@@ -36,6 +36,7 @@ import {
   DynamicMarketScreener,
   ETradeTradingPlatform,
   ETradeRestClient,
+  isStubQuote,
   OrderPreviewParams,
   STATIC_FALLBACK_QUOTE_STATUS,
   STATIC_CURATED_QUOTE_SOURCE,
@@ -50,6 +51,11 @@ import {
 } from "../trading";
 import { getCuratedStockBySymbol } from "../config/curatedStockUniverse";
 import { resolveEnvironmentConfig } from "../config/environment";
+import {
+  levelsForQuoteSwitch,
+  resolveQuoteEtradeUnknownMode,
+  type QuoteScopedModes,
+} from "../config/quoteModes";
 
 export class ETradeService {
   private platform: ETradeTradingPlatform;
@@ -216,7 +222,17 @@ export class ETradeService {
   /**
    * Fetch quote for a specific ticker symbol (synchronous or cached)
    */
-  getQuote(symbol: string): ETradeQuote {
+  getQuote(
+    symbol: string,
+    // #1725 (M7): QUOTE_ETRADE_UNKNOWN_MODE, default "zero-object"
+    // (the sync legacy: AUTH_REQUIRED zero-price object). Under
+    // "throw", the unknown tail throws the #294-style error (the
+    // platform legacy) instead. The #922 curated-live throw above
+    // precedes this tail and stands in every mode. Method opts carry
+    // the run level + session/user carriers; the global env level
+    // reads from this.env.
+    opts?: { unknownMode?: unknown; scoped?: QuoteScopedModes },
+  ): ETradeQuote {
     const cleanSym = symbol.trim().toUpperCase();
     // Issue #118 (audit F12): this synchronous path never fetches live data,
     // so its quotes must carry truthful provenance — in the live environment
@@ -267,6 +283,20 @@ export class ETradeService {
         timestamp: new Date().toISOString(),
         source: envConfig.isLive ? STATIC_CURATED_QUOTE_SOURCE : "E*TRADE Market Data Feed",
       };
+    }
+    // #1725: under QUOTE_ETRADE_UNKNOWN_MODE "throw", fail fast
+    // like the platform (#294) instead of returning the zero-price
+    // object below. Default "zero-object" preserves this path.
+    const unknownMode = resolveQuoteEtradeUnknownMode(
+      levelsForQuoteSwitch(opts?.scoped, opts?.unknownMode, this.env?.QUOTE_ETRADE_UNKNOWN_MODE),
+      "zero-object"
+    ).mode;
+    if (unknownMode === "throw") {
+      const throwEnvConfig = resolveEnvironmentConfig(this.env, this.overrideEnv);
+      throw new Error(
+        `E*TRADE auth required for ${cleanSym}: no valid OAuth tokens available ` +
+        `(quoteStatus=AUTH_REQUIRED, env=${throwEnvConfig.name})`
+      );
     }
     return {
       symbol: cleanSym,
@@ -501,11 +531,12 @@ export class ETradeService {
       // result; nothing is read from shared instance state.
       const { quote: live, error } = await this.client.fetchQuoteDetailed(cleanSym, options);
       if (live && live.lastPrice > 0) {
-        const isStub =
-          (live.lastPrice === 577.51 || live.companyName.toUpperCase().includes("GOOGLE INC")) &&
-          cleanSym !== "GOOG" &&
-          cleanSym !== "GOOGL";
-        if (!isStub) return live;
+        // #1725 (M7): the inline stub-heuristic copy is replaced by
+        // the shared isStubQuote helper (quotePolicies.ts) already
+        // used by the platform and fetchQuoteLiveStrict — identical
+        // predicate (577.51 / "GOOGLE INC", exempting GOOG/GOOGL),
+        // one implementation instead of two. No behavior change.
+        if (!isStubQuote(live, cleanSym)) return live;
       }
       quoteError = error ?? undefined;
     } catch (err) {

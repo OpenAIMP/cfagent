@@ -69,21 +69,27 @@ export interface MarketDataResolution {
 /**
  * Resolve symbols against a cache reader. Pure and synchronous: the
  * reader supplies entries (in production, marketStream's
- * liveMarketCache); expiry is honored here, so expired entries can
- * never leak into a response as current quotes.
+ * liveMarketCache). #1725 (parent #1717, slice (e)): expiry is a
+ * switch (QUOTE_EXPIRY_MODE), default "honour" — expired entries
+ * can never leak into a response as current quotes. Under
+ * "continuity" (the WS stream's legacy, now expressible here) an
+ * expired entry is still served as "cached" with its true age;
+ * the provenance is never upgraded to "live".
  */
 export function resolveMarketDataQuotes(
   symbols: string[],
   readEntry: (symbol: string) => MarketCacheEntry | undefined,
   nowMs: number = Date.now(),
+  opts?: { expiry?: "honour" | "continuity" },
 ): MarketDataResolution {
   const quotes: MarketDataQuoteView[] = [];
   const unavailable: string[] = [];
+  const expiry = opts?.expiry ?? "honour";
   for (const raw of symbols) {
     const symbol = raw.toUpperCase().trim();
     if (!symbol) continue;
     const entry = readEntry(symbol);
-    if (entry && entry.expiresAt > nowMs) {
+    if (entry && (expiry === "continuity" || entry.expiresAt > nowMs)) {
       quotes.push({
         ...entry.tick,
         provenance: "cached",
