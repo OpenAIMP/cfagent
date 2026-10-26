@@ -31,6 +31,14 @@ Rollout plan:
 Rollback plan:
 Communication:
 
+## Conformance (no drift — docs/compliance)
+No UX drift, no architecture drift, no rework, no regression — reuse is mandatory.
+UX surfaces touched + primitives/tokens used (or none):
+Architecture surfaces touched + patterns/boundaries/ADRs followed (or none):
+Reused surfaces (existing implementations reused):
+Rework justification (if rebuilding an existing capability, why — otherwise none):
+Regression risk + pins preserving existing behavior:
+
 ## Engineering standards
 All development on this issue must follow:
 - SOLID principles
@@ -55,6 +63,7 @@ All development on this issue must follow:
 - Implementation (key decisions, alternatives, scope exclusions):
 - Test evidence (red, green, regression, integration/evaluation; CI runs; post-merge checks):
 - Change management (actual: change type, impacted surfaces, migration and data impact, rollout plan, rollback plan, communication, changelog entry):
+- Conformance (actual: UX primitives/tokens used, architecture boundaries followed, reused surfaces, rework justification, regression pins):
 - Value and impact (value created, capabilities enhanced, competencies improved, value proposition, delivery channels, user journey):
 - Risk and limitations (security, tenant isolation, compatibility, performance/cost; known test-coverage gaps stated explicitly):
 - Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
