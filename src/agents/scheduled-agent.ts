@@ -61,6 +61,7 @@ import {
 } from "../data/chainScheduleProjection";
 import { ensureChainScheduleSchema } from "../data/d1ChainScheduleAdapter";
 import { projectRunLegs } from "../data/createShardJobPorts";
+import { recordAuditEventBestEffort } from "../data/createAuditReportPorts";
 
 /**
  * Resolve a halt read for the firing path, failing closed: any
@@ -781,13 +782,31 @@ export class ScheduledAgent extends Agent<Env> {
     }
     await ensureChainScheduleSchema(adapter.db);
     const records = await this.getSynthesized();
-    return reconcileChainSchedules({
+    const report = await reconcileChainSchedules({
       store: adapter,
       tenantId,
       workspaceId: "primary",
       nowMs: Date.now(),
       records,
     });
+    // Issue #1688 (slice 3, R5): a reconcile pass writes one
+    // tenant-wide audit event carrying its report counts.
+    // Best-effort and never blocking: the helper never throws.
+    await recordAuditEventBestEffort(this.env, {
+      tenantId,
+      workspaceId: "primary",
+      chainId: null,
+      eventKind: "reconcile",
+      subjectType: "chain",
+      subjectId: tenantId,
+      actor: "system",
+      detailJson: JSON.stringify(report),
+      occurredAtMs: Date.now(),
+      provenanceWriter: "scheduled-agent:reconcileChainScheduleProjection",
+      provenanceSourceDo: "ScheduledAgent",
+      provenanceSourceVersion: "1",
+    }, Date.now());
+    return report;
   }
 
   /**

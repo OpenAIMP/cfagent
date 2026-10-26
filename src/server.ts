@@ -50,6 +50,17 @@ import {
   readJobHistory,
 } from "./data/createShardJobPorts";
 import type { ReconcileShardJobsReport } from "./data/shardJobProjection";
+import {
+  handleAuditHistoryRoute,
+  handleReportsRoute,
+  handleSeedReportsRoute,
+} from "./data/auditReportRoute";
+import {
+  createAuditReportAdapter,
+  readAuditHistory,
+  readReports,
+} from "./data/createAuditReportPorts";
+import type { SeedCanonicalReportsResult } from "./data/auditReportProjection";
 import type { GovernedHaltState } from "./data/governedHalt";
 import { buildOpenApiSpec, SWAGGER_UI_HTML } from "./security/openapiSpec";
 import {
@@ -1407,6 +1418,135 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         tenantId: resolveIaaaTenant(env),
         runReconcile: ({ tenantId }) =>
           stub.reconcileShardJobProjection(tenantId),
+      });
+    }
+
+    // --- Audit history (issue #1688, slice 3) ---
+    // GET /api/audit/history?chainId=: tenant-scoped read of the
+    // AgentDB audit projection ONLY — never the durable object.
+    // Gated by requireAuth (any signed-in user); the tenant comes
+    // from the IAAA tenant resolution, so a caller can only ever
+    // see their own tenant's rows. Unbound AgentDB → 503.
+    if (path === "/api/audit/history") {
+      const session = await requireAuth(request, env);
+      const tenantId = resolveIaaaTenant(env);
+      const chainId = url.searchParams.get("chainId") ?? "";
+      const history = session
+        ? await readAuditHistory(env, tenantId, chainId)
+        : null;
+      if (!session) {
+        return handleAuditHistoryRoute({
+          session: null,
+          method: request.method,
+          tenantId,
+          chainId,
+          readHistory: async () => [],
+        });
+      }
+      if (history === null) {
+        return Response.json(
+          { error: "Audit history unavailable: AgentDB is not bound." },
+          { status: 503 },
+        );
+      }
+      return handleAuditHistoryRoute({
+        session,
+        method: request.method,
+        tenantId,
+        chainId,
+        readHistory: async () => history,
+      });
+    }
+
+    // --- Canonical reports list (issue #1688, slice 3) ---
+    // GET /api/reports/list[?reportId=]: tenant-scoped read of
+    // the AgentDB report projection ONLY — never the durable
+    // object. Without reportId, latest row per report, newest
+    // first; with reportId, that one report. Gated by
+    // requireAuth (any signed-in user); tenant from IAAA
+    // resolution. Unbound AgentDB → 503. Bodies stay out of
+    // the list shape — the durable object holds the full copy.
+    if (path === "/api/reports/list") {
+      const session = await requireAuth(request, env);
+      const tenantId = resolveIaaaTenant(env);
+      const reportId = url.searchParams.get("reportId");
+      const reports = session
+        ? await readReports(env, tenantId, reportId)
+        : null;
+      if (!session) {
+        return handleReportsRoute({
+          session: null,
+          method: request.method,
+          tenantId,
+          reportId,
+          readReports: async () => [],
+        });
+      }
+      if (reports === null) {
+        return Response.json(
+          { error: "Reports unavailable: AgentDB is not bound." },
+          { status: 503 },
+        );
+      }
+      return handleReportsRoute({
+        session,
+        method: request.method,
+        tenantId,
+        reportId,
+        readReports: async () => reports,
+      });
+    }
+
+    // --- Canonical reports seed (issue #1688, slice 3) ---
+    // POST /api/reports/seed-canonical: the deliberate operator
+    // invocation point for the one-time canonical mas_reports
+    // seed. Gating reuses the IAAA admin pattern exactly
+    // (requireAuth → wired session → live platform-admin
+    // membership, fail-closed, no data on 403). Never
+    // auto-run: no boot, deploy, or tick path calls it. Runs
+    // on the shared Orchestrator instance, whose mas_reports
+    // is the canonical copy; it writes projection rows only,
+    // never the DO table, and a second run seeds zero rows.
+    if (path === "/api/reports/seed-canonical") {
+      const session = await requireAuth(request, env);
+      let isPlatformAdmin = false;
+      if (session?.internalUserId) {
+        try {
+          const overview = await buildAdminOverview(
+            {
+              membershipStore: createKvMembershipStore(sessionStore(env)),
+              auditStore: createWiredAuditStore(env),
+              kv: sessionStore(env),
+              tenantId: resolveIaaaTenant(env),
+              nowMs: Date.now(),
+            },
+            { callerInternalUserId: session.internalUserId },
+          );
+          isPlatformAdmin = overview.allowed;
+        } catch {
+          return Response.json({ error: "Reports seed unavailable." }, { status: 500 });
+        }
+      }
+      if (!createAuditReportAdapter(env)) {
+        return Response.json(
+          { error: "Reports seed unavailable: AgentDB is not bound." },
+          { status: 503 },
+        );
+      }
+      const stub = env.SEARCH_AGENT.get(
+        env.SEARCH_AGENT.idFromName(SHARED_ORCHESTRATOR_INSTANCE),
+      ) as unknown as {
+        seedCanonicalReports(
+          setBy: string,
+          tenantId: string,
+        ): Promise<SeedCanonicalReportsResult>;
+      };
+      return handleSeedReportsRoute({
+        session,
+        method: request.method,
+        isPlatformAdmin,
+        tenantId: resolveIaaaTenant(env),
+        runSeed: ({ tenantId, setBy }) => stub.seedCanonicalReports(setBy, tenantId),
       });
     }
 

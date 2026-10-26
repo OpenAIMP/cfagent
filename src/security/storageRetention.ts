@@ -106,6 +106,21 @@
  *   its source. Enforcement lands with the retention slice;
  *   until then rows accrue unbounded and this line is the
  *   contract that enforcement implements.
+ * - agent_chain_audit (AgentDB projection, slice 3, issue #1688) —
+ *   KEEP. Row-per-event audit trail of projection lifecycle
+ *   events (transitions, job projections, reconciles, seed);
+ *   rows accrue per lifecycle event, not per request, and
+ *   pruning them would destroy exactly the history the audit
+ *   read reasons about. The DO remains authoritative; these
+ *   rows are never the sole record of anything.
+ * - agent_reports (AgentDB projection, slice 3, issue #1688) —
+ *   KEEP, mirroring the mas_reports discipline it projects
+ *   (mas_reports itself is KEEP: one row per report
+ *   generation). Canonical rows are the durable report
+ *   record; deletion happens only via deleteCanonicalReport.
+ *   Enforcement lands with the retention slice; until then
+ *   rows accrue unbounded and this line is the contract
+ *   that enforcement implements.
  * - usage_events (not a mas_* table) — PRUNE-CLASS, 365d, recorded here
  *   per issue #792's deferral, implementation deferred to its first
  *   production reader: rows are split across two DOs' databases

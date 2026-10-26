@@ -10,6 +10,7 @@
  * answers 503; the run path treats it as a no-op).
  */
 import { createD1ShardJobDb, D1ShardJobAdapter, ensureShardJobSchema } from "./d1ShardJobAdapter";
+import { recordAuditEventBestEffort } from "./createAuditReportPorts";
 import type { LegOutcome, ShardJobRow } from "./shardJobPorts";
 import {
   projectLegOutcomes,
@@ -56,7 +57,32 @@ export async function projectRunLegs(
   }
   try {
     await ensureShardJobSchema(adapter.db);
-    return await projectLegOutcomes({ store: adapter, ...input });
+    const result = await projectLegOutcomes({ store: adapter, ...input });
+    // Issue #1688 (slice 3, R5): a run that projected jobs
+    // also writes one audit event for the projection, keyed
+    // by chain, carrying the job counts. Best-effort and
+    // never blocking: the audit helper never throws.
+    if (result.projectedJobs > 0) {
+      await recordAuditEventBestEffort(env, {
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        chainId: input.chainId,
+        eventKind: "project",
+        subjectType: "job",
+        subjectId: input.chainId,
+        actor: "system",
+        detailJson: JSON.stringify({
+          projectedJobs: result.projectedJobs,
+          skippedJobs: result.skippedJobs,
+          writer: input.writer,
+        }),
+        occurredAtMs: input.nowMs,
+        provenanceWriter: "scheduled-agent:projectRunLegs",
+        provenanceSourceDo: "ScheduledAgent",
+        provenanceSourceVersion: "1",
+      }, input.nowMs);
+    }
+    return result;
   } catch (err) {
     return {
       projected: false,

@@ -19,6 +19,7 @@
  * That bound is honest and documented, not hidden.
  */
 import { createShardJobAdapter } from "../../data/createShardJobPorts";
+import { recordAuditEventBestEffort } from "../../data/createAuditReportPorts";
 import { ensureShardJobSchema } from "../../data/d1ShardJobAdapter";
 import {
   reconcileShardJobs,
@@ -79,11 +80,29 @@ export async function runShardJobReconcile(
         ? ctx.nowMs
         : Date.parse(job.updatedAt),
     }));
-  return reconcileShardJobs({
+  const report = await reconcileShardJobs({
     store: adapter,
     tenantId: ctx.tenantId,
     workspaceId: "primary",
     nowMs: ctx.nowMs,
     railsStates,
   });
+  // Issue #1688 (slice 3, R5): a reconcile pass writes one
+  // tenant-wide audit event carrying its report counts.
+  // Best-effort and never blocking: the helper never throws.
+  await recordAuditEventBestEffort(ctx.env, {
+    tenantId: ctx.tenantId,
+    workspaceId: "primary",
+    chainId: null,
+    eventKind: "reconcile",
+    subjectType: "job",
+    subjectId: ctx.tenantId,
+    actor: "system",
+    detailJson: JSON.stringify(report),
+    occurredAtMs: ctx.nowMs,
+    provenanceWriter: "orchestrator:reconcileShardJobProjection",
+    provenanceSourceDo: "Orchestrator",
+    provenanceSourceVersion: "1",
+  }, ctx.nowMs);
+  return report;
 }
