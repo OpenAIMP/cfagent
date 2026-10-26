@@ -12,7 +12,7 @@ import type { DatabaseORM } from "../orm";
 import type { ITradingPlatform, TradingPlatformId } from "./interfaces";
 
 export class TradingPlatformRegistry {
-  private static platforms = new Map<TradingPlatformId, (env: Env, orm: DatabaseORM | undefined, userLogin: string, overrideEnv?: string) => ITradingPlatform>();
+  private static platforms = new Map<TradingPlatformId, (env: Env, orm: DatabaseORM | undefined, userLogin: string, overrideEnv?: string, storage?: import("./screenerPipeline").NasdaqUniverseRouteBundleInput["storage"]) => ITradingPlatform>();
 
   /**
    * Registers a trading platform provider. The factory may accept an
@@ -20,14 +20,14 @@ export class TradingPlatformRegistry {
    * "live"/"sandbox") — factories that do not model environments
    * simply ignore it.
    */
-  static register(id: TradingPlatformId, factory: (env: Env, orm: DatabaseORM | undefined, userLogin: string, overrideEnv?: string) => ITradingPlatform): void {
+  static register(id: TradingPlatformId, factory: (env: Env, orm: DatabaseORM | undefined, userLogin: string, overrideEnv?: string, storage?: import("./screenerPipeline").NasdaqUniverseRouteBundleInput["storage"]) => ITradingPlatform): void {
     this.platforms.set(id, factory);
   }
 
   /**
    * Resolves a trading platform by ID
    */
-  static getPlatform(id: TradingPlatformId, env: Env, orm: DatabaseORM | undefined, userLogin: string, overrideEnv?: string): ITradingPlatform {
+  static getPlatform(id: TradingPlatformId, env: Env, orm: DatabaseORM | undefined, userLogin: string, overrideEnv?: string, storage?: import("./screenerPipeline").NasdaqUniverseRouteBundleInput["storage"]): ITradingPlatform {
     // Issue #1185: platforms are per-user — an explicit login is
     // required; there is no default identity to resolve under.
     if (!userLogin) {
@@ -37,10 +37,10 @@ export class TradingPlatformRegistry {
     if (!factory) {
       // Fallback to etrade or first registered
       const fallback = this.platforms.get("etrade");
-      if (fallback) return fallback(env, orm, userLogin, overrideEnv);
+      if (fallback) return fallback(env, orm, userLogin, overrideEnv, storage);
       throw new Error(`Trading platform [${id}] is not registered.`);
     }
-    return factory(env, orm, userLogin, overrideEnv);
+    return factory(env, orm, userLogin, overrideEnv, storage);
   }
 
   /**
