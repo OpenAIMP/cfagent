@@ -50,6 +50,16 @@ import { createFetchSocialTransport } from "./social/liveTransport";
 import type { DoNamespaceLike } from "../security/durableKv";
 import { readAgentDbHalt } from "../data/createGovernancePorts";
 import type { HaltReader } from "../data/governancePorts";
+import {
+  createChainScheduleAdapter,
+  projectAfterTransition,
+} from "../data/createChainSchedulePorts";
+import {
+  reconcileChainSchedules,
+  type ChainScheduleTransition,
+  type ReconcileReport,
+} from "../data/chainScheduleProjection";
+import { ensureChainScheduleSchema } from "../data/d1ChainScheduleAdapter";
 
 /**
  * Resolve a halt read for the firing path, failing closed: any
@@ -720,7 +730,58 @@ export class ScheduledAgent extends Agent<Env> {
     }
     records.push(record);
     await this.saveSynthesized(records);
+    // Issue #1651 (slice 1, R5): DO first, then project. A
+    // projection failure never fails this transition — it is
+    // logged inside projectAfterTransition and reconciled later.
+    await this.projectSynthesized(record, "synthesize");
     return record;
+  }
+
+  /**
+   * Issue #1651 (slice 1): best-effort projection of an
+   * already-persisted synthesized record. Tenant/workspace
+   * default to "primary" (the documented single-tenant default,
+   * same as the slice-0 tick, R7) until a tenant context is
+   * threaded through ScheduledAgent.
+   */
+  private async projectSynthesized(
+    record: SynthesizedSchedule,
+    transition: ChainScheduleTransition,
+  ): Promise<void> {
+    await projectAfterTransition(this.env, {
+      tenantId: "primary",
+      workspaceId: "primary",
+      record,
+      transition,
+      nowMs: Date.now(),
+    });
+  }
+
+  /**
+   * Issue #1651 (slice 1): operator/maintenance reconciliation
+   * of the chain/schedule projection against current DO state.
+   * This is the invocation point for `reconcileChainSchedules`:
+   * it is called deliberately by an operator (via the
+   * admin-gated POST /api/chains/reconcile route), never on
+   * boot, deploy, or tick. Returns the report so the operator
+   * sees exactly what changed.
+   */
+  async reconcileChainScheduleProjection(
+    tenantId: string = "primary",
+  ): Promise<ReconcileReport> {
+    const adapter = createChainScheduleAdapter(this.env);
+    if (!adapter) {
+      return { checked: 0, reconciled: 0, alreadyCurrent: 0, errors: [] };
+    }
+    await ensureChainScheduleSchema(adapter.db);
+    const records = await this.getSynthesized();
+    return reconcileChainSchedules({
+      store: adapter,
+      tenantId,
+      workspaceId: "primary",
+      nowMs: Date.now(),
+      records,
+    });
   }
 
   /**
@@ -733,7 +794,10 @@ export class ScheduledAgent extends Agent<Env> {
     const records = await this.getSynthesized();
     const updated = approveSynthesizedInList(records, id);
     await this.saveSynthesized(updated);
-    return updated.find((r) => r.id === id)!;
+    const record = updated.find((r) => r.id === id)!;
+    // Issue #1651 (slice 1, R5): DO first, then project.
+    await this.projectSynthesized(record, "approve");
+    return record;
   }
 
   /**
@@ -750,7 +814,10 @@ export class ScheduledAgent extends Agent<Env> {
     const records = await this.getSynthesized();
     const updated = killSynthesizedInList(records, id);
     await this.saveSynthesized(updated);
-    return updated.find((r) => r.id === id)!;
+    const record = updated.find((r) => r.id === id)!;
+    // Issue #1651 (slice 1, R5): DO first, then project.
+    await this.projectSynthesized(record, "kill");
+    return record;
   }
 
   /**
