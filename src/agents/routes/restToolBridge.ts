@@ -26,6 +26,7 @@ export interface RestToolParts {
   sessionId: string;
   audit: McpToolContext["audit"];
   env?: unknown;
+  scopedModes?: McpToolContext["scopedModes"];
 }
 
 /**
@@ -39,6 +40,7 @@ export function restToolContext(parts: RestToolParts): McpToolContext {
     orm: parts.orm,
     sessionId: parts.sessionId,
     audit: parts.audit,
+    scopedModes: parts.scopedModes,
   };
 }
 

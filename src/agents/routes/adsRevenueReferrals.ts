@@ -24,6 +24,28 @@
 import type { AgentName, CategoryRecord, ExternalAdRecord } from "../../types";
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import { runRestTool } from "./restToolBridge";
+import {
+  ADS_REVENUE_SWITCHES,
+  adsRevenueConfigErrorEvent,
+  categoryCreateId,
+  categoryCreateSlug,
+  categoryCreateValues,
+  categoryListOptions,
+  categoryUpdatePatch,
+  externalAdClickEarnings,
+  externalAdCreateId,
+  externalAdCreateValues,
+  externalAdImpressionEarnings,
+  externalAdListOptions,
+  externalAdUpdatePatch,
+  levelsForDomain,
+  referralCreateValues,
+  referralListOptions,
+  resolveAdsRevenueMode,
+  type AdsRevenueDomain,
+  type AdsRevenueMode,
+  type AdsRevenueScopedModes,
+} from "../../config/adsRevenueModes";
 
 /** The subset of OrchestratorAgent surface the ads/revenue/referrals handlers need. */
 export interface AdsRevenueReferralsRouteContext {
@@ -34,6 +56,59 @@ export interface AdsRevenueReferralsRouteContext {
     agent: AgentName | "judge" | "nlq" | "orchestrator",
     payload: Record<string, unknown>
   ): void;
+  /**
+   * #1721: global-env fallback for the three switches (passed from the
+   * orchestrator's Worker env). Optional so existing test literals
+   * keep typechecking; unset env falls through to the built-in
+   * "route" default.
+   */
+  env?: {
+    CATEGORIES_MODE?: unknown;
+    REFERRALS_MODE?: unknown;
+    EXTERNAL_ADS_MODE?: unknown;
+  };
+  /**
+   * #1721: session/user carriers for the three switches, populated by
+   * the execution-context owner. Unset carriers fall through to env.
+   */
+  scopedModes?: AdsRevenueScopedModes;
+}
+
+/**
+ * #1721: resolves one switch for a REST request in run > session >
+ * user > env > builtin order. Run = body `mode`, else `?mode=`.
+ * An invalid winning value fails closed to "route" and is logged +
+ * audited as `<domain>.config_error` before the request proceeds.
+ */
+function resolveRouteMode(
+  ctx: AdsRevenueReferralsRouteContext,
+  domain: AdsRevenueDomain,
+  run: unknown
+): AdsRevenueMode {
+  const switchName = ADS_REVENUE_SWITCHES[domain];
+  const resolved = resolveAdsRevenueMode(
+    levelsForDomain(ctx.scopedModes, domain, run, ctx.env?.[switchName])
+  );
+  if (resolved.invalid) {
+    console.error(
+      `[ads-revenue] invalid ${switchName} value ${JSON.stringify(resolved.raw)} — failing closed to "route"`
+    );
+    ctx.audit(adsRevenueConfigErrorEvent(domain), "orchestrator", {
+      setting: switchName,
+      value: resolved.raw ?? "",
+      resolved: "route",
+    });
+  }
+  return resolved.mode;
+}
+
+/** Run override for a request: POST body `mode`, else `?mode=`. */
+function runModeOf(body: unknown, url: URL): unknown {
+  if (body !== null && typeof body === "object" && !Array.isArray(body)) {
+    const mode = (body as Record<string, unknown>).mode;
+    if (mode !== undefined) return mode;
+  }
+  return url.searchParams.get("mode") ?? undefined;
 }
 
 /**
@@ -50,12 +125,14 @@ export async function handleAdsRevenueReferralsRoutes(
   ctx: AdsRevenueReferralsRouteContext
 ): Promise<Response | null> {
   // Referral Categories ORM Management API
+  // #1721: value contract switched by CATEGORIES_MODE (default route);
+  // list ordering is identical in both modes (sort_order ASC).
   if (path.endsWith("/categories")) {
     const orm = ctx.getOrm();
 
     if (request.method === "GET") {
       try {
-        const categories = orm.categories.findMany({ orderBy: "sort_order ASC" });
+        const categories = orm.categories.findMany(categoryListOptions());
         return Response.json({ count: categories.length, categories });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch categories" }, { status: 500 });
@@ -64,7 +141,8 @@ export async function handleAdsRevenueReferralsRoutes(
 
     if (request.method === "POST") {
       try {
-        const body = (await request.json().catch(() => ({}))) as Partial<CategoryRecord> & { id?: string };
+        const body = (await request.json().catch(() => ({}))) as Partial<CategoryRecord> & { id?: string; mode?: unknown };
+        const mode = resolveRouteMode(ctx, "categories", runModeOf(body, url));
         const name = (body.name || "").trim();
         if (!name) {
           return Response.json({ error: "Category name is required" }, { status: 400 });
@@ -79,27 +157,20 @@ export async function handleAdsRevenueReferralsRoutes(
             return Response.json({ error: "Category not found" }, { status: 404 });
           }
           const updated = orm.categories.update(body.id, {
-            name: body.name || existing.name,
-            slug: body.slug || (body.name ? body.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") : existing.slug),
-            description: body.description ?? existing.description,
-            icon: body.icon || existing.icon,
-            isActive: body.isActive !== undefined ? Boolean(body.isActive) : existing.isActive,
-            sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : existing.sortOrder,
+            ...categoryUpdatePatch(existing, body, mode),
             updatedAt: now,
           });
           category = updated || existing;
           ctx.audit("category.updated", "orchestrator", { id: category.id, name: category.name });
         } else {
-          const slug = (body.slug || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")).slice(0, 32);
-          const id = `cat_${slug.slice(0, 16)}_${crypto.randomUUID().slice(0, 4)}`;
+          const slug = categoryCreateSlug(name, body.slug, mode);
+          const id = categoryCreateId(slug, name, undefined, mode);
+          const values = categoryCreateValues(name, body, mode, orm.categories.count());
           category = orm.categories.create({
             id,
             name,
             slug,
-            description: body.description || `Category for ${name} partner links`,
-            icon: body.icon || "🏷️",
-            isActive: body.isActive !== undefined ? Boolean(body.isActive) : true,
-            sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : (orm.categories.count() || 0) + 1,
+            ...values,
             createdAt: now,
             updatedAt: now,
           });
@@ -114,13 +185,18 @@ export async function handleAdsRevenueReferralsRoutes(
 
     if (request.method === "DELETE") {
       try {
+        const mode = resolveRouteMode(ctx, "categories", runModeOf(null, url));
         const id = url.searchParams.get("id");
         if (!id) {
           return Response.json({ error: "Category id is required" }, { status: 400 });
         }
         orm.categories.delete(id);
         ctx.audit("category.deleted", "orchestrator", { id });
-        return Response.json({ success: true });
+        // #1721: mcp-mode envelope mirrors the command (deleted flag +
+        // id); route mode keeps the bare {success: true}.
+        return mode === "mcp"
+          ? Response.json({ success: true, deleted: true, id })
+          : Response.json({ success: true });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to delete category" }, { status: 500 });
       }
@@ -144,12 +220,15 @@ export async function handleAdsRevenueReferralsRoutes(
   }
 
   // External Ad Network Placements & Monetization API
+  // #1721: value contract switched by EXTERNAL_ADS_MODE (default
+  // route: cpm 15.0 / cpc 1.25, initial impression, 3dp/2dp rounding).
   if (path.endsWith("/external-ads")) {
     const orm = ctx.getOrm();
 
     if (request.method === "GET") {
       try {
-        const ads = orm.externalAds.findMany({ orderBy: "earnings DESC" });
+        const mode = resolveRouteMode(ctx, "externalAds", runModeOf(null, url));
+        const ads = orm.externalAds.findMany(externalAdListOptions(mode));
         return Response.json({ count: ads.length, ads });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch external ads" }, { status: 500 });
@@ -158,7 +237,8 @@ export async function handleAdsRevenueReferralsRoutes(
 
     if (request.method === "POST") {
       try {
-        const body = (await request.json().catch(() => ({}))) as Partial<ExternalAdRecord> & { id?: string };
+        const body = (await request.json().catch(() => ({}))) as Partial<ExternalAdRecord> & { id?: string; mode?: unknown };
+        const mode = resolveRouteMode(ctx, "externalAds", runModeOf(body, url));
         const title = (body.title || "").trim();
         const targetUrl = (body.targetUrl || "").trim();
         if (!title || !targetUrl) {
@@ -169,42 +249,27 @@ export async function handleAdsRevenueReferralsRoutes(
         let ad: ExternalAdRecord;
 
         if (body.id) {
+          // #1721: legacy MCP has no update action, so in mcp mode a
+          // route update is refused (the HTTP mapping of the MCP
+          // `Unsupported action: update` throw) instead of writing.
+          if (mode === "mcp") {
+            return Response.json({ error: "External ad update is not supported in mcp mode" }, { status: 400 });
+          }
           const existing = orm.externalAds.findById(body.id);
           if (!existing) {
             return Response.json({ error: "Ad not found" }, { status: 404 });
           }
-          const updated = orm.externalAds.update(body.id, {
-            title: body.title || existing.title,
-            name: body.name || existing.name,
-            network: body.network || existing.network,
-            placement: body.placement || existing.placement,
-            tagline: body.tagline || existing.tagline,
-            ctaText: body.ctaText || existing.ctaText,
-            targetUrl: body.targetUrl || existing.targetUrl,
-            cpmRate: body.cpmRate !== undefined ? Number(body.cpmRate) : existing.cpmRate,
-            cpcRate: body.cpcRate !== undefined ? Number(body.cpcRate) : existing.cpcRate,
-            isActive: body.isActive !== undefined ? Boolean(body.isActive) : existing.isActive,
-          });
+          const updated = orm.externalAds.update(body.id, externalAdUpdatePatch(existing, body));
           ad = updated || existing;
           ctx.audit("external_ad.updated", "orchestrator", { id: ad.id, title: ad.title });
         } else {
-          const id = `ext_${body.network || "net"}_${crypto.randomUUID().slice(0, 6)}`;
+          const id = externalAdCreateId(body.network, mode);
+          const values = externalAdCreateValues(title, body, mode);
           ad = orm.externalAds.create({
             id,
-            name: body.name || title,
-            network: body.network || "direct",
-            placement: body.placement || "header_leaderboard",
             title,
-            tagline: body.tagline || "",
-            ctaText: body.ctaText || "Learn More →",
             targetUrl,
-            bannerImageUrl: body.bannerImageUrl || "",
-            cpmRate: Number(body.cpmRate) || 15.0,
-            cpcRate: Number(body.cpcRate) || 1.25,
-            impressions: 1,
-            clicks: 0,
-            earnings: (Number(body.cpmRate) || 15.0) / 1000,
-            isActive: true,
+            ...values,
             createdAt: now,
           });
           ctx.audit("external_ad.created", "orchestrator", { id, title });
@@ -219,21 +284,27 @@ export async function handleAdsRevenueReferralsRoutes(
 
   if (path.endsWith("/external-ads/impression") && request.method === "POST") {
     try {
-      const body = (await request.json().catch(() => ({}))) as { id?: string };
+      const body = (await request.json().catch(() => ({}))) as { id?: string; mode?: unknown };
+      const mode = resolveRouteMode(ctx, "externalAds", runModeOf(body, url));
       const id = body.id;
       if (id) {
         const orm = ctx.getOrm();
         const ad = orm.externalAds.findById(id);
         if (ad) {
           const newImpressions = ad.impressions + 1;
-          const incremental = (ad.cpmRate || 15.0) / 1000;
-          const newEarnings = Math.round((ad.earnings + incremental) * 1000) / 1000;
+          const newEarnings = externalAdImpressionEarnings(ad.earnings, ad.cpmRate, mode);
           orm.externalAds.update(id, {
             impressions: newImpressions,
             earnings: newEarnings,
           });
           return Response.json({ success: true, impressions: newImpressions, earnings: newEarnings });
         }
+        // #1721: mcp mode maps the command's not-found throw to 404.
+        if (mode === "mcp") {
+          return Response.json({ error: `Ad ${id} not found` }, { status: 404 });
+        }
+      } else if (mode === "mcp") {
+        return Response.json({ error: "Ad id is required for impression recording" }, { status: 400 });
       }
       return Response.json({ success: false });
     } catch {
@@ -243,15 +314,15 @@ export async function handleAdsRevenueReferralsRoutes(
 
   if (path.endsWith("/external-ads/click") && request.method === "POST") {
     try {
-      const body = (await request.json().catch(() => ({}))) as { id?: string };
+      const body = (await request.json().catch(() => ({}))) as { id?: string; mode?: unknown };
+      const mode = resolveRouteMode(ctx, "externalAds", runModeOf(body, url));
       const id = body.id;
       if (id) {
         const orm = ctx.getOrm();
         const ad = orm.externalAds.findById(id);
         if (ad) {
           const newClicks = ad.clicks + 1;
-          const incremental = ad.cpcRate || 1.25;
-          const newEarnings = Math.round((ad.earnings + incremental) * 100) / 100;
+          const newEarnings = externalAdClickEarnings(ad.earnings, ad.cpcRate, mode);
           orm.externalAds.update(id, {
             clicks: newClicks,
             earnings: newEarnings,
@@ -259,6 +330,11 @@ export async function handleAdsRevenueReferralsRoutes(
           ctx.audit("external_ad.clicked", "orchestrator", { id, clicks: newClicks, earnings: newEarnings });
           return Response.json({ success: true, clicks: newClicks, earnings: newEarnings });
         }
+        if (mode === "mcp") {
+          return Response.json({ error: `Ad ${id} not found` }, { status: 404 });
+        }
+      } else if (mode === "mcp") {
+        return Response.json({ error: "Ad id is required for click recording" }, { status: 400 });
       }
       return Response.json({ success: false });
     } catch {
@@ -282,13 +358,20 @@ export async function handleReferralsAdsRoutes(
   ctx: AdsRevenueReferralsRouteContext
 ): Promise<Response | null> {
   // Referrals & Affiliate Links endpoint
+  // #1721: value contract switched by REFERRALS_MODE (default route:
+  // "AI & Dev Tools" / "Community referral reward", created_at DESC
+  // LIMIT 100). No referral update path exists on either surface and
+  // this slice adds none — a POST body id is ignored, as before.
   const sql = ctx.ensureTables();
 
   if (path.endsWith("/referrals")) {
     if (request.method === "GET") {
       try {
+        const mode = resolveRouteMode(ctx, "referrals", runModeOf(null, url));
+        const options = referralListOptions(mode);
+        const limitClause = options.limit ? ` LIMIT ${options.limit}` : "";
         const raw = Array.from(
-          sql.exec("SELECT id, session_id, title, url, category, reward_text, clicks, signups, created_at FROM mas_referrals ORDER BY created_at DESC LIMIT 100")
+          sql.exec(`SELECT id, session_id, title, url, category, reward_text, clicks, signups, created_at FROM mas_referrals ORDER BY ${options.orderBy}${limitClause}`)
         ) as any[];
         const referrals = raw.map((r) => ({
           id: String(r.id),
@@ -314,11 +397,12 @@ export async function handleReferralsAdsRoutes(
           url?: string;
           category?: string;
           rewardText?: string;
+          mode?: unknown;
         };
+        const mode = resolveRouteMode(ctx, "referrals", runModeOf(body, url));
         const title = (body.title || "").trim();
         const targetUrl = (body.url || "").trim();
-        const category = (body.category || "AI & Dev Tools").trim();
-        const rewardText = (body.rewardText || "Community referral reward").trim();
+        const { category, rewardText } = referralCreateValues(body, mode);
 
         if (!title || !targetUrl) {
           return Response.json({ error: "Title and Target URL are required" }, { status: 400 });
@@ -348,12 +432,22 @@ export async function handleReferralsAdsRoutes(
 
     if (request.method === "DELETE") {
       try {
+        const mode = resolveRouteMode(ctx, "referrals", runModeOf(null, url));
         const id = url.searchParams.get("id");
+        // #1721: mcp mode maps the command's missing-id throw to 400.
+        if (mode === "mcp" && !id) {
+          return Response.json({ error: "Referral id is required for delete" }, { status: 400 });
+        }
         if (id) {
           sql.exec("DELETE FROM mas_referrals WHERE id = ?", id);
           ctx.audit("referral.deleted", "orchestrator", { id });
         }
-        return Response.json({ success: true });
+        // #1721: mcp-mode envelope echoes the id like the command;
+        // the raw-SQL path cannot honestly report a deleted count, so
+        // no `deleted` flag is claimed here (unlike the ORM path).
+        return mode === "mcp" && id
+          ? Response.json({ success: true, id })
+          : Response.json({ success: true });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to delete referral" }, { status: 500 });
       }
@@ -362,7 +456,25 @@ export async function handleReferralsAdsRoutes(
 
   if (path.endsWith("/referrals/click") && request.method === "POST") {
     try {
-      const body = (await request.json().catch(() => ({}))) as { id?: string };
+      const body = (await request.json().catch(() => ({}))) as { id?: string; mode?: unknown };
+      const mode = resolveRouteMode(ctx, "referrals", runModeOf(body, url));
+      if (mode === "mcp") {
+        // MCP missing-id / not-found semantics, HTTP-mapped.
+        if (!body.id) {
+          return Response.json({ error: "Referral id is required for track_click" }, { status: 400 });
+        }
+        const existing = Array.from(
+          sql.exec("SELECT id, clicks FROM mas_referrals WHERE id = ?", body.id)
+        ) as any[];
+        if (existing.length === 0) {
+          return Response.json({ error: `Referral ${body.id} not found` }, { status: 404 });
+        }
+        sql.exec("UPDATE mas_referrals SET clicks = clicks + 1 WHERE id = ?", body.id);
+        const after = Array.from(
+          sql.exec("SELECT id, clicks FROM mas_referrals WHERE id = ?", body.id)
+        ) as any[];
+        return Response.json({ success: true, clicks: Number(after[0]?.clicks ?? 0) });
+      }
       if (body.id) {
         sql.exec("UPDATE mas_referrals SET clicks = clicks + 1 WHERE id = ?", body.id);
       }
