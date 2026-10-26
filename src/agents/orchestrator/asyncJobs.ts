@@ -242,7 +242,9 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
               ? "Notify"
               : job.capability === "shard.execute"
                 ? `Shard: ${(job.payload as { shard: { stage: string; key: string } }).shard.stage}/${(job.payload as { shard: { stage: string; key: string } }).shard.key}`
-                : `Task: ${(job.payload as { title?: string }).title ?? job.capability}`);
+                : job.capability === "feed.snapshot"
+                  ? `Feed snapshot: ${((job.payload as { symbols?: Array<{ symbol?: string }> }).symbols ?? []).map((s) => s.symbol).filter(Boolean).join(", ").slice(0, 100) || "universe"}`
+                  : `Task: ${(job.payload as { title?: string }).title ?? job.capability}`);
   // Single-line column list: the shared MockSqlStorage INSERT parser does
   // not span newlines inside the column list (tests would silently drop
   // the row) — keep this statement on one line.
@@ -940,6 +942,24 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         },
         shardPayload
       );
+    } else if (job.capability === "feed.snapshot") {
+      // Consolidation #1236 (feed seam): the feed stage job. The
+      // executor owns job state; the handler owns the work
+      // (providers, producer, store seams) — the shard.execute idiom.
+      const { executeFeedSnapshotJob } = await import("../../services/feedSnapshotJob");
+      const { ETradeService } = await import("../../services/etrade");
+      const feedPayload = payload as unknown as import("../../services/feedSnapshotJob").FeedSnapshotJobPayload;
+      result = await executeFeedSnapshotJob(
+        {
+          sql: ctx.agentCtx.storage.sql,
+          env: ctx.env as unknown as Record<string, unknown>,
+          orm: ctx.getOrm(),
+          createETradeService: (userLogin, environment) =>
+            new ETradeService(ctx.getOrm(), ctx.env, userLogin, environment),
+          sessionId: ctx.sessionKey(),
+        },
+        feedPayload
+      );
     } else if (job.capability === "nlq.execute") {
       const query = String(payload.query || "").trim();
       if (!query) throw new Error("NLQ job requires a non-empty query.");
@@ -1023,6 +1043,43 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           error: hookError instanceof Error ? hookError.message : String(hookError),
         });
         console.error(`[OrchestratorAgent] Shard advance failed for job ${jobId}:`, hookError);
+      }
+    }
+
+    // Consolidation #1236 (feed seam): a completed feed stage plans
+    // its generate stage — an http.request job to the discovery
+    // trigger route, carrying the fresh artifacts map. The trigger
+    // route is not a recognized screener completion
+    // (screenerOutcomeFromHttpJob matches only /etrade/screen and
+    // /trading/options/screen), so the http hook below plans nothing
+    // for it: no double-planning. The trigger body carries no
+    // stageChain, so the discovery bridge takes its direct path
+    // (canonical row = serve, direct delivery = deliver, exactly
+    // today's non-chain discovery behavior). Scheduling must never
+    // fail the completed feed job. A failed feed job never reaches
+    // this hook — it is the chain's stop point.
+    if (job.capability === "feed.snapshot" && jobStage === "feed" && jobChainId) {
+      try {
+        const { planFeedGenerateJobs } = await import("../../services/feedSnapshotJob");
+        const feedResult = result as unknown as import("../../services/feedSnapshotJob").FeedSnapshotJobResult;
+        const feedPayload = payload as unknown as import("../../services/feedSnapshotJob").FeedSnapshotJobPayload;
+        const specs = planFeedGenerateJobs({
+          feedJobId: jobId,
+          chainId: jobChainId,
+          userLogin: typeof feedPayload?.userLogin === "string" ? feedPayload.userLogin : (jobUserLogin ?? ctx.sessionKey()),
+          environment: feedPayload?.environment,
+          result: feedResult,
+        });
+        for (const spec of specs) {
+          await submitAsyncJob(ctx, spec);
+        }
+      } catch (hookError) {
+        ctx.audit("feed.generate_schedule_failed", "orchestrator", {
+          jobId,
+          chainId: jobChainId,
+          error: hookError instanceof Error ? hookError.message : String(hookError),
+        });
+        console.error(`[OrchestratorAgent] Feed generate scheduling failed for job ${jobId}:`, hookError);
       }
     }
 

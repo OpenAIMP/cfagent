@@ -2116,6 +2116,7 @@ export class OrchestratorAgent extends Think<Env> {
       scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string, chainReport?: boolean) =>
         scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin, chainReport),
       submitShardJob: (spec) => (this as any).submitAsyncJob(spec),
+      submitAsyncJob: (spec) => (this as any).submitAsyncJob(spec),
       autonomousMarketScreen: (payload) => this.autonomousMarketScreen(payload),
       autoRenewETradeTokens: (payload) => this.autoRenewETradeTokens(payload),
       creatableScheduleCallbacks: CREATABLE_SCHEDULE_CALLBACKS,

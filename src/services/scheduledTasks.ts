@@ -58,9 +58,15 @@ import type {
   DiscoverySymbolOutcome,
   StrategyProfileStore,
 } from "../trading";
+import {
+  resolveFeedSnapshotForSymbol,
+  pickFeedLoadParams,
+  type FeedSnapshotInput,
+  type FeedSnapshotReader,
+} from "./feedSnapshotStore";
 import { resolvePresetFilter } from "./screenerPresetResolution";
 import { DynamicOptionsScreener } from "../trading";
-import { OptionsDataAgent, StrategyRiskAgent, RecommendationAgent } from "../trading";
+import { OptionsDataAgent, StrategyRiskAgent, RecommendationAgent, type OptionsDataSnapshot } from "../trading";
 import { collectIvHistory, flattenWatchlistSymbols, type IvCollectionReport } from "../trading";
 import type { IvHistoryStore } from "../trading";
 // Issue #278: durable scheduled-run reports for the AI Search agent.
@@ -151,6 +157,13 @@ export interface AutonomousStrategyDiscoveryOptions {
   emailTo?: string;
   slackChannel?: string;
   webhookUrl?: string;
+  /** Consolidation #1236 (feed seam): per-task feed input. When
+   *  present, generate reads stored snapshot artifacts instead of
+   *  live-loading — per symbol, through the panel's snapshot
+   *  override. Absent ⇒ the fused live path, unchanged. The no-view
+   *  model never calls runDiscoveryRequest, so it ignores this
+   *  field — recorded as remainder. */
+  snapshotInput?: FeedSnapshotInput;
   /** Consolidation C4 (#1329): per-record stage-chain config — a
    *  completed discovery run bridges generate + serve (canonical
    *  report adoption). Consolidation #1236 notifications: chain mode
@@ -316,7 +329,14 @@ export class ScheduledTasksService {
      *  under a sharded label. */
     private shardSubmit?: (
       spec: import("../types").AsyncJobSubmission
-    ) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>
+    ) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>,
+    /** Consolidation #1236 (feed seam): the feed artifact reader
+     *  for snapshot-input mode. Wired by the orchestrator-side
+     *  constructors that own a Durable Object storage handle.
+     *  Absent, a run naming snapshotInput fails its symbols
+     *  honestly ("feed snapshot store not configured") instead of
+     *  silently live-loading. */
+    private feedSnapshotStore?: FeedSnapshotReader,
   ) {}
 
   /**
@@ -2356,7 +2376,7 @@ export class ScheduledTasksService {
 
       const outcomes: DiscoverySymbolOutcome[] = [];
       for (const request of requests) {
-        outcomes.push(await this.runDiscoveryRequest(agents, etrade, request));
+        outcomes.push(await this.runDiscoveryRequest(agents, etrade, request, options.snapshotInput, userLogin));
       }
 
       const failures = outcomes
@@ -2493,6 +2513,16 @@ export class ScheduledTasksService {
           inputModel: args.run.inputModel,
           symbols: args.symbols,
           trigger: args.options.trigger || "scheduled",
+          // Consolidation #1236 (feed seam): surface the feed inputs
+          // through serve — which artifact fed each symbol, its
+          // asOf, and whether it was stale. Only in snapshot mode.
+          ...(args.outcomes.some((o) => o.snapshotInput)
+            ? {
+                snapshotInputs: args.outcomes
+                  .filter((o) => o.snapshotInput)
+                  .map((o) => ({ symbol: o.symbol, ...o.snapshotInput })),
+              }
+            : {}),
         },
         createdAt: args.timestamp,
       });
@@ -2576,11 +2606,51 @@ export class ScheduledTasksService {
   private async runDiscoveryRequest(
     agents: PanelAgents,
     etrade: ETradeService,
-    request: StrategyRequest
+    request: StrategyRequest,
+    snapshotInput?: FeedSnapshotInput,
+    userLogin?: string,
   ): Promise<DiscoverySymbolOutcome> {
     const symbol = request.symbol.toUpperCase().trim();
     try {
-      const result = await runPanelWithAgents(agents, request);
+      // Consolidation #1236 (feed seam): snapshot-input mode. The
+      // stored snapshot replaces the live load (panel shim
+      // override); the pipeline downstream is unchanged. A missing
+      // artifact or filter mismatch fails this symbol explicitly —
+      // never a silent live fallback, which would hide the missing
+      // feed and run on different data than the schedule named.
+      let snapshotOverride: OptionsDataSnapshot | undefined;
+      let snapshotProvenance: DiscoverySymbolOutcome["snapshotInput"];
+      if (snapshotInput) {
+        if (!this.feedSnapshotStore) {
+          return { symbol, status: "failed", request, error: "feed snapshot store not configured for this service instance" };
+        }
+        const resolved = resolveFeedSnapshotForSymbol({
+          store: this.feedSnapshotStore,
+          userLogin: userLogin ?? this.userLogin,
+          symbol,
+          input: snapshotInput,
+          requestFilters: pickFeedLoadParams(request),
+          nowMs: Date.now(),
+        });
+        if (resolved.status === "missing") {
+          return { symbol, status: "failed", request, error: resolved.reason };
+        }
+        snapshotOverride = resolved.artifact.snapshot;
+        snapshotProvenance = {
+          artifactId: resolved.artifact.id,
+          asOf: resolved.artifact.asOf,
+          stale: resolved.stale,
+        };
+        if (resolved.stale) {
+          this.audit("options.strategy_discovery_snapshot_stale", {
+            symbol,
+            artifactId: resolved.artifact.id,
+            asOf: resolved.artifact.asOf,
+            maxAgeSeconds: snapshotInput.maxAgeSeconds,
+          });
+        }
+      }
+      const result = await runPanelWithAgents(agents, request, snapshotOverride ? { snapshotOverride } : {});
       const snapshot = result.snapshot;
       // A snapshot that never loaded its chain is a failure, not
       // an empty success: the screen records why (validation
@@ -2615,6 +2685,7 @@ export class ScheduledTasksService {
           screen: snapshot.screen,
           ...(snapshot.validationError ? { validationError: snapshot.validationError } : {}),
         },
+        ...(snapshotProvenance ? { snapshotInput: snapshotProvenance } : {}),
       };
     } catch (err: any) {
       return {
@@ -2889,7 +2960,7 @@ export class ScheduledTasksService {
         // request, so the run's calendar facts stay auditable. The
         // service never throws; uncovered keeps event risk unverified.
         derived.request.eventCalendar = await getSymbolEventCalendar(symbol);
-        const outcome = await this.runDiscoveryRequest(agents, etrade, derived.request);
+        const outcome = await this.runDiscoveryRequest(agents, etrade, derived.request, options.snapshotInput, userLogin);
         outcomes.push({ ...outcome, derivation: derived.derivation });
       }
 
