@@ -37,6 +37,9 @@ import type {
   ETradeQuote,
 } from "../types";
 import type { PublicMcpClient, PublicMcpTool } from "./publicMcp";
+import { withBreaker } from "../breakers/breakerDecorator";
+import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
+import type { CircuitBreaker } from "../breakers/breakerPorts";
 
 export class PublicDataError extends Error {
   constructor(message: string) {
@@ -376,7 +379,22 @@ export function mapPublicQuoteRow(row: unknown, fetchedAtIso: string): ETradeQuo
  * a batch property (symbols/tickers) when declared, else one
  * per-symbol call per symbol (cfpay's quotes-endpoint pattern).
  */
+/**
+ * Issue #1745: public quotes read behind the public breaker (no
+ * fallback — an MCP tool-surface failure surfaces as the business
+ * error, never a fabricated quote). Tests inject an isolated
+ * breaker; production shares the per-isolate default.
+ */
 export async function readPublicQuotes(
+  client: PublicMcpClient,
+  symbols: string[],
+  opts?: { breaker?: CircuitBreaker }
+): Promise<PublicToolRead> {
+  const breaker = opts?.breaker ?? defaultBreakerRegistry().breakerFor("public");
+  return (await withBreaker(breaker, () => readPublicQuotesInner(client, symbols))).value;
+}
+
+async function readPublicQuotesInner(
   client: PublicMcpClient,
   symbols: string[]
 ): Promise<PublicToolRead> {

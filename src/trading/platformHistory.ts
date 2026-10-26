@@ -32,6 +32,7 @@ import { YahooFinanceProvider } from "../services/fossResearch";
 import { DEFAULT_PIPELINE_POLICY, type RetryPolicy } from "../services/pipelinePolicy";
 import { withRetry } from "../services/resilience";
 import { createYahooDataProvider, verifyYahooDataProvider } from "./dataProviders/adapters";
+import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
 import type { CaptureBlobStorage } from "./dataProviders/captureStore";
 import { createCaptureFetchOutcomeRecorder } from "./dataProviders/captureStore";
 import type { DataProvider, DataRunContext } from "./dataProviders/contract";
@@ -128,6 +129,8 @@ export async function resolveYahooHistoryProvider(args: {
     ...(args.blobStorage
       ? { capture: { sql: args.sql, blobStorage: args.blobStorage, env: args.env } }
       : { outcomeRecorder: createCaptureFetchOutcomeRecorder(args.sql) }),
+    // Issue #1745: platform Yahoo history runs behind the yahoo breaker.
+    breaker: defaultBreakerRegistry().breakerFor("yahoo"),
   });
   registry.register(adapter);
   return yahooBarsProviderFromRoute(

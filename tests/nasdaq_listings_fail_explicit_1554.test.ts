@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAllUsStockListings } from "../src/services/nasdaqListings";
 import { __resetQuoteCache } from "../src/services/quoteCache";
+import { __resetDefaultBreakerRegistry } from "../src/breakers/createBreakerPorts";
 import { getCuratedStockListings } from "../src/config/curatedStockUniverse";
 
 /**
@@ -13,7 +14,11 @@ import { getCuratedStockListings } from "../src/config/curatedStockUniverse";
  * and downstream consumers cannot tell fallback rows from live rows.
  */
 describe("Nasdaq listings fail-explicit (#1554, parent #913)", () => {
-  beforeEach(() => { __resetQuoteCache(); });
+  // Issue #1745: the nasdaq breaker is shared per isolate, and this
+  // file runs several failure cases before its success control —
+  // without a reset the tripped breaker would (correctly) reject
+  // the control. Resetting test state, not production behavior.
+  beforeEach(() => { __resetQuoteCache(); __resetDefaultBreakerRegistry(); });
 
   it("throws on live-feed failure instead of returning curated rows", async () => {
     const fetcher = vi.fn(async () => { throw new Error("network down"); });
