@@ -29,6 +29,9 @@ export interface RestToolParts {
   scopedModes?: McpToolContext["scopedModes"];
   /** #1722: NLQ_MODE session/user carriers, forwarded to the tool context. */
   scopedNlqModes?: McpToolContext["scopedNlqModes"];
+  /** #1723: KNOWLEDGE_MODE / MEMORY_READ_MODE carriers, forwarded likewise. */
+  scopedKnowledgeModes?: McpToolContext["scopedKnowledgeModes"];
+  scopedMemoryModes?: McpToolContext["scopedMemoryModes"];
 }
 
 /**
@@ -44,6 +47,8 @@ export function restToolContext(parts: RestToolParts): McpToolContext {
     audit: parts.audit,
     scopedModes: parts.scopedModes,
     scopedNlqModes: parts.scopedNlqModes,
+    scopedKnowledgeModes: parts.scopedKnowledgeModes,
+    scopedMemoryModes: parts.scopedMemoryModes,
   };
 }
 
