@@ -1003,6 +1003,20 @@ export class ScreenerAgent extends Agent<Env> {
     symbols?: string[];
     baseStockFilter?: StockScreenerFilter;
     baseOptionsFilter?: OptionScreenerFilter;
+    /** Issue #1571: "yahoo" runs the stock leg on the Yahoo engine
+     *  (see createYahooStockScreener). Absent keeps the default
+     *  listings-feed leg. */
+    provider?: "yahoo";
+    /** Issue #1571: fallback marker, stamped onto the result before
+     *  artifact generation so the PDF provenance names the fallback. */
+    providerFallback?: {
+      from: "etrade";
+      reason: string;
+    };
+    /** Issue #1571: Yahoo fetcher override (test seam, mirroring
+     *  runScreen's req.yahooDeps). Production binds the platform
+     *  Yahoo provider below. */
+    yahooDeps?: import("../trading").YahooScreenerDeps;
   }): Promise<{ task: ScreenerTask; executed: boolean; result?: GoalDrivenScreenResult }> {
     const userLogin = req.userLogin || (await this.userLogin());
     const etrade = new ETradeService(
@@ -1011,9 +1025,49 @@ export class ScreenerAgent extends Agent<Env> {
       userLogin,
       req.environment
     );
-    const { runProductionGoalScreen } = await import("../services/screeningRuntime");
+    const { runProductionGoalScreen, createYahooStockScreener } = await import("../services/screeningRuntime");
+    // Issue #1571: a Yahoo goal run binds the platform Yahoo provider
+    // exactly like runScreen's #1317 block — bootstrap, verify→enable,
+    // and bind the pipeline deps over the quotes route. The options
+    // leg keeps its E*TRADE client (it fails per-class on auth-dead,
+    // unchanged); only the stock leg is rerouted.
+    let stockScreener: import("../trading").IMarketScreener | undefined;
+    if (req.provider === "yahoo") {
+      let yahooDeps = req.yahooDeps;
+      if (!yahooDeps) {
+        bootstrapDataProviders(this.ctx.storage.sql);
+        const platformRunId = crypto.randomUUID();
+        const yahooConfig = getProviderConfig(this.ctx.storage.sql, "yahoo");
+        if (!yahooConfig || yahooConfig.lifecycleState !== "enabled" || !yahooConfig.enabled) {
+          await transitionProvider(this.ctx.storage.sql, "yahoo", "verify", userLogin, {
+            verifier: async () => verifyYahooDataProvider(this.env),
+          });
+          await transitionProvider(this.ctx.storage.sql, "yahoo", "enable", userLogin, {});
+        }
+        const yahooRegistry = new DataProviderRegistry();
+        const yahooAdapter = createYahooDataProvider(new YahooFinanceProvider(this.env), this.env, {
+          capture: {
+            sql: this.ctx.storage.sql,
+            blobStorage: this.ctx.storage,
+            env: this.env,
+          },
+        });
+        yahooRegistry.register(yahooAdapter);
+        const yahooProvider = yahooQuoteProviderFromRoute(
+          yahooRegistry,
+          listProviderConfigs(this.ctx.storage.sql),
+          listCapabilityRoutes(this.ctx.storage.sql)
+        );
+        yahooDeps = bindYahooScreenerDeps(yahooProvider, {
+          runId: platformRunId,
+          userLogin,
+        });
+      }
+      stockScreener = createYahooStockScreener(yahooDeps);
+    }
     const out = await runProductionGoalScreen({
       ledger: this.taskLedger(),
+      ...(stockScreener ? { stockScreener } : {}),
       optionsScreener: new DynamicOptionsScreener(etrade.client),
       scenario: req.scenario,
       trigger: req.trigger,
@@ -1029,6 +1083,14 @@ export class ScreenerAgent extends Agent<Env> {
     // generateRunPdf for stock runs. Artifact failure is recorded on
     // the result, never thrown: the run completed, the artifact did not.
     if (out.executed && out.result) {
+      // Issue #1571: stamp the fallback marker BEFORE artifact
+      // generation so the goal PDF provenance names the fallback.
+      if (req.providerFallback && !out.result.providerFallback) {
+        out.result.providerFallback = req.providerFallback;
+      }
+      if (req.provider && !out.result.provider) {
+        out.result.provider = req.provider;
+      }
       const { generateAndStoreGoalScreenArtifacts } = await import(
         "../services/goalScreenReports"
       );
