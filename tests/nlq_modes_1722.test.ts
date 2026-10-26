@@ -22,11 +22,14 @@
  *   MCP: no ports are bound on MCP contexts, so rest = the full
  *   function with no options — which RESTORES the LLM validation +
  *   planSource patch the legacy facade path skipped.
- * - "mcp": each surface's own legacy execution, verbatim — REST route
- *   and async job drop to the MCP-direct shape (full function, NO
- *   options: no ports, no stores, no runners); MCP facade path keeps
- *   planNLQ + executeNLQQueryAsync (no validation patch); MCP direct
- *   keeps the full function with no options (its legacy already).
+ * - "mcp": each surface's own legacy execution, verbatim — EXCEPT
+ *   #1686: the REST route's mcp branch now threads the DO blob
+ *   handle (`storage`) so mcp-mode screens capture like rest-mode
+ *   screens; ports, stores, and runners stay absent there. The async
+ *   job still drops to the MCP-direct shape (full function, NO
+ *   options); MCP facade path keeps planNLQ + executeNLQQueryAsync
+ *   (no validation patch); MCP direct keeps the full function with
+ *   no options (its legacy already).
  *
  * What the switch does NOT govern (enforcement, never opt-out):
  * - REST x-user-login gate: 401 without it, in BOTH modes.
@@ -43,9 +46,10 @@
  *
  * Pinned port matrix (scan appendix (b) N01), both modes:
  * | context      | rest mode                              | mcp mode                 |
- * | REST /nlq    | sched YES, stock NO→listings fallback, | all ports NO, stores NO, |
- * |              | social YES (trusted only), disc YES,   | runners NO, LLM fn YES  |
- * |              | stores YES, LLM fn YES                 | (full fn, no options)  |
+ * | REST /nlq    | sched YES, stock NO→listings fallback, | ports NO, stores NO, |
+ * |              | social YES (trusted only), disc YES,   | runners NO, storage YES|
+ * |              | stores YES, LLM fn YES                 | (capture), LLM fn YES |
+ * |              |                                        | (full fn + storage)    |
  * | async job    | sched YES, stock YES, social NO,       | all ports NO, stores NO, |
  * |              | disc YES, stores YES, LLM fn YES       | runners NO, LLM fn YES  |
  * | MCP facade   | ports NO, stores NO, runners NO,       | plan+async, NO validation|
@@ -209,28 +213,43 @@ describe("REST POST /nlq: rest vs mcp port contract", () => {
     expect(args[6].validateWithLLM).toBe(true);
     expect(audit).toHaveBeenCalledWith("nlq.executed", "nlq", expect.objectContaining({ query: "show me trades" }));
   });
-  it("body mode mcp drops to the MCP-direct shape: full function, NO options", async () => {
+  it("body mode mcp threads storage only (capture): ports/stores/runners stay absent", async () => {
     nlqMock().mockClear();
     const audit = vi.fn();
-    const ctx = routeCtx({ audit });
+    const blob = { id: "blob" };
+    const ctx = routeCtx({ audit, getStorage: () => blob });
     const res = await postNlq(ctx, { query: "show me trades", mode: "mcp" });
     expect(res!.status).toBe(200);
     const args = nlqMock().mock.calls[0];
     expect(args[4]).toBe("bob");
-    expect(args[6]).toBeUndefined();
+    expect(args[6]).toBeDefined();
+    expect(args[6].storage).toBe(blob);
+    expect(Object.keys(args[6])).toEqual(["storage"]);
+    expect(args[6].schedulingPort).toBeUndefined();
+    expect(args[6].socialBriefPort).toBeUndefined();
+    expect(args[6].discoveryRunner).toBeUndefined();
+    expect(args[6].fitDiscoveryRunner).toBeUndefined();
+    expect(args[6].scanRunStore).toBeUndefined();
+    expect(args[6].profileStore).toBeUndefined();
     expect(audit).toHaveBeenCalledWith("nlq.executed", "nlq", expect.objectContaining({ query: "show me trades" }));
   });
-  it("env NLQ_MODE=mcp selects mcp without a body mode", async () => {
+  it("env NLQ_MODE=mcp selects mcp without a body mode (storage threaded)", async () => {
     nlqMock().mockClear();
-    const ctx = routeCtx({ env: { NLQ_MODE: "mcp" } });
+    const blob = { id: "blob" };
+    const ctx = routeCtx({ env: { NLQ_MODE: "mcp" }, getStorage: () => blob });
     await postNlq(ctx, { query: "show me trades" });
-    expect(nlqMock().mock.calls[0][6]).toBeUndefined();
+    expect(nlqMock().mock.calls[0][6]).toBeDefined();
+    expect(nlqMock().mock.calls[0][6].storage).toBe(blob);
+    expect(Object.keys(nlqMock().mock.calls[0][6])).toEqual(["storage"]);
   });
-  it("session carrier on the route ctx selects mcp", async () => {
+  it("session carrier on the route ctx selects mcp (storage threaded)", async () => {
     nlqMock().mockClear();
-    const ctx = routeCtx({ scopedNlqModes: { session: "mcp" } });
+    const blob = { id: "blob" };
+    const ctx = routeCtx({ scopedNlqModes: { session: "mcp" }, getStorage: () => blob });
     await postNlq(ctx, { query: "show me trades" });
-    expect(nlqMock().mock.calls[0][6]).toBeUndefined();
+    expect(nlqMock().mock.calls[0][6]).toBeDefined();
+    expect(nlqMock().mock.calls[0][6].storage).toBe(blob);
+    expect(Object.keys(nlqMock().mock.calls[0][6])).toEqual(["storage"]);
   });
   it("webhook + rest withholds ONLY the social port (scheduling stays)", async () => {
     nlqMock().mockClear();
