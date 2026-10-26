@@ -96,9 +96,12 @@ describe("handleAuditRoutes behavior", () => {
   });
 
   it("GET /audit returns parsed events, wrapping unparseable payloads as { raw }", async () => {
+    // #1644: rows carry session_id (production rows always do — recordAudit
+    // writes the instance session key), because the route now filters the
+    // command output by session before projecting.
     const rows = [
-      { id: "e1", type: "t.a", agent: "trading", payload: JSON.stringify({ k: 1 }), created_at: "2026-10-19T05:00:00Z" },
-      { id: "e2", type: "t.b", agent: "orchestrator", payload: "not-json{", created_at: "2026-10-19T06:00:00Z" },
+      { id: "e1", session_id: "s1", type: "t.a", agent: "trading", payload: JSON.stringify({ k: 1 }), created_at: "2026-10-19T05:00:00Z" },
+      { id: "e2", session_id: "s1", type: "t.b", agent: "orchestrator", payload: "not-json{", created_at: "2026-10-19T06:00:00Z" },
     ];
     const ctx = baseCtx({ ensureTables: () => makeSql({ mas_events: rows }) });
     const res = await handleAuditRoutes(req("GET", "/api/audit"), new URL("https://x/api/audit"), "/api/audit", "s1", ctx);
@@ -110,22 +113,24 @@ describe("handleAuditRoutes behavior", () => {
   });
 
   it("GET /audit clamps the limit param to 1..100", async () => {
-    let gotLimit: unknown;
-    const ctx = baseCtx({
-      ensureTables: () =>
-        ({
-          exec: (_q: string, _sid: string, limit: unknown) => {
-            gotLimit = limit;
-            return [];
-          },
-        }) as any,
-    });
-    await handleAuditRoutes(req("GET", "/api/audit?limit=5000"), new URL("https://x/api/audit?limit=5000"), "/api/audit", "s", ctx);
-    expect(gotLimit).toBe(100);
-    // Characterization: a non-numeric limit yields NaN through Math.max/min
-    // (verbatim from the original inline block — no clamping of NaN).
-    await handleAuditRoutes(req("GET", "/api/audit?limit=abc"), new URL("https://x/api/audit?limit=abc"), "/api/audit", "s", ctx);
-    expect(gotLimit).toBeNaN();
+    // #1644: the route no longer issues the LIMIT ? SQL — the 100-cap is
+    // now the route's slice over get_audit_events output, so the cap is
+    // pinned by returned count, not by a SQL parameter. A non-numeric
+    // limit clamps through Math.max/min to NaN, and slice(0, NaN) yields
+    // zero rows — deterministic empty, replacing the old NaN-param quirk.
+    const rows = Array.from({ length: 150 }, (_, i) => ({
+      id: `e${i}`,
+      session_id: "s",
+      type: "t",
+      agent: "trading",
+      payload: JSON.stringify({ k: i }),
+      created_at: `2026-10-19T${String(i % 24).padStart(2, "0")}:00:00Z`,
+    }));
+    const ctx = baseCtx({ ensureTables: () => makeSql({ mas_events: rows }) });
+    const capped = await handleAuditRoutes(req("GET", "/api/audit?limit=5000"), new URL("https://x/api/audit?limit=5000"), "/api/audit", "s", ctx);
+    expect((await capped!.json()).count).toBe(100);
+    const nan = await handleAuditRoutes(req("GET", "/api/audit?limit=abc"), new URL("https://x/api/audit?limit=abc"), "/api/audit", "s", ctx);
+    expect((await nan!.json()).count).toBe(0);
   });
 
   it("GET /audit 500s when the store throws", async () => {
