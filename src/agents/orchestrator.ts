@@ -1789,6 +1789,8 @@ export class OrchestratorAgent extends Think<Env> {
     const mcpChatNlqResponse = await handleMcpChatNlqRoutes(request, url, path, sessionId, {
       getOrm: () => this.getOrm(),
       getStorageSql: () => this.ctx.storage.sql,
+      // Issue #1661: DO blob handle for full capture on NLQ legs.
+      getStorage: () => this.ctx.storage,
       env: this.env,
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       submitAsyncJob: (job) => this.submitAsyncJob(job),
@@ -2102,6 +2104,8 @@ export class OrchestratorAgent extends Think<Env> {
       getResearchAgent: (userLogin?: string) => this.getResearchAgent(userLogin),
       runResearchAndPublish: (trigger, userLogin) => this.runResearchAndPublish(trigger, userLogin),
       getOrm: () => this.getOrm(),
+      // Issue #1661: DO blob handle for full capture on the backtest leg.
+      getStorage: () => this.ctx.storage,
       readSettingRaw: (key) => this.readSettingRaw(key),
       writeSetting: (key, value) => this.writeSetting(key, value),
       env: this.env,
