@@ -69,6 +69,7 @@ export class ETradeService {
   private userLogin: string;
   private overrideEnv?: string;
   private breakerRegistry: BreakerRegistry;
+  private storage?: Parameters<typeof nasdaqUniverseSeamFromSql>[3];
 
   setScreenerUniverse(universe: ScreenedStockItem[]): void {
     this.screener.setUniverse(universe);
@@ -79,6 +80,7 @@ export class ETradeService {
     env?: Env,
     userLogin?: string,
     overrideEnv?: string,
+    storage?: Parameters<typeof nasdaqUniverseSeamFromSql>[3],
     // Issue #1745: breaker registry (tests inject an isolated one;
     // production shares the per-isolate default so the etrade
     // breaker has memory across requests).
@@ -100,6 +102,9 @@ export class ETradeService {
       this.userLogin = userLogin;
       this.overrideEnv = overrideEnv;
     }
+    // Issue #1686: optional DO blob handle for full capture on the
+    // internal listings-seam build below. Unset → outcome-only, as before.
+    this.storage = storage;
 
     this.breakerRegistry = opts?.breakerRegistry ?? defaultBreakerRegistry();
     this.client = new ETradeRestClient(this.env, this.userLogin, this.overrideEnv);
@@ -164,10 +169,11 @@ export class ETradeService {
   /**
    * Issue #1378: threads the universe seam to screenLive. A
    * caller-supplied seam wins; otherwise the service builds one
-   * internally from its ORM (outcome-only — no blob handle in the
-   * service; see nasdaqUniverseSeamFromSql). Without an ORM there
-   * is no bundle to build, and screenLive returns the missing-seam
-   * error result (never a direct fetch).
+   * internally from its ORM. Issue #1686: when the service was
+   * constructed with a DO blob handle, the internal build captures
+   * fully; without one the #1378 outcome-only contract is preserved.
+   * Without an ORM there is no bundle to build, and screenLive returns
+   * the missing-seam error result (never a direct fetch).
    */
   async screenMarketsAsync(
     filter: StockScreenerFilter = {},
@@ -175,7 +181,7 @@ export class ETradeService {
   ): Promise<StockScreenResult> {
     const resolved =
       seam ??
-      (await nasdaqUniverseSeamFromSql(this.orm?.getSql?.(), this.env, this.userLogin));
+      (await nasdaqUniverseSeamFromSql(this.orm?.getSql?.(), this.env, this.userLogin, this.storage));
     return this.screener.screenLive(filter, resolved);
   }
 
