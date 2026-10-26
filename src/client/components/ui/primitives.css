@@ -455,6 +455,9 @@ div.ui-modal-title { font-size: inherit; font-weight: inherit; }
 
 .ui-modal-body { padding: 1.25rem 1.5rem; overflow-y: auto; }
 
+/* Visually hidden but still announced by screen readers (live regions). */
+.ui-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
 /* Footer nodes own their chrome (Modal renders the footer bare as the
    dialog's last region); this helper is the standard action-bar look. */
 .ui-modal-actions {

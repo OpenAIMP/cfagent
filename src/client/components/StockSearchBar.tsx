@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import type { NavTabId } from "./NavigationMenu";
-import { Badge, Button, PillGroup, TextInput, type BadgeTone, type PillOption } from "./ui";
+import { Badge, Button, Modal, PillGroup, TextInput, type BadgeTone, type PillOption } from "./ui";
 import { BRAND } from "../branding";
 
 export interface StockTickerItem {
@@ -78,6 +78,41 @@ const FILTER_PILLS: PillOption<"all" | "tickers" | "navigation" | "actions">[] =
   { id: "navigation", label: "🧭 Platform Navigation" },
   { id: "actions", label: "⚡ Agent Actions" },
 ];
+
+/** Option id for the palette listbox (WAI-ARIA listbox pattern, #1695). */
+export function paletteOptionId(index: number): string {
+  return `palette-option-${index}`;
+}
+
+/**
+ * Label of the selected palette row, or null when nothing is selectable.
+ * Pure (unit-tested): tickers first, then navigation, then actions — the
+ * same order the keyboard navigation walks.
+ */
+export function getPaletteSelectedLabel(
+  tickers: StockTickerItem[],
+  nav: Array<{ label: string }>,
+  actions: Array<{ label: string }>,
+  selectedIndex: number,
+): string | null {
+  if (selectedIndex < 0) return null;
+  if (selectedIndex < tickers.length) {
+    const ticker = tickers[selectedIndex];
+    return `${ticker.symbol}, ${ticker.name}`;
+  }
+  const afterTickers = selectedIndex - tickers.length;
+  if (afterTickers < nav.length) return nav[afterTickers].label;
+  const afterNav = afterTickers - nav.length;
+  if (afterNav < actions.length) return actions[afterNav].label;
+  return null;
+}
+
+/** Polite live-region announcement for result count + selection (#1695). Pure (unit-tested). */
+export function buildPaletteAnnouncement(total: number, selectedLabel: string | null): string {
+  if (total === 0) return "No matching stocks or commands";
+  const count = `${total} ${total === 1 ? "result" : "results"}`;
+  return selectedLabel ? `${count}. Selected: ${selectedLabel}.` : `${count}.`;
+}
 
 export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: StockSearchBarProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -276,15 +311,14 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
     };
   }, [isOpen]);
 
-  // Global keyboard shortcut: Ctrl+K or Cmd+K
+  // Global keyboard shortcut: Ctrl+K or Cmd+K toggles the palette.
+  // Escape is owned by the Modal primitive (#1695) — no duplicate
+  // handler here.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setIsOpen((prev) => !prev);
-      } else if (e.key === "Escape" && isOpen) {
-        e.preventDefault();
-        setIsOpen(false);
       }
     };
 
@@ -292,10 +326,10 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
-  // Focus input when opening
+  // Reset on open. Initial focus is owned by the Modal primitive, which
+  // focuses the first focusable element (the search input) (#1695).
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 50);
       setQuery("");
       setSelectedIndex(0);
     }
@@ -334,6 +368,18 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
 
   // Combined item list for keyboard navigation
   const allItemsCount = filteredTickers.length + filteredNav.length + filteredActions.length;
+
+  // Listbox wiring (#1695): stable listbox id, the active option for
+  // aria-activedescendant (undefined when nothing is selectable, so the
+  // attribute never points at a missing option), and the polite live
+  // announcement for count + selection.
+  const listboxId = `palette-listbox-${React.useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const selectedLabel = getPaletteSelectedLabel(filteredTickers, filteredNav, filteredActions, selectedIndex);
+  const activeOptionId =
+    allItemsCount > 0 && selectedIndex >= 0 && selectedIndex < allItemsCount
+      ? paletteOptionId(selectedIndex)
+      : undefined;
+  const announcement = buildPaletteAnnouncement(allItemsCount, selectedLabel);
 
   // Reset selected index when query or results change
   useEffect(() => {
@@ -428,16 +474,17 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
         </Button>
       </div>
 
-      {/* Global Command Palette / Stock Search Modal */}
-      {isOpen && (
-        <div className="stock-search-modal-backdrop" onClick={() => setIsOpen(false)}>
-          <div
-            className="stock-search-modal-dialog"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Stock and command search"
-          >
+      {/* Global Command Palette / Stock Search Modal (Modal primitive, #1695) */}
+      <Modal
+        open={isOpen}
+        onClose={() => setIsOpen(false)}
+        ariaLabel="Stock and command search"
+        size="none"
+        panelClassName="stock-search-modal-dialog"
+      >
+        <div aria-live="polite" className="ui-visually-hidden">
+          {announcement}
+        </div>
             {/* Modal Input Bar */}
             <div className="stock-search-modal-header">
               <span className="modal-search-icon">
@@ -453,6 +500,11 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDownInInput}
+                role="combobox"
+                aria-label="Search stocks and commands"
+                aria-expanded={isOpen}
+                aria-controls={listboxId}
+                aria-activedescendant={activeOptionId}
               />
               {query && (
                 <Button
@@ -482,7 +534,7 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
             />
 
             {/* Results Body */}
-            <div className="stock-search-results-list" ref={listRef}>
+            <div className="stock-search-results-list" ref={listRef} role="listbox" id={listboxId} aria-label="Search results">
               {allItemsCount === 0 && (
                 <div className="no-search-results">
                   <div className="no-results-icon">🔍</div>
@@ -527,6 +579,9 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
                           className={`search-result-row ticker-row ${isSelected ? "selected" : ""}`}
                           onClick={() => handleSelectTicker(ticker)}
                           onMouseEnter={() => setSelectedIndex(idx)}
+                          role="option"
+                          id={paletteOptionId(idx)}
+                          aria-selected={isSelected}
                         >
                           <div className="ticker-badge-col">
                             <Badge size="xs" uppercase tone={TICKER_TYPE_TONES[ticker.type] ?? "neutral"}>
@@ -579,6 +634,9 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
                           className={`search-result-row nav-row ${isSelected ? "selected" : ""}`}
                           onClick={() => handleSelectNav(nav.id)}
                           onMouseEnter={() => setSelectedIndex(overallIdx)}
+                          role="option"
+                          id={paletteOptionId(overallIdx)}
+                          aria-selected={isSelected}
                         >
                           <span className="nav-row-icon">{nav.icon}</span>
                           <div className="nav-row-info">
@@ -610,6 +668,9 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
                           className={`search-result-row action-row ${isSelected ? "selected" : ""}`}
                           onClick={() => handleSelectAction(action.query)}
                           onMouseEnter={() => setSelectedIndex(overallIdx)}
+                          role="option"
+                          id={paletteOptionId(overallIdx)}
+                          aria-selected={isSelected}
                         >
                           <span className="action-row-icon">{action.icon}</span>
                           <div className="action-row-info">
@@ -640,9 +701,7 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
               </div>
               <div className="footer-branding">{BRAND.searchName}</div>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </>
   );
 }
