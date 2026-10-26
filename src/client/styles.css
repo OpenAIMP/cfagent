@@ -1527,6 +1527,12 @@ body {
   margin-bottom: 0.75rem;
 }
 
+.async-jobs-live-status {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  margin: 0 0 0.75rem;
+}
+
 .async-jobs-heading button,
 .async-jobs-list button {
   color: var(--color-text-primary);

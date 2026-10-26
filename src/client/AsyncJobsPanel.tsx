@@ -135,7 +135,7 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
     return (
       <div className="settings-async-jobs-box">
         <div className="async-jobs-subhead">
-          <div className="async-status-pill-badge">
+          <div className="async-status-pill-badge" role="status">
             <span className={`async-dot ${activeCount > 0 ? "active" : "idle"}`} />
             <span className="async-count-txt">
               {activeCount > 0 ? `${activeCount} task${activeCount === 1 ? "" : "s"} running` : "Idle / Queue clear"}
@@ -226,6 +226,9 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
         <div className="async-jobs-heading">
           <strong>Background work</strong>
           <button type="button" onClick={() => void refresh()}>Refresh</button>
+        </div>
+        <div role="status" className="async-jobs-live-status">
+          {activeCount > 0 ? `${activeCount} task${activeCount === 1 ? "" : "s"} running` : "Idle / Queue clear"}
         </div>
         {error && <p className="async-jobs-error" role="alert">{error}</p>}
         {jobs.length === 0 ? (

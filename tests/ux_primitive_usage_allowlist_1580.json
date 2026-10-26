@@ -10,7 +10,7 @@
     "src/client/GoogleAdUnit.tsx": 1,
     "src/client/IaaaAdminPanel.tsx": 13,
     "src/client/IvHistoryPanel.tsx": 3,
-    "src/client/MemoryBrowser.tsx": 3,
+    "src/client/MemoryBrowser.tsx": 2,
     "src/client/ReportsPanel.tsx": 5,
     "src/client/ResearchReportActions.tsx": 8,
     "src/client/ScheduledGoalsPanel.tsx": 9,

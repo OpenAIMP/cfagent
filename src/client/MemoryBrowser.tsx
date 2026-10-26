@@ -8,6 +8,7 @@
  */
 import React, { useCallback, useState } from "react";
 import { searchMemory, type MemoryChunk } from "./memoryApi";
+import { Button } from "./components/ui";
 
 export interface MemoryBrowserProps {
   embedded?: boolean;
@@ -64,9 +65,9 @@ export function MemoryBrowser({ embedded = false }: MemoryBrowserProps = {}) {
           placeholder="operation filter (optional)"
           style={{ width: 200, padding: "8px 12px" }}
         />
-        <button onClick={() => void search()} disabled={loading || !query.trim()}>
+        <Button onClick={() => void search()} disabled={loading || !query.trim()}>
           {loading ? "Searching…" : "Search"}
-        </button>
+        </Button>
       </div>
 
       {error && <div style={{ color: "var(--color-danger)", marginBottom: 12 }}>{error}</div>}
