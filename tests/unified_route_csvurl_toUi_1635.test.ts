@@ -13,12 +13,13 @@
  * CSV generator on the captured input, and asserts the default-path response
  * carries `csvUrl` (+ `csvKey`) pointing at the generated CSV. Pre-fix it
  * fails (csvUrl undefined); post-fix it passes. The webhook path is pinned
- * as unchanged.
+ * as changed by #1786: it now carries csvKey alongside csvUrl + xlsxUrl.
  *
  * Scope pins in this file:
  * - Default (toUi) path: response carries csvUrl + csvKey for the CSV the
  *   route just generated, and xlsxUrl is still present.
- * - Webhook path unchanged: response still carries csvUrl + xlsxUrl.
+ * - Webhook path (#1786): response carries csvUrl + xlsxUrl + csvKey for the
+ *   CSV the route just generated (previously csvUrl + xlsxUrl only).
  * - CSV generation itself unchanged: verified by the change set (no
  *   generator files touched) and by #1587's pins, not re-proven here.
  */
@@ -153,11 +154,18 @@ describe("unified-route default UI response csvUrl (#1635)", () => {
     expect(text).toContain("AAPL");
   });
 
-  it("webhook path still carries csvUrl + xlsxUrl (unchanged)", async () => {
+  it("webhook path carries csvUrl + xlsxUrl + csvKey (#1786)", async () => {
     const response = await runUnified({ channel: "webhook" });
     expect(response.status).toBe(200);
     const body: any = await response.json();
     expect(body.xlsxUrl).toBe("/api/options/report.xlsx?key=xlsx-key");
     expect(body.csvUrl).toBe("/api/options/report.csv?key=csv-key");
+    // #1786: the webhook channel previously omitted csvKey while the ui
+    // channel carried it; pre-fix this is undefined.
+    expect(body.csvKey).toBe("csv-key");
+    const stored = await fakeAgent.getOptionsCsvByKey(body.csvKey);
+    expect(stored).toBeDefined();
+    const text = new TextDecoder().decode(stored!.bytes);
+    expect(text).toContain("AAPL");
   });
 });
