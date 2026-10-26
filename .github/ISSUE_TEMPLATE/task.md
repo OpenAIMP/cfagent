@@ -13,6 +13,11 @@ assignees: []
 
 ## Outcome
 
+## User journey
+Journey (which user journey this change serves):
+User (who the user is):
+How value surfaces in UX (what the user sees/does differently):
+
 ## Scope
 Included:
 Excluded:

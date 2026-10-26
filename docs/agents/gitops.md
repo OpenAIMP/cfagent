@@ -160,6 +160,11 @@ What is wrong or missing?
 ## Outcome
 What observable result is required?
 
+## User journey
+Journey (which user journey this change serves):
+User (who the user is):
+How value surfaces in UX (what the user sees/does differently):
+
 ## Scope
 Included:
 Excluded:
