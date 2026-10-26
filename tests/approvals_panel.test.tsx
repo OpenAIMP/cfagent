@@ -129,11 +129,14 @@ describe("Issue #1705 — Approvals surface composes the existing queues", () =>
   });
 
   it("source pin: the Approvals tab is wired in the nav and the shell", () => {
+    // S1 (#1804/#1808): nav entries live in the central route table (routes.ts)
+    // and derive into NavigationMenu.
+    const routes = readFileSync("src/client/routes.ts", "utf8");
+    expect(routes).toContain('id: "approvals"');
+    expect(routes).toContain('label: "Approvals"');
     const nav = readFileSync("src/client/components/NavigationMenu.tsx", "utf8");
-    expect(nav).toContain('id: "approvals"');
-    expect(nav).toContain('label: "Approvals"');
-    expect(nav).toContain('approvals: true');
-    expect(nav).toContain('| "approvals"');
+    expect(nav).toContain("ROUTES");
+    expect(nav).toContain("DEFAULT_VISIBLE_NAV_TABS");
     const chat = readFileSync("src/client/Chat.tsx", "utf8");
     expect(chat).toContain('from "./ApprovalsPanel"');
     expect(chat).toContain('tab === "approvals"');
