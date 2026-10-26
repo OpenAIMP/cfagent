@@ -20,7 +20,6 @@
  * READ-ONLY: no order functions are imported or called.
  */
 
-import { fetchAllUsStockListings } from "./nasdaqListings";
 import {
   resolveUniverse,
   fetchPlatformTechnicalsBatch,
@@ -28,6 +27,7 @@ import {
   TradingPlatformRegistry,
   fetchQuoteLiveStrict,
   type ITradingPlatform,
+  type NasdaqUniverseDeps,
   type YahooHistoryDeps,
 } from "../trading";
 import { resolveEnvironmentConfig } from "../config/environment";
@@ -146,7 +146,19 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
      * honestly null — the old direct Yahoo fetch is deleted, so
      * there is no fallback to fall back to.
      */
-    private readonly historyDeps?: YahooHistoryDeps
+    private readonly historyDeps?: YahooHistoryDeps,
+    /**
+     * Issue #1378: platform universe deps, bound by the caller
+     * (research-agent binds route-resolved + capture; the fit
+     * runner binds when it has sql). Decision D2 recorded
+     * exception: research has no caller run id, so captures are
+     * recorded under generated run ids — never a fake id forced
+     * through the research paths. Absent, getUniverseSymbols
+     * degrades to [] and etfMap to an empty map with a warn
+     * naming the missing seam — the #1331 null-technicals
+     * precedent — never a direct fetch and never a throw.
+     */
+    private readonly universeDeps?: NasdaqUniverseDeps
   ) {
     // #291 Q2: resolved through the platform registry (was a direct
     // ETradeService construction — the T0 ledger's researchProviders
@@ -156,7 +168,15 @@ export class EtradeResearchDataProvider implements ResearchDataProvider {
 
   private async listings(): Promise<NasdaqStockListing[]> {
     if (!this.listingsCache) {
-      this.listingsCache = await fetchAllUsStockListings();
+      // Issue #1378: the lifetime cache is kept (decision D3),
+      // now over the ROUTED adapter result. No freshness change.
+      if (!this.universeDeps) {
+        console.warn(
+          "[research] universeDeps missing: getUniverseSymbols/etfMap degrade to empty (no dep-less listings fetch exists, #1378)"
+        );
+        return [];
+      }
+      this.listingsCache = await this.universeDeps.fetchListings();
     }
     return this.listingsCache;
   }
