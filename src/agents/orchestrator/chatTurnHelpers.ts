@@ -30,6 +30,11 @@ export interface ChatTurnHelpersContext {
   env: Env;
   ensureTables: () => AgentContext["storage"]["sql"];
   getOrm: () => DatabaseORM;
+  /**
+   * #1686: optional DO blob handle for full capture, supplied by the
+   * orchestrator. Unset → today's outcome-only contract for tool screens.
+   */
+  storage?: import("../../trading").NasdaqUniverseRouteBundleInput["storage"];
   sessionKey: () => string;
   audit: (type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) => void;
   submitAsyncJob: (job: AsyncJobSubmission) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>;
@@ -76,6 +81,7 @@ export function createTurnTools(ctx: ChatTurnHelpersContext, requestId: string):
     env: ctx.env,
     orm,
     sessionId,
+    storage: ctx.storage,
     requestId,
     facade,
     submitJob: (job) => ctx.submitAsyncJob(job),
