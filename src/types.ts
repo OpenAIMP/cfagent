@@ -1968,6 +1968,17 @@ export type AsyncJobSubmission =
         chain: ShardChainContext;
         inputs?: Record<string, unknown>;
       };
+    } & AsyncJobGraphFields)
+  | ({
+      /** Consolidation #1236 (feed seam): the feed stage job —
+       *  produce + store one universe snapshot artifact per symbol.
+       *  The payload carries descriptors, never snapshot bytes
+       *  (those live in mas_feed_snapshots). With chainTo, feed
+       *  completion plans the generate stage (an http.request job
+       *  to the discovery trigger route); without it, the job is a
+       *  standalone refresh. */
+      capability: "feed.snapshot";
+      payload: import("./services/feedSnapshotJob").FeedSnapshotJobPayload;
     } & AsyncJobGraphFields);
 
 export interface TWAPOrderConfig {

@@ -26,6 +26,18 @@
  * Harness mirrors tests/payment_webhook_default_deny.test.ts (#148):
  * agent-SDK module mocks, MockSqlStorage, and fetch stubbed at the real
  * gateway endpoints so supported gateways create exactly as before.
+ *
+ * UPDATE (#1690, owner HITL-draft decision 2026-10-26): POST
+ * /payments/create no longer checks out at create — it drafts via
+ * draft_payment. The expectations below changed WITH that decision,
+ * not silently: a supported gateway now yields an awaiting_confirmation
+ * row with "" gateway_ref/checkout_url and a payment.awaiting_
+ * confirmation audit (never payment.created, never pending_checkout),
+ * and the stubbed gateway fetch is never called at create. The
+ * validation pins themselves (#156: 400 before any row write, supported
+ * list named, normalization) are unchanged; only the row-write owner
+ * moved (route INSERT -> command via ORM), so the source pin now
+ * anchors validation before the draft_payment call.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -145,8 +157,10 @@ describe("POST /payments/create — gateway validated at creation (#156)", () =>
   const allTx = (sql: MockSqlStorage) =>
     Array.from(sql.exec("SELECT * FROM mas_transactions")) as any[];
 
+  // #1690: the create audit is now the draft command's
+  // payment.awaiting_confirmation (payment.created no longer exists).
   const createdAudits = (sql: MockSqlStorage) =>
-    Array.from(sql.exec("SELECT * FROM mas_events WHERE type = ?", "payment.created")) as any[];
+    Array.from(sql.exec("SELECT * FROM mas_events WHERE type = ?", "payment.awaiting_confirmation")) as any[];
 
   // The agent lazily seeds two ledger rows on its first request
   // (pay_init_stripe / pay_init_paypal — #175's territory), so assertions
@@ -193,7 +207,7 @@ describe("POST /payments/create — gateway validated at creation (#156)", () =>
     expect(newTx(sql, base)).toHaveLength(0);
   });
 
-  it("explicit sandbox creates as before, stored as sandbox", async () => {
+  it("explicit sandbox drafts as before, stored as sandbox (awaiting_confirmation, no checkout at create)", async () => {
     const { agent, sql } = makeAgent(makeEnv());
     const base = baseline(sql);
     const res = await postCreate(agent, { amount: 25, customer: "Acme Corp", gateway: "sandbox" });
@@ -204,11 +218,13 @@ describe("POST /payments/create — gateway validated at creation (#156)", () =>
     const rows = newTx(sql, base);
     expect(rows).toHaveLength(1);
     expect(rows[0].gateway).toBe("sandbox");
-    expect(rows[0].status).toBe("pending_checkout");
+    expect(rows[0].status).toBe("awaiting_confirmation");
+    expect(rows[0].checkout_url).toBe("");
+    expect(rows[0].gateway_ref).toBe("");
     expect(createdAudits(sql)).toHaveLength(base.audits + 1);
   });
 
-  it("stripe creates as before (real endpoint, stubbed fetch)", async () => {
+  it("stripe drafts without checkout (#1690: stubbed endpoint never fires at create)", async () => {
     const { agent, sql } = makeAgent(makeEnv());
     const base = baseline(sql);
     const res = await postCreate(agent, { amount: 25, customer: "Acme Corp", gateway: "stripe" });
@@ -216,14 +232,18 @@ describe("POST /payments/create — gateway validated at creation (#156)", () =>
     const json = (await res.json()) as any;
     expect(json.success).toBe(true);
     expect(json.transaction.gateway).toBe("stripe");
-    expect(json.transaction.gatewayRef).toBe("cs_test_156");
+    expect(json.transaction.status).toBe("awaiting_confirmation");
+    expect(json.transaction.gatewayRef).toBe("");
+    expect(json.transaction.checkoutUrl).toBe("");
     const rows = newTx(sql, base);
     expect(rows).toHaveLength(1);
     expect(rows[0].gateway).toBe("stripe");
-    expect(rows[0].gateway_ref).toBe("cs_test_156");
+    expect(rows[0].status).toBe("awaiting_confirmation");
+    expect(rows[0].gateway_ref).toBe("");
+    expect(rows[0].checkout_url).toBe("");
   });
 
-  it("paypal creates as before (real endpoints, stubbed fetch)", async () => {
+  it("paypal drafts without checkout (#1690: stubbed endpoints never fire at create)", async () => {
     const { agent, sql } = makeAgent(makeEnv());
     const base = baseline(sql);
     const res = await postCreate(agent, { amount: 25, customer: "Acme Corp", gateway: "paypal" });
@@ -231,13 +251,18 @@ describe("POST /payments/create — gateway validated at creation (#156)", () =>
     const json = (await res.json()) as any;
     expect(json.success).toBe(true);
     expect(json.transaction.gateway).toBe("paypal");
+    expect(json.transaction.status).toBe("awaiting_confirmation");
+    expect(json.transaction.gatewayRef).toBe("");
+    expect(json.transaction.checkoutUrl).toBe("");
     const rows = newTx(sql, base);
     expect(rows).toHaveLength(1);
     expect(rows[0].gateway).toBe("paypal");
-    expect(rows[0].gateway_ref).toBe("PP-ORDER-156");
+    expect(rows[0].status).toBe("awaiting_confirmation");
+    expect(rows[0].gateway_ref).toBe("");
+    expect(rows[0].checkout_url).toBe("");
   });
 
-  it("lemonsqueezy creates as before (real endpoint, stubbed fetch)", async () => {
+  it("lemonsqueezy drafts without checkout (#1690: stubbed endpoint never fires at create)", async () => {
     const { agent, sql } = makeAgent(makeEnv());
     const base = baseline(sql);
     const res = await postCreate(agent, { amount: 25, customer: "Acme Corp", gateway: "lemonsqueezy" });
@@ -245,10 +270,15 @@ describe("POST /payments/create — gateway validated at creation (#156)", () =>
     const json = (await res.json()) as any;
     expect(json.success).toBe(true);
     expect(json.transaction.gateway).toBe("lemonsqueezy");
+    expect(json.transaction.status).toBe("awaiting_confirmation");
+    expect(json.transaction.gatewayRef).toBe("");
+    expect(json.transaction.checkoutUrl).toBe("");
     const rows = newTx(sql, base);
     expect(rows).toHaveLength(1);
     expect(rows[0].gateway).toBe("lemonsqueezy");
-    expect(rows[0].gateway_ref).toBe("ls_156");
+    expect(rows[0].status).toBe("awaiting_confirmation");
+    expect(rows[0].gateway_ref).toBe("");
+    expect(rows[0].checkout_url).toBe("");
   });
 
   it("case/whitespace normalization: ' Stripe ' creates a 'stripe' row, matching the webhook verifier", async () => {
@@ -312,15 +342,20 @@ describe("PaymentGatewayService.createCheckout — validation at the service sea
 });
 
 describe("Source pins (#156)", () => {
-  it("the create route validates the gateway before the transaction INSERT", () => {
+  it("the create route validates the gateway before the draft_payment call (row write moved into the command, #1690)", () => {
     // Slice 07 (#370): the /payments/create route moved from
     // src/agents/orchestrator.ts to src/agents/routes/payments.ts — the pin
-    // follows the ownership. The validation-before-INSERT ordering is
-    // unchanged (byte-identical move).
+    // follows the ownership. #1690 moved the row write from a route
+    // INSERT into the draft_payment command (ORM), so the pin now
+    // anchors validation before the executeMCPTool("draft_payment")
+    // call — the same guarantee (400 before any row is written), with
+    // the new owner. The route's gateway 400 still precedes the call
+    // because the draft command does not validate the gateway itself.
     const routes = src("agents/routes/payments.ts");
     const start = routes.indexOf('"/payments/create"');
-    const insertIdx = routes.indexOf("INSERT INTO mas_transactions", start);
-    const block = routes.slice(start, insertIdx);
+    const callIdx = routes.indexOf('executeMCPTool("draft_payment"', start);
+    expect(callIdx).toBeGreaterThan(start);
+    const block = routes.slice(start, callIdx);
     expect(block).toContain("isSupportedGateway(gatewayInput)");
     expect(block).toContain("UNSUPPORTED_GATEWAY");
   });
