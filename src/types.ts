@@ -48,6 +48,14 @@ export interface Env {
   // provider from IAAA_ENABLED_PROVIDERS). No code change, no secret.
   // IAAA_WIRING_ENABLED: "1" or "true" (case-insensitive) = on; anything else = off.
   IAAA_WIRING_ENABLED?: string;
+  // #1169 S2 — flag-gated corpus serving. Same idiom as IAAA above:
+  // "1"/"true"/"on" (case-insensitive) = on; absence = OFF (the var is
+  // deliberately NOT in wrangler.jsonc — S2 ships default-off).
+  // Flag-ON enables the aiSearch mapping fixes, GET /knowledge/file,
+  // and result provenance. Rollback is unsetting the var (or "0")
+  // and redeploying — no code change. The flag NEVER touches the
+  // aiSearch fallback (S3 owns it) or the G1 1.0 scores.
+  KNOWLEDGE_SERVING_ENABLED?: string;
   // Comma-separated provider ids. Default when wiring is on: "github".
   // An id with no registered adapter is ignored, never a fallback.
   IAAA_ENABLED_PROVIDERS?: string;
