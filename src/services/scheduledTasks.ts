@@ -82,6 +82,8 @@ import { ScreenerEventBus } from "../events/screenerEvents";
 import {
   screenerOutcomeFromEvent,
   resolveScreenerFollowupConfig,
+  optionsCoverageBelowBroadcastFloor,
+  formatDegradedCoverageNotice,
   type ScreenerOutcomeOpportunity,
   type ScreenerRunOutcome,
 } from "./screenerFollowups";
@@ -1905,6 +1907,21 @@ export class ScheduledTasksService {
       // summary attached, avoiding the old text-plus-file duplicate pair.
       if (shouldNotifySlack && !chainMode) {
         const slackChannel = options.slackChannel || (this.env as any).SCREENER_SLACK_CHANNEL || (this.env as any).SLACK_CHANNEL;
+        // Issue #1718: a below-floor partial is NOT broadcast as a
+        // success — degraded notice only, no PDF/files, no report link.
+        // Persistence above (run record, canonical report, PDF) is
+        // untouched: the run stays stored as evidence.
+        if (optionsCoverageBelowBroadcastFloor(scanData?.partial)) {
+          const degraded = formatDegradedCoverageNotice(scanData.partial, "Options screen", targetThesis);
+          try {
+            const delivery = await deliverScreenerToSlackA2A(this.env, { text: degraded, channel: slackChannel });
+            notifications.slack = delivery.ok;
+            if (!delivery.ok) console.warn("[ScheduledTasksService] Slack A2A degraded-coverage notice failed:", delivery.error);
+          } catch (noticeErr) {
+            console.warn("[ScheduledTasksService] Options Slack degraded-coverage notice failed:", noticeErr instanceof Error ? noticeErr.message : String(noticeErr));
+            notifications.slack = false;
+          }
+        } else {
         const slackPayload = response.toSlack();
         const text = typeof slackPayload === "string" ? slackPayload : slackPayload.text || JSON.stringify(slackPayload);
         const matchCount = response.data?.matchedCount || response.data?.opportunities?.length || 0;
@@ -1937,6 +1954,7 @@ export class ScheduledTasksService {
           notifications.slack = delivery.ok;
           if (!delivery.ok) console.warn("[ScheduledTasksService] Slack A2A notification failed:", delivery.error);
         }
+        } // end else: at-or-above-floor success delivery (#1718)
       }
 
       // 2. Push Email if recipient is specified or environment configured
@@ -2079,6 +2097,9 @@ export class ScheduledTasksService {
         pdfKey: optionsPdfKey,
         pdfStatus: optionsPdfKey ? "generated" : undefined,
         stageChain: options.stageChain,
+        // Issue #1718: the qualification rides the event so the
+        // lifecycle completed notice can apply the broadcast floor.
+        partial: scanData?.partial,
         opportunities: (response.data?.opportunities || []).slice(0, 10).map((row: any) => ({
           symbol: row.symbol,
           strategy: row.pick?.best?.candidate?.type,

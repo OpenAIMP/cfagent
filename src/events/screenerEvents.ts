@@ -130,6 +130,13 @@ export interface OptionsCompletedEvent {
   summary: string;
   reportUrl?: string;
   opportunities: OptionsOpportunitySummary[];
+  /**
+   * Issue #1718: the run's partial qualification, when the scan could
+   * not judge its whole requested universe — carried so outcome
+   * consumers (lifecycle notifications) can apply the broadcast
+   * coverage floor. Absent on complete runs.
+   */
+  partial?: import("../trading/options/opportunityScanner").OptionsPartialQualification;
   /** Consolidation C4 (#1329): the run's PDF key, so a chained
    *  options run's serve stage adopts the same artifact the direct
    *  path delivered. Absent on runs that produced no PDF. */
