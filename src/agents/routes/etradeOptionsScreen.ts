@@ -423,9 +423,13 @@ export async function executeUnifiedOptions(args: {
 
     // Issue #1346: CSV from the same result payload (own failure
     // domain; recorded in the log, never fatal).
+    // Issue #1587: the unified opportunities payload is an
+    // OpportunityScanResult, not the OptionScreenResult the CSV
+    // generator reads — adapt at this seam with the #1291 adapter
+    // (same as the :409 XLSX seam fixed by #1570).
     try {
       const agent = ctx.getScreenerAgent(userLogin);
-      const stored = await agent.generateAndStoreOptionsCsv(result.data);
+      const stored = await agent.generateAndStoreOptionsCsv(adaptOpportunityScanToOptionScreenResult(result.data));
       scannerCsvKey = stored.key;
       scannerCsvFileName = stored.fileName;
       scannerCsvUrl = `/api/options/report.csv?key=${encodeURIComponent(stored.key)}`;

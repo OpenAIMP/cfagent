@@ -14,8 +14,9 @@
  * Scope pins in this file:
  * - :409 seam: opportunities-shaped input yields a populated contracts
  *   tab + summary (live route invocation, stubbed service execute).
- * - :423 CSV seam untouched: it still receives the RAW opportunities
- *   payload (same reference) — the CSV twin is a separate slice.
+ * - :423 CSV seam: SUPERSEDED by #1587 — it now receives the ADAPTED
+ *   result (contracts), not the raw opportunities payload. The pin below
+ *   was updated in the #1587 tree to match.
  * - :148 manual route unchanged: a contracts-carrying result passes
  *   through the adapter by reference (the manual route's true
  *   OptionScreenResult is never reshaped).
@@ -343,10 +344,12 @@ describe("unified-route XLSX seam (#1570)", () => {
     expect(byField.get("Contracts evaluated")).toBe("3");
   });
 
-  it("leaves the :423 CSV seam on the raw opportunities payload", async () => {
+  it("the :423 CSV seam now receives the adapted result (#1587 supersedes the raw-payload pin)", async () => {
     const scan = unifiedScan();
     await runUnified(scan);
-    expect(capturedCsvInput).toBe(scan);
+    expect(capturedCsvInput).not.toBe(scan);
+    expect(Array.isArray(capturedCsvInput?.contracts)).toBe(true);
+    expect(capturedCsvInput.contracts).toHaveLength(2);
   });
 
   it("a manual-shaped result passes through the adapter unchanged (:148 safety net)", () => {
