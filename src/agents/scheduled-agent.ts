@@ -60,6 +60,7 @@ import {
   type ReconcileReport,
 } from "../data/chainScheduleProjection";
 import { ensureChainScheduleSchema } from "../data/d1ChainScheduleAdapter";
+import { projectRunLegs } from "../data/createShardJobPorts";
 
 /**
  * Resolve a halt read for the firing path, failing closed: any
@@ -524,6 +525,11 @@ export class ScheduledAgent extends Agent<Env> {
             runResult = await this.executeChainForRecord(
               chainFromRecord(record),
               opts.chainExecutor,
+              {
+                chainId: record.id,
+                tenantId: tickTenantId,
+                writer: "scheduled-agent:onCron",
+              },
             );
             if (!runResult.ok) {
               const failed = runResult.legs.filter(
@@ -864,11 +870,30 @@ export class ScheduledAgent extends Agent<Env> {
   private async executeChainForRecord(
     chain: CompiledChain,
     chainExecutor: (step: CompiledChainStep) => Promise<unknown>,
+    project?: { chainId: string; tenantId: string; writer: string },
   ): Promise<ChainRunResult> {
     const { runChain } = await import("../mcp/goalChainCommands");
     return runChain(chain, {
       executeLeg: chainExecutor,
       budgetCheck: async () => true,
+      // Issue #1676: project each ran leg into AgentDB as it
+      // completes. The projector never throws (unbound store
+      // is a no-op, store failures are reported), so this
+      // callback can never fail the run. The chain id is the
+      // synthesized record id, matching slice 1's chain rows.
+      ...(project
+        ? {
+            onLegOutcome: (leg: import("../mcp/goalChainCommands").ChainLegResult) =>
+              projectRunLegs(this.env, {
+                tenantId: project.tenantId,
+                workspaceId: "primary",
+                chainId: project.chainId,
+                legs: [leg],
+                nowMs: Date.now(),
+                writer: project.writer,
+              }),
+          }
+        : {}),
     });
   }
 
@@ -960,6 +985,11 @@ export class ScheduledAgent extends Agent<Env> {
       execution = await this.executeChainForRecord(
         chainFromRecord(record),
         opts.chainExecutor,
+        {
+          chainId: record.id,
+          tenantId: fireTenantId,
+          writer: "scheduled-agent:fireSynthesizedSchedule",
+        },
       );
       if (!execution.ok) {
         const failed = execution.legs.filter(

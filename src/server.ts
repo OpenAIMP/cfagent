@@ -41,6 +41,15 @@ import {
 } from "./data/chainStatusRoute";
 import { readChainStatus } from "./data/createChainSchedulePorts";
 import type { ReconcileReport } from "./data/chainScheduleProjection";
+import {
+  handleJobHistoryRoute,
+  handleReconcileJobsRoute,
+} from "./data/shardJobRoute";
+import {
+  createShardJobAdapter,
+  readJobHistory,
+} from "./data/createShardJobPorts";
+import type { ReconcileShardJobsReport } from "./data/shardJobProjection";
 import type { GovernedHaltState } from "./data/governedHalt";
 import { buildOpenApiSpec, SWAGGER_UI_HTML } from "./security/openapiSpec";
 import {
@@ -1309,6 +1318,95 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         tenantId: resolveIaaaTenant(env),
         runReconcile: ({ tenantId }) =>
           sched.reconcileChainScheduleProjection(tenantId),
+      });
+    }
+
+    // --- Shard job projection history (issue #1676, slice 2) ---
+    // GET /api/jobs/history?chainId=: tenant-scoped read of the
+    // AgentDB projection ONLY — never the durable object. Gated
+    // by requireAuth (any signed-in user); the tenant comes from
+    // the IAAA tenant resolution, so a caller can only ever see
+    // their own tenant's rows. Unbound AgentDB → 503.
+    if (path === "/api/jobs/history") {
+      const session = await requireAuth(request, env);
+      const tenantId = resolveIaaaTenant(env);
+      const chainId = url.searchParams.get("chainId") ?? "";
+      const history = session
+        ? await readJobHistory(env, tenantId, chainId)
+        : null;
+      if (!session) {
+        return handleJobHistoryRoute({
+          session: null,
+          method: request.method,
+          tenantId,
+          chainId,
+          readHistory: async () => [],
+        });
+      }
+      if (history === null) {
+        return Response.json(
+          { error: "Job history unavailable: AgentDB is not bound." },
+          { status: 503 },
+        );
+      }
+      return handleJobHistoryRoute({
+        session,
+        method: request.method,
+        tenantId,
+        chainId,
+        readHistory: async () => history,
+      });
+    }
+
+    // --- Shard job reconciliation (issue #1676, slice 2) ---
+    // POST /api/jobs/reconcile: the deliberate operator
+    // invocation point for shard job reconciliation. Gating
+    // reuses the IAAA admin pattern exactly (requireAuth → wired
+    // session → live platform-admin membership, fail-closed, no
+    // data on 403). Never auto-run: no boot, deploy, or tick
+    // path calls it. Runs on the shared Orchestrator instance,
+    // whose mas_async_jobs rows are the rails source of truth.
+    // Unbound AgentDB → 503 (checked before the handler runs).
+    if (path === "/api/jobs/reconcile") {
+      const session = await requireAuth(request, env);
+      let isPlatformAdmin = false;
+      if (session?.internalUserId) {
+        try {
+          const overview = await buildAdminOverview(
+            {
+              membershipStore: createKvMembershipStore(sessionStore(env)),
+              auditStore: createWiredAuditStore(env),
+              kv: sessionStore(env),
+              tenantId: resolveIaaaTenant(env),
+              nowMs: Date.now(),
+            },
+            { callerInternalUserId: session.internalUserId },
+          );
+          isPlatformAdmin = overview.allowed;
+        } catch {
+          return Response.json({ error: "Job reconciliation unavailable." }, { status: 500 });
+        }
+      }
+      if (!createShardJobAdapter(env)) {
+        return Response.json(
+          { error: "Job reconciliation unavailable: AgentDB is not bound." },
+          { status: 503 },
+        );
+      }
+      const stub = env.SEARCH_AGENT.get(
+        env.SEARCH_AGENT.idFromName(SHARED_ORCHESTRATOR_INSTANCE),
+      ) as unknown as {
+        reconcileShardJobProjection(
+          tenantId: string,
+        ): Promise<ReconcileShardJobsReport>;
+      };
+      return handleReconcileJobsRoute({
+        session,
+        method: request.method,
+        isPlatformAdmin,
+        tenantId: resolveIaaaTenant(env),
+        runReconcile: ({ tenantId }) =>
+          stub.reconcileShardJobProjection(tenantId),
       });
     }
 
