@@ -50,6 +50,9 @@ import {
   readJobHistory,
 } from "./data/createShardJobPorts";
 import { handleRetentionPurgeRoute } from "./data/retentionRoute";
+import { dispatchSubscriberBatch } from "./messaging/cfQueueMessagingAdapter";
+import type { SubscriberHandlers } from "./messaging/messagingPorts";
+import { createScreenerQueueHandler } from "./messaging/screenerQueueConsumer";
 import {
   createRetentionPurgeStore,
   runRetentionPurgeForTenant,
@@ -2721,6 +2724,13 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
  */
 export const PREMIUM_GATEWAY_INSTANCE = "premium-gateway";
 
+// Issue #1739 — per-subscriber dedup for screener-event delivery
+// batches. Module-level so it survives across batches in one
+// isolate; cross-isolate redelivery is possible under at-least-once
+// delivery (see the messaging port docstring), and downstream
+// scheduled deliveries already dedup on their own stable delivery id.
+const screenerDeliverySeen = new Set<string>();
+
 export default {
   // Issue #329: an escaped throw used to surface as Cloudflare error 1101 —
   // every visitor saw an edge error page. The boundary turns any failure into a
@@ -2833,6 +2843,30 @@ export default {
     }
   },
   async queue(batch: any, env: Env, ctx?: any): Promise<void> {
+    // Issue #1739 — durable screener-event delivery. The delivery
+    // subscriber queue is dispatched through the broadcast core with
+    // per-subscriber dedup; every other batch falls through to the
+    // existing path untouched (options_analysis + ack-all behavior
+    // preserved).
+    if (batch?.queue === "screener-events-delivery") {
+      const deliveryHandler = createScreenerQueueHandler({ env });
+      const handlers: SubscriberHandlers = new Map([
+        [
+          "delivery",
+          new Map([
+            ["screener.completed", deliveryHandler],
+            ["screener.failed", deliveryHandler],
+          ]),
+        ],
+      ]);
+      await dispatchSubscriberBatch(
+        batch,
+        "delivery",
+        handlers,
+        screenerDeliverySeen
+      );
+      return;
+    }
     // #1185 / #1066 — queue work runs under the message payload's stored
     // owner when it carries one, else the explicit service identity. With
     // neither, the message is retried (the existing catch path) rather

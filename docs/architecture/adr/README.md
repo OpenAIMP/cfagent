@@ -19,6 +19,7 @@ PR.
 |-----|-------|--------|
 | [0001](0001-derived-stable-identity.md) | Derived stable identity from (issuer, subject) | Accepted |
 | [0002](0002-data-foundation-layer.md) | Data foundation layer: port-first, Drizzle ORM, D1 as one adapter | Accepted |
+| [0003](0003-messaging-port.md) | Queue-backed messaging: port-first, provider adapter + in-memory adapter | Accepted |
 
 ## Template
 
