@@ -346,6 +346,8 @@ describe("C2 source pins", () => {
       "StrategyDiscoveryConfig",
       "NetOptionGreeks",
       "RealizedUnrealizedPnl",
+      "Matrix2dCell",
+      "Matrix2dRow",
     ]);
     for (const name of names) {
       expect(modelingOnly.has(name), `"${name}" must be a modeling-only import`).toBe(true);
