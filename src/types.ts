@@ -9,6 +9,14 @@ export interface Env {
   // absence means the tick keeps legacy behavior (no cross-DO
   // halt read). Never a session or credential store.
   AGENT_DB?: D1Database;
+  // Issue #1739: queue-backed messaging bindings. Optional so code is
+  // safe before the bindings propagate; absence means the legacy
+  // in-process bus (the composition root returns null). The work
+  // queue stays producer-only in this slice (its consumer arrives
+  // with the first job handler); only the delivery subscriber queue
+  // has a consumer.
+  SCREENER_EVENTS?: Queue<unknown>;
+  SCREENER_EVENTS_DELIVERY?: Queue<unknown>;
   // Issue #329/#604: session + credential store — the SessionStore Durable
   // Object. Sessions, tokens and API keys live here, not in Workers KV
   // (legacy KV fallback removed in #604; the leftover KV bindings in

@@ -23,6 +23,20 @@
   // projection. DO storage stays authoritative for execution state.
   "d1_databases": [{ "binding": "AGENT_DB", "database_name": "agentdb", "database_id": "8d1bebf1-b2c4-4a55-8673-03140afb8023" }],
   "ai": { "binding": "AI" },
+  // Issue #1739 — queue-backed messaging. The work queue is
+  // producer-only in this slice (its consumer arrives with the first
+  // job handler); only the delivery subscriber queue has a consumer.
+  // No dead-letter queue is wired yet — DLQ wiring lands with the
+  // first job consumer (see ADR 0003).
+  "queues": {
+    "producers": [
+      { "binding": "SCREENER_EVENTS", "queue": "screener-events" },
+      { "binding": "SCREENER_EVENTS_DELIVERY", "queue": "screener-events-delivery" }
+    ],
+    "consumers": [
+      { "queue": "screener-events-delivery", "max_batch_size": 10, "max_retries": 3 }
+    ]
+  },
   "durable_objects": {
     "bindings": [
       { "name": "SEARCH_AGENT", "class_name": "SearchAgent" },
