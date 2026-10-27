@@ -112,10 +112,12 @@ that decision lands.
 - **Audit retention: NOT DECIDED.** Same as GitHub: the Kv audit
   store is append-only and unbounded until the retention
   decision lands; no retention period is invented here.
-- **Revocation propagation: observed property, not a settled
-  measurable target.** Same as GitHub: wired sessions are
-  re-validated on fresh store reads, bounded by the 60-second
-  isolate cache for cached copies.
+- **Revocation propagation: numeric targets (#1750).** Same as
+  GitHub: membership revocation 0 ms, API-key deletion 0 ms,
+  admin removal 0 ms, token expiry 0 ms past the deadline,
+  session revocation 0 ms same-isolate and ≤ 60 s every isolate.
+  Full table, measurement rule, and residual gaps:
+  [authz.md §9](authz.md) and `src/security/revocationTargets.ts`.
 
 ## Known limitation (documented, not hidden)
 

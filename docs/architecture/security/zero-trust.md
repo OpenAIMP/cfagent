@@ -86,10 +86,15 @@ A zero-trust claim that omits its gaps is marketing. These are the gaps:
 4. **Login-keyed state can orphan.** Token and DO state keyed by login
    string (not internal id) can detach on rename; the alias layer
    mitigates, the cutover is open.
-5. **Revocation propagation is bounded, not instant.** Wired sessions
-   re-validate on fresh reads, bounded by a 60-second isolate cache.
-   There is no numeric propagation target — that is an open decision,
-   not a measured property.
+5. **Revocation propagation has numeric targets (#1750).** Per
+   trigger, at the gate: membership revocation 0 ms (next PDP
+   check), API-key deletion 0 ms (next verification), admin
+   removal 0 ms (next admin-gate check), token expiry 0 ms past
+   the deadline, session revocation 0 ms same-isolate and ≤ 60 s
+   every isolate (the isolate-cache TTL; wired sessions deny
+   immediately on a fresh read). Full table, measurement rule,
+   and residual gaps: [authz.md §9](authz.md) and
+   `src/security/revocationTargets.ts`.
 6. **A failed audit write does not block login.** That is the current
    behavior and an open CISO decision, stated here so it is a decision
    rather than an accident.
