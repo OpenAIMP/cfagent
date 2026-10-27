@@ -119,7 +119,7 @@ describe("SchedulesPanel (#273)", () => {
     // S7: the one structured create form (the screening section's
     // modal) opens; its job picker offers exactly the kinds whose
     // callbacks the server allow-lists as creatable.
-    const modal = container.querySelector(".sched-modal-card");
+    const modal = document.querySelector(".sched-modal-card");
     expect(modal).toBeTruthy();
     const jobSelect = [...modal!.querySelectorAll("select")].find((s) =>
       [...s.options].some((o) => o.value === "marketScreen")

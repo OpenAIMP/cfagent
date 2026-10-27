@@ -350,7 +350,8 @@ async function submitForm(form: HTMLFormElement) {
 
 async function openCreateModal() {
   await click(buttonByText(container, "New Schedule"));
-  const modal = container.querySelector(".sched-modal-card");
+  // Modal portals to document.body, outside the render container.
+  const modal = document.querySelector(".sched-modal-card");
   if (!modal) throw new Error("create modal did not open");
   return modal as HTMLElement;
 }
@@ -801,7 +802,7 @@ describe("ScheduledOptionsManager — strategy discovery schedules (#126 PR-G)",
     expect(callsTo(calls, "/api/schedules/create", "POST")).toHaveLength(1);
     await waitForText("Saved discovery request 1 (NVDA) is invalid");
     // The modal stays open so the user can fix the view.
-    expect(container.querySelector(".sched-modal-card")).not.toBeNull();
+    expect(document.querySelector(".sched-modal-card")).not.toBeNull();
   });
 
   it("edits a discovery schedule: the editor round-trips its saved views through cancel + create", async () => {
@@ -810,7 +811,7 @@ describe("ScheduledOptionsManager — strategy discovery schedules (#126 PR-G)",
     await waitForText("Strategy Discovery");
 
     await click(buttonByText(cardByTitle("Strategy Discovery"), "Edit"));
-    const modal = container.querySelector(".sched-modal-card") as HTMLElement;
+    const modal = document.querySelector(".sched-modal-card") as HTMLElement;
     expect(modal).not.toBeNull();
     const symbolInput = modal.querySelector('[aria-label="View 1 symbol"]') as HTMLInputElement;
     expect(symbolInput.value).toBe("NVDA");
@@ -1162,7 +1163,7 @@ describe("ScheduledOptionsManager — profile-derived discovery (#533)", () => {
 
     expect(callsTo(calls, "/api/schedules/create", "POST")).toHaveLength(1);
     await waitForText("require exactly one symbol source");
-    expect(container.querySelector(".sched-modal-card")).not.toBeNull();
+    expect(document.querySelector(".sched-modal-card")).not.toBeNull();
   });
 
   it("edits a profile-derived schedule: the form hydrates from its payload and round-trips it", async () => {
@@ -1171,7 +1172,7 @@ describe("ScheduledOptionsManager — profile-derived discovery (#533)", () => {
     await waitForText("Strategy Discovery · Profile-derived");
 
     await click(buttonByText(cardByTitle("Strategy Discovery · Profile-derived"), "Edit"));
-    const modal = container.querySelector(".sched-modal-card") as HTMLElement;
+    const modal = document.querySelector(".sched-modal-card") as HTMLElement;
     expect(modal).not.toBeNull();
     const modelSelect = selectByOptionText(modal, "Symbol set + profile (derived targets)");
     expect(modelSelect.value).toBe("profile-derived");
@@ -1418,7 +1419,7 @@ describe("ScheduledOptionsManager — no-view discovery (#534)", () => {
 
     expect(callsTo(calls, "/api/schedules/create", "POST")).toHaveLength(1);
     await waitForText("constraints only — no thesis, target price, target date, or IV direction");
-    expect(container.querySelector(".sched-modal-card")).not.toBeNull();
+    expect(document.querySelector(".sched-modal-card")).not.toBeNull();
   });
 
   it("edits a no-view schedule: the form hydrates from its constraint sets and round-trips them", async () => {
@@ -1427,7 +1428,7 @@ describe("ScheduledOptionsManager — no-view discovery (#534)", () => {
     await waitForText("Strategy Discovery · No-view");
 
     await click(buttonByText(cardByTitle("Strategy Discovery · No-view"), "Edit"));
-    const modal = container.querySelector(".sched-modal-card") as HTMLElement;
+    const modal = document.querySelector(".sched-modal-card") as HTMLElement;
     expect(modal).not.toBeNull();
     const modelSelect = selectByOptionText(modal, "No-view (constraints only)");
     expect(modelSelect.value).toBe("no-view");
@@ -1459,7 +1460,7 @@ describe("ScheduledOptionsManager — no-view discovery (#534)", () => {
     await waitForText("Strategy Discovery · No-view");
 
     await click(buttonByText(cardByTitle("Strategy Discovery · No-view"), "Edit"));
-    const modal = container.querySelector(".sched-modal-card") as HTMLElement;
+    const modal = document.querySelector(".sched-modal-card") as HTMLElement;
     expect(modal).not.toBeNull();
     expect(modal.textContent).toContain("different constraints per symbol");
     expect(modal.textContent).toContain("saving re-arms every symbol with the values above");
