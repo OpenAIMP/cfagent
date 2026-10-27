@@ -11,10 +11,19 @@ Evaluates GitOps compliance:
 (e) Docs scope guard (docs PR cannot touch src/ or tests/)
 (f) Stale base reversion guard (cannot delete files added to main since branching)
 (g) superseded by (i) (owner direction 2026-10-27, issue #1894):
-    no file may be deleted at all — see (i)
-(i) No-deletion rule (owner direction 2026-10-27, issue #1894):
+    no file may be deleted at all — see (i), including its
+    test-rename allowance (owner direction 2026-10-27, issue #1917)
+(i) No-deletion rule (owner direction 2026-10-27, issue #1894;
+    rename allowance owner direction 2026-10-27, issue #1917):
     any file deletion fails, with no label bypass. Retire by deprecating
     in place (see (j)), never by deleting. Pure renames pass.
+    Exception: a deleted TEST file passes when an added test file
+    preserves every one of its test names (exact match, or fuzzy match
+    at ratio >= 0.55 under a distinct assignment, so titles may be
+    renamed along with the file but none may disappear) and git pairs
+    the two as a rename at a 20% threshold (or the coverage is exact).
+    The rule proves no test title disappeared; it does not audit
+    assertion strength — that is the suite's and review's job.
 (j) Deprecation completeness (owner direction 2026-10-27, issue #1894):
     a new deprecation marker in code must name what superseded it, e.g.
     'superseded by src/new_module.ts'. Deprecated code must not be used.
@@ -310,22 +319,122 @@ def evaluate_policy(
     except Exception as e:
         failures.append(f"(f) stale base verification error: {e}")
 
-    # (i) No-deletion rule (owner direction 2026-10-27, issue #1894):
-    # NO file may be deleted in a PR — any deletion fails, with no label
-    # bypass. The allow-test-deletion label no longer permits deletions.
-    # Retire by deprecating in place (see (j)): keep the file, mark it
+    # (i) No-deletion rule (owner direction 2026-10-27, issue #1894)
+    # with the test-rename allowance (owner direction 2026-10-27,
+    # issue #1917): NO file may be deleted in a PR — any deletion
+    # fails, with no label bypass — EXCEPT a deleted test file whose
+    # tests all survive in an added test file (see below). Retire by
+    # deprecating in place (see (j)): keep the file, mark it
     # deprecated with its superseding reference, and remove it from
     # exports/indexes instead of deleting it. Pure renames (git R
-    # status) are moves, not deletions, and pass; a rename paired with
-    # a rewrite that falls below rename similarity still reports as D
-    # and fails — split it into a pure rename commit plus a
-    # modification commit. If a listed file is one the branch simply
-    # lacks because main moved, update the branch to current main.
-    # Genuine exceptions (e.g. removing an accidentally committed
-    # secret, legal takedown) are owner emergency exceptions: the gate
-    # stays red and only an owner admin bypass with an exception record
-    # merges.
+    # status) are moves, not deletions, and pass. If a listed file is
+    # one the branch simply lacks because main moved, update the
+    # branch to current main. Genuine exceptions (e.g. removing an
+    # accidentally committed secret, legal takedown) are owner
+    # emergency exceptions: the gate stays red and only an owner admin
+    # bypass with an exception record merges.
+    #
+    # Rename allowance, and why each condition exists:
+    # - Both files must be test files (tests/ dir, or .test./.spec.
+    #   in the name). A heavily-edited non-test rename still fails:
+    #   source files retire via deprecation in place, not deletion.
+    # - Every test name of the deleted file must have a DISTINCT
+    #   counterpart in the added file: exact equality, or
+    #   SequenceMatcher ratio >= 0.55. Titles may be renamed along
+    #   with the file, but none may disappear, and one new title may
+    #   not cover two old ones. The 0.55 floor sits below the
+    #   observed #1906 minimum (0.615 over 39 names, greedy distinct
+    #   assignment) with margin, and above unrelated-title similarity.
+    # - The covering file must plausibly be the same file renamed:
+    #   git pairs the two at a 20% rename threshold (the #1906 pair
+    #   sits at 41%; unrelated files sit near 0%), OR every old title
+    #   appears verbatim in the new file (a verbatim move needs no
+    #   pairing proof; adding titles does not break exactness).
+    # - The deleted file must carry at least one extractable test
+    #   name; a file with no literal-named tests cannot use the
+    #   allowance. Only literal it/test/describe titles are
+    #   extracted — parameterized (it.each/test.each), skipped, and
+    #   template-literal titles are not, and such files keep the old
+    #   behavior (fail). Matching is by maximum bipartite matching
+    #   (Kuhn's algorithm), not greedy order, so assignment cannot
+    #   steal a title another old name needs.
+    # - Fail-closed: any error inside this block fails (i) outright;
+    #   an error never excuses a deletion.
+    # - The allowance proves no test TITLE disappeared. It does not
+    #   audit assertion strength: a test kept by title but weakened
+    #   in body passes this check and is the suite's/review's job.
     try:
+        import difflib
+
+        def _is_test_file(path: str) -> bool:
+            return path.startswith("tests/") or ".test." in path or ".spec." in path
+
+        def _test_names(content: str) -> List[str]:
+            return [
+                match.group(1).strip()
+                for match in re.finditer(
+                    r"\b(?:it|test|describe)\s*\(\s*[\"'`]([^\"'`]+)[\"'`]",
+                    content,
+                )
+            ]
+
+        def _show(ref: str, path: str) -> Optional[str]:
+            try:
+                return subprocess.run(
+                    ["git", "show", f"{ref}:{path}"],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=True,
+                ).stdout
+            except Exception:
+                return None
+
+        def _exact_covers(old_names: List[str], new_names: List[str]) -> bool:
+            # Every old title appears verbatim (as a multiset subset) in
+            # the new file. Adding titles (a new describe wrapper, new
+            # tests) does not break exactness — only losing one does.
+            remaining = list(new_names)
+            for old in old_names:
+                if old in remaining:
+                    remaining.remove(old)
+                else:
+                    return False
+            return True
+
+        def _covers(old_names: List[str], new_names: List[str]) -> bool:
+            # Maximum bipartite matching: edge old->new when titles are
+            # equal or fuzzy-similar. Passes only if every old title
+            # matches a distinct new title.
+            if not old_names:
+                return False
+            adjacency: List[List[int]] = []
+            for old in old_names:
+                edges = [
+                    j
+                    for j, new in enumerate(new_names)
+                    if old == new
+                    or difflib.SequenceMatcher(None, old, new).ratio() >= 0.55
+                ]
+                adjacency.append(edges)
+            match_to_old: List[int] = [-1] * len(new_names)
+
+            def _augment(i: int, seen: List[bool]) -> bool:
+                for j in adjacency[i]:
+                    if seen[j]:
+                        continue
+                    seen[j] = True
+                    if match_to_old[j] == -1 or _augment(match_to_old[j], seen):
+                        match_to_old[j] = i
+                        return True
+                return False
+
+            for i in range(len(old_names)):
+                if not _augment(i, [False] * len(new_names)):
+                    return False
+            return True
+
         status_lines = subprocess.run(
             ["git", "diff", "--name-status", "-M", base, head],
             capture_output=True,
@@ -337,6 +446,51 @@ def evaluate_policy(
         deleted_all = [
             line.split("\t", 1)[1] for line in status_lines if line.startswith("D\t")
         ]
+        added_all = [
+            line.split("\t", 1)[1] for line in status_lines if line.startswith("A\t")
+        ]
+        allowed: List[str] = []
+        if deleted_all:
+            paired_lines = subprocess.run(
+                ["git", "diff", "--name-status", "--find-renames=20%", base, head],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=True,
+            ).stdout.splitlines()
+            paired = set()
+            for line in paired_lines:
+                parts = line.split("\t")
+                if len(parts) == 3 and parts[0].startswith("R"):
+                    paired.add((parts[1], parts[2]))
+            remaining = []
+            for deleted in deleted_all:
+                excused_with = None
+                if _is_test_file(deleted):
+                    old_content = _show(base, deleted)
+                    old_names = _test_names(old_content) if old_content is not None else []
+                    if old_names:
+                        for added in added_all:
+                            if not _is_test_file(added):
+                                continue
+                            new_content = _show(head, added)
+                            if new_content is None:
+                                continue
+                            new_names = _test_names(new_content)
+                            if (deleted, added) in paired or _exact_covers(
+                                old_names, new_names
+                            ):
+                                if _covers(old_names, new_names):
+                                    excused_with = added
+                                    break
+                if excused_with is not None:
+                    allowed.append(f"{deleted} -> {excused_with}")
+                else:
+                    remaining.append(deleted)
+            for pair in allowed:
+                print(f"(i) allowed rename: {pair} (test names preserved)")
+            deleted_all = remaining
         if deleted_all:
             sample = ", ".join(sorted(deleted_all)[:5])
             suffix = "..." if len(deleted_all) > 5 else ""
@@ -345,6 +499,8 @@ def evaluate_policy(
                 "No file may be deleted — mark the code deprecated in place (see (j)) "
                 "and remove it from exports/indexes instead. "
                 "The 'allow-test-deletion' label no longer permits deletions. "
+                "A deleted test file passes only when an added test file preserves "
+                "all of its test names (see (i) rename allowance). "
                 "If a listed file is one the branch simply lacks because main moved, "
                 "update the branch to current main."
             )
@@ -458,7 +614,7 @@ def main() -> int:
     print(
         "Policy gate passed: linked issue, lane label, agent hashtag, "
         "CHANGELOG [Unreleased] entry or changelog.d fragment, docs scope, "
-        "non-regression guards, no deletions, deprecation completeness, "
+        "non-regression guards, no uncovered deletions, deprecation completeness, "
         "and process documentation line verified."
     )
     return 0
