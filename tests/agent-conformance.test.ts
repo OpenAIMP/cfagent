@@ -61,15 +61,16 @@ describe("Agent conformance (issue #1738)", () => {
       .filter((f) => /extends\s+Agent</.test(read(path.relative(ROOT, f))))
       .map((f) => path.relative(ROOT, f).replace(/\\/g, "/"))
       .sort();
-    // The four pre-#1738 actors (Screener, Scheduled, Payments,
-    // ReportAsset) plus the three #1738 migrations (Orchestrator,
-    // Research, Trading). BrowserAgent/SlackAgent extend AIChatAgent
-    // and are deliberately NOT in this list — they are chat agents,
-    // not actor-role agents.
+    // The three remaining pre-#1738 actors (Screener, Scheduled,
+    // Payments) plus the three #1738 migrations (Orchestrator,
+    // Research, Trading). ReportAsset left this list in #1958: it
+    // now extends PortThink, not Agent (its own pin lives in
+    // tests/report-asset-agent.test.ts). BrowserAgent/SlackAgent
+    // extend AIChatAgent and are deliberately NOT in this list —
+    // they are chat agents, not actor-role agents.
     expect(adopters).toEqual([
       "src/agents/orchestrator.ts",
       "src/agents/payments-agent.ts",
-      "src/agents/report-asset-agent.ts",
       "src/agents/research-agent.ts",
       "src/agents/scheduled-agent.ts",
       "src/agents/screener-agent.ts",
