@@ -121,7 +121,8 @@ describe("Issue #1705 — Approvals surface composes the existing queues", () =>
   it("source pin: the panel complies with the UX token architecture with no exemption (ADR-0004)", () => {
     const panel = readFileSync("src/client/ApprovalsPanel.tsx", "utf8");
     expect(panel).toContain('from "./components/ui"');
-    expect(panel).toContain("<Card");
+    expect(panel).toContain("<PageShell");
+    expect(panel).toContain("<PageSection");
     const gov = JSON.parse(readFileSync("tests/ui_primitives_1337.json", "utf8")) as {
       exemptions: Array<{ path: string; reason: string }>;
     };

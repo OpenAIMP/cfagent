@@ -7,6 +7,7 @@ import type { ReferralItem } from "../types";
 import type { User } from "../types";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { PageShell, PageSection } from "../../components/ui/PageShell";
 import { Card } from "../../components/ui/Card";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Notice } from "../../components/ui/Notice";
@@ -53,14 +54,11 @@ export interface ReferralsTabProps {
 export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copiedReferral, copiedShareRefId, discordCopied, externalAds, fetchReferrals, googleAdsEnabled, googlePublisherId, googleSlotId, handleCopyDiscordEmbed, handleCopyPersonalRef, handleCopyRefDiscordEmbed, handleCreateReferral, handleDeleteReferral, handleExternalAdClick, handleReferralClick, newRefCategory, newRefReward, newRefTitle, newRefUrl, personalReferralUrl, refFormError, refFormSuccess, referrals, referralsLoading, savingRef, setActiveShareRefId, setNewRefCategory, setNewRefReward, setNewRefTitle, setNewRefUrl, user}: ReferralsTabProps) {
   return (
           <div className="referrals-view">
-            {/* Header */}
-            <div className="tab-hero-header">
-              <div className="hero-text-block">
-                <h3>🎁 Referrals & Partner Hub</h3>
-                <p>
-                  Invite colleagues to Multi-Agent Studio to unlock GPU compute credits, and place your own developer referral links to earn community rewards.
-                </p>
-              </div>
+            <PageShell
+              title="Referrals & Partner Hub"
+              scopeNote="Invite colleagues to Multi-Agent Studio to unlock GPU compute credits, and place your own developer referral links to earn community rewards."
+            >
+            <div>
               <Button
                 variant="secondary"
                 size="sm"
@@ -72,6 +70,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
             </div>
 
             {/* Top Share Box */}
+            <PageSection>
             <Card padding="none" className="referral-share-card">
               <div className="referral-share-left">
                 <Badge size="xs" uppercase tone="neutral">YOUR EXCLUSIVE INVITE LINK</Badge>
@@ -217,8 +216,10 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                 </div>
               </div>
             </Card>
+            </PageSection>
 
             {/* Metrics Ribbon */}
+            <PageSection>
             <div className="referral-stats-ribbon">
               <Card padding="none" className="stat-card">
                 <span className="stat-icon">🔗</span>
@@ -253,8 +254,10 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                 </div>
               </Card>
             </div>
+            </PageSection>
 
             {/* Main 2-column Grid: Place Referral Link Form + Placed Links List */}
+            <PageSection>
             <div className="referral-columns-grid">
               {/* Placement Form */}
               <div className="referral-form-card">
@@ -470,6 +473,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                 </div>
               </div>
             </div>
+            </PageSection>
 
             {/* Google Ads Display Banner on Referrals Page (Configurable via Settings) */}
             {adBannerConfig.enabled && adBannerConfig.showGoogleAdUnits && Boolean(adBannerConfig.tabVisibility.referrals) && googleAdsEnabled && (
@@ -485,6 +489,7 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
             )}
 
             {/* Official Social Media Platforms & Developer Community Hub */}
+            <PageSection>
             <Card padding="none" className="referral-social-hub-card">
               <div className="card-header">
                 <h4>🌐 Official Developer Social Platforms & Communities</h4>
@@ -592,6 +597,8 @@ export function ReferralsTab({activeShareRefId, adBannerConfig, categories, copi
                 </a>
               </div>
             </Card>
+            </PageSection>
+            </PageShell>
           </div>
   );
 }
