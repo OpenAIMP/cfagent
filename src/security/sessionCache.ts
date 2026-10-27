@@ -32,7 +32,13 @@ import type {
  *   Other isolates keep their stale copy until TTL — which is why the TTL is
  *   short and why sensitive routes are not meant to rely on it.
  */
-const POSITIVE_TTL_MS = 60_000;
+/**
+ * Positive TTL for cached sessions, in ms (#1750: this is also the
+ * cross-isolate session-revocation propagation bound — see
+ * src/security/revocationTargets.ts, which the proving tests pin to
+ * this exact constant so the two cannot drift apart).
+ */
+export const SESSION_CACHE_POSITIVE_TTL_MS = 60_000;
 const NEGATIVE_TTL_MS = 10_000;
 const MAX_ENTRIES = 2000;
 
@@ -61,7 +67,7 @@ function writeEntry(sessionId: string, data: SessionData | null): void {
   }
   cache.set(sessionId, {
     data,
-    expiresAt: Date.now() + (data ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS),
+    expiresAt: Date.now() + (data ? SESSION_CACHE_POSITIVE_TTL_MS : NEGATIVE_TTL_MS),
   });
 }
 

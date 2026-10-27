@@ -167,12 +167,80 @@ say so (see §10).
 ## 9. Open decisions (owner, not defaults)
 
 Settled thresholds are still open: the 15-minute step-up window and the
-idle window are proposed defaults, not settled CISO values. Measurable
-revocation propagation has no numeric target (observed property only:
-wired sessions re-validate on fresh reads, bounded by a 60-second
-isolate cache). Audit retention, tamper response, and whether a failed
-audit write should block a wired login are undecided — today a failed
-audit write does **not** block login. See the #945 open list.
+idle window are proposed defaults, not settled CISO values. Audit
+retention, tamper response, and whether a failed audit write should
+block a wired login are undecided — today a failed audit write does
+**not** block login. See the #945 open list.
+
+### Revocation-propagation targets (#1750)
+
+Revocation propagation HAS numeric targets now (they replace the
+previous observed-property-only wording). The single source of truth
+is `src/security/revocationTargets.ts` — frozen constants, not
+configuration: no env var, session value, run value, or user value
+can widen, narrow, or disable them, because a caller-extendable
+revocation grace would let a caller disable their own enforcement.
+Every number below reuses a value the system already enforces; this
+slice invents no new threshold.
+
+Measurement (all rows): the clock starts when the revoking write
+COMPLETES (the store put/delete returns), and ends at the first gate
+check at or after that moment. A bound of 0 means the very next gate
+check denies. For token-expiry there is no revoking write: the clock
+starts at the deadline, and a gate check at or after the deadline
+must deny (0 ms past the deadline).
+
+| Trigger | Target | Gate |
+| --- | --- | --- |
+| Membership / grant revocation | 0 ms — next PDP check denies | PDP check (`checkRoutePermission` / `authorize`) on PDP-enforced routes. The PDP reads the membership store fresh on every check; no membership cache sits between store and PDP. Binding expiry is exact the same way: a binding denies at the first check at or after its `expiresAtMs`. |
+| Session revocation | 0 ms same-isolate; ≤ 60,000 ms every isolate | Session gate (`requireAuth`). The logout path invalidates the isolate cache before deleting the record, so its own next read denies. Any other isolate serves its stale cached copy until the 60-second isolate-cache TTL lapses, then re-reads the store and denies. A wired session is denied immediately on every isolate: the wired validation path fresh-reads and denies on a missing record even when a cached copy exists, so the 60 s tier never applies to it. |
+| API-key deletion | 0 ms — next verification denies | API-key verification (`verifyApiKey`) at the MCP transport. Verification reads the key store fresh (hash lookup, then record read) with no cache layer. API keys carry no expiry; deletion is the only key-revocation trigger. |
+| Admin removal | 0 ms — next admin-gate check denies | Admin gates (GET `/api/iaaa/overview` gate, PDP, grant gate), all fresh membership reads. Admin removal IS membership revocation applied to an admin binding, so it shares the membership mechanism and bound. |
+| Token expiry | 0 ms past the deadline | Session gate (wired validation) and OIDC claim validation. Absolute session expiry: first wired gate check at or after `createdAt + SESSION_TTL` (7 days) denies. Idle expiry: first wired gate check at or after recorded last-activity + the enforced idle default (30 minutes) denies. OIDC claims: a claim with `exp` at or before now denies on presentation. The idle and step-up windows themselves remain unsettled CISO values (#1757); these targets reuse the enforced defaults without settling them. |
+
+Proving tests: `tests/iaaa_revocation_targets_1750.test.ts` (one
+group per trigger, revoke-then-gate at the bound) and
+`tests/iaaa_revocation_session_cache_1750.test.ts` (the 60-second
+isolate-cache interaction: same-isolate invalidation, cross-isolate
+TTL expiry at exactly 60,000 ms, and the honest stale-serve window
+inside the TTL).
+
+### Residual gaps — NOT covered by the targets above
+
+These are named here, with their own follow-ups, not folded into a
+passing target:
+
+- **Legacy sessions inside the §8 bound are PDP-exempt.** For them,
+  membership revocation and admin removal do NOT deny at the
+  integration gates until the §8 bound expires (at most 7 days from
+  session creation, then 403 `legacy_pdp_grace_expired`) or the
+  session re-logs in through wiring. The 0 ms membership/admin
+  targets bind PDP-enforced sessions only.
+- **The PDP is not a universal gate.** Session-gated-only routes
+  (the generic `/api/*` forwarder, schedule-goal mutations) and the
+  §7 deliberately ungated routes never consult memberships, so
+  membership/admin revocation does not deny those routes at all.
+  Gate coverage is #1754's audit (scan F-06), not this slice.
+- **Sessions the store cannot see cannot be revoked by id.**
+  Bulk revocation / offboarding requires caller-supplied session
+  ids — there is no session listing — so an offboarding that does
+  not know all of a principal's session ids misses the unknown
+  ones (scan F-16, #1758 lifecycle wiring).
+- **Admin removal does not terminate the removed admin's session.**
+  The removed admin stays authenticated for session-gated routes
+  until session revocation or expiry; only admin gates deny
+  immediately. That is the mechanism as designed (revocation is a
+  permission), stated here so it is not mistaken for session
+  revocation.
+- **API keys have no expiry.** A key lives until deleted. Deletion
+  is immediate (0 ms), but there is no rotation or expiry bound,
+  and none is invented here.
+- **Idle expiry is exact against RECORDED activity, not true
+  activity.** Recorded activity lags true activity by up to 60 s
+  (touch precision: touches persist at most every 60 s), and a
+  session with no recorded activity at all (legacy / Phase 1) is
+  idle-exempt by contract — its only expiry bound is the absolute
+  deadline. Neither slack is hidden inside a looser gate bound.
 
 ## 10. XACML mapping — conceptual, not conformant
 

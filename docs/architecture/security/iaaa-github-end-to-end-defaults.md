@@ -105,14 +105,14 @@ a member does not hold `integration:connect` and is denied.
   (`iaaa-alias:` records). No copy, no rename, no key deletion.
   The copy-cutover and dual-write options remain documented in
   `iaaaMigration.ts` and undecided.
-- **Revocation propagation: observed property, not a settled
-  measurable target.** Wired sessions are re-validated on fresh
-  store reads on every authenticated request (Phase 2b-part1), so
-  a revocation (session deletion, membership revocation) is
-  effective on the next request — bounded by the 60-second isolate
-  cache for cached copies, exactly as before wiring. No numeric
-  propagation target (e.g. "within N seconds") is claimed here;
-  setting one is still an owner decision.
+- **Revocation propagation: numeric targets (#1750).** Membership
+  revocation 0 ms (next PDP check), API-key deletion 0 ms (next
+  verification), admin removal 0 ms (next admin-gate check),
+  token expiry 0 ms past the deadline, session revocation 0 ms
+  same-isolate and ≤ 60 s every isolate (the isolate-cache TTL;
+  wired sessions deny immediately on a fresh read). Full table,
+  measurement rule, and residual gaps: [authz.md §9](authz.md)
+  and `src/security/revocationTargets.ts`.
 - **Audit retention: NOT DECIDED.** The Kv audit store
   (`iaaa-audit:events`) is append-only and unbounded until the
   retention decision lands. No retention period is invented here.
