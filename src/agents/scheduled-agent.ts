@@ -1,4 +1,4 @@
-import { Agent } from "agents";
+import { PortThink } from "../actors/thinkAdapter";
 import type { Env } from "../types";
 import type { CompiledChain, CompiledChainStep } from "../orchestrate";
 import type { ChainRunResult } from "../mcp/goalChainCommands";
@@ -196,7 +196,22 @@ export interface ScheduledAgentCronOpts {
   chainExecutor?: (step: CompiledChainStep) => Promise<unknown>;
 }
 
-export class ScheduledAgent extends Agent<Env> {
+/**
+ * Issue #1956 (think-fleet): ScheduledAgent extends PortThink
+ * (src/actors/thinkAdapter.ts) instead of raw Agent. PortThink is
+ * Think behind the actor port, so the class keeps Agent's storage /
+ * scheduler facets and gains Think's turn facet — but this class has
+ * NO turn path and NO port hooks (portHooks stays unset, so
+ * PortThink.beforeTurn returns undefined and the chat hooks are
+ * no-ops). Its observable behavior is the cron/goal surface below,
+ * unchanged: ticks still arrive via the Worker cron trigger as RPC
+ * onCron() calls, never via the SDK scheduler (this class registers
+ * no schedule callbacks, so the SDK's schedule-time callback-name
+ * validation has nothing to check), and onCron never touches Think's
+ * session, so no lifecycle boot is needed on that path — the
+ * adapter-owned start() precondition applies to turns only.
+ */
+export class ScheduledAgent extends PortThink {
   private async getGoals(): Promise<ScheduledGoal[]> {
     const stored = await this.ctx.storage.get<ScheduledGoal[]>("goals");
     if (!stored) {
