@@ -252,7 +252,7 @@ Rules:
 - Every issue also carries its `lane:<lane>` label (see Required issue metadata) — the type label does not replace the lane label.
 - Related issues are recorded in the `## Related issues` body section with roles, not as a bare list: Parent epic, Blocks / Blocked by, Related, Supersedes. A related issue with no recorded role is invisible to sequencing (see Required issue metadata).
 - PRs carry the same Type section in the PR template; the PR title itself has no type prefix requirement.
-- Labels `fix`, `hotfix`, and `ent-arch` did not exist when this convention landed and were created via the repo web UI (labels cannot be created through the API tools available to agents); until a label exists, its convention row is aspirational, not enforceable.
+- Labels `fix`, `hotfix`, and `ent-arch` were created via the repo web UI on 2026-10-27 (labels cannot be created through the API tools available to agents); all five convention rows are live from that date.
 
 ### Required issue metadata
 
