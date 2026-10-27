@@ -150,8 +150,14 @@ export interface Env {
   // dashboard Variables) and redeploy; rollback is unsetting the var
   // (or setting it to "hitl") and redeploying — no code change. This
   // slice deliberately does NOT set a production value: production
-  // values are an owner action. Resolved by resolvePaymentsFlowMode
-  // in src/agents/routes/payments.ts.
+  // values are an owner action. #1735 re-scopes the RESOLUTION to
+  // run > session > user > global env > built-in hitl (the env var
+  // stays the global fallback): resolved by
+  // resolvePaymentsFlowModeScoped in src/config/paymentsFlowModes.ts
+  // via the payments route context; the legacy env-only
+  // resolvePaymentsFlowMode in src/agents/routes/payments.ts is kept
+  // unchanged. The run value is execution-owner-set, never request
+  // input (a caller must not flip their own execution to immediate).
   PAYMENTS_FLOW_MODE?: string;
   // #1721 (parent #1717) — ONE switch per categories / referrals /
   // external-ads pair (non-secret, owner-set, same pattern as
