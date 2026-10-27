@@ -7,9 +7,12 @@
  * cannot instantiate a real Agent under Node. What it *can* pin —
  * and what silently regressed before the #542 file existed — is the
  * adoption evidence itself: the framework is pinned, every agent is
- * an Agents SDK actor (no Think agent class remains), each class is
- * exported as a Durable Object, the bindings + SQLite migrations
- * exist, and the orchestrator actually dispatches to the actor.
+ * an Agents SDK actor (no Think agent class remains) — except
+ * ResearchAgent since #1953 (think-fleet, shape (a): Think behind
+ * the port via PortThink, pinned by the ResearchAgent test below),
+ * each class is exported as a Durable Object, the bindings +
+ * SQLite migrations exist, and the orchestrator actually
+ * dispatches to the actor.
  * Removing any anchor fails this suite. (Repo precedent for this
  * style: tests/research-boundary.test.ts.)
  *
@@ -43,10 +46,14 @@ describe("Agent conformance (issue #1738)", () => {
     expect(pkg.dependencies["agents"]).toMatch(EXACT_VERSION);
   });
 
-  it("ResearchAgent extends Agent with the framework overrides", () => {
+  it("ResearchAgent extends PortThink with the framework overrides (issue #1953, think-fleet)", () => {
     const src = read("src/agents/research-agent.ts");
-    expect(src).toMatch(/import\s*\{\s*Agent\s*\}\s*from\s*"agents"/);
-    expect(src).toMatch(/export\s+class\s+ResearchAgent\s+extends\s+Agent</);
+    // Think behind the actor port (tracker #1951, shape (a)): the
+    // class reaches Think only through PortThink, never raw Think
+    // and never the Agents SDK base it used before #1953.
+    expect(src).toMatch(/import\s*\{\s*PortThink\s*\}\s*from\s*"\.\.\/actors\/thinkAdapter"/);
+    expect(src).toMatch(/export\s+class\s+ResearchAgent\s+extends\s+PortThink\b/);
+    expect(src).not.toMatch(/import\s*\{\s*Agent\s*\}\s*from\s*"agents"/);
     // The three overrides the SDK calls into (same surface Think
     // 0.19 exposed; verified against the installed agents package).
     expect(src).toContain("getModel()");
@@ -54,6 +61,8 @@ describe("Agent conformance (issue #1738)", () => {
     expect(src).toContain("getTools()");
     // The agent's single tool is the read-only research pipeline.
     expect(src).toContain("run_options_research");
+    // PortThink translates Think's hook calls into this object.
+    expect(src).toContain("portHooks");
   });
 
   it("Agent adopters in src are exactly the designated roles (new adopters update this pin deliberately)", () => {
@@ -62,15 +71,16 @@ describe("Agent conformance (issue #1738)", () => {
       .map((f) => path.relative(ROOT, f).replace(/\\/g, "/"))
       .sort();
     // The four pre-#1738 actors (Screener, Scheduled, Payments,
-    // ReportAsset) plus the three #1738 migrations (Orchestrator,
-    // Research, Trading). BrowserAgent/SlackAgent extend AIChatAgent
-    // and are deliberately NOT in this list — they are chat agents,
+    // ReportAsset) plus the two remaining #1738 migrations
+    // (Orchestrator, Trading). Research left this list in #1953
+    // (think-fleet): it extends PortThink now, not Agent.
+    // BrowserAgent/SlackAgent extend AIChatAgent and are
+    // deliberately NOT in this list — they are chat agents,
     // not actor-role agents.
     expect(adopters).toEqual([
       "src/agents/orchestrator.ts",
       "src/agents/payments-agent.ts",
       "src/agents/report-asset-agent.ts",
-      "src/agents/research-agent.ts",
       "src/agents/scheduled-agent.ts",
       "src/agents/screener-agent.ts",
       "src/agents/trading-agent.ts",

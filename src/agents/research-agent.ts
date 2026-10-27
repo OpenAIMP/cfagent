@@ -16,7 +16,8 @@
  * function (pinned by tests/research-boundary.test.ts). Research only.
  */
 
-import { Agent } from "agents";
+import { PortThink } from "../actors/thinkAdapter";
+import type { ActorTurnHooks } from "../actors/actorPorts";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { resolveAiModelName } from "./model";
@@ -128,11 +129,45 @@ export interface ResearchRunSummary {
   summary: string;
 }
 
-export class ResearchAgent extends Agent<Env> {
-  /** Issue #1738 (AgentActorDO): an Agents SDK actor. The model/tool
-   *  identity below is the port facet other actors and the MCP layer
-   *  read; live dispatch runs through direct methods (runResearch /
-   *  runDiscovery) and the SDK's runAgentTool, not a chat turn. */
+export class ResearchAgent extends PortThink {
+  /**
+   * Issue #1953 (think-fleet, tracker #1951, shape (a)): Think behind
+   * the existing actor port, via the foundation's PortThink — never
+   * raw Think, and never a Think-signature beforeTurn/onChatResponse/
+   * onChatError method on this class (PortThink's translation owns
+   * those; see src/actors/thinkAdapter.ts). The model/tool identity
+   * below is the port facet other actors and the MCP layer read;
+   * live dispatch runs through direct methods (runResearch /
+   * runDiscovery) and the SDK's runAgentTool, not a chat turn.
+   * A turn, when one is driven, goes through the port adapter
+   * (createThinkActorTurn): the adapter owns the lifecycle boot
+   * (await lifecycle.start() before any turn — NEVER lifecycle
+   * .ready?.(), which silently no-ops), calls the port's beforeTurn
+   * exactly once via the one-shot override, and flushes
+   * onChatResponse after appending, restoring runner order.
+   * Direct domain methods below are NOT turns and take no boot.
+   */
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // The class's port hooks object. Research is a non-chat actor:
+    // the turn hooks are identity defaults — beforeTurn overrides
+    // nothing (Think defaults apply), onChatResponse has no side
+    // effect (the turn caller owns the result), and onChatError is
+    // SYNCHRONOUS: Think fires it fire-and-forget, so only a sync
+    // hook can control the error text (spike fact #1935). The raw
+    // message is returned, matching Think's own fallback text.
+    // Tree operations (branching, compaction, FTS) have NO port
+    // equivalent and stay outside the port by design.
+    this.portHooks = {
+      getModel: () => this.getModel(),
+      getSystemPrompt: () => this.getSystemPrompt(),
+      getTools: () => this.getTools(),
+      beforeTurn: async () => undefined,
+      onChatResponse: async () => {},
+      onChatError: (error: unknown) =>
+        error instanceof Error ? error.message : String(error),
+    } satisfies ActorTurnHooks;
+  }
   getModel() {
     return resolveAiModelName(this.env, "researchAgent");
   }
