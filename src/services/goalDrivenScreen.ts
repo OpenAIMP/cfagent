@@ -95,6 +95,13 @@ export function buildGoalScreenPlan(
   }
 ): GoalScreenPlan {
   const taxonomy = GOAL_TAXONOMY[scenario.goalKind];
+  // Issue #1963 (correction): an "unknown" direction is the no-thesis
+  // mode — it deliberately means "everything", i.e. momentum "any"
+  // and the whole universe. It is NOT a broken direction and must NOT
+  // be "fixed" to the taxonomy outlook: naming a thesis (bullish /
+  // bearish) where the user stated none would misrepresent the run.
+  // "Goal default" (no direction sent) is the path that resolves to
+  // the taxonomy outlook.
   const outlook = scenario.direction ?? taxonomy.outlook;
   const constraints = scenario.constraints;
 
@@ -218,6 +225,47 @@ export async function runGoalDrivenScreen(input: {
         assetClass === "stocks"
           ? await input.registry.screen({ assetClass: "stocks", filter: plan.stockFilter })
           : await input.registry.screen({ assetClass: "options", filter: plan.optionsFilter });
+      // Issue #1963: a leg is failed by its RESULT STATUS, not only
+      // by throwing. The options screener returns error-status
+      // results without throwing (no-symbols validation error; all
+      // chain fetches failed, e.g. dead E*TRADE auth), and the stock
+      // screener returns "no_universe" without throwing — the old
+      // code read all three as successful empty legs and reported
+      // the run "complete". An error-status leg is a failed class
+      // with its reason surfaced, per the #462 partial contract;
+      // "no_matches" stays a legitimate empty.
+      // Issue #1963 (second case): the listings-feed stock leg
+      // refuses technical filters (momentum, RSI) with matchedCount 0
+      // plus a validationError message (screener.ts unsupported
+      // branch — the sole validationError assignment in the stock
+      // screener) and status "no_matches". A validationError on the
+      // stock leg is therefore also a failed class: the filter was
+      // not evaluated, so "Complete, 0 hits" would be a lie.
+      const legResult = screened.result as {
+        status?: string;
+        validationError?: string;
+        fetchErrors?: Array<{ symbol?: string; reason?: string }>;
+      };
+      if (assetClass === "options" && legResult.status === "error") {
+        failedClasses.push(assetClass);
+        reasons[assetClass] =
+          legResult.validationError ??
+          (legResult.fetchErrors && legResult.fetchErrors.length > 0
+            ? legResult.fetchErrors
+                .map((e) => `${e.symbol ?? "options"}: ${e.reason ?? "fetch failed"}`)
+                .join("; ")
+            : "options screen failed");
+        continue;
+      }
+      if (
+        assetClass === "stocks" &&
+        (legResult.status === "no_universe" || legResult.validationError)
+      ) {
+        failedClasses.push(assetClass);
+        reasons[assetClass] =
+          legResult.validationError ?? "stock universe unavailable (no_universe)";
+        continue;
+      }
       if (screened.assetClass === "stocks") {
         const result = screened.result as { totalScanned?: number; matchedCount?: number; stocks?: Array<{ symbol: string }> };
         counts.stocksScanned = result.totalScanned ?? 0;
