@@ -65,6 +65,20 @@ function auditSwitchHost(ctx: AuditRouteContext) {
   };
 }
 
+/** 5-field audit projection shared by the list and detail endpoints: the
+ * payload-JSON parse with { raw } fallback. The payload column is TEXT
+ * (recordAudit stringifies), so a stored object can only arrive via a
+ * foreign writer — { raw } keeps it readable instead of throwing. */
+function projectAuditEvent(e: { id: string; type: string; agent: string; payload: string; createdAt: string }) {
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = JSON.parse(e.payload);
+  } catch {
+    payload = { raw: e.payload };
+  }
+  return { id: e.id, type: e.type, agent: e.agent, payload, created_at: e.createdAt };
+}
+
 /**
  * Handles the audit routes. Returns a Response on match, null when no
  * audit path matches (the orchestrator then continues its sequential matching).
@@ -76,20 +90,56 @@ export async function handleAuditRoutes(
   sessionId: string,
   ctx: AuditRouteContext
 ): Promise<Response | null> {
+  // Audit event detail endpoint (#1968)
+  // GET /api/audit/:id returns one event with its full payload. The id
+  // is session-scoped: an unknown id and a row from another session both
+  // answer the same 404, so the endpoint never leaks cross-session
+  // existence. The "event" segment is excluded so the POST /audit/event
+  // write route keeps its existing fall-through behavior.
+  const detailMatch = path.match(/\/audit\/([^/]+)$/);
+  if (detailMatch && detailMatch[1] !== "event" && request.method === "GET") {
+    try {
+      const orm = ctx.getOrm?.() ?? new DatabaseORM(ctx.ensureTables());
+      const row = orm.events.findById(detailMatch[1]);
+      if (!row || row.sessionId !== sessionId) {
+        return Response.json({ error: "Not found" }, { status: 404 });
+      }
+      return Response.json(projectAuditEvent(row as unknown as { id: string; type: string; agent: string; payload: string; createdAt: string }));
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch audit event" }, { status: 500 });
+    }
+  }
+
   // Audit logs endpoint
   // #1644: the event query executes through the get_audit_events command.
   // The route keeps its contract as presentation: the 1..100 limit clamp,
   // the session_id filter (defense-in-depth — the ORM is per-DO-instance,
   // and recordAudit writes this instance's session key on every row),
   // the payload-JSON parse with { raw } fallback, and the 5-field
-  // projection. The command is fetched without a limit so the filter-then-
-  // slice order matches the old WHERE-then-LIMIT order exactly.
+  // projection. #1968: the query params are passed INTO the command so
+  // filtering happens before the limit is applied — the pre-fix route
+  // fetched the newest 50 events overall and ignored every param, so a
+  // type or time filter could never surface an older matching event.
+  // `type` accepts the `event_type` alias; `before`/`after` accept the
+  // `to`/`from` aliases. A non-numeric limit still clamps to NaN and
+  // slices to zero rows (pinned by audit_routes_extraction.test.ts).
   if (path.endsWith("/audit") && request.method === "GET") {
     try {
       const limitParam = Number(url.searchParams.get("limit") || 50);
       const limit = Math.max(1, Math.min(100, limitParam));
+      const offset = Math.max(0, Number(url.searchParams.get("offset") || 0) || 0);
+      const type = url.searchParams.get("type") ?? url.searchParams.get("event_type") ?? undefined;
+      const agent = url.searchParams.get("agent") ?? undefined;
+      const before = url.searchParams.get("before") ?? url.searchParams.get("to") ?? undefined;
+      const after = url.searchParams.get("after") ?? url.searchParams.get("from") ?? undefined;
       const orm = ctx.getOrm?.() ?? new DatabaseORM(ctx.ensureTables());
-      const out = (await runRestTool("get_audit_events", {}, {
+      const out = (await runRestTool("get_audit_events", {
+        limit: before || after ? 1000 : limit,
+        ...(type ? { type } : {}),
+        ...(agent ? { agent } : {}),
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+      }, {
         orm,
         sessionId,
         audit: (type, agent, payload) => ctx.audit(type, agent, payload),
@@ -97,16 +147,8 @@ export async function handleAuditRoutes(
 
       const parsed = out.events
         .filter((e) => e.sessionId === sessionId)
-        .slice(0, limit)
-        .map((e) => {
-          let payload: Record<string, unknown> = {};
-          try {
-            payload = JSON.parse(e.payload);
-          } catch {
-            payload = { raw: e.payload };
-          }
-          return { id: e.id, type: e.type, agent: e.agent, payload, created_at: e.createdAt };
-        });
+        .slice(offset, offset + limit)
+        .map(projectAuditEvent);
 
       return Response.json({ count: parsed.length, events: parsed });
     } catch (err) {
