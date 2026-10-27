@@ -66,9 +66,12 @@ throw, a log) rather than silent.
 
 A zero-trust claim that omits its gaps is marketing. These are the gaps:
 
-1. **Legacy sessions are PDP-exempt and idle-exempt.** They predate
-   wiring and carry no internal id. The exemption ends at re-login, but
-   until then the PDP is not universal.
+1. **Legacy sessions are PDP-exempt (inside a bound) and idle-exempt.** They predate
+   wiring and carry no internal id. The PDP exemption is bounded by the session's
+   absolute lifetime (createdAt + 7 days, #1749): past the bound, gated routes deny
+   until re-login, and the idle exemption is bounded by the same absolute lifetime,
+   since the store record expires regardless of activity. Until the last legacy
+   session drains, the PDP is not universal.
 2. **Public surfaces exist by design.** The landing page, A2A agent-card
    GETs, strategy pages (served by the asset layer without invoking the
    Worker), and `/mcp/scanner` (where the x402 payment *is* the access

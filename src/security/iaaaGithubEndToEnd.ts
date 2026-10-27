@@ -49,15 +49,19 @@
  * on audit failure.
  *
  * PDP flag: IAAA_PDP_ENABLED ("1"/"true" = on, default OFF).
- * shouldEnforcePdp() is true only when the flag is on AND the
- * session is wired (carries internalUserId). Legacy sessions are
+ * shouldEnforcePdp() is true when the flag is on AND the session
+ * is wired (carries internalUserId), OR when the flag is on and
+ * the session is a legacy session past its #1749 grace bound
+ * (isLegacyPdpGraceExpired). Legacy sessions INSIDE the bound are
  * exempt, exactly as in Phase 2b-part1, and flag OFF is byte-for-byte
  * the pre-change path. Default-deny within the gated set: a wired
- * session with no membership for the required permission is denied.
- * That is why the flag defaults OFF — with no bootstrap list set,
- * turning it on would lock out the legitimate owner. Activation is
- * a config sequence (bootstrap list + tenant + flag, then redeploy),
- * documented in the defaults doc.
+ * session with no membership for the required permission is denied,
+ * and a grace-expired legacy session is denied because it has no
+ * internal id for the PDP to evaluate. That is why the flag
+ * defaults OFF — with no bootstrap list set, turning it on would
+ * lock out the legitimate owner. Activation is a config sequence
+ * (bootstrap list + tenant + flag, then redeploy), documented in
+ * the defaults doc.
  */
 
 import type { Env, SessionData } from "../types";
@@ -78,6 +82,7 @@ import {
 } from "./iaaaBootstrap";
 import { recordLoginAlias } from "./iaaaMigration";
 import { checkPermission } from "./iaaaPdpSeam";
+import { SESSION_TTL } from "./session";
 import type { KvLike } from "./kvResilience";
 
 /** The documented single-tenant default tenant id. */
@@ -128,16 +133,70 @@ export function isPdpEnabled(
 }
 
 /**
- * Whether PDP enforcement applies to this request: flag on AND a
- * wired session. Flag OFF or a legacy session (no internalUserId)
- * means the pre-change path, unchanged.
+ * #1749 legacy-session PDP grace bound (parent #1717, IAAA-1).
+ *
+ * A legacy session (no internalUserId) is PDP-exempt ONLY while it
+ * is inside its absolute session lifetime: createdAt + SESSION_TTL
+ * (7 days, the same deadline the SessionStore record already
+ * expires at, and the same exclusive boundary getValidatedSession
+ * enforces). Past that deadline the exemption ends at the gate,
+ * not just in the store: the session is denied at PDP-gated routes
+ * until it re-logs in through wiring and becomes wired. That is
+ * the migration path, not a lockout cliff — ungated routes are
+ * unaffected, and login itself is never PDP-gated.
+ *
+ * Fail-closed corners, all deliberate:
+ * - Flag OFF: no bound applies, because there is no PDP
+ *   enforcement for the exemption to be relative to (byte-for-byte
+ *   the pre-change path).
+ * - Wired sessions: never grace-expired. Their absolute/idle
+ *   expiry lives on the requireAuth path, not here.
+ * - No session: not grace-expired. That is a 401 upstream, not a
+ *   grace denial.
+ * - Missing or non-finite createdAt: expired. A session that
+ *   cannot prove it is inside its bound is not granted one.
+ *
+ * The bound is deliberately NOT configurable at any scope: it
+ * reuses the SESSION_TTL constant, so no caller — and no config
+ * typo — can widen, narrow, or disable their own enforcement.
+ * A scoped override here would let the gated subject tune its own
+ * gate, which this program's security guard forbids. There is no
+ * divergent pair to unify, so there is no switch to add: one
+ * session lifetime, one bound, enforced at the single choke point
+ * (shouldEnforcePdp) every gated route already calls.
+ *
+ * Time is a caller-supplied nowMs seam, never Date.now() inside
+ * this decision, so every boundary is testable exactly.
+ */
+export function isLegacyPdpGraceExpired(
+  env: Partial<Env> | null | undefined,
+  session: SessionData | null | undefined,
+  nowMs: number,
+): boolean {
+  if (!isPdpEnabled(env)) return false;
+  if (!session || session.internalUserId) return false;
+  if (typeof session.createdAt !== "number" || !Number.isFinite(session.createdAt)) {
+    return true;
+  }
+  return nowMs >= session.createdAt + SESSION_TTL * 1000;
+}
+
+/**
+ * Whether PDP enforcement applies to this request: flag on AND
+ * (a wired session, or a legacy session past its #1749 grace
+ * bound). Flag OFF, or a legacy session inside its bound, means
+ * the pre-change path, unchanged. A grace-expired legacy session
+ * enforces — and then denies, because checkRoutePermission has no
+ * internal id to evaluate — rather than silently bypassing the PDP.
  */
 export function shouldEnforcePdp(
   env: Partial<Env> | null | undefined,
   session: SessionData | null | undefined,
+  nowMs: number,
 ): boolean {
   if (!isPdpEnabled(env)) return false;
-  return Boolean(session?.internalUserId);
+  if (session?.internalUserId) return true;
+  return isLegacyPdpGraceExpired(env, session, nowMs);
 }
 
 export interface GenesisBootstrapEntry {
