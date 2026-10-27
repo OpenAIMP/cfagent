@@ -54,6 +54,7 @@ import {
   type HttpDeliveryScopedModes,
   type JobListScopedModes,
 } from "../config/asyncJobModes";
+import type { PaymentsFlowScopedModes } from "../config/paymentsFlowModes";
 import { SqlScanRunStore, diffScanRuns } from "../trading";
 import { SqlStrategyProfileStore } from "../trading";
 import { createDidAttestation, resolveAgentDidDocument } from "./did";
@@ -215,6 +216,16 @@ export class OrchestratorAgent extends Agent<Env> {
    */
   scopedHttpDeliveryModes?: HttpDeliveryScopedModes;
   scopedJobListModes?: JobListScopedModes;
+
+  /**
+   * #1735: optional PAYMENTS_FLOW_MODE session/user carriers for the
+   * payments routes (run is per-call on the route context, global
+   * env = this.env). Populated by the execution-context owner;
+   * unset carriers fall through to env. In production today only
+   * env is settable — the same boundary as #1721/#1722/#1723/#1724.
+   * See src/config/paymentsFlowModes.ts.
+   */
+  scopedPaymentsFlowModes?: PaymentsFlowScopedModes;
 
   /** Step bound for chat turns (sanitized clamp; see resolveShadowMaxSteps). */
   maxSteps: number;
@@ -2207,6 +2218,11 @@ export class OrchestratorAgent extends Agent<Env> {
       ensureTables: () => this.ensureTables(),
       getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
+      // #1735: session/user carriers for PAYMENTS_FLOW_MODE (run is
+      // per-call on the route context and is not set here — there is
+      // no execution-owner run source on this path today, and a
+      // request-supplied run value must never flip the flow).
+      scopedPaymentsFlowModes: this.scopedPaymentsFlowModes,
     });
     if (paymentsResponse) return paymentsResponse;
 
