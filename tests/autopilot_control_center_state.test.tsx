@@ -163,7 +163,7 @@ describe("Issue #1704 — server-confirmed autopilot state", () => {
     await flush();
     expect(statusText()).toBe("Paused");
     expect(container.textContent || "").not.toContain("Locked Out");
-    expect(container.textContent || "").toContain("NOT locked");
+    expect(document.body.textContent || "").toContain("NOT locked");
     // The dialog stays open so the operator can retry.
     expect(buttonByText("ACTIVATE KILL SWITCH NOW")).not.toBeNull();
   });
@@ -195,7 +195,7 @@ describe("Issue #1704 — server-confirmed autopilot state", () => {
     });
     await flush();
     expect(buttonContainingText("Save Policy Limits")).not.toBeNull();
-    expect(container.textContent || "").toContain("previous limits still apply");
+    expect(document.body.textContent || "").toContain("previous limits still apply");
   });
 
   it("limits success closes the dialog", async () => {

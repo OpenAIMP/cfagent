@@ -302,10 +302,10 @@ async function flush(ms = 30) {
 async function waitForText(text: string, timeoutMs = 6000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (container.textContent?.includes(text)) return;
+    if (document.body.textContent?.includes(text)) return;
     await flush(50);
   }
-  throw new Error(`Timed out waiting for "${text}". Panel text: ${container.textContent?.slice(0, 600)}`);
+  throw new Error(`Timed out waiting for "${text}". Panel text: ${document.body.textContent?.slice(0, 600)}`);
 }
 
 async function renderManager() {
@@ -392,10 +392,10 @@ describe("F15 — ScheduledOptionsManager claims", () => {
     await click(buttonByText(container, "New Schedule"));
     await waitForText("Outbound Signed Webhook");
 
-    expect(container.textContent).toContain("OUTBOUND_WEBHOOK_SECRET");
-    expect(container.textContent).toContain("the webhook is not sent");
-    expect(container.textContent).toContain("Not a channel you configure");
-    const broadcastCard = [...container.querySelectorAll(".channel-check-card")].find((c) =>
+    expect(document.body.textContent).toContain("OUTBOUND_WEBHOOK_SECRET");
+    expect(document.body.textContent).toContain("the webhook is not sent");
+    expect(document.body.textContent).toContain("Not a channel you configure");
+    const broadcastCard = [...document.querySelectorAll(".channel-check-card")].find((c) =>
       c.textContent?.includes("WebSocket UI Broadcast")
     );
     expect(broadcastCard).toBeTruthy();
