@@ -33,8 +33,9 @@ export interface NLQQueryResult {
   /** Issue #27: id of the persisted scan run (options_opportunities
    *  only, when the caller threaded a ScanRunStore through). */
   scanRunId?: string;
-  /** Issue #14: id of the persisted discovery run (options_discovery
-   *  only, when the caller threaded a discovery runner through). */
+  /** Issue #14: id of the persisted discovery run (the unified
+   *  options_fit_discovery action's scope leg only, when the caller
+   *  threaded a discovery runner through). */
   discoveryRunId?: string;
   /** Issue #27: whether the scan run was persisted; false means a
    *  store was supplied but its save failed (the scan still succeeded). */
