@@ -12,6 +12,12 @@
 
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { z } from "zod";
+import {
+  ETRADE_PREVIEW_MODE_SWITCH,
+  etradeConfigErrorEvent,
+  levelsForEtradeSwitch,
+  resolveEtradePreviewMode,
+} from "../config/etradeModes";
 import { ETradeBrowserService } from "../services/browserAgent";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { ETradeSandboxService } from "../services/sandboxAgent";
@@ -176,6 +182,7 @@ export class ThinkTradeValidationCommand implements IMcpToolCommand<{
   quantity: number;
   orderType?: "MARKET" | "LIMIT" | "STOP";
   price?: number;
+  accountBalanceUSD?: number;
 }> {
   readonly name = "think_trade_validation";
   readonly description = "Run Cloudflare Think extended reasoning harness on proposed trade across 5 risk & regulatory phases";
@@ -187,6 +194,11 @@ export class ThinkTradeValidationCommand implements IMcpToolCommand<{
       quantity: { type: "number", description: "Number of shares" },
       orderType: { type: "string", enum: ["MARKET", "LIMIT", "STOP"] },
       price: { type: "number", description: "Optional limit price" },
+      // #1734 (slice (n), confirmed pair with POST /etrade/think/evaluate):
+      // the REST route already accepted accountBalanceUSD; the MCP tool
+      // did not, so the harness could never take a caller-supplied
+      // balance from MCP. Optional, additive — no existing input changes.
+      accountBalanceUSD: { type: "number", description: "Optional caller-supplied account balance in USD (same input the REST route accepts; otherwise the harness resolves live broker state or fails closed INPUTS_UNAVAILABLE)" },
     },
     required: ["symbol", "action", "quantity"],
   };
@@ -196,9 +208,10 @@ export class ThinkTradeValidationCommand implements IMcpToolCommand<{
     quantity: z.number(),
     orderType: z.enum(["MARKET", "LIMIT", "STOP"]).optional(),
     price: z.number().optional(),
+    accountBalanceUSD: z.number().optional(),
   });
 
-  async execute(input: { symbol: string; action: "BUY" | "SELL"; quantity: number; orderType?: any; price?: number }, context: McpToolContext) {
+  async execute(input: { symbol: string; action: "BUY" | "SELL"; quantity: number; orderType?: any; price?: number; accountBalanceUSD?: number }, context: McpToolContext) {
     const thinkHarness = new ETradeThinkHarness(context.orm, context.env);
     const result = await thinkHarness.evaluateTradeWithThinking({
       symbol: input.symbol,
@@ -206,6 +219,7 @@ export class ThinkTradeValidationCommand implements IMcpToolCommand<{
       quantity: input.quantity,
       orderType: input.orderType || "MARKET",
       price: input.price,
+      accountBalanceUSD: input.accountBalanceUSD,
       userLogin: context.sessionId,
     });
     context.audit("think.evaluated", "think", {
@@ -261,9 +275,10 @@ export class DurableTWAPOrderCommand implements IMcpToolCommand<{
   totalQuantity: number;
   slices: number;
   intervalSeconds?: number;
+  mode?: string;
 }> {
   readonly name = "execute_durable_twap";
-  readonly description = "Preview a durable TWAP order PLAN: splits the order into slices and runs each slice through the broker order preview with Cloudflare durable checkpointing. This tool does NOT place orders and nothing fills — it returns preview drafts only (status: \"previewed\", executed: false). Real execution requires the human-in-the-loop order flow: etrade_preview_order followed by etrade_execute_order with an explicit human decision.";
+  readonly description = "Preview a durable TWAP order PLAN: splits the order into slices and runs each slice through the broker order preview with Cloudflare durable checkpointing. This tool does NOT place orders and nothing fills — it returns preview drafts only (status: \"previewed\", executed: false). Real execution requires the human-in-the-loop order flow: etrade_preview_order followed by etrade_execute_order with an explicit human decision. Preview engine: #1734 adopts #1726 ETRADE_PREVIEW_MODE (local | broker) — mode input, session/user carrier, env, then local (legacy); broker previews slices through previewOrderRemote. Preview-only in BOTH modes.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
@@ -272,6 +287,7 @@ export class DurableTWAPOrderCommand implements IMcpToolCommand<{
       totalQuantity: { type: "number", description: "Total shares in the TWAP plan (previewed slice by slice; nothing is executed)" },
       slices: { type: "number", description: "Number of preview slices" },
       intervalSeconds: { type: "number", description: "Interval in seconds between slice previews" },
+      mode: { type: "string", description: "#1726 run-level ETRADE_PREVIEW_MODE override (local | broker); unset = local legacy" },
     },
     required: ["symbol", "action", "totalQuantity", "slices"],
   };
@@ -281,9 +297,36 @@ export class DurableTWAPOrderCommand implements IMcpToolCommand<{
     totalQuantity: z.number(),
     slices: z.number(),
     intervalSeconds: z.number().optional(),
+    mode: z.string().optional(),
   });
 
-  async execute(input: { symbol: string; action: "BUY" | "SELL"; totalQuantity: number; slices: number; intervalSeconds?: number }, context: McpToolContext) {
+  async execute(input: { symbol: string; action: "BUY" | "SELL"; totalQuantity: number; slices: number; intervalSeconds?: number; mode?: string }, context: McpToolContext) {
+    // #1734 (slice (n)): TWAP previously hardcoded the LOCAL draft,
+    // bypassing #1726's preview pair — the appendix (n) requirement
+    // that a TWAP slice adopt the E03/E04 gate posture, not inherit
+    // the local draft's. The switch is CONSUMED from #1726 (not
+    // re-declared): run > session > user > global env > local.
+    // Invalid fails closed to local + etrade.config_error audit.
+    // Preview-only in both modes; the E04 execute gate is never
+    // switched and real execution still needs the HITL flow.
+    const resolved = resolveEtradePreviewMode(
+      levelsForEtradeSwitch(
+        context.scopedEtradeModes,
+        "preview",
+        input.mode,
+        (context.env as any)?.[ETRADE_PREVIEW_MODE_SWITCH]
+      ),
+      "local"
+    );
+    if (resolved.invalid) {
+      context.audit(etradeConfigErrorEvent(), "trading", {
+        switch: ETRADE_PREVIEW_MODE_SWITCH,
+        raw: resolved.raw,
+        level: resolved.level,
+        failedClosedTo: resolved.mode,
+      });
+    }
+    const previewMode = resolved.mode;
     const fiberService = new ETradeDurableFiberService(context.orm, context.env, context.sessionId);
     const tradingService = new ETradeService(context.orm, context.env, context.sessionId);
 
@@ -296,6 +339,15 @@ export class DurableTWAPOrderCommand implements IMcpToolCommand<{
         intervalSeconds: input.intervalSeconds || 1,
       },
       async (_sliceNum, sliceQty) => {
+        if (previewMode === "broker") {
+          return tradingService.previewOrderRemote({
+            symbol: input.symbol,
+            action: input.action,
+            quantity: sliceQty,
+            orderType: "MARKET",
+            sessionId: context.sessionId,
+          });
+        }
         return tradingService.previewOrder({
           symbol: input.symbol,
           action: input.action,
@@ -312,11 +364,13 @@ export class DurableTWAPOrderCommand implements IMcpToolCommand<{
       slicesPreviewed: plan.slicesPreviewed,
       totalPreviewed: plan.totalPreviewed,
       executed: false,
+      previewMode,
     });
 
     return {
       status: "previewed",
       executed: false,
+      previewMode,
       planCompleted: plan.completed,
       note: "TWAP preview plan only — every slice was run through the broker order PREVIEW. No orders were placed and no shares were filled. To execute for real, each slice must go through the human-in-the-loop order flow (etrade_preview_order → etrade_execute_order with an explicit human decision).",
       symbol: input.symbol,

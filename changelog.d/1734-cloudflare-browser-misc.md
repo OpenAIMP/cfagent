@@ -1,0 +1,3 @@
+### Added
+
+- **Cloudflare / browser / misc MCP unification (#1734):** `execute_durable_twap` now honors #1726's ETRADE_PREVIEW_MODE (local|broker) for per-slice previews instead of hardcoding the local draft, with the preview engine labelled `previewMode` in the result and audit (preview-only in both modes); `think_trade_validation` accepts the REST route's optional `accountBalanceUSD` input; appendix (n) pairing decisions pinned in `src/config/cloudflareBrowserMiscModes.ts` (browser, webhook, and sandbox tools stay MCP-only; synthetic quant backtest is distinct from the live-history REST backtest; AI-search stays divergent-by-design vs knowledge_search).
