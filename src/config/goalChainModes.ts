@@ -2,7 +2,7 @@
  * #1729 (parent #1717, slice (i)): goal chain + AgentDB
  * jobs/audit/reports vs live routes unification (scan
  * appendix (i) findings G01–G04) — the PAYMENTS_FLOW_MODE
- * (#1711) / FOSS_* (#1727) pattern applied to this domain.
+ * (#1711) / MARKET_DATA_* (#1727) pattern applied to this domain.
  * Pure module: no Cloudflare imports, no I/O, no network —
  * the port is the resolver, and the MCP surface consumes it
  * (port-first, cfagent blueprint #1795/#1798 restated

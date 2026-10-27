@@ -134,7 +134,7 @@ import type { AgentScheduleItem } from "../src/types";
 /* ------------------------------------------------------------------ */
 
 // ScreenersHub (src/client/ScreenersHub.tsx) → POST /api/etrade/screen
-// and /api/foss/screen. `minScore` is an envelope field the hub sends;
+// and /api/market-data/screen. `minScore` is an envelope field the hub sends;
 // no server code reads it today.
 const SCREENERS_HUB_BODY = {
   universe: "NASDAQ100",
@@ -921,7 +921,7 @@ describe("#959 single definition site", () => {
     const entryPointCalls: Array<[string, RegExp]> = [
       ["../src/agents/routes/schedules.ts", /buildSchedulePayload\(/],
       ["../src/agents/routes/etradeBroker.ts", /parseStockScreenRequest\(/],
-      ["../src/agents/routes/fossResearch.ts", /parseStockScreenRequest\(/],
+      ["../src/agents/routes/marketDataResearch.ts", /parseStockScreenRequest\(/],
       ["../src/agents/routes/etradeOptions.ts", /parseOptionsScreenRequest\(/],
       ["../src/agents/routes/etradeOptions.ts", /parseUnifiedOptionsRequest\(/],
       ["../src/agents/routes/etradeOptions.ts", /parseOptionsDiscoveryRequest\(/],

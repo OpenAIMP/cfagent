@@ -7,7 +7,7 @@
  *
  * Market data is provider-scoped (issue #1007): the default provider
  * is E*TRADE; a run may instead name the Yahoo Finance data-source
- * adapter (provider "yahoo", the FOSS surface). A provider changes
+ * adapter (provider "yahoo", the market-data surface). A provider changes
  * data provenance only — semantics, scoring, result shape and
  * persistence are identical. If the named provider is unavailable the
  * screen fails honestly (e.g. "E*TRADE unavailable" / "Yahoo Finance
@@ -47,7 +47,7 @@ import {
   type StockScreenProvider,
   type UniverseId,
 } from "../trading";
-import { YahooFinanceProvider } from "../services/fossResearch";
+import { YahooFinanceProvider } from "../services/marketDataResearch";
 import {
   bindEtradeQuoteDeps,
   bindNasdaqUniverseDeps,

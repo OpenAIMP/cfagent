@@ -22,7 +22,7 @@ export class TradingMicroAgent {
     private env: Env,
     private orm: DatabaseORM | undefined,
     private userLogin: string,
-    platformId: "etrade" | "alpaca" | "foss" | "sandbox" = "etrade"
+    platformId: "etrade" | "alpaca" | "sandbox" = "etrade"
   ) {
     // Issue #1185: an explicit login is required — no default identity.
     if (!userLogin) {

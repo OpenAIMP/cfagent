@@ -185,7 +185,7 @@ describe("Cloudflare Feature Flags (Issue #1806)", () => {
       expect(matchFeatureForRoute("/api/screener/export/pdf")).toBe("screener");
       expect(matchFeatureForRoute("/api/etrade/screen")).toBe("screener");
       expect(matchFeatureForRoute("/api/options/screen")).toBe("screener");
-      expect(matchFeatureForRoute("/api/foss/screen")).toBe("screener");
+      expect(matchFeatureForRoute("/api/market-data/screen")).toBe("screener");
       expect(matchFeatureForRoute("/screener/presets")).toBe("screener");
     });
 

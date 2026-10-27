@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { executeEtradeScreen } from "../src/agents/routes/etradeBrokerScreen";
-import { handleFossCompareScreenRoutes } from "../src/agents/routes/fossResearch";
+import { handleMarketDataCompareScreenRoutes } from "../src/agents/routes/marketDataResearch";
 import type { WorkflowInstanceStatus } from "../src/workflows/workflowPorts";
 
 function fakeBinding() {
@@ -142,8 +142,8 @@ describe("etrade screen async path", () => {
   });
 });
 
-describe("foss screen async path", () => {
-  function fossCtx(env: unknown, agent: unknown) {
+describe("market-data screen async path", () => {
+  function marketDataCtx(env: unknown, agent: unknown) {
     const audits: Array<{ type: string }> = [];
     const persisted: unknown[] = [];
     return {
@@ -163,29 +163,29 @@ describe("foss screen async path", () => {
   }
 
   it("async=1 returns 202 without running the screen", async () => {
-    const { audits, ctx } = fossCtx(
+    const { audits, ctx } = marketDataCtx(
       { SCREENER_WORKFLOW: fakeBinding(), AGENT_DB: {} },
       throwingAgent,
     );
-    const url = new URL("https://x/foss/screen?universe=TECH&async=1");
+    const url = new URL("https://x/market-data/screen?universe=TECH&async=1");
     const req = new Request(url, { headers: { "x-user-login": "alice" } });
-    const res = await handleFossCompareScreenRoutes(req, url, "/foss/screen", "s1", ctx);
+    const res = await handleMarketDataCompareScreenRoutes(req, url, "/market-data/screen", "s1", ctx);
     expect(res?.status).toBe(202);
     const body = (await res!.json()) as Record<string, unknown>;
     expect(body.status).toBe("queued");
-    expect(audits.map((a) => a.type)).toContain("foss.screener.enqueued");
+    expect(audits.map((a) => a.type)).toContain("market_data.screener.enqueued");
   });
 
   it("no flag keeps the synchronous path", async () => {
-    const { audits, persisted, ctx } = fossCtx(
+    const { audits, persisted, ctx } = marketDataCtx(
       { SCREENER_WORKFLOW: fakeBinding(), AGENT_DB: {} },
       { runScreen: async () => cannedResult() },
     );
-    const url = new URL("https://x/foss/screen?universe=TECH");
+    const url = new URL("https://x/market-data/screen?universe=TECH");
     const req = new Request(url, { headers: { "x-user-login": "alice" } });
-    const res = await handleFossCompareScreenRoutes(req, url, "/foss/screen", "s1", ctx);
+    const res = await handleMarketDataCompareScreenRoutes(req, url, "/market-data/screen", "s1", ctx);
     expect(res?.status).toBe(200);
-    expect(audits.map((a) => a.type)).toContain("foss.screener.executed");
+    expect(audits.map((a) => a.type)).toContain("market_data.screener.executed");
     expect(persisted).toHaveLength(1);
   });
 });

@@ -31,7 +31,7 @@ import {
   TRADING_PAID_SERVICES,
   payerScopeId,
 } from "../../services/agenticPayments";
-import { FossResearchService } from "../../services/fossResearch";
+import { MarketDataResearchService } from "../../services/marketDataResearch";
 import { UnifiedOptionsService } from "../../trading";
 import { parseOptionsScreenRequest } from "../../trading";
 import type { CaptureBlobStorage } from "../../trading";
@@ -394,8 +394,8 @@ export async function handlePremiumRoutes(
           if (sym) symbol = sym.toUpperCase().trim();
         }
 
-        const foss = new FossResearchService(ctx.env);
-        const report = await foss.generateResearchReport(symbol);
+        const marketDataResearch = new MarketDataResearchService(ctx.env);
+        const report = await marketDataResearch.generateResearchReport(symbol);
         // Issue #308: store the canonical copy at generation time (one
         // row per content hash) so the report is searchable via AI Search.
         try {
@@ -463,7 +463,7 @@ export async function handlePremiumRoutes(
         // Issue #1007 (consolidation S3): the paid signals execute
         // through the ONE stock pipeline — ScreenerAgent with the
         // Yahoo data-source adapter as provider — instead of the
-        // retired second FOSS engine. The requested symbols
+        // retired second Market-data engine. The requested symbols
         // are the run's explicit universe (membership only; prices come
         // from live Yahoo quotes via the adapter). The run stores a
         // canonical report in the REST idiom, like every other stock

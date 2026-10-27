@@ -1,7 +1,7 @@
 /**
  * #1732 (parent #1717, slice (l)): portfolio repair remainders
  * (scan appendix (l) findings PR-1, PR-2, PR-3; PR-4 IDENTICAL,
- * pin only) — the PAYMENTS_FLOW_MODE (#1711) / FOSS_* (#1727) /
+ * pin only) — the PAYMENTS_FLOW_MODE (#1711) / MARKET_DATA_* (#1727) /
  * report-generator (#1731) pattern applied to this domain, with
  * one deliberate difference, following the #1729 / #1730 / #1731
  * precedent: this slice adds NO runtime switch. Pure module: no

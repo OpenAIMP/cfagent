@@ -9,7 +9,7 @@ GITHUB_CLIENT_ID="your-github-oauth-client-id"
 GITHUB_CLIENT_SECRET="your-github-oauth-client-secret"
 APP_BASE_URL="http://localhost:8787"
 
-# --- FOSS Market Research & Trading (Alpaca) ---
+# --- Market Data Research & Trading (Alpaca) ---
 # Free paper trading keys available instantly at https://alpaca.markets
 ALPACA_API_KEY="your-alpaca-api-key-id"
 ALPACA_SECRET_KEY="your-alpaca-api-secret-key"

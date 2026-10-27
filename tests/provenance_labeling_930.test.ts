@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
-import { YahooFinanceProvider } from "../src/services/fossResearch";
+import { YahooFinanceProvider } from "../src/services/marketDataResearch";
 import { __resetQuoteCache } from "../src/services/quoteCache";
 import envConfig from "../environment.config.json";
 import { getAiConfig } from "../src/config/etapiConfig";

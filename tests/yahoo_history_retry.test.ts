@@ -4,16 +4,16 @@
  * gone; the same contract now lives on the platform history seam
  * (bindYahooHistoryDeps.fetchBars). The retry level shifts from
  * host fetches (query1→query2 per attempt) to adapter calls: the
- * FOSS provider already tries both hosts per call, so one seam
+ * market-data provider already tries both hosts per call, so one seam
  * attempt covers both hosts. Pins, unchanged in intent: a
  * throttle-then-OK sequence recovers through the shared
  * acquisition policy; total failure still returns honest null.
  */
 import { describe, expect, it, vi } from "vitest";
 import { bindYahooHistoryDeps } from "../src/trading/platformHistory";
-import type { FossHistoricalBar } from "../src/types";
+import type { MarketDataResearchHistoricalBar } from "../src/types";
 
-function liveSeries(n: number): FossHistoricalBar[] {
+function liveSeries(n: number): MarketDataResearchHistoricalBar[] {
   return Array.from({ length: n }, (_, i) => ({
     provenance: "live" as const,
     timestamp: `2026-09-${String(i + 1).padStart(2, "0")}`,

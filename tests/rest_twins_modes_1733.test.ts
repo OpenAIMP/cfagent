@@ -100,7 +100,7 @@ import {
   handleAuditRoutes,
   type AuditRouteContext,
 } from "../src/agents/routes/audit";
-import { resolveFossRestSwitch } from "../src/config/fossModes";
+import { resolveMarketDataRestSwitch } from "../src/config/marketDataModes";
 
 const src = (rel: string) => readFileSync(`src/${rel}`, "utf8");
 
@@ -299,19 +299,25 @@ describe("transaction-snap identity fallback (#1733 R06)", () => {
 
 describe("R01 /trading defaults deliberately left alone (#1733, freedom from #1727)", () => {
   const host = (env: Record<string, unknown> = {}) => ({
-    scopedFossModes: undefined,
+    scopedMarketDataModes: undefined,
     env,
     audit: vi.fn(),
   });
   it("/trading keeps order=trading and reads=none with nothing configured", () => {
-    expect(resolveFossRestSwitch(host(), "order", undefined, "trading")).toBe("trading");
-    expect(resolveFossRestSwitch(host(), "reads", undefined, "none")).toBe("none");
+    expect(resolveMarketDataRestSwitch(host(), "order", undefined, "trading")).toBe("trading");
+    expect(resolveMarketDataRestSwitch(host(), "reads", undefined, "none")).toBe("none");
   });
   it("/foss keeps its own legacies, and the owner can overturn /trading with one env var", () => {
-    expect(resolveFossRestSwitch(host(), "order", undefined, "foss")).toBe("foss");
-    expect(resolveFossRestSwitch(host(), "reads", undefined, "rest")).toBe("rest");
-    expect(resolveFossRestSwitch(host({ FOSS_ALPACA_ORDER_MODE: "foss" }), "order", undefined, "trading")).toBe("foss");
-    expect(resolveFossRestSwitch(host({ FOSS_ALPACA_READS_MODE: "rest" }), "reads", undefined, "none")).toBe("rest");
+    // #1906 migration note: the resolver + module were renamed (fossModes ->
+    // marketDataModes), and the deprecated FOSS_* env vars are still honored
+    // when the canonical var is unset. The resolver aliases the "foss" VALUE
+    // at the env level only (to "market-data"); the legacy surface default
+    // passes through unnormalized, so the "foss" default below still reads
+    // "foss" while the env-provided "foss" reads "market-data".
+    expect(resolveMarketDataRestSwitch(host(), "order", undefined, "foss")).toBe("foss");
+    expect(resolveMarketDataRestSwitch(host(), "reads", undefined, "rest")).toBe("rest");
+    expect(resolveMarketDataRestSwitch(host({ FOSS_ALPACA_ORDER_MODE: "foss" }), "order", undefined, "trading")).toBe("market-data");
+    expect(resolveMarketDataRestSwitch(host({ FOSS_ALPACA_READS_MODE: "rest" }), "reads", undefined, "none")).toBe("rest");
   });
   it("the orchestrator passes env into the audit routes (global-env level exists)", () => {
     const orchSrc = src("agents/orchestrator.ts");

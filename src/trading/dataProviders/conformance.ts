@@ -61,7 +61,7 @@ function checkQuote(result: unknown, symbol: string): string[] {
     failures.push(`quote symbol "${String(result.symbol)}" does not echo probe symbol "${symbol}"`);
   }
   // Both normalized quote shapes carry a numeric price (lastPrice on
-  // ETradeQuote, price/lastPrice on FossQuote).
+  // ETradeQuote, price/lastPrice on MarketDataResearchQuote).
   const price = result.lastPrice ?? result.price;
   if (typeof price !== "number" || Number.isNaN(price)) {
     failures.push("quote has no numeric lastPrice/price");

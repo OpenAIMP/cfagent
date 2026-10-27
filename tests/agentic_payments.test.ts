@@ -541,7 +541,7 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
       };
       const b64Proof = Buffer.from(JSON.stringify(proof)).toString("base64");
 
-      // #923: the paid report is built from live FOSS data — the old
+      // #923: the paid report is built from live market data — the old
       // test passed only because the provider served fallback profiles
       // with no network. Stub realistic live Yahoo payloads (chart for
       // quote + bars, crumb + quoteSummary for fundamentals) so the

@@ -5,7 +5,7 @@
  *
  * Owns the contiguous screener and research block (invoked at the EXACT
  * original position in routeRequest's sequential matching sequence, after
- * the FOSS compare/screen delegation and before the task schedules block):
+ * the market-data compare/screen delegation and before the task schedules block):
  *   GET         /screener/latest                    (issue #212/#261)
  *   GET         /screener/report.pdf                (issue #269)
  *   POST        /screener/report/regenerate         (issue #1278, #1173 R5)
@@ -89,7 +89,7 @@ export interface ScreenerResearchRouteContext {
 /**
  * Screener + autonomous research routes. Invoked from routeRequest at the
  * exact position the original blocks occupied (after the
- * handleFossCompareScreenRoutes delegation, before the task schedules
+ * handleMarketDataCompareScreenRoutes delegation, before the task schedules
  * block); returns a Response when one of the owned paths matches, or null
  * to continue sequential matching.
  */

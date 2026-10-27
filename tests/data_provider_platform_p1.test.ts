@@ -20,7 +20,7 @@
  *    "registered" state is not an enabled state.
  *  - Adapters wrap the existing implementations and return their results
  *    UNCHANGED (reference parity, the #1103 adapter method): E*TRADE via
- *    ETradeService, Yahoo/Alpaca via IFossMarketDataProvider, Nasdaq via
+ *    ETradeService, Yahoo/Alpaca via IMarketDataProvider, Nasdaq via
  *    nasdaqListings. Results travel in a provenance envelope
  *    ({ providerId, capability, result }) — the #1103 tagging idiom — so
  *    every element a run consumes names the provider that supplied it.
@@ -79,12 +79,12 @@ import type {
   ETradeQuote,
   ETradeOptionChain,
   ETradeBrokerStatus,
-  FossQuote,
-  FossHistoricalBar,
-  FossCompanyFundamentals,
+  MarketDataResearchQuote,
+  MarketDataResearchHistoricalBar,
+  MarketDataResearchCompanyFundamentals,
 } from "../src/types";
 import type { NasdaqStockListing } from "../src/services/nasdaqListings";
-import type { IFossMarketDataProvider } from "../src/patterns/interfaces";
+import type { IMarketDataProvider } from "../src/patterns/interfaces";
 
 // ---------------------------------------------------------------------------
 // Fixtures — recorded-shape results the wrapped implementations return.
@@ -123,7 +123,7 @@ const etradeChainFixture = {
   ],
 } as unknown as ETradeOptionChain;
 
-const fossQuoteFixture = {
+const marketDataQuoteFixture = {
   symbol: "AAPL",
   provider: "yfinance",
   provenance: "live",
@@ -138,9 +138,9 @@ const fossQuoteFixture = {
   low: 229.0,
   previousClose: 231.3,
   timestamp: "2026-10-23T13:30:00.000Z",
-} as unknown as FossQuote;
+} as unknown as MarketDataResearchQuote;
 
-const fossBarsFixture = [
+const marketDataBarsFixture = [
   {
     provenance: "live",
     timestamp: "2026-10-22T00:00:00.000Z",
@@ -150,9 +150,9 @@ const fossBarsFixture = [
     close: 230.4,
     volume: 900_000,
   },
-] as unknown as FossHistoricalBar[];
+] as unknown as MarketDataResearchHistoricalBar[];
 
-const fossFundamentalsFixture = {
+const marketDataFundamentalsFixture = {
   provenance: "live",
   symbol: "AAPL",
   companyName: "Apple Inc.",
@@ -162,7 +162,7 @@ const fossFundamentalsFixture = {
   marketCap: 3_500_000_000_000,
   fiftyTwoWeekHigh: 260.0,
   fiftyTwoWeekLow: 170.0,
-} as unknown as FossCompanyFundamentals;
+} as unknown as MarketDataResearchCompanyFundamentals;
 
 const nasdaqListingsFixture: NasdaqStockListing[] = [
   {
@@ -194,16 +194,16 @@ function fakeETradeService(configured = true) {
   };
 }
 
-function fakeFossProvider(
+function fakeMarketDataProvider(
   providerId: "yfinance" | "alpaca"
-): IFossMarketDataProvider {
+): IMarketDataProvider {
   return {
     providerId,
     name: `fake-${providerId}`,
     isConfigured: () => true,
-    getQuote: async (_symbol: string) => fossQuoteFixture,
-    getFundamentals: async (_symbol: string) => fossFundamentalsFixture,
-    getHistoricalBars: async (_symbol: string) => fossBarsFixture,
+    getQuote: async (_symbol: string) => marketDataQuoteFixture,
+    getFundamentals: async (_symbol: string) => marketDataFundamentalsFixture,
+    getHistoricalBars: async (_symbol: string) => marketDataBarsFixture,
   };
 }
 
@@ -443,8 +443,8 @@ describe("data provider registry (issue #1118)", () => {
   function registryWithRealAdapters() {
     const registry = new DataProviderRegistry();
     registry.register(createETradeDataProvider(fakeETradeService() as any));
-    registry.register(createYahooDataProvider(fakeFossProvider("yfinance")));
-    registry.register(createAlpacaDataProvider(fakeFossProvider("alpaca")));
+    registry.register(createYahooDataProvider(fakeMarketDataProvider("yfinance")));
+    registry.register(createAlpacaDataProvider(fakeMarketDataProvider("alpaca")));
     registry.register(
       createNasdaqDataProvider(async () => nasdaqListingsFixture)
     );
@@ -453,9 +453,9 @@ describe("data provider registry (issue #1118)", () => {
 
   it("duplicate registration throws — provenance ids stay unambiguous", () => {
     const registry = new DataProviderRegistry();
-    registry.register(createYahooDataProvider(fakeFossProvider("yfinance")));
+    registry.register(createYahooDataProvider(fakeMarketDataProvider("yfinance")));
     expect(() =>
-      registry.register(createYahooDataProvider(fakeFossProvider("yfinance")))
+      registry.register(createYahooDataProvider(fakeMarketDataProvider("yfinance")))
     ).toThrow(/already registered/);
   });
 
@@ -574,8 +574,8 @@ describe("capability routing resolution (issue #1118, owner correction)", () => 
   function registryWithRealAdapters() {
     const registry = new DataProviderRegistry();
     registry.register(createETradeDataProvider(fakeETradeService() as any));
-    registry.register(createYahooDataProvider(fakeFossProvider("yfinance")));
-    registry.register(createAlpacaDataProvider(fakeFossProvider("alpaca")));
+    registry.register(createYahooDataProvider(fakeMarketDataProvider("yfinance")));
+    registry.register(createAlpacaDataProvider(fakeMarketDataProvider("alpaca")));
     registry.register(
       createNasdaqDataProvider(async () => nasdaqListingsFixture)
     );
@@ -732,10 +732,10 @@ describe("data provider adapters (issue #1118)", () => {
       createETradeDataProvider(fakeETradeService() as any).capabilities
     ).toEqual(["quotes", "optionsChains"]);
     expect(
-      createYahooDataProvider(fakeFossProvider("yfinance")).capabilities
+      createYahooDataProvider(fakeMarketDataProvider("yfinance")).capabilities
     ).toEqual(["quotes", "historicalBars", "fundamentals"]);
     expect(
-      createAlpacaDataProvider(fakeFossProvider("alpaca")).capabilities
+      createAlpacaDataProvider(fakeMarketDataProvider("alpaca")).capabilities
     ).toEqual(["quotes", "historicalBars", "fundamentals"]);
     expect(
       createNasdaqDataProvider(async () => nasdaqListingsFixture).capabilities
@@ -766,21 +766,21 @@ describe("data provider adapters (issue #1118)", () => {
     ).toBe(false);
   });
 
-  it("yahoo + alpaca adapters return the wrapped FOSS results unchanged, provenance-tagged", async () => {
+  it("yahoo + alpaca adapters return the wrapped market-data results unchanged, provenance-tagged", async () => {
     for (const [provider, id] of [
-      [createYahooDataProvider(fakeFossProvider("yfinance")), "yahoo"],
-      [createAlpacaDataProvider(fakeFossProvider("alpaca")), "alpaca"],
+      [createYahooDataProvider(fakeMarketDataProvider("yfinance")), "yahoo"],
+      [createAlpacaDataProvider(fakeMarketDataProvider("alpaca")), "alpaca"],
     ] as const) {
       const quote = await provider.getQuote!("AAPL");
       expect(quote.providerId).toBe(id);
-      expect(quote.result).toBe(fossQuoteFixture);
+      expect(quote.result).toBe(marketDataQuoteFixture);
       const bars = await provider.getHistoricalBars!("AAPL");
       expect(bars.providerId).toBe(id);
       expect(bars.capability).toBe("historicalBars");
-      expect(bars.result).toBe(fossBarsFixture);
+      expect(bars.result).toBe(marketDataBarsFixture);
       const fundamentals = await provider.getFundamentals!("AAPL");
       expect(fundamentals.providerId).toBe(id);
-      expect(fundamentals.result).toBe(fossFundamentalsFixture);
+      expect(fundamentals.result).toBe(marketDataFundamentalsFixture);
     }
   });
 
@@ -803,8 +803,8 @@ describe("data provider conformance kit (issue #1118)", () => {
   it("passes all four real adapters on every capability they declare", async () => {
     const adapters: DataProvider[] = [
       createETradeDataProvider(fakeETradeService() as any),
-      createYahooDataProvider(fakeFossProvider("yfinance")),
-      createAlpacaDataProvider(fakeFossProvider("alpaca")),
+      createYahooDataProvider(fakeMarketDataProvider("yfinance")),
+      createAlpacaDataProvider(fakeMarketDataProvider("alpaca")),
       createNasdaqDataProvider(async () => nasdaqListingsFixture),
     ];
     for (const adapter of adapters) {
@@ -862,7 +862,7 @@ describe("data provider conformance kit (issue #1118)", () => {
         ({
           providerId: "etrade", // claims etrade served it; the provider is yahoo
           capability: "quotes",
-          result: fossQuoteFixture,
+          result: marketDataQuoteFixture,
         }) as unknown as Awaited<ReturnType<NonNullable<DataProvider["getQuote"]>>>,
     };
     const report = await runDataProviderConformance(mislabeled);
@@ -877,7 +877,7 @@ describe("data provider conformance kit (issue #1118)", () => {
       capabilities: ["quotes"],
       isConfigured: () => true,
       getQuote: async () =>
-        fossQuoteFixture as unknown as Awaited<
+        marketDataQuoteFixture as unknown as Awaited<
           ReturnType<NonNullable<DataProvider["getQuote"]>>
         >,
     };

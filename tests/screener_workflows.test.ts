@@ -345,7 +345,7 @@ describe("runShardFlow (child owns store + deliver)", () => {
     expect(rows.find((r) => r.jobKey === "shard:TECH")?.status).toBe("completed");
   });
 
-  it("deliver=false skips the deliver step (foss/premium shape)", async () => {
+  it("deliver=false skips the deliver step (market-data/premium shape)", async () => {
     const b = makeDeps();
     const output = await runShardFlow(shardCommand({ deliver: false }), b.clock.step, b.deps);
     expect(output.delivered).toBe(false);

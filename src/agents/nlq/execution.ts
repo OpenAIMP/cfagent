@@ -9,7 +9,7 @@ import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../../servic
 import { ETradeBrowserService } from "../../services/browserAgent";
 import { ETradeService } from "../../services/etrade";
 import { createComparisonRunner } from "../../services/comparisonNlqRunner";
-import { FossResearchService } from "../../services/fossResearch";
+import { MarketDataResearchService } from "../../services/marketDataResearch";
 import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
 import { UnifiedOptionsService, ETradeSlackTradingService, describeFlowProvenance, getDynamicLiveFlowItems, isNonLivePricingQuoteStatus, nonLivePricingNotice } from "../../trading";
 import { runOptionsStrategyAction, type OptionsStrategyIntent } from "../nlqOptionsStrategy";
@@ -539,7 +539,7 @@ function executeNLQQueryCore(
           rejectedCount: screenRes.ledger?.rejectedCount ?? 0,
           rsiLookback: "14-Period Daily RSI",
           macdSettings: "12, 26, 9 EMA",
-          quoteDelay: "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
+          quoteDelay: "Level 1 Quotes (E*TRADE Sandbox / Hybrid)",
           executedAt,
         },
         rows: screenRes.stocks.map((s) => {
@@ -564,7 +564,7 @@ function executeNLQQueryCore(
             marketCap: formatMarketCap(s.marketCap),
             peRatio: s.peRatio ? s.peRatio.toFixed(1) : "N/A",
             signal: s.signal,
-            source: s.source || "Level 1 Quotes (E*TRADE Sandbox / FOSS Hybrid)",
+            source: s.source || "Level 1 Quotes (E*TRADE Sandbox / Hybrid)",
             quoteTimestamp: s.timestamp || executedAt,
             validationStatus: rowMismatch ? "FAIL_MISMATCH" : (s.validationStatus || "PASS_CONFIRMED"),
             actionAvailable: (hasMismatch || rowMismatch) ? "DISABLED (DATA MISMATCH)" : `Preview Buy/Sell for ${s.symbol}`,
@@ -1003,14 +1003,14 @@ function executeNLQQueryCore(
     }
   }
 
-  // Handle FOSS Market Research & Quoting Domain (Yahoo Finance & Alpaca)
-  // Issue #923 (epic #913 S5): the synchronous FOSS accessors are gone —
-  // live FOSS data can only be fetched asynchronously, and the sync NLQ
+  // Handle Market Data Research & Quoting Domain (Yahoo Finance & Alpaca)
+  // Issue #923 (epic #913 S5): the synchronous market-data accessors are gone —
+  // live market data can only be fetched asynchronously, and the sync NLQ
   // executor cannot await it. A sync research request therefore returns an
   // explicit unavailable result (count 0, status "error", no rows, no
   // numbers) instead of a static/generated profile. The async NLQ entry
   // serves paid research through the live async report path, and the
-  // /api/foss/* routes serve live quotes, fundamentals, bars, and reports.
+  // /api/market-data/* routes serve live quotes, fundamentals, bars, and reports.
   if (plan.domain === "research") {
     const sym = plan.researchData?.symbol || plan.terms || "NVDA";
     const action = plan.researchData?.action || "report";
@@ -1020,17 +1020,17 @@ function executeNLQQueryCore(
         : action === "snapshot"
           ? "alpaca_snapshot"
           : action === "quote"
-            ? "foss_quote"
+            ? "market_data_quote"
             : action === "compare"
-              ? "foss_stock_comparison"
-              : "foss_research_report";
+              ? "market_data_stock_comparison"
+              : "market_data_research_report";
     return {
       plan,
       domain: "research",
       targetTable,
       count: 0,
       status: "error",
-      summary: `FOSS ${action} for ${sym} unavailable in the synchronous NLQ executor: live FOSS data requires the asynchronous path (#923 — no static or generated substitute is served). Use the /api/foss/* routes or the asynchronous NLQ executor for live data.`,
+      summary: `Market data ${action} for ${sym} unavailable in the synchronous NLQ executor: live market data requires the asynchronous path (#923 — no static or generated substitute is served). Use the /api/market-data/* routes or the asynchronous NLQ executor for live data.`,
       rows: [],
       executedAt,
     };
@@ -2080,8 +2080,8 @@ async function executeNLQQueryAsyncCore(
         };
       }
       const sym = plan.agenticPaymentsData?.symbol || plan.terms || "NVDA";
-      const foss = new FossResearchService(env);
-      const report = await foss.generateResearchReport(sym);
+      const marketDataResearch = new MarketDataResearchService(env);
+      const report = await marketDataResearch.generateResearchReport(sym);
 
       const tier = TRADING_PAID_SERVICES.MARKET_RESEARCH;
       // Issue #122: same rule as paid_scan — a simulated local record, never
@@ -2115,7 +2115,7 @@ async function executeNLQQueryAsyncCore(
         // the buyer is told what the data actually is.
         // Issue #122: and the "payment" is a simulated local record — the
         // summary must say no real payment was collected or verified.
-        summary: `Paid Market Research ($${tier.priceUSD.toFixed(2)} USDC): Generated valuation report for ${sym}. Rating: ${report.analystRating}. Target: ${targetPrice}. Receipt: ${receipt.receiptId}. Payment was SIMULATED (local record only — no real payment was collected or verified).${report.provenance !== "live" ? ` Data provenance: ${report.provenance} — this report is based on non-live FOSS data, and its target is a profile estimate, not analyst consensus.` : ""}`,
+        summary: `Paid Market Research ($${tier.priceUSD.toFixed(2)} USDC): Generated valuation report for ${sym}. Rating: ${report.analystRating}. Target: ${targetPrice}. Receipt: ${receipt.receiptId}. Payment was SIMULATED (local record only — no real payment was collected or verified).${report.provenance !== "live" ? ` Data provenance: ${report.provenance} — this report is based on non-live market data, and its target is a profile estimate, not analyst consensus.` : ""}`,
         rows: [
           {
             symbol: report.symbol,

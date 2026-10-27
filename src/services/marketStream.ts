@@ -398,7 +398,7 @@ export function annotateStreamTicks(
 
 /**
  * HTTP handler for GET /api/market/quotes?symbols=NVDA,AAPL,BTC/USD
- * (and its /api/foss/quotes alias — one handler, one facade).
+ * (and its /api/market-data/quotes alias — one handler, one facade).
  * Issue #1643: quotes resolve through the MarketDataService facade,
  * so each quote carries its provenance (cached + fetch time + age)
  * and expired entries resolve as unavailable instead of being

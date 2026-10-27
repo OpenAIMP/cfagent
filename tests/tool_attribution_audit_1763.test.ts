@@ -13,13 +13,17 @@ import { join } from "node:path";
 import { MCP_TOOL_SCOPES } from "../src/permissions/mcpPermissionPorts";
 
 describe("Tool-attribution audit coverage (#1763)", () => {
-  it("audit doc names all 51 factory tools and the 4 scanner tools", () => {
+  it("audit doc names all 60 factory tools and the 4 scanner tools", () => {
     const doc = readFileSync(
       join(__dirname, "../docs/architecture/security/tool-attribution-audit-1763.md"),
       "utf8",
     );
     const tools = Object.keys(MCP_TOOL_SCOPES);
-    expect(tools).toHaveLength(51);
+    // #1906: 51 canonical tools + 9 deprecated aliases (foss_*), which
+    // share their canonical tool's scope and must be named in the audit
+    // doc too — a callable alias without an audit row would be
+    // unattributed by this test's own rationale.
+    expect(tools).toHaveLength(60);
     for (const tool of tools) {
       expect(doc).toContain(`\`${tool}\``);
     }

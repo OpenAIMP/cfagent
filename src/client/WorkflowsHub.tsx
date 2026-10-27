@@ -72,8 +72,8 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
     badge: "Dual-Engine (Nasdaq & Yahoo)",
     badgeColor: "green",
     subtitle: "Screen 8,000+ US equities dynamically across NASDAQ, NYSE, and AMEX with technical indicators and auditable scan ledgers.",
-    overview: "The Stock Screener allows filtering across all active US equities by price, market cap, exchange, 14-period daily RSI, MACD momentum, and daily gainers/losers. It queries official Nasdaq multi-exchange listings (api.nasdaq.com) across 8,000+ active tickers, with resilient automatic fallback to the externalized curated universe (src/config/curatedStockUniverse.json) or Yahoo Finance FOSS feeds if upstream APIs are rate-limited. Downstream workflows (including Options Flow) query this screener first as their primary dynamic market underlyings engine.",
-    apiEndpoint: "POST /api/etrade/screen · POST /api/foss/screen",
+    overview: "The Stock Screener allows filtering across all active US equities by price, market cap, exchange, 14-period daily RSI, MACD momentum, and daily gainers/losers. It queries official Nasdaq multi-exchange listings (api.nasdaq.com) across 8,000+ active tickers, with resilient automatic fallback to the externalized curated universe (src/config/curatedStockUniverse.json) or Yahoo Finance feeds if upstream APIs are rate-limited. Downstream workflows (including Options Flow) query this screener first as their primary dynamic market underlyings engine.",
+    apiEndpoint: "POST /api/etrade/screen · POST /api/market-data/screen",
     targetTab: "trading",
     keyParameters: "exchange: ALL, minPrice: $3.00, marketCapTier: Large/Mid/Small, rsiPeriod: 14",
     governingDecisionRuleId: "stock-screener-logic",
@@ -86,7 +86,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 2",
         title: "Dynamic Exchange Ingestion & Fallback Decision",
-        description: "The engine queries the official Nasdaq Screener API (api.nasdaq.com) across 8,000+ active tickers. If rate-limited, throttled, or unreachable, DynamicMarketScreener autonomously falls back to the curated universe or Yahoo FOSS feeds.",
+        description: "The engine queries the official Nasdaq Screener API (api.nasdaq.com) across 8,000+ active tickers. If rate-limited, throttled, or unreachable, DynamicMarketScreener autonomously falls back to the curated universe or Yahoo market-data feeds.",
       },
       {
         step: "Step 3",
@@ -103,7 +103,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       "Dynamic all-exchange discovery with live Nasdaq, NYSE, and AMEX support.",
       "Autonomous fallback decision tree: prioritizes remote Nasdaq/Yahoo listings before gracefully falling back to externalized curated universe.",
       "Single Source of Truth for Options Flow: Options Flow queries this screener first to resolve active, liquid market underlyings partitioned by market cap rather than defaulting to a static list.",
-      "Dual provider flexibility: E*TRADE broker mode or 100% zero-credential Yahoo Finance FOSS mode.",
+      "Dual provider flexibility: E*TRADE broker mode or 100% zero-credential Yahoo Finance mode.",
       "Auditable scan ledger detailing why each security matched or failed criteria.",
       "Sortable results by 1D change %, volume, market cap, and RSI momentum.",
     ],
@@ -180,7 +180,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 1",
         title: "Chain Ingestion & Synthetic Calibration",
-        description: "Fetches live option chains from E*TRADE or FOSS feeds. Mid-market prices are calibrated to eliminate spread distortions.",
+        description: "Fetches live option chains from E*TRADE or market-data feeds. Mid-market prices are calibrated to eliminate spread distortions.",
       },
       {
         step: "Step 2",
@@ -320,8 +320,8 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       "Integrated 🛡️ Risk Analysis modal on every flow item for instant defense playbooks.",
     ],
     dataSources: [
-      "Stock Screener Dynamic Listings (api.nasdaq.com + Yahoo FOSS)",
-      "Option-Chain Snapshots (E*TRADE / Yahoo FOSS) — modelled flow estimates; no trade-tape feed exists",
+      "Stock Screener Dynamic Listings (api.nasdaq.com + Yahoo Finance)",
+      "Option-Chain Snapshots (E*TRADE / Yahoo Finance) — modelled flow estimates; no trade-tape feed exists",
       "Historical Open Interest & Implied Volatility Surface",
     ],
     faq: {
@@ -377,7 +377,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       "One-click transition from visual builder to E*TRADE order preview or Risk Modal.",
     ],
     dataSources: [
-      "Live Option Chain Pricing (E*TRADE & Yahoo FOSS)",
+      "Live Option Chain Pricing (E*TRADE & Yahoo Finance)",
       "Black-Scholes Analytical Pricing & Payoff Math Models",
       "Neural Strategy AI Engine (Llama 3.3 70B / Analytical Models)",
     ],
@@ -446,19 +446,19 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
   },
 
   {
-    id: "foss-research",
+    id: "market-data-research",
     codeId: "A7",
     number: 7,
     track: "analysis",
     trackLabel: "Analysis · Read-Only",
-    title: "Zero-Credential FOSS Equity & Crypto Research",
+    title: "Zero-Credential Market Data Equity & Crypto Research",
     category: "research",
-    categoryLabel: "FOSS Research",
-    badge: "Zero-Credential FOSS",
+    categoryLabel: "Market Data Research",
+    badge: "Zero-Credential Market Data",
     badgeColor: "green",
     subtitle: "100% free fundamental ratios (P/E, PEG, EV/EBITDA), analyst consensus, historical OHLCV chart bars, and crypto NBBO quotes.",
     overview: "100% free, credential-less equity and cryptocurrency research powered by Yahoo Finance open-source endpoints and Alpaca free data APIs. Ingests valuation metrics (P/E, forward P/E, PEG, Price-to-Book, EV/EBITDA), analyst consensus price targets, historical OHLCV chart bars (daily, hourly, 5-minute), and crypto Level 1 NBBO bid/ask quotes without requiring brokerage API keys.",
-    apiEndpoint: "GET /api/foss/quote · GET /api/foss/fundamentals · GET /api/foss/bars",
+    apiEndpoint: "GET /api/market-data/quote · GET /api/market-data/fundamentals · GET /api/market-data/bars",
     targetTab: "research",
     keyParameters: "symbol: NVDA | BTC/USD, modules: price,summaryDetail, interval: 1d, range: 1mo",
     governingDecisionRuleId: "stock-screener-logic",
@@ -488,7 +488,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       "Zero API keys, zero authentication credentials required.",
       "Comprehensive valuation fundamentals: P/E, Forward P/E, PEG, Price/Book, EV/EBITDA.",
       "High-resolution historical chart bars with volume histogram.",
-      "Seamless integration with FOSS Alpaca order execution for trading.",
+      "Seamless integration with Alpaca order execution for trading.",
     ],
     dataSources: [
       "Yahoo Finance Quote Summary (query1.finance.yahoo.com/v10/finance/quoteSummary)",
@@ -496,8 +496,8 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       "Alpaca Market Data API (data.alpaca.markets/v2/stocks & crypto)",
     ],
     faq: {
-      question: "Can I use FOSS research if I do not have an E*TRADE account?",
-      answer: "Yes. FOSS research is completely independent and operates with 100% free zero-credential public endpoints.",
+      question: "Can I use market-data research if I do not have an E*TRADE account?",
+      answer: "Yes. market-data research is completely independent and operates with 100% free zero-credential public endpoints.",
     },
     sampleQueryOrAction: "Get fundamental valuation ratios and analyst consensus target for NVDA",
   },
@@ -528,7 +528,7 @@ export const PLATFORM_WORKFLOWS: WorkflowItem[] = [
       {
         step: "Step 2",
         title: "Sub-Agent Tool Coordination",
-        description: "Routes query to specialized sub-agents: options scanner, FOSS equity research, institutional knowledge search, or payment intent drafter.",
+        description: "Routes query to specialized sub-agents: options scanner, market-data equity research, institutional knowledge search, or payment intent drafter.",
       },
       {
         step: "Step 3",
@@ -938,7 +938,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
     { id: "options", label: "🎯 Options" },
     { id: "flows", label: "🌊 Market Flows" },
     { id: "risk", label: "🛡️ Risk & Hedging" },
-    { id: "research", label: "🔬 FOSS Research" },
+    { id: "research", label: "🔬 Market Data Research" },
     { id: "brokerage", label: "🤖 Brokerage" },
     { id: "scheduled", label: "⏰ Automation" },
     { id: "nlq", label: "💬 NLQ & Chat" },

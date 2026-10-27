@@ -58,7 +58,7 @@ IROS is structured across seven distinct architectural layers using the **Ports 
                                                  |
                                                  v
 +---------------------------------------------------------------------------------------------------+
-| 7. INGESTION & DATA PROVIDER LAYER (E*TRADE, Yahoo, Nasdaq, FOSS, SEC Filings, Fed/Econ Feeds)    |
+| 7. INGESTION & DATA PROVIDER LAYER (E*TRADE, Yahoo, Nasdaq, Alpaca, SEC Filings, Fed/Econ Feeds)    |
 +---------------------------------------------------------------------------------------------------+
 ```
 
@@ -68,7 +68,7 @@ IROS is structured across seven distinct architectural layers using the **Ports 
 
 | Subsystem Category | Status | Current Implementation State | Architectural Target / Action |
 | :--- | :--- | :--- | :--- |
-| **Ingestion Subsystem** | **Built** | `src/trading/dataProviders/` (Yahoo, E*TRADE, Nasdaq, FOSS, Public Data) | Wrap all external providers in Circuit Breakers, Rate-Limit Adapters, and Fallback chains (`providerHealth.ts`). |
+| **Ingestion Subsystem** | **Built** | `src/trading/dataProviders/` (Yahoo, E*TRADE, Nasdaq, Alpaca, Public Data) | Wrap all external providers in Circuit Breakers, Rate-Limit Adapters, and Fallback chains (`providerHealth.ts`). |
 | **Quant Execution Subsystem** | **Built** | `src/trading/` (`optionsScreener.ts`, `technicals.ts`, `riskMath.ts`) | **Retain Pure Math**; deterministic calculations remain hard-coded without LLM interference. |
 | **Job Subsystem** | **Built (Partial)** | `src/services/shardJobs.ts`, `src/services/scheduledTasks.ts` | Decompose synchronous worker jobs into retriable queue/workflow step executions. |
 | **Orchestrators & Swarm** | **Needs Refactoring** | Procedural classes (`ScreenerAgent.ts`, `ResearchAgent.ts`) | Migrate to Actor-based Durable Objects (`AgentActorDO`) with isolated working memory and typed MCP tools. |

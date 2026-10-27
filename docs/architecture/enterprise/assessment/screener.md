@@ -72,7 +72,7 @@ graph TD
 
 | Capability Dimension | Required Support | Operational Status | Supporting Modules & Code Location | Feasibility Verdict & Operational Prerequisites |
 |---|---|---|---|---|
-| **Data Feed: Yahoo Finance** | Stock price history, quotes, options chain fallback. | **OPERATIONAL** | `src/trading/yahooHistory.ts`, `src/trading/screener.ts` | **YES** — Supported as FOSS fallback feed; no API key required. |
+| **Data Feed: Yahoo Finance** | Stock price history, quotes, options chain fallback. | **OPERATIONAL** | `src/trading/yahooHistory.ts`, `src/trading/screener.ts` | **YES** — Supported as Yahoo fallback feed; no API key required. |
 | **Data Feed: E*TRADE** | Live stock quotes, option chains, Greeks. | **OPERATIONAL** | `src/trading/etradeClient.ts`, `src/trading/optionsScreener.ts` | **YES** — Requires valid E*TRADE OAuth credentials (`ETRADE_CONSUMER_KEY`, `ETRADE_CONSUMER_SECRET`). |
 | **Data Feed: NASDAQ** | Broad US equity listings (~8,500 tickers). | **OPERATIONAL** | `src/trading/screener.ts`, `src/config/curatedStockUniverse.json` | **YES** — Uses `api.nasdaq.com` listing feed with automatic local JSON fallback. |
 | **Criteria: Stock Screening** | Price, Vol, Market Cap, RSI, MACD, SMA(20/50/200). | **OPERATIONAL** | `src/trading/screener.ts`, `src/trading/screeningIndicators.ts` | **YES** — Fully implemented; single-pass and multi-indicator filtering supported. |
@@ -249,7 +249,7 @@ flowchart TB
 | Dependency Category | External Provider / Service | Protocol / API Type | Auth / Credential Mechanism | Criticality & Fallback Strategy |
 |---|---|---|---|---|
 | **Data Provider** | **NASDAQ Official API** (`api.nasdaq.com`) | HTTPS REST | Unauthenticated public feed | **High** — Falls back to local `curatedStockUniverse.json` if unreachable. |
-| **Data Provider** | **E*TRADE REST API** (`api.etrade.com`) | HTTPS REST / OAuth 1.0a | Consumer Key, Secret, Access Token | **High** — Falls back to Yahoo Finance FOSS quote parsing if unauthorized or offline. |
+| **Data Provider** | **E*TRADE REST API** (`api.etrade.com`) | HTTPS REST / OAuth 1.0a | Consumer Key, Secret, Access Token | **High** — Falls back to Yahoo Finance quote parsing if unauthorized or offline. |
 | **Data Provider** | **Yahoo Finance** (`query1.finance.yahoo.com`) | HTTPS REST | Ephemeral crumb / Public endpoint | **Medium** — Used as secondary quote and option chain fallback. |
 | **Delivery Provider** | **Slack API / Webhooks** | HTTPS POST Webhook | Webhook URL / Bot OAuth Token | **Medium** — If delivery fails, run outcome is saved in D1; error logged in `mas_job_outcomes`. |
 | **Delivery Provider** | **Resend / SMTP Service** | HTTPS REST / SMTP | Resend API Key / SMTP TLS Credentials | **Medium** — Retries delivery 3x; records fallback status if service unavailable. |

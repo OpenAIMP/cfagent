@@ -85,7 +85,7 @@ export const BRAND: BrandConfig = {
         name: "Deep Research Agent",
         role: "Autonomous quantitative research, peer comparisons, and historical thesis backtesting",
         category: "Intelligence",
-        badge: "FOSS",
+        badge: "Market Data",
         badgeType: "new",
       },
       {

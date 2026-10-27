@@ -11,7 +11,7 @@
  */
 
 import type { z } from "zod";
-import type { AsyncJobSubmission, Env, FossQuote, FossCompanyFundamentals, FossHistoricalBar, AlpacaMarketSnapshot } from "../types";
+import type { AsyncJobSubmission, Env, MarketDataResearchQuote, MarketDataResearchCompanyFundamentals, MarketDataResearchHistoricalBar, AlpacaMarketSnapshot } from "../types";
 import type { DatabaseORM } from "../orm";
 import type { AdsRevenueScopedModes } from "../config/adsRevenueModes";
 import type { SupportedGateway, CreateCheckoutParams, CheckoutResult, RefundParams, RefundResult, GatewayStatus } from "../services/payments";
@@ -85,12 +85,12 @@ export interface McpToolContext {
    */
   scopedEtradeModes?: import("../config/etradeModes").EtradeScopedModes;
   /**
-   * #1727: optional session/user carriers for the FOSS switches
+   * #1727: optional session/user carriers for the market-data switches
    * (run comes from the per-call `mode` input, global env from
    * `env`). Populated by the execution-context owner; unset carriers
-   * fall through to env. See src/config/fossModes.ts.
+   * fall through to env. See src/config/marketDataModes.ts.
    */
-  scopedFossModes?: import("../config/fossModes").FossScopedModes;
+  scopedMarketDataModes?: import("../config/marketDataModes").MarketDataScopedModes;
   /**
    * #1728: optional session/user carriers for the agentic-payments +
    * premium-gating switches (run comes from the per-call `mode`
@@ -220,15 +220,15 @@ export interface IMcpSystemFacade {
 }
 
 /**
- * GoF Strategy Pattern: Market Data Provider Strategy contract for FOSS research & quoting
- * Implemented by YahooFinanceProvider, AlpacaMarketDataProvider, and HybridFossProvider.
+ * GoF Strategy Pattern: Market Data Provider Strategy contract for market-data research & quoting
+ * Implemented by YahooFinanceProvider, AlpacaMarketDataProvider, and HybridMarketDataProvider.
  */
-export interface IFossMarketDataProvider {
+export interface IMarketDataProvider {
   readonly providerId: "yfinance" | "alpaca" | "hybrid";
   readonly name: string;
   isConfigured(env?: Env): boolean;
-  getQuote(symbol: string): Promise<FossQuote>;
-  getFundamentals(symbol: string): Promise<FossCompanyFundamentals>;
-  getHistoricalBars(symbol: string, timeframe?: string, limit?: number): Promise<FossHistoricalBar[]>;
+  getQuote(symbol: string): Promise<MarketDataResearchQuote>;
+  getFundamentals(symbol: string): Promise<MarketDataResearchCompanyFundamentals>;
+  getHistoricalBars(symbol: string, timeframe?: string, limit?: number): Promise<MarketDataResearchHistoricalBar[]>;
   getMarketSnapshot?(symbol: string): Promise<AlpacaMarketSnapshot>;
 }

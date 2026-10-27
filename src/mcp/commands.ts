@@ -49,16 +49,17 @@ import {
   ETradeAccountDiscoveryCommand,
 } from "./etradeCommands";
 import {
-  FossGetQuoteCommand,
-  FossFundamentalsCommand,
-  FossHistoricalBarsCommand,
-  FossMarketResearchCommand,
-  FossAlpacaSnapshotCommand,
-  FossAlpacaAccountCommand,
-  FossAlpacaPositionsCommand,
-  FossAlpacaOrdersCommand,
-  FossAlpacaPlaceOrderCommand,
-} from "./fossCommands";
+  MarketDataGetQuoteCommand,
+  MarketDataFundamentalsCommand,
+  MarketDataHistoricalBarsCommand,
+  MarketDataResearchCommand,
+  AlpacaSnapshotCommand,
+  AlpacaAccountCommand,
+  AlpacaPositionsCommand,
+  AlpacaOrdersCommand,
+  AlpacaPlaceOrderCommand,
+  DeprecatedToolAlias,
+} from "./marketDataCommands";
 import {
   PaidOptionsScreenerCommand,
   PaidMarketResearchCommand,
@@ -1582,16 +1583,29 @@ export class McpToolFactory {
     this.registerTool(new ETradeAuthStatusCommand());
     this.registerTool(new ETradeAccountDiscoveryCommand());
 
-    // FOSS Market Research & Quoting Commands (yfinance & Alpaca)
-    this.registerTool(new FossGetQuoteCommand());
-    this.registerTool(new FossFundamentalsCommand());
-    this.registerTool(new FossHistoricalBarsCommand());
-    this.registerTool(new FossMarketResearchCommand());
-    this.registerTool(new FossAlpacaSnapshotCommand());
-    this.registerTool(new FossAlpacaAccountCommand());
-    this.registerTool(new FossAlpacaPositionsCommand());
-    this.registerTool(new FossAlpacaOrdersCommand());
-    this.registerTool(new FossAlpacaPlaceOrderCommand());
+    // Market Data Research & Quoting Commands (yfinance & Alpaca)
+    this.registerTool(new MarketDataGetQuoteCommand());
+    this.registerTool(new MarketDataFundamentalsCommand());
+    this.registerTool(new MarketDataHistoricalBarsCommand());
+    this.registerTool(new MarketDataResearchCommand());
+    this.registerTool(new AlpacaSnapshotCommand());
+    this.registerTool(new AlpacaAccountCommand());
+    this.registerTool(new AlpacaPositionsCommand());
+    this.registerTool(new AlpacaOrdersCommand());
+    this.registerTool(new AlpacaPlaceOrderCommand());
+
+    // #1906: deprecated aliases for the renamed market-data tools above.
+    // Same commands, legacy names; use canonical tool names instead.
+    // Removal is a follow-up slice.
+    this.registerTool(new DeprecatedToolAlias("foss_get_quote", new MarketDataGetQuoteCommand()));
+    this.registerTool(new DeprecatedToolAlias("foss_company_fundamentals", new MarketDataFundamentalsCommand()));
+    this.registerTool(new DeprecatedToolAlias("foss_historical_bars", new MarketDataHistoricalBarsCommand()));
+    this.registerTool(new DeprecatedToolAlias("foss_market_research", new MarketDataResearchCommand()));
+    this.registerTool(new DeprecatedToolAlias("foss_alpaca_snapshot", new AlpacaSnapshotCommand()));
+    this.registerTool(new DeprecatedToolAlias("foss_alpaca_account", new AlpacaAccountCommand()));
+    this.registerTool(new DeprecatedToolAlias("foss_alpaca_positions", new AlpacaPositionsCommand()));
+    this.registerTool(new DeprecatedToolAlias("foss_alpaca_orders", new AlpacaOrdersCommand()));
+    this.registerTool(new DeprecatedToolAlias("foss_alpaca_place_order", new AlpacaPlaceOrderCommand()));
 
     // Cloudflare Agentic Payments (x402 & MPP paidTool patterns)
     this.registerTool(new PaidOptionsScreenerCommand());

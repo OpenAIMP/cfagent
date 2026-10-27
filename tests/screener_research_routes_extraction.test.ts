@@ -6,7 +6,7 @@
  * is load-bearing, so the module must match the (path, method) pairs in the
  * same sequence as the original inline blocks; (b) the single delegation
  * call site in orchestrator.ts, at the exact original position (after the
- * FOSS compare/screen delegation, before the task schedules block); (c)
+ * market-data compare/screen delegation, before the task schedules block); (c)
  * behavior with mocked orchestrator helpers passed through the context:
  * owned paths return a Response (200 / 400 / 404 / 503 exactly as before),
  * non-owned paths return null (the orchestrator keeps routing) - the
@@ -23,8 +23,8 @@
  * LANDMARK RULE (#405): position assertions anchor to DELEGATION CALLS or
  * own-domain markers, never to a neighboring domain's inline comments or
  * blocks. The delegation's lower bound (preceding position) anchors to the
- * handleFossCompareScreenRoutes(...) delegation call - the reciprocal note
- * slice #359-14 left in tests/foss_research_routes_extraction.test.ts. The
+ * handleMarketDataCompareScreenRoutes(...) delegation call - the reciprocal note
+ * slice #359-14 left in tests/market_data_research_routes_extraction.test.ts. The
  * upper bound (the task schedules block) is NOT asserted here: it is slice
  * #359-16's domain and still inline; slice #379 must anchor its schedules
  * delegation's lower bound to the handleScreenerResearchRoutes(...)
@@ -121,13 +121,13 @@ describe("screener + research route inventory (extraction #378)", () => {
     expect(orchSrc).not.toContain("triggerScheduledResearch");
     expect(orchSrc).not.toContain("RESEARCH_SCHEDULED_LAST_RUN_KEY");
     expect(orchSrc).not.toContain("shouldFireResearchTick");
-    // The delegation is invoked after the FOSS compare/screen delegation
+    // The delegation is invoked after the market-data compare/screen delegation
     // (slice #359-14's reciprocal note: anchor to the delegation call).
-    const fossIdx = orchSrc.indexOf("handleFossCompareScreenRoutes(request, url, path, sessionId,");
+    const compareScreenIdx = orchSrc.indexOf("handleMarketDataCompareScreenRoutes(request, url, path, sessionId,");
     const mineIdx = orchSrc.indexOf("handleScreenerResearchRoutes(request, url, path, sessionId,");
-    expect(fossIdx, "FOSS screening delegation must exist").toBeGreaterThan(-1);
+    expect(compareScreenIdx, "market-data screening delegation must exist").toBeGreaterThan(-1);
     expect(mineIdx, "screener/research delegation must exist").toBeGreaterThan(-1);
-    expect(mineIdx, "delegation must come after the FOSS screening delegation").toBeGreaterThan(fossIdx);
+    expect(mineIdx, "delegation must come after the market-data screening delegation").toBeGreaterThan(compareScreenIdx);
     // Context wiring is present: orchestrator-owned helpers arrive via the object.
     expect(orchSrc).toContain("getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin)");
     expect(orchSrc).toContain("runResearchAndPublish: (trigger, userLogin) => this.runResearchAndPublish(trigger, userLogin)");

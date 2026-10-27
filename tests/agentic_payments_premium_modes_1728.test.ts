@@ -27,12 +27,12 @@ vi.mock("../src/services/x402Verifier", async (importOriginal) => ({
   ),
 }));
 
-// Paid research fulfillment needs no live FOSS data for an envelope
-// test: keep every other fossResearch export intact, stub only the
+// Paid research fulfillment needs no live market data for an envelope
+// test: keep every other marketDataResearch export intact, stub only the
 // report builder (the envelope, not the engine, is this slice's scope).
-vi.mock("../src/services/fossResearch", async (importOriginal) => ({
+vi.mock("../src/services/marketDataResearch", async (importOriginal) => ({
   ...(await importOriginal<any>()),
-  FossResearchService: class {
+  MarketDataResearchService: class {
     constructor(_env: unknown) {}
     async generateResearchReport(symbol: string) {
       return { symbol, headline: "canned research", sections: [] };

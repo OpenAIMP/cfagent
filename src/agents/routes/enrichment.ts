@@ -50,7 +50,7 @@ import type { MessageEnvelope } from "../../messaging/messagingPorts";
 // Boundary import: the pre-existing Yahoo/Alpaca provider service.
 // This slice consumes it; it does not rename it (the full rename
 // sweep is a recorded follow-up, not a blind find-replace here).
-import { FossResearchService } from "../../services/fossResearch";
+import { MarketDataResearchService } from "../../services/marketDataResearch";
 import type { Env } from "../../types";
 
 export interface EnrichmentRouteContext {
@@ -94,7 +94,7 @@ function badRequest(message: string): Response {
 
 /** Boundary adapter: existing providers onto the neutral port. */
 function defaultMarketData(env: Env): EnrichmentMarketData {
-  const service = new FossResearchService(env);
+  const service = new MarketDataResearchService(env);
   const toProvider = (p: "yahoo" | "alpaca") =>
     p === "yahoo" ? "yfinance" : "alpaca";
   return {

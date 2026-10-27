@@ -108,8 +108,8 @@ vi.mock("../src/trading", async (importOriginal) => {
     },
   };
 });
-vi.mock("../src/services/fossResearch", () => ({
-  FossResearchService: class FakeFoss {
+vi.mock("../src/services/marketDataResearch", () => ({
+  MarketDataResearchService: class FakeMarketData {
     constructor(_env: unknown) {}
     async generateResearchReport(symbol: string) {
       return { symbol, summary: "stub report" };
