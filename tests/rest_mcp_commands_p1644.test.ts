@@ -175,7 +175,10 @@ describe("delegation: reduced routes execute through IMcpToolCommand", () => {
       count: 1,
       events: [{ id: "e1", type: "t", agent: "a", payload: { k: 1 }, created_at: "t1" }],
     });
-    expect(spy).toHaveBeenCalledWith("get_audit_events", {}, expect.anything());
+    // #1968: the route passes its query params into the command (here
+    // just the limit) instead of the old empty input — filtering happens
+    // in the command, before the limit is applied.
+    expect(spy).toHaveBeenCalledWith("get_audit_events", { limit: 2 }, expect.anything());
   });
 
   it("GET /memory returns command memories, sliced to 100", async () => {

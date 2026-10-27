@@ -236,7 +236,13 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     description: "Query real-time audit event stream for router decisions, LLM Judge evaluations, HITL approvals, and agent executions.",
     schema: {
       type: "object",
-      properties: { limit: { type: "number", description: "Number of recent events (default: 25)" } },
+      properties: {
+        limit: { type: "number", description: "Number of recent events (default: 25)" },
+        type: { type: "string", description: "Exact event type to match (e.g. etrade.auth_blocked)" },
+        agent: { type: "string", description: "Exact agent to match" },
+        before: { type: "string", description: "Exclusive upper bound (ISO timestamp)" },
+        after: { type: "string", description: "Exclusive lower bound (ISO timestamp)" },
+      },
     },
     sampleArgs: { limit: 15 },
   },

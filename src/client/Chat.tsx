@@ -377,6 +377,8 @@ export function Chat({ user }: { user: User }) {
   const [browseSearch, setBrowseSearch] = useState("");
   const [browsedData, setBrowsedData] = useState<{ tableName: string; total: number; rows: any[] } | null>(null);
   const [browsingLoading, setBrowsingLoading] = useState(false);
+  // #1968: the row a user opened for its full payload (expanded JSON).
+  const [browsedDetailRow, setBrowsedDetailRow] = useState<any | null>(null);
 
   // Agent connection state & session management
   const [chatNonce, setChatNonce] = useState(0);
@@ -1406,12 +1408,38 @@ export function Chat({ user }: { user: User }) {
                       }))}
                       rows={browsedData.rows.map((row: any, i: number) => ({ ...row, __rowKey: String(i) }))}
                       rowKey={(row: any) => row.__rowKey}
+                      onRowClick={(row: any) => setBrowsedDetailRow(row)}
                     />
                   </div>
                 ) : (
                   <EmptyState title={`No records found in table ${browsedData.tableName}`} />
                 )}
               </Card>
+            )}
+            {/* #1968: full-payload detail view. Table cells show one-line
+                values; a JSON TEXT column (e.g. mas_events.payload) is only
+                usable expanded, so clicking a row opens the whole record
+                as pretty JSON — string values that parse as JSON are
+                expanded one level (payload text becomes an object). */}
+            {browsedDetailRow && (
+              <Modal
+                open={true}
+                onClose={() => setBrowsedDetailRow(null)}
+                title={`Record detail: ${browsedData?.tableName ?? "row"}`}
+              >
+                <pre className="event-payload">{(() => {
+                  const expanded: Record<string, unknown> = {};
+                  for (const [k, v] of Object.entries(browsedDetailRow)) {
+                    if (k === "__rowKey") continue;
+                    if (typeof v === "string") {
+                      try { expanded[k] = JSON.parse(v); } catch { expanded[k] = v; }
+                    } else {
+                      expanded[k] = v;
+                    }
+                  }
+                  return JSON.stringify(expanded, null, 2);
+                })()}</pre>
+              </Modal>
             )}
             </PageSection>
 
