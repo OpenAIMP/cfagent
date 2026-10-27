@@ -6,16 +6,23 @@
  * This module wires them to the SHIPPED governance machinery named on
  * #1362. It builds NO new governance machinery:
  *
- *  - Promotion (#759): a chain version reaches live use ONLY with a
- *    passing #759 gate verdict naming the chain. The verdict is written
- *    by shipped `runPromotionGate` and read here via shipped
- *    `listGateVerdicts` — this module mints NO verdicts, recomputes NO
- *    significance, and re-checks NO approval. RECONCILIATION: Phase 3
- *    approval does NOT satisfy the #759 shape on its own — it supplies
- *    the human-approval leg only, with no held-out evidence. The gap is
- *    wired with the shipped gate, not a second approval gate: Phase 3
- *    approval remains the schedule-confirmation step; gate-verdict
- *    promotion is the chain-version step. Neither replaces the other.
+ *  - Promotion (#1747, branch 2 — chain-native authority, superseding
+ *    the #1468 reconciliation FOR CHAINS ONLY): a chain version reaches
+ *    live use ONLY with a Phase 3 approval authorizing this chain's
+ *    content, plus the registry verification recorded on the version,
+ *    plus staged rollout. #759 verdicts are strategy-shaped evidence
+ *    (counterfactual replay, z-test) and do not fit chains, which
+ *    compose already-verified capabilities; the chain's held-out
+ *    evidence mechanism is its shadow stage, with automatic rollback
+ *    on failure signals. This module reads NO #759 verdict and mints
+ *    NO verdicts. Phase 3 approval ALONE still does not satisfy the
+ *    #759 shape — the authority here is the triple (approval +
+ *    verification + staged rollout), not approval by itself. #759
+ *    keeps serving strategy weights untouched (see stagedPromotion).
+ *    RECONCILIATION UPDATE: the #1468 statement "Phase 3 approval
+ *    does NOT satisfy the #759 shape on its own" stands for
+ *    strategies; for chains it is superseded by this triple, which
+ *    replaces the verdict requirement rather than re-checking it.
  *  - Rollback (#760): the shipped staged machinery is strategy-weight
  *    / D1 specific and cannot be invoked for chains directly, so chains
  *    follow its SHAPE — stage names (shadow → partial → full →
@@ -45,7 +52,6 @@ import {
   shouldFireSynthesized,
   type SynthesizedSchedule,
 } from "./jobSynthesis";
-import { listGateVerdicts } from "../services/promotionGate";
 import {
   isAdaptationHalted,
   recordAdaptation,
@@ -75,12 +81,17 @@ export interface GovernedChainVersion {
   version: number;
   steps: Array<{ capabilityId: string; stage: CompiledChainStep["stage"] }>;
   capabilityVersions: CapabilityVersion[];
-  /** "draft" until a passing #759 verdict promotes it to "shadow". */
+  /** "draft" until a Phase 3 approval promotes it to "shadow". */
   stage: "draft" | ChainPromotionStage;
   /** Version this version replaces; rollback restores it. Null for v1. */
   priorVersion: number | null;
-  /** Id of the passing #759 verdict that promoted this version, if any. */
-  gateVerdictId: string | null;
+  /**
+   * Id of the Phase 3 approval record that authorized promotion to
+   * "shadow", if any. Null until promoted. The approval's steps must
+   * match this version's steps (see resolveChainAuthority); the
+   * version's capabilityVersions carry the verification basis.
+   */
+  authorityRef: string | null;
   createdAt: string;
 }
 
@@ -125,43 +136,97 @@ export function versionChain(
     capabilityVersions,
     stage: "draft",
     priorVersion: opts.priorVersion ?? null,
-    gateVerdictId: null,
+    authorityRef: null,
     createdAt: opts.createdAt ?? new Date().toISOString(),
   };
 }
 
 /**
- * The #759 gate, consumed — never minted. Returns the latest passing
- * verdict naming this chain from the shipped verdict store, or null.
- * A failed verdict, a verdict for another chain, and no verdict at all
- * are all "no gate pass".
+ * Chain-native promotion authority (#1747, branch 2). The authority
+ * is the triple:
+ *  (1) registry verification — versionChain already refused
+ *      unknown/planned-only capabilities and recorded each
+ *      capability's status + verification ref on the version;
+ *  (2) a Phase 3 approval record for THIS chain's content;
+ *  (3) staged rollout — the shadow stage is the chain's held-out
+ *      evidence mechanism (advanceChainPromotion rolls back
+ *      automatically on failure signals).
+ * No #759 verdict is read, minted, or implied anywhere here.
  */
-export function findPassingGateVerdict(sql: any, chainId: string) {
-  const verdicts = listGateVerdicts(sql, chainId);
-  return verdicts.find((v) => v.passed) ?? null;
+export interface ChainPromotionAuthority {
+  /** Id of the Phase 3 approval record that authorized promotion. */
+  approvalId: string;
+  /** When that approval was granted. */
+  approvedAt: string;
+}
+
+/**
+ * The authority binding: the approval record authorizes exactly the
+ * chain content it was synthesized from. A version carries no goal
+ * and no approval pointer of its own, so the binding is the ordered
+ * capability list — the chain's content identity. Capability ids
+ * (not step ids) are compared: step ids are synthesis artifacts,
+ * capability ids are the registry identity. Length must match too:
+ * a strict prefix is different content, not a subset approval.
+ */
+function stepsMatch(version: GovernedChainVersion, approval: SynthesizedSchedule): boolean {
+  return (
+    version.steps.length === approval.steps.length &&
+    version.steps.every((s, i) => s.capabilityId === approval.steps[i].capabilityId)
+  );
+}
+
+/**
+ * Resolve the chain-native authority for a promotion, or throw.
+ * Every refusal names its reason; there is no silent fallback and
+ * no inferred approval — the caller presents the approval record,
+ * this function verifies it. A pending record, a killed record
+ * (killed is terminal against approval), a timestamp-less record
+ * (never trust a hand-built record shape), and an approval for
+ * different chain content are all "no authority".
+ */
+export function resolveChainAuthority(
+  version: GovernedChainVersion,
+  approval: SynthesizedSchedule,
+): ChainPromotionAuthority {
+  if (approval.status !== "approved") {
+    throw new Error(
+      `Cannot promote chain ${version.chainId} v${version.version}: approval record ${approval.id} is not approved (status is "${approval.status}") — promotion without authority is refused.`,
+    );
+  }
+  const approvedAt = approval.approvedAt;
+  if (approvedAt === null) {
+    throw new Error(
+      `Cannot promote chain ${version.chainId} v${version.version}: approval record ${approval.id} has no approval timestamp — promotion without authority is refused.`,
+    );
+  }
+  if (!stepsMatch(version, approval)) {
+    throw new Error(
+      `Cannot promote chain ${version.chainId} v${version.version}: approval record ${approval.id} does not authorize this chain version (approved steps differ from the version's steps) — promotion without authority is refused.`,
+    );
+  }
+  return { approvalId: approval.id, approvedAt };
 }
 
 /**
  * Promote a draft chain version to the #760 "shadow" stage. Refuses
- * without a passing #759 verdict naming the chain. Only draft versions
- * can be promoted; promotion never mutates its input.
+ * without a Phase 3 approval authorizing this chain's content.
+ * Only draft versions can be promoted; promotion never mutates its
+ * input. The caller presents the approval record it holds (from the
+ * Phase 3 record store); nothing is looked up, inferred, or minted
+ * here.
  */
 export function promoteChainVersion(
   version: GovernedChainVersion,
-  sql: any,
+  approval: SynthesizedSchedule,
 ): GovernedChainVersion {
   if (version.stage !== "draft") {
     throw new Error(
       `Cannot promote chain ${version.chainId} v${version.version}: only a draft version can be promoted (stage is "${version.stage}").`,
     );
   }
-  const verdict = findPassingGateVerdict(sql, version.chainId);
-  if (!verdict) {
-    throw new Error(
-      `Cannot promote chain ${version.chainId} v${version.version}: no passing promotion-gate verdict (#759) names this chain — promotion without the gate is refused.`,
-    );
-  }
-  return { ...version, stage: "shadow", gateVerdictId: verdict.id };
+  const authority = resolveChainAuthority(version, approval);
+  return { ...version, stage: "shadow", authorityRef: authority.approvalId };
 }
 
 const NEXT_STAGE: Record<string, ChainPromotionStage> = {
@@ -194,7 +259,7 @@ export function advanceChainPromotion(
   }
   if (version.stage === "draft") {
     throw new Error(
-      `Cannot advance chain ${version.chainId} v${version.version}: promote it through the gate first (draft has no stage to advance).`,
+      `Cannot advance chain ${version.chainId} v${version.version}: promote it with a Phase 3 approval first (draft has no stage to advance).`,
     );
   }
   if (signal.failed) {
@@ -224,7 +289,7 @@ export function rollbackChainVersion(
   }
   if (version.stage === "completed") {
     throw new Error(
-      `Cannot roll back chain ${version.chainId} v${version.version}: promotion is completed — supersede it with a new gated version instead.`,
+      `Cannot roll back chain ${version.chainId} v${version.version}: promotion is completed — supersede it with a new authorized version instead.`,
     );
   }
   if (version.stage === "rolled_back") return version;

@@ -1,11 +1,14 @@
 /**
- * Issue #1468 ([AGENTIC] Phase 6, sub-issue of #1362) — delegation pins.
+ * Issue #1468 ([AGENTIC] Phase 6, sub-issue of #1362) — delegation pins,
+ * as migrated by #1747 (branch 2: chain-native promotion authority).
  *
  * Each behavior must delegate to shipped code; these tests drive the
  * REAL shipped functions through a fake D1 sql shim (same pattern as
- * tests/promotion_gate.test.ts and tests/adaptation_audit.test.ts):
- *  - Promotion: the REAL #759 `runPromotionGate` mints the verdict
- *    that `promoteChainVersion` consumes. No verdict is minted here.
+ * tests/adaptation_audit.test.ts):
+ *  - Promotion: a REAL Phase 3 approval — a record synthesized from
+ *    the same compiled chain and approved via
+ *    `approveSynthesizedRecord` — is what `promoteChainVersion`
+ *    consumes. No #759 verdict is involved.
  *  - Audit: the REAL #755 `recordAdaptation` writes the row that
  *    `recordChainRunAudit` returns, readable via `listAdaptationAudit`.
  *  - Kill: the REAL #756 `isAdaptationHalted` is the global halt that
@@ -14,19 +17,13 @@
 import { describe, it, expect } from "vitest";
 import { compileGoal } from "../src/orchestrate";
 import {
-  evaluateCandidate,
-} from "../src/services/candidateEvaluation";
-import {
-  requestPromotionApproval,
-  decidePromotionApproval,
-  runPromotionGate,
-  listGateVerdicts,
-} from "../src/services/promotionGate";
+  synthesizeSchedule,
+  approveSynthesizedRecord,
+} from "../src/agentic/jobSynthesis";
 import {
   listAdaptationAudit,
   isAdaptationHalted,
 } from "../src/services/adaptationAudit";
-import type { TrackRecord, TrackRecordIdea } from "../src/services/researchTrackRecord";
 import {
   versionChain,
   promoteChainVersion,
@@ -38,10 +35,6 @@ import {
 /** Minimal fake D1 sql: generic INSERT parsing + per-table SELECT/UPDATE. */
 function makeFakeSql() {
   const tables: Record<string, any[]> = {
-    mas_improvement_candidates: [],
-    mas_candidate_evaluations: [],
-    mas_promotion_approvals: [],
-    mas_promotion_gate_verdicts: [],
     mas_adaptation_audit: [],
   };
   const settings = new Map<string, string>();
@@ -86,50 +79,6 @@ function makeFakeSql() {
         insert(rows, text, params);
         return [];
       }
-      if (/UPDATE mas_improvement_candidates/i.test(text)) {
-        const [status, updated_at, id, fromStatus] = params;
-        const row = rows.find((r) => r.id === id && r.status === fromStatus);
-        if (row) {
-          row.status = status;
-          row.updated_at = updated_at;
-          return { changes: 1 };
-        }
-        return { changes: 0 };
-      }
-      if (/UPDATE mas_promotion_approvals/i.test(text)) {
-        const [status, decided_by, decided_at, id, fromStatus] = params;
-        const row = rows.find((r) => r.id === id && r.status === fromStatus);
-        if (row) {
-          row.status = status;
-          row.decided_by = decided_by;
-          row.decided_at = decided_at;
-          return { changes: 1 };
-        }
-        return { changes: 0 };
-      }
-      if (/FROM mas_candidate_evaluations/i.test(text)) {
-        return rows
-          .filter((r) => r.candidate_id === params[0])
-          .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-          .map((r) => ({ ...r }));
-      }
-      if (/FROM mas_promotion_approvals/i.test(text)) {
-        let out = [...rows];
-        if (/candidate_id = \?/.test(text)) out = out.filter((r) => r.candidate_id === params[0]);
-        if (/\bid = \?/.test(text)) out = out.filter((r) => r.id === params[params.length - 1]);
-        return out.map((r) => ({ ...r }));
-      }
-      if (/FROM mas_promotion_gate_verdicts/i.test(text)) {
-        return rows
-          .filter((r) => r.candidate_id === params[0])
-          .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-          .map((r) => ({ ...r }));
-      }
-      if (/FROM mas_improvement_candidates/i.test(text)) {
-        let out = [...rows];
-        if (/id = \?/.test(text)) out = out.filter((r) => r.id === params[0]);
-        return out.map((r) => ({ ...r }));
-      }
       if (/FROM mas_adaptation_audit/i.test(text)) {
         let out = [...rows];
         if (/subject = \?/.test(text)) out = out.filter((r) => r.subject === params[0]);
@@ -144,125 +93,37 @@ function makeFakeSql() {
   return { sql, tables, settings };
 }
 
-function idea(structure: string, win: boolean, createdAt: string, n: number): TrackRecordIdea {
-  return {
-    runId: `run_${createdAt.slice(0, 7)}_${n}`,
-    runCreatedAt: createdAt,
-    symbol: `SYM${n}`,
-    structure,
-    outlook: "bullish",
-    thesis: "t",
-    invalidation: "",
-    entrySpot: 100,
-    evaluation: {
-      evaluatedAt: createdAt,
-      invalidated: false,
-      pnlEstimatePerUnit: win ? 1 : -1,
-      rMultiple: null,
-      evalSpot: 101,
-      directionCorrect: win,
-      notes: [],
-    },
-  } as any;
-}
-
-/** Weak poor in both months; Fine strong. Sept = tuning, Oct = held-out. */
-function buildTrack(): TrackRecord {
-  const ideas: TrackRecordIdea[] = [];
-  let n = 0;
-  for (const m of [
-    { month: "2026-09", weakWins: 4, fineWins: 12 },
-    { month: "2026-10", weakWins: 3, fineWins: 13 },
-  ]) {
-    for (let i = 0; i < 20; i++) ideas.push(idea("Weak", i < m.weakWins, `${m.month}-05T00:00:00.000Z`, n++));
-    for (let i = 0; i < 20; i++) ideas.push(idea("Fine", i < m.fineWins, `${m.month}-06T00:00:00.000Z`, n++));
-  }
-  const wins = ideas.filter((i) => (i.evaluation!.pnlEstimatePerUnit ?? 0) > 0).length;
-  return {
-    published: ideas.length,
-    evaluated: ideas.length,
-    invalidated: 0,
-    winRate: wins / ideas.length,
-    directionAccuracy: null,
-    avgPnlPerUnit: null,
-    avgRMultiple: null,
-    byStrategy: [],
-    byPeriod: [],
-    ideas,
-  };
-}
-
-const T = (h: string) => new Date(`2026-10-21T${h}:00.000Z`);
-const SEPT = { from: "2026-09-01", to: "2026-10-01" };
-const OCT = { from: "2026-10-01", to: "2026-11-01" };
-
-describe("promotion consumes a REAL #759 verdict (#1468)", () => {
-  it("runPromotionGate mints a passing verdict naming the chain; promotion consumes it", () => {
-    const { sql, tables } = makeFakeSql();
-    const chainId = "chain-nasdaq-slack";
-    // The chain version is the gate's evaluation subject, by id.
-    tables.mas_improvement_candidates.push({
-      id: chainId,
-      target: "strategy-gate:Weak",
-      change_json: JSON.stringify({
-        action: "disable-strategy",
-        parameter: "enabled",
-        from: true,
-        to: false,
-        description: "Disable Weak.",
-      }),
-      hypothesis: "Disabling Weak improves the retained win rate.",
-      expected_metric: "portfolioWinRate",
-      expected_direction: "increase",
-      evidence_refs: "[]",
-      provenance_source: "learning",
-      provenance_id: "learn_test",
-      status: "evaluating",
-      supersedes_id: null,
-      created_at: "2026-10-21T00:00:00.000Z",
-      updated_at: "2026-10-21T00:00:00.000Z",
-    });
-    const track = buildTrack();
-    const candidate: any = {
-      id: chainId,
-      target: "strategy-gate:Weak",
-      change: { action: "disable-strategy", parameter: "enabled", from: true, to: false, description: "Disable Weak." },
-      hypothesis: "Disabling Weak improves the retained win rate.",
-      expectedEffect: { metric: "portfolioWinRate", direction: "increase" },
-      evidenceRefs: [],
-      provenance: { source: "learning", id: "learn_test" },
-      status: "evaluating",
-    };
-    evaluateCandidate(sql, candidate, track, { window: SEPT }, T("01:00"));
-    evaluateCandidate(sql, candidate, track, { window: OCT }, T("02:00"));
-    const approval = requestPromotionApproval(sql, chainId, "operator", T("03:00"));
-    expect(decidePromotionApproval(sql, approval.id, "approved", "operator", T("04:00"))).toBe(true);
-    const verdict = runPromotionGate(sql, candidate, track, T("05:00"));
-    expect(verdict.passed).toBe(true);
-    expect(verdict.candidateId).toBe(chainId);
-    // The shipped verdict store is the source of truth the module reads.
-    expect(listGateVerdicts(sql, chainId)[0]?.passed).toBe(true);
-
+describe("promotion consumes a REAL Phase 3 approval (#1747)", () => {
+  it("an approved record for this chain's content promotes draft → shadow and records the authority", () => {
     const chain = compileGoal("Create a NASDAQ100 screen and send it to Slack", {
       budgetCents: 5000,
       budgetCapCents: 10000,
     });
     if (!chain) throw new Error("test chain did not compile");
-    const version = versionChain(chainId, chain, 1);
-    const promoted = promoteChainVersion(version, sql);
+    const version = versionChain("chain-nasdaq-slack", chain, 1);
+    // The approval is a REAL Phase 3 record: synthesized from the same
+    // compiled chain, approved via the shipped confirmation transition.
+    // Its steps match the version's steps — that match is the binding.
+    const pending = synthesizeSchedule(chain, { id: "synth-audit-1", cron: "0 6 * * *" });
+    const approval = approveSynthesizedRecord(pending, "2026-10-25T01:00:00.000Z");
+    expect(approval.status).toBe("approved");
+    expect(approval.steps.map((s) => s.capabilityId)).toEqual(
+      version.steps.map((s) => s.capabilityId),
+    );
+    const promoted = promoteChainVersion(version, approval);
     expect(promoted.stage).toBe("shadow");
-    expect(promoted.gateVerdictId).toBe(verdict.id);
+    expect(promoted.authorityRef).toBe(approval.id);
   });
 
-  it("without any gate run, promotion refuses even though the subject exists", () => {
-    const { sql } = makeFakeSql();
+  it("without any approval, promotion refuses even though the chain exists", () => {
     const chain = compileGoal("Create a NASDAQ100 screen and send it to Slack", {
       budgetCents: 5000,
     });
     if (!chain) throw new Error("test chain did not compile");
-    expect(() => promoteChainVersion(versionChain("chain-ungated", chain, 1), sql)).toThrow(
-      /no passing promotion-gate verdict/,
-    );
+    const pending = synthesizeSchedule(chain, { id: "synth-audit-pending", cron: "0 6 * * *" });
+    expect(() =>
+      promoteChainVersion(versionChain("chain-ungated", chain, 1), pending),
+    ).toThrow(/not approved/);
   });
 });
 
