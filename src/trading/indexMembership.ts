@@ -158,11 +158,38 @@ export const DEFAULT_MAX_AGE_DAYS: Record<"wikipedia" | "holdings", number> = {
 // HTML table parsing (Wikipedia adapter)
 // ---------------------------------------------------------------------------
 
-function stripTags(cell: string): string {
-  return cell
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&nbsp;/g, " ")
+const HTML_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  nbsp: " ",
+  "#39": "'",
+  "#x27": "'",
+};
+
+/**
+ * Plain-text extraction for table cells. CodeQL-pinned (#1852, 2 high
+ * alerts on the first version): tag stripping loops until stable, so
+ * a nested `<<script>` cannot survive one pass and leave a live tag
+ * behind; entity decoding is a SINGLE regex pass with a lookup, so
+ * `&amp;nbsp;` decodes once to `&nbsp;` instead of twice to a space;
+ * any residual angle brackets are removed, since cell text (names,
+ * sectors, tickers) never legitimately contains them.
+ */
+export function stripTags(cell: string): string {
+  let text = cell;
+  let previous = "";
+  while (previous !== text) {
+    previous = text;
+    text = text.replace(/<[^>]*>/g, "");
+  }
+  text = text.replace(
+    /&(amp|lt|gt|quot|nbsp|#39|#x27);/g,
+    (match) => HTML_ENTITIES[match.slice(1, -1)] ?? match
+  );
+  return text
+    .replace(/[<>]/g, "")
     .replace(/\[\d+\]/g, "")
     .replace(/\s+/g, " ")
     .trim();

@@ -16,6 +16,7 @@ import {
   normalizeTicker,
   screenIndexMembers,
   StaleIndexMembershipError,
+  stripTags,
   type IndexMembership,
 } from "../src/trading/indexMembership";
 import type { ETradeQuote } from "../src/types";
@@ -67,6 +68,22 @@ describe("ticker normalization (#1852)", () => {
   it("rejects empty and garbage symbols", () => {
     expect(() => normalizeTicker("")).toThrow();
     expect(() => normalizeTicker("AAPL!")).toThrow();
+  });
+});
+
+describe("cell sanitization (#1852, CodeQL 2 high alerts on v1)", () => {
+  it("loops tag stripping so nested tags cannot survive one pass", () => {
+    expect(stripTags("<<script>alert(1)</script>")).toBe("alert(1)");
+    expect(stripTags("A <b>bold</b> name")).toBe("A bold name");
+  });
+  it("decodes entities exactly once (no double unescape)", () => {
+    expect(stripTags("A &amp;nbsp; B")).toBe("A &nbsp; B");
+    expect(stripTags("Tom &amp; Jerry")).toBe("Tom & Jerry");
+    expect(stripTags("A &lt;tag&gt; B")).toBe("A tag B");
+  });
+  it("strips footnote markers and residual angle brackets", () => {
+    expect(stripTags("Acme Corp[12]")).toBe("Acme Corp");
+    expect(stripTags("A < B")).toBe("A B");
   });
 });
 
