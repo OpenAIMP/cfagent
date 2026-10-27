@@ -1670,8 +1670,7 @@ export async function acquireUniverse(
     const listingPrice = listing.lastPrice!; // selectedListings excludes missing last-sale values above
     const sector =
       listing.sector ||
-      inferSectorFromCompanyName(listing.companyName) ||
-      "Equities";
+      inferSectorFromCompanyName(listing.companyName);
     return {
       symbol: listing.symbol,
       companyName: listing.companyName,

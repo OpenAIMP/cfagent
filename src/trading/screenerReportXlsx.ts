@@ -108,7 +108,7 @@ export const SCREENER_FORMULA_DOCUMENTATION: ColumnFormulaDocumentation[] = [
     columnName: "Sector",
     fieldKey: "sector",
     provenance: "Curated Industry Registry & Inferred Corporate Taxonomy",
-    formula: "Curated security taxonomy map -> Regex name inference (Semiconductors, Technology, Financial, Healthcare, Energy, Consumer, etc.) -> Default 'Equities'",
+    formula: "Curated security taxonomy map -> Regex name inference (Semiconductors, Technology, Financial, Healthcare, Energy, Consumer, etc.) -> Default: none (shown as Unknown)",
     description: "Macro industrial sector used for universe categorization and peer-group normalization.",
   },
   {
@@ -154,7 +154,7 @@ export function generateScreenerXlsx(result: ScreenerRunResult): Uint8Array {
     return {
       "Symbol": s.symbol,
       "Company Name": s.companyName || s.symbol,
-      "Sector": s.sector || "Equities",
+      "Sector": s.sector || "Unknown",
       "Price": Number(s.lastPrice.toFixed(2)),
       "Chg%": Number(s.changePercent.toFixed(2)),
       "Gap%": gapVal,
