@@ -70,22 +70,35 @@ describe("Agent conformance (issue #1738)", () => {
       .filter((f) => /extends\s+Agent</.test(read(path.relative(ROOT, f))))
       .map((f) => path.relative(ROOT, f).replace(/\\/g, "/"))
       .sort();
-    // Only the three pre-#1738 actors (Scheduled, Payments,
-    // ReportAsset) remain on plain Agent. Orchestrator left this
-    // list in #1952 (think-fleet), Research in #1953
-    // (think-fleet), Screener in #1955 (think-fleet), and Trading
-    // in #1954 (think-fleet): all four extend PortThink now,
-    // which extends Think, which extends Agent — so they are
-    // still Agents SDK actors, but no longer match the
-    // plain-Agent pin.
+    // Only the two pre-#1738 actors (Payments, ReportAsset)
+    // remain on plain Agent. Orchestrator left this list in
+    // #1952 (think-fleet), Research in #1953 (think-fleet),
+    // Screener in #1955 (think-fleet), Trading in #1954
+    // (think-fleet), and Scheduled in #1956 (think-fleet):
+    // all five extend PortThink now, which extends Think,
+    // which extends Agent — so they are still Agents SDK
+    // actors, but no longer match the plain-Agent pin.
     // BrowserAgent/SlackAgent extend AIChatAgent and are
     // deliberately NOT in this list — they are chat agents,
     // not actor-role agents.
     expect(adopters).toEqual([
       "src/agents/payments-agent.ts",
       "src/agents/report-asset-agent.ts",
-      "src/agents/scheduled-agent.ts",
     ]);
+  });
+
+  it("ScheduledAgent extends PortThink (issue #1956, think-fleet)", () => {
+    const src = read("src/agents/scheduled-agent.ts");
+    // Think behind the actor port (tracker #1951, shape (a)): the
+    // class reaches Think only through PortThink, never raw Think
+    // and never the Agents SDK base it used before #1956. This
+    // class has no turn path, so unlike Research/Trading it
+    // exposes no getModel/getSystemPrompt/getTools surface and
+    // no portHooks — its cron/goal surface is pinned by
+    // tests/think_fleet_scheduled_agent_1956.test.ts.
+    expect(src).toMatch(/import\s*\{\s*PortThink\s*\}\s*from\s*"\.\.\/actors\/thinkAdapter"/);
+    expect(src).toMatch(/export\s+class\s+ScheduledAgent\s+extends\s+PortThink\b/);
+    expect(src).not.toMatch(/from\s*"agents"/);
   });
 
   it("no agent code imports the Think base directly, except the foundation adapter files (workflows subpath excepted)", () => {
