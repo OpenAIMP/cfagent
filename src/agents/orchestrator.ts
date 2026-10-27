@@ -97,6 +97,7 @@ import { handleSchemaRoutes } from "./routes/schema";
 import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./routes/adsRevenueReferrals";
 import { handleAuditRoutes } from "./routes/audit";
 import { handleDataProviderRoutes } from "./routes/dataProviders";
+import { handleEnrichmentRoutes } from "./routes/enrichment";
 import { handleKnowledgeCorpusRoutes } from "./routes/knowledgeCorpus";
 import { handleAutopilotRoutes } from "./routes/autopilot";
 import { handleMemoryResetRoutes } from "./routes/memoryReset";
@@ -2123,6 +2124,15 @@ export class OrchestratorAgent extends Agent<Env> {
       recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
     });
     if (dataProvidersResponse) return dataProvidersResponse;
+
+    // Issue #1888: enrichment routes (routes/enrichment.ts), after data-providers; non-null return matched.
+    const enrichmentResponse = await handleEnrichmentRoutes(request, url, path, sessionId, {
+      env: this.env,
+      sql: this.ctx.storage.sql,
+      userLogin: request.headers.get("x-user-login") || "",
+      recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
+    });
+    if (enrichmentResponse) return enrichmentResponse;
 
     // Issue #1169 (S1): knowledge-corpus admin upload routes (POST
     // /knowledge/corpus) are handled by

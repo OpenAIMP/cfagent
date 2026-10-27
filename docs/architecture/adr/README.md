@@ -35,6 +35,7 @@ PR.
 | [0016](0016-scheduledagent-resource-rollup-alert-1819.md) | Resource rollup + 70% cap alert live on ScheduledAgent (#1819): per-op emission in-path, aggregation on the existing `*/30` tick; no new cron, no second scheduler, no WorkflowPort generalization | Accepted |
 | [0017](0017-workflowport-is-not-a-dag.md) | WorkflowPort is NOT a DAG: fixed linear stage pipeline + parent → ≤4 parallel shards → collation + state machine with ≤3 retries/step; what a DAG slice would require | Accepted |
 | [0018](0018-caio-alignment-resource-instrumentation-1819.md) | CAIO alignment for #1819 resource instrumentation: reuse #1742's port pattern, consume #1743's landed schema/transport (PR #1842) and #1741's gateway stats (PR #1838) as a resource class; one schema/stream/home; IAAA audit untouched | Accepted |
+| [0019](0019-enrichment-yahoo-alpaca.md) | Daily enrichment + minute bars (#1888): Yahoo live via existing flag port, Alpaca flag-gated with Yahoo fallback, manual killswitch, telemetry-fed quality | Accepted |
 
 ## Template
 
