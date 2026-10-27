@@ -79,9 +79,10 @@ describe("Agent conformance (issue #1738)", () => {
     // seven extend PortThink now, which extends Think, which
     // extends Agent — so they are still Agents SDK actors, but
     // no longer match the plain-Agent pin.
-    // BrowserAgent/SlackAgent extend AIChatAgent and are
-    // deliberately NOT in this list — they are chat agents,
-    // not actor-role agents.
+    // BrowserAgent/SlackAgent likewise extend PortThink now
+    // (Browser #1959, Slack #1960, tracker #1951) — they never
+    // matched this pin (AIChatAgent before, PortThink now), so
+    // the empty list is unchanged by their migration.
     expect(adopters).toEqual([]);
   });
 
