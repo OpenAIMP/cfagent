@@ -11,7 +11,7 @@
  * - Standalone Agent lifecycle with Durable Object state and W3C DID attestation.
  */
 
-import { AIChatAgent } from "@cloudflare/ai-chat";
+import { PortThink } from "../actors/thinkAdapter";
 import type {
   Env,
   TransactionSnapData,
@@ -22,7 +22,29 @@ import type {
 import { AGENT_DIDS } from "./did";
 import { ETradeBrowserService } from "../services/browserAgent";
 
-export class BrowserAgent extends AIChatAgent<Env> {
+/**
+ * Issue #1959 — BrowserAgent behind PortThink (think-fleet slice #1959).
+ *
+ * Chat-surface mapping (verified from this file, its callers, and its
+ * tests — see the PR body for the full enumeration): this class defines
+ * NO chat behavior at all. It overrides no onChatMessage, getModel,
+ * getTools, getSystemPrompt, onChatResponse, or onChatError; it never
+ * reads messages/session state; and no caller, route, or client opens a
+ * WebSocket chat to it — every caller constructs it in-process and
+ * calls only the domain methods below (plus the HTTP onRequest, which
+ * is an Agent-surface override, not an AIChatAgent one, and is kept
+ * verbatim). Its port hooks are therefore deliberately unset:
+ * PortThink handles an unset portHooks (beforeTurn returns undefined,
+ * onChatResponse is a no-op, onChatError returns the error), and
+ * Think's native WS chat is the replacement surface for any future
+ * chat use. Note the honest boundary: direct chat was never functional
+ * under AIChatAgent either (its base onChatMessage throws unless
+ * overridden, and this class never overrode it), and Think's chat
+ * likewise stays unconfigured here (no getModel/tools/system prompt)
+ * — giving it a model now would be new behavior, not preservation,
+ * and belongs to a future turn slice, not this migration.
+ */
+export class BrowserAgent extends PortThink {
   private browserService?: ETradeBrowserService;
 
   private getService(): ETradeBrowserService {
