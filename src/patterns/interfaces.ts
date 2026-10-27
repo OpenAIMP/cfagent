@@ -101,6 +101,19 @@ export interface McpToolContext {
    */
   scopedPaymentsModes?: import("../config/agenticPaymentsModes").PaymentsScopedModes;
   requestId?: string;
+  /**
+   * #1744: MCP tool permission carriers, populated by the
+   * execution-context owner; unset carriers fall through to the
+   * factory defaults (system principal for in-process platform
+   * callers, production port, no stream sink). The /mcp boundary
+   * (mcpChatNlq) always sets `principal` from the forwarded
+   * identity headers; agent turns set kind agent-turn.
+   */
+  principal?: import("../permissions/mcpPermissionPorts").McpPrincipal;
+  permissionPort?: import("../permissions/mcpPermissionPorts").ToolPermissionPort;
+  permissionDecisionSink?: import("../observability/observabilityPorts").ObservabilitySink;
+  /** #1744: execution id of the gated execution running this command (correlation only). */
+  executionId?: string;
   audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
   facade?: IMcpSystemFacade;
   submitJob?: (job: AsyncJobSubmission) => Promise<{

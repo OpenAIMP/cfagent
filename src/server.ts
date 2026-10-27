@@ -2152,6 +2152,9 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const targetUrl = new URL("/mcp" + url.search, "https://agent.internal");
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", userLogin);
+      // #1744: principal kind for the MCP permission gate — the DO
+      // cannot tell session from API-key auth from the login alone.
+      forwardReq.headers.set("x-principal-kind", session ? "session" : "api-key");
 
       const resp = await env.SEARCH_AGENT.get(id).fetch(forwardReq);
       const headers = new Headers(resp.headers);

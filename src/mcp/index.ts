@@ -13,6 +13,16 @@
 import type { AsyncJobSubmission, Env } from "../types";
 import type { DatabaseORM } from "../orm";
 import { McpToolFactory } from "./commands";
+import { BusinessError } from "../errors/errorAspects";
+import { createObservabilitySink } from "../observability/createObservabilityPorts";
+import type { ObservabilitySink } from "../observability/observabilityPorts";
+import {
+  MCP_PERMISSION_DENIED_CODE,
+  authorizeMcpToolCall,
+  createProductionMcpPermissionPort,
+  type McpPrincipal,
+  type ToolPermissionPort,
+} from "../permissions/mcpPermissionPorts";
 import { McpSystemFacade } from "../patterns/facade";
 import {
   MEMORY_READ_MODE_SWITCH,
@@ -197,6 +207,10 @@ export async function executeMCPTool(
     env: Env;
     orm: DatabaseORM;
     sessionId: string;
+    /** #1744: calling principal + gate port; unset → factory defaults (system, production port). */
+    principal?: McpPrincipal;
+    permissionPort?: ToolPermissionPort;
+    permissionDecisionSink?: ObservabilitySink;
     /** #1722: NLQ_MODE session/user carriers, spread through to the tool context. */
     scopedNlqModes?: import("../config/nlqModes").NlqScopedModes;
     /** #1723: KNOWLEDGE_MODE / MEMORY_READ_MODE carriers, spread likewise. */
@@ -222,6 +236,10 @@ export async function executeMCPTool(
   return McpToolFactory.executeTool(toolName, args, {
     ...context,
     facade,
+    // #1744: denial events stream via #1743's sink (built from env
+    // when the caller supplied none); sink failure never fails the call.
+    permissionDecisionSink:
+      context.permissionDecisionSink ?? createObservabilitySink(context.env),
   });
 }
 
@@ -377,6 +395,10 @@ export async function handleMCPRequest(
     env: Env;
     orm: DatabaseORM;
     sessionId: string;
+    /** #1744: calling principal + gate port for tools/call (see executeMCPTool). */
+    principal?: McpPrincipal;
+    permissionPort?: ToolPermissionPort;
+    permissionDecisionSink?: ObservabilitySink;
     /** #1722: NLQ_MODE session/user carriers, forwarded to tool execution. */
     scopedNlqModes?: import("../config/nlqModes").NlqScopedModes;
     /** #1723: KNOWLEDGE_MODE / MEMORY_READ_MODE carriers, forwarded likewise. */
@@ -472,13 +494,43 @@ export async function handleMCPRequest(
             resolved: deliveryLegacy,
           });
         }
-        const data = resolvedDelivery.mode === "queued" && context.submitJob && McpToolFactory.getTool(name) &&
-          name !== "get_async_job" && name !== "list_async_jobs"
-          ? await context.submitJob({
-            capability: "mcp.tool",
-            payload: { toolName: name, arguments: toolArgs || {} },
-          })
-          : await executeMCPTool(name, toolArgs || {}, context);
+        // #1744: the gate runs on BOTH delivery paths. The sync path
+        // gates inside executeMCPTool; the queued path authorizes
+        // BEFORE submitJob, so a refused call never receives a job
+        // receipt (the receipt would imply the call was accepted).
+        // A permission denial returns a stable business error token,
+        // never a technical leak.
+        let data: unknown;
+        try {
+          if (
+            resolvedDelivery.mode === "queued" && context.submitJob && McpToolFactory.getTool(name) &&
+            name !== "get_async_job" && name !== "list_async_jobs"
+          ) {
+            const port = context.permissionPort ?? createProductionMcpPermissionPort();
+            const principal = context.principal ?? { kind: "system" as const, login: null };
+            await authorizeMcpToolCall(port, principal, name, {
+              sessionId: context.sessionId,
+              audit: context.audit,
+              decisionSink:
+                context.permissionDecisionSink ?? createObservabilitySink(context.env),
+            });
+            data = await context.submitJob({
+              capability: "mcp.tool",
+              payload: { toolName: name, arguments: toolArgs || {} },
+            });
+          } else {
+            data = await executeMCPTool(name, toolArgs || {}, context);
+          }
+        } catch (err) {
+          if (err instanceof BusinessError && err.code === MCP_PERMISSION_DENIED_CODE) {
+            return {
+              jsonrpc: "2.0",
+              id,
+              error: { code: -32000, message: `[${MCP_PERMISSION_DENIED_CODE}] ${err.message}` },
+            };
+          }
+          throw err;
+        }
         return {
           jsonrpc: "2.0",
           id,

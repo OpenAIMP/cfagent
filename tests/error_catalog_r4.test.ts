@@ -12,8 +12,9 @@ import { codedMessage, getError } from "../src/errors/errorAspects";
 
 const errors = (catalog as { errors: Record<string, unknown> }).errors;
 
-/** Codes referenced by the #1173 pipeline surfaces after R4. */
+/** Codes referenced by the #1173 pipeline surfaces after R4, plus #1744's MCP_001. */
 const REFERENCED_CODES = [
+  "MCP_001",
   "AUTH_001",
   "AUTH_002",
   "AUTH_003",

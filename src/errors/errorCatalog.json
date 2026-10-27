@@ -161,6 +161,14 @@
       "httpStatus": 502,
       "retryable": true,
       "technicalDetail": "Provider fetch failed after policy retries (e.g. Yahoo throttling/unreachable); symbols dropped as provider-unavailable"
+    },
+    "MCP_001": {
+      "businessMessage": "This tool is not available for your current access level.",
+      "category": "auth",
+      "code": "MCP_001",
+      "httpStatus": 403,
+      "retryable": false,
+      "technicalDetail": "MCP tool permission scope not held by caller principal"
     }
   }
 }

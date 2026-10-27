@@ -740,6 +740,10 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         orm: ctx.getOrm(),
         sessionId: ctx.sessionKey(),
         audit: (type, agent, detail) => ctx.audit(type, agent, detail),
+        // #1744: job-executor call — the external gate already ran
+        // at queue time for /mcp-queued jobs; this gate is the
+        // second layer at execution time.
+        principal: { kind: "system", login: null },
         // Issue #1686: async-job MCP scans capture like turn-tool scans.
         // The scan mechanism itself is executing-pinned via the MCP leg
         // pin; this literal is source-pinned below (see the pin file).

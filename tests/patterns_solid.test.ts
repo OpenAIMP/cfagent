@@ -185,9 +185,11 @@ describe("SOLID Principles, GoF Patterns & Agent Dogfooding Suite", () => {
         }
       }
 
-      // Register dynamically (OCP: open for extension)
+      // Register dynamically (OCP: open for extension). #1744: a
+      // dynamically registered tool declares its scope at
+      // registration, or the permission gate denies it.
       const customCmd = new CustomAuditReportCommand();
-      McpToolFactory.registerTool(customCmd);
+      McpToolFactory.registerTool(customCmd, "mcp:read");
 
       // Verify factory has registered it
       expect(McpToolFactory.getTool("custom_audit_report")).toBe(customCmd);
