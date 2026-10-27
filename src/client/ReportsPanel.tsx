@@ -41,18 +41,6 @@ export interface ReportItem {
    *  unavailable (and why) instead of silently omitting the link. */
   pdfStatus?: string | null;
   pdfError?: string | null;
-  /** Partial-coverage qualification (#1850): carried through from
-   *  the Runs-API row so the card model holds it; the qualifier
-   *  itself renders via the row summary text, which carries the
-   *  partial segment — no second badge saying the same thing. */
-  partial?: {
-    evaluatedCount: number;
-    consideredCount: number;
-    coverageErrors: number;
-    truncatedCount: number;
-    topSkipReason?: string;
-    topSkipCount?: number;
-  } | null;
   /** The Runs-API kind (#1057): screener | options_scanner | discovery | report. */
   kind?: string;
   /** The store's recorded status, when it records one (#1057). */
@@ -77,7 +65,6 @@ function runToReportItem(r: any): ReportItem {
     csvUrl: r.csvUrl ?? undefined,
     pdfStatus: r.pdfStatus ?? null,
     pdfError: r.pdfError ?? null,
-    partial: r.partial ?? null,
     kind: r.kind,
     status: r.status ?? null,
     reportId: r.reportId ?? null,

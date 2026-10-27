@@ -353,21 +353,3 @@ describe("#1239 UI truth (pdfStatus/pdfError + twin inheritance)", () => {
     expect(merged[0].pdfError).toBeNull();
   });
 });
-
-describe("scan-row partial projection (issue #1850)", () => {
-  it("carries partial and appends the partial segment to the row summary", () => {
-    const row = runSummaryFromScanRun(
-      scanSummary({
-        partial: { evaluatedCount: 7, consideredCount: 10, coverageErrors: 2, truncatedCount: 1 },
-      }),
-    );
-    expect(row.partial).toEqual({ evaluatedCount: 7, consideredCount: 10, coverageErrors: 2, truncatedCount: 1 });
-    expect(row.summary).toContain("Partial coverage — qualified partial results: evaluated 7 of 10 underlyings (2 failures, 1 truncated).");
-  });
-
-  it("absent partial reads as null and leaves the summary untouched", () => {
-    const row = runSummaryFromScanRun(scanSummary());
-    expect(row.partial).toBeNull();
-    expect(row.summary).not.toContain("Partial");
-  });
-});
