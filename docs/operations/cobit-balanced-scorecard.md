@@ -76,12 +76,8 @@ consumer and the decision it feeds (no-field-without-a-consumer).
 - Evidence artifact for every metric: the scorecard comment on #1872 + the
   linked PR/issue/gate run it traces to. A number without a link does not ship.
 
-## What changes to produce this (script update follows as its own PR)
-- The workflow YAML does NOT change — it just runs the script. The balanced
-  format comes from a script update (normal PR, not a workflow file):
-  add collectors for CI minutes, post-merge red rate, ADR count, template
-  adoption, journey coverage, time-to-merge; restructure output into the four
-  perspectives; keep the failure policy (any API error → no post, never partial).
+## What changes to produce this (done in the collector script)
+- The workflow YAML does NOT change for the format — it just runs the script. The balanced format comes from the collector script (`scripts/metrics/governance-scorecard.mjs`), which outputs the four perspectives above and, with `--html-dir`, versioned HTML history (`scorecard-<date>.html`, `scorecard.html`, `index.html`) for GitHub Pages, alongside the #1872 comment. The workflow change that passes `--html-dir` and publishes to the `gh-pages` branch follows as an owner web-UI step after #1911 merges.
 - Gaps stay visible: Financial costs "not recorded" until recorded; backfill
   count until the manual audit runs; incident metrics (G6) join only once the
   incident/problem/known-error labels exist and carry data.
