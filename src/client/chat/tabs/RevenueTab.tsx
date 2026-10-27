@@ -9,6 +9,7 @@ import type { RevenueSummaryData } from "../types";
 import type { TableMetadataItem } from "../types";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { PageShell, PageSection } from "../../components/ui/PageShell";
 import { Card } from "../../components/ui/Card";
 import { Notice } from "../../components/ui/Notice";
 import { Select } from "../../components/ui/Select";
@@ -77,14 +78,11 @@ export interface RevenueTabProps {
 export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSuccessMsg, categories, extAdErrorMsg, extAdSuccessMsg, externalAds, fetchCategories, fetchExternalAds, fetchRevenueSummary, fetchTables, googleAdFormat, googleAdsEnabled, googlePublisherId, googleSlotId, handleCreateCategory, handleCreateExternalAd, handleDeleteCategory, handleExternalAdClick, newCatDesc, newCatIcon, newCatName, newCatOrder, newExtCpc, newExtCpm, newExtCta, newExtNetwork, newExtPlacement, newExtTagline, newExtTitle, newExtUrl, revenueLoading, revenueSummary, savingCat, savingExtAd, setGoogleAdFormat, setGoogleAdsEnabled, setGooglePublisherId, setGoogleSlotId, setNewCatDesc, setNewCatIcon, setNewCatName, setNewCatOrder, setNewExtCpc, setNewExtCpm, setNewExtCta, setNewExtNetwork, setNewExtPlacement, setNewExtTagline, setNewExtTitle, setNewExtUrl, setSelectedBrowseTable, setTab, tables}: RevenueTabProps) {
   return (
           <div className="revenue-view">
-            {/* Header */}
-            <div className="tab-hero-header">
-              <div className="hero-text-block">
-                <h3>💰 Revenue & Monetization Management</h3>
-                <p>
-                  Platform revenue accounting across external ad networks (CPM/CPC), sponsored marketplace placements, agent payment processing fees, and referral partner payouts with transactional double-entry ledger persistence.
-                </p>
-              </div>
+            <PageShell
+              title="Revenue & Monetization Management"
+              scopeNote="Platform revenue accounting across external ad networks (CPM/CPC), sponsored marketplace placements, agent payment processing fees, and referral partner payouts with transactional double-entry ledger persistence."
+            >
+            <div>
               <Button
                 variant="secondary"
                 size="sm"
@@ -101,6 +99,7 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
             </div>
 
             {/* Comprehensive Revenue Metrics Grid */}
+            <PageSection>
             <div className="revenue-grid">
               <Card padding="none" className="rev-card highlight-rev">
                 <span className="rev-icon">💵</span>
@@ -168,8 +167,10 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                 </div>
               </Card>
             </div>
+            </PageSection>
 
             {/* External Ad Network Inventory Manager */}
+            <PageSection>
             <Card padding="none" className="revenue-section-card">
               <div className="card-header">
                 <h4>📡 External Ad Network Placements ({externalAds.length})</h4>
@@ -304,8 +305,10 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                 </form>
               </Card>
             </Card>
+            </PageSection>
 
             {/* Referral Categories Taxonomy Manager (ORM) */}
+            <PageSection>
             <Card padding="none" className="revenue-section-card">
               <div className="card-header">
                 <h4>🏷️ Referral Categories &amp; Taxonomy Manager</h4>
@@ -391,8 +394,10 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                 </form>
               </Card>
             </Card>
+            </PageSection>
 
             {/* SQLite ORM Database Tables Schema Inspection */}
+            <PageSection>
             <Card padding="none" className="revenue-section-card">
               <div className="card-header">
                 <h4>🗄️ Institutional Data Schemas &amp; Record Counts</h4>
@@ -438,8 +443,10 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                 ))}
               </div>
             </Card>
+            </PageSection>
 
             {/* Google Ads & Multi-Network Monetization Control Center */}
+            <PageSection>
             <Card padding="none" className="revenue-section-card">
               <div className="card-header">
                 <h4>🌐 Google Ads & Multi-Network Display Engine</h4>
@@ -512,6 +519,8 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                 )}
               </div>
             </Card>
+            </PageSection>
+            </PageShell>
           </div>
   );
 }
