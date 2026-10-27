@@ -50,7 +50,7 @@ import { sizeCandidateAgainstPortfolio, SIZING_POLICY, type SizingResult } from 
 import type { ConcentrationReport } from "./portfolioConcentration";
 import { SPY_DELTA_HEDGE_POLICY, type HedgeAnalysis, type SpyPutContract } from "./hedgeProposals";
 import { buildRepairOptions } from "./repairPolicies";
-import type { CompositionRepairInput, RepairOption } from "./repairPolicies";
+import type { CompositionRepairInput, RepairLevelsMarker, RepairOption } from "./repairPolicies";
 import type { RepairAnalysis } from "./repairProposals";
 
 /** Re-exported: the repair proposal contract lives in repairPolicies. */
@@ -192,7 +192,9 @@ export interface RecommendationBundle {
   optimizer: OptimizerResult;
   concentration: ConcentrationReport | null;
   hedging: { status: HedgeAnalysis["status"] | "none_needed"; options: HedgeOption[]; reason?: string };
-  repairs: { status: "proposals" | "none_supplied"; options: RepairOption[] };
+  /** #1732 (PR-2 visible marker): per-level supplied + count, so a
+   *  structurally-empty composition leg is visible in the output. */
+  repairs: { status: "proposals" | "none_supplied"; options: RepairOption[]; levels: RepairLevelsMarker };
   alternatives: BundleAlternative[];
   rationale: string[];
   blockers: string[];

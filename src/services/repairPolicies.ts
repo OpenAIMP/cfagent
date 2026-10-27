@@ -127,23 +127,72 @@ export const DEFAULT_REPAIR_POLICIES: RepairPolicy[] = [
   new CompositionRepairPolicy(),
 ];
 
+/** Per-level provenance for one policy level's contribution. */
+export interface RepairLevelMarker {
+  /** Whether this level's input was supplied at all (as opposed to
+   *  supplied-but-empty, or never supplied). A ratio level counts
+   *  as supplied when a non-null analysis was passed; a
+   *  composition level counts as supplied when an array was
+   *  passed, even an empty one. */
+  supplied: boolean;
+  /** How many options this level contributed to the ranking. */
+  optionCount: number;
+}
+
+/** Per-level markers, keyed by policy kind. */
+export type RepairLevelsMarker = {
+  [K in RepairOption["kind"]]: RepairLevelMarker;
+};
+
 /**
  * Run every policy and rank the combined options (rankScore desc,
  * label asc). Status keys on the inputs being supplied, exactly as
  * the builder did: a supplied-but-empty analysis still counts as
  * supplied — the absence of proposals is data, not a missing input.
+ *
+ * #1732 (PR-2 visible marker): the return also carries `levels`,
+ * the per-level marker. Before this slice a bundle consumer could
+ * not tell from output alone that the composition leg is
+ * structurally empty in production (no production caller supplies
+ * compositionRepairs — tests only): a zero-option composition leg
+ * looked identical whether it was never supplied or supplied and
+ * empty. The marker is additive only — `status` and `options`
+ * are unchanged for every input.
  */
 export function buildRepairOptions(
   input: RepairPolicyInput,
   policies: RepairPolicy[] = DEFAULT_REPAIR_POLICIES,
-): { status: "proposals" | "none_supplied"; options: RepairOption[] } {
-  const options = policies.flatMap((policy) => policy.options(input));
+): {
+  status: "proposals" | "none_supplied";
+  options: RepairOption[];
+  levels: RepairLevelsMarker;
+} {
+  const perPolicy = policies.map((policy) => ({
+    policyKind: policy.policyKind,
+    options: policy.options(input),
+  }));
+  const options = perPolicy.flatMap((p) => p.options);
   options.sort((a, b) => b.rankScore - a.rankScore || a.label.localeCompare(b.label));
+  const levels = {
+    ratio_repair: {
+      supplied: input.repairAnalysis !== null && input.repairAnalysis !== undefined,
+      optionCount: perPolicy
+        .filter((p) => p.policyKind === "ratio_repair")
+        .reduce((n, p) => n + p.options.length, 0),
+    },
+    composition: {
+      supplied: input.compositionRepairs !== undefined,
+      optionCount: perPolicy
+        .filter((p) => p.policyKind === "composition")
+        .reduce((n, p) => n + p.options.length, 0),
+    },
+  } satisfies RepairLevelsMarker;
   return {
     status:
       input.repairAnalysis || (input.compositionRepairs?.length ?? 0) > 0
         ? "proposals"
         : "none_supplied",
     options,
+    levels,
   };
 }
