@@ -11,6 +11,9 @@ Evaluates GitOps compliance:
 (e) Docs scope guard (docs PR cannot touch src/ or tests/)
 (f) Stale base reversion guard (cannot delete files added to main since branching)
 (g) Test deletion guard (cannot delete tests without allow-test-deletion label)
+(h) Process documentation line (gitops §23: PR body must carry the §9
+    "Process documentation impact:" checklist line — presence only,
+    never a judgment of the decision's quality)
 """
 
 import argparse
@@ -93,6 +96,18 @@ def evaluate_policy(
             failures.append(
                 "(c) agent hashtag: PR body has no '#<agent>-<id>' "
                 "hashtag (see AGENTS.md hashtag rule)"
+            )
+
+        # (h) Process documentation line (gitops §23). Presence only:
+        # the gate checks that the §9 checklist line exists in the PR
+        # body, never whether the decision it points at was correctly
+        # recorded. Checked against the PR body alone (not commit
+        # messages), because §23 names the PR body as the pointer.
+        if not re.search(r"(?i)process documentation impact\s*:", body):
+            failures.append(
+                "(h) process documentation: PR body has no "
+                "'Process documentation impact:' checklist line "
+                "(see gitops §9/§23)"
             )
 
     # (d) CHANGELOG entry under ## [Unreleased], or a changelog.d fragment.
@@ -303,7 +318,7 @@ def main() -> int:
     print(
         "Policy gate passed: linked issue, lane label, agent hashtag, "
         "CHANGELOG [Unreleased] entry or changelog.d fragment, docs scope, "
-        "and non-regression guards verified."
+        "non-regression guards, and process documentation line verified."
     )
     return 0
 

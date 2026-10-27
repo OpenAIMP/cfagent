@@ -9,6 +9,8 @@
  * - (e) docs scope guard (docs PR cannot touch code/tests)
  * - (f) stale base reversion guard (cannot delete recently merged main additions)
  * - (g) test deletion guard (cannot delete tests without allow-test-deletion)
+ * - (h) process documentation line (gitops §23: PR body must carry the
+ *   §9 "Process documentation impact:" checklist line, presence only)
  *
  * Uses an isolated, temporary git repository to ensure deterministic test
  * execution across all environments and shallow CI clones.
@@ -230,7 +232,7 @@ describe("Policy Gate Guards (#1684)", () => {
     const res = runPolicyGate(
       {
         PR_TITLE: "feat: add awesome feature (#1684) #CTO-mbshr",
-        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr",
+        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [ ] Process documentation impact: none",
         PR_LABELS: "lane:cto-mbshr",
       },
       ["--base", "main", "--head", "branch-compliant"]
@@ -244,7 +246,7 @@ describe("Policy Gate Guards (#1684)", () => {
     const res = runPolicyGate(
       {
         PR_TITLE: "feat: fragment-only change (#1684) #CTO-mbshr",
-        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr",
+        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [ ] Process documentation impact: none",
         PR_LABELS: "lane:cto-mbshr",
       },
       ["--base", "main", "--head", "branch-fragment"]
@@ -265,6 +267,35 @@ describe("Policy Gate Guards (#1684)", () => {
     );
     expect(res.status).toBe(1);
     expect(res.stdout).toContain("(d) CHANGELOG");
+  });
+
+  it("rejects a PR missing the process documentation checklist line (gitops §23)", () => {
+    runGit(tempRepoDir, ["checkout", "branch-compliant"]);
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "feat: add awesome feature (#1684) #CTO-mbshr",
+        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr",
+        PR_LABELS: "lane:cto-mbshr",
+      },
+      ["--base", "main", "--head", "branch-compliant"]
+    );
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("(h) process documentation");
+  });
+
+  it("passes Policy Gate (h) when the process documentation line is present", () => {
+    runGit(tempRepoDir, ["checkout", "branch-compliant"]);
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "feat: add awesome feature (#1684) #CTO-mbshr",
+        PR_BODY:
+          "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [ ] Process documentation impact: none",
+        PR_LABELS: "lane:cto-mbshr",
+      },
+      ["--base", "main", "--head", "branch-compliant"]
+    );
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Policy gate passed");
   });
 
   it("rejects a PR with neither a CHANGELOG entry nor a fragment", () => {

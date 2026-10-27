@@ -18,6 +18,21 @@
 #
 # OWNER STEP: no required-check wiring — this runs on a schedule
 # on main, not on PRs, so it is a detector, not a gate.
+#
+# SECOND JOB (gitops §23, issue #1886): "Main Audit Process Docs"
+# flags process-documentation drift as a read-only filing, on the
+# same pattern as direct-push detection — it never pushes, merges,
+# or reverts. It flags (a) any issue closed in its window whose
+# §15 report lacks the "Process docs updated:" field, and (b) any
+# issue carrying the "process-decision" label whose thread names
+# no linked document. DATE GATE: only issues closed after the
+# commit that introduced §23 on main are in scope (derived at run
+# time from git history, not a hardcoded date), so it never
+# mass-files on pre-§23 history. The scan window is the trailing
+# 7 days. An issue already named in an open drift audit issue is
+# not re-filed. Detection is the agent-applied label and §15
+# field, not thread reading: free-text decision detection is
+# unreliable and is explicitly not attempted here.
 
 name: Main Audit
 
@@ -111,6 +126,162 @@ jobs:
               ["gh", "issue", "create",
                "--repo", repo,
                "--title", "[audit] Direct push to main detected",
+               "--body", body],
+              check=True,
+          )
+          sys.exit(1)
+          PYEOF
+
+  main-audit-process-docs:
+    name: Main Audit Process Docs
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out main for the §23 date gate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Audit post-§23 closures for process documentation drift
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - << 'PYEOF'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from datetime import datetime, timedelta, timezone
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          def gh(*args):
+              result = subprocess.run(
+                  ["gh", "api", *args],
+                  capture_output=True, text=True, check=True,
+              )
+              return json.loads(result.stdout) if result.stdout.strip() else None
+
+          def run_git(*args):
+              result = subprocess.run(
+                  ["git", *args],
+                  capture_output=True, text=True, check=True,
+              )
+              return result.stdout.strip()
+
+          # DATE GATE: the commit that introduced §23 on main. If it
+          # is not on main yet, §23 has not landed and there is
+          # nothing in scope — exit clean, never flag history.
+          try:
+              cutoff_raw = run_git(
+                  "log", "--format=%cI", "-1",
+                  "-S", "Process decisions are recorded in the repository",
+                  "--", "docs/agents/gitops.md",
+              )
+          except subprocess.CalledProcessError:
+              cutoff_raw = ""
+          if not cutoff_raw:
+              print("Main audit (process docs) skipped: §23 not on main yet.")
+              sys.exit(0)
+          cutoff = datetime.fromisoformat(cutoff_raw)
+          window_start = max(
+              cutoff, datetime.now(timezone.utc) - timedelta(days=7)
+          )
+          window_date = window_start.date().isoformat()
+          print(f"Main audit (process docs): cutoff={cutoff_raw} "
+                f"window_start={window_date}")
+
+          # Issues already named in an open drift audit issue are
+          # not re-filed on every daily run.
+          already = set()
+          try:
+              found = gh(
+                  "search/issues",
+                  "--jq", ".items",
+                  "-f", f"q=repo:{repo} \"[audit] Process documentation drift\" state:open",
+                  "-f", "per_page=100",
+              )
+              for item in found or []:
+                  already.update(
+                      int(n) for n in re.findall(r"#(\d+)", item.get("body") or "")
+                  )
+          except Exception as e:
+              print(f"Warning: could not list prior drift audits ({e}); "
+                    "continuing without dedup.")
+
+          query = (f"repo:{repo} type:issue state:closed "
+                   f"closed:>={window_date}")
+          issues = gh(
+              "search/issues",
+              "--jq", ".items",
+              "-f", f"q={query}",
+              "-f", "per_page=100",
+          ) or []
+          print(f"Scanning {len(issues)} issue(s) closed since {window_date}.")
+
+          flags = []
+          for issue in issues:
+              number = issue["number"]
+              if number in already:
+                  continue
+              if issue.get("title", "").startswith("[audit]"):
+                  continue
+              comments = gh(
+                  f"repos/{repo}/issues/{number}/comments",
+                  "--jq", ".",
+                  "-f", "per_page=100",
+              ) or []
+              thread = (issue.get("body") or "") + "\n" + "\n".join(
+                  c.get("body") or "" for c in comments
+              )
+              reasons = []
+              if "process docs updated:" not in thread.lower():
+                  reasons.append(
+                      "§15 report lacks the 'Process docs updated:' field"
+                  )
+              labels = [label["name"] for label in issue.get("labels", [])]
+              if "process-decision" in labels:
+                  has_doc = bool(
+                      re.search(r"docs/[A-Za-z0-9_./-]+\.md", thread)
+                      or re.search(r"(?i)\bADR \d{4}\b", thread)
+                      or "docs/architecture/adr/" in thread
+                  )
+                  if not has_doc:
+                      reasons.append(
+                          "carries the 'process-decision' label but its "
+                          "thread names no linked document"
+                      )
+              if reasons:
+                  print(f"  - #{number}: {'; '.join(reasons)}")
+                  flags.append((number, issue.get("title", ""), reasons))
+
+          if not flags:
+              print("Main audit (process docs) passed: no post-§23 "
+                    "process-documentation drift in the window.")
+              sys.exit(0)
+
+          lines = [
+              f"- #{n} {title} — {'; '.join(reasons)}"
+              for n, title, reasons in flags
+          ]
+          body = (
+              "The main-audit process-docs job found post-§23 issue(s) "
+              "whose §15 report or labelled thread does not point at "
+              "a repository process document (gitops §23). This issue "
+              "is a report, not a repair: do not auto-edit. Record "
+              "the decision in the repository document it belongs "
+              "in (ADR under docs/architecture/adr/, delivery rule "
+              "in docs/agents/gitops.md, security-process rule in "
+              "docs/architecture/security/, program-scan record in "
+              "docs/compliance/) and update the §15 report to name "
+              "the document and commit.\n\n"
+              + "\n".join(lines)
+              + "\n\n#CISO-bhdm\n"
+          )
+          subprocess.run(
+              ["gh", "issue", "create",
+               "--repo", repo,
+               "--title", "[audit] Process documentation drift (§23)",
                "--body", body],
               check=True,
           )
