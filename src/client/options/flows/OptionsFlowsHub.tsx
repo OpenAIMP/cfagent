@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
+import { Button, Table, type TableColumn } from "../../components/ui";
 import "./optionsFlows.css";
 import {
   LiveFlowItem,
@@ -387,6 +388,131 @@ export function OptionsFlowsHub({
     );
   }
 
+
+  const liveColumns: TableColumn<LiveFlowItem>[] = [
+    { key: "time", header: "Time", cellClassName: "flow-time-cell",
+      render: (item) => <span>{item.timestamp ? formatFlowDateTime(item.timestamp) : item.time}</span> },
+    { key: "symbol", header: "Symbol", cellClassName: (item) => `flow-symbol-cell ${item.sentiment}`,
+      render: (item) => <span>{item.symbol}</span> },
+    { key: "strategy", header: "Strategy", cellClassName: "flow-strategy-cell",
+      render: (item) => (
+        <span>
+          {item.strategy}
+          {item.companyName && <span className="flow-strategy-desc">({item.companyName})</span>}
+        </span>
+      ) },
+    { key: "expiration", header: "Expiration", cellClassName: "flow-exp-cell",
+      render: (item) => <span>{item.expiration}</span> },
+    { key: "premium", header: "Premium", cellClassName: (item) => `flow-premium-cell ${item.sentiment}`,
+      render: (item) => (
+        <span>
+          {item.premiumFormatted}
+          {item.abnormalActivity && <span className="flow-aa-badge">AA</span>}
+        </span>
+      ) },
+    { key: "type", header: "Type",
+      render: (item) => (
+        <span>
+          <span className={`flow-type-badge ${item.type.toLowerCase()}`}>{item.type}</span>
+          <span className={`flow-prov-badge prov-${item.provenance}`} title={FLOW_PROVENANCE_NOTICE}>
+            {item.provenance === "chain-derived"
+              ? "modelled · chain-derived"
+              : item.provenance === "generated"
+                ? "🧪 generated"
+                : "static sample"}
+          </span>
+        </span>
+      ) },
+    { key: "action", header: "Action",
+      render: (item) => (
+        <Button
+          className="subnav-btn"
+          style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "0.72rem", borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
+          title="Analyze institutional trade risk profile"
+          onClick={(e) => {
+            e.stopPropagation();
+            setRiskSubject(flowTradeToRiskSubject(item));
+          }}
+        >
+          🛡️ Risk
+        </Button>
+      ) },
+  ];
+  const newsColumns: TableColumn<NewsFlowItem>[] = [
+    { key: "time", header: "Time", cellClassName: "flow-time-cell",
+      render: (item) => <span>{item.time}</span> },
+    { key: "headline", header: "Headline", cellClassName: "news-headline-cell",
+      render: (item) => (
+        <span>
+          <span className="news-symbols-prefix">{item.symbols.join(", ")}:</span>
+          <span>{item.headline}</span>
+          {item.source && (
+            <span style={{ marginLeft: "8px", fontSize: "0.75rem", color: "var(--color-text-muted)", opacity: 0.8 }}>
+              — {item.source}
+            </span>
+          )}
+        </span>
+      ) },
+    { key: "sentiment", header: "Sentiment",
+      render: (item) => {
+        // Issue #132: sentiment is an LLM model assessment with
+        // provenance — assessed items show the label + "· AI";
+        // unassessed items show "Not assessed", never a
+        // default "neutral" dressed up as a judgement.
+        const sentimentUi = newsSentimentPresentation(item);
+        return (
+          <span className={sentimentUi.className} title={sentimentUi.title}>
+            {sentimentUi.label}
+          </span>
+        );
+      } },
+  ];
+  const congressColumns: TableColumn<CongressFlowItem>[] = [
+    { key: "filingDate", header: "Filing Date", cellClassName: "flow-time-cell",
+      render: (item) => <span>{item.filingDate}</span> },
+    { key: "politician", header: "Politician",
+      render: (item) => (
+        <span>
+          <span className="congress-politician">{item.politician}</span>
+          <span className={`congress-meta-tag ${item.party === "Democrat" ? "dem" : "rep"}`}>
+            {item.party[0]} - {item.state}
+          </span>
+        </span>
+      ) },
+    { key: "asset", header: "Asset / Strategy", cellClassName: "flow-strategy-cell",
+      render: (item) => (
+        <span>
+          <strong>{item.symbol}</strong>: {item.assetDescription}
+        </span>
+      ) },
+    { key: "transaction", header: "Transaction",
+      render: (item) => <span>{item.transaction}</span> },
+    { key: "amount", header: "Amount",
+      render: (item) => <span style={{ color: "var(--color-text-muted)" }}>{item.amountRange}</span> },
+    { key: "premium", header: "Est. Premium", cellClassName: "flow-premium-cell bullish",
+      render: (item) => <span>{item.estimatedPremiumFormatted}</span> },
+  ];
+  const insiderColumns: TableColumn<InsiderFlowItem>[] = [
+    { key: "reportDate", header: "Report Date", cellClassName: "flow-time-cell",
+      render: (item) => <span>{item.reportDate}</span> },
+    { key: "trade", header: "Trade", cellClassName: "flow-strategy-cell",
+      render: (item) => (
+        <span>
+          {item.trade}
+          <span className="flow-strategy-desc">({item.companyName})</span>
+        </span>
+      ) },
+    { key: "member", header: "Member", cellClassName: "insider-member-cell",
+      render: (item) => (
+        <span>
+          {item.member}
+          <div className="insider-title-sub">{item.title}</div>
+        </span>
+      ) },
+    { key: "premium", header: "Premium", cellClassName: "flow-premium-cell bullish",
+      render: (item) => <span>{item.premiumFormatted}</span> },
+  ];
+
   return (
     <div className="options-flows-container">
       {/* Universal Capability Navigation Bar */}
@@ -458,21 +584,20 @@ export function OptionsFlowsHub({
             <CopilotTriggerButton label="✨ Ask Copilot" />
             <div
               title={FLOW_PROVENANCE_NOTICE}
-              style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--color-warning)", background: "var(--color-warning-subtle, var(--color-surface-sunken))", padding: "4px 8px", borderRadius: "var(--radius-full, 12px)", border: "1px solid var(--color-warning)", fontWeight: 600 }}
+              style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", fontSize: "11px", color: "var(--color-warning)", background: "var(--color-warning-subtle, var(--color-surface-sunken))", padding: "var(--space-1) var(--space-2)", borderRadius: "var(--radius-full, 12px)", border: "1px solid var(--color-warning)", fontWeight: 600 }}
             >
               <span>🧪</span>
               <span>{flowProvenance.provenances.includes("generated") ? "MODELLED · INCLUDES GENERATED SAMPLES" : "MODELLED — NOT A TRADE TAPE"}</span>
               {lastSyncTime && <span style={{ color: "var(--color-text-muted)", fontWeight: 400 }}>{lastSyncTime}</span>}
             </div>
-            <button
-              type="button"
+            <Button
               onClick={() => fetchLiveFlows(filterConfig)}
               disabled={isRefreshing}
-              style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "var(--color-text-muted)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-medium)", borderRadius: "var(--radius-sm)", padding: "4px 8px", cursor: isRefreshing ? "wait" : "pointer" }}
+              style={{ display: "flex", alignItems: "center", gap: "var(--space-1)", fontSize: "11px", color: "var(--color-text-muted)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-medium)", borderRadius: "var(--radius-sm)", padding: "var(--space-1) var(--space-2)", cursor: isRefreshing ? "wait" : "pointer" }}
               title="Refresh modelled options flow estimates"
             >
               {isRefreshing ? "Refreshing..." : "↻ Refresh"}
-            </button>
+            </Button>
             <div
               className="flows-gauge-badge-wrap"
               onClick={() => handleSwitchSubTab("summary")}
@@ -509,7 +634,7 @@ export function OptionsFlowsHub({
 
       {/* Provenance disclosure (issue #119): this is modelled flow, not a tape */}
       <div className="flows-delay-banner">
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
           <span aria-hidden="true">🧪</span>
           <span style={{ fontWeight: 600 }}>Modelled Options Flow — not a live trade tape</span>
           <span style={{ fontWeight: 400, color: "var(--color-text-muted)" }}>{flowProvenanceText}</span>
@@ -521,14 +646,13 @@ export function OptionsFlowsHub({
               <span>Filter: {activePreset.name}</span>
             </div>
           )}
-          <button
-            type="button"
+          <Button
             className={`flow-toggle-filters-btn ${isFiltersOpen ? "active" : ""}`}
             onClick={() => setIsFiltersOpen(!isFiltersOpen)}
             title={isFiltersOpen ? "Hide filters to expand table" : "Show filters panel"}
           >
             {isFiltersOpen ? "✕ Hide Filters" : "⚙️ Filters"}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -538,7 +662,7 @@ export function OptionsFlowsHub({
           {/* SUB-TAB 1: SUMMARY VIEW */}
           {subTab === "summary" && (
             !hasLoadedInitial && isRefreshing ? (
-              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+              <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Aggregating Modelled Options Flow Leaderboard...
                 </div>
@@ -547,7 +671,7 @@ export function OptionsFlowsHub({
                 </div>
               </div>
             ) : summaryData.totalTrades === 0 ? (
-              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+              <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   No flow estimates available
                 </div>
@@ -576,25 +700,23 @@ export function OptionsFlowsHub({
                     </span>
                   </div>
                   <div className="flow-drilldown-actions">
-                    <button
-                      type="button"
+                    <Button
                       className="flow-drilldown-back-btn"
                       onClick={() => handleSwitchSubTab("summary")}
                     >
                       ← Return to Market Summary
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
                       className="flow-drilldown-clear-btn"
                       onClick={handleClearTickerDrilldown}
                     >
                       ✕ Show All Tickers
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
               {!hasLoadedInitial && isRefreshing ? (
-                <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
                   <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                     Loading Modelled Institutional Options Flow Estimates...
                   </div>
@@ -603,7 +725,7 @@ export function OptionsFlowsHub({
                   </div>
                 </div>
               ) : filteredLiveItems.length === 0 ? (
-                <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                <div style={{ padding: "calc(var(--space-6) * 2) var(--space-4)", textAlign: "center", color: "var(--color-text-muted)" }}>
                   <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                     No flow estimates available
                   </div>
@@ -614,70 +736,14 @@ export function OptionsFlowsHub({
                   </div>
                 </div>
               ) : (
-                <table className="flow-table">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Symbol</th>
-                      <th>Strategy</th>
-                      <th>Expiration</th>
-                      <th>Premium</th>
-                      <th>Type</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredLiveItems.map((item) => (
-                      <tr
-                        key={item.id}
-                        style={{ cursor: "pointer" }}
-                        onClick={() => handleOpenTradeDetail(item)}
-                      >
-                        <td className="flow-time-cell">
-                          {item.timestamp ? formatFlowDateTime(item.timestamp) : item.time}
-                        </td>
-                        <td className={`flow-symbol-cell ${item.sentiment}`}>{item.symbol}</td>
-                        <td className="flow-strategy-cell">
-                          {item.strategy}
-                          {item.companyName && (
-                            <span className="flow-strategy-desc">({item.companyName})</span>
-                          )}
-                        </td>
-                        <td className="flow-exp-cell">{item.expiration}</td>
-                        <td className={`flow-premium-cell ${item.sentiment}`}>
-                          {item.premiumFormatted}
-                          {item.abnormalActivity && <span className="flow-aa-badge">AA</span>}
-                        </td>
-                        <td>
-                          <span className={`flow-type-badge ${item.type.toLowerCase()}`}>
-                            {item.type}
-                          </span>
-                          <span className={`flow-prov-badge prov-${item.provenance}`} title={FLOW_PROVENANCE_NOTICE}>
-                            {item.provenance === "chain-derived"
-                              ? "modelled · chain-derived"
-                              : item.provenance === "generated"
-                                ? "🧪 generated"
-                                : "static sample"}
-                          </span>
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className="subnav-btn"
-                            style={{ padding: "0.2rem 0.45rem", fontSize: "0.72rem", borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
-                            title="Analyze institutional trade risk profile"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setRiskSubject(flowTradeToRiskSubject(item));
-                            }}
-                          >
-                            🛡️ Risk
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <Table
+                  columns={liveColumns}
+                  rows={filteredLiveItems}
+                  rowKey={(item) => item.id}
+                  onRowClick={(item) => handleOpenTradeDetail(item)}
+                  rowClassName="clickable-row"
+                  className="flow-table"
+                />
               )}
             </>
           )}
@@ -685,7 +751,7 @@ export function OptionsFlowsHub({
           {/* SUB-TAB 4: NEWS FLOW */}
           {subTab === "news" && (
             !hasLoadedInitial && isRefreshing && newsItems.length === 0 ? (
-              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+              <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Fetching Live Market News...
                 </div>
@@ -694,7 +760,7 @@ export function OptionsFlowsHub({
                 </div>
               </div>
             ) : filteredNewsItems.length === 0 ? (
-              <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+              <div style={{ padding: "calc(var(--space-6) * 2) var(--space-4)", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   No live feed available
                 </div>
@@ -703,56 +769,23 @@ export function OptionsFlowsHub({
                 </div>
               </div>
             ) : (
-              <table className="flow-table">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Headline</th>
-                    <th>Sentiment</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredNewsItems.map((item) => {
-                    // Issue #132: sentiment is an LLM model assessment with
-                    // provenance — assessed items show the label + "· AI";
-                    // unassessed items show "Not assessed", never a
-                    // default "neutral" dressed up as a judgement.
-                    const sentimentUi = newsSentimentPresentation(item);
-                    return (
-                    <tr
-                      key={item.id}
-                      style={item.url ? { cursor: "pointer" } : undefined}
-                      onClick={item.url ? () => window.open(item.url, "_blank", "noopener,noreferrer") : undefined}
-                    >
-                      <td className="flow-time-cell">{item.time}</td>
-                      <td className="news-headline-cell">
-                        <span className="news-symbols-prefix">
-                          {item.symbols.join(", ")}:
-                        </span>
-                        <span>{item.headline}</span>
-                        {item.source && (
-                          <span style={{ marginLeft: "8px", fontSize: "0.75rem", color: "var(--color-text-muted)", opacity: 0.8 }}>
-                            — {item.source}
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <span className={sentimentUi.className} title={sentimentUi.title}>
-                          {sentimentUi.label}
-                        </span>
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <Table
+                columns={newsColumns}
+                rows={filteredNewsItems}
+                rowKey={(item) => item.id}
+                onRowClick={(item) => {
+                  if (item.url) window.open(item.url, "_blank", "noopener,noreferrer");
+                }}
+                rowClassName={(item) => (item.url ? "clickable-row" : "")}
+                className="flow-table"
+              />
             )
           )}
 
           {/* SUB-TAB 5: CONGRESS FLOW */}
           {subTab === "congress" && (
             !hasLoadedInitial && isRefreshing && congressItems.length === 0 ? (
-              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+              <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Fetching Congressional Trading Disclosures...
                 </div>
@@ -761,7 +794,7 @@ export function OptionsFlowsHub({
                 </div>
               </div>
             ) : filteredCongressItems.length === 0 ? (
-              <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+              <div style={{ padding: "calc(var(--space-6) * 2) var(--space-4)", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   No live feed available
                 </div>
@@ -770,48 +803,21 @@ export function OptionsFlowsHub({
                 </div>
               </div>
             ) : (
-              <table className="flow-table">
-                <thead>
-                  <tr>
-                    <th>Filing Date</th>
-                    <th>Politician</th>
-                    <th>Asset / Strategy</th>
-                    <th>Transaction</th>
-                    <th>Amount</th>
-                    <th>Est. Premium</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCongressItems.map((item) => (
-                    <tr
-                      key={item.id}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => handleTradeOrPrompt(item.symbol)}
-                    >
-                      <td className="flow-time-cell">{item.filingDate}</td>
-                      <td>
-                        <span className="congress-politician">{item.politician}</span>
-                        <span className={`congress-meta-tag ${item.party === "Democrat" ? "dem" : "rep"}`}>
-                          {item.party[0]} - {item.state}
-                        </span>
-                      </td>
-                      <td className="flow-strategy-cell">
-                        <strong>{item.symbol}</strong>: {item.assetDescription}
-                      </td>
-                      <td>{item.transaction}</td>
-                      <td style={{ color: "var(--color-text-muted)" }}>{item.amountRange}</td>
-                      <td className="flow-premium-cell bullish">{item.estimatedPremiumFormatted}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <Table
+                columns={congressColumns}
+                rows={filteredCongressItems}
+                rowKey={(item) => item.id}
+                onRowClick={(item) => handleTradeOrPrompt(item.symbol)}
+                rowClassName="clickable-row"
+                className="flow-table"
+              />
             )
           )}
 
           {/* SUB-TAB 6: INSIDER FLOW */}
           {subTab === "insider" && (
             !hasLoadedInitial && isRefreshing && insiderItems.length === 0 ? (
-              <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+              <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Streaming Live SEC Form 4 Filings...
                 </div>
@@ -820,7 +826,7 @@ export function OptionsFlowsHub({
                 </div>
               </div>
             ) : filteredInsiderItems.length === 0 ? (
-              <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+              <div style={{ padding: "calc(var(--space-6) * 2) var(--space-4)", textAlign: "center", color: "var(--color-text-muted)" }}>
                 <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   No live feed available
                 </div>
@@ -829,36 +835,14 @@ export function OptionsFlowsHub({
                 </div>
               </div>
             ) : (
-              <table className="flow-table">
-                <thead>
-                  <tr>
-                    <th>Report Date</th>
-                    <th>Trade</th>
-                    <th>Member</th>
-                    <th>Premium</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredInsiderItems.map((item) => (
-                    <tr
-                      key={item.id}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => handleTradeOrPrompt(item.symbol)}
-                    >
-                      <td className="flow-time-cell">{item.reportDate}</td>
-                      <td className="flow-strategy-cell">
-                        {item.trade}
-                        <span className="flow-strategy-desc">({item.companyName})</span>
-                      </td>
-                      <td className="insider-member-cell">
-                        {item.member}
-                        <div className="insider-title-sub">{item.title}</div>
-                      </td>
-                      <td className="flow-premium-cell bullish">{item.premiumFormatted}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <Table
+                columns={insiderColumns}
+                rows={filteredInsiderItems}
+                rowKey={(item) => item.id}
+                onRowClick={(item) => handleTradeOrPrompt(item.symbol)}
+                rowClassName="clickable-row"
+                className="flow-table"
+              />
             )
           )}
         </main>

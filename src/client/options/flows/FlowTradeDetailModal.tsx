@@ -1,5 +1,5 @@
 import React from "react";
-import { Button, Modal } from "../../components/ui";
+import { Button, Modal, Table, type TableColumn } from "../../components/ui";
 import { LiveFlowItem } from "../../../trading/options/flows/types";
 
 interface FlowTradeDetailModalProps {
@@ -46,6 +46,12 @@ export function FlowTradeDetailModal({
       ];
 
   const totalQuantity = trade.totalQuantity || legs.reduce((sum, l) => sum + (l.quantity || 0), 0);
+  type LegRow = (typeof legs)[number];
+  const legColumns: TableColumn<LegRow>[] = [
+    { key: "action", header: "ACTION", cellClassName: "flow-leg-action", render: (leg) => leg.action },
+    { key: "option", header: "OPTION", cellClassName: "flow-leg-option", render: (leg) => leg.option },
+    { key: "quantity", header: "QUANTITY", cellClassName: "flow-leg-qty", render: (leg) => leg.quantity.toLocaleString() },
+  ];
 
   // Spot prices
   const spotFill = trade.spotAtFill ? `$${trade.spotAtFill.toFixed(2)}` : `$${trade.underlyingPrice.toFixed(2)}`;
@@ -76,37 +82,26 @@ export function FlowTradeDetailModal({
           </div>
           <div className="flow-modal-header-right">
             <span className="flow-modal-time">{timeFormatted}</span>
-            <button
+            <Button
+              variant="ghost"
               type="button"
               className="flow-modal-close-btn"
               onClick={onClose}
               aria-label="Close details"
             >
               ✕
-            </button>
+            </Button>
           </div>
         </div>
 
         {/* Legs Table */}
         <div className="flow-modal-legs-section">
-          <table className="flow-modal-legs-table">
-            <thead>
-              <tr>
-                <th>ACTION</th>
-                <th>OPTION</th>
-                <th>QUANTITY</th>
-              </tr>
-            </thead>
-            <tbody>
-              {legs.map((leg, idx) => (
-                <tr key={`${leg.action}_${leg.option}_${idx}`}>
-                  <td className="flow-leg-action">{leg.action}</td>
-                  <td className="flow-leg-option">{leg.option}</td>
-                  <td className="flow-leg-qty">{leg.quantity.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Table
+            className="flow-modal-legs-table"
+            columns={legColumns}
+            rows={legs}
+            rowKey={(leg, idx) => `${leg.action}_${leg.option}_${idx}`}
+          />
           <div className="flow-modal-legs-total">
             {totalQuantity.toLocaleString()} TOTAL
           </div>
@@ -211,13 +206,13 @@ export function FlowTradeDetailModal({
 
         {/* Open in Builder and Risk Analysis Buttons */}
         <div className="flow-modal-action-row">
-          <button
+          <Button
             type="button"
             className="flow-btn-open-builder"
             onClick={() => onOpenInBuilder(trade)}
           >
             Open in Builder
-          </button>
+          </Button>
           {onRiskAnalysis && (
             <Button variant="warning" tone="subtle" size="sm"
               type="button"

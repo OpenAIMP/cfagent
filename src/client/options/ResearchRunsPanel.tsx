@@ -14,6 +14,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from "react";
+import { Button, Checkbox, Table, TextInput, type TableColumn } from "../components/ui";
 
 interface ResearchRunsPanelProps {
   userLogin?: string;
@@ -111,7 +112,7 @@ function TriggerChip({ trigger }: { trigger: TriggerSource }) {
       ? { background: "var(--color-info-subtle)", color: "var(--color-info-text)" }
       : { background: "var(--color-warning-subtle)", color: "var(--color-warning-text)" };
   return (
-    <span style={{ ...style, borderRadius: 4, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>
+    <span style={{ ...style, borderRadius: 4, padding: "var(--space-0-5) var(--space-2)", fontSize: 12, fontWeight: 600 }}>
       {trigger}
     </span>
   );
@@ -122,8 +123,34 @@ function TradeCardDetail({ card }: { card: TradeCardView }) {
   const econ = card.economics;
   const debitCredit =
     econ.netDebit > 0 ? `debit $${econ.netDebit.toFixed(2)}` : `credit $${econ.netCredit.toFixed(2)}`;
+  type LegRow = TradeCardView["legs"][number] & { _idx: number };
+  type ScenarioRow = ScenarioView & { _idx: number };
+  const legColumns: TableColumn<LegRow>[] = [
+    { key: "side", header: "Side",
+      render: (l) => (l.quantity > 0 ? `Long ${Math.abs(l.quantity)}` : `Short ${Math.abs(l.quantity)}`) },
+    { key: "type", header: "Type", render: (l) => l.optionType },
+    { key: "strike", header: "Strike", render: (l) => l.strike },
+    { key: "expiry", header: "Expiry", render: (l) => `${l.expiry} (${l.dte}d)` },
+    { key: "bidask", header: "Bid / Ask", render: (l) => `${l.bid.toFixed(2)} / ${l.ask.toFixed(2)}` },
+  ];
+  const scenarioColumns: TableColumn<ScenarioRow>[] = [
+    { key: "scenario", header: "Scenario", render: (s) => s.label },
+    { key: "underlying", header: "Underlying", render: (s) => s.underlying.toFixed(2) },
+    { key: "pnlunit", header: "P&L / unit",
+      render: (s) => (
+        <span style={{ color: s.pnlPerUnit >= 0 ? "var(--color-success-text)" : "var(--color-danger-text)" }}>
+          {s.pnlPerUnit.toFixed(2)}
+        </span>
+      ) },
+    { key: "pnltotal", header: "P&L total",
+      render: (s) => (
+        <span style={{ color: s.pnlTotal >= 0 ? "var(--color-success-text)" : "var(--color-danger-text)" }}>
+          {s.pnlTotal.toFixed(2)}
+        </span>
+      ) },
+  ];
   return (
-    <div style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, margin: "8px 0", padding: 12 }}>
+    <div style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, margin: "8px 0", padding: "var(--space-3)" }}>
       <div
         style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
         onClick={() => setOpen(!open)}
@@ -137,22 +164,11 @@ function TradeCardDetail({ card }: { card: TradeCardView }) {
       {open && (
         <div style={{ marginTop: 8, fontSize: 13 }}>
           <h5>Legs (exact contracts)</h5>
-          <table style={{ width: "100%", fontSize: 12 }}>
-            <thead>
-              <tr><th>Side</th><th>Type</th><th>Strike</th><th>Expiry</th><th>Bid / Ask</th></tr>
-            </thead>
-            <tbody>
-              {card.legs.map((l, i) => (
-                <tr key={i}>
-                  <td>{l.quantity > 0 ? `Long ${Math.abs(l.quantity)}` : `Short ${Math.abs(l.quantity)}`}</td>
-                  <td>{l.optionType}</td>
-                  <td>{l.strike}</td>
-                  <td>{l.expiry} ({l.dte}d)</td>
-                  <td>{l.bid.toFixed(2)} / {l.ask.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Table
+            columns={legColumns}
+            rows={card.legs.map((l, i) => ({ ...l, _idx: i }))}
+            rowKey={(row) => String(row._idx)}
+          />
           <h5>Economics (independently recomputed)</h5>
           <div>
             Max gain: {econ.maxGain === null ? "unbounded" : `$${econ.maxGain.toFixed(2)}`} · Breakevens:{" "}
@@ -165,21 +181,11 @@ function TradeCardDetail({ card }: { card: TradeCardView }) {
             )}
           </div>
           <h5>Scenarios</h5>
-          <table style={{ width: "100%", fontSize: 12 }}>
-            <thead>
-              <tr><th>Scenario</th><th>Underlying</th><th>P&L / unit</th><th>P&L total</th></tr>
-            </thead>
-            <tbody>
-              {card.scenarios.map((s, i) => (
-                <tr key={i}>
-                  <td>{s.label}</td>
-                  <td>{s.underlying.toFixed(2)}</td>
-                  <td style={{ color: s.pnlPerUnit >= 0 ? "var(--color-success-text)" : "var(--color-danger-text)" }}>{s.pnlPerUnit.toFixed(2)}</td>
-                  <td style={{ color: s.pnlTotal >= 0 ? "var(--color-success-text)" : "var(--color-danger-text)" }}>{s.pnlTotal.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Table
+            columns={scenarioColumns}
+            rows={card.scenarios.map((s, i) => ({ ...s, _idx: i }))}
+            rowKey={(row) => String(row._idx)}
+          />
           <div style={{ color: "var(--color-text-muted)", fontSize: 12 }}>{card.feesNote}</div>
           <h5>Falsification (§4)</h5>
           <ul>
@@ -342,40 +348,39 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
   };
 
   return (
-    <div style={{ padding: 12 }}>
+    <div style={{ padding: "var(--space-3)" }}>
       <h3>
         Autonomous Options Research{" "}
         <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>(read-only — no order entry from this panel)</span>
       </h3>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <button onClick={() => void runNow()} disabled={running}>
+      <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: 12, flexWrap: "wrap" }}>
+        <Button onClick={() => void runNow()} disabled={running}>
           {running ? "Running…" : "Run research now"}
-        </button>
-        <button onClick={() => setShowFilters(!showFilters)}>{showFilters ? "Hide filters" : "Edit filters"}</button>
-        {report && <button onClick={() => void evaluate(report.runId)}>Evaluate this run (§9)</button>}
+        </Button>
+        <Button onClick={() => setShowFilters(!showFilters)}>{showFilters ? "Hide filters" : "Edit filters"}</Button>
+        {report && <Button onClick={() => void evaluate(report.runId)}>Evaluate this run (§9)</Button>}
         {onSendPrompt && (
-          <button onClick={() => onSendPrompt("Summarize the latest autonomous options research run")}>
+          <Button onClick={() => onSendPrompt("Summarize the latest autonomous options research run")}>
             Ask about results
-          </button>
+          </Button>
         )}
       </div>
       {runMsg && <div style={{ fontSize: 13, color: "var(--color-info-text)", marginBottom: 8 }}>{runMsg}</div>}
 
       {showFilters && config && (
-        <div style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+        <div style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, padding: "var(--space-3)", marginBottom: 12 }}>
           <h4>Filters & thresholds — every run embeds the effective snapshot</h4>
           {CONFIG_FIELDS.map((f) => (
-            <div key={f.key} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+            <div key={f.key} style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: 6 }}>
               <label style={{ width: 260, fontSize: 13 }}>{f.label}</label>
               {f.type === "boolean" ? (
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={(draft[f.key] ?? "") === "1" || (draft[f.key] ?? "").toLowerCase() === "true"}
                   onChange={(e) => setDraft({ ...draft, [f.key]: e.target.checked ? "1" : "0" })}
                 />
               ) : (
-                <input
+                <TextInput
                   style={{ width: 200 }}
                   value={draft[f.key] ?? ""}
                   onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
@@ -384,14 +389,14 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
               <span style={{ fontSize: 11, color: "var(--color-text-dim)" }}>{f.hint}</span>
             </div>
           ))}
-          <button onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save filters"}</button>
+          <Button onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save filters"}</Button>
           {saveMsg && <span style={{ marginLeft: 8, fontSize: 13 }}>{saveMsg}</span>}
         </div>
       )}
 
       {report ? (
         <div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+          <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: 8 }}>
             <TriggerChip trigger={report.trigger} />
             <span style={{ fontSize: 13, color: "var(--color-text-muted)" }}>
               {new Date(report.createdAt).toLocaleString()} · rules {report.rulesVersion} · {report.stats.durationMs}ms
@@ -411,7 +416,7 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
 
           <h4>Watchlist ({report.watchlist.length})</h4>
           {report.watchlist.map((w, i) => (
-            <div key={i} style={{ fontSize: 13, borderLeft: "3px solid var(--color-warning)", paddingLeft: 8, marginBottom: 6 }}>
+            <div key={i} style={{ fontSize: 13, borderLeft: "3px solid var(--color-warning)", paddingLeft: "var(--space-2)", marginBottom: 6 }}>
               <b>{w.symbol}</b> ({w.outlook}, {w.structure}) — {w.reason}
               <div style={{ color: "var(--color-text-muted)" }}>Trigger: {w.triggerCondition}</div>
             </div>
@@ -429,7 +434,7 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
 
           <h4>Run history — manual + scheduled, one view</h4>
           {history.map((h) => (
-            <div key={h.runId} style={{ fontSize: 12, color: "var(--color-text-muted)", marginBottom: 4, display: "flex", gap: 8, alignItems: "center" }}>
+            <div key={h.runId} style={{ fontSize: 12, color: "var(--color-text-muted)", marginBottom: 4, display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
               <TriggerChip trigger={h.trigger} />
               <span>{new Date(h.createdAt).toLocaleString()} — {h.summary}</span>
             </div>

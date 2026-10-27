@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button, Table, TextInput, type TableColumn } from "../components/ui";
 import { apiFetch as fetch } from "../apiFetch";
 import {
   downloadRawOptionsIdeasXls,
@@ -40,6 +41,23 @@ export interface LlmOptionsIdeasResponse {
     contractSymbols?: string[];
   };
 }
+
+type ContractDetailRow = NonNullable<
+  NonNullable<LlmOptionsIdeasResponse["groups"]>[number]["contractDetails"]
+>[number];
+const contractColumns: TableColumn<ContractDetailRow>[] = [
+  { key: "expiry", header: "Expiry", render: (r) => r.expiration },
+  { key: "contract", header: "Contract", render: (r) => r.symbol },
+  { key: "type", header: "Type", render: (r) => r.contract.optionType },
+  { key: "strike", header: "Strike", render: (r) => r.contract.strikePrice },
+  { key: "bid", header: "Bid", render: (r) => r.contract.bid },
+  { key: "ask", header: "Ask", render: (r) => r.contract.ask },
+  { key: "last", header: "Last", render: (r) => r.contract.lastPrice },
+  { key: "volume", header: "Volume", render: (r) => r.contract.volume ?? "—" },
+  { key: "oi", header: "Open interest", render: (r) => r.contract.openInterest ?? "—" },
+  { key: "delta", header: "Delta", render: (r) => r.contract.delta ?? "—" },
+  { key: "iv", header: "IV", render: (r) => r.contract.impliedVolatility ?? "—" },
+];
 
 export interface LlmOptionsIdeasPanelProps {
   activeEnv: "TEST" | "PROD";
@@ -143,7 +161,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
       <form className="options-request-form llm-options-ideas-form" onSubmit={(event) => void submit(event)}>
         <label className="options-field">
           <span>Underlying ticker</span>
-          <input
+          <TextInput
             required
             maxLength={10}
             value={symbol}
@@ -153,7 +171,8 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
         </label>
         <label className="options-field llm-options-question">
           <span>Your question</span>
-          <textarea
+          <TextInput
+            multiline
             required
             maxLength={4000}
             rows={4}
@@ -162,11 +181,11 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
             placeholder="For example: Find the strongest options strategies for bullish, bearish, neutral, and directional scenarios. Explain the structure, relevant contract data, and risks."
           />
         </label>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", flexWrap: "wrap" }}>
-          <button type="submit" disabled={loading || !symbol.trim() || !question.trim()}>
+        <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end", flexWrap: "wrap" }}>
+          <Button type="submit" disabled={loading || !symbol.trim() || !question.trim()}>
             {loading ? "Analyzing chains with Neural Engine…" : "Ask LLM"}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="options-eval-llm-btn"
             disabled={loading || !symbol.trim() || !question.trim()}
@@ -175,14 +194,14 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
             style={{ minHeight: "38px" }}
           >
             🔄 Refresh Chains
-          </button>
+          </Button>
         </div>
       </form>
 
       <div className="llm-ideas-samples" aria-label="Sample analysis questions">
         <strong>Try a sample:</strong>
         {sampleQuestions.map((sample) => (
-          <button
+          <Button
             key={sample}
             type="button"
             disabled={loading || !symbol.trim()}
@@ -192,7 +211,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
             }}
           >
             {sample}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -212,11 +231,11 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
                 {result.dataCoverage.expirationCount} expirations
               </span>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
               {(result.isSynthetic || result.retrievedData?.dataSource?.includes("synthetic")) && (
                 <span
                   style={{
-                    padding: "0.2rem 0.55rem",
+                    padding: "var(--space-1) var(--space-2)",
                     borderRadius: "var(--radius-full, 999px)",
                     background: "var(--color-warning-subtle)",
                     border: "1px solid var(--color-warning)",
@@ -232,7 +251,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
               {result.finalAnalysis?.isFallback && (
                 <span
                   style={{
-                    padding: "0.2rem 0.55rem",
+                    padding: "var(--space-1) var(--space-2)",
                     borderRadius: "var(--radius-full, 999px)",
                     background: "var(--color-surface-sunken)",
                     border: "1px solid var(--color-border-subtle)",
@@ -248,7 +267,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
               {result.dataCoverage.cached && (
                 <span
                   style={{
-                    padding: "0.2rem 0.55rem",
+                    padding: "var(--space-1) var(--space-2)",
                     borderRadius: "var(--radius-full, 999px)",
                     background: "var(--color-success-subtle)",
                     border: "1px solid var(--color-success)",
@@ -271,7 +290,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
                 background: "var(--color-surface-sunken)",
                 border: "1px solid var(--color-border-subtle)",
                 borderRadius: "var(--radius-sm, 6px)",
-                padding: "0.35rem 0.65rem",
+                padding: "var(--space-1-5) var(--space-2-5)",
                 marginBottom: "0.75rem",
               }}
             >
@@ -312,40 +331,12 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
               )}
               {(group.contractDetails || []).length > 0 && (
                 <div className="options-table-scroll">
-                  <table className="options-table">
-                    <thead>
-                      <tr>
-                        <th>Expiry</th>
-                        <th>Contract</th>
-                        <th>Type</th>
-                        <th>Strike</th>
-                        <th>Bid</th>
-                        <th>Ask</th>
-                        <th>Last</th>
-                        <th>Volume</th>
-                        <th>Open interest</th>
-                        <th>Delta</th>
-                        <th>IV</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.contractDetails?.map(({ symbol: contractSymbol, expiration, contract }) => (
-                        <tr key={contractSymbol}>
-                          <td>{expiration}</td>
-                          <td>{contractSymbol}</td>
-                          <td>{contract.optionType}</td>
-                          <td>{contract.strikePrice}</td>
-                          <td>{contract.bid}</td>
-                          <td>{contract.ask}</td>
-                          <td>{contract.lastPrice}</td>
-                          <td>{contract.volume ?? "—"}</td>
-                          <td>{contract.openInterest ?? "—"}</td>
-                          <td>{contract.delta ?? "—"}</td>
-                          <td>{contract.impliedVolatility ?? "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <Table
+                    className="options-table"
+                    columns={contractColumns}
+                    rows={group.contractDetails ?? []}
+                    rowKey={(row) => row.symbol}
+                  />
                 </div>
               )}
               {(group.contractWarnings || []).map((warning) => (
@@ -356,19 +347,19 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
               )}
             </article>
           ))}
-          <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-            <button type="button" className="options-eval-llm-btn" onClick={() => void downloadReport()}>
+          <div style={{ display: "flex", gap: "var(--space-2-5)", flexWrap: "wrap", marginTop: "0.5rem" }}>
+            <Button type="button" className="options-eval-llm-btn" onClick={() => void downloadReport()}>
               📥 Download analysis report (.xls)
-            </button>
+            </Button>
             {result.llmInput && (
-              <button type="button" className="options-eval-llm-btn" onClick={() => void downloadInput()}>
+              <Button type="button" className="options-eval-llm-btn" onClick={() => void downloadInput()}>
                 📥 Download exact inputs (.xls)
-              </button>
+              </Button>
             )}
             {result.retrievedData && (
-              <button type="button" className="options-eval-llm-btn" onClick={() => void downloadRetrievedData()}>
+              <Button type="button" className="options-eval-llm-btn" onClick={() => void downloadRetrievedData()}>
                 📥 Download all retrieved raw data (.xls)
-              </button>
+              </Button>
             )}
           </div>
           {exportError && <div className="options-error" role="alert">Export failed: {exportError}</div>}

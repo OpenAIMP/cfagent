@@ -324,7 +324,7 @@ export function EtapiConfigModal({
       onClose={onClose}
       size="lg"
       title={
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
           <span style={{ fontSize: "1.35rem" }}>⚙️</span>
           <div>
             <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--color-text-primary)" }}>
@@ -339,7 +339,7 @@ export function EtapiConfigModal({
       footer={
         <div
           style={{
-            padding: "1rem 1.5rem",
+            padding: "var(--space-4) var(--space-6)",
             background: "var(--color-surface-sunken)",
             borderTop: "1px solid var(--color-border-subtle)",
             display: "flex",
@@ -350,7 +350,7 @@ export function EtapiConfigModal({
           <Button variant="secondary" onClick={handleResetDefaults} disabled={saving || loading}>
             Reset Defaults
           </Button>
-          <div style={{ display: "flex", gap: "0.75rem" }}>
+          <div style={{ display: "flex", gap: "var(--space-3)" }}>
             <Button variant="secondary" onClick={onClose}>
               Cancel
             </Button>
@@ -365,17 +365,16 @@ export function EtapiConfigModal({
         <div
           style={{
             display: "flex",
-            gap: "0.5rem",
-            padding: "0.75rem 1.5rem",
+            gap: "var(--space-2)",
+            padding: "var(--space-3) var(--space-6)",
             background: "var(--color-surface-sunken)",
             borderBottom: "1px solid var(--color-border-subtle)",
           }}
         >
-          <button
-            type="button"
+          <Button
             className="subnav-btn"
             style={{
-              padding: "0.4rem 0.8rem",
+              padding: "var(--space-1-5) var(--space-3)",
               fontSize: "0.82rem",
               background: activeTab === "strategy" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
               color: activeTab === "strategy" ? "var(--color-accent)" : "var(--color-text-muted)",
@@ -384,12 +383,11 @@ export function EtapiConfigModal({
             onClick={() => setActiveTab("strategy")}
           >
             📈 Strategy &amp; Pricing
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className="subnav-btn"
             style={{
-              padding: "0.4rem 0.8rem",
+              padding: "var(--space-1-5) var(--space-3)",
               fontSize: "0.82rem",
               background: activeTab === "screener" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
               color: activeTab === "screener" ? "var(--color-accent)" : "var(--color-text-muted)",
@@ -398,12 +396,11 @@ export function EtapiConfigModal({
             onClick={() => setActiveTab("screener")}
           >
             🔍 Screener Bounds
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className="subnav-btn"
             style={{
-              padding: "0.4rem 0.8rem",
+              padding: "var(--space-1-5) var(--space-3)",
               fontSize: "0.82rem",
               background: activeTab === "weights" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
               color: activeTab === "weights" ? "var(--color-accent)" : "var(--color-text-muted)",
@@ -412,12 +409,11 @@ export function EtapiConfigModal({
             onClick={() => setActiveTab("weights")}
           >
             ⚖️ Scoring Weights
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className="subnav-btn"
             style={{
-              padding: "0.4rem 0.8rem",
+              padding: "var(--space-1-5) var(--space-3)",
               fontSize: "0.82rem",
               background: activeTab === "scanner" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
               color: activeTab === "scanner" ? "var(--color-accent)" : "var(--color-text-muted)",
@@ -426,12 +422,11 @@ export function EtapiConfigModal({
             onClick={() => setActiveTab("scanner")}
           >
             🎯 Opportunity Scanner
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className="subnav-btn"
             style={{
-              padding: "0.4rem 0.8rem",
+              padding: "var(--space-1-5) var(--space-3)",
               fontSize: "0.82rem",
               background: activeTab === "ai" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
               color: activeTab === "ai" ? "var(--color-accent)" : "var(--color-text-muted)",
@@ -440,11 +435,11 @@ export function EtapiConfigModal({
             onClick={() => setActiveTab("ai")}
           >
             🤖 AI Models &amp; Guardrails
-          </button>
+          </Button>
         </div>
 
         {/* Body content */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
           {error && (
             <Notice tone="danger">{error}</Notice>
           )}
@@ -453,7 +448,7 @@ export function EtapiConfigModal({
           )}
 
           {activeTab === "strategy" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
               <div>
                 <label htmlFor="etapi-risk-free-rate-pct" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Risk-Free Rate (%):
@@ -517,7 +512,7 @@ export function EtapiConfigModal({
           )}
 
           {activeTab === "screener" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
               <div>
                 <label htmlFor="etapi-default-max-dte" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Default Max DTE (Days):
@@ -590,7 +585,7 @@ export function EtapiConfigModal({
           )}
 
           {activeTab === "weights" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
               <div>
                 <label htmlFor="etapi-thesis-weight" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Thesis Alignment Weight (%):
@@ -661,7 +656,7 @@ export function EtapiConfigModal({
           )}
 
           {activeTab === "scanner" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
               <div>
                 <label htmlFor="etapi-bullish-factor" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
                   Bullish Target Multiplier:
@@ -705,16 +700,16 @@ export function EtapiConfigModal({
           )}
 
           {activeTab === "ai" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-              <div style={{ padding: "0.85rem", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", borderRadius: "var(--radius-md, 8px)" }}>
-                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+              <div style={{ padding: "var(--space-3)", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", borderRadius: "var(--radius-md, 8px)" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                   <span>🧠</span> Workflow Model Selection
                 </h4>
                 <p style={{ margin: "0 0 0.85rem", fontSize: "0.76rem", color: "var(--color-text-muted)" }}>
                   Configure which neural AI model is assigned to each specific trading and intelligence workflow.
                 </p>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
                   <div>
                     <label htmlFor="etapi-selected-default-model" style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
                       Default Flagship Model:
@@ -785,11 +780,11 @@ export function EtapiConfigModal({
                 </div>
               </div>
 
-              <div style={{ padding: "0.85rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-text-primary)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <div style={{ padding: "var(--space-3)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-text-primary)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                   <span>🌡️</span> Sampling Temperatures
                 </h4>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--space-3)" }}>
                   <div>
                     <label htmlFor="etapi-temperature-deterministic" style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
                       Deterministic (Orders):
@@ -835,11 +830,11 @@ export function EtapiConfigModal({
                 </div>
               </div>
 
-              <div style={{ padding: "0.85rem", background: "var(--color-danger-subtle)", border: "1px solid var(--color-danger)", borderRadius: "var(--radius-md, 8px)" }}>
-                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-danger)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <div style={{ padding: "var(--space-3)", background: "var(--color-danger-subtle)", border: "1px solid var(--color-danger)", borderRadius: "var(--radius-md, 8px)" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-danger)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                   <span>🛡️</span> Trading Safety Limits &amp; Constraints
                 </h4>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--space-3)" }}>
                   <div>
                     <label htmlFor="etapi-max-order-quantity" style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
                       Max Order Shares:

@@ -11,7 +11,7 @@ import {
 import type { TradeOrderContext, TradeOrderLeg } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 
-import { Modal } from "../components/ui";
+import { Button, Modal, TextInput } from "../components/ui";
 export interface StrategyToEvaluate {
   symbol: string;
   strategyName: string;
@@ -201,9 +201,9 @@ export function LlmStrategyEvalModal({
             <h3>{strategy.strategyName} on {strategy.symbol}</h3>
             {strategy.legsText && <span className="llm-eval-legs-subtitle">{strategy.legsText}</span>}
           </div>
-          <button type="button" className="llm-eval-close-btn" onClick={onClose} title="Close">
+          <Button variant="ghost" type="button" className="llm-eval-close-btn" onClick={onClose} title="Close">
             ✕
-          </button>
+          </Button>
         </div>
 
         {/* Modal Body */}
@@ -250,7 +250,8 @@ export function LlmStrategyEvalModal({
           >
             <label className="llm-eval-label">
               <span>Natural-Language Evaluation Prompt:</span>
-              <textarea
+              <TextInput
+                multiline
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 rows={3}
@@ -261,21 +262,22 @@ export function LlmStrategyEvalModal({
             </label>
 
             <div className="llm-eval-action-bar">
-              <button
+              <Button
+                variant="primary"
                 type="submit"
                 className="llm-eval-submit-btn"
                 disabled={loading || !question.trim()}
               >
                 {loading ? "Analyzing strategy with Neural Engine…" : "🚀 Run LLM Evaluation"}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className="subnav-btn"
                 disabled={loading || !question.trim()}
                 onClick={() => void runLlmEvaluation(question, true)}
                 title="Force refresh live E*TRADE option chains into persistent cache"
                 style={{
-                  padding: "0.55rem 0.95rem",
+                  padding: "var(--space-2) var(--space-4)",
                   fontSize: "0.82rem",
                   background: "var(--color-surface-sunken)",
                   border: "1px solid var(--color-border-subtle)",
@@ -285,15 +287,15 @@ export function LlmStrategyEvalModal({
                 }}
               >
                 🔄 Refresh Market Chains
-              </button>
+              </Button>
               {result && onPreviewTrade && (
-                <button
+                <Button
                   type="button"
                   className="llm-eval-order-btn"
                   onClick={handleOrderTicket}
                 >
                   ⚡ Open in Fast Order Ticket
-                </button>
+                </Button>
               )}
             </div>
           </form>
@@ -320,7 +322,7 @@ export function LlmStrategyEvalModal({
                       background: "var(--color-success-subtle)",
                       color: "var(--color-success)",
                       border: "1px solid var(--color-success)",
-                      padding: "0.15rem 0.5rem",
+                      padding: "var(--space-0-5) var(--space-2)",
                       borderRadius: "var(--radius-xs, 4px)",
                       fontSize: "0.75rem",
                       fontWeight: 600,
@@ -396,30 +398,30 @@ export function LlmStrategyEvalModal({
                   <small>Download complete data packages as Excel 97–2003 (.xls) workbooks</small>
                 </div>
                 <div className="llm-eval-export-buttons">
-                  <button
+                  <Button
                     type="button"
                     className="llm-export-btn raw"
                     onClick={() => void handleDownloadRaw()}
                     title="Download complete retrieved E*TRADE JSON & raw option chains"
                   >
                     📦 Raw E*TRADE Data (.xls)
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="llm-export-btn normalized"
                     onClick={() => void handleDownloadNormalized()}
                     title="Download normalized LLM input prompts, contracts, and Greeks"
                   >
                     📊 Normalized LLM Input (.xls)
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="llm-export-btn report"
                     onClick={() => void handleDownloadReport()}
                     title="Download complete LLM analysis report & verified contracts"
                   >
                     📄 Full Analysis Report (.xls)
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>

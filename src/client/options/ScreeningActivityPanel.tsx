@@ -15,6 +15,7 @@
  * scheduled tick; the underlying research run has its own controls.
  */
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "../components/ui";
 import { apiFetch } from "../apiFetch";
 
 export interface ScreeningActivityEntryView {
@@ -114,7 +115,7 @@ export function ScreeningActivityPanel({ userLogin }: ScreeningActivityPanelProp
       aria-label="Screening activity"
       style={{
         margin: "1.5rem 0",
-        padding: "1.5rem",
+        padding: "var(--space-6)",
         background: "var(--color-surface-sunken)",
         border: "1px solid var(--color-border-subtle)",
         borderRadius: "8px",
@@ -134,7 +135,7 @@ export function ScreeningActivityPanel({ userLogin }: ScreeningActivityPanelProp
       )}
 
       {!loadError && controls && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center", marginBottom: "0.75rem" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-3)", alignItems: "center", marginBottom: "0.75rem" }}>
           <span style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem" }}>
             Rollout stage: <strong>{controls.rolloutStage}</strong>
           </span>
@@ -147,9 +148,9 @@ export function ScreeningActivityPanel({ userLogin }: ScreeningActivityPanelProp
           <span style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem" }}>
             Scheduled screening: <strong>{controls.scheduledPaused ? "paused" : "running"}</strong>
           </span>
-          <button type="button" onClick={() => void togglePaused()} disabled={busy}>
+          <Button type="button" onClick={() => void togglePaused()} disabled={busy}>
             {controls.scheduledPaused ? "Resume scheduled screening" : "Pause scheduled screening"}
-          </button>
+          </Button>
         </div>
       )}
       {actionError && (
@@ -162,7 +163,7 @@ export function ScreeningActivityPanel({ userLogin }: ScreeningActivityPanelProp
         </p>
       )}
       {feed.length > 0 && (
-        <ul style={{ margin: 0, paddingLeft: "1.1rem" }}>
+        <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
           {feed.map((entry) => (
             <li key={entry.id} style={{ color: "var(--color-text-secondary)", fontSize: "0.88rem", lineHeight: 1.55 }}>
               <strong>{SCREENING_ACTIVITY_KIND_LABELS[entry.kind] ?? entry.kind}</strong>
