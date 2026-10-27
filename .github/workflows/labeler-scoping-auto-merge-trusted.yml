@@ -1,0 +1,119 @@
+# Auto-merge eligible PRs — issue #1509.
+#
+# WHAT: automatically applies `auto-merge` and enables GitHub auto-merge
+# (rebase only) for PRs targeting main, EXCEPT (issue #1894): PRs by bot
+# authors, PRs that delete any file, PRs touching workflow files, and
+# PRs created automatically by Jules (see below: Jules PRs arrive under
+# the owner's login, so the bot check alone misses them).
+# Those wait for a human to enable auto-merge, and get a comment saying
+# why. Draft PRs are labeled automatically; GitHub can merge them only
+# after they are marked ready.
+# Enabling auto-merge merges NOTHING by itself: GitHub merges only
+# when every requirement passes (required checks green, conversations
+# resolved, and — once the queue is on — queue validation on the
+# merge-group commit).
+#
+# SAFETY: use pull_request_target only to inspect PR metadata, apply a
+# label, and request auto-merge. Never check out or execute PR code in
+# this privileged workflow. All changed files, including workflow files, follow
+# the same required-check and conversation-resolution gates.
+#
+# NOTE: removing the label does NOT disable auto-merge once enabled —
+# disable it on the PR page if you change your mind.
+#
+# Uses the same narrowly scoped GitHub App credentials as
+# auto-update-prs-app.yml. App-token-authenticated merges trigger the normal
+# push workflows on main; GITHUB_TOKEN-authenticated merges do not.
+# Prerequisite: General → "Allow auto-merge" must be ON, or PR-level
+# auto-merge does not exist at all.
+
+name: Auto-merge trusted PRs
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  enable-auto-merge:
+    name: Label PRs and enable auto-merge when mergeable
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create short-lived GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.AUTO_UPDATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTO_UPDATE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cfagent
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Label eligible PR and enable auto-merge
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+          LANE_LABEL=""
+          AGENT_TAG=$(echo "$PR_BODY" | grep -i -o -E '#[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+' | head -n 1 || true)
+          if [ -n "$AGENT_TAG" ]; then
+            AGENT_ID=$(echo "$AGENT_TAG" | sed 's/^#//' | tr '[:upper:]' '[:lower:]')
+            LANE_LABEL="lane:$AGENT_ID"
+          fi
+
+          # Scoping (issue #1894): withhold auto-merge from bot PRs,
+          # PRs that delete any file, and PRs touching workflow files.
+          # A withheld PR waits for a human to enable auto-merge.
+          WITHHOLD_REASONS=""
+          case "$PR_AUTHOR" in
+            *\[bot\]) WITHHOLD_REASONS="author is a bot ($PR_AUTHOR)" ;;
+          esac
+          # Jules PRs arrive under the owner's login (verified: #1861
+          # shows user.login OpenAIMP), not a bot login — so the bot
+          # check alone misses them. Their bodies carry the marker
+          # "PR created automatically by Jules"; withhold on that too.
+          if echo "$PR_BODY" | grep -q 'created automatically by Jules'; then
+            WITHHOLD_REASONS="$WITHHOLD_REASONS; created automatically by Jules"
+          fi
+          if FILES_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate 2>/dev/null); then
+            if echo "$FILES_JSON" | jq -e '[.[] | select(.status == "removed")] | length > 0' >/dev/null; then
+              WITHHOLD_REASONS="$WITHHOLD_REASONS; deletes files"
+            fi
+            if echo "$FILES_JSON" | jq -e '[.[] | select(.filename | startswith(".github/workflows/"))] | length > 0' >/dev/null; then
+              WITHHOLD_REASONS="$WITHHOLD_REASONS; touches workflow files"
+            fi
+          else
+            WITHHOLD_REASONS="$WITHHOLD_REASONS; could not verify changed files"
+          fi
+          WITHHOLD_REASONS=$(echo "$WITHHOLD_REASONS" | sed 's/^; //')
+          if [ -n "$WITHHOLD_REASONS" ]; then
+            if ! gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate --jq '.[].body' 2>/dev/null | grep -q 'auto-merge-withheld'; then
+              gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Auto-merge withheld (issue #1894): $WITHHOLD_REASONS. A human must review and enable auto-merge for this PR. <!-- auto-merge-withheld -->"
+            fi
+            # Removing the label alone does NOT disable an already-enabled
+            # auto-merge, so disable it too (both best-effort).
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "auto-merge" || true
+            gh pr merge --disable-auto --repo "$GITHUB_REPOSITORY" "$PR_NUMBER" || true
+            echo "Auto-merge withheld: $WITHHOLD_REASONS"
+            exit 0
+          fi
+
+          if [ -n "$LANE_LABEL" ]; then
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "auto-merge,$LANE_LABEL"
+          else
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "auto-merge"
+          fi
+          if [ "$PR_IS_DRAFT" = "true" ]; then
+            echo "Draft PR labeled. GitHub will allow merging after it is marked ready for review."
+            exit 0
+          fi
+          gh pr merge --auto --rebase --repo "$GITHUB_REPOSITORY" "$PR_NUMBER"
