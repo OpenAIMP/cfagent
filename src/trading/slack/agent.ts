@@ -39,6 +39,7 @@ import { ETradeEmailTradingService } from "../email/agent";
 import { ETradeWebhookService } from "../../services/tradingWebhooks";
 import { ETradeBrowserService } from "../../services/browserAgent";
 import { validateEmailRecipient } from "../../security/webhookReplay";
+import { sanitizeInboundText } from "../../security/promptInjectionSanitize";
 import { getCfpayConfig, cfpayPostToSlack } from "../../services/cfpayA2A";
 
 function escapeHtml(value: string): string {
@@ -187,7 +188,10 @@ export class ETradeSlackTradingService {
         };
       }
 
-      const rawText = (event.text || "").replace(/<@[^>]+>/g, "").trim();
+      // #1763 (SEC-005): sanitize inbound Slack text at entry —
+      // marker-defuse + control-strip — before it reaches NLQ or
+      // any prompt assembly. Legitimate text passes through verbatim.
+      const rawText = sanitizeInboundText((event.text || "").replace(/<@[^>]+>/g, "").trim());
       const emailMatch = rawText.match(/\bemail(?:\s+(?:the\s+)?(?:results?|response))?\s+(?:to\s+)?<?([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})>?/i);
       const emailTo = typeof event.email_to === "string" ? event.email_to.trim() : emailMatch?.[1];
       const queryText = emailMatch ? rawText.replace(emailMatch[0], "").trim() : rawText;
@@ -1336,7 +1340,8 @@ export class ETradeSlackTradingService {
    */
   async processSlackCommand(formData: FormData): Promise<Response> {
     const command = ((formData.get("command") as string) || "").trim().toLowerCase();
-    const text = ((formData.get("text") as string) || "").trim();
+    // #1763 (SEC-005): same entrypoint sanitization as events.
+    const text = sanitizeInboundText(((formData.get("text") as string) || "").trim());
     const channelId = (formData.get("channel_id") as string) || "";
     const userId = (formData.get("user_id") as string) || "unknown_user";
     const responseUrl = (formData.get("response_url") as string) || "";

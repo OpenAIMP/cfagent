@@ -72,7 +72,7 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     aliases: ["/.well-known/*"],
     kind: "http",
     auth: "public",
-    authNote: "Delegated to handleA2A (agent-card discovery plus JSON-RPC dispatch). No session check at the edge; per-agent enforcement inside the DO was not verified here.",
+    authNote: "Delegated to handleA2A (agent-card discovery plus JSON-RPC dispatch). GET cards are public by design; POST invocation requires Bearer A2A_API_TOKEN at the edge (timing-safe, fail-closed 503 when unset, 401 before agent resolution) — verified from the worker entrypoint in issue 1763 (tests/a2a_entrypoint_auth_1763.test.ts). No session check at the edge; the token, not a session, is the invocation credential.",
     source: "src/server.ts branch: path.startsWith /a2a/",
     prefixes: ["/a2a/", "/.well-known/"],
   },
@@ -1381,9 +1381,9 @@ export const IAAA_CATALOG_GAPS: CatalogGap[] = [
   },
   {
     area: "api",
-    item: "A2A per-agent enforcement",
-    detail: "The A2A dispatcher performs no edge auth; whether individual agent handleA2A implementations enforce auth was not verified.",
-    source: "src/a2a/index.ts handleA2A",
+    item: "A2A per-agent enforcement (VERIFIED in issue 1763 — former gap, closed)",
+    detail: "Verified from the worker entrypoint in issue 1763: POST /a2a/* requires Bearer A2A_API_TOKEN in src/a2a/index.ts handleA2A, enforced before agent resolution (503 when unset, 401 otherwise), and the worker dispatch in src/server.ts routes /a2a/* there before any session route. Per-agent handleA2A implementations add no second auth check; the edge token is the invocation credential (per-caller attribution remains gap G-AUD-6 in the issue-1763 attribution audit).",
+    source: "src/a2a/index.ts handleA2A; tests/a2a_entrypoint_auth_1763.test.ts",
   },
   {
     area: "api",
