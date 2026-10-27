@@ -120,7 +120,8 @@ and the approval each independently allow.
 
 | Enforcement point | Gate | Denial behavior |
 | --- | --- | --- |
-| E*TRADE link start + verifier | `integration:connect`, PDP on + wired session | 403, action not performed |
+| E*TRADE link start + verifier | `integration:connect`, PDP on + wired session, or PDP on + legacy session past its §8 grace bound | 403, action not performed; grace-expired legacy denials carry code `legacy_pdp_grace_expired` |
+| Public link start + token connect | `integration:connect`, same PDP rule as the E*TRADE gates | 403, action not performed; grace-expired legacy denials carry code `legacy_pdp_grace_expired` |
 | API-key mint | Step-up (fresh authentication), not PDP | 403 for stale and legacy sessions until re-login |
 | `GET /api/iaaa/overview` | Platform-admin, server-side | 401 no session; 403 legacy session; 403 wired non-admin with no data; 500 generic on corrupt store |
 | IAAA admin panel | Same gate, client-side | Shows "not an admin" on 403 |
@@ -135,15 +136,33 @@ and the approval each independently allow.
   PDP-gated; the forwarder itself is session-gated (see
   [api-security.md](api-security.md)).
 
-## 8. Legacy sessions and the exemption
+## 8. Legacy sessions and the bounded exemption (#1749)
 
-Legacy (pre-wiring) sessions stay PDP-exempt even when `IAAA_PDP_ENABLED`
-is on: they carry no internal id, no tenant membership can be resolved
-for them, and denying them would lock out every session created before
-wiring. The exemption ends at re-login, when the session becomes wired.
-This is a migration property with a known end state, not a permanent
-second class of privilege — but while any legacy session exists, the PDP
-is not the only gate in the system, and audits should say so.
+Legacy (pre-wiring) sessions carry no internal id, so no tenant
+membership can be resolved for them — and denying them outright
+would lock out every session created before wiring. Their PDP
+exemption is therefore BOUNDED, not open-ended: a legacy session
+is PDP-exempt only while it is inside its absolute session
+lifetime (createdAt + `SESSION_TTL`, 7 days; `isLegacyPdpGraceExpired`
+in `src/security/iaaaGithubEndToEnd.ts`, enforced through the
+single choke point `shouldEnforcePdp` that every gated route
+already calls). Inside the bound it takes the pre-change path at
+the `integration:connect` gates (§6). Past the bound it is
+PDP-enforced and denied there (403, code
+`legacy_pdp_grace_expired`) until it re-logs in through wiring
+and becomes wired — that re-login is the migration path, not a
+lockout cliff: ungated routes are unaffected, and login itself
+is never PDP-gated. A legacy session with no provable createdAt
+cannot prove it is inside its bound and fails closed.
+The bound is not configurable at any scope: it reuses
+`SESSION_TTL`, so no caller can widen, narrow, or disable their
+own enforcement. The SessionStore record already expires at the
+same deadline, so the gate is explicit policy plus defense in
+depth, not the only thing standing between a stale record and a
+gate. This is a migration property with a deadline, not a
+permanent second class of privilege — but while any inside-bound
+legacy session exists, the PDP is not universal, and audits must
+say so (see §10).
 
 ## 9. Open decisions (owner, not defaults)
 
@@ -169,7 +188,7 @@ separate them, this section says so.
 | --- | --- |
 | PAP — Policy Administration Point: authors and manages policy | Three places, in decreasing order of permanence. (1) The policy itself, as code: the `ROLE_GRANTS` table in `src/security/authorization.ts` (with `PERMISSIONS` and `AUTHORIZATION_POLICY_VERSION = "iaaa-authorization-1"`). Changing a grant means changing this table and shipping it — there is no policy store or policy editor. (2) Bootstrap provisioning: `IAAA_BOOTSTRAP_ADMINS` parsing in `src/security/iaaaBootstrap.ts`, which seeds the first grants (§3). (3) Runtime grants: the IAAA admin panel (`src/client/IaaaAdminPanel.tsx`, "Access requests" section) driving `POST /api/iaaa/access-request/decision`, which calls `grantMembership` (`src/security/iaaaMembershipStore.ts`) under `canGrantRole` enforcement (`src/security/authorization.ts`). |
 | PDP — Policy Decision Point: evaluates a request against policy | `authorize()` in `src/security/authorization.ts`, reached through the seam `checkPermission()` in `src/security/iaaaPdpSeam.ts`. The PDP is a pure function of stored memberships: given a subject, a permission, and a scope, it answers allow or deny. It performs no enforcement and no side effects. |
-| PEP — Policy Enforcement Point: enforces the PDP's answer at the boundary | Several, one per surface — there is no single gateway. (1) `requireAuth()` in `src/server.ts`: the session gate, which rejects unauthenticated callers before any permission is evaluated. (2) `checkRoutePermission()` in `src/security/iaaaGithubEndToEnd.ts`, called from the E*TRADE start, OAuth start, and verifier routes in `src/server.ts` for `integration:connect` (403 on deny; see §6), and from the `/auth/public/start` route under the same gate. (3) The `canGrantRole` checks on the access-request decision route in `src/server.ts`. (4) The `requireAuth` gate at the top of the `/api/schedule/` block in `src/server.ts` (401 before the ScheduledAgent stub is reached). A PEP that cannot reach the PDP denies: a missing session, a legacy session with no internal id, or an unresolvable tenant all fail closed. |
+| PEP — Policy Enforcement Point: enforces the PDP's answer at the boundary | Several, one per surface — there is no single gateway. (1) `requireAuth()` in `src/server.ts`: the session gate, which rejects unauthenticated callers before any permission is evaluated. (2) `checkRoutePermission()` in `src/security/iaaaGithubEndToEnd.ts`, called from the E*TRADE start, E*TRADE verifier, Public start, and Public connect routes in `src/server.ts` for `integration:connect` (403 on deny; see §6). The callers first check `shouldEnforcePdp`, which enforces for wired sessions and for legacy sessions past their §8 grace bound, and exempts only legacy sessions inside the bound; a grace-expired legacy denial carries code `legacy_pdp_grace_expired`. (3) The `canGrantRole` checks on the access-request decision route in `src/server.ts`. (4) The `requireAuth` gate at the top of the `/api/schedule/` block in `src/server.ts` (401 before the ScheduledAgent stub is reached). A PEP that cannot reach the PDP denies: a missing session, a legacy session past its grace bound (no internal id to evaluate), or an unresolvable tenant all fail closed. The one documented exception is a legacy session inside its grace bound (§8), which takes the pre-change path at the `integration:connect` gates. |
 | PIP — Policy Information Point: supplies the attributes the PDP reads | The SessionStore Durable Object, read directly — there is no separate attribute service. Memberships under `iaaa-membership:` keys (`src/security/iaaaMembershipStore.ts`), identity bindings under `iaaa-binding:` keys (`src/security/iaaaLogin.ts`), migration aliases under `iaaa-alias:` keys (`src/security/iaaaMigration.ts`), and sessions via `sessionStore(env)`. The tenant attribute defaults to `"primary"` (`IAAA_DEFAULT_TENANT_ID` in `src/security/iaaaGithubEndToEnd.ts`; see §4). |
 | Context Handler — assembles the request the PDP evaluates | The `CheckPermissionInput` in `src/security/iaaaPdpSeam.ts`: subject = `internalUserId` (the derived `v1:` identity, never a login handle or email), resource = `tenantId` plus `scope` / `resourceScope`, action = `permission`, environment = `nowMs` plus caller-side facts the PDP does not itself fetch — session validity (established by `requireAuth` before the call), step-up freshness (`DEFAULT_STEP_UP_FRESHNESS_MS` in `src/security/sessionPolicy.ts`), and the `IAAA_PDP_ENABLED` flag (callers check `shouldEnforcePdp` before calling; the PDP seam itself does not read flags). |
 | Obligations / Advice — things that must or should happen alongside the decision | Partial equivalents only. Audit-on-decision: security events are written to the hash-chained store under `iaaa-audit:` keys (`src/security/iaaaAuditStore.ts`) — the record that a decision happened, not a condition on it. Step-up re-authentication: a fresh-authentication requirement enforced at sensitive gates (API-key mint; see §6), which functions like an obligation to re-authenticate, but it is enforced ad hoc at each gate, not declared as an obligation attached to a policy. There is no obligation service and no advice channel: the PDP returns allow/deny, and everything else is the caller's job. |
@@ -202,12 +221,12 @@ hardcoded, not policy.
 - **There is no obligation service.** Audit and step-up are ad-hoc
   caller behavior (see Obligations above), not obligations declared in
   policy and enforced by a handler.
-- **The PDP is not the only gate.** Legacy sessions are PDP-exempt (§8),
-  deliberately ungated routes exist (§7), and the `/trade/approve`
-  decision belongs to a downstream Durable Object gate. While any
-  legacy session exists, "the PDP decided" is not a complete
-  description of how a request was authorized, and audits should say
-  so.
+- **The PDP is not the only gate.** Legacy sessions inside their
+  grace bound are PDP-exempt (§8), deliberately ungated routes
+  exist (§7), and the `/trade/approve` decision belongs to a
+  downstream Durable Object gate. While any inside-bound legacy
+  session exists, "the PDP decided" is not a complete description
+  of how a request was authorized, and audits should say so.
 
 Until those gaps close, describe this system as XACML-*inspired*: the
 separation of PAP / PDP / PEP / PIP is real and load-bearing, but

@@ -105,8 +105,10 @@ Linking an integration is a consequential action, so for wired sessions with
 `IAAA_PDP_ENABLED=1`, starting an E*TRADE connection requires the
 `integration:connect` permission in the resolved tenant (default `"primary"`),
 checked via the Slice 3 PDP before any token request is made. Denial is a 403
-and no E*TRADE call happens. Legacy (pre-wiring) sessions take the pre-change
-path and are PDP-exempt. E*TRADE revoke and API-key deletion are
+and no E*TRADE call happens. Legacy (pre-wiring) sessions inside their #1749
+grace bound (createdAt + 7 days) take the pre-change path and are PDP-exempt;
+past the bound they are denied with `legacy_pdp_grace_expired` until re-login
+(see authz.md §8). E*TRADE revoke and API-key deletion are
 deliberately **not** gated: revocation must never be blocked by the same
 policy it escapes from.
 

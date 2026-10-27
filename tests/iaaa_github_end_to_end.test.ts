@@ -6,7 +6,9 @@
  * - Tenant resolution: IAAA_TENANT_ID when set, else the documented
  *   single-tenant default "primary" (never any other invented value).
  * - PDP flag: "1"/"true" = on, default OFF; enforcement only for
- *   wired sessions (legacy sessions stay exempt, flag OFF = identity).
+ *   wired sessions, plus legacy sessions past their #1749 grace
+ *   bound (legacy sessions inside the bound stay exempt,
+ *   flag OFF = identity).
  * - Bootstrap list with genesis: "platform:" entries grant
  *   platform-admin ONLY while no genesis marker exists; once the
  *   marker is set, later platform: entries grant tenant-admin only;
@@ -102,11 +104,15 @@ describe("PDP flag gating", () => {
   });
   it("enforces only for wired sessions when the flag is on", () => {
     const wired = { githubLogin: "octo", internalUserId: UUID_A } as never;
+    // #1749 pin update (same PR, pin rule): a legacy session with no
+    // createdAt cannot prove it is inside its PDP grace bound, so it
+    // enforces fail-closed. The inside-bound legacy exemption is
+    // pinned in tests/iaaa_legacy_pdp_bound_1749.test.ts.
     const legacy = { githubLogin: "octo" } as never;
-    expect(shouldEnforcePdp({ IAAA_PDP_ENABLED: "1" }, wired)).toBe(true);
-    expect(shouldEnforcePdp({ IAAA_PDP_ENABLED: "1" }, legacy)).toBe(false);
-    expect(shouldEnforcePdp({ IAAA_PDP_ENABLED: "1" }, null)).toBe(false);
-    expect(shouldEnforcePdp({}, wired)).toBe(false);
+    expect(shouldEnforcePdp({ IAAA_PDP_ENABLED: "1" }, wired, NOW)).toBe(true);
+    expect(shouldEnforcePdp({ IAAA_PDP_ENABLED: "1" }, legacy, NOW)).toBe(true);
+    expect(shouldEnforcePdp({ IAAA_PDP_ENABLED: "1" }, null, NOW)).toBe(false);
+    expect(shouldEnforcePdp({}, wired, NOW)).toBe(false);
   });
 });
 

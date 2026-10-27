@@ -54,7 +54,13 @@ not a set of suggestions:
 - **Absolute TTL:** 7 days.
 - **Idle expiry:** enforced for wired sessions, read from a **fresh**
   session read — never from the isolate cache. Legacy sessions are exempt
-  (they carry no activity timestamp).
+  (they carry no activity timestamp). That idle exemption is itself
+  bounded by the absolute lifetime: the store record expires at
+  createdAt + `SESSION_TTL` (7 days) regardless of activity, and no
+  path re-puts a legacy session with a fresh TTL. The PDP exemption
+  for legacy sessions has its own explicit bound ([authz.md](authz.md)
+  §8, #1749) — a different rule from the idle exemption, and neither
+  is open-ended.
 - **Rotation and revocation:** sessions rotate, and revocation is stored
   so a revoked session stays revoked.
 - **Step-up:** sensitive operations (API-key mint is the live example)
@@ -80,8 +86,10 @@ to decide whether a session is wired at all, never to authorize.
 
 - It does not authorize anything by itself. A valid session with no
   membership is denied at every PDP gate it reaches (see
-  [authz.md](authz.md)); a legacy session is exempt from PDP gates, which
-  is a migration property, not a privilege.
+  [authz.md](authz.md)); a legacy session inside its grace bound is
+  exempt from PDP gates, which is a migration property with a
+  deadline, not a privilege — past the bound it is denied at those
+  gates until re-login (see [authz.md](authz.md) §8).
 - It does not connect third parties. Signing in does not link E*TRADE,
   MCP, or any integration — each of those is a separate, separately
   gated authorization (see [etrade.md](etrade.md) and

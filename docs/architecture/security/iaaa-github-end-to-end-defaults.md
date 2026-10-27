@@ -31,9 +31,11 @@ when that decision lands.
   (carries `internalUserId`), the Slice 3 PDP is enforced via the
   `iaaaPdpSeam` helper on the gated routes below. Denial is a 403
   and the action is NOT performed. When the flag is OFF, or the
-  session is legacy (no `internalUserId`), behaviour is byte-for-byte
-  the pre-change path — legacy sessions stay exempt, the same
-  contract as Phase 2b-part1.
+  session is a legacy session inside its #1749 grace bound
+  (createdAt + `SESSION_TTL`), behaviour is byte-for-byte
+  the pre-change path — the Phase 2b-part1 contract survives
+  only inside the bound. A legacy session past its bound is
+  PDP-enforced and denied at the gated routes (see authz.md §8).
 - **Audit switch-on.** Login success/failure events (Phase 2a
   builders + Kv audit store) are recorded from the wired callback,
   and the logout hook keeps recording before session deletion,
@@ -45,8 +47,8 @@ when that decision lands.
 | Route | Gate | Permission |
 |---|---|---|
 | `POST /api/api-keys` (mint) | Step-up only (unchanged from Phase 2b-part1) | None — no Slice 3 permission maps to credential minting (there is no `credential:issue` permission), so step-up remains the sole gate. Listing and revoking keys are NOT gated. |
-| `/auth/etrade/start`, `/api/etrade/oauth/start` (integration connect start) | PDP when flag ON + wired session | `integration:connect` |
-| `POST /api/etrade/oauth/verifier` (integration connect completion — stores broker tokens) | PDP when flag ON + wired session | `integration:connect` |
+| `/auth/etrade/start`, `/api/etrade/oauth/start` (integration connect start) | PDP when flag ON + (wired session, or legacy session past its #1749 grace bound) | `integration:connect` |
+| `POST /api/etrade/oauth/verifier` (integration connect completion — stores broker tokens) | PDP when flag ON + (wired session, or legacy session past its #1749 grace bound) | `integration:connect` |
 
 Deliberately NOT gated: E*TRADE revoke endpoints and API-key
 delete (revocation is a safety action and must never be blocked by

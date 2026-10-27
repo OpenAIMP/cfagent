@@ -96,6 +96,7 @@ import type { GovernedHaltState } from "./data/governedHalt";
 import { buildOpenApiSpec, SWAGGER_UI_HTML } from "./security/openapiSpec";
 import {
   checkRoutePermission,
+  isLegacyPdpGraceExpired,
   resolveIaaaTenant,
   shouldEnforcePdp,
 } from "./security/iaaaGithubEndToEnd";
@@ -536,8 +537,9 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       // #945 GitHub end-to-end PDP gate: when IAAA_PDP_ENABLED is on
       // and the session is wired, starting an integration connection
       // requires integration:connect in the resolved tenant.
-      // Flag OFF or a legacy session takes the pre-change path.
-      if (shouldEnforcePdp(env, session)) {
+      // Flag OFF or a legacy session inside its #1749 PDP grace bound takes the pre-change path;
+      // a grace-expired legacy session is PDP-enforced and denied with legacy_pdp_grace_expired (see authz.md §8).
+      if (shouldEnforcePdp(env, session, Date.now())) {
         const allowed = await checkRoutePermission(
           createKvMembershipStore(sessionStore(env)),
           session,
@@ -546,6 +548,9 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           Date.now(),
         );
         if (!allowed) {
+          if (isLegacyPdpGraceExpired(env, session, Date.now())) {
+            return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
+          }
           return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
         }
       }
@@ -639,8 +644,8 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       if (!session) return new Response("Unauthorized", { status: 401 });
       // #945 GitHub end-to-end PDP gate: completing the integration
       // connection (verifier exchange, which stores broker tokens)
-      // requires integration:connect, same rule as the start route.
-      if (shouldEnforcePdp(env, session)) {
+      // requires integration:connect, same rule as the start route, including the #1749 legacy grace bound.
+      if (shouldEnforcePdp(env, session, Date.now())) {
         const allowed = await checkRoutePermission(
           createKvMembershipStore(sessionStore(env)),
           session,
@@ -649,6 +654,9 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           Date.now(),
         );
         if (!allowed) {
+          if (isLegacyPdpGraceExpired(env, session, Date.now())) {
+            return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
+          }
           return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
         }
       }
@@ -693,8 +701,8 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (path === "/auth/public/start") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
-      // Same #945 PDP gate as the E*TRADE start route.
-      if (shouldEnforcePdp(env, session)) {
+      // Same #945 PDP gate as the E*TRADE start route, including the #1749 legacy grace bound.
+      if (shouldEnforcePdp(env, session, Date.now())) {
         const allowed = await checkRoutePermission(
           createKvMembershipStore(sessionStore(env)),
           session,
@@ -703,6 +711,9 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           Date.now(),
         );
         if (!allowed) {
+          if (isLegacyPdpGraceExpired(env, session, Date.now())) {
+            return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
+          }
           return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
         }
       }
@@ -758,8 +769,8 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
       // Same #945 PDP gate as the E*TRADE verifier route (this stores
-      // a broker credential).
-      if (shouldEnforcePdp(env, session)) {
+      // a broker credential), including the #1749 legacy grace bound.
+      if (shouldEnforcePdp(env, session, Date.now())) {
         const allowed = await checkRoutePermission(
           createKvMembershipStore(sessionStore(env)),
           session,
@@ -768,6 +779,9 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           Date.now(),
         );
         if (!allowed) {
+          if (isLegacyPdpGraceExpired(env, session, Date.now())) {
+            return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
+          }
           return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
         }
       }
