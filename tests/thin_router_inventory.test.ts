@@ -89,6 +89,10 @@
  * (drain gate), POST /adaptation/promotions/promote, and POST
  * /adaptation/promotions/rollback — bringing the pinned array to
  * 208 entries.
+ * Issue #1257 (retirement) removes three — POST
+ * /adaptation/promotions/start, POST /adaptation/promotions/advance,
+ * and GET /adaptation/promotions/active, deleted with
+ * stagedPromotion once the active list drained to empty.
  * Issue #1326 added one more — GET /trading/reports/confirmations
  * (in handleReportsRoutes, after the pending list).
  * Issue #1169 (S1) added one more — POST /knowledge/corpus (in
@@ -347,9 +351,6 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/verdicts\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/approve\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/candidates/gate\")",
-  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/start\")",
-  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/advance\")",
-  "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/active\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/promote\")",
   "handleScreenerResearchRoutes :: endsWith(\"/adaptation/promotions/rollback\")",

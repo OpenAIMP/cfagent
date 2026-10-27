@@ -12,14 +12,14 @@
  *   evaluation weights read on v2 ALWAYS (#1257 flip): the
  *   screening.adaptationWeightsV2Routes flag is retired — v1 rows
  *   present in the store are ignored by these routes, and the legacy
- *   flag setting is a no-op. The v1 module itself stays until the
- *   retirement PR (stagedPromotion still reads v1 for promotion
- *   baselines).
+ *   flag setting is a no-op. The v1 module itself was deleted by
+ *   the retirement PR (#1257).
  * - NOTE (#1257 challenger re-point): the counterfactual-replay
  *   POST /adaptation/candidates/evaluate route this file once pinned
  *   is retired — evaluation is now frozen-set challenger evaluation
  *   (see tests/adaptation_challenger_routes.test.ts). The replay
- *   helpers stay in candidateEvaluation.ts until the retirement PR.
+ *   helpers lived in candidateEvaluation.ts until the retirement PR
+ *   (#1257) deleted it.
  */
 import { describe, it, expect, vi } from "vitest";
 import {
@@ -32,7 +32,6 @@ import {
   getStrategyWeightsV2Collapsed,
   getStrategyWeightsV2ForRegime,
 } from "../src/services/strategyWeightsV2";
-import { setStrategyWeight } from "../src/services/strategyWeights";
 import { reselectStrategyBank, buildStrategyRegimeEvidence } from "../src/services/strategyBankReselection";
 
 const NOW = new Date("2026-10-24T12:00:00.000Z");
@@ -139,12 +138,9 @@ describe("v2 weight reads", () => {
 });
 
 describe("/adaptation/weights on v2 always (#1257 flip)", () => {
-  it("v2 weights win over v1 rows with no flag set", async () => {
-    const { ctx, orm, sql } = routeCtx();
+  it("v2 weights returned with no flag set", async () => {
+    const { ctx, sql } = routeCtx();
     seedV2(sql);
-    // Distractor v1 rows: the flipped routes must ignore them.
-    setStrategyWeight(orm as any, "strat-a", 9.9, NOW);
-    setStrategyWeight(orm as any, "strat-b", 9.9, NOW);
     const { data } = await call(ctx, "GET", "/api/adaptation/weights");
     expect(data.weights["strat-a"]).toBeCloseTo(1.4, 10);
     expect(data.weights["strat-b"]).toBe(2.0);
