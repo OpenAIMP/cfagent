@@ -16,17 +16,14 @@ import {
 // Agents SDK actors now — mock the SDK with a plain base class
 // (the api_chat_route.test.ts idiom) so the real module graph's
 // `cloudflare:` imports never reach the node loader.
-// Issue #1954 (HOLD): TradingAgent extends PortThink, so this file's
+// Issue #1954: TradingAgent extends PortThink, so this file's
 // module graph now reaches bare @cloudflare/think via thinkAdapter.
-// Vitest externalizes that package, so its own graph loads through
-// node (bypassing the `agents` mock above) and fails on the
-// `cloudflare:` scheme. That is the program-level harness gap
-// (tracker #1951; ~33 server-importing suites affected fleet-wide):
-// this file cannot run under node until the harness decision lands.
-// Deliberately NO local stub/mock of thinkAdapter is added here —
-// per coordinator HOLD direction, no per-slice workaround. The real
-// Think turn cannot run under node vitest (spike verdict) and is
-// covered by the workerd proof + think-port-mapping tests, not here.
+// Under node vitest that specifier resolves to the test-only stub
+// (harness #2003, tracker #1951), so this file runs under node
+// with real assertions; no local stub/mock of thinkAdapter is
+// added here. The real Think turn still cannot run under node
+// vitest (spike verdict) and is covered by the workerd proof +
+// think-port-mapping tests, not here.
 vi.mock("agents", () => {
   return {
     Agent: class MockAgent {
