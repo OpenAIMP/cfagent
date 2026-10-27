@@ -55,6 +55,22 @@ The Cloudflare Agent Platform (`cfagent`) operates as a distributed system of ed
 | `SlackAgent` | `AIChatAgent` | Slack event webhook adapter | Ephemeral isolate |
 | `ScheduledAgent` | `Agent` | Autonomous cron trigger tick receiver | Scheduled alarm dispatch |
 
+### 2.2 Client SPA page shell (S5, #1804)
+
+The single-page client shares one page shell: the URL is the source of
+truth for navigation, driven by a single route table
+(`src/client/routes.ts`, 26 ids) from which nav items, breadcrumbs, and
+the content switch are derived, and every left-nav page except `chat`
+renders inside the `PageShell` primitive (title + scope note +
+sections, with primitive loading/empty/error states). The trading pages
+share one outlet shell in `ETradeTradingHub` whose title follows the
+active page via the route table. The shell standard itself lives in
+`docs/architecture/UX/design-system-01.md` (§2–§3); conformance is
+pinned by `tests/shell_conformance_1804.json` (25 of 26 — `chat`
+deferred by product decision, ADR-0021). Tab mechanisms are still two
+(the `Tabs` primitive vs hub bespoke tablists); reconciling them into
+one mechanism is S2, still open.
+
 ---
 
 ## 3. Communication Protocols & Dispatch Contracts
