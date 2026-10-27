@@ -5,6 +5,7 @@ import { getSessionCached, invalidateSessionCache } from "./security/sessionCach
 import { getSession, sessionStore, updateSession } from "./security/session";
 import type { DoNamespaceLike } from "./security/durableKv";
 import { zonedDateParts } from "./schedule";
+import { OPERATION_CATALOG } from "./orchestrate";
 import {
   SOCIAL_BRIEF_MAX_CHARS,
   createSocialBriefStoreFromNamespace,
@@ -948,6 +949,21 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
       if (path === "/api/schedule/goals" && request.method === "GET") {
         return Response.json({ ok: true, goals: await sched.listGoals() });
+      }
+      // Issue #1922 — operation catalog for the goals UI dropdown.
+      // Session-gated like every other /api/schedule/* route above
+      // (unauthenticated → 401); the list is derived from the server
+      // catalog at request time, never hardcoded in the client, so
+      // the dropdown tracks OPERATION_CATALOG exactly.
+      if (path === "/api/schedule/operations" && request.method === "GET") {
+        const operations = OPERATION_CATALOG.flatMap((entry) =>
+          entry.operations.map((operation) => ({
+            operation,
+            agent: entry.agent,
+            blurb: entry.blurb,
+          })),
+        );
+        return Response.json({ ok: true, operations });
       }
       if (path === "/api/schedule/goals" && request.method === "POST") {
         const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
