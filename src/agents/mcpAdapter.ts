@@ -200,10 +200,10 @@ export function createAgentMcpTools(context: McpToolContext) {
       symbols: z.array(z.string()).min(1).max(6).describe("List of stock tickers to compare (e.g. ['NVDA', 'AMD', 'INTC'])"),
     }),
     execute: async ({ symbols }) => {
-      const { FossResearchService } = await import("../services/fossResearch");
-      const service = new FossResearchService(context.env);
+      const { MarketDataResearchService } = await import("../services/marketDataResearch");
+      const service = new MarketDataResearchService(context.env);
       const comparison = await service.compareStocks(symbols);
-      context.audit("foss.compare_valuations", "research", { symbols, count: comparison.length });
+      context.audit("market_data.compare_valuations", "research", { symbols, count: comparison.length });
       return { count: comparison.length, comparison };
     },
   });

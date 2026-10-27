@@ -9,7 +9,7 @@ import { z } from "zod";
  *    mas_watchlists, mas_messages, etrade_portfolio_live, options_flows,
  *    mas_agentic_wallet, etrade_options_screener, etrade_market_screener,
  *    etrade_market_quotes, cf_agent_schedules, yfinance_fundamentals,
- *    foss_stock_comparison, foss_research_report, foss_quote,
+ *    market_data_stock_comparison, market_data_research_report, market_data_quote,
  *    etrade_premium_research, etrade_premium_options, alpaca_snapshot,
  *    platform_capabilities
  *
@@ -37,9 +37,9 @@ export const NLQ_TABLE_ALLOWLIST: ReadonlySet<string> = new Set([
   "etrade_market_quotes",
   "cf_agent_schedules",
   "yfinance_fundamentals",
-  "foss_stock_comparison",
-  "foss_research_report",
-  "foss_quote",
+  "market_data_stock_comparison",
+  "market_data_research_report",
+  "market_data_quote",
   "etrade_premium_research",
   "etrade_premium_options",
   "alpaca_snapshot",

@@ -66,8 +66,8 @@ export function deterministicRoute(
   if (/\b(how\s+to|how\s+do\s+i|how\s+can\s+i|how\s+does|what\s+are|what\s+is|what\s+can|explain|capabilities|workflows?|playbook|decisioning|pickbesttrades|how\s+to\s+use|search|find|lookup|docs|documentation|knowledge|features|pricing|faq)\b/i.test(lower)) {
     return { agent: "search", confidence: 0.98, reason: "Platform capability, workflow documentation, or knowledge inquiry", needsConfirmation: false };
   }
-  if (/\b(yfinance|yahoo\s*finance|alpaca|fundamentals|valuation|valuations|compare|peer|peers|p\/e\b|peg\s*ratio|price\s*to\s*book|beta|analyst\s*ratings?|price\s*targets?|historical\s*bars|ohlcv|foss|research\s+[a-z]{1,5}|snapshot\s+[a-z]{1,5})\b/i.test(lower)) {
-    return { agent: "research", confidence: 0.98, reason: "FOSS market research, quoting, and peer valuation intent (Yahoo Finance / Alpaca)", needsConfirmation: false };
+  if (/\b(yfinance|yahoo\s*finance|alpaca|market\s*data|fundamentals|valuation|valuations|compare|peer|peers|p\/e\b|peg\s*ratio|price\s*to\s*book|beta|analyst\s*ratings?|price\s*targets?|historical\s*bars|ohlcv|research\s+[a-z]{1,5}|snapshot\s+[a-z]{1,5})\b/i.test(lower)) {
+    return { agent: "research", confidence: 0.98, reason: "market-data research, quoting, and peer valuation intent (Yahoo Finance / Alpaca)", needsConfirmation: false };
   }
   if (/\b(etrade|stock|stocks|equities|equity|shares|screener|screening|scan\s+stocks|market\s+scan|ticker|rsi|macd|buy\s+\d+|sell\s+\d+|portfolio|positions|brokerage)\b/i.test(lower)) {
     return { agent: "trading", confidence: 0.95, reason: "Stock screening and E*TRADE trading intent detected", needsConfirmation: true };
