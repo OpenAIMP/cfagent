@@ -105,6 +105,13 @@
  * KNOWLEDGE_SERVING_ENABLED is off) — bringing the pinned array
  * to 217 entries; the delegation sequence is unchanged (same
  * handler, same position).
+ * Issue #1888 added six — GET /enrichment/status, GET
+ * /enrichment/runs, POST /enrichment/run, POST
+ * /enrichment/killswitch, GET /enrichment/calibration (in
+ * handleEnrichmentRoutes, after the data-provider handler), plus
+ * the canonical GET /market-data/bars alias (in
+ * handleFossQuoteResearchRoutes, before the retained legacy bars
+ * path) — bringing the delegation sequence to 26 calls.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -123,6 +130,7 @@ const HANDLER_FILE: Record<string, string> = {
   "handleReferralsAdsRoutes": "adsRevenueReferrals.ts",
   "handleAuditRoutes": "audit.ts",
   "handleDataProviderRoutes": "dataProviders.ts",
+  "handleEnrichmentRoutes": "enrichment.ts",
   "handleKnowledgeCorpusRoutes": "knowledgeCorpus.ts",
   "handleAutopilotRoutes": "autopilot.ts",
   "handleMemoryResetRoutes": "memoryReset.ts",
@@ -150,6 +158,7 @@ const EXPECTED_DELEGATIONS = [
   "handleAdsRevenueReferralsRoutes",
   "handleAuditRoutes",
   "handleDataProviderRoutes",
+  "handleEnrichmentRoutes",
   "handleKnowledgeCorpusRoutes",
   "handleAutopilotRoutes",
   "handleMemoryResetRoutes",
@@ -203,6 +212,11 @@ const EXPECTED_INVENTORY = [
   "handleAuditRoutes :: endsWith(\"/audit/event\")",
   "handleDataProviderRoutes :: === \"/data-providers\"",
   "handleDataProviderRoutes :: === \"/data-providers/\"",
+  "handleEnrichmentRoutes :: === \"/enrichment/status\"",
+  "handleEnrichmentRoutes :: === \"/enrichment/runs\"",
+  "handleEnrichmentRoutes :: === \"/enrichment/run\"",
+  "handleEnrichmentRoutes :: === \"/enrichment/killswitch\"",
+  "handleEnrichmentRoutes :: === \"/enrichment/calibration\"",
   "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/file\")",
   "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/corpus\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot\")",
@@ -312,6 +326,7 @@ const EXPECTED_INVENTORY = [
   "handleAlpacaTradingRoutes :: endsWith(\"/trading/alpaca/orders\")",
   "handleFossQuoteResearchRoutes :: endsWith(\"/foss/quote\")",
   "handleFossQuoteResearchRoutes :: endsWith(\"/foss/fundamentals\")",
+  "handleFossQuoteResearchRoutes :: endsWith(\"/market-data/bars\")",
   "handleFossQuoteResearchRoutes :: endsWith(\"/foss/bars\")",
   "handleFossQuoteResearchRoutes :: endsWith(\"/foss/research\")",
   "handleAlpacaFossRoutes :: endsWith(\"/foss/snapshot\")",

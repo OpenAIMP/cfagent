@@ -44,6 +44,7 @@ import {
   type TelemetryStore,
 } from "./telemetryPorts";
 import type { RetrievalStatsSnapshot } from "./retrievalStats";
+import type { EnrichmentQualitySummary } from "../enrichment/enrichmentPorts";
 import {
   realizationsFromTrackRecord,
   type TrackRecordIdeaInput,
@@ -109,6 +110,9 @@ export interface TelemetrySummaryRouteDeps {
   retrievalStats: () => RetrievalStatsSnapshot;
   /** #1741: gateway stats, when the caller wires the gateway port. Absent => no `gateway` field. */
   gatewayStats?: () => import("../gateway/gatewayPorts").GatewayStatsSnapshot;
+  /** #1888: enrichment quality, when the caller wires the enrichment
+   *  status read. Absent or null => no `enrichment` field. */
+  enrichmentStats?: () => EnrichmentQualitySummary | null;
 }
 
 export interface TelemetrySummaryBody {
@@ -125,6 +129,8 @@ export interface TelemetrySummaryBody {
   retrieval: RetrievalStatsSnapshot;
   /** #1741: present only when the gatewayStats dep is provided. */
   gateway?: import("../gateway/gatewayPorts").GatewayStatsSnapshot;
+  /** #1888: present only when the enrichmentStats dep provides a summary. */
+  enrichment?: EnrichmentQualitySummary;
 }
 
 export async function handleTelemetrySummaryRoute(
@@ -145,6 +151,7 @@ export async function handleTelemetrySummaryRoute(
         store.metrics(deps.tenantId, "month"),
         store.listDecisions(deps.tenantId, { status: "applied" }),
       ]);
+    const enrichment = deps.enrichmentStats ? deps.enrichmentStats() : null;
     const body: TelemetrySummaryBody = {
       tenantId: deps.tenantId,
       realizations: { total: rows.length },
@@ -158,6 +165,7 @@ export async function handleTelemetrySummaryRoute(
       breakerHealth: deps.breakerSnapshots(),
       retrieval: deps.retrievalStats(),
       ...(deps.gatewayStats ? { gateway: deps.gatewayStats() } : {}),
+      ...(enrichment ? { enrichment } : {}),
     };
     return Response.json(body);
   } catch {
