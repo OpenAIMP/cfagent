@@ -63,7 +63,7 @@ function installFetch(state: PanelStubState = {}) {
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ url, method, body });
 
-    if (url.startsWith("/api/foss/quote")) {
+    if (url.startsWith("/api/market-data/quote")) {
       // Issue #924 (pin-rule update in the same PR): the panel no longer
       // falls back to a hardcoded preset when the quote fetch carries no
       // price — an empty quote payload now means "Quote unavailable" and

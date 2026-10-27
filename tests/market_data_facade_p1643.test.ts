@@ -13,7 +13,7 @@
  * is `unavailable`, never stale-served.
  *
  * Scope notes (verified on main, recorded on #1643): /api/market/quotes
- * and /api/foss/quotes are already aliases to one handler; no
+ * and /api/market-data/quotes are already aliases to one handler; no
  * /api/trading/etrade/quotes HTTP route exists (E*TRADE quotes live
  * in the platform service). The WS stream is deliberately untouched:
  * it publishes the last cached quote for stream continuity and its

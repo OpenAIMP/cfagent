@@ -106,7 +106,7 @@ The scoring matrix below prioritizes all core functional modules based on their 
 ---
 
 ### 3.5 API Layer, Integration & Network Components (Score: 16/20)
-* **Components:** `src/server.ts` (2,516 LOC monolithic edge router), `src/trading/etrade/client.ts` (3,496 LOC), `src/trading/alpaca/platform.ts`, `src/services/fossResearch.ts` (2,893 LOC), `src/a2a/`.
+* **Components:** `src/server.ts` (2,516 LOC monolithic edge router), `src/trading/etrade/client.ts` (3,496 LOC), `src/trading/alpaca/platform.ts`, `src/services/marketDataResearch.ts` (2,893 LOC), `src/a2a/`.
 * **Assessment & Purpose:** Assesses HTTP REST/RPC request routing, external third-party REST integrations (E*TRADE OAuth1.0a, OpenAi/Glm-4, Alpaca), webhooks, and A2A (Agent-to-Agent) protocol inter-op.
 * **Why Assessed:** `server.ts` is the single ingress point for all web traffic, API requests, and webhook callbacks. External integrations present major operational risk due to rate limits and upstream failures.
 * **Areas of Concern:**
@@ -169,7 +169,7 @@ The scoring matrix below prioritizes all core functional modules based on their 
 * `src/trading/options/flows/flowService.ts` (2,439 LOC): Unusual option flow detection, dark pool volume analysis, put/call ratio calculations.
 * `src/trading/screenerPipeline.ts` (1,920 LOC): Quantitative stock/option screening engine executing multi-indicator rules (RSI, MACD, IV Rank, Volume).
 * `src/services/recommendationKernel.ts` (1,683 LOC): Multi-factor portfolio scoring, AI confidence weightings, and strategy recommendations.
-* `src/services/fossResearch.ts` (2,893 LOC): Automated repository analysis, documentation evaluation, and open-source intelligence scoring.
+* `src/services/marketDataResearch.ts` (2,893 LOC): Automated repository analysis, documentation evaluation, and open-source intelligence scoring.
 
 #### 3. Most Frequently Executed Components & Paths
 * **Path 1 (Ingress Gateway):** `src/server.ts` -> `src/security/executionContext.ts` -> Route Handler. (Executes on every incoming HTTP request).

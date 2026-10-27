@@ -20,7 +20,7 @@
  *  - route-table selection: the yahoo-mode quote provider resolves
  *    from the seeded quotes route's gap-fill assignment;
  *  - conformance: the yahoo adapter passes the kit over a fixture
- *    FOSS engine (drop-in replacement claim).
+ *    Market-data engine (drop-in replacement claim).
  *
  * No secret-shaped literals: this file contains no credentials, keys,
  * or tokens in any form.
@@ -58,15 +58,15 @@ import {
   type DataProviderRoutesContext,
 } from "../src/agents/routes/dataProviders";
 import { MockSqlStorage } from "./mock-sql";
-import type { FossQuote } from "../src/types";
-import type { IFossMarketDataProvider } from "../src/patterns/interfaces";
+import type { MarketDataResearchQuote } from "../src/types";
+import type { IMarketDataProvider } from "../src/patterns/interfaces";
 import type { Env } from "../src/types";
 
 const fastPolicy = { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0, jitterRatio: 0 };
 const noSleep = async () => {};
 const RUN = { runId: "run-yahoo-1317", tenantId: "test-tenant", userLogin: "tester" };
 
-function liveQuote(symbol: string, price = 100): FossQuote {
+function liveQuote(symbol: string, price = 100): MarketDataResearchQuote {
   return {
     symbol,
     provider: "yfinance",
@@ -90,11 +90,11 @@ function liveQuote(symbol: string, price = 100): FossQuote {
   };
 }
 
-type FixtureFoss = IFossMarketDataProvider & {
-  getQuotes?: (symbols: string[]) => Promise<FossQuote[]>;
+type FixtureMarketData = IMarketDataProvider & {
+  getQuotes?: (symbols: string[]) => Promise<MarketDataResearchQuote[]>;
 };
 
-function fixtureFoss(over: Partial<FixtureFoss> = {}): FixtureFoss {
+function fixtureMarketData(over: Partial<FixtureMarketData> = {}): FixtureMarketData {
   return {
     providerId: "yfinance",
     name: "fixture",
@@ -174,8 +174,8 @@ const LISTINGS = (symbols: string[]) =>
   }));
 
 describe("binding: platform yahoo provider → YahooScreenerDeps", () => {
-  it("per-symbol fetch returns the platform FossQuote; batch present iff the provider offers it", async () => {
-    const adapter = createYahooDataProvider(fixtureFoss());
+  it("per-symbol fetch returns the platform MarketDataResearchQuote; batch present iff the provider offers it", async () => {
+    const adapter = createYahooDataProvider(fixtureMarketData());
     const bound = bindYahooScreenerDeps(adapter, RUN);
     const q = await bound.fetchYahooQuote("AAPL");
     expect(q.symbol).toBe("AAPL");
@@ -184,9 +184,9 @@ describe("binding: platform yahoo provider → YahooScreenerDeps", () => {
     const batch = await bound.fetchYahooBatchQuotes!(["AAPL", "MSFT"]);
     expect(batch.map((b) => b.symbol)).toEqual(["AAPL", "MSFT"]);
 
-    const noBatchFoss = fixtureFoss();
-    delete (noBatchFoss as Partial<FixtureFoss>).getQuotes;
-    const noBatchAdapter = createYahooDataProvider(noBatchFoss);
+    const noBatchMarketData = fixtureMarketData();
+    delete (noBatchMarketData as Partial<FixtureMarketData>).getQuotes;
+    const noBatchAdapter = createYahooDataProvider(noBatchMarketData);
     expect(noBatchAdapter.getQuotesBatch).toBeUndefined();
     expect(bindYahooScreenerDeps(noBatchAdapter, RUN).fetchYahooBatchQuotes).toBeUndefined();
   });
@@ -203,7 +203,7 @@ describe("binding: platform yahoo provider → YahooScreenerDeps", () => {
       mode: "yahoo",
       symbols: LISTINGS(symbols),
       maxSymbols: 3,
-      yahooDeps: bindYahooScreenerDeps(createYahooDataProvider(fixtureFoss()), RUN),
+      yahooDeps: bindYahooScreenerDeps(createYahooDataProvider(fixtureMarketData()), RUN),
     });
     expect(platform.quotes).toEqual(direct.quotes);
     expect(platform.provider).toBe("yahoo");
@@ -214,7 +214,7 @@ describe("binding: platform yahoo provider → YahooScreenerDeps", () => {
 describe("capture: every yahoo adapter fetch is captured, run-linked, never throwing", () => {
   it("quote/bars/fundamentals/batch each write a capture row under the run id", async () => {
     const sql = new MockSqlStorage();
-    const adapter = createYahooDataProvider(fixtureFoss(), undefined, {
+    const adapter = createYahooDataProvider(fixtureMarketData(), undefined, {
       capture: captureDeps(sql),
     });
     await adapter.getQuote!("AAPL", RUN);
@@ -238,7 +238,7 @@ describe("capture: every yahoo adapter fetch is captured, run-linked, never thro
 
   it("a blob failure writes a capture_failed marker and the fetch still returns", async () => {
     const sql = new MockSqlStorage();
-    const adapter = createYahooDataProvider(fixtureFoss(), undefined, {
+    const adapter = createYahooDataProvider(fixtureMarketData(), undefined, {
       capture: captureDeps(sql, failingBlobStorage()),
     });
     const q = await adapter.getQuote!("AAPL", RUN);
@@ -251,11 +251,11 @@ describe("capture: every yahoo adapter fetch is captured, run-linked, never thro
 });
 
 describe("outcome: throwing platform fetches are tracked and rethrown identically", () => {
-  it("a throwing FOSS fetch writes fetch_failed and the pipeline still fails honestly", async () => {
+  it("a throwing market-data fetch writes fetch_failed and the pipeline still fails honestly", async () => {
     const sql = new MockSqlStorage();
     const boom = new Error("yahoo down");
     const adapter = createYahooDataProvider(
-      fixtureFoss({
+      fixtureMarketData({
         getQuote: async () => { throw boom; },
         // The batch path must fail too, or it covers the symbol and
         // the run legitimately succeeds — batch-first is the design.
@@ -297,7 +297,7 @@ describe("lifecycle + routes: yahoo verifies, enables, and serves with health", 
     const sql = new MockSqlStorage();
     seedProviderConfigs(sql as never);
     expect(getProviderConfig(sql as never, "yahoo")?.lifecycleState).toBe("configured");
-    const verifier = () => verifyYahooDataProvider(undefined, { provider: fixtureFoss() });
+    const verifier = () => verifyYahooDataProvider(undefined, { provider: fixtureMarketData() });
     const verified = await transitionProvider(sql as never, "yahoo", "verify", "tester", {
       verifier: verifier as never,
     });
@@ -308,7 +308,7 @@ describe("lifecycle + routes: yahoo verifies, enables, and serves with health", 
 
     // A capture under the run gives the health block activity to report.
     const blob = fakeBlobStorage();
-    const adapter = createYahooDataProvider(fixtureFoss(), undefined, {
+    const adapter = createYahooDataProvider(fixtureMarketData(), undefined, {
       capture: captureDeps(sql, blob),
     });
     await adapter.getQuote!("AAPL", RUN);
@@ -357,7 +357,7 @@ describe("route-table selection: yahoo mode resolves from the quotes route", () 
     });
     await transitionProvider(sql as never, "yahoo", "enable", "tester", {});
     const registry = new DataProviderRegistry();
-    const adapter = createYahooDataProvider(fixtureFoss());
+    const adapter = createYahooDataProvider(fixtureMarketData());
     registry.register(adapter);
     const resolved = yahooQuoteProviderFromRoute(
       registry,
@@ -372,7 +372,7 @@ describe("route-table selection: yahoo mode resolves from the quotes route", () 
     const sql = new MockSqlStorage();
     seedProviderConfigs(sql as never);
     const registry = new DataProviderRegistry();
-    registry.register(createYahooDataProvider(fixtureFoss()));
+    registry.register(createYahooDataProvider(fixtureMarketData()));
     expect(() =>
       yahooQuoteProviderFromRoute(
         registry,
@@ -383,9 +383,9 @@ describe("route-table selection: yahoo mode resolves from the quotes route", () 
   });
 });
 
-describe("conformance: yahoo adapter is a drop-in for the FOSS engine", () => {
+describe("conformance: yahoo adapter is a drop-in for the Market-data engine", () => {
   it("passes the kit for quotes, historicalBars, and fundamentals", async () => {
-    const report = await runDataProviderConformance(createYahooDataProvider(fixtureFoss()));
+    const report = await runDataProviderConformance(createYahooDataProvider(fixtureMarketData()));
     expect(report.ok).toBe(true);
     expect(report.checks.map((c) => c.capability).sort()).toEqual([
       "fundamentals",

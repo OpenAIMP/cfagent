@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { YahooFinanceProvider } from "../src/services/fossResearch";
+import { YahooFinanceProvider } from "../src/services/marketDataResearch";
 import { __resetQuoteCache } from "../src/services/quoteCache";
 
 /**

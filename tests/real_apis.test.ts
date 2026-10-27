@@ -7,7 +7,7 @@
  * 2. E*TRADE Broker Service generates authentic RFC 5849 OAuth 1.0a HMAC-SHA1 headers and calls
  *    real REST endpoints (/v1/market/quote, /v1/accounts/.../orders/preview, /orders/place, /portfolio).
  * 3. Alpaca Market Data v2 and Trading API v2 execute genuine REST calls (/v2/orders, /v2/account, /v2/quotes/latest).
- * 4. Yahoo Finance FOSS provider performs genuine HTTP requests (/v8/finance/chart, /v10/finance/quoteSummary).
+ * 4. Yahoo Finance provider performs genuine HTTP requests (/v8/finance/chart, /v10/finance/quoteSummary).
  * 5. Missing or invalid credentials return structured, authentic upstream errors rather than silent fake mockups.
  */
 
@@ -21,7 +21,7 @@ import {
 import { PaymentGatewayService } from "../src/services/payments";
 import { ETradeService } from "../src/services/etrade";
 import { storeAccessTokens } from "../src/security/etradeOAuth";
-import { YahooFinanceProvider, AlpacaMarketDataProvider, FossResearchService } from "../src/services/fossResearch";
+import { YahooFinanceProvider, AlpacaMarketDataProvider, MarketDataResearchService } from "../src/services/marketDataResearch";
 import { generateOAuth1Header, computeHmacSha256Hex, computeHmacSha1Base64 } from "../src/services/cryptoUtils";
 import { createDidAttestationSync, AGENT_DIDS } from "../src/agents/did";
 import type { Env } from "../src/types";
@@ -586,9 +586,9 @@ describe("Real Payment & Trading APIs (No Simulation, No Mockups)", () => {
   });
 
   // =========================================================================
-  // 6. Real Yahoo Finance FOSS API (No Mockups)
+  // 6. Real Yahoo Finance API (No Mockups)
   // =========================================================================
-  describe("Yahoo Finance FOSS Engine (Real HTTP Calls)", () => {
+  describe("Yahoo Finance Engine (Real HTTP Calls)", () => {
     it("makes genuine GET request to query1.finance.yahoo.com/v8/finance/chart/{symbol}", async () => {
       // #411: route every fetch in the flow — a bare mockResolvedValueOnce
       // let the provider's follow-up crumb/enrichment calls leak to the real

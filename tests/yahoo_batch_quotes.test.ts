@@ -15,9 +15,9 @@ import {
   yahooDepsFromProvider,
   type YahooScreenerDeps,
 } from "../src/trading/screenerPipeline";
-import type { FossQuote } from "../src/types";
+import type { MarketDataResearchQuote } from "../src/types";
 
-function liveQuote(symbol: string, price = 100): FossQuote {
+function liveQuote(symbol: string, price = 100): MarketDataResearchQuote {
   return {
     symbol,
     provider: "yfinance",

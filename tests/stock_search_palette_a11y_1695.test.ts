@@ -33,7 +33,7 @@ const NAV = [
 ];
 const ACTIONS = [
   { id: "action-options", label: "Screen NVDA 0DTE Options Flow" },
-  { id: "action-research", label: "Generate FOSS Valuation Report for NVDA" },
+  { id: "action-research", label: "Generate Market Data Valuation Report for NVDA" },
 ];
 
 describe("paletteOptionId (#1695)", () => {
@@ -50,7 +50,7 @@ describe("getPaletteSelectedLabel (#1695)", () => {
     expect(getPaletteSelectedLabel(TICKERS, NAV, ACTIONS, 2)).toBe("Autopilot Control Center");
     expect(getPaletteSelectedLabel(TICKERS, NAV, ACTIONS, 3)).toBe("Copilot Ideas & Agent Chat");
     expect(getPaletteSelectedLabel(TICKERS, NAV, ACTIONS, 4)).toBe("Screen NVDA 0DTE Options Flow");
-    expect(getPaletteSelectedLabel(TICKERS, NAV, ACTIONS, 5)).toBe("Generate FOSS Valuation Report for NVDA");
+    expect(getPaletteSelectedLabel(TICKERS, NAV, ACTIONS, 5)).toBe("Generate Market Data Valuation Report for NVDA");
   });
 
   it("returns null for out-of-range and negative indices", () => {

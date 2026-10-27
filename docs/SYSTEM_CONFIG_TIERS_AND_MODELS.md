@@ -95,7 +95,7 @@ All configuration settings are externalized into [`environment.config.json`](fil
 |---|---|---|---|
 | `externalApis.nasdaqListings.pageSize` | `defaults.etapi.externalApis.nasdaqListings` | `5,000` | Pagination page size for NASDAQ all-exchange equities listing feed. |
 | `externalApis.nasdaqListings.timeoutMs` | `defaults.etapi.externalApis.nasdaqListings` | `2,500` ms | Fetch timeout before falling back to Yahoo Finance or curated offline universe. |
-| `externalApis.yahooFinance.timeoutMs` | `defaults.etapi.externalApis.yahooFinance` | `5,000` ms | Timeout for zero-credential FOSS market data queries. |
+| `externalApis.yahooFinance.timeoutMs` | `defaults.etapi.externalApis.yahooFinance` | `5,000` ms | Timeout for zero-credential market data queries. |
 | `externalApis.yahooFinance.maxRetries` | `defaults.etapi.externalApis.yahooFinance` | `2` | Exponential backoff retry count for upstream Yahoo Finance quote endpoints. |
 | `cache.quotesTtlSeconds` | `defaults.etapi.cache.quotesTtlSeconds` | `60` seconds | Cache lifetime for market quote snapshots. |
 | `cache.optionChainsTtlSeconds` | `defaults.etapi.cache.optionChainsTtlSeconds` | `120` seconds | Cache lifetime for raw options chains before re-requesting upstream broker. |
@@ -130,7 +130,7 @@ The platform utilizes Cloudflare Workers AI with zero cold-starts and global edg
 | **Options Ideas Generation (Raw Chains)**| `optionsIdeas` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | Multi-group chain analysis with complex contract strike reasoning and risk trade-off synthesis. |
 | **Multi-Leg Strategy Comparison** | `optionsComparison` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | Deep Greek modeling ($\Delta, \Gamma, \Theta, \text{Vega}$) and maximum risk payoff matrix evaluations. |
 | **Vector Search & Documentation RAG** | `searchAgent` | `@cf/zai-org/glm-4.7-flash` | Low latency knowledge retrieval with high semantic comprehension over platform guides. |
-| **FOSS Market Research Summarization** | `marketResearch` | `@cf/zai-org/glm-4.7-flash` | Fast financial statement and news sentiment extraction from unformatted web content. |
+| **Market Data Research Summarization** | `marketResearch` | `@cf/zai-org/glm-4.7-flash` | Fast financial statement and news sentiment extraction from unformatted web content. |
 
 ---
 

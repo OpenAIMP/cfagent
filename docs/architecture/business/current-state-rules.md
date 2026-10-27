@@ -24,10 +24,10 @@
 
 | Screener Rule / Formula | Rule Details & Thresholds | Status | Codebase Component / File | Implementation Details / Functions |
 |---|---|---|---|---|
-| **RSI (14-Period)** | $\text{RSI}_{14}$ computation, Overbought ($> 70$), Oversold ($< 30/35$), Neutral ($35 - 70$) | Implemented | `src/services/fossResearch.ts`<br>`src/trading/technicals.ts`<br>`src/trading/screener.ts` | `computeRsi14()`, `computeTechnicals()`, `evaluateUniverse()` filtering via `minRsi`, `maxRsi`, `rsiFilter`. |
+| **RSI (14-Period)** | $\text{RSI}_{14}$ computation, Overbought ($> 70$), Oversold ($< 30/35$), Neutral ($35 - 70$) | Implemented | `src/services/marketDataResearch.ts`<br>`src/trading/technicals.ts`<br>`src/trading/screener.ts` | `computeRsi14()`, `computeTechnicals()`, `evaluateUniverse()` filtering via `minRsi`, `maxRsi`, `rsiFilter`. |
 | **Bollinger Bands (20, 2.0)** | $\%B = \frac{P - \text{Lower}}{\text{Upper} - \text{Lower}}$, Extension Gate ($\%B \le 1.0$), Squeeze Gate (Bandwidth 125-day min) | Not Implemented | None | Defined in architecture doc, not calculated in active trading engine. |
-| **Anchored VWAP (52W Low)** | $\text{AVWAP} = \frac{\sum (P_i \cdot V_i)}{\sum V_i}$ anchored from 52-week low bar | Not Implemented | None | Session/daily VWAP exists in `fossResearch.ts`, but 52-week low Anchored VWAP gate is absent. |
-| **Moving Average Structure** | $\text{SMA}_{50} > \text{SMA}_{200}$ trend alignment; Death Cross within 20 sessions hard rejection | Partially Implemented | `src/services/fossResearch.ts` | `assembleResearchReport()` outputs `trend50vs200SMA` heuristic (`GOLDEN_CROSS`), but 20-session Death Cross rejection gate is not in `screener.ts`. |
+| **Anchored VWAP (52W Low)** | $\text{AVWAP} = \frac{\sum (P_i \cdot V_i)}{\sum V_i}$ anchored from 52-week low bar | Not Implemented | None | Session/daily VWAP exists in `marketDataResearch.ts`, but 52-week low Anchored VWAP gate is absent. |
+| **Moving Average Structure** | $\text{SMA}_{50} > \text{SMA}_{200}$ trend alignment; Death Cross within 20 sessions hard rejection | Partially Implemented | `src/services/marketDataResearch.ts` | `assembleResearchReport()` outputs `trend50vs200SMA` heuristic (`GOLDEN_CROSS`), but 20-session Death Cross rejection gate is not in `screener.ts`. |
 | **Fractal Pivots & Fibonacci** | Extreme High/Low pivots ($n=5$), Fib Retracements ($38.2\%, 50.0\%, 61.8\%$) | Not Implemented | None | Defined in specification doc only. |
 | **HH/HL Trend & Regime** | Price-action regime: `UP` (HH+HL), `DN` (LH+LL), `RNG` (Neutral) | Partially Implemented | `src/trading/options/strategies/directionTags.ts`<br>`src/trading/options/strategies/catalog.ts` | Directional theses (`bullish`, `bearish`, `range_bound`, `large_move`) exist, but HH/HL pivot classification is absent. |
 | **6-Vote Composite Bias Score** | 6 binary TA votes ($P > \text{SMA}_{50}$, $P > \text{SMA}_{200}$, $\text{SMA}_{50} > \text{SMA}_{200}$, $\text{MACD} > 0$, $\text{RSI} > 50$, Pivot = `UP`) | Not Implemented | None | `src/trading/screeningIndicators.ts` provides a 4-component intraday score, but not the 6-vote composite model. |
@@ -81,7 +81,7 @@
 |---|---|---|
 | **1. Screen (Find)** | Multi-factor stock and options universe scanning | `src/trading/screener.ts`<br>`src/trading/optionsScreener.ts`<br>`src/trading/screenerPipeline.ts` |
 | **2. Regime (Strategy)** | Thesis matching (bullish, bearish, range_bound, large_move) | `src/trading/options/strategies/directionTags.ts`<br>`src/trading/options/strategies/catalog.ts` |
-| **3. Timing (Entry)** | RSI(14) calculation, overnight gap, volume ratio | `src/trading/technicals.ts`<br>`src/services/fossResearch.ts`<br>`src/trading/screeningIndicators.ts` |
+| **3. Timing (Entry)** | RSI(14) calculation, overnight gap, volume ratio | `src/trading/technicals.ts`<br>`src/services/marketDataResearch.ts`<br>`src/trading/screeningIndicators.ts` |
 | **4. Strikes (Structure)** | Delta targets ($0.10 - 0.20\Delta$), strike ladder offsets, width scaling | `src/trading/options/strategies/template.ts`<br>`src/trading/options/strategies/catalog.ts` |
 | **5. Size (Risk)** | Max loss gates (`maxPlannedLoss`), reward/risk ratios | `src/trading/options/strategyEngine.ts`<br>`src/trading/options/strategyRiskAgent.ts` |
 | **6. Preflight (Execute)** | Earnings/dividend event policy, OAuth session validation, draft approval | `src/trading/options/strategyEngine.ts`<br>`src/security/sessionPolicy.ts`<br>`src/trading/channels/approval.ts` |

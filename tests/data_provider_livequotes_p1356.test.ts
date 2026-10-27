@@ -34,7 +34,7 @@ import type {
   DataProvider,
   DataRunContext,
 } from "../src/trading/dataProviders/contract";
-import type { ETradeQuote, FossQuote } from "../src/types";
+import type { ETradeQuote, MarketDataResearchQuote } from "../src/types";
 
 const RUN: DataRunContext = { runId: "run-p1356", userLogin: "trader1" };
 
@@ -62,7 +62,7 @@ function etradeQuote(symbol: string, price = 100): ETradeQuote {
   } as ETradeQuote;
 }
 
-function yahooQuote(symbol: string, price = 100): FossQuote {
+function yahooQuote(symbol: string, price = 100): MarketDataResearchQuote {
   return {
     symbol,
     provider: "yfinance",
@@ -81,7 +81,7 @@ function yahooQuote(symbol: string, price = 100): FossQuote {
     previousClose: price - 1,
     timestamp: "2026-10-25T00:00:00.000Z",
     currency: "USD",
-  } as FossQuote;
+  } as MarketDataResearchQuote;
 }
 
 type ProviderStub = {
@@ -123,8 +123,8 @@ function stubEtrade(
   return { provider: provider as unknown as DataProvider, calls, contexts };
 }
 
-/** Yahoo stub: serves `served` FossQuotes, counts every fetch. */
-function stubYahoo(served: Record<string, FossQuote>): ProviderStub {
+/** Yahoo stub: serves `served` MarketDataResearchQuotes, counts every fetch. */
+function stubYahoo(served: Record<string, MarketDataResearchQuote>): ProviderStub {
   const calls = { single: [] as string[], batch: [] as string[][] };
   const contexts: DataRunContext[] = [];
   const provider = {
@@ -174,7 +174,7 @@ function configRecords(etradeEnabled = true, yahooEnabled = true) {
     },
     {
       id: "yahoo",
-      adapterKind: "foss-yahoo",
+      adapterKind: "market-data-yahoo",
       lifecycleState: yahooEnabled ? "enabled" : "disabled",
       enabled: yahooEnabled,
       precedence: 3,

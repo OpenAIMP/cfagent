@@ -1232,9 +1232,9 @@ describe("public verifier", () => {
     const store = makeFakeSessionStore();
     const env = makeEnv(store);
     expect(buildDataProviderVerifier(env, LOGIN, "public", null)).toBeDefined();
-    // #1317 binds the yahoo verifier (FOSS isConfigured + conformance);
+    // #1317 binds the yahoo verifier (market-data isConfigured + conformance);
     // #1368 binds the nasdaq verifier (configured-by-construction +
-    // conformance); #1385 binds the alpaca verifier (FOSS
+    // conformance); #1385 binds the alpaca verifier (market-data
     // isConfigured + conformance). With all five providers bound,
     // the unbound case moves to an unknown provider id returning
     // undefined — the explicit-binding-matrix intent of this pin

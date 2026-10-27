@@ -76,7 +76,7 @@ The application surfaces capabilities across four communication protocols:
   * Errors in MCP execution sometimes return HTTP 200 with `{ error: ... }` inside JSON-RPC result instead of standard JSON-RPC error codes (-32602, -32603) or proper transport statuses.
 * **REST Path Standard Violations**:
   * Mixed singular and plural route conventions (e.g., `/api/schedule/goals` vs `/api/schedules`, `/api/api-keys` vs `/api/social/brief`).
-  * Duplicated route aliases (`/nlq/webhook`, `/api/trading/nlq/webhook`, `/api/nlq/webhook`, `/api/market/quotes`, `/api/foss/quotes`).
+  * Duplicated route aliases (`/nlq/webhook`, `/api/trading/nlq/webhook`, `/api/nlq/webhook`, `/api/market-data/quotes`, `/api/market/quotes`, `/api/foss/quotes`).
 
 ### 3. Security & Authentication Gaps
 * **Token & Identity Verification Inconsistencies**:
@@ -86,7 +86,7 @@ The application surfaces capabilities across four communication protocols:
   * Throttling is applied ad-hoc via `throttle()` on specific routes (`/nlq/webhook`, `/api/memory/search`) rather than uniform rate limiting middleware across all sensitive mutation endpoints.
 
 ### 4. Areas for Consolidation, Optimization & Reuse
-* **Broker & Market Data Consolidation**: Market quote HTTP and WebSocket handlers (`/api/market/quotes`, `/api/foss/quotes`) duplicate logic across E*TRADE, Yahoo Finance, and Alpaca providers. Unifying under a provider-agnostic `MarketDataService` facade will streamline maintenance.
+* **Broker & Market Data Consolidation**: Market quote HTTP and WebSocket handlers (`/api/market-data/quotes`, `/api/market/quotes`, `/api/foss/quotes`) duplicate logic across E*TRADE, Yahoo Finance, and Alpaca providers. Unifying under a provider-agnostic `MarketDataService` facade will streamline maintenance.
 * **Unified Webhook Verification Middleware**: Abstract signature verification into a generic higher-order middleware covering Slack, NLQ, Stripe, PayPal, and Lemon Squeezy.
 * **MCP & REST Handler Reuse**: MCP tool commands (`src/mcp/commands.ts`) duplicate business logic found in REST API routes. Wrapping domain services in reusable command objects allows REST routes to invoke the exact same command objects as MCP JSON-RPC calls.
 
@@ -153,8 +153,8 @@ The following table lists all endpoints across the platform, categorized by **Pu
 | `ANY /api/trading/options/*`<br>`ANY /trading/options/*` | Forwards options intelligence requests (catalog, strategies, screens, payoff) to agent DO. | Web UI / Options Panel | **Secured** (Session Cookie) | Sync |
 | `ANY /api/schedules` | Cloudflare Agents task schedule management (create, cancel, trigger). | Task Scheduler Panel | **Secured** (Session Cookie) | Sync / Async |
 | `WS /voice/trade`<br>`WS /api/trading/voice/ws` | Real-time WebSocket connection for bidirectional audio/voice trading turns. | Web Client Voice Studio | **Secured** (Session Cookie checked before upgrade) | Async (WS) |
-| `WS /api/market/quotes/ws`<br>`WS /api/foss/quotes/ws` | WebSocket feed for streaming level-1 equity quotes and NBBO spreads. | Real-time Market Dashboard | **Unsecure / Public** (Rate limited) | Async (WS) |
-| `GET /api/market/quotes`<br>`GET /api/foss/quotes` | Batch HTTP polling endpoint for market quotes. | Web Dashboard | **Unsecure / Public** (Rate limited) | Sync |
+| `WS /api/market-data/quotes/ws`<br>`WS /api/market/quotes/ws`<br>`WS /api/foss/quotes/ws` | WebSocket feed for streaming level-1 equity quotes and NBBO spreads. | Real-time Market Dashboard | **Unsecure / Public** (Rate limited) | Async (WS) |
+| `GET /api/market-data/quotes`<br>`GET /api/market/quotes`<br>`GET /api/foss/quotes` | Batch HTTP polling endpoint for market quotes. | Web Dashboard | **Unsecure / Public** (Rate limited) | Sync |
 | `POST /api/browser/snapshot`<br>`POST /browser/snapshot` | Captures web page snapshot via Browser Rendering DO and posts to Slack. | Web UI / Browser Agent | **Secured** (Session Cookie) | Async |
 | `POST /api/browser/transaction-snap`<br>`POST /browser/transaction-snap` | Captures trade transaction confirmation screen and forwards to Slack. | Trading Hub | **Secured** (Session Cookie) | Async |
 | `POST /slack/commands`<br>`POST /slack/slash` | Receives incoming Slack slash commands (`/snap`, `/trade`, `/quote`, `/screen`). | Slack Workspace | **Secured** (Slack HMAC Signing Secret `X-Slack-Signature`) | Async |
@@ -210,10 +210,10 @@ The MCP Server (`src/mcp/index.ts`) exposes **17 Tools**, **11 Resources**, and 
 | `etrade_get_positions` | Retrieves portfolio holdings and account cash balances. | Trading / E*TRADE |
 | `etrade_auth_status` | Checks E*TRADE OAuth connection state. | Trading / E*TRADE |
 | `etrade_account_discovery` | Discovers available E*TRADE accounts. | Trading / E*TRADE |
-| `foss_get_quote` | Fetches market quote via Yahoo Finance or Alpaca. | Market Research |
-| `foss_fundamentals` | Fetches institutional fundamental metrics (P/E, PEG, price targets). | Market Research |
-| `foss_historical_bars` | Fetches historical price candle bars. | Market Research |
-| `foss_market_research` | Synthesizes full equity research report. | Market Research |
+| `market_data_get_quote` | Fetches market quote via Yahoo Finance or Alpaca. | Market Research |
+| `market_data_company_fundamentals` | Fetches institutional fundamental metrics (P/E, PEG, price targets). | Market Research |
+| `market_data_historical_bars` | Fetches historical price candle bars. | Market Research |
+| `market_data_research` | Synthesizes full equity research report. | Market Research |
 | `paid_options_screener` | Runs premium options screener (x402 micro-payment tool). | Paid Tools / x402 |
 | `paid_market_research` | Runs deep-dive institutional research (x402 micro-payment tool). | Paid Tools / x402 |
 | `agentic_wallet_status` | Returns x402 wallet balance and auto-approve limits. | Payments / Wallet |
@@ -238,9 +238,9 @@ The MCP Server (`src/mcp/index.ts`) exposes **17 Tools**, **11 Resources**, and 
 | `sqlite://audit/recent` | Observability Audit Stream | Recent router decisions, HITL authorizations, and execution events. |
 | `sqlite://trading/orders` | E*TRADE Order Ledger | Historical trade orders with Agent DID proof stamps. |
 | `etrade://portfolio/positions` | E*TRADE Portfolio Positions | Portfolio holdings, cost basis, and unrealized P&L. |
-| `foss://market/quote/{ticker}` | FOSS Market Quote | Real-time quote and NBBO bid/ask spread. |
-| `foss://research/fundamentals/{ticker}` | FOSS Company Fundamentals | P/E, PEG, price targets, balance sheet metrics. |
-| `foss://providers/status` | FOSS Providers Health | Connection status and rate limit status for market data providers. |
+| `market-data://market/quote/{ticker}` | Market Data Quote | Real-time quote and NBBO bid/ask spread. |
+| `market-data://research/fundamentals/{ticker}` | Market Data Company Fundamentals | P/E, PEG, price targets, balance sheet metrics. |
+| `market-data://providers/status` | Market Data Providers Health | Connection status and rate limit status for market data providers. |
 
 ### MCP Prompts
 
@@ -249,7 +249,18 @@ The MCP Server (`src/mcp/index.ts`) exposes **17 Tools**, **11 Resources**, and 
 | `audit_security_review` | Security & compliance review of pending financial drafts and DID proof signatures. | `draftId` (required) |
 | `revenue_performance_analysis` | Analyzes monetization efficiency across ad networks and recommends optimizations. | None |
 | `nlq_schema_exploration` | Formulates optimal natural language queries to explore SQLite relationships. | None |
-| `foss_equity_research_report` | Generates comprehensive equity research report synthesizing fundamentals & technicals. | `symbol` (required) |
+| `market_data_equity_research_report` | Generates comprehensive equity research report synthesizing fundamentals & technicals. | `symbol` (required) |
+
+> **#1906 deprecation note:** the pre-rename names remain available as
+> deprecated aliases on the same handlers — REST `/api/foss/*` routes
+> (canonical `/api/market-data/*`), MCP tools `foss_get_quote`,
+> `foss_company_fundamentals`, `foss_historical_bars`,
+> `foss_market_research`, `foss_alpaca_snapshot`, `foss_alpaca_account`,
+> `foss_alpaca_positions`, `foss_alpaca_orders`,
+> `foss_alpaca_place_order`, resources `foss://market/quote/*`,
+> `foss://research/fundamentals/*`, `foss://providers/status`, prompt
+> `foss_equity_research_report`, env vars `FOSS_*_MODE`, and the
+> `foss` order-mode value. Alias removal is a separate follow-up slice.
 
 ---
 

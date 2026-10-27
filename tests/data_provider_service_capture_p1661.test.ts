@@ -351,13 +351,13 @@ describe("mechanism pins (precondition, disclosed — pass on control too)", () 
     const sql = new MockSqlStorage();
     ensureCaptureTable(sql as never);
     const blob = fakeBlobStorage();
-    const stubFoss = {
+    const stubMarketData = {
       isConfigured: () => true,
       getHistoricalBars: async () => [
         { date: "2026-09-01", open: 100, high: 101, low: 99, close: 100.5, volume: 1000 },
       ],
     } as never;
-    const adapter = createYahooDataProvider(stubFoss, {} as never, {
+    const adapter = createYahooDataProvider(stubMarketData, {} as never, {
       capture: { sql: sql as never, blobStorage: blob as never, env: {} as never },
     } as never);
     const res = await adapter.getHistoricalBars!("AAA", "1D", 60, {
