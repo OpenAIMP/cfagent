@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { createResearchWorkbook, encodeBase64, type ResearchReportSheet } from "./researchReports";
+import { Button, TextInput } from "./components/ui";
 import "./researchReports.css";
 
 interface ResearchReportActionsProps {
@@ -128,35 +129,35 @@ export function ResearchReportActions({ title, query, sheets, userLogin }: Resea
     <section className="research-report-actions" aria-label={`${title} export and delivery`}>
       <h3>Export and share this research</h3>
       <div className="research-report-controls">
-        <button type="button" disabled={Boolean(busy) || !rowsAvailable} onClick={() => void download()}>
+        <Button type="button" disabled={Boolean(busy) || !rowsAvailable} onClick={() => void download()}>
           {busy === "download" ? "Preparing…" : "Download .xlsx"}
-        </button>
+        </Button>
         <label>
           Email recipient (workbook or NLQ response)
-          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
+          <TextInput type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
         </label>
-        <button type="button" disabled={Boolean(busy) || !rowsAvailable || !email.trim()} onClick={() => void sendEmail()}>
+        <Button type="button" disabled={Boolean(busy) || !rowsAvailable || !email.trim()} onClick={() => void sendEmail()}>
           {busy === "email" ? "Sending…" : "Send email"}
-        </button>
+        </Button>
       </div>
       <label className="research-report-query">
         Submit the same research question to Slack or voice
-        <textarea value={nlq} onChange={(event) => setNlq(event.target.value)} rows={2} />
+        <TextInput multiline value={nlq} onChange={(event) => setNlq(event.target.value)} rows={2} />
       </label>
       <div className="research-report-controls">
         <label>
           Slack channel ID
-          <input value={slackChannel} onChange={(event) => setSlackChannel(event.target.value)} placeholder="C0123456789" />
+          <TextInput value={slackChannel} onChange={(event) => setSlackChannel(event.target.value)} placeholder="C0123456789" />
         </label>
-        <button type="button" disabled={Boolean(busy) || !nlq.trim() || !slackChannel.trim()} onClick={() => void sendSlack()}>
+        <Button type="button" disabled={Boolean(busy) || !nlq.trim() || !slackChannel.trim()} onClick={() => void sendSlack()}>
           {busy === "slack" ? "Sending…" : "Submit to Slack"}
-        </button>
-        <button type="button" disabled={Boolean(busy) || !nlq.trim()} onClick={() => void askVoice()}>
+        </Button>
+        <Button type="button" disabled={Boolean(busy) || !nlq.trim()} onClick={() => void askVoice()}>
           {busy === "voice" ? "Sending…" : "Ask voice agent"}
-        </button>
-        <button type="button" disabled={Boolean(busy) || !rowsAvailable} onClick={() => void publishWebhook()}>
+        </Button>
+        <Button type="button" disabled={Boolean(busy) || !rowsAvailable} onClick={() => void publishWebhook()}>
           {busy === "webhook" ? "Sending…" : "Publish recommendations"}
-        </button>
+        </Button>
       </div>
       {status && <p className="research-report-status" role="status">{status}</p>}
       {error && <p className="research-report-error" role="alert">{error}</p>}

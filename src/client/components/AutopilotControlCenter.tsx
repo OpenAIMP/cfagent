@@ -1529,7 +1529,7 @@ export function AutopilotControlCenter({
                 style={{
                   background: "var(--color-danger-subtle)",
                   border: "1px solid var(--color-danger)",
-                  padding: "0.75rem",
+                  padding: "var(--space-3)",
                   borderRadius: "var(--radius-sm, 6px)",
                   margin: "1rem 0",
                   fontSize: "0.82rem",

@@ -22,7 +22,7 @@ export interface ScheduledGoalsPanelProps {
   embedded?: boolean;
 }
 
-const inputStyle: React.CSSProperties = { padding: "8px 12px", width: "100%" };
+const inputStyle: React.CSSProperties = { padding: "var(--space-2) var(--space-3)", width: "100%" };
 
 export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelProps = {}) {
   const [goals, setGoals] = useState<ScheduledGoal[]>([]);
@@ -127,9 +127,9 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
       {goals.map((g) => (
         <div
           key={g.id}
-          style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}
+          style={{ border: "1px solid var(--color-border-medium)", borderRadius: 8, padding: "var(--space-2-5) var(--space-3)", marginBottom: 10 }}
         >
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
             <strong>{g.name}</strong>
             <code style={{ fontSize: 12 }}>{g.id}</code>
             <span style={{ fontSize: 12, opacity: 0.7 }}>{g.cron}</span>
@@ -149,19 +149,19 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
             run {g.lastRun ? new Date(g.lastRun).toLocaleString() : "never"}
             {g.timeZone ? ` · timeZone ${g.timeZone}` : ""}
           </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button
+          <div style={{ display: "flex", gap: "var(--space-2)", marginTop: 8 }}>
+            <Button
               disabled={!!busy}
               onClick={() =>
                 void withBusy(`toggle-${g.id}`, () => setGoalEnabled(g.id, !g.enabled).then(() => {}))
               }
             >
               {g.enabled ? "Disable" : "Enable"}
-            </button>
-            <button disabled={!!busy} onClick={() => void withBusy(`trigger-${g.id}`, () => triggerGoal(g.id).then(() => {}))}>
+            </Button>
+            <Button disabled={!!busy} onClick={() => void withBusy(`trigger-${g.id}`, () => triggerGoal(g.id).then(() => {}))}>
               Run now
-            </button>
-            <button
+            </Button>
+            <Button
               disabled={!!busy}
               onClick={() => {
                 if (window.confirm(`Remove scheduled goal "${g.name}"?`)) {
@@ -170,17 +170,17 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
               }}
             >
               Remove
-            </button>
+            </Button>
           </div>
         </div>
       ))}
 
       <h3 style={{ margin: "20px 0 12px" }}>Add goal</h3>
       {formError && <div style={{ color: "var(--color-danger)", marginBottom: 8 }}>{formError}</div>}
-      <div style={{ display: "grid", gap: 8, maxWidth: 520 }}>
-        <input style={inputStyle} placeholder="id (e.g. weekly-report)" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} />
-        <input style={inputStyle} placeholder="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <input style={inputStyle} placeholder='cron (e.g. "0 6 * * *")' value={form.cron} onChange={(e) => setForm({ ...form, cron: e.target.value })} />
+      <div style={{ display: "grid", gap: "var(--space-2)", maxWidth: 520 }}>
+        <TextInput style={inputStyle} placeholder="id (e.g. weekly-report)" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} />
+        <TextInput style={inputStyle} placeholder="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <TextInput style={inputStyle} placeholder='cron (e.g. "0 6 * * *")' value={form.cron} onChange={(e) => setForm({ ...form, cron: e.target.value })} />
         {/* Issue #1922: new form controls use the ui primitives
             (ux-architecture §20), not raw controls — the primitive
             freeze test pins this file's raw-control count. */}
@@ -197,12 +197,12 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
             </option>
           ))}
         </Select>
-        <input style={inputStyle} placeholder="budget in cents (e.g. 500)" value={form.budgetCents} onChange={(e) => setForm({ ...form, budgetCents: e.target.value })} />
+        <TextInput style={inputStyle} placeholder="budget in cents (e.g. 500)" value={form.budgetCents} onChange={(e) => setForm({ ...form, budgetCents: e.target.value })} />
         <TextInput placeholder="timeZone (IANA, e.g. UTC)" value={form.timeZone} onChange={(e) => setForm({ ...form, timeZone: e.target.value })} />
         <div>
-          <button disabled={busy === "add"} onClick={() => void submitGoal()}>
+          <Button disabled={busy === "add"} onClick={() => void submitGoal()}>
             {busy === "add" ? "Adding…" : "Add goal"}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -238,7 +238,7 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
       <h3 style={{ margin: "20px 0 12px" }}>Recent ticks</h3>
       {ticks.length === 0 && <div style={{ opacity: 0.7 }}>No ticks recorded yet.</div>}
       {ticks.map((t, i) => (
-        <div key={`${t.timestamp}-${i}`} style={{ fontSize: 13, marginBottom: 8, borderBottom: "1px solid var(--color-border-subtle)", paddingBottom: 8 }}>
+        <div key={`${t.timestamp}-${i}`} style={{ fontSize: 13, marginBottom: 8, borderBottom: "1px solid var(--color-border-subtle)", paddingBottom: "var(--space-2)" }}>
           <div>
             <strong>{new Date(t.timestamp).toLocaleString()}</strong> — evaluated {t.goalsEvaluated},
             created {t.jobsCreated}, skipped {t.jobsSkipped}

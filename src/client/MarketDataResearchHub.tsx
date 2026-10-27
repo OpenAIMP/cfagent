@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch as fetch } from "./apiFetch";
-import { EmptyState, Spinner, Button } from "./components/ui";
+import { EmptyState, Spinner, Button, Select, Table, TextInput } from "./components/ui";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { TabHoverItem } from "./TabHoverItem";
 import { CapabilityNavBar, CopilotTriggerButton } from "./components/CapabilityNavBar";
@@ -46,7 +46,7 @@ export function MarketDataResearchProvenanceBadge({
       title={note || marketDataResearchProvenanceLabel(provenance)}
       style={{
         display: "inline-block",
-        padding: "0.1rem 0.45rem",
+        padding: "var(--space-0-5) var(--space-2)",
         borderRadius: "999px",
         fontSize: "0.68rem",
         fontWeight: 700,
@@ -424,14 +424,14 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
               <code className="did-snippet" title={researchAgentDid}>
                 did:agent:…:research
               </code>
-              <button
+              <Button
                 type="button"
                 className="btn-tiny-copy"
                 onClick={() => copyDidToClipboard(researchAgentDid)}
                 title="Copy W3C Agent DID"
               >
                 {copiedDid ? "✓" : "📋"}
-              </button>
+              </Button>
             </div>
             <span className="did-verified-tag">🛡️ Cryptographic Research Attestation</span>
           </div>
@@ -447,7 +447,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
         </div>
 
         <div className="symbol-input-group">
-          <input
+          <TextInput
             type="text"
             className="symbol-search-input"
             placeholder="Search ticker (e.g. AAPL, MSFT, BTC/USD)"
@@ -459,7 +459,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
               }
             }}
           />
-          <button
+          <Button
             type="button"
             className="btn-load-symbol"
             onClick={() => {
@@ -467,16 +467,16 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             }}
           >
             🔍 Analyze Ticker
-          </button>
+          </Button>
           {onTradeSymbol && (
-            <button
+            <Button
               type="button"
               className="btn-trade-etrade"
               title="Trade this symbol via E*TRADE"
               onClick={() => onTradeSymbol(activeSymbol)}
             >
               ⚡ Trade on E*TRADE →
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -637,7 +637,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                 role="note"
                 style={{
                   margin: "0.25rem 0 0.5rem",
-                  padding: "0.45rem 0.6rem",
+                  padding: "var(--space-2) var(--space-2-5)",
                   borderRadius: "8px",
                   border: "1px solid var(--color-warning)",
                   color: "var(--color-warning)",
@@ -657,7 +657,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   <span className="dual-feed-card-title yahoo-title">
                     📊 Yahoo Finance Feed
                   </span>
-                  <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
+                  <span style={{ display: "inline-flex", gap: "var(--space-1-5)", alignItems: "center" }}>
                     <MarketDataResearchProvenanceBadge provenance={yfinanceQuote?.provenance} note={yfinanceQuote?.note} />
                     <span className="dual-feed-market-state">
                       {yfinanceQuote?.marketState || "REGULAR"}
@@ -698,7 +698,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   <span className="dual-feed-card-title alpaca-title">
                     🦙 Alpaca Market Data v2
                   </span>
-                  <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
+                  <span style={{ display: "inline-flex", gap: "var(--space-1-5)", alignItems: "center" }}>
                     <MarketDataResearchProvenanceBadge provenance={alpacaQuote?.provenance ?? snapshot?.provenance} note={alpacaQuote?.note ?? snapshot?.note} />
                     <span className="dual-feed-snapshot-badge">
                       {snapshot ? (snapshot.provenance === "live" ? "Live Snapshot" : "Market Data Profile Snapshot") : "Alpaca Feed"}
@@ -735,7 +735,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             </div>
 
             {/* Quick Action Navigation & Drawer Toggle */}
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", paddingTop: "0.25rem" }}>
+            <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", alignItems: "center", paddingTop: "var(--space-1)" }}>
               <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)", fontWeight: 600 }}>Deep-Dive Analysis:</span>
               <Button variant="accent" tone="subtle" size="sm"
                 type="button"
@@ -774,12 +774,12 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
 
             {/* Expandable Alpaca Snapshot Drawer right inside the Screener page */}
             {showAlpacaDrawerOnScreener && snapshot && (
-              <div style={{ background: "var(--color-surface-sunken)", border: "1px dashed var(--color-warning)", borderRadius: "10px", padding: "1rem", marginTop: "0.5rem" }}>
+              <div style={{ background: "var(--color-surface-sunken)", border: "1px dashed var(--color-warning)", borderRadius: "10px", padding: "var(--space-4)", marginTop: "0.5rem" }}>
                 <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-warning)", fontSize: "0.95rem" }}>
                   🦙 Alpaca Market Snapshot {snapshot.provenance === "live" ? "Live" : "Market Data Profile"} Inspection — {activeSymbol}
                 </h4>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem", fontSize: "0.8rem" }}>
-                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "0.6rem", borderRadius: "6px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-3)", fontSize: "0.8rem" }}>
+                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "var(--space-2-5)", borderRadius: "6px" }}>
                     <div style={{ color: "var(--color-text-muted)" }}>Latest Execution Trade</div>
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)", fontSize: "1rem" }}>
                       ${snapshot.latestTrade?.price || "N/A"}
@@ -788,7 +788,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                       Size: {snapshot.latestTrade?.size || 0} • {snapshot.latestTrade?.timestamp || "live"}
                     </div>
                   </div>
-                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "0.6rem", borderRadius: "6px" }}>
+                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "var(--space-2-5)", borderRadius: "6px" }}>
                     <div style={{ color: "var(--color-text-muted)" }}>Minute Bar Snapshot</div>
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       Close: ${snapshot.minuteBar?.close || "N/A"}
@@ -797,7 +797,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                       O: {snapshot.minuteBar?.open} H: {snapshot.minuteBar?.high} L: {snapshot.minuteBar?.low}
                     </div>
                   </div>
-                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "0.6rem", borderRadius: "6px" }}>
+                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "var(--space-2-5)", borderRadius: "6px" }}>
                     <div style={{ color: "var(--color-text-muted)" }}>Daily Bar &amp; VWAP</div>
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       VWAP: ${snapshot.dailyBar?.vwap ? Number(snapshot.dailyBar.vwap).toFixed(2) : "N/A"}
@@ -806,7 +806,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                       Volume: {snapshot.dailyBar?.volume?.toLocaleString() || 0}
                     </div>
                   </div>
-                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "0.6rem", borderRadius: "6px" }}>
+                  <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "var(--space-2-5)", borderRadius: "6px" }}>
                     <div style={{ color: "var(--color-text-muted)" }}>Prev Daily Bar</div>
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       Close: ${snapshot.prevDailyBar?.close || "N/A"}
@@ -824,7 +824,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
           <div className="screener-controls-bar" style={{ marginBottom: "1rem" }}>
             <div className="control-item search-item">
               <label>Search Ticker / Company</label>
-              <input
+              <TextInput
                 type="text"
                 placeholder="e.g. NVDA, Apple, Semiconductors…"
                 value={screenerSearch}
@@ -837,7 +837,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
 
             <div className="control-item">
               <label>Sector</label>
-              <select
+              <Select
                 value={screenerSector}
                 onChange={(e) => {
                   setScreenerSector(e.target.value);
@@ -849,13 +849,13 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                 <option value="Technology">Technology</option>
                 <option value="Communication Services">Communication Services</option>
                 <option value="Consumer Discretionary">Consumer Discretionary</option>
-              </select>
+              </Select>
             </div>
 
             <div className="control-item">
               <label>Quick Presets</label>
-              <div style={{ display: "flex", gap: "0.35rem" }}>
-                <button
+              <div style={{ display: "flex", gap: "var(--space-1-5)" }}>
+                <Button
                   type="button"
                   className={`btn-filter-pill ${screenerGainersOnly ? "active gainers" : ""}`}
                   onClick={() => {
@@ -866,8 +866,8 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   }}
                 >
                   🚀 Gainers
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className={`btn-filter-pill ${screenerLosersOnly ? "active losers" : ""}`}
                   onClick={() => {
@@ -878,8 +878,8 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   }}
                 >
                   📉 Losers
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="btn-filter-pill"
                   onClick={() => {
@@ -893,18 +893,19 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   }}
                 >
                   Reset
-                </button>
+                </Button>
               </div>
             </div>
 
-            <button
+            <Button
               type="button"
+              variant="primary"
               className="btn-run-scan"
               onClick={() => fetchScreener()}
               disabled={screenerLoading}
             >
               {screenerLoading ? "Scanning…" : "🔍 Run Scan"}
-            </button>
+            </Button>
           </div>
 
           {/* Screener Results Meta */}
@@ -925,117 +926,153 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
               <p>Scanning equities universe via Yahoo Finance API…</p>
             </div>
           ) : (
-            <div className="trading-table-container">
-              <table className="trading-table">
-                <thead>
-                  <tr>
-                    <th>Security</th>
-                    <th>Sector</th>
-                    <th style={{ textAlign: "right" }}>Price (YF)</th>
-                    <th style={{ textAlign: "right" }}>Change (1D)</th>
-                    <th style={{ textAlign: "right" }}>P/E Ratio</th>
-                    <th style={{ textAlign: "right" }}>Market Cap</th>
-                    <th style={{ textAlign: "center" }}>RSI (14)</th>
-                    <th>Momentum Signal</th>
-                    <th style={{ textAlign: "center" }}>Alpaca Feed</th>
-                    <th style={{ textAlign: "center" }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {screenerStocks.map((stock) => (
-                    <tr key={stock.symbol}>
-                      <td>
-                        <div style={{ display: "flex", flexDirection: "column" }}>
-                          <span style={{ fontWeight: 700, color: "var(--color-accent)" }}>{stock.symbol}</span>
-                          <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>{stock.companyName}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)" }}>{stock.sector}</span>
-                      </td>
-                      <td style={{ textAlign: "right", fontWeight: 700 }}>
+              <Table
+                containerClassName="trading-table-container"
+                columns={[
+                  {
+                    key: "security",
+                    header: "Security",
+                    render: (stock) => (
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        <span style={{ fontWeight: 700, color: "var(--color-accent)" }}>{stock.symbol}</span>
+                        <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>{stock.companyName}</span>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "sector",
+                    header: "Sector",
+                    render: (stock) => (
+                      <span style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)" }}>{stock.sector}</span>
+                    ),
+                  },
+                  {
+                    key: "price",
+                    header: "Price (YF)",
+                    align: "right",
+                    render: (stock) => (
+                      <span style={{ fontWeight: 700 }}>
                         ${Number(stock.lastPrice || stock.price || 0).toFixed(2)}
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <span className={`pill-badge ${stock.change >= 0 ? "positive" : "negative"}`}>
-                          {stock.change >= 0 ? "+" : ""}{Number(stock.change || 0).toFixed(2)} ({Number(stock.changePercent || 0).toFixed(2)}%)
-                        </span>
-                      </td>
-                      <td style={{ textAlign: "right", color: "var(--color-text-muted)" }}>
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "change",
+                    header: "Change (1D)",
+                    align: "right",
+                    render: (stock) => (
+                      <span className={`pill-badge ${stock.change >= 0 ? "positive" : "negative"}`}>
+                        {stock.change >= 0 ? "+" : ""}{Number(stock.change || 0).toFixed(2)} ({Number(stock.changePercent || 0).toFixed(2)}%)
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "pe",
+                    header: "P/E Ratio",
+                    align: "right",
+                    render: (stock) => (
+                      <span style={{ color: "var(--color-text-muted)" }}>
                         {stock.peRatio ? Number(stock.peRatio).toFixed(1) : "N/A"}
-                      </td>
-                      <td style={{ textAlign: "right", color: "var(--color-text-muted)" }}>
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "marketCap",
+                    header: "Market Cap",
+                    align: "right",
+                    render: (stock) => (
+                      <span style={{ color: "var(--color-text-muted)" }}>
                         {stock.marketCap ? `$${Number(stock.marketCap).toFixed(1)}B` : "N/A"}
-                      </td>
-                      <td style={{ textAlign: "center" }}>
-                        <span className={`pill-badge ${stock.rsi14 > 70 ? "negative" : stock.rsi14 < 35 ? "positive" : "neutral"}`}>
-                          {stock.rsi14 ? stock.rsi14.toFixed(1) : "50.0"}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "rsi",
+                    header: "RSI (14)",
+                    align: "center",
+                    render: (stock) => (
+                      <span className={`pill-badge ${stock.rsi14 > 70 ? "negative" : stock.rsi14 < 35 ? "positive" : "neutral"}`}>
+                        {stock.rsi14 ? stock.rsi14.toFixed(1) : "50.0"}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "momentum",
+                    header: "Momentum Signal",
+                    render: (stock) => (
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: stock.changePercent > 0 ? "var(--color-success)" : "var(--color-warning)" }}>
+                          {stock.signal || "RANGE_BOUND"}
                         </span>
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", flexDirection: "column" }}>
-                          <span style={{ fontSize: "0.78rem", fontWeight: 600, color: stock.changePercent > 0 ? "var(--color-success)" : "var(--color-warning)" }}>
-                            {stock.signal || "RANGE_BOUND"}
-                          </span>
-                          <span style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
-                            Score: {stock.momentumScore || 50}/100
-                          </span>
-                        </div>
-                      </td>
-                      <td style={{ textAlign: "center" }}>
-                        <Button variant="warning" size="sm" tone={activeSymbol === stock.symbol ? "solid" : "subtle"} aria-pressed={activeSymbol === stock.symbol}
+                        <span style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
+                          Score: {stock.momentumScore || 50}/100
+                        </span>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "alpaca",
+                    header: "Alpaca Feed",
+                    align: "center",
+                    render: (stock) => (
+                      <Button variant="warning" size="sm" tone={activeSymbol === stock.symbol ? "solid" : "subtle"} aria-pressed={activeSymbol === stock.symbol}
+                        type="button"
+                        title={`Inspect live Alpaca quote & snapshot for ${stock.symbol}`}
+                        onClick={() => {
+                          setSymbolInput(stock.symbol);
+                          handleAnalyzeTicker(stock.symbol);
+                        }}
+                      >
+                        {activeSymbol === stock.symbol && (alpacaQuote?.price || snapshot?.latestTrade?.price)
+                          ? `🦙 $${Number(alpacaQuote?.price || snapshot?.latestTrade?.price || 0).toFixed(2)}`
+                          : "🦙 Alpaca Quote"}
+                      </Button>
+                    ),
+                  },
+                  {
+                    key: "actions",
+                    header: "Actions",
+                    align: "center",
+                    render: (stock) => (
+                      <div style={{ display: "flex", gap: "var(--space-1-5)", justifyContent: "center" }}>
+                        <Button variant="accent" tone="subtle" size="sm"
                           type="button"
-                          title={`Inspect live Alpaca quote & snapshot for ${stock.symbol}`}
+                          title="Generate AI Research Report with Yahoo Finance & Alpaca"
                           onClick={() => {
-                            setSymbolInput(stock.symbol);
-                            handleAnalyzeTicker(stock.symbol);
+                            setActiveSymbol(stock.symbol);
+                            loadAllSymbolData(stock.symbol);
+                            setSubTab("report");
                           }}
                         >
-                          {activeSymbol === stock.symbol && (alpacaQuote?.price || snapshot?.latestTrade?.price)
-                            ? `🦙 $${Number(alpacaQuote?.price || snapshot?.latestTrade?.price || 0).toFixed(2)}`
-                            : "🦙 Alpaca Quote"}
+                          🔬 Report
                         </Button>
-                      </td>
-                      <td style={{ textAlign: "center" }}>
-                        <div style={{ display: "flex", gap: "0.35rem", justifyContent: "center" }}>
-                          <Button variant="accent" tone="subtle" size="sm"
+                        <Button variant="secondary" tone="subtle" size="sm"
+                          type="button"
+                          title="Inspect Fundamentals & Valuations via Yahoo Finance"
+                          onClick={() => {
+                            setActiveSymbol(stock.symbol);
+                            loadFundamentals(stock.symbol);
+                            setSubTab("fundamentals");
+                          }}
+                        >
+                          ⚖️ Ratios
+                        </Button>
+                        {onTradeSymbol && (
+                          <Button variant="trade" tone="subtle" size="sm"
                             type="button"
-                            title="Generate AI Research Report with Yahoo Finance & Alpaca"
-                            onClick={() => {
-                              setActiveSymbol(stock.symbol);
-                              loadAllSymbolData(stock.symbol);
-                              setSubTab("report");
-                            }}
+                            title="Send to E*TRADE Order Ticket for Execution"
+                            onClick={() => onTradeSymbol(stock.symbol)}
                           >
-                            🔬 Report
+                            ⚡ Trade on E*TRADE
                           </Button>
-                          <Button variant="secondary" tone="subtle" size="sm"
-                            type="button"
-                            title="Inspect Fundamentals & Valuations via Yahoo Finance"
-                            onClick={() => {
-                              setActiveSymbol(stock.symbol);
-                              loadFundamentals(stock.symbol);
-                              setSubTab("fundamentals");
-                            }}
-                          >
-                            ⚖️ Ratios
-                          </Button>
-                          {onTradeSymbol && (
-                            <Button variant="trade" tone="subtle" size="sm"
-                              type="button"
-                              title="Send to E*TRADE Order Ticket for Execution"
-                              onClick={() => onTradeSymbol(stock.symbol)}
-                            >
-                              ⚡ Trade on E*TRADE
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        )}
+                      </div>
+                    ),
+                  },
+                ]}
+                rows={screenerStocks}
+                rowKey={(stock) => stock.symbol}
+              />
           )}
           <ResearchReportActions
             title={`${activeSymbol} stock research`}
@@ -1097,7 +1134,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                     role="note"
                     style={{
                       margin: "0.5rem 0",
-                      padding: "0.5rem 0.65rem",
+                      padding: "var(--space-2) var(--space-2-5)",
                       borderRadius: "8px",
                       border: "1px solid var(--color-warning)",
                       color: "var(--color-warning)",
@@ -1231,13 +1268,13 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                 </div>
 
                 {onTradeSymbol && (
-                  <button
+                  <Button
                     type="button"
                     className="btn-side-trade"
                     onClick={() => onTradeSymbol(report.symbol)}
                   >
                     ⚡ Trade {report.symbol} on E*TRADE
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -1258,7 +1295,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   <span className="dot yf-dot" />
                   <h4>Yahoo Finance Engine</h4>
                 </div>
-                <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
+                <span style={{ display: "inline-flex", gap: "var(--space-1-5)", alignItems: "center" }}>
                   <MarketDataResearchProvenanceBadge provenance={yfinanceQuote?.provenance} note={yfinanceQuote?.note} />
                   <span className="provider-tag">yfinance API</span>
                 </span>
@@ -1325,7 +1362,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   <span className="dot alpaca-dot" />
                   <h4>Alpaca Market Data v2</h4>
                 </div>
-                <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
+                <span style={{ display: "inline-flex", gap: "var(--space-1-5)", alignItems: "center" }}>
                   <MarketDataResearchProvenanceBadge provenance={alpacaQuote?.provenance} note={alpacaQuote?.note} />
                   <span className="provider-tag">Level 1/2 REST &amp; Paper</span>
                 </span>
@@ -1398,7 +1435,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             </div>
           ) : fundamentals ? (
             <div className="fundamentals-layout">
-              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
+              <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: "0.5rem" }}>
                 <MarketDataResearchProvenanceBadge provenance={fundamentals.provenance} note={fundamentals.note} />
                 {fundamentals.provenance !== "live" && (
                   <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
@@ -1515,7 +1552,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             </span>
             <div className="bars-filters">
               <label>Feed:</label>
-              <select
+              <Select
                 value={barProvider}
                 onChange={(e) => {
                   const p = e.target.value as "yfinance" | "alpaca";
@@ -1525,9 +1562,9 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
               >
                 <option value="yfinance">Yahoo Finance</option>
                 <option value="alpaca">Alpaca Data v2</option>
-              </select>
+              </Select>
               <label>Timeframe:</label>
-              <select
+              <Select
                 value={barTimeframe}
                 onChange={(e) => {
                   const tf = e.target.value;
@@ -1539,9 +1576,9 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                 <option value="1W">Weekly (1W)</option>
                 <option value="1M">Monthly (1M)</option>
                 <option value="1H">Hourly (1H)</option>
-              </select>
+              </Select>
               <label>Limit:</label>
-              <select
+              <Select
                 value={barLimit}
                 onChange={(e) => {
                   const l = Number(e.target.value);
@@ -1553,7 +1590,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                 <option value={30}>30 Bars</option>
                 <option value={60}>60 Bars</option>
                 <option value={90}>90 Bars</option>
-              </select>
+              </Select>
               <Button variant="secondary" size="sm"
                 type="button"
                 disabled={barsLoading}
@@ -1567,7 +1604,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
 
           {barsMeta && (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0.5rem 0.25rem 0.75rem 0.25rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
-              <span style={{ display: "inline-flex", gap: "0.5rem", alignItems: "center" }}>
+              <span style={{ display: "inline-flex", gap: "var(--space-2)", alignItems: "center" }}>
                 <span>
                   📡 Source: <strong style={{ color: "var(--color-accent)" }}>{barsMeta.source || (barProvider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance Chart API")}</strong>
                 </span>
@@ -1578,54 +1615,38 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
               </span>
             </div>
           )}
-
-          <div className="bars-table-wrap">
-            <table className="trading-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Open</th>
-                  <th>High</th>
-                  <th>Low</th>
-                  <th>Close</th>
-                  <th>VWAP</th>
-                  <th>Volume</th>
-                  <th>Trades</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bars.length === 0 ? (
-                  <tr>
-                    <td colSpan={8}>
-                      <EmptyState title={barsLoading ? "Loading historical bars…" : "No bars returned."} />
-                    </td>
-                  </tr>
-                ) : (
-                  bars.map((bar, i) => {
-                    const isPositive = bar.close >= bar.open;
-                    return (
-                      <tr key={bar.timestamp || i}>
-                        <td>
-                          <code>{bar.timestamp}</code>
-                        </td>
-                        <td>${bar.open.toFixed(2)}</td>
-                        <td>${bar.high.toFixed(2)}</td>
-                        <td>${bar.low.toFixed(2)}</td>
-                        <td>
-                          <span className={`price-tag ${isPositive ? "positive-text" : "negative-text"}`}>
-                            ${bar.close.toFixed(2)}
-                          </span>
-                        </td>
-                        <td>${bar.vwap ? bar.vwap.toFixed(2) : bar.close.toFixed(2)}</td>
-                        <td>{(bar.volume / 1e6).toFixed(2)}M</td>
-                        <td>{bar.tradeCount ? bar.tradeCount.toLocaleString() : "N/A"}</td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+            <Table
+            containerClassName="bars-table-wrap"
+            columns={[
+              { key: "date", header: "Date", render: (bar) => <code>{bar.timestamp}</code> },
+              { key: "open", header: "Open", render: (bar) => `$${bar.open.toFixed(2)}` },
+              { key: "high", header: "High", render: (bar) => `$${bar.high.toFixed(2)}` },
+              { key: "low", header: "Low", render: (bar) => `$${bar.low.toFixed(2)}` },
+              {
+                key: "close",
+                header: "Close",
+                render: (bar) => (
+                  <span className={`price-tag ${bar.close >= bar.open ? "positive-text" : "negative-text"}`}>
+                    ${bar.close.toFixed(2)}
+                  </span>
+                ),
+              },
+              {
+                key: "vwap",
+                header: "VWAP",
+                render: (bar) => `$${bar.vwap ? bar.vwap.toFixed(2) : bar.close.toFixed(2)}`,
+              },
+              { key: "volume", header: "Volume", render: (bar) => `${(bar.volume / 1e6).toFixed(2)}M` },
+              {
+                key: "trades",
+                header: "Trades",
+                render: (bar) => (bar.tradeCount ? bar.tradeCount.toLocaleString() : "N/A"),
+              },
+            ]}
+            rows={bars}
+            rowKey={(bar, i) => bar.timestamp || String(i)}
+            empty={<EmptyState title={barsLoading ? "Loading historical bars…" : "No bars returned."} />}
+          />
         </div>
       )}
 
@@ -1644,7 +1665,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   <span className="dot alpaca-dot" />
                   <h4>Alpaca Market Data v2 Snapshot: {snapshot.symbol}</h4>
                 </div>
-                <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
+                <span style={{ display: "inline-flex", gap: "var(--space-1-5)", alignItems: "center" }}>
                   <MarketDataResearchProvenanceBadge provenance={snapshot.provenance} note={snapshot.note} />
                   <span className="asset-tag">{snapshot.assetClass.toUpperCase()}</span>
                 </span>
@@ -1684,7 +1705,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
 
           <div className="section-intro-card" style={{ marginTop: "1.5rem" }}>
             <div className="section-intro-card-header" style={{ marginBottom: "0.75rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                 <span style={{ fontSize: "1.25rem" }}>🛡️</span>
                 <h4 className="section-intro-title">
                   Alpaca Agentic Tracing Stream &amp; Provenance Ledger
@@ -1707,14 +1728,14 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             </p>
 
             {alpacaTraces.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "1rem", color: "var(--color-text-dim)", fontSize: "0.85rem", background: "var(--color-surface-sunken)", borderRadius: "8px" }}>
+              <div style={{ textAlign: "center", padding: "var(--space-4)", color: "var(--color-text-dim)", fontSize: "0.85rem", background: "var(--color-surface-sunken)", borderRadius: "8px" }}>
                 {tracesLoading ? "Querying audit ledger…" : "No Alpaca traces recorded in this session yet. Run a snapshot or quote query above to generate trace telemetry."}
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", maxHeight: "320px", overflowY: "auto" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2-5)", maxHeight: "320px", overflowY: "auto" }}>
                 {alpacaTraces.map((tr, idx) => (
-                  <div key={tr.id || idx} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "0.75rem", fontSize: "0.85rem" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", flexWrap: "wrap", gap: "4px" }}>
+                  <div key={tr.id || idx} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "var(--space-3)", fontSize: "0.85rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", flexWrap: "wrap", gap: "var(--space-1)" }}>
                       <span className="pill-badge" style={{ background: "var(--color-accent-subtle)", color: "var(--color-accent)", borderColor: "var(--color-border-focus)" }}>
                         {tr.type}
                       </span>
@@ -1722,7 +1743,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                         {new Date(tr.created_at).toLocaleTimeString()} ({new Date(tr.created_at).toLocaleDateString()})
                       </span>
                     </div>
-                    <div style={{ color: "var(--color-text-secondary)", fontSize: "0.8rem", wordBreak: "break-all", background: "var(--color-surface)", padding: "6px", borderRadius: "4px" }}>
+                    <div style={{ color: "var(--color-text-secondary)", fontSize: "0.8rem", wordBreak: "break-all", background: "var(--color-surface)", padding: "var(--space-1-5)", borderRadius: "4px" }}>
                       {typeof tr.payload === "string" ? tr.payload : JSON.stringify(tr.payload)}
                     </div>
                   </div>
@@ -1731,7 +1752,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             )}
 
             {/* Antigravity MCP Integration Guide */}
-            <div style={{ marginTop: "1.25rem", borderTop: "1px solid var(--color-border-subtle)", paddingTop: "1rem" }}>
+            <div style={{ marginTop: "1.25rem", borderTop: "1px solid var(--color-border-subtle)", paddingTop: "var(--space-4)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
                 <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--color-text-primary)" }}>
                   ⚡ Antigravity &amp; Agent MCP Server Config (Alpaca)
@@ -1759,7 +1780,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   {copiedMcpConfig ? "✓ Copied Config!" : "📋 Copy MCP Config"}
                 </Button>
               </div>
-              <pre style={{ margin: 0, background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "6px", padding: "0.75rem", fontSize: "0.78rem", color: "var(--color-text-primary)", overflowX: "auto" }}>
+              <pre style={{ margin: 0, background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "6px", padding: "var(--space-3)", fontSize: "0.78rem", color: "var(--color-text-primary)", overflowX: "auto" }}>
 {`{
   "mcpServers": {
     "alpaca": {
@@ -1783,87 +1804,77 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
         <div className="research-section compare-section">
           <div className="compare-bar">
             <label>Compare Tickers:</label>
-            <input
+            <TextInput
               type="text"
               className="compare-input"
               value={compareSymbolsInput}
               onChange={(e) => setCompareSymbolsInput(e.target.value.toUpperCase())}
             />
-            <button
+            <Button
               type="button"
+              variant="primary"
               className="btn-run-compare"
               disabled={compareLoading}
               onClick={() => runComparison(compareSymbolsInput)}
             >
               {compareLoading ? "Comparing…" : "⚡ Run Valuation Comparison"}
-            </button>
+            </Button>
           </div>
-
-          <div className="compare-table-wrap">
-            <table className="trading-table">
-              <thead>
-                <tr>
-                  <th>Symbol &amp; Company</th>
-                  <th>Price</th>
-                  <th>24h Change</th>
-                  <th>Market Cap</th>
-                  <th>Trailing P/E</th>
-                  <th>Forward P/E</th>
-                  <th>PEG Ratio</th>
-                  <th>Price/Book</th>
-                  <th>Beta</th>
-                  <th>Target (Mean)</th>
-                  <th>Analyst Rating</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comparisonResults.length === 0 ? (
-                  <tr>
-                    <td colSpan={11}>
-                      <EmptyState title={compareLoading ? "Gathering multi-stock metrics from Yahoo Finance & Alpaca…" : "No stocks to compare."} />
-                    </td>
-                  </tr>
-                ) : (
-                  comparisonResults.map(({ symbol, quote, fundamentals: f }) => {
-                    const isPositive = quote.change >= 0;
-                    return (
-                      <tr key={symbol}>
-                        <td>
-                          <div className="ticker-company">
-                            <span className="ticker-badge">{symbol}</span>
-                            <span className="company-title">{f.companyName}</span>
-                            <MarketDataResearchProvenanceBadge provenance={quote.provenance === "live" && f.provenance === "live" ? "live" : quote.provenance === "generated" || f.provenance === "generated" ? "generated" : "static"} />
-                          </div>
-                        </td>
-                        <td>
-                          <span className="price-tag">${quote.price.toFixed(2)}</span>
-                        </td>
-                        <td>
-                          <span className={`change-pill ${isPositive ? "positive" : "negative"}`}>
-                            {isPositive ? "+" : ""}{quote.change.toFixed(2)} ({isPositive ? "+" : ""}{quote.changePercent.toFixed(2)}%)
-                          </span>
-                        </td>
-                        <td>${(f.marketCap / 1e9).toFixed(1)}B</td>
-                        <td>{f.peTrailing || "N/A"}</td>
-                        <td>{f.peForward || "N/A"}</td>
-                        <td>{f.pegRatio || "N/A"}</td>
-                        <td>{f.priceToBook || "N/A"}</td>
-                        <td>{f.beta || "1.00"}</td>
-                        <td>
-                          <span className="target-val">${f.targetMeanPrice?.toFixed(2) || "N/A"}</span>
-                        </td>
-                        <td>
-                          <span className={`rec-badge ${getRecommendationBadgeClass(f.recommendationKey)}`}>
-                            {f.recommendationKey?.toUpperCase() || "BUY"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+            <Table
+            containerClassName="compare-table-wrap"
+            columns={[
+              {
+                key: "symbol",
+                header: "Symbol & Company",
+                render: ({ symbol, quote, fundamentals: f }) => (
+                  <div className="ticker-company">
+                    <span className="ticker-badge">{symbol}</span>
+                    <span className="company-title">{f.companyName}</span>
+                    <MarketDataResearchProvenanceBadge provenance={quote.provenance === "live" && f.provenance === "live" ? "live" : quote.provenance === "generated" || f.provenance === "generated" ? "generated" : "static"} />
+                  </div>
+                ),
+              },
+              {
+                key: "price",
+                header: "Price",
+                render: ({ quote }) => <span className="price-tag">${quote.price.toFixed(2)}</span>,
+              },
+              {
+                key: "change",
+                header: "24h Change",
+                render: ({ quote }) => (
+                  <span className={`change-pill ${quote.change >= 0 ? "positive" : "negative"}`}>
+                    {quote.change >= 0 ? "+" : ""}{quote.change.toFixed(2)} ({quote.change >= 0 ? "+" : ""}{quote.changePercent.toFixed(2)}%)
+                  </span>
+                ),
+              },
+              { key: "marketCap", header: "Market Cap", render: ({ fundamentals: f }) => `$${(f.marketCap / 1e9).toFixed(1)}B` },
+              { key: "peTrailing", header: "Trailing P/E", render: ({ fundamentals: f }) => f.peTrailing || "N/A" },
+              { key: "peForward", header: "Forward P/E", render: ({ fundamentals: f }) => f.peForward || "N/A" },
+              { key: "peg", header: "PEG Ratio", render: ({ fundamentals: f }) => f.pegRatio || "N/A" },
+              { key: "pb", header: "Price/Book", render: ({ fundamentals: f }) => f.priceToBook || "N/A" },
+              { key: "beta", header: "Beta", render: ({ fundamentals: f }) => f.beta || "1.00" },
+              {
+                key: "target",
+                header: "Target (Mean)",
+                render: ({ fundamentals: f }) => (
+                  <span className="target-val">${f.targetMeanPrice?.toFixed(2) || "N/A"}</span>
+                ),
+              },
+              {
+                key: "rating",
+                header: "Analyst Rating",
+                render: ({ fundamentals: f }) => (
+                  <span className={`rec-badge ${getRecommendationBadgeClass(f.recommendationKey)}`}>
+                    {f.recommendationKey?.toUpperCase() || "BUY"}
+                  </span>
+                ),
+              },
+            ]}
+            rows={comparisonResults}
+            rowKey={({ symbol }) => symbol}
+            empty={<EmptyState title={compareLoading ? "Gathering multi-stock metrics from Yahoo Finance & Alpaca…" : "No stocks to compare."} />}
+          />
         </div>
       )}
     </div>

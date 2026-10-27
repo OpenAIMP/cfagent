@@ -85,7 +85,7 @@ export function RunDetailView({ run, confirmations, confirmationsLoading }: RunD
       <h3 style={{ margin: "0 0 0.75rem" }}>Run detail</h3>
 
       <section aria-label="Outcome" style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
           <Badge tone={outcome.tone}>{outcome.label}</Badge>
           <span>
             {run.matchedCount} matched of {run.totalScanned} scanned
@@ -118,7 +118,7 @@ export function RunDetailView({ run, confirmations, confirmationsLoading }: RunD
 
       <section aria-label="Artifacts" style={{ margin: "1rem 0" }}>
         <h4 style={{ margin: "0 0 0.5rem" }}>Artifacts</h4>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
           <div>
             {pdfUrl ? (
               <a href={pdfUrl} target="_blank" rel="noreferrer">
@@ -158,17 +158,17 @@ export function RunDetailView({ run, confirmations, confirmationsLoading }: RunD
             description="This run has no held, approved, or rejected delivery confirmations on record."
           />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
             {confirmations.map((c) => (
               <div
                 key={c.confirmationId}
                 style={{
                   border: "1px solid var(--color-border-subtle)",
                   borderRadius: "8px",
-                  padding: "0.5rem 0.75rem",
+                  padding: "var(--space-2) var(--space-3)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
                   <Badge tone={c.status === "approved" ? "success" : c.status === "pending" ? "warning" : "neutral"}>
                     {confirmationLabel(c.status)}
                   </Badge>

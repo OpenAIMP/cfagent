@@ -11,7 +11,7 @@ import { ScheduledGoalsPanel } from "./ScheduledGoalsPanel";
 import { ApiKeysPanel } from "./ApiKeysPanel";
 import { DataProvidersPanel } from "./DataProvidersPanel";
 import { IaaaAdminPanel } from "./IaaaAdminPanel";
-import { PillGroup, Button } from "./components/ui";
+import { PillGroup, Button, TextInput } from "./components/ui";
 import {
   AdBannerConfig,
   getStoredAdBannerConfig,
@@ -530,7 +530,7 @@ export function SettingsMenu({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      <button
+      <Button
         type="button"
         className={`etrade-dynamic-menu-trigger settings-menu-trigger icon-only-settings-btn ${isConnected ? "connected" : "disconnected"} ${isLive ? "prod" : "test"} ${isOpen ? "open" : ""} ${isPinned ? "pinned" : ""}`}
         onClick={handleTriggerClick}
@@ -550,7 +550,7 @@ export function SettingsMenu({
           </svg>
         </span>
         <span className={`menu-status-dot ${isConnected ? "connected" : "disconnected"}`} />
-      </button>
+      </Button>
 
       {isOpen && (
         <div className="etrade-dynamic-dropdown-panel settings-dropdown-panel" role="menu">
@@ -598,14 +598,14 @@ export function SettingsMenu({
                   : "••••4748"}
               </span>
             </div>
-            <button
+            <Button
               type="button"
               className="btn-mask-mini"
               onClick={toggleMask}
               title={effectiveMask ? "Reveal account value" : "Mask account value"}
             >
               {effectiveMask ? "👁️ Show" : "🔒 Hide"}
-            </button>
+            </Button>
           </div>
 
           {/* Environment Switcher ("PROD...") */}
@@ -615,20 +615,20 @@ export function SettingsMenu({
               <small>{isLive ? "Live execution" : "Paper sandbox testing"}</small>
             </div>
             <div className="etrade-env-switch-bar">
-              <button
+              <Button
                 type="button"
                 className={!isLive ? "active" : ""}
                 onClick={() => onSwitchEnv("TEST")}
               >
                 🧪 TEST (Sandbox)
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className={isLive ? "active" : ""}
                 onClick={() => onSwitchEnv("PROD")}
               >
                 🔴 PROD (Live)
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -638,57 +638,57 @@ export function SettingsMenu({
               <span>Connection &amp; Diagnostics</span>
             </div>
             <div className="etrade-actions-grid">
-              <button
+              <Button
                 type="button"
                 className="btn-menu-action sync"
                 disabled={isDiagnosticsRunning}
                 onClick={onRunDiagnostics}
               >
                 {isDiagnosticsRunning ? "🔄 Testing…" : "🔄 Test & Sync API"}
-              </button>
+              </Button>
               {isConnected ? (
                 <>
                   {oauthStatus?.renewable && (
-                    <button
+                    <Button
                       type="button"
                       className="btn-menu-action renew"
                       disabled={oauthLoading}
                       onClick={onRenewOAuth}
                     >
                       🔑 Renew Token
-                    </button>
+                    </Button>
                   )}
-                  <button
+                  <Button
                     type="button"
                     className="btn-menu-action disconnect"
                     disabled={oauthLoading}
                     onClick={onRevokeOAuth}
                   >
                     🔌 Disconnect
-                  </button>
+                  </Button>
                 </>
               ) : (
-                <button
+                <Button
                   type="button"
                   className="btn-menu-action connect"
                   disabled={oauthLoading}
                   onClick={onStartOAuth}
                 >
                   {oauthLoading ? "Connecting…" : "⚡ Connect E*TRADE"}
-                </button>
+                </Button>
               )}
             </div>
             {effectiveMsg && (
               <div className="etrade-menu-msg-banner">
                 <span>{effectiveMsg}</span>
-                <button
+                <Button
                   type="button"
                   className="etrade-menu-msg-dismiss"
                   onClick={clearMsg}
                   title="Dismiss message"
                 >
                   ✕
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -700,17 +700,17 @@ export function SettingsMenu({
               <small>Parameters &amp; export</small>
             </div>
             <div className="etrade-tools-cluster single-row">
-              <button
+              <Button
                 type="button"
                 className="btn-menu-tuning"
                 onClick={handleOpenTuning}
                 title="Configure ETAPI trade engine and safety controls"
               >
                 ⚙️ ETAPI Engine Tuning
-              </button>
+              </Button>
 
               <div className="menu-download-row">
-                <input
+                <TextInput
                   type="text"
                   className="menu-symbol-input"
                   value={downloadSymbol}
@@ -909,30 +909,30 @@ export function SettingsMenu({
             <div className="nav-tabs-preset-row">
               <span className="preset-label">Presets:</span>
               <div className="nav-tabs-preset-buttons">
-                <button
+                <Button
                   type="button"
                   className="btn-preset-mini"
                   onClick={() => handleApplyPreset(NAV_TAB_PRESETS.all)}
                   title="Show all available navigation tabs"
                 >
                   All Tabs
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="btn-preset-mini"
                   onClick={() => handleApplyPreset(NAV_TAB_PRESETS.traderFocus)}
                   title="Show core trading and execution tabs only"
                 >
                   Trader Focus
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="btn-preset-mini"
                   onClick={() => handleApplyPreset(NAV_TAB_PRESETS.minimal)}
                   title="Minimalist view: Autopilot, Orders, Portfolio, Research, Copilot"
                 >
                   Minimal
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -940,7 +940,7 @@ export function SettingsMenu({
               {NAVIGATION_ITEMS.filter((item) => isTabFeatureEnabled(item.id)).map((item) => {
                 const isChecked = effectiveVisibleTabs[item.id] !== false;
                 return (
-                  <button
+                  <Button
                     key={item.id}
                     type="button"
                     className={`nav-tab-toggle-pill ${isChecked ? "checked" : "unchecked"}`}
@@ -950,7 +950,7 @@ export function SettingsMenu({
                   >
                     <span className="tab-pill-check">{isChecked ? "✓" : "○"}</span>
                     <span className="tab-pill-text">{item.shortLabel || item.label}</span>
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -1037,7 +1037,7 @@ export function SettingsMenu({
 
             {/* Externalized Deals Showcase Action Button */}
             <div className="settings-ads-external-actions">
-              <button
+              <Button
                 type="button"
                 className="btn-open-deals-showcase"
                 onClick={() => {
@@ -1050,7 +1050,7 @@ export function SettingsMenu({
                 title="Open external Partner Deals & Offers showcase"
               >
                 ⭐ Browse Partner Deals &amp; Cloud Credits (External) ↗
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -1153,9 +1153,9 @@ export function SettingsMenu({
                   {loginProviderName && (
                     <span className="settings-user-login">Logged in via {loginProviderName}</span>
                   )}
-                  <button type="button" disabled={requestingAccess} onClick={() => void requestAdminAccess()}>
+                  <Button type="button" disabled={requestingAccess} onClick={() => void requestAdminAccess()}>
                     Request admin access
-                  </button>
+                  </Button>
                   {accessRequestStatus && (
                     <span className="settings-user-login" role="status">
                       {accessRequestStatus}
@@ -1172,7 +1172,7 @@ export function SettingsMenu({
               <div className="msg-content">{effectiveMsg}</div>
               <div className="msg-actions">
                 {(effectiveMsg.includes("SANDBOX") || effectiveMsg.includes("switch environment to TEST")) && (
-                  <button
+                  <Button
                     type="button"
                     className="btn-msg-fix"
                     onClick={() => {
@@ -1181,16 +1181,16 @@ export function SettingsMenu({
                     }}
                   >
                     Switch to TEST &amp; Connect
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
                   type="button"
                   className="btn-msg-dismiss"
                   aria-label="Dismiss message"
                   onClick={clearMsg}
                 >
                   ✕
-                </button>
+                </Button>
               </div>
             </div>
           )}

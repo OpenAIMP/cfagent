@@ -31,6 +31,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./apiFetch";
+import { Button } from "./components/ui";
 
 interface ChallengerView {
   id: string;
@@ -134,7 +135,7 @@ interface ChallengerDetail {
 
 const boxStyle: React.CSSProperties = {
   margin: "0 0 1rem",
-  padding: "1rem 1.25rem",
+  padding: "var(--space-4) var(--space-5)",
   background: "var(--color-surface-sunken)",
   border: "1px solid var(--color-border-subtle)",
   borderRadius: "8px",
@@ -349,8 +350,8 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
           decision — there is no pending-request step — and the promoter must be the approver
           of record. Staged promotions are retired; in-flight ones drain via the API.
         </p>
-        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
-          <button
+        <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "0.75rem" }}>
+          <Button
             type="button"
             disabled={busy}
             onClick={() =>
@@ -364,7 +365,7 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
             }
           >
             Generate challengers from proposals
-          </button>
+          </Button>
         </div>
         {candidatesError && <p style={muted}>{candidatesError}</p>}
         {candidates !== null && candidates.length === 0 && !candidatesError && (
@@ -374,11 +375,11 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
           <div
             key={challenger.id}
             style={{
-              padding: "0.75rem 0",
+              padding: "var(--space-3) 0",
               borderTop: "1px solid var(--color-border-subtle)",
             }}
           >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "baseline" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", alignItems: "baseline" }}>
               <strong style={{ color: "var(--color-text-primary)", fontSize: "0.92rem" }}>
                 {challenger.title}
               </strong>
@@ -392,9 +393,9 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
               holdout evaluated ≥ {challenger.criteria.minEvaluated} · created by {challenger.createdBy} ·{" "}
               {new Date(challenger.createdAt).toLocaleString()}
             </p>
-            <button type="button" onClick={() => void openCandidate(challenger.id)} disabled={busy}>
+            <Button type="button" onClick={() => void openCandidate(challenger.id)} disabled={busy}>
               {selectedId === challenger.id ? "Close review" : "Review challenger"}
-            </button>
+            </Button>
 
             {selectedId === challenger.id && detail && (
               <div style={{ marginTop: "0.75rem" }}>
@@ -411,8 +412,8 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                     : "not run yet."}
                 </p>
 
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.5rem" }}>
-                  <button
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", marginBottom: "0.5rem" }}>
+                  <Button
                     type="button"
                     disabled={busy}
                     onClick={() =>
@@ -425,8 +426,8 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                     }
                   >
                     Evaluate challenger
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     disabled={busy}
                     onClick={() =>
@@ -439,8 +440,8 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                     }
                   >
                     Run promotion gate
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     disabled={busy}
                     onClick={() =>
@@ -455,8 +456,8 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                     }
                   >
                     Approve
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     disabled={busy}
                     onClick={() =>
@@ -471,9 +472,9 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                     }
                   >
                     Reject
-                  </button>
+                  </Button>
                   {challenger.status === "evaluated" && (
-                    <button
+                    <Button
                       type="button"
                       disabled={busy}
                       onClick={() =>
@@ -489,10 +490,10 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                       }
                     >
                       Promote challenger
-                    </button>
+                    </Button>
                   )}
                   {challenger.status === "promoted" && (
-                    <button
+                    <Button
                       type="button"
                       disabled={busy}
                       onClick={() =>
@@ -508,12 +509,12 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                       }
                     >
                       Roll back promotion
-                    </button>
+                    </Button>
                   )}
                 </div>
 
                 {detail.approvals.length > 0 && (
-                  <ul style={{ margin: "0 0 0.5rem", paddingLeft: "1.1rem" }}>
+                  <ul style={{ margin: "0 0 0.5rem", paddingLeft: "var(--space-4)" }}>
                     {detail.approvals.map((a) => (
                       <li key={a.id} style={muted}>
                         Approval {a.decision} by {a.approver}
@@ -524,7 +525,7 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                 )}
 
                 {detail.promotions.length > 0 && (
-                  <ul style={{ margin: 0, paddingLeft: "1.1rem" }}>
+                  <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
                     {detail.promotions.map((promotion, i) => (
                       <li key={`${promotion.action}-${i}`} style={{ ...bodyText, marginBottom: "0.35rem" }}>
                         Promotion record: <strong>{promotion.action}</strong> by {promotion.actor}
@@ -554,16 +555,16 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
           <p style={muted}>No proposed goals are waiting.</p>
         )}
         {goals?.map((goal) => (
-          <div key={goal.id} style={{ padding: "0.75rem 0", borderTop: "1px solid var(--color-border-subtle)" }}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "baseline" }}>
+          <div key={goal.id} style={{ padding: "var(--space-3) 0", borderTop: "1px solid var(--color-border-subtle)" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", alignItems: "baseline" }}>
               <strong style={{ color: "var(--color-text-primary)", fontSize: "0.92rem" }}>{goal.title}</strong>
               <span style={muted}>
                 {goal.kind} · from {goal.source} · {goal.scenarios.length} scenario
                 {goal.scenarios.length === 1 ? "" : "s"} · {new Date(goal.createdAt).toLocaleString()}
               </span>
             </div>
-            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
-              <button
+            <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "0.5rem" }}>
+              <Button
                 type="button"
                 disabled={busy}
                 onClick={() =>
@@ -575,8 +576,8 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                 }
               >
                 Activate goal
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 disabled={busy}
                 onClick={() =>
@@ -588,7 +589,7 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                 }
               >
                 Dismiss
-              </button>
+              </Button>
             </div>
           </div>
         ))}
@@ -609,7 +610,7 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
           <p style={muted}>No re-selection proposals recorded yet.</p>
         )}
         {reselection?.map((row) => (
-          <div key={row.id} style={{ padding: "0.75rem 0", borderTop: "1px solid var(--color-border-subtle)" }}>
+          <div key={row.id} style={{ padding: "var(--space-3) 0", borderTop: "1px solid var(--color-border-subtle)" }}>
             <p style={{ margin: 0, ...bodyText }}>
               <strong>{row.regime}</strong> regime · overall win rate {pct(row.proposal.overallWinRate)} ·{" "}
               {row.proposal.evaluatedCount} evaluated · cost {row.proposal.costUnitsUsed}/
@@ -640,7 +641,7 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
                 ? ` Low-sample (read with care): ${weights.evaluation.lowSample.join(", ")}.`
                 : ""}
             </p>
-            <ul style={{ margin: 0, paddingLeft: "1.1rem" }}>
+            <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
               {Object.entries(weights.weights).map(([strategy, weight]) => (
                 <li key={strategy} style={muted}>
                   {strategy}: {weight}

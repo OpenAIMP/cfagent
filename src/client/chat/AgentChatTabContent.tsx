@@ -481,8 +481,8 @@ export function AgentChatTabContent({
         className="capabilities-quick-bar"
         style={{
           display: "flex",
-          gap: "6px",
-          padding: "6px 12px",
+          gap: "var(--space-1-5)",
+          padding: "var(--space-1-5) var(--space-3)",
           overflowX: "auto",
           borderTop: "1px solid var(--color-border-subtle)",
           background: "var(--color-surface-sunken)",
@@ -490,7 +490,7 @@ export function AgentChatTabContent({
           alignItems: "center",
         }}
       >
-        <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--color-text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
+        <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--color-text-muted)", display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
           💡 Guides:
         </span>
         <Button

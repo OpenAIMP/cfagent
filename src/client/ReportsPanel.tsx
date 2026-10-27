@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "./apiFetch";
-import { Button, SegmentedControl } from "./components/ui";
+import { Button, Checkbox, SegmentedControl, TextInput } from "./components/ui";
 import { PendingReviewQueue } from "./PendingReviewQueue";
 import { RegeneratePdfButton } from "./RegeneratePdfButton";
 import { ResearchRunDetail } from "./chat/tabs/ResearchRunDetail";
@@ -210,17 +210,16 @@ export function ReportsPanel() {
       {!selectedReportId && <PendingReviewQueue />}
       <div className="reports-toolbar">
         <form onSubmit={handleSearch} className="reports-search">
-          <input
+          <TextInput
             type="text"
             placeholder="Search reports… (e.g. NASDAQ100, bullish, NVDA)"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="search-input"
           />
-          <button type="submit" className="search-btn">🔍 Search</button>
+          <Button type="submit" className="search-btn">🔍 Search</Button>
           <label className="semantic-toggle" title="Use AI semantic search instead of keyword matching">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={semanticMode}
               onChange={(e) => setSemanticMode(e.target.checked)}
             />
@@ -229,13 +228,13 @@ export function ReportsPanel() {
         </form>
         <div className="source-filters">
           {filteredSources.map((s) => (
-            <button
+            <Button
               key={s}
               className={`filter-chip ${sourceFilter === s ? "active" : ""}`}
               onClick={() => setSourceFilter(s)}
             >
               {s === "all" ? "All" : SOURCE_LABELS[s] || s}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -243,7 +242,7 @@ export function ReportsPanel() {
       {!selectedReportId && loading && <div className="loading">Loading reports…</div>}
       {!selectedReportId && error && (
         <div className="error">
-          Error: {error} <button onClick={() => fetchReports()}>Retry</button>
+          Error: {error} <Button onClick={() => fetchReports()}>Retry</Button>
         </div>
       )}
 

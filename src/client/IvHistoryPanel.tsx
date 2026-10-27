@@ -5,6 +5,7 @@
  * scheduled job: per-symbol coverage, IV rank over time, latest readings.
  */
 import { useCallback, useEffect, useState } from "react";
+import { Button, Select, Table } from "./components/ui";
 
 interface IvEntry {
   symbol: string;
@@ -102,48 +103,58 @@ export function IvHistoryPanel() {
       <h2 style={{ fontSize: "1.1rem", marginBottom: "0.25rem" }}>📈 IV History</h2>
       <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "1rem" }}>
         Daily E*TRADE option-chain snapshots · {names.length} symbols · {totalObs} observations ·{" "}
-        <button onClick={loadCoverage} style={{ fontSize: "0.8rem" }}>↻ Refresh</button>
+        <Button onClick={loadCoverage} style={{ fontSize: "0.8rem" }}>↻ Refresh</Button>
       </div>
       {error && <div style={{ color: "var(--color-danger)" }}>{error}</div>}
       {loading && !names.length && <div>Loading…</div>}
 
       {names.length > 0 && (
-        <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "var(--space-6)", flexWrap: "wrap" }}>
           <div style={{ minWidth: 260 }}>
             <label style={{ fontSize: "0.85rem" }}>
               Symbol{" "}
-              <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+              <Select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
                 {names.map((n) => (
                   <option key={n.symbol} value={n.symbol}>
                     {n.symbol} ({n.observations} obs)
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
-            <table style={{ fontSize: "0.8rem", marginTop: "0.75rem", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ textAlign: "left", color: "var(--color-text-muted)" }}>
-                  <th>Symbol</th><th>Obs</th><th>IV Rank</th><th>Latest</th>
-                </tr>
-              </thead>
-              <tbody>
-                {names.map((n) => (
-                  <tr
-                    key={n.symbol}
-                    onClick={() => setSymbol(n.symbol)}
-                    style={{
-                      cursor: "pointer",
-                      background: n.symbol === symbol ? "var(--color-surface-hover)" : undefined,
-                    }}
-                  >
-                    <td><strong>{n.symbol}</strong></td>
-                    <td>{n.observations}</td>
-                    <td>{n.ivRank == null ? "—" : n.ivRank.toFixed(0)}</td>
-                    <td>{n.latest?.date ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div style={{ marginTop: "var(--space-3)" }}>
+              <Table
+                columns={[
+                  {
+                    key: "symbol",
+                    header: "Symbol",
+                    render: (n) => <strong>{n.symbol}</strong>,
+                    cellStyle: (n) => (n.symbol === symbol ? { background: "var(--color-surface-hover)" } : {}),
+                  },
+                  {
+                    key: "obs",
+                    header: "Obs",
+                    render: (n) => n.observations,
+                    cellStyle: (n) => (n.symbol === symbol ? { background: "var(--color-surface-hover)" } : {}),
+                  },
+                  {
+                    key: "ivRank",
+                    header: "IV Rank",
+                    render: (n) => (n.ivRank == null ? "—" : n.ivRank.toFixed(0)),
+                    cellStyle: (n) => (n.symbol === symbol ? { background: "var(--color-surface-hover)" } : {}),
+                  },
+                  {
+                    key: "latest",
+                    header: "Latest",
+                    render: (n) => n.latest?.date ?? "—",
+                    cellStyle: (n) => (n.symbol === symbol ? { background: "var(--color-surface-hover)" } : {}),
+                  },
+                ]}
+                rows={names}
+                rowKey={(n) => n.symbol}
+                onRowClick={(n) => setSymbol(n.symbol)}
+                rowClassName="clickable-row"
+              />
+            </div>
           </div>
 
           {detail && (

@@ -640,7 +640,7 @@ export function ScanResultsView({ result, runContext, onPreviewTrade, storedRun 
             download
             style={{
               fontSize: "0.8rem",
-              padding: "0.35rem 0.75rem",
+              padding: "var(--space-1-5) var(--space-3)",
               borderRadius: "4px",
               border: "1px solid var(--color-accent)",
               color: "var(--color-accent)",
@@ -940,7 +940,7 @@ function StrategyCatalogBrowser() {
   const theses = ["all", "bullish", "bearish", "range_bound", "large_move"];
 
   return (
-    <div style={{ margin: "1rem 0", border: "1px solid var(--color-border-medium)", borderRadius: 6, padding: "0.75rem" }}>
+    <div style={{ margin: "1rem 0", border: "1px solid var(--color-border-medium)", borderRadius: 6, padding: "var(--space-3)" }}>
       <Button
       variant="ghost"
         onClick={() => setOpen(!open)}
@@ -956,7 +956,7 @@ function StrategyCatalogBrowser() {
               onChange={setFilter}
             />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "0.5rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "var(--space-2)" }}>
             {filtered.map((st) => (
               <Card padding="sm" key={st.id}>
                 <div style={{ fontWeight: 700 }}>{st.label}</div>
@@ -968,7 +968,7 @@ function StrategyCatalogBrowser() {
                       style={{
                         display: "inline-block",
                         marginRight: "0.3rem",
-                        padding: "0.1rem 0.45rem",
+                        padding: "var(--space-0-5) var(--space-2)",
                         borderRadius: 10,
                         fontSize: "0.7rem",
                         fontWeight: 600,

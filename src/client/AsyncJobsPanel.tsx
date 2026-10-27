@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button, TextInput } from "./components/ui";
 import { usePolling } from "./usePolling";
 
 type AsyncJob = {
@@ -141,14 +142,14 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
               {activeCount > 0 ? `${activeCount} task${activeCount === 1 ? "" : "s"} running` : "Idle / Queue clear"}
             </span>
           </div>
-          <button
+          <Button
             type="button"
             className="btn-async-mini-refresh"
             onClick={() => void refresh()}
             title="Refresh background tasks"
           >
             🔄 Refresh
-          </button>
+          </Button>
         </div>
 
         {error && <p className="async-jobs-error" role="alert">{error}</p>}
@@ -174,24 +175,24 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
                   </div>
                 </div>
                 {(node.job.status === "completed" || node.job.status === "failed") && (
-                  <button
+                  <Button
                     type="button"
                     className="btn-async-view-result"
                     onClick={() => void openResult(node.job.jobId)}
                     title={node.job.status === "completed" ? "Inspect job payload result" : "Inspect failure reason"}
                   >
                     {node.job.status === "completed" ? "Result" : "Error"}
-                  </button>
+                  </Button>
                 )}
                 {node.job.status === "failed" && (
-                  <button
+                  <Button
                     type="button"
                     className="btn-async-view-result"
                     onClick={() => void retryJob(node.job.jobId)}
                     title="Retry this job from its recorded payload — upstream stages are not re-run"
                   >
                     Retry
-                  </button>
+                  </Button>
                 )}
               </li>
             ))}
@@ -202,9 +203,9 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
           <div className="settings-async-result-container">
             <div className="async-result-header">
               <span className="result-job-id" title={selectedJob}>Task: {selectedJob.slice(0, 14)}…</span>
-              <button type="button" className="btn-async-download" onClick={downloadResult} title="Export JSON result">
+              <Button type="button" className="btn-async-download" onClick={downloadResult} title="Export JSON result">
                 📥 Export JSON
-              </button>
+              </Button>
             </div>
             <pre className="settings-async-result-body">
               {resultJson.slice(0, 10_000)}
@@ -225,7 +226,7 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
       <div className="async-jobs-content">
         <div className="async-jobs-heading">
           <strong>Background work</strong>
-          <button type="button" onClick={() => void refresh()}>Refresh</button>
+          <Button type="button" onClick={() => void refresh()}>Refresh</Button>
         </div>
         <div role="status" className="async-jobs-live-status">
           {activeCount > 0 ? `${activeCount} task${activeCount === 1 ? "" : "s"} running` : "Idle / Queue clear"}
@@ -245,14 +246,14 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
                   </small>
                 </span>
                 {(node.job.status === "completed" || node.job.status === "failed") && (
-                  <button type="button" onClick={() => void openResult(node.job.jobId)}>
+                  <Button type="button" onClick={() => void openResult(node.job.jobId)}>
                     {node.job.status === "completed" ? "View result" : "View error"}
-                  </button>
+                  </Button>
                 )}
                 {node.job.status === "failed" && (
-                  <button type="button" onClick={() => void retryJob(node.job.jobId)}>
+                  <Button type="button" onClick={() => void retryJob(node.job.jobId)}>
                     Retry
-                  </button>
+                  </Button>
                 )}
                 {node.children.length > 0 && (
                   <ul className="async-jobs-children">
@@ -268,14 +269,14 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
                           </small>
                         </span>
                         {(child.status === "completed" || child.status === "failed") && (
-                          <button type="button" onClick={() => void openResult(child.jobId)}>
+                          <Button type="button" onClick={() => void openResult(child.jobId)}>
                             {child.status === "completed" ? "View result" : "View error"}
-                          </button>
+                          </Button>
                         )}
                         {child.status === "failed" && (
-                          <button type="button" onClick={() => void retryJob(child.jobId)}>
+                          <Button type="button" onClick={() => void retryJob(child.jobId)}>
                             Retry
-                          </button>
+                          </Button>
                         )}
                       </li>
                     ))}
@@ -287,7 +288,7 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
         )}
         {selectedJob && result !== undefined && (
           <>
-            <button type="button" onClick={downloadResult}>Download full result</button>
+            <Button type="button" onClick={downloadResult}>Download full result</Button>
             <pre className="async-jobs-result">
               {resultJson.slice(0, 100_000)}
               {resultJson.length > 100_000 ? "\n… preview truncated; download the full result." : ""}

@@ -76,7 +76,7 @@ export function ScreeningOutcomesPanel({ userLogin }: ScreeningOutcomesPanelProp
       aria-label="Recommendation track record"
       style={{
         margin: "1.5rem 0",
-        padding: "1.5rem",
+        padding: "var(--space-6)",
         background: "var(--color-surface-sunken)",
         border: "1px solid var(--color-border-subtle)",
         borderRadius: "8px",
@@ -105,7 +105,7 @@ export function ScreeningOutcomesPanel({ userLogin }: ScreeningOutcomesPanelProp
       )}
 
       {outcomes.length > 0 && (
-        <ul style={{ margin: 0, paddingLeft: "1.1rem" }}>
+        <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
           {outcomes.map((outcome) => (
             <li
               key={outcome.recommendationRef}

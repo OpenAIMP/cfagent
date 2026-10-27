@@ -163,7 +163,7 @@ export function MorningDigest({
           description="No screener runs finished in the overnight window. Held items below are still actionable."
         />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
           {overnight.map((run) => {
             const status = digestRunStatus(run);
             const pdfHref = run.reportUrl || (run.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(run.pdfKey)}` : null);
@@ -174,10 +174,10 @@ export function MorningDigest({
                 style={{
                   border: "1px solid var(--color-border-subtle)",
                   borderRadius: "8px",
-                  padding: "0.75rem",
+                  padding: "var(--space-3)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
                   <Badge tone={status === "failed" ? "danger" : status === "partial" ? "warning" : "success"}>
                     {status === "failed" ? "Failed" : status === "partial" ? "Partial" : "Complete"}
                   </Badge>
@@ -207,7 +207,7 @@ export function MorningDigest({
                 {run.pdfStatus === "failed" && run.pdfError && status !== "failed" && (
                   <div style={{ fontSize: "0.85rem", marginTop: "0.25rem" }}>PDF failed: {run.pdfError}</div>
                 )}
-                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
                   <Button variant="secondary" size="sm" onClick={() => onSelectRun(run.timestamp)}>
                     View run detail
                   </Button>
@@ -241,7 +241,7 @@ export function MorningDigest({
           Nothing held for review.
         </p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
           {held.map((item) => (
             <div key={item.confirmationId} style={{ fontSize: "0.85rem" }}>
               <Badge tone="warning">Held for review</Badge>{" "}

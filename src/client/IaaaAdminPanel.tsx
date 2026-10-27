@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { EmptyState, Notice, Spinner, Tabs, TabPanel } from "./components/ui";
+import { Button, EmptyState, Notice, Spinner, Table, Tabs, TabPanel } from "./components/ui";
 import {
   decideAccessRequest,
   fetchAccessRequests,
@@ -171,83 +171,66 @@ export function IaaaAdminPanel() {
         {accessRequests.length === 0 ? (
           <EmptyState title="No access requests" description="No elevation requests recorded for this tenant yet." />
         ) : (
-          <table className="iaaa-admin-table">
-            <thead>
-              <tr>
-                <th>Requested</th>
-                <th>Requester</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Decision</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accessRequests.map((r) => (
-                <tr key={r.requestId}>
-                  <td>{formatEventTime(r.createdAtMs)}</td>
-                  <td>
-                    <code>{r.requesterInternalUserId}</code>
-                  </td>
-                  <td>{r.requestedRole}</td>
-                  <td>{r.status}</td>
-                  <td>
-                    {r.status === "pending" ? (
-                      <>
-                        <button
-                          type="button"
-                          disabled={decidingId === r.requestId}
-                          onClick={() => void decide(r.requestId, "approve")}
-                        >
-                          Approve
-                        </button>{" "}
-                        <button
-                          type="button"
-                          disabled={decidingId === r.requestId}
-                          onClick={() => void decide(r.requestId, "deny")}
-                        >
-                          Deny
-                        </button>
-                      </>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Table
+            columns={[
+              { key: "requested", header: "Requested", render: (r) => formatEventTime(r.createdAtMs) },
+              {
+                key: "requester",
+                header: "Requester",
+                render: (r) => <code>{r.requesterInternalUserId}</code>,
+              },
+              { key: "role", header: "Role", render: (r) => r.requestedRole },
+              { key: "status", header: "Status", render: (r) => r.status },
+              {
+                key: "decision",
+                header: "Decision",
+                render: (r) =>
+                  r.status === "pending" ? (
+                    <>
+                      <Button
+                        type="button"
+                        disabled={decidingId === r.requestId}
+                        onClick={() => void decide(r.requestId, "approve")}
+                      >
+                        Approve
+                      </Button>{" "}
+                      <Button
+                        type="button"
+                        disabled={decidingId === r.requestId}
+                        onClick={() => void decide(r.requestId, "deny")}
+                      >
+                        Deny
+                      </Button>
+                    </>
+                  ) : (
+                    "—"
+                  ),
+              },
+            ]}
+            rows={accessRequests}
+            rowKey={(r) => r.requestId}
+          />
         )}
 
         <h4>Recent audit events</h4>
         {overview.recentAuditEvents.length === 0 ? (
           <EmptyState title="No audit events" description="No events recorded for this tenant yet." />
         ) : (
-          <table className="iaaa-admin-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Action</th>
-                <th>Decision</th>
-                <th>Outcome</th>
-                <th>Correlation</th>
-              </tr>
-            </thead>
-            <tbody>
-              {overview.recentAuditEvents.map((event) => (
-                <tr key={event.id}>
-                  <td>{formatEventTime(event.timestamp)}</td>
-                  <td>
-                    <code>{event.action}</code>
-                  </td>
-                  <td>{event.decision}</td>
-                  <td>{event.outcome}</td>
-                  <td>
-                    <code>{event.correlationId}</code>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Table
+            columns={[
+              { key: "time", header: "Time", render: (event) => formatEventTime(event.timestamp) },
+              { key: "action", header: "Action", render: (event) => <code>{event.action}</code> },
+              { key: "decision", header: "Decision", render: (event) => event.decision },
+              { key: "outcome", header: "Outcome", render: (event) => event.outcome },
+              {
+                key: "correlation",
+                header: "Correlation",
+                render: (event) => <code>{event.correlationId}</code>,
+              },
+            ]}
+            rows={overview.recentAuditEvents}
+            rowKey={(event) => event.id}
+          />
         )}
       </TabPanel>
 
@@ -257,40 +240,44 @@ export function IaaaAdminPanel() {
           branches. Aliases are one endpoint, not several. The catch-all forwarder is
           marked as such — it is not an endpoint.
         </p>
-        <table className="iaaa-admin-table">
-          <thead>
-            <tr>
-              <th>Method</th>
-              <th>Path</th>
-              <th>Gating</th>
-              <th>Note</th>
-            </tr>
-          </thead>
-          <tbody>
-            {API_ENDPOINT_CATALOG.map((endpoint) => (
-              <tr key={`${endpoint.method} ${endpoint.path}`}>
-                <td>
-                  <code>{endpoint.method}</code>
-                </td>
-                <td>
+        <Table
+          columns={[
+            {
+              key: "method",
+              header: "Method",
+              render: (endpoint) => <code>{endpoint.method}</code>,
+            },
+            {
+              key: "path",
+              header: "Path",
+              render: (endpoint) => (
+                <>
                   <code>{endpoint.path}</code>
                   {endpoint.aliases.length > 0 && (
                     <div className="iaaa-admin-aliases">
                       aliases: {endpoint.aliases.join(", ")}
                     </div>
                   )}
-                </td>
-                <td>
+                </>
+              ),
+            },
+            {
+              key: "gating",
+              header: "Gating",
+              render: (endpoint) => (
+                <>
                   <span className="iaaa-admin-badge">{endpoint.auth}</span>
                   {endpoint.kind !== "http" && (
                     <span className="iaaa-admin-badge iaaa-admin-badge-kind">{endpoint.kind}</span>
                   )}
-                </td>
-                <td>{endpoint.authNote}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </>
+              ),
+            },
+            { key: "note", header: "Note", render: (endpoint) => endpoint.authNote },
+          ]}
+          rows={API_ENDPOINT_CATALOG}
+          rowKey={(endpoint) => `${endpoint.method} ${endpoint.path}`}
+        />
       </TabPanel>
 
       <TabPanel idBase="iaaa-admin" tabId="mcp" active={tab === "mcp"}>
@@ -299,85 +286,47 @@ export function IaaaAdminPanel() {
           not duplicated. Server capabilities the catalog lacks are listed below as gaps.
         </p>
         <h4>Tools ({MCP_TOOLS_CATALOG.length})</h4>
-        <table className="iaaa-admin-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Category</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            {MCP_TOOLS_CATALOG.map((tool) => (
-              <tr key={tool.name}>
-                <td>
-                  <code>{tool.name}</code>
-                </td>
-                <td>{tool.category}</td>
-                <td>{tool.description}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            { key: "name", header: "Name", render: (tool) => <code>{tool.name}</code> },
+            { key: "category", header: "Category", render: (tool) => tool.category },
+            { key: "description", header: "Description", render: (tool) => tool.description },
+          ]}
+          rows={MCP_TOOLS_CATALOG}
+          rowKey={(tool) => tool.name}
+        />
         <h4>Resources ({MCP_RESOURCES_CATALOG.length})</h4>
-        <table className="iaaa-admin-table">
-          <thead>
-            <tr>
-              <th>URI</th>
-              <th>Name</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            {MCP_RESOURCES_CATALOG.map((resource) => (
-              <tr key={resource.uri}>
-                <td>
-                  <code>{resource.uri}</code>
-                </td>
-                <td>{resource.name}</td>
-                <td>{resource.description}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            {
+              key: "uri",
+              header: "URI",
+              render: (resource) => <code>{resource.uri}</code>,
+            },
+            { key: "name", header: "Name", render: (resource) => resource.name },
+            { key: "description", header: "Description", render: (resource) => resource.description },
+          ]}
+          rows={MCP_RESOURCES_CATALOG}
+          rowKey={(resource) => resource.uri}
+        />
         <h4>Prompts ({MCP_PROMPTS_CATALOG.length})</h4>
-        <table className="iaaa-admin-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            {MCP_PROMPTS_CATALOG.map((prompt) => (
-              <tr key={prompt.name}>
-                <td>
-                  <code>{prompt.name}</code>
-                </td>
-                <td>{prompt.description}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            { key: "name", header: "Name", render: (prompt) => <code>{prompt.name}</code> },
+            { key: "description", header: "Description", render: (prompt) => prompt.description },
+          ]}
+          rows={MCP_PROMPTS_CATALOG}
+          rowKey={(prompt) => prompt.name}
+        />
         <h4>Not in this catalog (server capabilities reported as gaps)</h4>
-        <table className="iaaa-admin-table">
-          <thead>
-            <tr>
-              <th>Capability</th>
-              <th>Detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            {IAAA_CATALOG_GAPS.filter((gap) => gap.area === "mcp").map((gap) => (
-              <tr key={gap.item}>
-                <td>
-                  <code>{gap.item}</code>
-                </td>
-                <td>{gap.detail}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            { key: "capability", header: "Capability", render: (gap) => <code>{gap.item}</code> },
+            { key: "detail", header: "Detail", render: (gap) => gap.detail },
+          ]}
+          rows={IAAA_CATALOG_GAPS.filter((gap) => gap.area === "mcp")}
+          rowKey={(gap) => gap.item}
+        />
       </TabPanel>
 
       <TabPanel idBase="iaaa-admin" tabId="iaaa" active={tab === "iaaa"}>
@@ -387,54 +336,40 @@ export function IaaaAdminPanel() {
           listed below as gaps — never fabricated into events.
         </p>
         <h4>Audit events</h4>
-        <table className="iaaa-admin-table">
-          <thead>
-            <tr>
-              <th>Action</th>
-              <th>Decision</th>
-              <th>Outcome</th>
-              <th>Emitted</th>
-              <th>Builder / emitter</th>
-              <th>Fields</th>
-            </tr>
-          </thead>
-          <tbody>
-            {IAAA_AUDIT_EVENT_CATALOG.map((event) => (
-              <tr key={`${event.action} ${event.decision} ${event.outcome}`}>
-                <td>
-                  <code>{event.action}</code>
-                </td>
-                <td>{event.decision}</td>
-                <td>{event.outcome}</td>
-                <td>{event.emitted ? "Yes" : "No — builder only"}</td>
-                <td>
+        <Table
+          columns={[
+            { key: "action", header: "Action", render: (event) => <code>{event.action}</code> },
+            { key: "decision", header: "Decision", render: (event) => event.decision },
+            { key: "outcome", header: "Outcome", render: (event) => event.outcome },
+            {
+              key: "emitted",
+              header: "Emitted",
+              render: (event) => (event.emitted ? "Yes" : "No — builder only"),
+            },
+            {
+              key: "builder",
+              header: "Builder / emitter",
+              render: (event) => (
+                <>
                   <div>{event.builder}</div>
                   {event.emitter && <div className="iaaa-admin-aliases">{event.emitter}</div>}
-                </td>
-                <td>{event.fields.join(", ")}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </>
+              ),
+            },
+            { key: "fields", header: "Fields", render: (event) => event.fields.join(", ") },
+          ]}
+          rows={IAAA_AUDIT_EVENT_CATALOG}
+          rowKey={(event) => `${event.action} ${event.decision} ${event.outcome}`}
+        />
         <h4>Gaps — IAAA occurrences with no audit event</h4>
-        <table className="iaaa-admin-table">
-          <thead>
-            <tr>
-              <th>Occurrence</th>
-              <th>Detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            {IAAA_CATALOG_GAPS.filter((gap) => gap.area === "iaaa").map((gap) => (
-              <tr key={gap.item}>
-                <td>
-                  <code>{gap.item}</code>
-                </td>
-                <td>{gap.detail}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            { key: "occurrence", header: "Occurrence", render: (gap) => <code>{gap.item}</code> },
+            { key: "detail", header: "Detail", render: (gap) => gap.detail },
+          ]}
+          rows={IAAA_CATALOG_GAPS.filter((gap) => gap.area === "iaaa")}
+          rowKey={(gap) => gap.item}
+        />
       </TabPanel>
 
       <TabPanel idBase="iaaa-admin" tabId="correlations" active={tab === "correlations"}>
@@ -443,59 +378,47 @@ export function IaaaAdminPanel() {
           a match. Every row cites its source in the catalog module.
         </p>
         <h4>API endpoint ↔ MCP tool</h4>
-        <table className="iaaa-admin-table">
-          <thead>
-            <tr>
-              <th>Endpoint</th>
-              <th>MCP entry</th>
-              <th>Relation</th>
-              <th>Note</th>
-            </tr>
-          </thead>
-          <tbody>
-            {IAAA_CORRELATION_ROWS.filter((row) => row.kind === "endpoint-mcp").map(
-              (row, index) => (
-                <tr key={`endpoint-mcp-${index}`}>
-                  <td>
-                    <code>{row.left}</code>
-                  </td>
-                  <td>{row.right === null ? "UNMAPPED" : <code>{row.right}</code>}</td>
-                  <td>
-                    <span className="iaaa-admin-badge">{row.relation}</span>
-                  </td>
-                  <td>{row.note}</td>
-                </tr>
-              ),
-            )}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            { key: "endpoint", header: "Endpoint", render: (row) => <code>{row.left}</code> },
+            {
+              key: "mcp",
+              header: "MCP entry",
+              render: (row) => (row.right === null ? "UNMAPPED" : <code>{row.right}</code>),
+            },
+            {
+              key: "relation",
+              header: "Relation",
+              render: (row) => <span className="iaaa-admin-badge">{row.relation}</span>,
+            },
+            { key: "note", header: "Note", render: (row) => row.note },
+          ]}
+          rows={IAAA_CORRELATION_ROWS.filter((row) => row.kind === "endpoint-mcp")}
+          rowKey={(_row, index) => `endpoint-mcp-${index}`}
+        />
         <h4>IAAA event ↔ endpoint</h4>
-        <table className="iaaa-admin-table">
-          <thead>
-            <tr>
-              <th>Event / occurrence</th>
-              <th>Endpoint</th>
-              <th>Relation</th>
-              <th>Note</th>
-            </tr>
-          </thead>
-          <tbody>
-            {IAAA_CORRELATION_ROWS.filter((row) => row.kind === "event-endpoint").map(
-              (row, index) => (
-                <tr key={`event-endpoint-${index}`}>
-                  <td>
-                    <code>{row.left}</code>
-                  </td>
-                  <td>{row.right === null ? "UNMAPPED" : <code>{row.right}</code>}</td>
-                  <td>
-                    <span className="iaaa-admin-badge">{row.relation}</span>
-                  </td>
-                  <td>{row.note}</td>
-                </tr>
-              ),
-            )}
-          </tbody>
-        </table>
+        <Table
+          columns={[
+            {
+              key: "event",
+              header: "Event / occurrence",
+              render: (row) => <code>{row.left}</code>,
+            },
+            {
+              key: "endpoint",
+              header: "Endpoint",
+              render: (row) => (row.right === null ? "UNMAPPED" : <code>{row.right}</code>),
+            },
+            {
+              key: "relation",
+              header: "Relation",
+              render: (row) => <span className="iaaa-admin-badge">{row.relation}</span>,
+            },
+            { key: "note", header: "Note", render: (row) => row.note },
+          ]}
+          rows={IAAA_CORRELATION_ROWS.filter((row) => row.kind === "event-endpoint")}
+          rowKey={(_row, index) => `event-endpoint-${index}`}
+        />
       </TabPanel>
     </div>
   );

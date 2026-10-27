@@ -62,7 +62,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         role="alert"
         style={{
           margin: "12px 0",
-          padding: "12px 14px",
+          padding: "var(--space-3) var(--space-4)",
           border: "1px solid var(--color-danger)",
           borderRadius: 10,
           background: "var(--color-danger-subtle)",
@@ -80,7 +80,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           Retry reloads just this panel&apos;s view. If it fails again, reload the whole page — it
           may be running an older version.
         </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
           <Button size="sm" onClick={this.handleRetry}>
             Retry
           </Button>
