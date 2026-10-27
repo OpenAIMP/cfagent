@@ -49,17 +49,34 @@ the x402 payment mechanism, not identity: payment is the gate. That is a
 designed exception, not an oversight — but it means scanner abuse
 analysis starts from payment records, not session records, and any change
 to the x402 terms changes the scanner's security posture directly.
+The full per-tool attribution verdicts, including the scanner
+tools and the named gaps in scanner attribution, are in
+[tool-attribution-audit-1763.md](tool-attribution-audit-1763.md) (#1763).
 
-## 4. A2A: discovery is public, invocation is not settled
+## 4. A2A: discovery is public, invocation auth is verified (#1763)
 
 - **GET** on the agent cards (`/.well-known/agent-card.json`,
   `/.well-known/agent.json`) is public by design (see
   [api-security.md](api-security.md) §1).
-- **POST** per-agent authentication delegates to a Durable Object stub
-  and is **not verified from the entrypoint**. Until that path is
-  verified, A2A invocation security must not be claimed beyond
-  "discovery is public, invocation auth is unverified" — an open item
-  carried from the #1024 analysis, not a closed control.
+- **POST** invocation auth is **verified from the entrypoint**
+  (#1763, closing scan row F-25 and the open item carried from the
+  #1024 analysis). The worker dispatch in `src/server.ts` routes
+  `/a2a/*` to `src/a2a/index.ts` `handleA2A` before any session
+  route, and `handleA2A` enforces, before agent resolution: a
+  Bearer `A2A_API_TOKEN` compared timing-safely; an unset token
+  fails closed with 503 (dispatch disabled, never unauthenticated);
+  a missing or wrong token is 401 — including for unknown agents,
+  so unauthenticated callers learn nothing about which agents
+  exist. Evidence: `tests/a2a_entrypoint_auth_1763.test.ts` drives
+  the worker's fetch export (the real `handleFetch` dispatch, not
+  a direct `handleA2A` call — the pre-existing #291 A5 tests only
+  covered the dispatcher in isolation) and asserts the DO stub is
+  never reached without a valid token. What this does NOT claim:
+  the shared token identifies the fleet/host caller, not a user —
+  per-caller A2A attribution remains gap G-AUD-6 in the #1763
+  tool-attribution audit (`tool-attribution-audit-1763.md`), and
+  per-caller A2A identity is IAAA (#945) / #1024 design work, not
+  a property of this token.
 
 ## 5. What to check before adding an MCP tool
 

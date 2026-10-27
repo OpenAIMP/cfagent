@@ -155,6 +155,7 @@ import {
   verifyApprovalLinkForPrincipal,
 } from "./trading";
 import { gateSlackRequest } from "./security/webhookSecurity";
+import { sanitizeInboundText } from "./security/promptInjectionSanitize";
 import { checkRateLimit } from "./security/rateLimiter";
 import {
   deriveNlqNonce,
@@ -275,11 +276,18 @@ async function handleNlqWebhookRequest(
   if (typeof body.query !== "string" || !body.query.trim()) {
     return Response.json({ error: "A non-empty query string is required." }, { status: 400 });
   }
+  // #1763 (SEC-005): sanitize the webhook query at entry — marker
+  // defuse + control-strip — before the nonce, the forward, and any
+  // prompt assembly downstream. Legitimate queries pass verbatim.
+  // (Local const, not a re-read of body.query: the declared type
+  // is unknown, so downstream uses must go through this variable.)
+  const sanitizedQuery = sanitizeInboundText((body.query as string).trim());
+  body.query = sanitizedQuery;
   if (typeof body.timestamp !== "string" || !Number.isFinite(Date.parse(body.timestamp)) ||
     Math.abs(Date.now() - Date.parse(body.timestamp)) > 5 * 60 * 1000) {
     return Response.json({ error: "Webhook timestamp is missing, invalid, or expired." }, { status: 401 });
   }
-  if (body.query.length > 4_000) return Response.json({ error: "Query must be 4,000 characters or fewer." }, { status: 413 });
+  if (sanitizedQuery.length > 4_000) return Response.json({ error: "Query must be 4,000 characters or fewer." }, { status: 413 });
   if (body.emailTo !== undefined &&
     (typeof body.emailTo !== "string" || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(body.emailTo.trim()))) {
     return Response.json({ error: "emailTo must be a valid email address." }, { status: 400 });
@@ -295,7 +303,7 @@ async function handleNlqWebhookRequest(
   // the nonce claim uses the isolate-scoped fallback store; HMAC +
   // the 5-minute timestamp window above remain the primary controls.
   const nlqNonce = await deriveNlqNonce(
-    body.query.trim(),
+    sanitizedQuery,
     typeof body.emailTo === "string" ? body.emailTo.trim() : undefined,
     body.timestamp
   );
@@ -314,7 +322,7 @@ async function handleNlqWebhookRequest(
       "x-user-login": userLogin,
       "x-nlq-source": "webhook",
     },
-    body: JSON.stringify({ query: body.query.trim() }),
+    body: JSON.stringify({ query: sanitizedQuery }),
   });
   const response = await env.SEARCH_AGENT.get(agentId).fetch(forwarded);
   if (!response.ok) return response;
