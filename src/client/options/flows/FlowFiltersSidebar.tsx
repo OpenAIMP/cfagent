@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Button, Checkbox, Select, TextInput } from "../../components/ui";
+import { Button, Checkbox, Select, TextInput, Modal } from "../../components/ui";
 import {
   FlowFilterConfig,
   SavedFilterPreset,
@@ -633,8 +633,7 @@ export function FlowFiltersSidebar({
 
       {/* Save Filter Modal */}
       {showSaveModal && (
-        <div className="flow-modal-backdrop" onClick={() => setShowSaveModal(false)}>
-          <div className="flow-modal-dialog" onClick={(e) => e.stopPropagation()}>
+                <Modal open={showSaveModal} onClose={() => setShowSaveModal(false)} size="none" panelClassName="flow-modal-dialog" ariaLabel="Save flow filter preset">
             <h3>💾 Save Flow Filter Preset</h3>
             <p>Save current configuration to "Your Filters" for instant recall and alerting.</p>
             <TextInput
@@ -665,8 +664,7 @@ export function FlowFiltersSidebar({
                 Save Filter
               </Button>
             </div>
-          </div>
-        </div>
+                  </Modal>
       )}
     </aside>
   );

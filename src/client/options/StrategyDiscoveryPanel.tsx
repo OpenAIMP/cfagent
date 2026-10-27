@@ -48,7 +48,7 @@ import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 import { StrategyLibraryModal, type StrategyInfo } from "./StrategyLibraryModal";
-import { Button, PillGroup, SegmentedControl, Select, Table, TextInput } from "../components/ui";
+import { Button, PillGroup, SegmentedControl, Select, Table, TextInput, Modal } from "../components/ui";
 
 const SENTIMENT_ITEMS: Array<{
   id: SentimentType;
@@ -3488,8 +3488,7 @@ export function StrategyDiscoveryPanel({
           MODAL 2: ROLL LEG MODAL (CAPABILITY 8 & 11)
           ==================================================================== */}
       {rollingLeg && (
-        <div className="strat-modal-backdrop" onClick={() => setRollingLeg(null)}>
-          <div className="strat-roll-modal" onClick={(e) => e.stopPropagation()}>
+                <Modal open={Boolean(rollingLeg)} onClose={() => setRollingLeg(null)} size="none" panelClassName="strat-roll-modal" ariaLabel="Roll option leg">
             <div className="strat-modal-header">
               <h3>Roll Option Leg</h3>
               <Button type="button" className="strat-modal-close-btn" onClick={() => setRollingLeg(null)}>
@@ -3534,16 +3533,14 @@ export function StrategyDiscoveryPanel({
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+                  </Modal>
       )}
 
       {/* ====================================================================
           MODAL 3: PRICE HISTORY MODAL (CAPABILITY 9)
           ==================================================================== */}
       {showHistoryModal && (
-        <div className="strat-modal-backdrop" onClick={() => setShowHistoryModal(false)}>
-          <div className="strat-history-modal" onClick={(e) => e.stopPropagation()}>
+                <Modal open={showHistoryModal} onClose={() => setShowHistoryModal(false)} size="none" panelClassName="strat-history-modal" ariaLabel="Strategy price history">
             <div className="strat-modal-header">
               <div>
                 <h3>Strategy Price History (Past 30 Days)</h3>
@@ -3595,16 +3592,14 @@ export function StrategyDiscoveryPanel({
             <p className="strat-history-note">
               Note: Historical price reflects the contract unit price over time, not realized portfolio profit or loss.
             </p>
-          </div>
-        </div>
+                  </Modal>
       )}
 
       {/* ====================================================================
           MODAL 4: SAVE TRADE DIALOG (CAPABILITY 10)
           ==================================================================== */}
       {showSaveModal && (
-        <div className="strat-modal-backdrop" onClick={() => setShowSaveModal(false)}>
-          <div className="strat-save-modal" onClick={(e) => e.stopPropagation()}>
+                <Modal open={showSaveModal} onClose={() => setShowSaveModal(false)} size="none" panelClassName="strat-save-modal" ariaLabel="Save trade strategy">
             <div className="strat-modal-header">
               <h3>Save Trade Strategy</h3>
               <Button type="button" className="strat-modal-close-btn" onClick={() => setShowSaveModal(false)}>
@@ -3647,16 +3642,14 @@ export function StrategyDiscoveryPanel({
                 </Button>
               </div>
             </div>
-          </div>
-        </div>
+                  </Modal>
       )}
 
       {/* ====================================================================
           MODAL 5: SAVED TRADES DRAWER (CAPABILITY 11)
           ==================================================================== */}
       {showSavedTradesModal && (
-        <div className="strat-modal-backdrop" onClick={() => setShowSavedTradesModal(false)}>
-          <div className="strat-saved-trades-modal" onClick={(e) => e.stopPropagation()}>
+                <Modal open={showSavedTradesModal} onClose={() => setShowSavedTradesModal(false)} size="none" panelClassName="strat-saved-trades-modal" ariaLabel="My saved trades">
             <div className="strat-modal-header">
               <div>
                 <h3>My Saved Trades ({savedTrades.length})</h3>
@@ -3743,8 +3736,7 @@ export function StrategyDiscoveryPanel({
                 ))
               )}
             </div>
-          </div>
-        </div>
+                  </Modal>
       )}
 
       {/* ====================================================================

@@ -1,0 +1,2 @@
+### Changed
+- One dialog system (#1879): all 12 hand-rolled modal shells across 8 files migrate to the Modal primitive (portal, Escape, focus trap/restore, scroll lock, backdrop-click, dialog semantics uniform everywhere); custom headers stay in children, legacy panel classes carried as panelClassName, and the dialog rule is now in docs/agents/ux-architecture.md §6. No control changes inside shells; dropdown dismiss layers are not dialogs and are untouched.
