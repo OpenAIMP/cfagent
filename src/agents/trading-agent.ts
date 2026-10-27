@@ -32,7 +32,15 @@
  * orchestrator; services receive any such state as call parameters.
  */
 
-import { Agent } from "agents";
+import { PortThink, createThinkActorPort } from "../actors/thinkAdapter";
+import type {
+  ActorPort,
+  ActorTurnHooks,
+  ChatResponseResult,
+  TurnConfig,
+  TurnContext,
+  TurnInput,
+} from "../actors/actorPorts";
 import { tool, type ToolSet } from "ai";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { z } from "zod";
@@ -863,13 +871,29 @@ export async function settleTradingOrder(
   }
 }
 
-export class TradingAgent extends Agent<Env> {
-  // Issue #1738 (AgentActorDO): an Agents SDK actor. The workflow
-  // doors (runWorkflow/sendWorkflowEvent) live on Agent itself —
-  // verified against agents 0.24.0 types — so the approval workflow
+export class TradingAgent extends PortThink {
+  // Issue #1954 (think-fleet): TradingAgent is a Think agent behind
+  // the existing actor port (shape (a), tracker #1951). PortThink
+  // extends Think, which extends Agent, so the workflow doors
+  // (runWorkflow/sendWorkflowEvent) live on the base itself —
+  // verified against agents 0.24.0 types — and the approval workflow
   // path is unchanged by the base change. The trade workflow class
   // itself stays on ThinkWorkflow (ADR 0004 W13); that is not an
   // agent class and is out of this slice's scope.
+  //
+  // Turn path: this class drives turns ONLY through the actor port
+  // (getThinkActorPort().turn / runThinkTurn), i.e. through the
+  // foundation's ThinkActorTurn. That adapter owns the lifecycle
+  // boot (await lifecycle.start() before any turn — idempotent;
+  // never lifecycle.ready?.(), which silently no-ops), the one-shot
+  // beforeTurn override, and the append -> onChatResponse hook
+  // order; this class does not re-implement any of them. The flat
+  // port session and Think's tree session coexist (dual stores);
+  // tree operations (branching, compaction, FTS) have no port
+  // equivalent and stay outside the port. TradingAgent schedules
+  // nothing, so it defines no scheduler callbacks (the SDK
+  // validates callback names at schedule time; the port's schedule
+  // facet delegates to the base scheduler and is unused here).
   private config(): TradingAgentConfig {
     return getTradingAgentConfig(this.env as unknown as Record<string, unknown>);
   }
@@ -896,6 +920,84 @@ export class TradingAgent extends Agent<Env> {
 
   getTools(): ToolSet {
     return buildTradingTools(this.env, this.config(), this.instanceUserLogin() ?? undefined, { orm: this.getOrm(), storage: this.ctx.storage });
+  }
+
+  // -- Actor-port turn hooks (issue #1954) -------------------------------
+  // The port hooks for a Think turn, as an OBJECT — never as class
+  // methods named beforeTurn/onChatResponse/onChatError. PortThink
+  // already defines those names with Think's signatures, and its
+  // translations (one-shot override, record-then-flush ordering,
+  // adapter-turn error accounting) are the dispatch path: a class
+  // method with the same name would override the translation and
+  // break the protocol (and fails typecheck — Think's hook shapes
+  // are not assignable from the port's). TradingAgent is a non-chat
+  // actor (actorPorts: it exposes the model/tool identity facet);
+  // beforeTurn therefore supplies exactly the identity the class
+  // already exposes — system prompt, tools, model — and nothing
+  // else, so a port turn behaves like the class's own tool surface.
+  // onChatResponse has no side effects to preserve (the class never
+  // had a chat turn); onChatError is SYNCHRONOUS by requirement —
+  // Think calls it fire-and-forget without awaiting, so a Promise
+  // return could not control the error text (see thinkAdapter).
+
+  /** The port hooks object, bound to this instance. */
+  private tradingTurnHooks(): ActorTurnHooks {
+    return {
+      getModel: () => this.getModel(),
+      getSystemPrompt: () => this.getSystemPrompt(),
+      getTools: () => this.getTools(),
+      beforeTurn: (_ctx: TurnContext): Promise<TurnConfig | void> =>
+        Promise.resolve({
+          instructions: this.getSystemPrompt(),
+          tools: this.getTools(),
+          model: this.getModel(),
+        }),
+      onChatResponse: async (_result: ChatResponseResult): Promise<void> => {
+        // No chat side effects: the assistant message is already in
+        // the port session by the time this fires (adapter append order).
+      },
+      onChatError: (error: unknown): string =>
+        error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  private thinkPort?: ActorPort;
+
+  /**
+   * The Think-backed actor port for this instance (memoized; the
+   * session is storage-backed, so rebuilding callers share one
+   * transcript). Wires portHooks for direct Think turns too, so a
+   * direct turn delegates to these hooks exactly once per turn via
+   * PortThink. The scheduler facet defaults to this instance (the
+   * base scheduler); TradingAgent schedules nothing through it.
+   */
+  getThinkActorPort(): ActorPort {
+    const hooks = (this.portHooks ??= this.tradingTurnHooks());
+    return (this.thinkPort ??= createThinkActorPort({
+      think: this,
+      hooks,
+      storage: {
+        get: (key) => this.ctx.storage.get(key) as Promise<unknown>,
+        put: (key, value) => this.ctx.storage.put(key, value),
+        delete: async (key) => {
+          await this.ctx.storage.delete(key);
+        },
+        sql: this.ctx.storage.sql,
+      },
+    }));
+  }
+
+  /**
+   * Drive one Think turn through the actor port. The adapter boots
+   * the lifecycle, applies the input delta, runs the one-shot
+   * beforeTurn, appends the assistant message, then fires
+   * onChatResponse (or onChatError + rethrow on model failure).
+   * A configOverride turn with an empty stored history completes
+   * with no message via Think's "skipped" path — never an
+   * identity-factory shape (see thinkAdapter).
+   */
+  async runThinkTurn(input: TurnInput): Promise<ChatResponseResult> {
+    return this.getThinkActorPort().turn.runTurn(input);
   }
 
   /**
