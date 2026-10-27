@@ -41,7 +41,7 @@ afterEach(() => {
 describe("StrategyLibraryModal direction filter (#275)", () => {
   it("renders direction filter chips for all four tags", async () => {
     await render();
-    const text = container.textContent || "";
+    const text = document.body.textContent || "";
     for (const label of ["Bullish", "Bearish", "Range-bound", "Large move"]) {
       expect(text).toContain(label);
     }
@@ -49,10 +49,10 @@ describe("StrategyLibraryModal direction filter (#275)", () => {
 
   it("renders each strategy's direction tags as badges", async () => {
     await render();
-    const tags = [...container.querySelectorAll(".strat-thesis-tag")].map((el) => el.textContent?.trim());
+    const tags = [...document.body.querySelectorAll(".strat-thesis-tag")].map((el) => el.textContent?.trim());
     expect(tags).toContain("bullish");
     expect(tags).toContain("range bound");
-    const bullishTag = [...container.querySelectorAll(".strat-thesis-tag")].find(
+    const bullishTag = [...document.body.querySelectorAll(".strat-thesis-tag")].find(
       (el) => el.textContent?.trim() === "bullish"
     );
     expect(bullishTag?.className).toContain("dir-bullish");
@@ -60,14 +60,14 @@ describe("StrategyLibraryModal direction filter (#275)", () => {
 
   it("clicking a direction chip filters the grid to matching strategies", async () => {
     await render();
-    const chip = [...container.querySelectorAll("button")].find(
+    const chip = [...document.body.querySelectorAll("button")].find(
       (b) => (b.textContent || "").trim() === "Bearish"
     );
     expect(chip).toBeTruthy();
     await act(async () => {
       chip!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    const text = container.textContent || "";
+    const text = document.body.textContent || "";
     expect(text).toContain("Long Put");
     expect(text).not.toContain("Long Call");
     expect(text).not.toContain("Iron Condor");

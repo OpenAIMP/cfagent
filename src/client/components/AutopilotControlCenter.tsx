@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AGENT_DIDS } from "../../agents/did";
-import { EmptyState, Table, Badge, Button, PillGroup, TextInput, Select, Notice, type BadgeTone } from "./ui";
+import { EmptyState, Table, Badge, Button, PillGroup, TextInput, Select, Notice, type BadgeTone, Modal } from "./ui";
 import { BRAND } from "../branding";
 import { normalizeAutopilotLimits, type AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 import type { TradeRecord } from "../../types";
@@ -1346,14 +1346,7 @@ export function AutopilotControlCenter({
 
       {/* Edit Policy Limits Modal */}
       {isEditModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsEditModalOpen(false)}>
-          <div
-            className="autopilot-edit-limits-modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Edit Live Policy Limits"
-          >
+                <Modal open={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} size="none" panelClassName="autopilot-edit-limits-modal" ariaLabel="Edit Live Policy Limits">
             <div className="modal-header">
               <h3>Edit Autopilot Policy Limits</h3>
               <Button
@@ -1510,20 +1503,12 @@ export function AutopilotControlCenter({
                 </div>
               </div>
             </form>
-          </div>
-        </div>
+                  </Modal>
       )}
 
       {/* Emergency Platform Kill Switch Modal */}
       {killSwitchModalOpen && (
-        <div className="modal-backdrop" onClick={() => setKillSwitchModalOpen(false)}>
-          <div
-            className="autopilot-killswitch-modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Emergency Platform Kill Switch"
-          >
+                <Modal open={killSwitchModalOpen} onClose={() => setKillSwitchModalOpen(false)} size="none" panelClassName="autopilot-killswitch-modal" ariaLabel="Emergency Platform Kill Switch">
             <div className="modal-header">
               <h3 style={{ color: "var(--color-danger)" }}>🚨 Emergency Platform Kill Switch</h3>
               <Button
@@ -1607,8 +1592,7 @@ export function AutopilotControlCenter({
                 {isKillSwitched ? "Disarm Kill Switch & Restore Access" : "ACTIVATE KILL SWITCH NOW"}
               </Button>
             </div>
-          </div>
-        </div>
+                  </Modal>
       )}
     </div>
   );

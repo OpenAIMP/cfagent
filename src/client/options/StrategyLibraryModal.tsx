@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "../components/ui";
+import { Button, Modal } from "../components/ui";
 import {
   DIRECTION_TAGS,
   DIRECTION_TAG_LABELS,
@@ -110,8 +110,7 @@ export function StrategyLibraryModal({
   };
 
   return (
-    <div className="strat-modal-backdrop" onClick={onClose}>
-      <div className="strat-strategy-picker-modal" onClick={(e) => e.stopPropagation()}>
+        <Modal open={isOpen} onClose={onClose} size="none" panelClassName="strat-strategy-picker-modal" ariaLabel="Options strategy library">
         <div className="strat-modal-header">
           <div className="strat-modal-header-titles">
             <h3>Options Strategy Library ({strategies.length} Strategies)</h3>
@@ -267,7 +266,6 @@ export function StrategyLibraryModal({
             </button>
           </div>
         )}
-      </div>
-    </div>
+          </Modal>
   );
 }

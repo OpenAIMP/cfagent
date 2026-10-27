@@ -11,6 +11,7 @@ import {
 import type { TradeOrderContext, TradeOrderLeg } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 
+import { Modal } from "../components/ui";
 export interface StrategyToEvaluate {
   symbol: string;
   strategyName: string;
@@ -192,8 +193,7 @@ export function LlmStrategyEvalModal({
   };
 
   return (
-    <div className="llm-eval-modal-backdrop" onClick={onClose}>
-      <div className="llm-eval-modal-content" onClick={(e) => e.stopPropagation()}>
+        <Modal open={isOpen} onClose={onClose} size="none" panelClassName="llm-eval-modal-content" ariaLabel="Neural strategy evaluation">
         {/* Modal Header */}
         <div className="llm-eval-modal-header">
           <div className="llm-eval-title-group">
@@ -425,7 +425,6 @@ export function LlmStrategyEvalModal({
             </div>
           )}
         </div>
-      </div>
-    </div>
+          </Modal>
   );
 }

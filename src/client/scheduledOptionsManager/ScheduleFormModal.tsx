@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Select, TextInput } from "../components/ui";
+import { Select, TextInput, Modal } from "../components/ui";
 import { listPresets, type ScreenerPreset } from "../ScreenerPresetManager";
 import type { CreatableJob } from "./types";
 import {
@@ -100,8 +100,8 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
     };
   }, [props.jobType, userLogin]);
   return (
-        <div className="sched-modal-overlay" onClick={() => setModalOpen(false)}>
-          <div className="sched-modal-card" onClick={(e) => e.stopPropagation()}>
+                <Modal open onClose={() => setModalOpen(false)} size="none" panelClassName="sched-modal-card" ariaLabel="Configure screening schedule">
+      {/* Parent mounts this modal conditionally; open is always true here. */}
             <header className="sched-modal-header">
               <div>
         <h3>{editingScheduleId ? "✏ Update Screening Schedule" : "⏰ Configure New Schedule"}</h3>
@@ -388,7 +388,6 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                 </button>
               </footer>
             </form>
-          </div>
-        </div>
+                  </Modal>
   );
 }
