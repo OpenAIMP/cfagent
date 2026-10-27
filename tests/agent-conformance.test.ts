@@ -77,11 +77,24 @@ describe("Agent conformance (issue #1738)", () => {
     ]);
   });
 
-  it("no agent code imports the Think base anymore (workflows subpath excepted)", () => {
-    const bareThink = listTsFiles(path.join(ROOT, "src")).filter((f) =>
-      read(path.relative(ROOT, f)).includes('from "@cloudflare/think"')
-    );
-    expect(bareThink).toEqual([]);
+  it("no agent code imports the Think base directly, except the foundation adapter files (workflows subpath excepted)", () => {
+    // Deliberate exception, not drift: the owner decision of
+    // 2026-10-27 supersedes #1738's "no Think agent class remains"
+    // criterion for shape (a) — Think behind the existing actor
+    // port. Agent classes still must not import Think directly;
+    // they reach it only through PortThink. The two foundation
+    // adapter files (tracker #1951, foundation issue #1962) are
+    // the sole files allowed to import the Think base, mirroring
+    // the adjacent adopter pin's "new adopters update this pin
+    // deliberately" pattern. Any other bare import still fails.
+    const bareThink = listTsFiles(path.join(ROOT, "src"))
+      .filter((f) => read(path.relative(ROOT, f)).includes('from "@cloudflare/think"'))
+      .map((f) => path.relative(ROOT, f).replace(/\\/g, "/"))
+      .sort();
+    expect(bareThink).toEqual([
+      "src/actors/thinkAdapter.ts",
+      "src/actors/thinkPortMapping.ts",
+    ]);
     // The workflows subpath is a different specifier and stays:
     // both workflow classes are ThinkWorkflow by ADR 0004 W13.
     const workflowFiles = listTsFiles(path.join(ROOT, "src")).filter((f) =>
