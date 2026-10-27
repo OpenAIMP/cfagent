@@ -1,0 +1,3 @@
+### Changed
+
+- **App-level authn factors decision (#1752, parent #1717):** owner decision 2026-10-27 OUT — app-level TOTP / WebAuthn-passkey / magic links are out of scope and no factor code is built under #1752. Two-factor authentication remains inherited from the IdP; any "supports 2FA" claim must say "via the IdP". `docs/architecture/security/authn.md` §7 records the decision and closes the section's former hypothetical sentence as an authorization: any future app-level factor work would require a new owner decision and a new issue. Doc-only; no src/ changes, no behavior changes. #CISO-bhdm
