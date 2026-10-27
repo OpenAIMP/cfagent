@@ -2,9 +2,13 @@
 #
 # WHAT: turns gitops policy that is otherwise only prose into a required
 # check. A PR merges only if it carries (a) a linked issue, (b) a §21
-# lane label, (c) an agent hashtag, and (d) a CHANGELOG entry under
-# ## [Unreleased]. A PR that skips any of these fails here even when
-# every test is green.
+# lane label, (c) an agent hashtag, (d) a CHANGELOG entry under
+# ## [Unreleased], and (h, gitops §23) the §9 process-documentation
+# checklist line ("Process documentation impact:") in the PR body.
+# A PR that skips any of these fails here even when every test is
+# green. Check (h) lives in scripts/ci/policy_gate.py with (a)-(g);
+# this workflow only invokes it, and its job name is unchanged so
+# the ruleset's required checks are untouched.
 #
 # WHY: verified 2026-10-25, the Jules PRs #1006, #1021, #1028, #1061,
 # and #1137 each merged with zero labels and no agent hashtag, and

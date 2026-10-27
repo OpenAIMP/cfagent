@@ -186,6 +186,13 @@ The TDD exception for this doc slice itself is recorded in its PR body:
 doc-only, no behavior change — verification is link and file verification on
 main, not test Red/Green.
 
+> Note: gitops §23 (process decisions are recorded in the repository,
+> not in chat) landed with the §23 slice (issue #1886); it is the rule
+> under which this index-style doc and the ADRs it links to are the
+> record. See [gitops §23](../../agents/gitops.md#23-process-decisions-are-recorded-in-the-repository-not-in-chat).
+> This note is a pointer only — it does not restate §23, and §23 was
+> not part of this doc as originally written.
+
 ## 6. Decision log
 
 | Date | Owner direction | Issue |
