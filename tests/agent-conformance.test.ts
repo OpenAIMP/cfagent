@@ -70,21 +70,19 @@ describe("Agent conformance (issue #1738)", () => {
       .filter((f) => /extends\s+Agent</.test(read(path.relative(ROOT, f))))
       .map((f) => path.relative(ROOT, f).replace(/\\/g, "/"))
       .sort();
-    // Only the two pre-#1738 actors (Payments, ReportAsset)
-    // remain on plain Agent. Orchestrator left this list in
+    // Only the one pre-#1738 actor (ReportAsset)
+    // remains on plain Agent. Orchestrator left this list in
     // #1952 (think-fleet), Research in #1953 (think-fleet),
     // Screener in #1955 (think-fleet), Trading in #1954
-    // (think-fleet), and Scheduled in #1956 (think-fleet):
-    // all five extend PortThink now, which extends Think,
-    // which extends Agent — so they are still Agents SDK
-    // actors, but no longer match the plain-Agent pin.
+    // (think-fleet), Scheduled in #1956 (think-fleet), and
+    // Payments in #1957 (think-fleet): all six extend
+    // PortThink now, which extends Think, which extends
+    // Agent — so they are still Agents SDK actors, but no
+    // longer match the plain-Agent pin.
     // BrowserAgent/SlackAgent extend AIChatAgent and are
     // deliberately NOT in this list — they are chat agents,
     // not actor-role agents.
-    expect(adopters).toEqual([
-      "src/agents/payments-agent.ts",
-      "src/agents/report-asset-agent.ts",
-    ]);
+    expect(adopters).toEqual(["src/agents/report-asset-agent.ts"]);
   });
 
   it("ScheduledAgent extends PortThink (issue #1956, think-fleet)", () => {
