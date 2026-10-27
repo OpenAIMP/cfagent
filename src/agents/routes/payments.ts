@@ -27,6 +27,15 @@
  * + the command's payment.confirmed/payment.rejected; immediate:
  * payment.created + the route's payment.confirmed/payment.rejected
  * with executorDid) — they are not merged.
+ *
+ * #1735 (parent #1717, slice (o)): the switch's RESOLUTION is now
+ * scoped, run > session > user > global env > built-in hitl (see
+ * src/config/paymentsFlowModes.ts and flowModeForRequest below).
+ * The env value stays the global fallback; the legacy env-only
+ * resolver resolvePaymentsFlowMode is kept unchanged for its
+ * #1711 pins. The run value is execution-owner-set on the route
+ * context, never request input — a caller must not be able to flip
+ * their own execution to immediate and bypass the HITL confirm gate.
  * The seven blocks were contiguous in routeRequest (between the
  * referrals+ads handler and the Cloudflare Agentic Payments block), so this
  * module exports ONE handler invoked from routeRequest at the EXACT position
@@ -80,6 +89,11 @@ import {
   type PaymentsScopedModes,
   type PaymentsSurfaceMode,
 } from "../../config/agenticPaymentsModes";
+import {
+  levelsForPaymentsFlowMode,
+  resolvePaymentsFlowModeScoped,
+  type PaymentsFlowScopedModes,
+} from "../../config/paymentsFlowModes";
 
 /** The subset of OrchestratorAgent surface the payments handlers need. */
 export interface PaymentsRouteContext {
@@ -105,6 +119,25 @@ export interface PaymentsRouteContext {
    * src/config/agenticPaymentsModes.ts.
    */
   scopedPaymentsModes?: PaymentsScopedModes;
+  /**
+   * #1735: optional session/user carriers for the PAYMENTS_FLOW_MODE
+   * switch (run comes from `paymentsFlowModeRun` below, global env
+   * from `env`). Populated by the execution-context owner; unset
+   * carriers fall through to env. See
+   * src/config/paymentsFlowModes.ts.
+   */
+  scopedPaymentsFlowModes?: PaymentsFlowScopedModes;
+  /**
+   * #1735: per-run PAYMENTS_FLOW_MODE override, set by the execution
+   * owner for this run only (never parsed from request input — a
+   * request-supplied flow value would let a caller flip their own
+   * execution to immediate and bypass the HITL confirm gate; see
+   * src/config/paymentsFlowModes.ts). Unset falls through to
+   * session > user > env > hitl. Never stored on the route or the
+   * agent instance: it is a per-call value, so one run's mode can
+   * never leak into another run.
+   */
+  paymentsFlowModeRun?: unknown;
 }
 
 /**
@@ -183,22 +216,33 @@ export function resolvePaymentsFlowMode(
 }
 
 /**
- * Resolves the flow for one request and, on an invalid value, logs
- * and audits the config error BEFORE the request proceeds in
+ * #1735: resolves the flow for one request over run > session >
+ * user > global env > built-in hitl (see
+ * src/config/paymentsFlowModes.ts). On an invalid winning value,
+ * logs and audits the config error BEFORE the request proceeds in
  * fail-closed hitl mode. Auditing here (rather than only logging)
  * makes a misconfigured deployment visible in the audit ledger, not
- * just in Workers Logs.
+ * just in Workers Logs. The audit payload keeps the #1711 fields
+ * (setting/value/resolved) and adds the winning `level`.
  */
 function flowModeForRequest(ctx: PaymentsRouteContext): PaymentsFlowMode {
-  const resolved = resolvePaymentsFlowMode(ctx.env);
+  const envRecord = ctx.env as unknown as Record<string, unknown> | undefined;
+  const resolved = resolvePaymentsFlowModeScoped(
+    levelsForPaymentsFlowMode(
+      ctx.scopedPaymentsFlowModes,
+      ctx.paymentsFlowModeRun,
+      envRecord?.PAYMENTS_FLOW_MODE
+    )
+  );
   if (resolved.invalid) {
     console.error(
-      `[payments] invalid PAYMENTS_FLOW_MODE value ${JSON.stringify(resolved.raw)} — failing closed to "hitl"`
+      `[payments] invalid PAYMENTS_FLOW_MODE value ${JSON.stringify(resolved.raw)} at ${resolved.level} — failing closed to "hitl"`
     );
     ctx.audit("payment.config_error", "payments", {
       setting: "PAYMENTS_FLOW_MODE",
       value: resolved.raw ?? "",
       resolved: "hitl",
+      level: resolved.level,
     });
   }
   return resolved.mode;
