@@ -1235,6 +1235,7 @@ export async function handleScreenerResearchRoutes(
         environment?: string;
         deliver?: string[];
         emailTo?: string;
+        async?: unknown;
       } | null;
       if (!body || typeof body !== "object") {
         return Response.json({ error: "A JSON body with goalKind or scenarioId is required." }, { status: 400 });
@@ -1312,6 +1313,48 @@ export async function handleScreenerResearchRoutes(
           { error: `deliver must be a subset of: ${channels.join(", ")}.` },
           { status: 400 }
         );
+      }
+      // Issue #1996 (#1972 slice 1): opt-in workflow
+      // submission, mirroring the market routes' async
+      // pattern. Every validation above already ran, so a
+      // bad goalKind / symbols / assetClasses / deliver
+      // 400s BEFORE any submission attempt. A successful
+      // start answers 202 with the run handle; a null start
+      // (no workflow binding, no projection store, start
+      // error) falls through to the synchronous direct path
+      // unchanged — the direct path stays byte-identical
+      // when async is not requested, and is the fallback
+      // when it is.
+      if (body.async === true) {
+        const { buildGoalScreenCommand, tryStartGoalScreenWorkflow } =
+          await import("../../services/goalScreenWorkflowSubmission");
+        const { workflowAcceptedResponse, workflowTenantId } =
+          await import("../../workflows/screenerWorkflowRoutes");
+        const idempotencyKey = `goal-screen:manual:${userLogin}:${scenario.goalKind}:${new Date().toISOString()}`;
+        const handle = await tryStartGoalScreenWorkflow(
+          ctx.env,
+          buildGoalScreenCommand({
+            jobId: idempotencyKey,
+            source: "manual",
+            trigger: "manual",
+            userLogin,
+            tenantId: workflowTenantId(ctx.env),
+            scenario,
+            scenarioSource,
+            ...(body.assetClasses
+              ? { assetClasses: body.assetClasses as ("stocks" | "options")[] }
+              : {}),
+            ...(body.symbols ? { symbols: body.symbols } : {}),
+            ...(body.deliver
+              ? { deliverChannels: body.deliver as ("slack" | "email" | "webhook" | "voice")[] }
+              : {}),
+            ...(body.emailTo ? { emailTo: body.emailTo } : {}),
+            ...(body.environment === "TEST" || body.environment === "PROD"
+              ? { environment: body.environment }
+              : {}),
+          }),
+        );
+        if (handle) return workflowAcceptedResponse(handle);
       }
       const out = await runtime.executeGoalScreenRun({
         agent: ctx.getScreenerAgent(userLogin),

@@ -98,6 +98,7 @@
  */
 
 import type { StageName } from "../messaging/messagingPorts";
+import type { ScenarioDefinition } from "../services/goalScenarioEngine";
 
 /** Re-exported for workflow callers (single import surface). */
 export type { StageName };
@@ -156,6 +157,36 @@ export interface WorkflowShard {
 }
 
 /**
+ * Issue #1996 (#1972 slice 1) — the goal-screen run request
+ * carried by a run-screen command. Mirrors the direct path's
+ * executeGoalScreenRun inputs (route + schedule service build
+ * it from the same validated body/options); the workflow
+ * child passes it straight to the agent's runGoalScreen, so
+ * the child needs no scenario-store access.
+ */
+export interface GoalScreenCommand {
+  /** Resolved scenario (built from goalKind/direction, or restored from a stored record). */
+  scenario: ScenarioDefinition;
+  /** How the scenario was obtained (recorded on the canonical report, as the direct path does). */
+  scenarioSource: "built" | "stored";
+  /** Asset classes the goal screen evaluates (absent = the engine default: stocks + options). */
+  assetClasses?: ("stocks" | "options")[];
+  /** Explicit symbols to screen (absent = the scenario's universe path). */
+  symbols?: string[];
+  /** Delivery channels for the completed run (absent = no delivery step). */
+  deliver?: ("slack" | "email" | "webhook" | "voice")[];
+  /** Delivery recipient for the email channel. */
+  emailTo?: string;
+  /** Issue #1571: "yahoo" runs the stock leg on the Yahoo engine (scheduled fallback runs). */
+  provider?: "yahoo";
+  /** Issue #1571: fallback marker, stamped onto the result before artifact generation. */
+  providerFallback?: {
+    from: "etrade";
+    reason: string;
+  };
+}
+
+/**
  * The typed run-screen job command. This IS the workflow
  * input: the workflow class receives exactly this object as
  * its params (plus role). No bulk data: filters are criteria,
@@ -201,6 +232,19 @@ export interface WorkflowJobCommand {
   portfolioContext?: boolean;
   /** Whether the deliver step runs (etrade routes: true; market-data/premium: false). */
   deliver?: boolean;
+  /**
+   * Issue #1996 (#1972 slice 1) — goal-screen descriptor. Present
+   * only for goal-screen runs: the child executes the goal-driven
+   * screen (scenario + thesis gates) instead of a market screen.
+   * The scenario is run-request parameters (analogous to the
+   * filters a market command carries), not bulk data: results
+   * stay behind references, exactly as for market commands.
+   * Domain values (goalKind membership, direction vocabulary)
+   * are validated at the submission points (route + schedule
+   * service), which already own that taxonomy; the port
+   * validates shape only.
+   */
+  goalScreen?: GoalScreenCommand;
   /** Parallelism bound (default DEFAULT_MAX_PARALLEL_SHARDS). */
   maxParallelShards?: number;
   /** Per-shard deadline in ms (default DEFAULT_SHARD_TIMEOUT_MS). */
@@ -325,6 +369,76 @@ export function assertWorkflowJobCommand(
     (!Number.isInteger(command.shardTimeoutMs) || command.shardTimeoutMs < 1)
   ) {
     throw new WorkflowError("invalid_command", "shardTimeoutMs must be a positive integer.");
+  }
+  if (command.goalScreen !== undefined) {
+    const g = command.goalScreen;
+    if (!g || typeof g !== "object") {
+      throw new WorkflowError("invalid_command", "Goal-screen command requires a goalScreen descriptor.");
+    }
+    if (
+      !g.scenario ||
+      typeof g.scenario !== "object" ||
+      typeof (g.scenario as { goalKind?: unknown }).goalKind !== "string"
+    ) {
+      throw new WorkflowError(
+        "invalid_command",
+        "Goal-screen command requires a scenario with a goalKind (shape only; domain values are validated at submission).",
+      );
+    }
+    if (g.scenarioSource !== "built" && g.scenarioSource !== "stored") {
+      throw new WorkflowError(
+        "invalid_command",
+        'Goal-screen command scenarioSource must be "built" or "stored".',
+      );
+    }
+    if (
+      g.assetClasses !== undefined &&
+      (!Array.isArray(g.assetClasses) ||
+        g.assetClasses.some((c) => c !== "stocks" && c !== "options"))
+    ) {
+      throw new WorkflowError(
+        "invalid_command",
+        'Goal-screen assetClasses must be a subset of ["stocks", "options"].',
+      );
+    }
+    if (g.symbols !== undefined) {
+      if (!Array.isArray(g.symbols) || g.symbols.some((s) => typeof s !== "string")) {
+        throw new WorkflowError("invalid_command", "Goal-screen symbols must be an array of strings.");
+      }
+      if (g.symbols.length > MAX_COMMAND_SYMBOLS) {
+        throw new WorkflowError(
+          "invalid_command",
+          `Goal-screen command carries ${g.symbols.length} symbols over the ${MAX_COMMAND_SYMBOLS} cap (claim-check: membership, not bulk data).`,
+        );
+      }
+    }
+    if (
+      g.deliver !== undefined &&
+      (!Array.isArray(g.deliver) ||
+        g.deliver.some((c) => c !== "slack" && c !== "email" && c !== "webhook" && c !== "voice"))
+    ) {
+      throw new WorkflowError(
+        "invalid_command",
+        'Goal-screen deliver must be a subset of ["slack", "email", "webhook", "voice"].',
+      );
+    }
+    if (g.emailTo !== undefined && typeof g.emailTo !== "string") {
+      throw new WorkflowError("invalid_command", "Goal-screen emailTo must be a string.");
+    }
+    if (g.provider !== undefined && g.provider !== "yahoo") {
+      throw new WorkflowError("invalid_command", 'Goal-screen provider must be "yahoo" when present.');
+    }
+    if (
+      g.providerFallback !== undefined &&
+      (typeof g.providerFallback !== "object" ||
+        g.providerFallback.from !== "etrade" ||
+        typeof g.providerFallback.reason !== "string")
+    ) {
+      throw new WorkflowError(
+        "invalid_command",
+        "Goal-screen providerFallback requires { from: \"etrade\", reason: string }.",
+      );
+    }
   }
   return command;
 }
