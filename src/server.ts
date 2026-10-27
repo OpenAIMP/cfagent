@@ -156,7 +156,7 @@ import {
   slackPrincipalLinkStoreFromEnv,
   verifyApprovalLinkForPrincipal,
 } from "./trading";
-import { gateSlackRequest } from "./security/webhookSecurity";
+import { gateSlackRequest, timingSafeEqual } from "./security/webhookSecurity";
 import { sanitizeInboundText } from "./security/promptInjectionSanitize";
 import { checkRateLimit } from "./security/rateLimiter";
 import {
@@ -829,7 +829,28 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     // Issue #162 — QA self-healing: LLM investigation of a post-deploy failure.
     // Called by scripts/qa-smoke.mjs after filing the GitHub issue; the
     // returned diagnosis is posted as an issue comment for human supervision.
+    // #1754 gate-coverage audit: this route was reachable with NO
+    // authentication at all — any caller could spend LLM inference with
+    // arbitrary input. It now requires a valid app session OR the
+    // dedicated service token QA_INVESTIGATE_TOKEN (Bearer, timing-safe
+    // compare, fail-closed when unset). The token is deliberately NOT
+    // the A2A invocation token: QA diagnostics and agent dispatch are
+    // different trust domains and must not share a credential. The
+    // token is platform-set (owner action); it is never
+    // user/session/run-configurable, so no caller can disable their
+    // own gate. The gate runs before body parsing, so an unauthenticated
+    // caller triggers no LLM work at all.
     if (path === "/api/qa/investigate" && request.method === "POST") {
+      const session = await requireAuth(request, env).catch(() => null);
+      if (!session) {
+        const expected = (env as any).QA_INVESTIGATE_TOKEN as string | undefined;
+        const authHeader = request.headers.get("authorization") ?? "";
+        const presented = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+        if (!expected || !presented || !timingSafeEqual(presented, expected)) {
+          console.warn("[qa-investigate] denied: no session and no valid service token");
+          return Response.json({ error: "Unauthorized: a valid session or service token is required." }, { status: 401 });
+        }
+      }
       const body = (await request.json().catch(() => null)) as {
         operation?: unknown;
         errorClass?: unknown;
@@ -860,6 +881,14 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     // Also serves as the live-accumulation check: non-empty results prove
     // vectors are landing in the index.
     if (path === "/api/memory/search" && request.method === "POST") {
+      // #1754 gate-coverage audit: this route was reachable with NO
+      // authentication — only a per-caller throttle stood between an
+      // anonymous caller and stored vector-memory outcomes. The only
+      // in-app caller (src/client/memoryApi.ts) runs same-origin and
+      // already sends the session cookie, so a session gate closes the
+      // route without changing any legitimate call path.
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
       // Issue #241: vector search is billed per query — throttle per caller.
       const limited = throttle("memory_search", 60, 60_000);
       if (limited) return limited;
@@ -2911,7 +2940,18 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     }
 
     // --- Options Flows Endpoints (Live, Historical, News, Insider, Congress, Summary, Presets) ---
+    // #1754 gate-coverage audit: this family was reachable with NO
+    // authentication (the endpoint catalog listed it as public with
+    // intent unasserted). Its only in-app caller (OptionsFlowsHub, in
+    // the signed-in dashboard) already sends the session cookie
+    // same-origin, so a session gate closes the family without
+    // changing any legitimate call path. Public market quotes stay
+    // ungated by the recorded #1725 M10 decision — flows are not
+    // quotes: they serve modelled flow items, news, and filings
+    // through the app's data path, not the public quote surface.
     if (path.startsWith("/api/options/flows/")) {
+      const session = await requireAuth(request, env);
+      if (!session) return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
       const sub = path.replace("/api/options/flows/", "").split("?")[0];
       const tickerParam = url.searchParams.get("tickers");
       const tickers = tickerParam ? tickerParam.split(",").map((t) => t.trim()).filter(Boolean) : [];

@@ -75,8 +75,16 @@ A zero-trust claim that omits its gaps is marketing. These are the gaps:
 2. **Public surfaces exist by design.** The landing page, A2A agent-card
    GETs, strategy pages (served by the asset layer without invoking the
    Worker), and `/mcp/scanner` (where the x402 payment *is* the access
-   control) are reachable without a session. Their protection is "there
-   is nothing sensitive here" plus transport controls — not identity.
+   control for the `screen_options` tool) are reachable without a session.
+   Their protection is "there is nothing sensitive here" plus transport
+   controls — not identity. Precision added by the #1754 audit: the
+   payment gates `screen_options` only — the scanner's free tools
+   (`scanner_status`, `get_scan_job` by UUID, `list_scan_jobs` on the
+   caller's affinity instance) are ungated too, and callers sharing
+   the default `public_scanner` instance can see each other's job
+   lists; the outputs are public market-data results, so this stands
+   as a recorded residual, not a hidden gap. Full surface inventory:
+   [gate-coverage-inventory-1754.md](gate-coverage-inventory-1754.md).
    See [api-security.md](api-security.md) and
    [mcp-security.md](mcp-security.md).
 3. **The audit store has a known race.** The Kv audit store is
