@@ -71,6 +71,8 @@ import {
   SHARD_JOB_RESULT_JSON_MAX,
 } from "../data/shardJobProjection";
 import type { LegOutcome, ShardJobStore } from "../data/shardJobPorts";
+import type { GoalDrivenScreenResult } from "../services/goalDrivenScreen";
+import type { ScenarioDefinition } from "../services/goalScenarioEngine";
 
 /** Minimal step surface the flows need (fakeable in tests). */
 export interface ScreenerWorkflowStep {
@@ -136,9 +138,39 @@ export interface ShardScreenResult {
   deliverError?: string;
 }
 
+/**
+ * Issue #1996 (#1972 slice 1) — the goal-screen request one
+ * shard executes. Mirrors the agent's runGoalScreen inputs;
+ * the idempotency key is the RUN's key (the parent job id),
+ * so a retried child step re-adopts the agent ledger record
+ * instead of screening twice.
+ */
+export interface GoalShardRequest {
+  scenario: ScenarioDefinition;
+  scenarioSource: "built" | "stored";
+  trigger: "manual" | "scheduled";
+  idempotencyKey: string;
+  userLogin: string;
+  environment?: "TEST" | "PROD";
+  assetClasses?: ("stocks" | "options")[];
+  symbols?: string[];
+  provider?: "yahoo";
+  providerFallback?: {
+    from: "etrade";
+    reason: string;
+  };
+}
+
 /** Executes one shard's screen (the agent stub, adapted, in production). */
 export interface ScreenRunner {
   runScreen(req: ShardScreenRequest): Promise<ShardScreenResult>;
+  /**
+   * Issue #1996 — goal-screen execution. Optional so existing
+   * market runners keep compiling; a goal command reaching a
+   * runner without it FAILS CLOSED (runShardFlow throws) —
+   * a goal run must never silently execute as a market screen.
+   */
+  runGoalScreen?(req: GoalShardRequest): Promise<ShardScreenResult>;
 }
 
 /** Dependencies the flows receive (all injected; no bindings here). */
@@ -387,6 +419,75 @@ export function shardCommandFor(
   };
 }
 
+/** Issue #1996 — the goal-screen request one shard executes. */
+export function goalShardRequest(
+  command: WorkflowJobCommand,
+): GoalShardRequest {
+  const g = command.goalScreen;
+  if (!g) {
+    throw new Error("goalShardRequest called for a command without a goalScreen descriptor.");
+  }
+  return {
+    scenario: g.scenario,
+    scenarioSource: g.scenarioSource,
+    trigger: command.trigger,
+    idempotencyKey: command.parentJobId ?? command.jobId,
+    userLogin: command.userLogin,
+    ...(command.environment ? { environment: command.environment } : {}),
+    ...(g.assetClasses ? { assetClasses: g.assetClasses } : {}),
+    ...(g.symbols ? { symbols: g.symbols } : {}),
+    ...(g.provider ? { provider: g.provider } : {}),
+    ...(g.providerFallback ? { providerFallback: g.providerFallback } : {}),
+  };
+}
+
+/**
+ * Issue #1996 — map a goal-driven screen result onto the
+ * shard result shape the parent collates. Counts: a goal run
+ * scans stocks + option underlyings; hits are the matches.
+ * `full` is the OPAQUE envelope the child's store/deliver
+ * steps consume (task id + scenario source + trigger +
+ * result); it is STRIPPED from the child output before
+ * return, exactly like market results. A "partial" goal run
+ * is success with qualification (the #462 vocabulary), never
+ * a failure; only "failed" fails the shard, loudly.
+ */
+export function goalResultToShardResult(input: {
+  taskId: string;
+  scenarioSource: "built" | "stored";
+  trigger: "manual" | "scheduled";
+  result: GoalDrivenScreenResult;
+  /** Issue #1571: carried so the store door can stamp it when the result lacks it. */
+  provider?: "yahoo";
+  providerFallback?: {
+    from: "etrade";
+    reason: string;
+  };
+}): ShardScreenResult {
+  const { result } = input;
+  const totalScanned =
+    result.counts.stocksScanned + result.counts.optionsUnderlyingsScanned;
+  return {
+    success: result.status !== "failed",
+    timestamp: result.completedAt,
+    totalScanned,
+    expectedCount: totalScanned,
+    matchedCount: result.counts.hits,
+    ...(result.pdfKey ? { pdfKey: result.pdfKey } : {}),
+    ...(result.status === "failed"
+      ? { error: `Goal screen failed (${result.goalKind}/${result.outlook}).` }
+      : {}),
+    full: {
+      taskId: input.taskId,
+      scenarioSource: input.scenarioSource,
+      trigger: input.trigger,
+      result,
+      ...(input.provider ? { provider: input.provider } : {}),
+      ...(input.providerFallback ? { providerFallback: input.providerFallback } : {}),
+    },
+  };
+}
+
 /** The screen request one shard executes. */
 export function shardScreenRequest(
   command: WorkflowJobCommand,
@@ -426,11 +527,30 @@ export async function runShardFlow(
   deps: ScreenerWorkflowDeps,
 ): Promise<ShardScreenResult> {
   const shardId = command.shard?.shardId ?? "unknown";
-  const result = await step.do(
-    "execute-screen",
-    () => deps.screenRunner.runScreen(shardScreenRequest(command)),
-    { retries: { limit: WORKFLOW_STEP_MAX_RETRIES } },
-  );
+  // Issue #1996 — goal commands execute the goal runner, never
+  // the market runner: a goal run silently executed as a market
+  // screen would be a wrong-semantics success. A runner without
+  // goal support throws here (step retries, then the shard
+  // fails loudly) — fail closed, never fall back.
+  const result = command.goalScreen
+    ? await step.do(
+        "execute-goal-screen",
+        () => {
+          const runGoalScreen = deps.screenRunner.runGoalScreen;
+          if (!runGoalScreen) {
+            throw new Error(
+              "Goal-screen workflow command reached a runner without runGoalScreen — refusing a market-screen fallback for a goal run (issue #1996).",
+            );
+          }
+          return runGoalScreen(goalShardRequest(command));
+        },
+        { retries: { limit: WORKFLOW_STEP_MAX_RETRIES } },
+      )
+    : await step.do(
+        "execute-screen",
+        () => deps.screenRunner.runScreen(shardScreenRequest(command)),
+        { retries: { limit: WORKFLOW_STEP_MAX_RETRIES } },
+      );
   const payload = result.full ?? result;
   let stored = false;
   let storeError: string | undefined;
