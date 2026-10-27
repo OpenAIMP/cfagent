@@ -56,7 +56,7 @@ const NAV_SHORTCUTS: NavShortcut[] = [
   { id: "options", label: "Auto Options Research", category: "Execution", icon: "🤖" },
   { id: "screeners", label: "Multi-Asset Screeners", category: "Intelligence", icon: "🔎" },
   { id: "scanner", label: "Equity Universe Scan", category: "Intelligence", icon: "📈" },
-  { id: "research", label: "FOSS Equity & Crypto Research", category: "Intelligence", icon: "🔬" },
+  { id: "research", label: "Market Data Equity & Crypto Research", category: "Intelligence", icon: "🔬" },
   { id: "chat", label: "Copilot Ideas & Agent Chat", category: "Intelligence", icon: "💬" },
   { id: "voice", label: "Voice Trading Desk", category: "Intelligence", icon: "🎙️" },
   { id: "omnichannel", label: "Email & Slack Agents", category: "Intelligence", icon: "✉️" },
@@ -360,7 +360,7 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
     const symbolTarget = q ? q.toUpperCase() : "NVDA";
     return [
       { id: "action-options", label: `Screen ${symbolTarget} 0DTE Options Flow`, query: `screen 0dte options for ${symbolTarget}`, icon: "🎯" },
-      { id: "action-research", label: `Generate FOSS Valuation Report for ${symbolTarget}`, query: `research ${symbolTarget}`, icon: "📑" },
+      { id: "action-research", label: `Generate Market Data Valuation Report for ${symbolTarget}`, query: `research ${symbolTarget}`, icon: "📑" },
       { id: "action-compare", label: `Compare ${symbolTarget} Valuation vs Industry Peers`, query: `compare ${symbolTarget} with industry peers`, icon: "⚖️" },
       { id: "action-hours", label: "Check Market Hours & Exchange Status", query: "market status", icon: "🕒" },
     ];

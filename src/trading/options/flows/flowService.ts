@@ -21,7 +21,7 @@ import { DynamicOptionsScreener } from "../../optionsScreener";
 import { DynamicMarketScreener } from "../../screener";
 import type { NasdaqUniverseSeam } from "../../screenerPipeline";
 import { ETradeService } from "../../../services/etrade";
-import { getYahooCrumbSession } from "../../../services/fossResearch";
+import { getYahooCrumbSession } from "../../../services/marketDataResearch";
 import { CURATED_STOCK_UNIVERSE, getCuratedStockUniverse } from "../../../config/curatedStockUniverse";
 import { isDemoCalibratedChainsEnabled } from "../../../config/demoMode";
 import { classifyNewsSentiment } from "./newsSentiment";
@@ -1931,7 +1931,7 @@ const realFlowsCache = new Map<string, { items: LiveFlowItem[]; expiresAt: numbe
 
 /**
  * Derives modelled flow-estimate items from a Yahoo Finance option-chain
- * snapshot (FOSS API with cookie/crumb authentication). The chain fields
+ * snapshot (Yahoo API with cookie/crumb authentication). The chain fields
  * (contract volume, open interest, last price, last-trade time) are real,
  * but the items are estimates built from them — side is inferred from last
  * price vs bid/ask and premium is volume × last price. They are NOT trade
@@ -2191,7 +2191,7 @@ export async function getDynamicLiveFlowItems(
     }
   }
 
-  // 4. Derive flow estimates from Yahoo Finance option-chain snapshots (FOSS feed)
+  // 4. Derive flow estimates from Yahoo Finance option-chain snapshots (Yahoo feed)
   const realPromises = targetSymbols.map((sym) =>
     fetchRealMarketFlowsForSymbol(sym, {
       minPremium: filter?.minPremium,

@@ -8,13 +8,13 @@ This document provides the authoritative architectural specification of all **14
 
 | # | Workflow Name | Operational Track | Category | Primary UI Tab | Key API Endpoints & Protocols | Governing Decision Engine |
 |---|---|---|---|---|---|---|
-| **A1** | Multi-Exchange Stock Screener & Equity Momentum | **Analysis (Read-Only)** | Equities | `trading` | `POST /api/etrade/screen`, `POST /api/foss/screen` | Dynamic Screener Ingestion Hierarchy |
+| **A1** | Multi-Exchange Stock Screener & Equity Momentum | **Analysis (Read-Only)** | Equities | `trading` | `POST /api/etrade/screen`, `POST /api/market-data/screen` | Dynamic Screener Ingestion Hierarchy |
 | **A2** | Options Strategy Discovery, Greeks Modeling & EV Scoring | **Analysis (Read-Only)** | Options | `trading` | `POST /api/etrade/options/strategy`, `/unified` | Multivariate 6-Factor Composite Model |
 | **A3** | Raw Options Contract Screener & Chain Filtering | **Analysis (Read-Only)** | Options | `trading` | `POST /api/trading/options/screen`, `/mcp/scanner` | 15-Gate Contract Rejection Matrix |
 | **A4** | Real-Time Options Flow & Institutional Activity Tracker | **Analysis (Read-Only)** | Market Flows | `options-flows` | `GET /api/options/flows/live`, `/summary` | Screener Dynamic Resolution First |
 | **A5** | Visual Multi-Leg Strategy Builder & Expiration Payoff | **Analysis (Read-Only)** | Options | `trading` | `POST /api/trading/options/compare`, `/llm-ideas` | 72-Strategy Strike Placement & Ladders |
 | **A6** | Institutional Risk Management, Defense Playbooks & Exposure | **Analysis (Read-Only)** | Risk & Hedging | `trading` | `GET /api/etrade/positions`, `GET /etrade/accounts` | Risk Anatomy & Defensive Playbooks |
-| **A7** | Zero-Credential FOSS Equity & Crypto Research | **Analysis (Read-Only)** | Research | `research` | `GET /api/foss/quote`, `/fundamentals`, `/bars` | Public FOSS Session Crumb Handshake |
+| **A7** | Zero-Credential Market Data Equity & Crypto Research | **Analysis (Read-Only)** | Research | `research` | `GET /api/market-data/quote`, `/fundamentals`, `/bars` | Public Yahoo Session Crumb Handshake |
 | **A8** | Conversational Financial Intelligence & NLQ Analytics | **Analysis (Read-Only)** | Chat & NLQ | `chat` | `POST /api/nlq`, `POST /api/chat`, `POST /nlq/webhook` | LLM Judge Router & Durable SQLite RAG |
 | **E1** | Brokerage Order Preview & HITL Execution (E*TRADE) | **Execution (HITL)** | Brokerage | `trading` | `POST /api/etrade/order/preview`, `/order/execute` | Two-Phase Commit & DID Attestation |
 | **E2** | Direct Equities & Crypto Order Placement (Alpaca) | **Execution (HITL)** | Brokerage | `research` | `POST /api/trading/alpaca/order`, `GET /alpaca/orders` | Idempotent Order Staging & Buying Power |
@@ -214,9 +214,9 @@ Analysis workflows focus on data ingestion, quantitative mathematical modeling, 
   2. Priority 2: Yahoo Finance Chart/Summary API (`query1.finance.yahoo.com` / `query2.finance.yahoo.com`).
   3. Priority 3: Externalized Curated Stock Universe (`src/config/curatedStockUniverse.json`) — resilient offline safety net.
 * **Downstream Integration**: Serves as the Single Source of Truth for Workflow A4 (Options Flows), ensuring dynamic underlying resolution partitioned by market cap rather than a static list.
-* **Enabling Components**: `DynamicMarketScreener` (`src/trading/yfinanceScreener.ts`), `ETradeRestClient` (`src/trading/etrade/client.ts`), `FossResearchService` (`src/services/fossResearch.ts`), `curatedStockUniverse.json` (`src/config/curatedStockUniverse.json`).
-* **REST Endpoints**: `POST /api/etrade/screen`, `POST /api/foss/screen`
-* **MCP Tools**: `etrade_market_scan`, `foss_market_research`
+* **Enabling Components**: `DynamicMarketScreener` (`src/trading/yfinanceScreener.ts`), `ETradeRestClient` (`src/trading/etrade/client.ts`), `MarketDataResearchService` (`src/services/marketDataResearch.ts`), `curatedStockUniverse.json` (`src/config/curatedStockUniverse.json`).
+* **REST Endpoints**: `POST /api/etrade/screen`, `POST /api/market-data/screen`
+* **MCP Tools**: `etrade_market_scan`, `market_data_research`
 
 ---
 
@@ -255,7 +255,7 @@ Analysis workflows focus on data ingestion, quantitative mathematical modeling, 
 * **Functional Scope**: Construct custom 1-to-4 leg options positions with real-time expiration and pre-expiration ($T+0$) payoff diagrams. Automatically computes upper and lower breakeven points, maximum theoretical profit, maximum capital at risk, return on risk (RoR), and aggregate portfolio Greeks.
 * **Enabling Components**: `StrategyBuilderEngine`, Payoff curve modeler ($\text{PnL}(S) = \sum \text{leg\_pnl}(S)$), LLM Ideas Generator (`src/trading/options/llmIdeas.ts`), LLM Comparison Engine (`src/trading/options/llmComparison.ts`).
 * **REST Endpoints**: `POST /api/trading/options/compare`, `POST /api/trading/options/llm-ideas`
-* **MCP Tools**: `foss_equity_research_report`, `execute_nlq`
+* **MCP Tools**: `market_data_equity_research_report`, `execute_nlq`
 
 ---
 
@@ -271,12 +271,12 @@ Analysis workflows focus on data ingestion, quantitative mathematical modeling, 
 
 ---
 
-### Workflow A7: Zero-Credential FOSS Equity & Crypto Research (Yahoo Finance & Alpaca)
+### Workflow A7: Zero-Credential Market Data Equity & Crypto Research (Yahoo Finance & Alpaca)
 * **Operational Track**: Analysis (Read-Only)
 * **Functional Scope**: 100% free, credential-less equity and cryptocurrency research. Ingests fundamental ratios (P/E, forward P/E, PEG, Price-to-Book, EV/EBITDA), analyst consensus price targets, historical OHLCV chart bars (daily, hourly, 5-minute), and crypto Level 1 NBBO bid/ask quotes without requiring API keys.
-* **Enabling Components**: `FossResearchService` (`src/services/fossResearch.ts`), `YahooFinanceProvider` (`src/services/fossResearch.ts`), `AlpacaMarketDataProvider` (`src/services/alpacaMarketData.ts`), `FossResearchHub` (`src/client/FossResearchHub.tsx`).
-* **REST Endpoints**: `GET /api/foss/quote`, `GET /api/foss/fundamentals`, `GET /api/foss/bars`, `GET /api/foss/snapshot`
-* **MCP Tools**: `foss_get_quote`, `foss_fundamentals`, `foss_historical_bars`, `foss_market_research`
+* **Enabling Components**: `MarketDataResearchService` (`src/services/marketDataResearch.ts`), `YahooFinanceProvider` (`src/services/marketDataResearch.ts`), `AlpacaMarketDataProvider` (`src/services/alpacaMarketData.ts`), `MarketDataResearchHub` (`src/client/MarketDataResearchHub.tsx`).
+* **REST Endpoints**: `GET /api/market-data/quote`, `GET /api/market-data/fundamentals`, `GET /api/market-data/bars`, `GET /api/market-data/snapshot`
+* **MCP Tools**: `market_data_get_quote`, `market_data_company_fundamentals`, `market_data_historical_bars`, `market_data_research`
 
 ---
 
@@ -307,9 +307,9 @@ Execution workflows perform side-effecting operations, money movement, order sub
 ### Workflow E2: Direct Equities & Crypto Order Placement (Alpaca Broker API)
 * **Operational Track**: Execution (HITL Guarded)
 * **Functional Scope**: Places equity and cryptocurrency market, limit, and stop orders through Alpaca Securities. Supports fractional shares and extended-hours execution.
-* **Enabling Components**: `AlpacaMarketDataProvider` (`src/services/alpacaMarketData.ts`), `FossAlpacaPlaceOrderCommand` (`src/mcp/fossCommands.ts`).
+* **Enabling Components**: `AlpacaMarketDataProvider` (`src/services/alpacaMarketData.ts`), `AlpacaPlaceOrderCommand` (`src/mcp/marketDataCommands.ts`).
 * **REST Endpoints**: `POST /api/trading/alpaca/order`, `GET /api/trading/alpaca/orders`, `DELETE /api/trading/alpaca/orders/{orderId}`
-* **MCP Tools**: `foss_alpaca_place_order`, `foss_alpaca_orders`, `foss_alpaca_account`
+* **MCP Tools**: `alpaca_place_order`, `alpaca_orders`, `alpaca_account`
 
 ---
 
@@ -356,7 +356,7 @@ Execution workflows perform side-effecting operations, money movement, order sub
 # Part 4: Algorithmic Decisioning, Scoring & Selection Engines (6 Engines)
 
 ### Engine 1: Stock Screener Search, Ingestion & Fallback Decision Logic (Governs A1, A4)
-1. **Multi-Exchange Ingestion Hierarchy**: Prioritizes `api.nasdaq.com` (~8,500 listings) $\to$ Yahoo Finance FOSS feeds $\to$ curated universe (`src/config/curatedStockUniverse.json`).
+1. **Multi-Exchange Ingestion Hierarchy**: Prioritizes `api.nasdaq.com` (~8,500 listings) $\to$ Yahoo Finance feeds $\to$ curated universe (`src/config/curatedStockUniverse.json`).
 2. **Options Flow Screener-First Integration**: Options Flow invokes `DynamicMarketScreener.screenLive({ minPrice: 3.0 })` to partition underlyings into Large Cap ($\ge \$10\text{B}$), Mid Cap ($\$2\text{B}-\$10\text{B}$), and Small Cap ($\$250\text{M}-\$2\text{B}$).
 3. **Auditable Rejection Codes**: `EXCHANGE_MISMATCH`, `PRICE_OUT_OF_RANGE`, `MARKET_CAP_OUT_OF_RANGE`, `NON_OPTIONABLE_SECURITY`, `CHANGE_PERCENT_OUT_OF_RANGE`.
 
@@ -444,7 +444,7 @@ $$S = w_{\text{thesis}} S_{\text{thesis}} + w_{\text{RR}} S_{\text{RR}} + w_{\te
  │ A4: Real-Time Options Flows   │                             │ E4: Slack/Email/Voice Channels│
  │ A5: Multi-Leg Payoff Builder  │                             │ E5: Stripe/x402 Micropayments │
  │ A6: Institutional Risk Matrix │                             │ E6: Observability Audit Ledger│
- │ A7: FOSS Research (YF/Alpaca) │                             └───────────────┬───────────────┘
+ │ A7: Market Data Research (YF/Alpaca) │                             └───────────────┬───────────────┘
  │ A8: Conversational NLQ & RAG  │                                             │
  └───────────────┬───────────────┘                                             │
                  │                                                             ▼

@@ -286,7 +286,7 @@ export const AGENT_ERROR_CATALOG: Record<AgentErrorCode, AgentErrorMetadata> = {
       "Use the Research tab for Yahoo Finance / Alpaca fallback data.",
     ],
     suggestedTab: "research",
-    suggestedTabLabel: "Open FOSS Research Tab",
+    suggestedTabLabel: "Open Market Data Research Tab",
   },
   [AgentErrorCode.UNKNOWN_AGENT_ERROR]: {
     code: AgentErrorCode.UNKNOWN_AGENT_ERROR,
@@ -411,7 +411,7 @@ export function resolveErrorAspect(err: unknown): ErrorResolutionAspect {
       resolutionSteps: [
         "E*TRADE OAuth connection is required for live portfolio and order execution.",
         "Navigate to the Trading tab and start OAuth authorization.",
-        "Read-only market screening and FOSS research remain accessible without broker login.",
+        "Read-only market screening and market-data research remain accessible without broker login.",
       ],
       suggestedTab: "trading",
       suggestedTabLabel: "Connect E*TRADE",

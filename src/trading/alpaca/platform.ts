@@ -7,7 +7,7 @@
 import type { Env, ETradeQuote, ETradeAccount, ETradePosition, ETradeOrderDraft, ETradeOrderExecutionResult, ETradeBrokerStatus } from "../../types";
 import type { DatabaseORM } from "../../orm";
 import type { ITradingPlatform, OrderPreviewParams } from "../interfaces";
-import { AlpacaMarketDataProvider } from "../../services/fossResearch";
+import { AlpacaMarketDataProvider } from "../../services/marketDataResearch";
 import { AGENT_DIDS, createDidAttestationSync, getUserDid } from "../../agents/did";
 
 export class AlpacaTradingPlatform implements ITradingPlatform {

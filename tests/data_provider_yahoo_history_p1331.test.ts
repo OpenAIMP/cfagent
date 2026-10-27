@@ -21,7 +21,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   computeTechnicals,
   classifyGap,
-  fossBarsToDailyBars,
+  marketDataResearchBarsToDailyBars,
   type YahooDailyBar,
 } from "../src/trading/technicals";
 import {
@@ -31,9 +31,9 @@ import {
   resolveYahooHistoryDeps,
   type YahooHistoryDeps,
 } from "../src/trading/platformHistory";
-import type { FossHistoricalBar } from "../src/types";
+import type { MarketDataResearchHistoricalBar } from "../src/types";
 
-function liveBar(date: string, close: number): FossHistoricalBar {
+function liveBar(date: string, close: number): MarketDataResearchHistoricalBar {
   return {
     provenance: "live",
     timestamp: date,
@@ -45,11 +45,11 @@ function liveBar(date: string, close: number): FossHistoricalBar {
   };
 }
 
-function generatedBar(date: string, close: number): FossHistoricalBar {
+function generatedBar(date: string, close: number): MarketDataResearchHistoricalBar {
   return { ...liveBar(date, close), provenance: "generated" };
 }
 
-function liveSeries(n: number, startClose = 100, drift = 0.5): FossHistoricalBar[] {
+function liveSeries(n: number, startClose = 100, drift = 0.5): MarketDataResearchHistoricalBar[] {
   return Array.from({ length: n }, (_, i) => liveBar(`2026-09-${String(i + 1).padStart(2, "0")}`, startClose + i * drift));
 }
 
@@ -57,9 +57,9 @@ const noSleep = () => Promise.resolve();
 const oneAttempt = { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0, jitterRatio: 0 };
 const threeAttempts = { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0, jitterRatio: 0 };
 
-describe("fossBarsToDailyBars — mapping + live-only honesty", () => {
-  it("maps live FOSS bars to YahooDailyBar rows field-for-field", () => {
-    const out = fossBarsToDailyBars([liveBar("2026-09-01", 100), liveBar("2026-09-02", 101)]);
+describe("marketDataResearchBarsToDailyBars — mapping + live-only honesty", () => {
+  it("maps live market-data bars to YahooDailyBar rows field-for-field", () => {
+    const out = marketDataResearchBarsToDailyBars([liveBar("2026-09-01", 100), liveBar("2026-09-02", 101)]);
     expect(out).toEqual([
       { date: "2026-09-01", open: 99.7, high: 100.5, low: 99.5, close: 100, volume: 1_000_000 },
       { date: "2026-09-02", open: 100.7, high: 101.5, low: 100.5, close: 101, volume: 1_000_000 },
@@ -67,16 +67,16 @@ describe("fossBarsToDailyBars — mapping + live-only honesty", () => {
   });
 
   it("empty input is unavailable, not zero bars", () => {
-    expect(fossBarsToDailyBars([])).toBeNull();
+    expect(marketDataResearchBarsToDailyBars([])).toBeNull();
   });
 
   it("any generated bar rejects the whole series (never partial synthesis)", () => {
-    expect(fossBarsToDailyBars([liveBar("2026-09-01", 100), generatedBar("2026-09-02", 101)])).toBeNull();
-    expect(fossBarsToDailyBars([generatedBar("2026-09-01", 100)])).toBeNull();
+    expect(marketDataResearchBarsToDailyBars([liveBar("2026-09-01", 100), generatedBar("2026-09-02", 101)])).toBeNull();
+    expect(marketDataResearchBarsToDailyBars([generatedBar("2026-09-01", 100)])).toBeNull();
   });
 
   it("an all-live series passes through", () => {
-    expect(fossBarsToDailyBars(liveSeries(3))?.length).toBe(3);
+    expect(marketDataResearchBarsToDailyBars(liveSeries(3))?.length).toBe(3);
   });
 });
 
@@ -158,7 +158,7 @@ describe("yahooBarsProviderFromRoute — historicalBars route, no silent substit
 });
 
 describe("bindYahooHistoryDeps — fetchBars through the adapter", () => {
-  function stubProvider(bars: FossHistoricalBar[] | Error, calls: unknown[] = []) {
+  function stubProvider(bars: MarketDataResearchHistoricalBar[] | Error, calls: unknown[] = []) {
     return {
       id: "yahoo",
       getHistoricalBars: vi.fn(async (symbol: string, timeframe?: string, limit?: number, runContext?: unknown) => {
@@ -231,11 +231,11 @@ describe("bindYahooHistoryDeps — fetchBars through the adapter", () => {
 });
 
 describe("fetchPlatformTechnicalsBatch — batch shape of the old path", () => {
-  function depsFor(symbols: Record<string, FossHistoricalBar[] | null>): YahooHistoryDeps {
+  function depsFor(symbols: Record<string, MarketDataResearchHistoricalBar[] | null>): YahooHistoryDeps {
     return {
       fetchBars: async (symbol: string) => {
         const bars = symbols[symbol] ?? null;
-        return bars === null ? null : fossBarsToDailyBars(bars);
+        return bars === null ? null : marketDataResearchBarsToDailyBars(bars);
       },
     };
   }
@@ -266,7 +266,7 @@ describe("fetchPlatformTechnicalsBatch — batch shape of the old path", () => {
     const deps: YahooHistoryDeps = {
       fetchBars: async (symbol: string) => {
         if (symbol === "BAD") throw new Error("nope");
-        return fossBarsToDailyBars(liveSeries(30));
+        return marketDataResearchBarsToDailyBars(liveSeries(30));
       },
     };
     const out = await fetchPlatformTechnicalsBatch(deps, ["GOOD", "BAD"]);

@@ -2,7 +2,7 @@
  * Issue #927 (parent #913 S9): the static beta table tier is removed.
  * Beta is computed live from Yahoo/Alpaca bars vs SPY (Tier 1) or
  * unavailable (Tier 3). A live failure must NEVER serve a static-table
- * number, even for a symbol that exists in the FOSS table.
+ * number, even for a symbol that exists in the market-data table.
  */
 import { describe, it, expect } from "vitest";
 import { BetaService } from "../src/services/betaService";
@@ -68,7 +68,7 @@ const OPTS = { nav: 100000, spyPrice: 500, asOf: "2026-10-15T00:00:00.000Z" };
 
 describe("S9: static beta tier removed", () => {
   it("live failure for a table symbol returns unavailable, never a static beta", async () => {
-    // AAPL exists in the FOSS table; a null fetcher must not surface its table beta.
+    // AAPL exists in the market-data table; a null fetcher must not surface its table beta.
     const svc = new BetaService(async () => null);
     const res = await svc.resolve("AAPL");
     expect(res.beta).toBeNull();

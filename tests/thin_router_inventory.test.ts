@@ -110,8 +110,16 @@
  * /enrichment/killswitch, GET /enrichment/calibration (in
  * handleEnrichmentRoutes, after the data-provider handler), plus
  * the canonical GET /market-data/bars alias (in
- * handleFossQuoteResearchRoutes, before the retained legacy bars
+ * handleMarketDataQuoteResearchRoutes, before the retained legacy bars
  * path) — bringing the delegation sequence to 26 calls.
+ *
+ * Issue #1906 renamed the research routes to canonical /market-data/*
+ * paths (handlers handleMarketDataQuoteResearchRoutes,
+ * handleAlpacaMarketDataRoutes, handleMarketDataCompareScreenRoutes in
+ * marketDataResearch.ts / alpaca.ts) with the deprecated /foss/*
+ * aliases on the same branches — bringing the pinned array to 236
+ * entries (225 + 11 alias entries); the delegation sequence is
+ * unchanged at 26 calls.
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -143,9 +151,9 @@ const HANDLER_FILE: Record<string, string> = {
   "handleEtradeOptionsRoutes": "etradeOptions.ts",
   "handleWatchlistsRoutes": "watchlists.ts",
   "handleAlpacaTradingRoutes": "alpaca.ts",
-  "handleAlpacaFossRoutes": "alpaca.ts",
-  "handleFossQuoteResearchRoutes": "fossResearch.ts",
-  "handleFossCompareScreenRoutes": "fossResearch.ts",
+  "handleAlpacaMarketDataRoutes": "alpaca.ts",
+  "handleMarketDataQuoteResearchRoutes": "marketDataResearch.ts",
+  "handleMarketDataCompareScreenRoutes": "marketDataResearch.ts",
   "handleScreenerResearchRoutes": "screenerResearch.ts",
   "handleSchedulesRoutes": "schedules.ts"
 };
@@ -172,9 +180,9 @@ const EXPECTED_DELEGATIONS = [
   "handleEtradeOptionsRoutes",
   "handleWatchlistsRoutes",
   "handleAlpacaTradingRoutes",
-  "handleFossQuoteResearchRoutes",
-  "handleAlpacaFossRoutes",
-  "handleFossCompareScreenRoutes",
+  "handleMarketDataQuoteResearchRoutes",
+  "handleAlpacaMarketDataRoutes",
+  "handleMarketDataCompareScreenRoutes",
   "handleScreenerResearchRoutes",
   "handleSchedulesRoutes"
 ];
@@ -324,20 +332,31 @@ const EXPECTED_INVENTORY = [
   "handleAlpacaTradingRoutes :: endsWith(\"/trading/alpaca/account\")",
   "handleAlpacaTradingRoutes :: endsWith(\"/trading/alpaca/positions\")",
   "handleAlpacaTradingRoutes :: endsWith(\"/trading/alpaca/orders\")",
-  "handleFossQuoteResearchRoutes :: endsWith(\"/foss/quote\")",
-  "handleFossQuoteResearchRoutes :: endsWith(\"/foss/fundamentals\")",
-  "handleFossQuoteResearchRoutes :: endsWith(\"/market-data/bars\")",
-  "handleFossQuoteResearchRoutes :: endsWith(\"/foss/bars\")",
-  "handleFossQuoteResearchRoutes :: endsWith(\"/foss/research\")",
-  "handleAlpacaFossRoutes :: endsWith(\"/foss/snapshot\")",
-  "handleAlpacaFossRoutes :: endsWith(\"/foss/alpaca/account\")",
-  "handleAlpacaFossRoutes :: endsWith(\"/foss/alpaca/positions\")",
-  "handleAlpacaFossRoutes :: endsWith(\"/foss/alpaca/orders\")",
-  "handleAlpacaFossRoutes :: endsWith(\"/foss/alpaca/order\")",
-  "handleFossCompareScreenRoutes :: endsWith(\"/foss/compare\")",
-  "handleFossCompareScreenRoutes :: endsWith(\"/foss/providers\")",
-  "handleFossCompareScreenRoutes :: endsWith(\"/foss/screen\")",
-  "handleFossCompareScreenRoutes :: endsWith(\"/yfinance/screen\")",
+  "handleMarketDataQuoteResearchRoutes :: endsWith(\"/market-data/quote\")",
+  "handleMarketDataQuoteResearchRoutes :: endsWith(\"/foss/quote\")",
+  "handleMarketDataQuoteResearchRoutes :: endsWith(\"/market-data/fundamentals\")",
+  "handleMarketDataQuoteResearchRoutes :: endsWith(\"/foss/fundamentals\")",
+  "handleMarketDataQuoteResearchRoutes :: endsWith(\"/market-data/bars\")",
+  "handleMarketDataQuoteResearchRoutes :: endsWith(\"/foss/bars\")",
+  "handleMarketDataQuoteResearchRoutes :: endsWith(\"/market-data/research\")",
+  "handleMarketDataQuoteResearchRoutes :: endsWith(\"/foss/research\")",
+  "handleAlpacaMarketDataRoutes :: endsWith(\"/market-data/snapshot\")",
+  "handleAlpacaMarketDataRoutes :: endsWith(\"/foss/snapshot\")",
+  "handleAlpacaMarketDataRoutes :: endsWith(\"/market-data/alpaca/account\")",
+  "handleAlpacaMarketDataRoutes :: endsWith(\"/foss/alpaca/account\")",
+  "handleAlpacaMarketDataRoutes :: endsWith(\"/market-data/alpaca/positions\")",
+  "handleAlpacaMarketDataRoutes :: endsWith(\"/foss/alpaca/positions\")",
+  "handleAlpacaMarketDataRoutes :: endsWith(\"/market-data/alpaca/orders\")",
+  "handleAlpacaMarketDataRoutes :: endsWith(\"/foss/alpaca/orders\")",
+  "handleAlpacaMarketDataRoutes :: endsWith(\"/market-data/alpaca/order\")",
+  "handleAlpacaMarketDataRoutes :: endsWith(\"/foss/alpaca/order\")",
+  "handleMarketDataCompareScreenRoutes :: endsWith(\"/market-data/compare\")",
+  "handleMarketDataCompareScreenRoutes :: endsWith(\"/foss/compare\")",
+  "handleMarketDataCompareScreenRoutes :: endsWith(\"/market-data/providers\")",
+  "handleMarketDataCompareScreenRoutes :: endsWith(\"/foss/providers\")",
+  "handleMarketDataCompareScreenRoutes :: endsWith(\"/market-data/screen\")",
+  "handleMarketDataCompareScreenRoutes :: endsWith(\"/foss/screen\")",
+  "handleMarketDataCompareScreenRoutes :: endsWith(\"/yfinance/screen\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/latest\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screener/report/regenerate\")",

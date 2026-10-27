@@ -2,7 +2,7 @@
  * #1731 (parent #1717, slice (k)): report generator remainders
  * (scan appendix (k) findings R-1, R-2, R-3, R-7, S1; R-4, R-5, R-6
  * IDENTICAL, pin only; R07 resolved into R-1..R-7; S2 IDENTICAL) —
- * the PAYMENTS_FLOW_MODE (#1711) / FOSS_* (#1727) /
+ * the PAYMENTS_FLOW_MODE (#1711) / MARKET_DATA_* (#1727) /
  * GOAL_COMPILE_MODE (#1729) pattern applied to this domain, with
  * one deliberate difference, following the #1730 precedent: this
  * slice adds NO runtime switch. Pure module: no Cloudflare
@@ -110,7 +110,7 @@
  *   sheets count; missing stored maps to 500, email
  *   unavailable to 503, webhook unconfigured to 503 vs
  *   webhook failure to 502.
- * - S1 engines hold: the Foss single-symbol service and the
+ * - S1 engines hold: the market-data single-symbol service and the
  *   governed ResearchAgent pipeline, different inputs,
  *   engines, stores, and provenance vocabularies, no shared
  *   report builder between them.
@@ -203,12 +203,12 @@ export const REPORT_GENERATOR_1731_PINS: readonly ReportGeneratorPin[] = [
   {
     id: "S1",
     finding:
-      "Two research-report engines (engine-level, not renderer-level): the Foss single-symbol equity report (Yahoo fundamentals plus quote plus bars, DID attestation, live/cached provenance vocabulary, served by the Foss research REST route and MCP research commands) vs the ResearchAgent governed options-research OODA loop (E*TRADE research data provider, research settings/runs/evaluations tables, task ledger, schedule guard, stored PDF reports; multi-leg strategy research, gates and evaluation provenance). No shared report builder between them.",
+      "Two research-report engines (engine-level, not renderer-level): the market-data single-symbol equity report (Yahoo fundamentals plus quote plus bars, DID attestation, live/cached provenance vocabulary, served by the market-data research REST route and MCP research commands) vs the ResearchAgent governed options-research OODA loop (E*TRADE research data provider, research settings/runs/evaluations tables, task ledger, schedule guard, stored PDF reports; multi-leg strategy research, gates and evaluation provenance). No shared report builder between them.",
     resolution: "pinned",
     reason:
       "The slice decision, recorded: these are two capabilities sharing a word, not one capability with two engines. Inputs differ (symbol vs strategy/universe), engines differ, stores differ, provenance vocabularies differ; merging them would force one provenance vocabulary and one input shape onto both, destroying the governed loop's gates or the equity report's attestation. The flip that must NOT happen: a naive engine merge, or a shared builder that pretends a symbol report and a strategy research run are the same input. The shared seam is the PDF/history surfaces (R-4/R-5/R-6), not the engines.",
     defaultBehavior:
-      "Both engines stay: Foss single-symbol equity reports and the governed options-research loop, each with its own inputs, stores, and provenance; both publish through the shared canonical store, blob seam, and semantic index surfaces.",
+      "Both engines stay: Market-data single-symbol equity reports and the governed options-research loop, each with its own inputs, stores, and provenance; both publish through the shared canonical store, blob seam, and semantic index surfaces.",
   },
   {
     id: "R-4",

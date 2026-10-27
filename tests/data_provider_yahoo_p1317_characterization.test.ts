@@ -5,9 +5,9 @@
  * These pins capture the behaviour the slice must preserve:
  *  - screenerPipeline yahoo mode: quote shape, universe listing,
  *    honest failure (all-fail throws, partial qualifies, no fallback);
- *  - the FossQuote → pipeline-quote adaptation gate (non-live or
+ *  - the MarketDataResearchQuote → pipeline-quote adaptation gate (non-live or
  *    non-positive quotes are refused, never re-stamped);
- *  - the P1 platform yahoo adapter's reference parity with the FOSS
+ *  - the P1 platform yahoo adapter's reference parity with the market-data
  *    engine (payload by reference, provenance envelope).
  *
  * They were written against the pre-slice homes (yahooDataSource.ts);
@@ -25,13 +25,13 @@ import {
 import { acquireUniverse } from "../src/trading/screenerPipeline";
 import { createYahooDataProvider } from "../src/trading/dataProviders/adapters";
 import { YFINANCE_MARKET_UNIVERSE } from "../src/config/curatedStockUniverse";
-import type { FossQuote } from "../src/types";
-import type { IFossMarketDataProvider } from "../src/patterns/interfaces";
+import type { MarketDataResearchQuote } from "../src/types";
+import type { IMarketDataProvider } from "../src/patterns/interfaces";
 
 const fastPolicy = { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0, jitterRatio: 0 };
 const noSleep = async () => {};
 
-function liveQuote(symbol: string, price = 100): FossQuote {
+function liveQuote(symbol: string, price = 100): MarketDataResearchQuote {
   return {
     symbol,
     provider: "yfinance",
@@ -64,7 +64,7 @@ function deps(over: Partial<YahooScreenerDeps> = {}): YahooScreenerDeps {
   };
 }
 
-function fixtureFoss(): IFossMarketDataProvider {
+function fixtureMarketData(): IMarketDataProvider {
   const quote = liveQuote("AAPL", 250);
   return {
     providerId: "yfinance",
@@ -189,8 +189,8 @@ describe("characterization: screenerPipeline yahoo mode (pre-#1317 behaviour)", 
 
 describe("characterization: P1 platform yahoo adapter parity", () => {
   it("quotes/bars/fundamentals pass through by reference with the yahoo envelope", async () => {
-    const foss = fixtureFoss();
-    const adapter = createYahooDataProvider(foss);
+    const marketDataResearch = fixtureMarketData();
+    const adapter = createYahooDataProvider(marketDataResearch);
     const q = await adapter.getQuote!("AAPL");
     expect(q.providerId).toBe("yahoo");
     expect(q.capability).toBe("quotes");

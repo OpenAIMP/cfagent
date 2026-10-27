@@ -213,7 +213,7 @@ The following **16 components** import primitives from `src/client/components/ui
 | `src/client/DataProvidersPanel.tsx` | `Card`, `Button`, `Badge`, `Notice` | Raw `<input>` for API key entries | Replace raw `<input>` with `<TextInput>` |
 | `src/client/ETradeDynamicMenu.tsx` | `Button`, `Badge` | Raw `<button>` in sub-navigation menus | Standardize with `<Button>` or `SegmentedControl` |
 | `src/client/ETradeTradingHub.tsx` | `Card`, `Button`, `TextInput`, `Select`, `Table`, `Badge`, `Modal` | Raw `<table>` in account balance overview | Replace raw `<table>` with `<Table>` primitive |
-| `src/client/FossResearchHub.tsx` | `Card`, `Button`, `Badge`, `Notice` | Raw `<button>` in topic filters | Convert topic filters to `<PillGroup>` |
+| `src/client/MarketDataResearchHub.tsx` | `Card`, `Button`, `Badge`, `Notice` | Raw `<button>` in topic filters | Convert topic filters to `<PillGroup>` |
 | `src/client/IaaaAdminPanel.tsx` | `Card`, `Button`, `TextInput`, `Select`, `Table`, `Badge` | Raw `<button>` in row actions | Replace with `<Button size="sm">` |
 | `src/client/ReportsPanel.tsx` | `Card`, `Button`, `Table`, `Badge`, `Modal` | Raw `<button>` in report download links | Replace with `<Button variant="outline">` |
 | `src/client/ScreenersHub.tsx` | `Card`, `Button`, `TextInput`, `Select`, `Table`, `Badge`, `Modal` | Raw `<button>` in universe selection | Standardize with `<Button>` and `<PillGroup>` |

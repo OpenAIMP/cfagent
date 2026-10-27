@@ -15,12 +15,12 @@
  *    correlation by consumers.
  *
  * History is fetched through betaService's live-only Yahoo fetcher — the
- * FOSS providers' silent synthetic fallback must never feed correlation
+ * market-data providers' silent synthetic fallback must never feed correlation
  * either.
  */
 
 import { fetchYahooDailyCloses } from "./betaService";
-import { FOSS_MARKET_UNIVERSE } from "./fossResearch";
+import { MARKET_DATA_RESEARCH_UNIVERSE } from "./marketDataResearch";
 
 export type CorrelationSource = "measured" | "proxy-sector" | "unknown";
 
@@ -39,7 +39,7 @@ export const CORRELATION_MIN_OBSERVATIONS = 60;
 type ClosesFetcher = (symbol: string) => Promise<Map<string, number> | null>;
 
 export function sectorOf(symbol: string): string | null {
-  const profile = FOSS_MARKET_UNIVERSE[symbol.toUpperCase()];
+  const profile = MARKET_DATA_RESEARCH_UNIVERSE[symbol.toUpperCase()];
   return profile?.sector ?? null;
 }
 

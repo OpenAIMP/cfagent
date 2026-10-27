@@ -23,13 +23,13 @@
  * the researchEconomics cost idiom); equity trades use the same flat
  * per-trade figure, which is called out in the limitations.
  *
- * Honesty: every result carries its data provenance (the fossResearch
+ * Honesty: every result carries its data provenance (the marketDataResearch
  * label set) and an explicit limitations list. A candidate without
  * enough history in a fold is EXCLUDED with a reason — its P&L is
  * never fabricated, interpolated, or carried from another fold.
  */
 
-import type { FossDataProvenance } from "../types";
+import type { MarketDataResearchProvenance } from "../types";
 import {
   RESEARCH_CONFIG_DEFAULTS,
   type ResearchConfig,
@@ -89,7 +89,7 @@ export interface BacktestFold {
 }
 
 export interface BacktestResult {
-  provenance: FossDataProvenance;
+  provenance: MarketDataResearchProvenance;
   folds: BacktestFold[];
   aggregate: {
     totalTrades: number;
@@ -124,7 +124,7 @@ const BASE_LIMITATIONS: string[] = [
 export function backtestScreenCandidates(input: {
   candidates: BacktestCandidate[];
   prices: Record<string, PriceBar[]>;
-  provenance: FossDataProvenance;
+  provenance: MarketDataResearchProvenance;
   config?: ResearchConfig;
   folds?: number;
   holdingBars?: number;

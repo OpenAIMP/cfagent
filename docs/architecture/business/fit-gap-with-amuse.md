@@ -46,7 +46,7 @@ The quantitative trading architecture mandates a 6-stage decision pipeline befor
 |---|---|---|---|
 | **1. Screen** | Filter universe for liquidity, price bounds, volume thresholds, and volatility baselines | **Implemented**: Dynamic scanning over stock and options chains | `src/trading/screener.ts`, `src/trading/optionsScreener.ts`, `src/trading/screenerPipeline.ts` |
 | **2. Regime** | Identify underlying market regime (`UP`, `DN`, `RNG`) to map valid strategy families | **Partially Implemented**: Directional thesis tags exist, but price-action regime classification is missing | `src/trading/options/strategies/directionTags.ts`<br>*Target:* Add `classifyPriceRegime()` in `src/trading/technicals.ts` |
-| **3. Timing** | Assess entry suitability (RSI, %B, Squeeze, Gap) to prevent chasing extended moves | **Partially Implemented**: RSI 14 and Gap% computed; %B and Squeeze Gate missing | `src/trading/technicals.ts`, `src/services/fossResearch.ts`<br>*Target:* Add `computeBollingerBands()` in `src/trading/technicals.ts` |
+| **3. Timing** | Assess entry suitability (RSI, %B, Squeeze, Gap) to prevent chasing extended moves | **Partially Implemented**: RSI 14 and Gap% computed; %B and Squeeze Gate missing | `src/trading/technicals.ts`, `src/services/marketDataResearch.ts`<br>*Target:* Add `computeBollingerBands()` in `src/trading/technicals.ts` |
 | **4. Strikes** | Target deltas ($0.10 - 0.20\Delta$ spreads, $0.15 - 0.35\Delta$ PMCC), technical pivots/Fibs | **Partially Implemented**: Delta-based strike selection present; pivots/Fibs missing | `src/trading/options/strategies/template.ts`, `catalog.ts`<br>*Target:* Add `computeFractalPivots()` in `src/trading/technicals.ts` |
 | **5. Size** | Max loss $\le 2\%$ NLV per trade, total open heat $\le 35\%$, max loss gates | **Partially Implemented**: `maxPlannedLoss` enforced per candidate; account heat cap is UI-only | `src/trading/options/strategyEngine.ts`<br>*Target:* Integrate portfolio heat in `src/services/positionSizing.ts` |
 | **6. Preflight** | Binary event gates (earnings, ex-div), OAuth session validity, human approval posture | **Implemented**: Event policy exclusion, strict OAuth validation, draft approval workflow | `src/trading/options/strategyEngine.ts`, `src/security/sessionPolicy.ts`, `src/trading/channels/approval.ts` |
@@ -57,7 +57,7 @@ The quantitative trading architecture mandates a 6-stage decision pipeline befor
 
 | Rule Category | Specific Rule / Metric | Formula / Threshold | `cfagent` Implementation File | Implementation Details |
 |---|---|---|---|---|
-| **Technical** | **Relative Strength Index (RSI 14)** | $\text{RSI} = 100 - \frac{100}{1 + \frac{\text{EMA}(\text{Gain}, 14)}{\text{EMA}(\text{Loss}, 14)}}$ | `src/services/fossResearch.ts`<br>`src/trading/technicals.ts`<br>`src/trading/screener.ts` | `computeRsi14()`, `computeTechnicals()`, `evaluateUniverse()` filters by `minRsi`, `maxRsi`, and `rsiFilter` (`oversold`, `overbought`, `neutral`). |
+| **Technical** | **Relative Strength Index (RSI 14)** | $\text{RSI} = 100 - \frac{100}{1 + \frac{\text{EMA}(\text{Gain}, 14)}{\text{EMA}(\text{Loss}, 14)}}$ | `src/services/marketDataResearch.ts`<br>`src/trading/technicals.ts`<br>`src/trading/screener.ts` | `computeRsi14()`, `computeTechnicals()`, `evaluateUniverse()` filters by `minRsi`, `maxRsi`, and `rsiFilter` (`oversold`, `overbought`, `neutral`). |
 | **Options Engine** | **Auto Width Scaling** | $\text{Width} = \min(5.0, \max(1.0, \text{round}(S / 25)))$ | `src/trading/options/strategies/template.ts`<br>`src/trading/options/strategies/catalog.ts` | `strikeLadder()` and `createTemplateStrategy()` dynamically scale spread leg widths relative to spot price $S$. |
 | **Options Engine** | **EV & Probability Model** | $\text{Win\%}_{\text{est}} = 1.0 - \|\Delta_{\text{short}}\|$, $\text{EV}$ lognormal terminal integration | `src/shared/riskMath.ts`<br>`src/trading/options/strategyEngine.ts` | `probabilityOfProfit()`, `impliedProbabilityOfProfit()`, and `blackScholesGreeks()` provide shared mathematical primitives. |
 | **Options Engine** | **34-Strategy Taxonomy** | Defined-Risk Core, Exotics, Ratio Spreads, Butterflies, Condors, Calendars, Diagonals, Synthetics, Arbitrage | `src/trading/options/strategies/catalog.ts`<br>`src/trading/setupCatalog.ts` | `defaultRegistry` registers over 70 multi-leg option strategies, covering all 34 catalog strategies. |
@@ -150,7 +150,7 @@ This section details the **7 remaining rules** currently absent in `cfagent`, ma
   - VWAP Confirmation: Price holding above Session VWAP for $\ge 70\%$ of completed 15-minute bars.
 - **Target Components to Modify:**
   1. `src/trading/liveScreener.ts` & `src/trading/screenerPipeline.ts`: Add 15-minute intraday bar processing logic.
-  2. `src/services/fossResearch.ts`: Extend Alpaca/Yahoo intraday minute bar provider to track $OR_H$ and $OR_L$ windows.
+  2. `src/services/marketDataResearch.ts`: Extend Alpaca/Yahoo intraday minute bar provider to track $OR_H$ and $OR_L$ windows.
 
 ### Gap 7: ATR% Volatility Gate
 
@@ -167,7 +167,7 @@ This section details the **7 remaining rules** currently absent in `cfagent`, ma
 
 | Target File in `cfagent` | Gap / Rule Addressed | Proposed Function / Modification | Affected Dependent Modules |
 |---|---|---|---|
-| `src/trading/technicals.ts` | Bollinger Bands, %B, Squeeze, Anchored VWAP, Pivots, Fibs, Regime, ATR% | Add `computeBollingerBands()`, `computeAnchoredVwapFrom52wLow()`, `computeFractalPivots()`, `computeFibonacciRetracements()`, `classifyPriceRegime()`, `computeAtr()`. | `screener.ts`, `fossResearch.ts`, `strategyEngine.ts` |
+| `src/trading/technicals.ts` | Bollinger Bands, %B, Squeeze, Anchored VWAP, Pivots, Fibs, Regime, ATR% | Add `computeBollingerBands()`, `computeAnchoredVwapFrom52wLow()`, `computeFractalPivots()`, `computeFibonacciRetracements()`, `classifyPriceRegime()`, `computeAtr()`. | `screener.ts`, `marketDataResearch.ts`, `strategyEngine.ts` |
 | `src/trading/screeningIndicators.ts` | 6-Vote Composite Bias Score | Add `compute6VoteCompositeBias()` combining RSI, MACD, SMAs, and price regime. | `screener.ts`, `screenerPipeline.ts` |
 | `src/trading/screener.ts` | %B, Anchored VWAP, Regime, ATR%, Composite Bias Filters | Extend `StockScreenerFilter` and `evaluateUniverse()` to evaluate new technical filters and log auditable rejections. | `screenerPipeline.ts`, `liveScreener.ts`, `screenerReportPdf.ts` |
 | `src/trading/options/strategies/catalog.ts` | PMCC Breach Distance, Fib Strike Placement | Update `poor_mans_covered_call` `strikeFilter` for 8% breach distance; integrate Fib retracement levels in debit/credit spread strike selection. | `strategyEngine.ts`, `recommendationAgent.ts` |

@@ -192,7 +192,7 @@ describe("C1 R2: descriptor table is the one registry source", () => {
     const stocks = getScreeningProviders("stocks");
     expect(stocks.map((p) => p.id)).toEqual(["etrade", "yahoo-finance"]);
     expect(stocks[0].endpointByAssetClass.stocks).toBe("/api/etrade/screen");
-    expect(stocks[1].endpointByAssetClass.stocks).toBe("/api/foss/screen");
+    expect(stocks[1].endpointByAssetClass.stocks).toBe("/api/market-data/screen");
     for (const p of stocks) {
       expect(p.registryProviderId).toBe(STOCK_SCREENING_PROVIDER_ID);
       expect(providerSupportsFilter(p, "stocks", "search")).toBe(true);
@@ -208,7 +208,7 @@ describe("C1 R2: descriptor table is the one registry source", () => {
   it("the client module declares no provider endpoints by hand (drift pin)", () => {
     const src = readSrc("client/screeningAdapters.ts");
     expect(src).not.toContain("/api/etrade/screen");
-    expect(src).not.toContain("/api/foss/screen");
+    expect(src).not.toContain("/api/market-data/screen");
     expect(src).toContain("SCREENING_PROVIDER_DESCRIPTORS");
   });
 });

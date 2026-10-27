@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/services/fossResearch", () => ({
+vi.mock("../src/services/marketDataResearch", () => ({
   getYahooCrumbSession: vi.fn(),
 }));
 
-import { getYahooCrumbSession } from "../src/services/fossResearch";
+import { getYahooCrumbSession } from "../src/services/marketDataResearch";
 import {
   __resetEventCalendarCache,
   getEventCalendarCoverage,

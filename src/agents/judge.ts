@@ -46,7 +46,7 @@ Available agents:
 - 'tasks': reminders, todo items, deadlines, task drafting.
 - 'memory': remembering user facts, storing preferences, context recall.
 - 'trading': stock screening, technical market scanning (RSI/MACD), quotes, trade order previews, E*TRADE broker executions, portfolio positions.
-- 'research': FOSS market research, Yahoo Finance fundamentals, valuation ratios (P/E, PEG), Alpaca real-time market data v2, historical bars, analyst targets.
+- 'research': market-data research, Yahoo Finance fundamentals, valuation ratios (P/E, PEG), Alpaca real-time market data v2, historical bars, analyst targets.
 - 'general': greetings, general conversation, clarification, or ambiguous intent.
 
 ${JUDGE_DATA_RULE}

@@ -4,7 +4,7 @@
     "src/client/AgenticWalletPanel.tsx": 1,
     "src/client/AsyncJobsPanel.tsx": 10,
     "src/client/ETradeDynamicMenu.tsx": 19,
-    "src/client/FossResearchHub.tsx": 19,
+    "src/client/MarketDataResearchHub.tsx": 19,
     "src/client/GoalScreenPanel.tsx": 8,
     "src/client/GoogleAdUnit.tsx": 1,
     "src/client/IaaaAdminPanel.tsx": 13,

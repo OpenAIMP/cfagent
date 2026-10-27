@@ -33,7 +33,7 @@ While recent platform refactoring has established strong foundations—such as z
 * **Current State:** Navigation relies on `CapabilityNavBar.tsx` and `segmentedNavigation.ts` with top-level tabs (`Trading`, `Research`, `Screener`, `Workflows`, `Autopilot`, `API/MCP`, `Settings`).
 * **Issues & Gaps:**
   - **Tool-Centric vs Goal-Centric:** Navigation exposes agent operational tooling rather than user goals, active tasks, and pending approvals.
-  - **Overlapping Research Views:** `FossResearchHub.tsx`, `OptionsResearchPanel.tsx`, `LlmOptionsIdeasPanel.tsx`, and `IvHistoryPanel.tsx` exist as separate tabs/panels without a unified task workspace.
+  - **Overlapping Research Views:** `MarketDataResearchHub.tsx`, `OptionsResearchPanel.tsx`, `LlmOptionsIdeasPanel.tsx`, and `IvHistoryPanel.tsx` exist as separate tabs/panels without a unified task workspace.
   - **Lack of Global Approval Queue:** High-risk actions (e.g. order execution, social posting, schedule mutations) are scattered across individual panels instead of appearing in a centralized `Approvals` inbox.
 
 ### 1.2 Goal Capture, Scoping & Delegation Contracts
@@ -120,7 +120,7 @@ Replace page-local DOM elements across all domain panels with shared primitives 
 
 ### 4.2 Workspace & Navigation Consolidation
 Consolidate fragmented views into a unified **Task Workspace Information Architecture**:
-- **Consolidate Research Panels:** Merge `FossResearchHub`, `OptionsResearchPanel`, `LlmOptionsIdeasPanel`, and `IvHistoryPanel` into a single **Research & Analysis Hub** with unified tabbed sub-navigation.
+- **Consolidate Research Panels:** Merge `MarketDataResearchHub`, `OptionsResearchPanel`, `LlmOptionsIdeasPanel`, and `IvHistoryPanel` into a single **Research & Analysis Hub** with unified tabbed sub-navigation.
 - **Consolidate Operations & Monitoring:** Merge `AsyncJobsPanel`, `AutopilotControlCenter`, and `SchedulesPanel` into an **Agent Operations & Activity Workspace**.
 - **Centralize Approvals:** Introduce a top-level **Approvals Inbox** tab that gathers pending trade executions, social posts, and schedule modifications requiring human sign-off.
 

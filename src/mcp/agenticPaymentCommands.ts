@@ -9,7 +9,7 @@ import { optionScreenerFilterFields, parseOptionScreenerFilter } from "../tradin
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import { UnifiedOptionsService } from "../trading";
-import { FossResearchService } from "../services/fossResearch";
+import { MarketDataResearchService } from "../services/marketDataResearch";
 import {
   AGENTIC_WALLET_MODE_SWITCH,
   paymentsConfigErrorEvent,
@@ -352,8 +352,8 @@ export class PaidMarketResearchCommand implements IMcpToolCommand<{
       };
     }
 
-    const foss = new FossResearchService(context.env);
-    const report = await foss.generateResearchReport(input.symbol || "NVDA");
+    const marketDataResearch = new MarketDataResearchService(context.env);
+    const report = await marketDataResearch.generateResearchReport(input.symbol || "NVDA");
 
     context.audit("agentic_payment.tool_executed", "research", {
       tool: "paid_market_research",

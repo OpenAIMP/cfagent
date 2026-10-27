@@ -36,7 +36,7 @@ Object (Workers AI, RAG, NLQ analytics) with E*TRADE / options / screener toolin
 | Stock screener | `ScreenersHub.tsx`, `ScannerPanel.tsx` (1,730), `ScreenerResultsView.tsx` | Universes, scheduled runs, Slack/PDF reports |
 | Options research | `options/OptionsResearchPanel.tsx`, `options/StrategyDiscoveryPanel.tsx` (3,598 + 5,107-line CSS), `options/ScheduledOptionsManager.tsx`, `options/flows/OptionsFlowsHub.tsx` | Strategy Library dialog (74 strategies), scheduled options analysis |
 | E*TRADE trading | `ETradeTradingHub.tsx` (3,559), `ETradeDynamicMenu.tsx` | Accounts, orders, watchlists |
-| Workflows / research hubs | `WorkflowsHub.tsx`, `FossResearchHub.tsx` | FAQ/catalog driven |
+| Workflows / research hubs | `WorkflowsHub.tsx`, `MarketDataResearchHub.tsx` | FAQ/catalog driven |
 | Risk / autopilot | `PortfolioRiskPanel.tsx`, `components/AutopilotControlCenter.tsx` | Repair/hedge proposals, policy envelope |
 | Platform | `McpApiExplorer.tsx`, agentic wallet panel, `components/NavigationMenu.tsx` | MCP explorer, x402 wallet |
 

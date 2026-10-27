@@ -6,7 +6,7 @@
  *
  * What is genuinely NEW here is only the verifier + its binding.
  * Everything else in this file is characterization of behaviour
- * that already exists (the shared FOSS factory's capture seam from
+ * that already exists (the shared market-data factory's capture seam from
  * #1317, the seeded alpaca record, the generic routes GET, the
  * session gate) — those pins PASS on pristine control and are
  * disclosed as precondition pins, NOT claimed as Red. Their value
@@ -51,7 +51,7 @@ import { describe, it, expect } from "vitest";
 import {
   createAlpacaDataProvider,
   verifyAlpacaDataProvider,
-  type FossDataProviderOptions,
+  type MarketDataProviderOptions,
 } from "../src/trading/dataProviders/adapters";
 import {
   ensureCaptureTable,
@@ -72,16 +72,16 @@ import {
   handleDataProviderRoutes,
   type DataProviderRoutesContext,
 } from "../src/agents/routes/dataProviders";
-import { AlpacaMarketDataProvider } from "../src/services/fossResearch";
+import { AlpacaMarketDataProvider } from "../src/services/marketDataResearch";
 import { MockSqlStorage } from "./mock-sql";
-import type { FossQuote } from "../src/types";
-import type { IFossMarketDataProvider } from "../src/patterns/interfaces";
+import type { MarketDataResearchQuote } from "../src/types";
+import type { IMarketDataProvider } from "../src/patterns/interfaces";
 import type { Env } from "../src/types";
 
 const RUN = { runId: "run-alpaca-1385", tenantId: "test-tenant", userLogin: "tester" };
 const LOGIN = "tester";
 
-function liveQuote(symbol: string, price = 100): FossQuote {
+function liveQuote(symbol: string, price = 100): MarketDataResearchQuote {
   return {
     symbol,
     provider: "alpaca",
@@ -103,9 +103,9 @@ function liveQuote(symbol: string, price = 100): FossQuote {
   };
 }
 
-type FixtureFoss = IFossMarketDataProvider;
+type FixtureMarketData = IMarketDataProvider;
 
-function fixtureFoss(over: Partial<FixtureFoss> = {}): FixtureFoss {
+function fixtureMarketData(over: Partial<FixtureMarketData> = {}): FixtureMarketData {
   return {
     providerId: "alpaca",
     name: "fixture",
@@ -138,7 +138,7 @@ function fixtureFoss(over: Partial<FixtureFoss> = {}): FixtureFoss {
   };
 }
 
-function throwingFoss(): FixtureFoss {
+function throwingMarketData(): FixtureMarketData {
   const boom = () => {
     throw new Error("alpaca feed down");
   };
@@ -174,7 +174,7 @@ function failingBlobStorage() {
 function captureDeps(
   sql: MockSqlStorage,
   storage: unknown = fakeBlobStorage()
-): FossDataProviderOptions["capture"] {
+): MarketDataProviderOptions["capture"] {
   ensureCaptureTable(sql as never);
   return { sql: sql as never, blobStorage: storage as never, env: {} as never };
 }
@@ -209,7 +209,7 @@ function callRoute(
 
 describe("adapter: alpaca declares quotes/bars/fundamentals, single-symbol only", () => {
   it("id/name/capabilities match the seed; getQuote returns the tagged envelope field-for-field", async () => {
-    const adapter = createAlpacaDataProvider(fixtureFoss());
+    const adapter = createAlpacaDataProvider(fixtureMarketData());
     expect(adapter.id).toBe("alpaca");
     expect(adapter.name).toBe("Alpaca Markets");
     expect([...adapter.capabilities]).toEqual(["quotes", "historicalBars", "fundamentals"]);
@@ -220,7 +220,7 @@ describe("adapter: alpaca declares quotes/bars/fundamentals, single-symbol only"
   });
 
   it("no getQuotesBatch: the wrapped provider offers no getQuotes, and neither does the real one", () => {
-    const noBatch = createAlpacaDataProvider(fixtureFoss());
+    const noBatch = createAlpacaDataProvider(fixtureMarketData());
     expect(noBatch.getQuotesBatch).toBeUndefined();
     const real = createAlpacaDataProvider(new AlpacaMarketDataProvider({} as Env), {} as Env);
     expect(real.getQuotesBatch).toBeUndefined();
@@ -251,7 +251,7 @@ describe("adapter: alpaca declares quotes/bars/fundamentals, single-symbol only"
 describe("capture: capture-wired alpaca constructions write rows per capability", () => {
   it("one run, three calls → three rows, one per capability, rawKind provider-result, run-linked", async () => {
     const sql = new MockSqlStorage();
-    const adapter = createAlpacaDataProvider(fixtureFoss(), undefined, {
+    const adapter = createAlpacaDataProvider(fixtureMarketData(), undefined, {
       capture: captureDeps(sql),
     });
     await adapter.getQuote!("AAPL", RUN);
@@ -271,7 +271,7 @@ describe("capture: capture-wired alpaca constructions write rows per capability"
 
   it("a blob failure writes a capture_failed marker and the fetch still returns", async () => {
     const sql = new MockSqlStorage();
-    const adapter = createAlpacaDataProvider(fixtureFoss(), undefined, {
+    const adapter = createAlpacaDataProvider(fixtureMarketData(), undefined, {
       capture: captureDeps(sql, failingBlobStorage()),
     });
     const out = await adapter.getQuote!("AAPL", RUN);
@@ -285,7 +285,7 @@ describe("capture: capture-wired alpaca constructions write rows per capability"
   it("a throwing quote fetch writes fetch_failed and rethrows the identical error", async () => {
     const sql = new MockSqlStorage();
     const boom = new Error("alpaca feed down");
-    const adapter = createAlpacaDataProvider(fixtureFoss({ getQuote: async () => { throw boom; } }), undefined, {
+    const adapter = createAlpacaDataProvider(fixtureMarketData({ getQuote: async () => { throw boom; } }), undefined, {
       capture: captureDeps(sql),
     });
     let caught: unknown;
@@ -306,7 +306,7 @@ describe("capture: capture-wired alpaca constructions write rows per capability"
     const sql = new MockSqlStorage();
     const boom = new Error("alpaca feed down");
     const adapter = createAlpacaDataProvider(
-      fixtureFoss({ getHistoricalBars: async () => { throw boom; } }),
+      fixtureMarketData({ getHistoricalBars: async () => { throw boom; } }),
       undefined,
       { capture: captureDeps(sql) }
     );
@@ -331,7 +331,7 @@ describe("verifier: verifyAlpacaDataProvider shapes", () => {
       "../src/trading/dataProviders/captureStore"
     );
     const result = await verifyAlpacaDataProvider(undefined, {
-      provider: fixtureFoss({ isConfigured: () => false }),
+      provider: fixtureMarketData({ isConfigured: () => false }),
       outcomeRecorder: createCaptureFetchOutcomeRecorder(sql as never),
     });
     expect(result.ok).toBe(false);
@@ -341,13 +341,13 @@ describe("verifier: verifyAlpacaDataProvider shapes", () => {
   });
 
   it("configured + conformant provider → ok:true naming all three capabilities", async () => {
-    const result = await verifyAlpacaDataProvider(undefined, { provider: fixtureFoss() });
+    const result = await verifyAlpacaDataProvider(undefined, { provider: fixtureMarketData() });
     expect(result.ok).toBe(true);
     expect(result.summary).toMatch(/conformance passed for quotes, historicalBars, fundamentals/);
   });
 
   it("kit failure → ok:false with the failure list, never a silent pass", async () => {
-    const bad = fixtureFoss({
+    const bad = fixtureMarketData({
       getFundamentals: async (s: string) => ({
         provenance: "live",
         symbol: "WRONG",
@@ -373,7 +373,7 @@ describe("verifier: verifyAlpacaDataProvider shapes", () => {
       "../src/trading/dataProviders/captureStore"
     );
     const result = await verifyAlpacaDataProvider(undefined, {
-      provider: throwingFoss(),
+      provider: throwingMarketData(),
       outcomeRecorder: createCaptureFetchOutcomeRecorder(sql as never),
     });
     expect(result.ok).toBe(false);
@@ -397,7 +397,7 @@ describe("verifier: verifyAlpacaDataProvider shapes", () => {
   });
 
   it("conformance parity field-for-field over the injected provider", async () => {
-    const adapter = createAlpacaDataProvider(fixtureFoss());
+    const adapter = createAlpacaDataProvider(fixtureMarketData());
     const report = await runDataProviderConformance(adapter);
     expect(report.ok).toBe(true);
     expect(report.checks.map((c) => c.capability)).toEqual([
@@ -461,7 +461,7 @@ describe("lifecycle + routes: alpaca verifies, enables, and serves with health; 
     const sql = new MockSqlStorage();
     seedProviderConfigs(sql as never);
     expect(getProviderConfig(sql as never, "alpaca")?.lifecycleState).toBe("configured");
-    const verifier = () => verifyAlpacaDataProvider(undefined, { provider: fixtureFoss() });
+    const verifier = () => verifyAlpacaDataProvider(undefined, { provider: fixtureMarketData() });
     const verified = await transitionProvider(sql as never, "alpaca", "verify", "tester", {
       verifier: verifier as never,
     });
@@ -471,7 +471,7 @@ describe("lifecycle + routes: alpaca verifies, enables, and serves with health; 
     expect(enabled.enabled).toBe(true);
 
     // A capture under the run gives the health block activity to report.
-    const adapter = createAlpacaDataProvider(fixtureFoss(), undefined, {
+    const adapter = createAlpacaDataProvider(fixtureMarketData(), undefined, {
       capture: captureDeps(sql),
     });
     await adapter.getQuote!("AAPL", RUN);

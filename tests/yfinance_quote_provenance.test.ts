@@ -17,7 +17,7 @@
  *   (curated AND non-curated), and acquireUniverse's yahoo mode throws
  *   an explicit Yahoo-unavailable error — no substitute quote, no
  *   silent empty success.
- * - A provider quote whose provenance is not "live" (the FOSS
+ * - A provider quote whose provenance is not "live" (the market-data
  *   provider's static/generated sync fallback) is rejected at the
  *   adapter seam, never re-stamped as a live Yahoo quote.
  * - Success path passes through only values the provider actually
@@ -34,7 +34,7 @@ import {
   yahooQuoteToPipelineQuote,
 } from "../src/trading/screenerPipeline";
 import { acquireUniverse } from "../src/trading/screenerPipeline";
-import { YahooFinanceProvider } from "../src/services/fossResearch";
+import { YahooFinanceProvider } from "../src/services/marketDataResearch";
 import { __resetQuoteCache } from "../src/services/quoteCache";
 
 beforeEach(() => {
@@ -123,7 +123,7 @@ describe("#916 yahoo adapter provenance (retargeted by #1007)", () => {
     expect(q.week52High).not.toBe(265);
     expect(q.week52High ?? undefined).toBeUndefined();
     expect(q.week52Low ?? undefined).toBeUndefined();
-    // WFC is not in the static FOSS profile table and crumb enrichment is
+    // WFC is not in the static market-data profile table and crumb enrichment is
     // unreachable in this stub, so PE and market cap are genuinely unknown.
     expect(q.peRatio ?? undefined).toBeUndefined();
     expect(q.marketCap ?? undefined).toBeUndefined();

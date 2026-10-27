@@ -2,7 +2,7 @@
  * #1730 (parent #1717, slice (j)): discovery / ranking / weights /
  * promotion remainders (scan appendix (j) findings D1, D2, D3, D4,
  * DF, W1, W2, P1, P2, S3) — the PAYMENTS_FLOW_MODE (#1711) /
- * FOSS_* (#1727) / GOAL_COMPILE_MODE (#1729) pattern applied to
+ * MARKET_DATA_* (#1727) / GOAL_COMPILE_MODE (#1729) pattern applied to
  * this domain, with one deliberate difference: this slice adds NO
  * runtime switch. Pure module: no Cloudflare imports, no I/O, no
  * network — the registry is data, and the tests in

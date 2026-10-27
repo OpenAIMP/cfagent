@@ -76,7 +76,7 @@ const failingFetch = vi.fn(async () =>
 
 const liveFetch = vi.fn(async (input: unknown) => {
   const url = String(input);
-  if (url.includes("/api/foss/quote")) {
+  if (url.includes("/api/market-data/quote")) {
     return Response.json(
       {
         lastPrice: 123.45,

@@ -290,7 +290,7 @@ export const ROUTES = [
       shortLabel: "Research",
       navOrder: 7,
       defaultVisible: true,
-      badge: "FOSS",
+      badge: "Market Data",
     },
   },
   {

@@ -53,7 +53,7 @@ flowchart TB
     subgraph DataProviders ["5. Provider & Data Layer"]
         P_Reg["ScreeningProviderRegistry"]
         P_Etrade["E*TRADE API Adapter"]
-        P_Yahoo["Yahoo Finance / FOSS Adapter"]
+        P_Yahoo["Yahoo Finance Adapter"]
         P_Nasdaq["Nasdaq Official Listing Feed"]
     end
 
@@ -205,7 +205,7 @@ An architectural audit of the codebase reveals multiple parallel implementations
 
 ### 6.1 Stock Screener Implementations (2 Variations)
 1. **`DynamicMarketScreener` (`src/trading/screener.ts`)**: Primary US stock screener. Fetches live listings from `api.nasdaq.com/api/screener/stocks` (~8,500 tickers) with automatic fallback to `src/config/curatedStockUniverse.json`.
-2. **Yahoo Finance FOSS Screener (`src/trading/yahooHistory.ts`, `/api/foss/screen`)**: FOSS fallback engine that computes RSI, MACD, and SMA over Yahoo Finance historical price series.
+2. **Yahoo Finance Screener (`src/trading/yahooHistory.ts`, `/api/market-data/screen`)**: Yahoo fallback engine that computes RSI, MACD, and SMA over Yahoo Finance historical price series.
 
 ### 6.2 Options Screener Implementations (3 Variations)
 1. **`DynamicOptionsScreener` (`src/trading/optionsScreener.ts`)**: Raw option contract screener filtering chains by DTE, strike delta, volume, open interest, IV, and spread.

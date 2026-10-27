@@ -1,5 +1,5 @@
 import type { ETradeOptionChain, ETradeOptionChainContract } from "../../types";
-import { FOSS_MARKET_UNIVERSE } from "../../services/fossResearch";
+import { MARKET_DATA_RESEARCH_UNIVERSE } from "../../services/marketDataResearch";
 
 // Standard normal cumulative distribution function (Abramowitz & Stegun approximation)
 function normalCdf(x: number): number {
@@ -89,7 +89,7 @@ export function buildCalibratedOptionChains(
     const cleanSym = sym.toUpperCase().trim();
     if (!cleanSym || cleanSym === "BROKEN") continue;
 
-    const profile = FOSS_MARKET_UNIVERSE[cleanSym];
+    const profile = MARKET_DATA_RESEARCH_UNIVERSE[cleanSym];
     const spot = profile?.price || (cleanSym === "NVDA" ? 125.0 : cleanSym === "TSLA" ? 245.0 : cleanSym === "SPY" ? 585.0 : 100.0);
     const iv = 0.42; // baseline market IV
     const r = 0.04;

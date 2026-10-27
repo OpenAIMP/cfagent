@@ -13,7 +13,7 @@
  * for scan jobs — forwardToOrchestrator over the SEARCH_AGENT binding — to
  * POST /api/audit/event, which funnels into recordAudit(), the single owner
  * of mas_events inserts (issue #270). That store is the one GET /api/audit
- * reads (Chat audit log, AutopilotControlCenter, FossResearchHub,
+ * reads (Chat audit log, AutopilotControlCenter, MarketDataResearchHub,
  * ScheduledOptionsManager).
  *
  * Harness: full-fake module mocks for the agent graph the node loader

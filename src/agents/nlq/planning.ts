@@ -559,9 +559,9 @@ export function planWithRules(question: string): NLQPlan {
     };
   }
 
-  // 5. Fast-path for FOSS Market Research & Quoting (Yahoo Finance / Alpaca)
-  if (/\b(yfinance|yahoo\s*finance|alpaca|foss|fundamentals?|valuation|research|compare|snapshot|pe\s*ratio|p\/e|peg)\b/i.test(question)) {
-    const excludeWords = new Set(["FOSS", "USD", "FOR", "ON", "AND", "THE", "GET", "LIVE", "PE", "PEG", "API", "APIS", "NBBO", "DEEP", "RUN", "STOCK", "SHARE", "PRICE", "QUOTE", "WITH", "USING"]);
+  // 5. Fast-path for Market Data Research & Quoting (Yahoo Finance / Alpaca)
+  if (/\b(yfinance|yahoo\s*finance|alpaca|market\s*data|fundamentals?|valuation|research|compare|snapshot|pe\s*ratio|p\/e|peg)\b/i.test(question)) {
+    const excludeWords = new Set(["MARKET", "DATA", "USD", "FOR", "ON", "AND", "THE", "GET", "LIVE", "PE", "PEG", "API", "APIS", "NBBO", "DEEP", "RUN", "STOCK", "SHARE", "PRICE", "QUOTE", "WITH", "USING"]);
     const allUpperMatches = Array.from(question.matchAll(/\b([A-Za-z0-9\/\.\-]{1,8})\b/g)).map(m => m[1]);
     const validTickers = allUpperMatches.filter(w => /^[A-Z0-9\/\.\-]+$/.test(w) && !excludeWords.has(w.toUpperCase()));
     

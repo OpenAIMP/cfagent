@@ -27,7 +27,7 @@ export interface OptionRequestBudget {
   tryConsume(): boolean;
 }
 
-export type TradingPlatformId = "etrade" | "alpaca" | "foss" | "sandbox";
+export type TradingPlatformId = "etrade" | "alpaca" | "sandbox";
 /** Asset classes with implemented order forms and broker routing. Extend this union with a dedicated order adapter when a new market is added. */
 export type TradeAssetClass = "equity" | "options";
 

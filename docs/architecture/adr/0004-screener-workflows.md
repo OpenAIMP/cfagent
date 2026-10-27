@@ -245,7 +245,7 @@ store) or the start fails for any reason, the route falls
 back to sync with a console warning — an opt-in flag must
 never 500 a screen the sync path can serve. The async path
 audits the enqueue (`etrade.screen_enqueued`,
-`foss.screener.enqueued`); it does NOT persist, publish, or
+`market_data.screener.enqueued`); it does NOT persist, publish, or
 audit-as-complete inline (the workflow owns store/deliver).
 Premium async returns a handle object (the payer polls
 job/report paths); premium has no audit in its route context,
@@ -278,7 +278,7 @@ clock checks.
 
 ## Consequences
 
-- Every synchronous screener route (etrade, foss, premium)
+- Every synchronous screener route (etrade, market-data, premium)
   has an async Workflow path; the request returns 202
   without awaiting the scan. Ticker-level sharding is OUT
   (options world, #1785 territory) — v1 shards are universes

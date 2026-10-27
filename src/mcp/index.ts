@@ -148,21 +148,42 @@ export const MCP_RESOURCES: MCPResourceDefinition[] = [
     mimeType: "application/json",
   },
   {
-    uri: "foss://market/quote/NVDA",
-    name: "FOSS Market Quote (Yahoo Finance & Alpaca)",
+    uri: "market-data://market/quote/NVDA",
+    name: "Market Data Quote (Yahoo Finance & Alpaca)",
     description: "Real-time Level 1 quote and NBBO bid/ask spread for active ticker.",
     mimeType: "application/json",
   },
   {
-    uri: "foss://research/fundamentals/NVDA",
-    name: "FOSS Company Fundamentals & Valuations",
+    uri: "market-data://research/fundamentals/NVDA",
+    name: "Market Data Company Fundamentals & Valuations",
     description: "Institutional P/E, PEG, price targets, and balance sheet metrics from Yahoo Finance.",
     mimeType: "application/json",
   },
   {
-    uri: "foss://providers/status",
-    name: "FOSS Market Data Providers Health",
+    uri: "market-data://providers/status",
+    name: "Market Data Providers Health",
     description: "Connection status, rate limits, and capabilities of Yahoo Finance and Alpaca integrations.",
+    mimeType: "application/json",
+  },
+  // #1906: deprecated aliases for the market-data resources above.
+  // Same handlers; the requested URI is echoed back. Removal is a
+  // follow-up slice.
+  {
+    uri: "foss://market/quote/NVDA",
+    name: "Market Data Quote (Yahoo Finance & Alpaca)",
+    description: "Deprecated alias for market-data://market/quote/NVDA; use market-data://market/quote/NVDA instead.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "foss://research/fundamentals/NVDA",
+    name: "Market Data Company Fundamentals & Valuations",
+    description: "Deprecated alias for market-data://research/fundamentals/NVDA; use market-data://research/fundamentals/NVDA instead.",
+    mimeType: "application/json",
+  },
+  {
+    uri: "foss://providers/status",
+    name: "Market Data Providers Health",
+    description: "Deprecated alias for market-data://providers/status; use market-data://providers/status instead.",
     mimeType: "application/json",
   },
 ];
@@ -189,8 +210,18 @@ export const MCP_PROMPTS: MCPPromptDefinition[] = [
     arguments: [],
   },
   {
-    name: "foss_equity_research_report",
+    name: "market_data_equity_research_report",
     description: "Generate comprehensive equity research report synthesizing fundamentals, technical indicators, and analyst price targets via Yahoo Finance and Alpaca.",
+    arguments: [
+      { name: "symbol", description: "Stock ticker symbol (e.g. NVDA, AAPL, MSFT)", required: true },
+    ],
+  },
+  // #1906: deprecated alias for the renamed prompt above. prompts/get
+  // finds by name and echoes prompt.name, so no rendering change is
+  // needed. Removal is a follow-up slice.
+  {
+    name: "foss_equity_research_report",
+    description: "Deprecated alias for market_data_equity_research_report; use market_data_equity_research_report instead.",
     arguments: [
       { name: "symbol", description: "Stock ticker symbol (e.g. NVDA, AAPL, MSFT)", required: true },
     ],
@@ -261,7 +292,12 @@ export async function readMCPResource(
 ): Promise<{ uri: string; mimeType: string; text: string }> {
   const { orm, sessionId } = context;
 
-  switch (uri) {
+  // #1906: deprecated legacy resource URIs dispatch to the same handlers
+  // as their canonical market-data:// URIs; the REQUESTED uri is echoed
+  // back (existing behavior), so legacy callers see their own URI.
+  const dispatchUri = uri.startsWith("foss://") ? uri.replace("foss://", "market-data://") : uri;
+
+  switch (dispatchUri) {
     case "sqlite://schema/tables": {
       const tables = orm.listTables();
       return {
@@ -350,10 +386,10 @@ export async function readMCPResource(
         text: JSON.stringify(holdings, null, 2),
       };
     }
-    case "foss://providers/status": {
-      const { FossResearchService } = await import("../services/fossResearch");
-      const foss = new FossResearchService();
-      const statuses = foss.getProviderStatuses();
+    case "market-data://providers/status": {
+      const { MarketDataResearchService } = await import("../services/marketDataResearch");
+      const marketDataResearch = new MarketDataResearchService();
+      const statuses = marketDataResearch.getProviderStatuses();
       return {
         uri,
         mimeType: "application/json",
@@ -361,22 +397,22 @@ export async function readMCPResource(
       };
     }
     default: {
-      if (uri.startsWith("foss://market/quote/")) {
-        const sym = uri.replace("foss://market/quote/", "");
-        const { FossResearchService } = await import("../services/fossResearch");
-        const foss = new FossResearchService();
-        const quote = await foss.getQuote(sym);
+      if (dispatchUri.startsWith("market-data://market/quote/")) {
+        const sym = dispatchUri.replace("market-data://market/quote/", "");
+        const { MarketDataResearchService } = await import("../services/marketDataResearch");
+        const marketDataResearch = new MarketDataResearchService();
+        const quote = await marketDataResearch.getQuote(sym);
         return {
           uri,
           mimeType: "application/json",
           text: JSON.stringify(quote, null, 2),
         };
       }
-      if (uri.startsWith("foss://research/fundamentals/")) {
-        const sym = uri.replace("foss://research/fundamentals/", "");
-        const { FossResearchService } = await import("../services/fossResearch");
-        const foss = new FossResearchService();
-        const fundamentals = await foss.getFundamentals(sym);
+      if (dispatchUri.startsWith("market-data://research/fundamentals/")) {
+        const sym = dispatchUri.replace("market-data://research/fundamentals/", "");
+        const { MarketDataResearchService } = await import("../services/marketDataResearch");
+        const marketDataResearch = new MarketDataResearchService();
+        const fundamentals = await marketDataResearch.getFundamentals(sym);
         return {
           uri,
           mimeType: "application/json",

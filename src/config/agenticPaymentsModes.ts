@@ -1,7 +1,7 @@
 /**
  * #1728 (parent #1717, slice (h)): ONE runtime config switch per
  * divergent agentic-payments + premium-gating MCP-vs-REST pair — the
- * PAYMENTS_FLOW_MODE (#1711) / ETRADE_* (#1726) / FOSS_* (#1727)
+ * PAYMENTS_FLOW_MODE (#1711) / ETRADE_* (#1726) / MARKET_DATA_* (#1727)
  * pattern applied to this domain. Pure module: no Cloudflare
  * imports, no I/O, no network — the port is the resolver, and both
  * surfaces consume it (port-first, cfagent blueprint #1795).

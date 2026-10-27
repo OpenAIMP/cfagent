@@ -740,16 +740,16 @@ describe("Public adapter fetch outcomes (issue #1248)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// FOSS + nasdaq wrappers: no recorder is wired in production yet
+// Market-data + nasdaq wrappers: no recorder is wired in production yet
 // (their capture seam lands with the add-provider slices), but the
 // wrapper is construction-level: supply a recorder and fetches are
 // tracked; omit it and behaviour is the plain parity wrapper.
 // ---------------------------------------------------------------------------
 
-describe("FOSS / nasdaq wrapper readiness (issue #1248)", () => {
+describe("Market-data / nasdaq wrapper readiness (issue #1248)", () => {
   it("yahoo: with a recorder, a failing fetch records and rethrows identically; without one it just throws", async () => {
     const err = new Error("yahoo upstream 429 rate limit");
-    const foss = {
+    const marketDataResearch = {
       isConfigured: () => true,
       getQuote: async () => {
         throw err;
@@ -766,14 +766,14 @@ describe("FOSS / nasdaq wrapper readiness (issue #1248)", () => {
         seen.push({ meta, kind: failure.kind });
       },
     };
-    const withRec = createYahooDataProvider(foss, undefined, { outcomeRecorder: recorder });
+    const withRec = createYahooDataProvider(marketDataResearch, undefined, { outcomeRecorder: recorder });
     const caught = await withRec.getQuote!("AAPL").catch((e) => e);
     expect(caught).toBe(err);
     expect(seen).toHaveLength(1);
     expect(seen[0].kind).toBe("rate_limit");
     expect(seen[0].meta.providerId).toBe("yahoo");
 
-    const plain = createYahooDataProvider(foss);
+    const plain = createYahooDataProvider(marketDataResearch);
     const caught2 = await plain.getQuote!("AAPL").catch((e) => e);
     expect(caught2).toBe(err);
   });

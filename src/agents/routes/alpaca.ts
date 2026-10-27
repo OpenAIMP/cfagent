@@ -4,7 +4,10 @@
  * no behavior change.
  *
  * Owns the alpaca-named route blocks in two groups (invoked at their exact
- * original positions in routeRequest's sequential matching sequence):
+ * original positions in routeRequest's sequential matching sequence).
+ * #1906: each canonical /market-data/* path keeps its deprecated /foss/*
+ * alias on the same handler and response; use canonical paths instead.
+ * Alias removal is a follow-up.
  *
  * Group 1 (after the watchlists delegation): the "Alpaca Trading API v2
  * Endpoints" section —
@@ -13,15 +16,15 @@
  *   GET         /trading/alpaca/positions
  *   GET         /trading/alpaca/orders
  *
- * Group 2 (between the /foss/research block and the /foss/compare block):
- * the alpaca-named FOSS routes (the non-alpaca /foss/quote, /foss/fundamentals,
- * /foss/bars, /foss/research and /foss/compare blocks moved to slice
- * #359-14's foss research module — src/agents/routes/fossResearch.ts) —
- *   GET         /foss/snapshot
- *   GET         /foss/alpaca/account
- *   GET         /foss/alpaca/positions
- *   GET         /foss/alpaca/orders
- *   POST        /foss/alpaca/order
+ * Group 2 (between the /market-data/research block and the /market-data/compare block):
+ * the alpaca-named market-data routes (the non-alpaca /market-data/quote, /market-data/fundamentals,
+ * /market-data/bars, /market-data/research and /market-data/compare blocks moved to slice
+ * #359-14's market-data research module — src/agents/routes/marketDataResearch.ts) —
+ *   GET         /market-data/snapshot
+ *   GET         /market-data/alpaca/account
+ *   GET         /market-data/alpaca/positions
+ *   GET         /market-data/alpaca/orders
+ *   POST        /market-data/alpaca/order
  *
  * Every handler ends with an explicit `return null` - never undefined.
  *
@@ -30,19 +33,19 @@
  * back-references into the class. Audit events stay funneled through the
  * single-owner recordAudit() via ctx.audit (no behavior change to audit
  * semantics). Alpaca credential handling is byte-identical — the module
- * constructs FossResearchService exactly as the inline blocks did.
+ * constructs MarketDataResearchService exactly as the inline blocks did.
  */
 
-import { FossResearchService } from "../../services/fossResearch";
+import { MarketDataResearchService } from "../../services/marketDataResearch";
 import type { AgentName, Env } from "../../types";
 import {
-  resolveFossRestSwitch,
-  fossSnapshotAudit,
-  fossReadsAuditEvent,
-  normalizeFossOrderInput,
-  fossOrderAuditEvent,
-  fossOrderAuditPayload,
-} from "../../config/fossModes";
+  resolveMarketDataRestSwitch,
+  marketDataSnapshotAudit,
+  marketDataReadsAuditEvent,
+  normalizeMarketDataOrderInput,
+  marketDataOrderAuditEvent,
+  marketDataOrderAuditPayload,
+} from "../../config/marketDataModes";
 
 /** The subset of OrchestratorAgent surface the alpaca handlers need. */
 export interface AlpacaRouteContext {
@@ -54,14 +57,14 @@ export interface AlpacaRouteContext {
     agent: AgentName | "judge" | "nlq" | "orchestrator",
     payload: Record<string, unknown>
   ): void;
-  /** #1727: optional session/user carriers for the FOSS switches (run comes from query `?mode=` / body `mode`, global env from `env`). Populated by the execution-context owner; unset carriers fall through to env. See src/config/fossModes.ts. */
-  scopedFossModes?: import("../../config/fossModes").FossScopedModes;
+  /** #1727: optional session/user carriers for the market-data switches (run comes from query `?mode=` / body `mode`, global env from `env`). Populated by the execution-context owner; unset carriers fall through to env. See src/config/marketDataModes.ts. */
+  scopedMarketDataModes?: import("../../config/marketDataModes").MarketDataScopedModes;
 }
 
-/** #1727: adapts this module's route context to the fossModes switch host (the ctx audit type is narrower than the host's, so it is wrapped rather than passed through). */
-function fossSwitchHost(ctx: AlpacaRouteContext) {
+/** #1727: adapts this module's route context to the marketDataModes switch host (the ctx audit type is narrower than the host's, so it is wrapped rather than passed through). */
+function marketDataSwitchHost(ctx: AlpacaRouteContext) {
   return {
-    scopedFossModes: ctx.scopedFossModes,
+    scopedMarketDataModes: ctx.scopedMarketDataModes,
     env: ctx.env,
     audit: (type: string, agent: any, payload: Record<string, unknown>) => ctx.audit(type, agent, payload),
   };
@@ -84,24 +87,24 @@ export async function handleAlpacaTradingRoutes(
   // Place Alpaca Live / Paper Order
   // #1727 F05: order mode (run body `mode` > session > user > env >
   // trading legacy). The route's own 400 wording ("Stock symbol is
-  // required") and the trading normalization stay the default; foss
-  // mode selects /foss normalization + full audit, mcp mode selects
+  // required") and the trading normalization stay the default; market-data
+  // mode selects /market-data normalization + full audit, mcp mode selects
   // verbatim input + alpaca.order.place. No HITL gate exists on this
   // path; the switch changes normalization + audit only.
   if (path.endsWith("/trading/alpaca/order") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as any;
-      const orderMode = resolveFossRestSwitch(fossSwitchHost(ctx), "order", body.mode, "trading");
-      const normalized = normalizeFossOrderInput(body, orderMode);
+      const orderMode = resolveMarketDataRestSwitch(marketDataSwitchHost(ctx), "order", body.mode, "trading");
+      const normalized = normalizeMarketDataOrderInput(body, orderMode);
 
       if (!normalized.symbol || !String(normalized.symbol).trim()) {
         return Response.json({ error: "Stock symbol is required" }, { status: 400 });
       }
 
-      const foss = new FossResearchService(ctx.env);
-      const orderResult = await foss.placeAlpacaOrder(normalized);
+      const marketDataResearch = new MarketDataResearchService(ctx.env);
+      const orderResult = await marketDataResearch.placeAlpacaOrder(normalized);
 
-      ctx.audit(fossOrderAuditEvent(orderMode), "trading", fossOrderAuditPayload(orderMode, normalized, orderResult));
+      ctx.audit(marketDataOrderAuditEvent(orderMode), "trading", marketDataOrderAuditPayload(orderMode, normalized, orderResult));
       return Response.json(orderResult);
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to place Alpaca order" }, { status: 500 });
@@ -114,10 +117,10 @@ export async function handleAlpacaTradingRoutes(
   // (queried) audit; #1733 keeps the twin default question.
   if (path.endsWith("/trading/alpaca/account") && request.method === "GET") {
     try {
-      const readsMode = resolveFossRestSwitch(fossSwitchHost(ctx), "reads", url.searchParams.get("mode"), "none");
-      const foss = new FossResearchService(ctx.env);
-      const account = await foss.getAlpacaAccount();
-      const event = fossReadsAuditEvent(readsMode, "account");
+      const readsMode = resolveMarketDataRestSwitch(marketDataSwitchHost(ctx), "reads", url.searchParams.get("mode"), "none");
+      const marketDataResearch = new MarketDataResearchService(ctx.env);
+      const account = await marketDataResearch.getAlpacaAccount();
+      const event = marketDataReadsAuditEvent(readsMode, "account");
       if (event) {
         ctx.audit(event, "trading", {
           success: account.success,
@@ -135,10 +138,10 @@ export async function handleAlpacaTradingRoutes(
   // Get Alpaca Open Positions
   if (path.endsWith("/trading/alpaca/positions") && request.method === "GET") {
     try {
-      const readsMode = resolveFossRestSwitch(fossSwitchHost(ctx), "reads", url.searchParams.get("mode"), "none");
-      const foss = new FossResearchService(ctx.env);
-      const positions = await foss.getAlpacaPositions();
-      const event = fossReadsAuditEvent(readsMode, "positions");
+      const readsMode = resolveMarketDataRestSwitch(marketDataSwitchHost(ctx), "reads", url.searchParams.get("mode"), "none");
+      const marketDataResearch = new MarketDataResearchService(ctx.env);
+      const positions = await marketDataResearch.getAlpacaPositions();
+      const event = marketDataReadsAuditEvent(readsMode, "positions");
       if (event) {
         ctx.audit(event, "trading", {
           success: positions.success,
@@ -155,11 +158,11 @@ export async function handleAlpacaTradingRoutes(
   // Get Alpaca Orders List
   if (path.endsWith("/trading/alpaca/orders") && request.method === "GET") {
     try {
-      const readsMode = resolveFossRestSwitch(fossSwitchHost(ctx), "reads", url.searchParams.get("mode"), "none");
+      const readsMode = resolveMarketDataRestSwitch(marketDataSwitchHost(ctx), "reads", url.searchParams.get("mode"), "none");
       const status = (url.searchParams.get("status") || "open") as any;
-      const foss = new FossResearchService(ctx.env);
-      const orders = await foss.getAlpacaOrders(status);
-      const event = fossReadsAuditEvent(readsMode, "orders");
+      const marketDataResearch = new MarketDataResearchService(ctx.env);
+      const orders = await marketDataResearch.getAlpacaOrders(status);
+      const event = marketDataReadsAuditEvent(readsMode, "orders");
       if (event) {
         ctx.audit(event, "trading", {
           status,
@@ -175,9 +178,9 @@ export async function handleAlpacaTradingRoutes(
   return null;
 }
 /**
- * Alpaca-named FOSS routes. Invoked from routeRequest at the exact position the original blocks occupied (between /foss/research and /foss/compare); returns a Response when one of the alpaca foss paths matches, or null to continue sequential matching.
+ * Alpaca-named market-data routes. Invoked from routeRequest at the exact position the original blocks occupied (between /market-data/research and /market-data/compare); returns a Response when one of the alpaca market-data paths matches, or null to continue sequential matching.
  */
-export async function handleAlpacaFossRoutes(
+export async function handleAlpacaMarketDataRoutes(
   request: Request,
   url: URL,
   path: string,
@@ -187,18 +190,18 @@ export async function handleAlpacaFossRoutes(
   // Alpaca real-time market snapshot & NBBO spread
   // #1727 F03: snapshot mode (run `?mode=` > session > user > env
   // > rest legacy). mcp = required symbol (400 when missing) +
-  // foss.alpaca.snapshot audit; rest = NVDA default +
+  // alpaca.snapshot audit; rest = NVDA default +
   // alpaca.snapshot_queried audit.
-  if (path.endsWith("/foss/snapshot") && request.method === "GET") {
+  if ((path.endsWith("/market-data/snapshot") || path.endsWith("/foss/snapshot")) && request.method === "GET") {
     try {
-      const snapshotMode = resolveFossRestSwitch(fossSwitchHost(ctx), "snapshot", url.searchParams.get("mode"), "rest");
+      const snapshotMode = resolveMarketDataRestSwitch(marketDataSwitchHost(ctx), "snapshot", url.searchParams.get("mode"), "rest");
       const symbol = snapshotMode === "mcp" ? (url.searchParams.get("symbol") || "") : (url.searchParams.get("symbol") || "NVDA");
       if (snapshotMode === "mcp" && !symbol.trim()) {
         return Response.json({ error: "symbol is required" }, { status: 400 });
       }
-      const foss = new FossResearchService(ctx.env);
-      const snapshot = await foss.getAlpacaSnapshot(symbol);
-      const [event, payload] = fossSnapshotAudit(snapshotMode, symbol, snapshot);
+      const marketDataResearch = new MarketDataResearchService(ctx.env);
+      const snapshot = await marketDataResearch.getAlpacaSnapshot(symbol);
+      const [event, payload] = marketDataSnapshotAudit(snapshotMode, symbol, snapshot);
       ctx.audit(event, "trading", payload);
       return Response.json(snapshot);
     } catch (err) {
@@ -209,12 +212,12 @@ export async function handleAlpacaFossRoutes(
   // Alpaca Trading v2: Account Status & Balance with Agentic Tracing
   // #1727 F04: reads mode, default rest (this route's legacy
   // *_queried audit). mcp selects the *.query audit, none silences.
-  if (path.endsWith("/foss/alpaca/account") && request.method === "GET") {
+  if ((path.endsWith("/market-data/alpaca/account") || path.endsWith("/foss/alpaca/account")) && request.method === "GET") {
     try {
-      const readsMode = resolveFossRestSwitch(fossSwitchHost(ctx), "reads", url.searchParams.get("mode"), "rest");
-      const foss = new FossResearchService(ctx.env);
-      const result = await foss.getAlpacaAccount();
-      const event = fossReadsAuditEvent(readsMode, "account");
+      const readsMode = resolveMarketDataRestSwitch(marketDataSwitchHost(ctx), "reads", url.searchParams.get("mode"), "rest");
+      const marketDataResearch = new MarketDataResearchService(ctx.env);
+      const result = await marketDataResearch.getAlpacaAccount();
+      const event = marketDataReadsAuditEvent(readsMode, "account");
       if (event) {
         ctx.audit(event, "trading", {
           success: result.success,
@@ -230,12 +233,12 @@ export async function handleAlpacaFossRoutes(
   }
 
   // Alpaca Trading v2: Portfolio Positions with Agentic Tracing
-  if (path.endsWith("/foss/alpaca/positions") && request.method === "GET") {
+  if ((path.endsWith("/market-data/alpaca/positions") || path.endsWith("/foss/alpaca/positions")) && request.method === "GET") {
     try {
-      const readsMode = resolveFossRestSwitch(fossSwitchHost(ctx), "reads", url.searchParams.get("mode"), "rest");
-      const foss = new FossResearchService(ctx.env);
-      const result = await foss.getAlpacaPositions();
-      const event = fossReadsAuditEvent(readsMode, "positions");
+      const readsMode = resolveMarketDataRestSwitch(marketDataSwitchHost(ctx), "reads", url.searchParams.get("mode"), "rest");
+      const marketDataResearch = new MarketDataResearchService(ctx.env);
+      const result = await marketDataResearch.getAlpacaPositions();
+      const event = marketDataReadsAuditEvent(readsMode, "positions");
       if (event) {
         ctx.audit(event, "trading", {
           success: result.success,
@@ -250,13 +253,13 @@ export async function handleAlpacaFossRoutes(
   }
 
   // Alpaca Trading v2: Order History Ledger with Agentic Tracing
-  if (path.endsWith("/foss/alpaca/orders") && request.method === "GET") {
+  if ((path.endsWith("/market-data/alpaca/orders") || path.endsWith("/foss/alpaca/orders")) && request.method === "GET") {
     try {
-      const readsMode = resolveFossRestSwitch(fossSwitchHost(ctx), "reads", url.searchParams.get("mode"), "rest");
+      const readsMode = resolveMarketDataRestSwitch(marketDataSwitchHost(ctx), "reads", url.searchParams.get("mode"), "rest");
       const status = (url.searchParams.get("status") || "open") as "open" | "closed" | "all";
-      const foss = new FossResearchService(ctx.env);
-      const result = await foss.getAlpacaOrders(status);
-      const event = fossReadsAuditEvent(readsMode, "orders");
+      const marketDataResearch = new MarketDataResearchService(ctx.env);
+      const result = await marketDataResearch.getAlpacaOrders(status);
+      const event = marketDataReadsAuditEvent(readsMode, "orders");
       if (event) {
         ctx.audit(event, "trading", {
           status,
@@ -271,24 +274,24 @@ export async function handleAlpacaFossRoutes(
 
   // Alpaca Trading v2: Place Order with Agent DID Attestation & Agentic Tracing
   // #1727 F05: order mode (run body `mode` > session > user > env >
-  // foss legacy). The route's own 400 wording ("Symbol is
+  // market-data legacy). The route's own 400 wording ("Symbol is
   // required") stays in every mode; trading mode selects /trading
   // normalization + minimal audit, mcp mode selects verbatim input
   // + alpaca.order.place.
-  if (path.endsWith("/foss/alpaca/order") && request.method === "POST") {
+  if ((path.endsWith("/market-data/alpaca/order") || path.endsWith("/foss/alpaca/order")) && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as any;
-      const orderMode = resolveFossRestSwitch(fossSwitchHost(ctx), "order", body.mode, "foss");
-      const normalized = normalizeFossOrderInput(body, orderMode);
+      const orderMode = resolveMarketDataRestSwitch(marketDataSwitchHost(ctx), "order", body.mode, "market-data");
+      const normalized = normalizeMarketDataOrderInput(body, orderMode);
 
       if (!normalized.symbol || !String(normalized.symbol).trim()) {
         return Response.json({ error: "Symbol is required" }, { status: 400 });
       }
 
-      const foss = new FossResearchService(ctx.env);
-      const result = await foss.placeAlpacaOrder(normalized);
+      const marketDataResearch = new MarketDataResearchService(ctx.env);
+      const result = await marketDataResearch.placeAlpacaOrder(normalized);
 
-      ctx.audit(fossOrderAuditEvent(orderMode), "trading", fossOrderAuditPayload(orderMode, normalized, result));
+      ctx.audit(marketDataOrderAuditEvent(orderMode), "trading", marketDataOrderAuditPayload(orderMode, normalized, result));
 
       return Response.json(result);
     } catch (err) {

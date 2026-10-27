@@ -276,9 +276,9 @@ export function AgentChatTabContent({
                 tone="subtle"
                 size="sm"
                 disabled={isBusy || isResetting}
-                onClick={() => handleChipClick("Perform FOSS equity research on NVDA using yfinance and Alpaca", "Equity Research")}
+                onClick={() => handleChipClick("Perform market-data equity research on NVDA using yfinance and Alpaca", "Equity Research")}
               >
-                🔬 Research NVDA (FOSS)
+                🔬 Research NVDA (Market Data)
               </Button>
               <Button
                 variant="secondary"

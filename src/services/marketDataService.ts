@@ -17,11 +17,11 @@
  *   and is intentionally absent here: this slice unifies the READ +
  *   provenance layer only. Provider fetchers (Alpaca/Yahoo in
  *   marketStream, E*TRADE in the platform service, Yahoo objects in
- *   fossResearch via quoteCache) are NOT moved behind the facade
+ *   marketDataResearch via quoteCache) are NOT moved behind the facade
  *   yet — that is remaining work, stated in #1643's §15, not claimed
  *   done.
  *
- * Scope, verified on main: /api/market/quotes and /api/foss/quotes
+ * Scope, verified on main: /api/market/quotes and /api/market-data/quotes
  * are already aliases to one handler; no /api/trading/etrade/quotes
  * HTTP route exists. TTLs are per-path and unchanged by this module
  * (marketStream: 20s Alpaca / 30s Yahoo; quoteCache: 5-min) — the

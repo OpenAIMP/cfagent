@@ -41,7 +41,7 @@ export type ScreeningProviderAssetClass = "stocks" | "options";
 /* the client listed two stock "providers" (etrade, yahoo-finance)     */
 /* that are in fact route variants of the ONE stock provider below     */
 /* (the Yahoo entry is the #1007 data-source adapter inside the one     */
-/* ScreenerAgent pipeline, reached via /api/foss/screen).              */
+/* ScreenerAgent pipeline, reached via /api/market-data/screen).              */
 /*                                                                     */
 /* This table is now the single source: the runtime registry is built  */
 /* under these ids, and the client adapter DERIVES its provider list   */
@@ -124,9 +124,9 @@ export const SCREENING_PROVIDER_DESCRIPTORS: readonly ScreeningProviderDescripto
         },
         {
           id: "yahoo-finance",
-          label: "Yahoo Finance FOSS Engine (Market Data API)",
+          label: "Yahoo Finance Engine (Market Data API)",
           kind: "market-data-api",
-          endpoint: "/api/foss/screen",
+          endpoint: "/api/market-data/screen",
           filters: STOCK_PROVIDER_FILTERS,
         },
       ],
