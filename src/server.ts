@@ -171,6 +171,7 @@ import {
   resolveQuoteHttpProviderMode,
   resolveQuoteStreamProvenance,
 } from "./config/quoteModes";
+import { resolveSnapIdentity } from "./config/restTwinsModes";
 import {
   filterLiveFlowItems,
   filterNewsFlowItems,
@@ -2615,7 +2616,14 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         if (!tx || !tx.symbol) {
           return Response.json({ error: "Transaction data with symbol is required." }, { status: 400 });
         }
-        const userLogin = request.headers.get("x-user-login") || tx.symbol || "browser_trader";
+        // #1733 (R06): the identity fallback chain lives in the
+        // port helper — no behavior change. Session conditions:
+        // requireAuth above already 401'd without a valid app
+        // session, and a missing tx.symbol already 400'd, so the
+        // header or tx.symbol always wins on the reachable path
+        // and the "browser_trader" literal is a defensive default
+        // only. The DO route has no fallback (one shared block).
+        const userLogin = resolveSnapIdentity(request.headers.get("x-user-login"), tx.symbol);
         const id = env.SEARCH_AGENT.idFromName(userLogin);
         const targetUrl = new URL("/trading/browser/transaction-snap", "https://agent.internal");
         const forwardReq = new Request(targetUrl, {

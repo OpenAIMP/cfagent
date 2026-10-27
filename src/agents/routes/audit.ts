@@ -25,6 +25,11 @@
 import type { AgentName } from "../../types";
 import { DatabaseORM, type SqlStorage } from "../../orm";
 import { runRestTool } from "./restToolBridge";
+import {
+  resolveAuditWriteRestSwitch,
+  validateStrictAuditWrite,
+  type RestTwinsScopedModes,
+} from "../../config/restTwinsModes";
 
 /** The subset of OrchestratorAgent surface the audit handlers need. */
 export interface AuditRouteContext {
@@ -45,6 +50,19 @@ export interface AuditRouteContext {
     agent: string,
     payload: Record<string, unknown>
   ): { id: string; type: string; agent: string; payload: Record<string, unknown>; created_at: string };
+  /** #1733: Worker env for the AUDIT_WRITE_MODE global-env level (optional — unset falls through to legacy). */
+  env?: unknown;
+  /** #1733: optional session/user carriers for AUDIT_WRITE_MODE (run comes from body `mode` / query `?mode=`). Populated by the execution-context owner; unset carriers fall through to env. See src/config/restTwinsModes.ts. */
+  scopedAuditModes?: RestTwinsScopedModes;
+}
+
+/** #1733: adapts this module's route context to the restTwinsModes switch host (the ctx audit type is narrower than the host's, so it is wrapped rather than passed through). */
+function auditSwitchHost(ctx: AuditRouteContext) {
+  return {
+    scopedAuditModes: ctx.scopedAuditModes,
+    env: ctx.env,
+    audit: (type: string, agent: any, payload: Record<string, unknown>) => ctx.audit(type, agent, payload),
+  };
 }
 
 /**
@@ -99,6 +117,33 @@ export async function handleAuditRoutes(
   if (path.endsWith("/audit") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as any;
+      // #1733 R04: audit-write mode (run body `mode` / query `?mode=`
+      // > session > user > env > legacy). legacy = this route's
+      // untouched unvalidated contract below; strict = the
+      // /audit/event validation applied to this spelling, keeping
+      // its own defaults (type=autopilot.policy_check,
+      // agent=trading) and its 200 shape. Invalid mode fails
+      // closed to legacy + audit.config_error (in the resolver).
+      const writeMode = resolveAuditWriteRestSwitch(
+        auditSwitchHost(ctx),
+        body?.mode ?? url.searchParams.get("mode"),
+        "legacy"
+      );
+      if (writeMode === "strict") {
+        const validated = validateStrictAuditWrite(
+          { ...body, type: body?.type ?? "autopilot.policy_check" },
+          "trading"
+        );
+        if (!validated.ok) {
+          return Response.json({ error: validated.error }, { status: 400 });
+        }
+        ctx.audit(
+          validated.value.type,
+          validated.value.agent as AgentName | "judge" | "nlq" | "orchestrator",
+          validated.value.payload
+        );
+        return Response.json({ success: true, message: "Audit event recorded" });
+      }
       const type = String(body.type || "autopilot.policy_check");
       const agent = (body.agent || "trading") as AgentName | "judge" | "nlq" | "orchestrator";
       const payload = (body.payload && typeof body.payload === "object") ? body.payload : body;
@@ -120,30 +165,23 @@ export async function handleAuditRoutes(
         type?: unknown;
         agent?: unknown;
         payload?: unknown;
+        mode?: unknown;
       } | null;
-      if (!body || typeof body !== "object") {
-        return Response.json({ error: "A JSON object body is required" }, { status: 400 });
+      // #1733 R04: the switch is resolved here only so an invalid
+      // value audits audit.config_error; this spelling is strict in
+      // EVERY mode — the switch never loosens it. Validation is the
+      // shared port helper (byte-identical messages and bounds to
+      // the inline code it replaces).
+      resolveAuditWriteRestSwitch(
+        auditSwitchHost(ctx),
+        body?.mode ?? url.searchParams.get("mode"),
+        "legacy"
+      );
+      const validated = validateStrictAuditWrite(body, "orchestrator");
+      if (!validated.ok) {
+        return Response.json({ error: validated.error }, { status: 400 });
       }
-      const type = typeof body.type === "string" ? body.type.trim() : "";
-      if (!type) {
-        return Response.json({ error: "type (non-empty string) is required" }, { status: 400 });
-      }
-      if (type.length > 120) {
-        return Response.json({ error: "type must be at most 120 characters" }, { status: 400 });
-      }
-      const agent =
-        typeof body.agent === "string" && body.agent.trim()
-          ? body.agent.trim().slice(0, 64)
-          : "orchestrator";
-      const payload =
-        body.payload && typeof body.payload === "object"
-          ? (body.payload as Record<string, unknown>)
-          : {};
-      const serialized = JSON.stringify(payload);
-      if (serialized.length > 65536) {
-        return Response.json({ error: "payload must serialize to at most 64 KB" }, { status: 400 });
-      }
-      const record = ctx.recordAudit(type, agent, JSON.parse(serialized));
+      const record = ctx.recordAudit(validated.value.type, validated.value.agent, validated.value.payload);
       return Response.json(record, { status: 201 });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to record audit event" }, { status: 500 });
