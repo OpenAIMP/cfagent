@@ -1,1 +1,6 @@
-{"migrated":[]}
+{
+  "migrated": [
+    "social",
+    "audit"
+  ]
+}
