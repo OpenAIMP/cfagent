@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Button, Table, type TableColumn } from "../../components/ui";
+import { Button, Table, PageShell, type TableColumn } from "../../components/ui";
 import "./optionsFlows.css";
 import {
   LiveFlowItem,
@@ -370,6 +370,10 @@ export function OptionsFlowsHub({
 
     return (
       <div className="options-flows-container options-flows-builder-view">
+        <PageShell
+          title="Institutional Options Flows"
+          scopeNote="Options flows, dark pool prints, institutional sweeps, blocks, and insider disclosures"
+        >
         <StrategyDiscoveryPanel
           initialSymbol={activeBuilderTrade.symbol}
           initialStrategyName={activeBuilderTrade.strategyTitle || activeBuilderTrade.strategy}
@@ -384,6 +388,7 @@ export function OptionsFlowsHub({
           onBackToFlows={() => setActiveBuilderTrade(null)}
           onSendPrompt={onSendPrompt}
         />
+        </PageShell>
       </div>
     );
   }
@@ -515,6 +520,10 @@ export function OptionsFlowsHub({
 
   return (
     <div className="options-flows-container">
+      <PageShell
+        title="Institutional Options Flows"
+        scopeNote="Options flows, dark pool prints, institutional sweeps, blocks, and insider disclosures"
+      >
       {/* Universal Capability Navigation Bar */}
       <CapabilityNavBar
         ariaLabel="Institutional Options Flows"
@@ -899,6 +908,7 @@ export function OptionsFlowsHub({
         subject={riskSubject}
         onSendPrompt={onSendPrompt}
       />
+    </PageShell>
     </div>
   );
 }
