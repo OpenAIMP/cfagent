@@ -1,5 +1,5 @@
 import React from "react";
-import { Select, TextInput } from "../components/ui";
+import { Select, TextInput, Button } from "../components/ui";
 import type { StrategyProfile } from "../../trading";
 import type {
   CreatableJob,
@@ -105,7 +105,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                           {draft.symbol.trim() ? ` — ${draft.symbol.trim().toUpperCase()}` : ""}
                         </strong>
                         {discoveryRequests.length > 1 && (
-                          <button
+                          <Button
                             type="button"
                             className="btn-sched-action-sm"
                             onClick={() =>
@@ -113,7 +113,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                             }
                           >
                             ✕ Remove
-                          </button>
+                          </Button>
                         )}
                       </div>
                       <div className="discovery-request-grid">
@@ -263,7 +263,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                       </div>
                     </div>
                   ))}
-                  <button
+                  <Button
                     type="button"
                     className="btn-sched-secondary"
                     onClick={() =>
@@ -272,7 +272,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                     disabled={discoveryRequests.length >= DISCOVERY_REQUEST_LIMIT}
                   >
                     + Add another saved view
-                  </button>
+                  </Button>
                 </div>
               )}
 

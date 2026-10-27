@@ -29,6 +29,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { Button, TextInput } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import "./reports.css";
 
@@ -284,7 +285,7 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
   ];
 
   if (loading) return <div className="schedules-panel">Loading schedules…</div>;
-  if (error) return <div className="schedules-panel error">Error: {error} <button onClick={fetchSchedules}>Retry</button></div>;
+  if (error) return <div className="schedules-panel error">Error: {error} <Button onClick={fetchSchedules}>Retry</Button></div>;
 
   return (
     <div className="schedules-panel">
@@ -295,15 +296,15 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
       )}
       <div className="schedules-tabs">
         {tabs.map((t) => (
-          <button
+          <Button
             key={t.id}
             className={`tab ${activeTab === t.id ? "active" : ""}`}
             onClick={() => setActiveTab(t.id)}
           >
             {t.label}
-          </button>
+          </Button>
         ))}
-        <button
+        <Button
           className="tab refresh"
           onClick={() => {
             fetchSchedules();
@@ -312,14 +313,14 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
           title="Refresh"
         >
           ↻ Refresh
-        </button>
-        <button
+        </Button>
+        <Button
           className="tab refresh"
           onClick={() => setOpenCreateSignal((n) => n + 1)}
           title="Create a new schedule"
         >
           ＋ New schedule
-        </button>
+        </Button>
       </div>
 
       {actionError && <div className="schedule-action-error">{actionError}</div>}
@@ -396,14 +397,14 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
                 </div>
               )}
               <div className="card-actions">
-                <button onClick={() => handleTriggerNow(s.id)} disabled={!!s.paused} title={s.paused ? "Resume before triggering" : "Run now"}>
+                <Button onClick={() => handleTriggerNow(s.id)} disabled={!!s.paused} title={s.paused ? "Resume before triggering" : "Run now"}>
                   ⚡ Trigger Now
-                </button>
-                <button onClick={() => handlePauseResume(s)} title={s.paused ? "Resume schedule" : "Pause schedule"}>
+                </Button>
+                <Button onClick={() => handlePauseResume(s)} title={s.paused ? "Resume schedule" : "Pause schedule"}>
                   {s.paused ? "▶ Resume" : "⏸ Pause"}
-                </button>
+                </Button>
                 {recurring && (
-                  <button
+                  <Button
                     onClick={() => {
                       setEditingId(editingId === s.id ? null : s.id);
                       setCustomCron("");
@@ -411,21 +412,21 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
                     title="Edit frequency"
                   >
                     🕐 Edit frequency
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
                   onClick={() => handleDelete(s.id)}
                   className="danger"
                   title="Delete schedule"
                 >
                   ✕ Delete
-                </button>
+                </Button>
               </div>
               {editingId === s.id && (
                 <div className="schedule-editor">
                   <div className="schedule-presets">
                     {FREQUENCY_PRESETS.map((p) => (
-                      <button
+                      <Button
                         key={p.id}
                         type="button"
                         className="preset"
@@ -433,23 +434,23 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
                         title={`Set frequency to ${p.label}`}
                       >
                         {p.label}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                   <div className="schedule-editor-custom">
-                    <input
+                    <TextInput
                       type="text"
                       placeholder="Custom cron, e.g. 0 9 * * 1-5"
                       value={customCron}
                       onChange={(e) => setCustomCron(e.target.value)}
                     />
-                    <button
+                    <Button
                       type="button"
                       disabled={!customCron.trim()}
                       onClick={() => applyFrequency(s, { scheduleType: "cron", cron: customCron.trim() })}
                     >
                       Apply cron
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}

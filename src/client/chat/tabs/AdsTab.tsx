@@ -1,6 +1,6 @@
 import React from "react";
 import { adAccentPalette } from "../../designTokens";
-import { Select } from "../../components/ui";
+import { Select, Button, TextInput } from "../../components/ui";
 import type { AdItem } from "../types";
 
 export interface AdsTabProps {
@@ -37,13 +37,13 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                   Discover verified developer promotions, cloud compute grants, and API discounts. All placements run with real-time impression and click tracking.
                 </p>
               </div>
-              <button
+              <Button
                 className="refresh-btn"
                 onClick={fetchAds}
                 disabled={adsLoading}
               >
                 {adsLoading ? "Refreshing…" : "🔄 Refresh"}
-              </button>
+              </Button>
             </div>
 
             {/* Sponsored Offers Grid */}
@@ -76,14 +76,14 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                   </div>
 
                   <div className="ad-card-action">
-                    <button
+                    <Button
                       type="button"
                       className="ad-cta-button"
                       style={{ background: ad.accentColor }}
                       onClick={() => handleAdClick(ad)}
                     >
                       {ad.ctaText}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -103,7 +103,7 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                 <div className="form-row-2">
                   <div className="form-group">
                     <label>Campaign / Product Title *</label>
-                    <input
+                    <TextInput
                       type="text"
                       placeholder="e.g. Quantitative Market Intelligence Pro"
                       value={newAdTitle}
@@ -114,7 +114,7 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
 
                   <div className="form-group">
                     <label>Sponsor / Brand Name *</label>
-                    <input
+                    <TextInput
                       type="text"
                       placeholder="e.g. Institutional Capital or Acme Corp"
                       value={newAdSponsor}
@@ -125,7 +125,7 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
 
                 <div className="form-group">
                   <label>Tagline / Offer Description *</label>
-                  <input
+                  <TextInput
                     type="text"
                     placeholder="e.g. Accelerate multi-turn LLM reasoning with sub-millisecond vector lookups."
                     value={newAdTagline}
@@ -137,7 +137,7 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                 <div className="form-row-3">
                   <div className="form-group">
                     <label>Destination Landing URL *</label>
-                    <input
+                    <TextInput
                       type="url"
                       placeholder="https://..."
                       value={newAdUrl}
@@ -148,7 +148,7 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
 
                   <div className="form-group">
                     <label>CTA Button Label</label>
-                    <input
+                    <TextInput
                       type="text"
                       placeholder="e.g. Claim $50 Credit →"
                       value={newAdCta}
@@ -169,13 +169,14 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                   </div>
                 </div>
 
-                <button
+                <Button
                   type="submit"
+                  variant="primary"
                   className="submit-action-btn ad-btn"
                   disabled={savingAd || !newAdTitle.trim() || !newAdUrl.trim()}
                 >
                   {savingAd ? "Submitting Placement…" : "🚀 Launch Sponsored Placement"}
-                </button>
+                </Button>
               </form>
             </div>
           </div>
