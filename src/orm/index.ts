@@ -788,9 +788,18 @@ export class DatabaseORM {
     let query = `SELECT * FROM ${cleanTable}`;
     const args: unknown[] = [];
 
+    // #1968: the column inventory is read for every browse, not just for
+    // search — a table with a created_at column reads newest-first, so a
+    // keyword search surfaces recent matches instead of arbitrary
+    // first-N insertion order (the pre-fix browse had no ORDER BY, so a
+    // search over a large table could miss recent rows entirely behind
+    // the limit). Tables without created_at keep their previous
+    // unspecified order rather than erroring on a missing column.
+    const infoRaw = Array.from(this.sql.exec(`PRAGMA table_info(${cleanTable})`)) as Array<{ name: string; type: string }>;
+    const hasCreatedAt = infoRaw.some((c) => c.name === "created_at");
+
     if (options.search && options.search.trim()) {
       // Find text columns to filter
-      const infoRaw = Array.from(this.sql.exec(`PRAGMA table_info(${cleanTable})`)) as Array<{ name: string; type: string }>;
       const textCols = infoRaw.filter((c) => c.type.toUpperCase().includes("CHAR") || c.type.toUpperCase().includes("TEXT"));
 
       if (textCols.length > 0) {
@@ -802,6 +811,9 @@ export class DatabaseORM {
       }
     }
 
+    if (hasCreatedAt) {
+      query += ` ORDER BY created_at DESC`;
+    }
     query += ` LIMIT ${limit} OFFSET ${offset}`;
     const rows = Array.from(this.sql.exec(query, ...args)) as any[];
 

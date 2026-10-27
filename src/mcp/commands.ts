@@ -1520,27 +1520,68 @@ export class ManageSessionMemoryCommand implements IMcpToolCommand<{
 
 /**
  * 14. Get Audit Events Command
+ *
+ * #1968: filters are pushed INTO the query — the pre-fix version fetched
+ * the newest `limit` events overall and left every filter to the caller,
+ * so high-volume event types (async_job.*) crowded out older matching
+ * events before any filter could see them (LIMIT-before-FILTER). The
+ * equality filters (session, type, agent) go into the ORM where-clause;
+ * the time bounds go through a bounded in-memory pass because the ORM
+ * where-clause supports equality only — the fetch window is widened to
+ * 1000 rows when a time filter is present so in-window rows are not
+ * crowded out by newer out-of-window rows, and the limit is applied
+ * AFTER all filters. Invalid time bounds are ignored (the bound is a
+ * narrowing aid, not a security boundary); before/after are exclusive.
  */
-export class GetAuditEventsCommand implements IMcpToolCommand<{ limit?: number }> {
+export class GetAuditEventsCommand implements IMcpToolCommand<{ limit?: number; type?: string; agent?: string; before?: string; after?: string }> {
   readonly name = "get_audit_events";
   readonly description = "Query real-time observability events stream (routing decisions, judge evaluations, payment lifecycle, errors) from mas_events.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
       limit: { type: "number", description: "Maximum events to return (default: 50)" },
+      type: { type: "string", description: "Exact event type to match (e.g. etrade.auth_blocked)" },
+      agent: { type: "string", description: "Exact agent to match" },
+      before: { type: "string", description: "Exclusive upper bound: only events created before this ISO timestamp" },
+      after: { type: "string", description: "Exclusive lower bound: only events created after this ISO timestamp" },
     },
   };
   readonly zodSchema = z.object({
     limit: z.number().optional().default(50).describe("Maximum events to return"),
+    type: z.string().optional().describe("Exact event type to match"),
+    agent: z.string().optional().describe("Exact agent to match"),
+    before: z.string().optional().describe("Exclusive upper bound (ISO timestamp)"),
+    after: z.string().optional().describe("Exclusive lower bound (ISO timestamp)"),
   });
 
-  async execute(input: { limit?: number }, context: McpToolContext) {
+  async execute(input: { limit?: number; type?: string; agent?: string; before?: string; after?: string }, context: McpToolContext) {
     const limit = Number(input.limit) || 50;
-    const events = context.orm.events.findMany({
+    const where: Record<string, unknown> = {};
+    // The REST route always carries the caller's session; a direct MCP
+    // call without one keeps the previous unscoped behavior.
+    if (context.sessionId) where.sessionId = context.sessionId;
+    if (input.type) where.type = input.type;
+    if (input.agent) where.agent = input.agent;
+    const hasTimeFilter = Boolean(input.before || input.after);
+    const scanLimit = hasTimeFilter ? 1000 : limit;
+    let events = context.orm.events.findMany({
+      where,
       orderBy: "created_at DESC",
-      limit,
+      limit: scanLimit,
     });
-    return { count: events.length, events };
+    if (hasTimeFilter) {
+      const beforeMs = input.before ? Date.parse(input.before) : NaN;
+      const afterMs = input.after ? Date.parse(input.after) : NaN;
+      events = events.filter((e) => {
+        const ms = Date.parse(e.createdAt);
+        if (Number.isNaN(ms)) return true;
+        if (!Number.isNaN(beforeMs) && ms >= beforeMs) return false;
+        if (!Number.isNaN(afterMs) && ms <= afterMs) return false;
+        return true;
+      });
+    }
+    const sliced = events.slice(0, limit);
+    return { count: sliced.length, events: sliced };
   }
 }
 
