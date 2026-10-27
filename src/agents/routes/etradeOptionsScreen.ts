@@ -404,6 +404,24 @@ export async function executeUnifiedOptions(args: {
       console.warn("[Orchestrator] Manual options PDF generation failed:", pdfErr instanceof Error ? pdfErr.message : String(pdfErr));
     }
 
+    // Issue #1209 (F3 follow-up): the scan row was saved BEFORE this
+    // PDF existed (UnifiedOptionsService persists during execute),
+    // so its pdfKey is null and the runs-list badge stays dark.
+    // Stamp the generated key back onto the saved row; a failed
+    // backfill never fails the response — the badge simply stays
+    // dark until the next run, exactly as a failed save behaves.
+    if (pdfKey) {
+      try {
+        const scanRunId = (result.data as { scanRunId?: unknown } | null)?.scanRunId;
+        if (typeof scanRunId === "string" && scanRunId) {
+          const scanStore = new SqlScanRunStore(ctx.agentCtx.storage.sql);
+          await scanStore.updatePdfKey(scanRunId, pdfKey, { userLogin });
+        }
+      } catch (stampErr) {
+        console.warn("[Orchestrator] Failed to stamp PDF key on scan run:", stampErr instanceof Error ? stampErr.message : String(stampErr));
+      }
+    }
+
     // Issue #1195 (#1173 R3b): XLSX from the same result payload.
     // Issue #1570: the unified opportunities payload is an
     // OpportunityScanResult, not the OptionScreenResult the workbook

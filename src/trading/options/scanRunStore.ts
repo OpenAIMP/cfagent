@@ -100,6 +100,17 @@ export interface ScanRunStore {
    *  reads exactly like absence, so a run's existence never leaks
    *  across users. */
   get(id: string, options?: { userLogin?: string }): Promise<StoredScanRun | null>;
+  /** Stamp a generated PDF key onto an already-saved run (issue
+   *  #1209: the interactive route generates the PDF AFTER the scan is
+   *  saved, so the row's pdfKey stays null until this backfill — the
+   *  runs-list badge reads pdfKey, so without it the badge never
+   *  lights up). Updates both the summary and the stored result so
+   *  they agree. Returns true when a visible row was updated, false
+   *  when the id is unknown, invisible to `userLogin`, or the key is
+   *  blank — invisibility reads exactly like absence. Never throws
+   *  for unknown ids; callers that must not fail a response treat
+   *  false as "badge stays dark". */
+  updatePdfKey(id: string, pdfKey: string, options?: { userLogin?: string }): Promise<boolean>;
   /** Delete rows older than the retention window (relative to `now`)
    *  and rows beyond the row cap; returns how many rows were deleted.
    *  Retention is global (not per-user), as before issue #103. */
@@ -156,6 +167,7 @@ const LIST_SQL =
   `SELECT summary_json FROM ${TABLE} WHERE (user_login IS NULL OR user_login = ?) ` +
   `ORDER BY generated_at DESC, id DESC LIMIT ? OFFSET ?`;
 const GET_SQL = `SELECT summary_json, result_json FROM ${TABLE} WHERE id = ?`;
+const UPDATE_PDF_KEY_SQL = `UPDATE ${TABLE} SET summary_json = ?, result_json = ? WHERE id = ?`;
 const COUNT_SQL = `SELECT COUNT(*) AS count FROM ${TABLE}`;
 const PRUNE_AGE_SQL = `DELETE FROM ${TABLE} WHERE generated_at < ?`;
 const PRUNE_CAP_SQL =
@@ -275,6 +287,20 @@ export class SqlScanRunStore implements ScanRunStore {
     return { ...summary, result };
   }
 
+  async updatePdfKey(id: string, pdfKey: string, options: { userLogin?: string } = {}): Promise<boolean> {
+    if (!pdfKey) return false;
+    this.ensure();
+    const rows = Array.from(this.sql.exec(GET_SQL, id)) as Array<{ summary_json: string; result_json: string }>;
+    if (!rows.length) return false;
+    const summary = JSON.parse(rows[0].summary_json) as ScanRunSummary;
+    if (!visibleToCaller(summary, options.userLogin)) return false;
+    const result = JSON.parse(rows[0].result_json) as OpportunityScanResult;
+    summary.pdfKey = pdfKey;
+    result.pdfKey = pdfKey;
+    this.sql.exec(UPDATE_PDF_KEY_SQL, JSON.stringify(summary), JSON.stringify(result), id);
+    return true;
+  }
+
   async prune(now: Date): Promise<number> {
     this.ensure();
     const before = this.count();
@@ -321,6 +347,15 @@ export class InMemoryScanRunStore implements ScanRunStore {
     const run = this.runs.find((r) => r.id === id) ?? null;
     if (!run || !visibleToCaller(run, options.userLogin)) return null;
     return run;
+  }
+
+  async updatePdfKey(id: string, pdfKey: string, options: { userLogin?: string } = {}): Promise<boolean> {
+    if (!pdfKey) return false;
+    const run = this.runs.find((r) => r.id === id) ?? null;
+    if (!run || !visibleToCaller(run, options.userLogin)) return false;
+    run.pdfKey = pdfKey;
+    run.result = { ...run.result, pdfKey };
+    return true;
   }
 
   async prune(now: Date): Promise<number> {

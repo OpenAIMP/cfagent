@@ -314,6 +314,14 @@ class FakeScanSql implements ScanSqlExecutor {
         .filter((r) => r.id === params[0])
         .map((r) => ({ summary_json: r.summary_json, result_json: r.result_json }));
     }
+    if (q.startsWith("UPDATE mas_opportunity_scans SET summary_json = ?, result_json = ? WHERE id = ?")) {
+      const [summary_json, result_json, id] = params as [string, string, string];
+      const row = this.rows.find((r) => r.id === id);
+      if (!row) return [];
+      row.summary_json = summary_json;
+      row.result_json = result_json;
+      return [];
+    }
     if (q.startsWith("SELECT summary_json FROM mas_opportunity_scans WHERE")) {
       // Issue #103: the visibility predicate is part of the statement
       // (user_login IS NULL OR user_login = scope); a NULL scope
@@ -1002,5 +1010,40 @@ describe("scan history polish — recorded request + forwarding (issue #103)", (
     expect(record!.maxPlannedLoss).toBe(5000);
     expect(record!.statedTarget).toBeUndefined();
     expect(record!.profileId).toBeUndefined();
+  });
+});
+
+describe("updatePdfKey (issue #1209: interactive scan-row PDF wiring)", () => {
+  async function expectUpdateContract(store: ScanRunStore): Promise<void> {
+    const result = fabricatedResult("2026-10-15T14:30:00.000Z", [
+      { symbol: "AAA", gateBucket: "fit" },
+    ]);
+    const saved = await store.save(result, { userLogin: "carol" });
+    expect(saved.pdfKey).toBeNull();
+
+    // Stamps summary + result; visible via get and list.
+    expect(await store.updatePdfKey(saved.id, "options:pdf:k1", { userLogin: "carol" })).toBe(true);
+    const got = await store.get(saved.id, { userLogin: "carol" });
+    expect(got!.pdfKey).toBe("options:pdf:k1");
+    expect(got!.result.pdfKey).toBe("options:pdf:k1");
+    expect((await store.list({ userLogin: "carol" }))[0].pdfKey).toBe("options:pdf:k1");
+
+    // A later PDF overwrites (regeneration replaces the key).
+    expect(await store.updatePdfKey(saved.id, "options:pdf:k2", { userLogin: "carol" })).toBe(true);
+    expect((await store.get(saved.id, { userLogin: "carol" }))!.pdfKey).toBe("options:pdf:k2");
+
+    // Unknown id, wrong user, and empty key all fail closed without changes.
+    expect(await store.updatePdfKey("missing", "options:pdf:k3", { userLogin: "carol" })).toBe(false);
+    expect(await store.updatePdfKey(saved.id, "options:pdf:k3", { userLogin: "dave" })).toBe(false);
+    expect(await store.updatePdfKey(saved.id, "", { userLogin: "carol" })).toBe(false);
+    expect((await store.get(saved.id, { userLogin: "carol" }))!.pdfKey).toBe("options:pdf:k2");
+  }
+
+  it("InMemoryScanRunStore stamps pdfKey after save", async () => {
+    await expectUpdateContract(new InMemoryScanRunStore({ idFactory: idQueue("run-1") }));
+  });
+
+  it("SqlScanRunStore stamps pdfKey after save", async () => {
+    await expectUpdateContract(new SqlScanRunStore(new FakeScanSql(), { idFactory: idQueue("run-1") }));
   });
 });
