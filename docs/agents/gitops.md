@@ -232,6 +232,7 @@ All development on this issue must follow:
 - Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
 - Workflows operationalized:
 - How to harness this value from UX:
+- Process docs updated (file + commit, or none with reason):
 - Next-step gate (PASS / BLOCKED + reason):
 ```
 
@@ -252,7 +253,7 @@ Rules:
 - Every issue also carries its `lane:<lane>` label (see Required issue metadata) — the type label does not replace the lane label.
 - Related issues are recorded in the `## Related issues` body section with roles, not as a bare list: Parent epic, Blocks / Blocked by, Related, Supersedes. A related issue with no recorded role is invisible to sequencing (see Required issue metadata).
 - PRs carry the same Type section in the PR template; the PR title itself has no type prefix requirement.
-- Labels `fix`, `hotfix`, and `ent-arch` did not exist when this convention landed and were created via the repo web UI (labels cannot be created through the API tools available to agents); until a label exists, its convention row is aspirational, not enforceable.
+- Labels `fix`, `hotfix`, and `ent-arch` were created via the repo web UI on 2026-10-27 (labels cannot be created through the API tools available to agents); all five convention rows are live from that date.
 
 ### Required issue metadata
 
@@ -685,6 +686,7 @@ The full report for this PR lives in the linked issue's completion report (gitop
 - [ ] Required checks green on the current merge with `main`
 - [ ] Pins my change alters are updated in this PR (gitops §7)
 - [ ] CHANGELOG fragment added (changelog.d/, preferred) or entry added (additive, under Unreleased)
+- [ ] Process documentation impact: none / updated <file> (<commit>)
 - [ ] Linked issue's completion report updated with this PR's full report
 ```
 
@@ -1048,6 +1050,7 @@ Agents cannot approve their own exceptions.
 - Delivery and release (migration, feature flag, deployment impact, rollback; release state, version, environment):
 - Workflows operationalized:
 - How to harness this value from UX:
+- Process docs updated (file + commit, or none with reason):
 - Next-step gate (PASS / BLOCKED + reason):
 ```
 
@@ -1437,8 +1440,9 @@ implement.
   owner account is an enforcement hole, not an emergency path.
 - **Policy gate (required check).** `.github/workflows/policy-gate.yml`
   ("Policy Gate") fails any PR missing a linked issue, a §21 lane
-  label, an agent hashtag, or a CHANGELOG entry under
-  `## [Unreleased]`. The "Policy Gate" job must be included in the
+  label, an agent hashtag, a CHANGELOG entry under
+  `## [Unreleased]`, or (gitops §23) the §9 process-documentation
+  checklist line. The "Policy Gate" job must be included in the
   ruleset's required checks. Treat the gate as active only after
   verifying the live ruleset includes it; if it is missing, report the
   enforcement gap.
@@ -1454,7 +1458,9 @@ implement.
   author, and committer, and fails the run. It is read-only except
   for that filing: it never pushes, merges, or reverts. A direct
   push it finds is reported for a human repair decision, not
-  auto-repaired.
+  auto-repaired. A second Main Audit job, added with §23, flags
+  post-§23 process-documentation drift (see §23); it is read-only
+  except for that filing, on the same pattern.
 - **Attribution.** Lane attribution is the §21 lane label plus the
   agent hashtag in the PR body — not the GitHub user, which is
   OpenAIMP for every lane. A PR with no label and no hashtag is
@@ -1471,6 +1477,76 @@ implement.
   (separate GitHub Apps/accounts per lane), Jules access changes,
   and cfpay branch protection are owner-side actions, tracked
   separately; this section does not claim them as done.
+
+## 23. Process decisions are recorded in the repository, not in chat
+
+Chat, agent memory files, and issue threads are working notes, not
+the record. A decision about how work is done is not recorded until
+it lands in a repository document. An agent's local memory is a
+working cache that points at repository documents; it is never a
+parallel record, and where the two disagree, the repository document
+wins.
+
+### What counts
+
+A process decision is any owner or lane decision that changes how
+future work is done: sequencing, reuse (which system a capability
+rides on), scope (what a slice does and does not touch), alignment
+between lanes or tracks, defaults and thresholds, and changes to
+this delivery policy itself. Routine slices, bug fixes, and
+configuration changes with no process consequence do not count —
+the same carve-out as the §5 architecture-decision rule.
+
+### Where it lands
+
+- A decision that is hard to reverse or cross-cutting — including
+  a process decision that meets that bar — lands as an ADR under
+  the §5 rule (`docs/architecture/adr/`, one file, Status /
+  Context / Decision / Consequences / Alternatives considered,
+  superseded never rewritten). The consolidated #1819 process doc
+  is an index and a synthesis, not a decision record: it links to
+  ADRs and process docs, it does not replace them.
+- A delivery-process rule lands in this document. A security-process
+  rule lands in `docs/architecture/security/`. A program-scan record
+  lands in `docs/compliance/`.
+- The PR body and the §15 report are pointers to the record, not a
+  second record (§9 principle): they name the document and the
+  commit, they do not restate the decision.
+
+### When it lands
+
+In the same PR when the decision rides a code slice; as a
+standalone doc PR before the originating issue closes when it does
+not. An issue whose thread contains a process decision is not Done
+with the decision still only in chat or in an agent's notes.
+
+### Templates
+
+- §9 PR checklist gains: `- [ ] Process documentation impact:
+  none / updated <file> (<commit>)`.
+- §15 completion report gains a `Process docs updated:` field
+  (file + commit, or `none` with the reason).
+
+### Enforcement
+
+- The Policy Gate (§22) fails any PR whose body lacks the §9
+  process-documentation checklist line. The gate checks presence
+  of the field, not the quality of the decision — a script cannot
+  judge whether a decision was correctly recorded, and this
+  section does not pretend otherwise.
+- Main Audit (§22) flags, as a read-only `[audit]` issue, any
+  issue closed in its window whose §15 report lacks the
+  `Process docs updated:` field, and any issue carrying the
+  `process-decision` label whose thread names no linked document.
+  Free-text detection of decisions in threads is unreliable, so
+  the label and the §15 field — both agent-applied — are the
+  detection mechanism, not thread reading.
+- Out of scope for this section: chat-scraping watchers (the
+  cancelled 2026-10-22 watchers are not rebuilt for this), a new
+  scheduler, and any new merge path. Aggregation over records
+  that already exist in the repository may ride ScheduledAgent;
+  origination from chat cannot, and this section does not claim
+  it.
 
 ***
 ## Instruction to add to `AGENTS.md`

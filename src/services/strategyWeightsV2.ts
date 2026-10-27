@@ -2,8 +2,9 @@
  * Issue #1140 (epic #1096 Phase 5) — strategy weights v2: the RSI
  * loop's weight policy, hardened from the #754 v1 job.
  *
- * What changes vs v1 (strategyWeights.ts, which stays live and
- * untouched):
+ * What changes vs v1 (strategyWeights.ts, deleted by the #1257
+ * retirement — its bounds envelope, week key, actor, and pure
+ * evaluation helpers now live in this module):
  *  - REGIME-CONDITIONED: evidence is sliced per (strategy, regime)
  *    using the Phase 1 regime classes (RegimeAssessment:
  *    bull / bear / chop / high_vol / unknown). A strategy is never
@@ -24,21 +25,42 @@
  *    version that was live. Applications go through the #755
  *    applyAdaptation seam (budget + audit; kill switch halts).
  *
- * The v1 envelope is reused verbatim (WEIGHTS_V2_DEFAULTS reads
- * STRATEGY_WEIGHT_BOUNDS) — there is no second bounds regime. Per
+ * The bounds envelope now lives here (moved verbatim from v1 in the
+ * #1257 retirement; WEIGHTS_V2_DEFAULTS reads it) — there is no
+ * second bounds regime. Per
  * the #17 guardrail, no production ranking path reads v2 weights
  * until a reviewed change wires a consumer; promotion of a v2
  * change into live state is the champion/challenger gate's job
  * (championChallenger.ts), not this module's.
  */
 
-import {
-  STRATEGY_WEIGHT_BOUNDS,
-  WEIGHT_ADAPTATION_ACTOR,
-} from "./strategyWeights";
 import { applyAdaptation, isAdaptationHalted } from "./adaptationAudit";
 import type { RegimeAssessment } from "./researchPipeline";
 import type { CostAssumptions } from "./researchEconomics";
+import type { TrackRecord } from "./researchTrackRecord";
+
+/* ------------------------------------------------------------------ */
+/* Moved from v1 strategyWeights.ts (#1257 retirement)                 */
+/* ------------------------------------------------------------------ */
+// The v1 module is deleted. These symbols survive because live code
+// still needs them: the bounds envelope (WEIGHTS_V2_DEFAULTS reads it
+// verbatim), the shared week key (one adjustment per week regardless
+// of engine), the v1 actor string (kept distinct from WEIGHTS_V2_ACTOR
+// so audit history stays attributable), and the pure evaluation
+// helpers (GET /adaptation/weights feeds the collapsed v2 map through
+// buildWeightPolicyEvaluation). The v1 store functions and the v1
+// adjustment job are NOT moved — they are deleted with v1.
+export const STRATEGY_WEIGHT_BOUNDS = {
+  min: 0.25,
+  max: 2.0,
+  maxStep: 0.1,
+  minSample: 20,
+  deadband: 0.02,
+  defaultWeight: 1.0,
+} as const;
+
+export const WEIGHTS_LAST_RUN_WEEK_KEY = "adaptation.weights.lastRunWeek";
+export const WEIGHT_ADAPTATION_ACTOR = "strategy-weight-job";
 
 export type WeightsV2Regime = RegimeAssessment["regime"];
 
@@ -57,6 +79,102 @@ export const WEIGHTS_V2_ACTOR = "strategy-weight-v2-job";
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const round4 = (v: number) => Math.round(v * 10000) / 10000;
 const DAY_MS = 86_400_000;
+
+/* ------------------------------------------------------------------ */
+/* Pure evaluation helpers, moved from v1 (#1257 retirement)           */
+/* ------------------------------------------------------------------ */
+
+export function isoWeekKey(d: Date): string {
+  // ISO 8601 week: shift to the Thursday of the current week.
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+export interface WeightProposal {
+  strategy: string;
+  current: number;
+  proposed: number;
+  delta: number;
+  evaluated: number;
+  winRate: number;
+  overallWinRate: number;
+}
+
+/**
+ * The pure policy: given the track record and current weights, the
+ * moves this run would make. Deterministic; no store access.
+ */
+export function proposeWeightAdjustments(
+  track: TrackRecord,
+  weights: Record<string, number>,
+  caps: Record<string, number> = {}
+): WeightProposal[] {
+  const overall = track.winRate;
+  if (overall === null) return [];
+  const proposals: WeightProposal[] = [];
+  for (const slice of track.byStrategy) {
+    if (slice.evaluated < STRATEGY_WEIGHT_BOUNDS.minSample) continue;
+    if (slice.winRate === null) continue;
+    const step = clamp(slice.winRate - overall, -STRATEGY_WEIGHT_BOUNDS.maxStep, STRATEGY_WEIGHT_BOUNDS.maxStep);
+    if (Math.abs(step) < STRATEGY_WEIGHT_BOUNDS.deadband) continue;
+    const current = weights[slice.key] ?? STRATEGY_WEIGHT_BOUNDS.defaultWeight;
+    // A per-strategy cap override (#760, human-gated through the
+    // promotion pipeline) replaces the global max for that strategy.
+    const maxBound = caps[slice.key] ?? STRATEGY_WEIGHT_BOUNDS.max;
+    const proposed = round4(clamp(current + step, STRATEGY_WEIGHT_BOUNDS.min, maxBound));
+    if (proposed === current) continue;
+    proposals.push({
+      strategy: slice.key,
+      current,
+      proposed,
+      delta: round4(proposed - current),
+      evaluated: slice.evaluated,
+      winRate: slice.winRate,
+      overallWinRate: overall,
+    });
+  }
+  return proposals;
+}
+
+export interface WeightPolicyEvaluation {
+  generatedAt: string;
+  unweightedWinRate: number | null;
+  weightedWinRate: number | null;
+  proposals: WeightProposal[];
+  lowSample: string[];
+}
+
+/**
+ * The #17-style evaluation harness: what the current weights imply
+ * (weighted vs unweighted win rate over the track record) and what the
+ * policy would do next. Measurement only — applies nothing.
+ */
+export function buildWeightPolicyEvaluation(
+  track: TrackRecord,
+  weights: Record<string, number>
+): WeightPolicyEvaluation {
+  let wHits = 0;
+  let wEval = 0;
+  for (const s of track.byStrategy) {
+    if (s.winRate === null) continue;
+    const w = weights[s.key] ?? STRATEGY_WEIGHT_BOUNDS.defaultWeight;
+    wHits += w * s.winRate * s.evaluated;
+    wEval += w * s.evaluated;
+  }
+  return {
+    generatedAt: new Date().toISOString(),
+    unweightedWinRate: track.winRate,
+    weightedWinRate: wEval > 0 ? wHits / wEval : null,
+    proposals: proposeWeightAdjustments(track, weights),
+    lowSample: track.byStrategy
+      .filter((s) => s.evaluated < STRATEGY_WEIGHT_BOUNDS.minSample)
+      .map((s) => s.key),
+  };
+}
 
 export function weightsV2Key(strategy: string, regime: string): string {
   return `${strategy}|${regime}`;
@@ -733,5 +851,3 @@ export function runWeightsV2Adjustment(
   }
   return base;
 }
-
-export { WEIGHT_ADAPTATION_ACTOR };

@@ -31,6 +31,10 @@ PR.
 | [0012](0012-mcp-tool-permissions.md) | MCP tool permissions: per-tool scopes + cryptographic execution isolation, port-first gate at every choke point (factory, JSON-RPC queued path, agent-turn adapter) | Accepted |
 | [0013](0013-test-parity-harness.md) | Test-parity harness: baseline snapshots, behavior comparison, per-PR checklist (capture/compare/checklist/check/report) | Accepted |
 | [0014](0014-chain-native-promotion-authority.md) | Chain-native promotion authority (#1747 branch 2): Phase 3 approval + registry verification + staged rollout replaces #759 verdicts for chains; supersedes #1468 reconciliation for chains only | Accepted |
+| [0015](0015-instrument-first-sessionstore-1819.md) | Instrument first for SessionStore resource usage (#1819): measure and instrument before any fix, switch change, or paid-plan decision; fix scoped to the burner the dashboard comparison names | Accepted |
+| [0016](0016-scheduledagent-resource-rollup-alert-1819.md) | Resource rollup + 70% cap alert live on ScheduledAgent (#1819): per-op emission in-path, aggregation on the existing `*/30` tick; no new cron, no second scheduler, no WorkflowPort generalization | Accepted |
+| [0017](0017-workflowport-is-not-a-dag.md) | WorkflowPort is NOT a DAG: fixed linear stage pipeline + parent → ≤4 parallel shards → collation + state machine with ≤3 retries/step; what a DAG slice would require | Accepted |
+| [0018](0018-caio-alignment-resource-instrumentation-1819.md) | CAIO alignment for #1819 resource instrumentation: reuse #1742's port pattern, consume #1743's landed schema/transport (PR #1842) and #1741's gateway stats (PR #1838) as a resource class; one schema/stream/home; IAAA audit untouched | Accepted |
 
 ## Template
 
