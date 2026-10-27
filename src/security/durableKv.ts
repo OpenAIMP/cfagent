@@ -1,14 +1,21 @@
 import type { KvLike } from "./kvResilience";
 import { recordStoreOp, type StoreOpOutcome } from "./storeMetrics";
+import type {
+  ResourceAttribution,
+  ResourceUsagePort,
+} from "../telemetry/resourceUsagePorts";
 
 /**
  * Durable Object-backed KV replacement (issue #329 follow-up).
  *
  * Why: Workers KV's free tier caps reads at 100k/day, and exhausting it took
- * the whole site down (every `getSession` threw). Durable Object SQLite has no
- * equivalent daily read cap, and this Worker already runs several DOs — so
- * session, credential and replay-guard state move here, and KV becomes a
- * one-time migration source.
+ * the whole site down (every `getSession` threw). CORRECTION (issue #1819):
+ * Durable Object SQLite on the free tier is NOT uncapped either (5M rows
+ * read/day, 100k rows written/day) — the earlier "no equivalent daily read
+ * cap" wording was wrong, and the 2026-10-26 rows-read exhaustion took
+ * sign-in down the same way. Sessions, credentials and replay-guard state
+ * still live here, and KV remains a one-time migration source; the cap
+ * correction is what #1819's instrumentation exists to watch.
  *
  * Wire format is deliberately a tiny JSON protocol over `stub.fetch` rather
  * than RPC: it needs no `cloudflare:workers` import on the client side, which
@@ -34,6 +41,19 @@ export interface StoreKvOptions {
   instanceName?: string;
   /** Set false to stop consulting KV entirely (after migration). */
   legacyFallback?: boolean;
+  /**
+   * Explicit call-site attribution for store_op v2 (#1819). Passed only by
+   * call sites that know their caller/trigger; never inferred. When absent,
+   * the record simply omits caller/trigger.
+   */
+  attribution?: ResourceAttribution;
+  /**
+   * Resource sink for the #1743 stream (#1819). When wired, the funnel
+   * forwards the measured event here in addition to the store_op v2 log
+   * line; when absent, the log line is the only record. Forwarding never
+   * throws and never adds a store round-trip.
+   */
+  resourceSink?: ResourceUsagePort;
 }
 
 const STORE_URL = "https://session-store.internal/kv";
@@ -45,6 +65,11 @@ export interface StoreReply {
   consumed?: boolean;
   error?: string;
   entries?: Array<{ key: string; value: string }>;
+  /** Platform-measured rows for this op (#1819); absent from older replies. */
+  rowsRead?: number;
+  rowsWritten?: number;
+  /** Parameterized statement template (#1819); absent from older replies. */
+  statement?: string;
 }
 
 function timeoutSignal(): AbortSignal | undefined {
@@ -80,19 +105,22 @@ function classifyStoreOutcome(op: string, reply: StoreReply): StoreOpOutcome {
 function createStoreClient(
   namespace: DoNamespaceLike | null | undefined,
   namespaceName: string,
-  instanceName: string
+  instanceName: string,
+  resource?: { attribution?: ResourceAttribution; resourceSink?: ResourceUsagePort }
 ): (payload: Record<string, unknown>) => Promise<StoreReply | null> {
   return async (payload: Record<string, unknown>): Promise<StoreReply | null> => {
     // One metrics record per op, emitted on every exit path (issue #910).
     // recordStoreOp never throws and adds no store round-trip, so the
     // never-throws contract and every return value below are unchanged.
     // The T1/T2 aggregation over these records is documented in
-    // docs/OBSERVABILITY.md §4.
+    // docs/OBSERVABILITY.md §4. v2 (#1819) adds measured rows + explicit
+    // attribution on the success path; failure paths carry no rows because
+    // no reply was measured.
     const op = String(payload.op);
     if (!namespace) {
       recordStoreOp({
         event: "store_op",
-        v: 1,
+        v: 2,
         ns: namespaceName,
         op,
         instance: instanceName,
@@ -117,7 +145,7 @@ function createStoreClient(
         console.warn(`[store:${namespaceName}] ${String(payload.op)} failed: HTTP ${response.status}`);
         recordStoreOp({
           event: "store_op",
-          v: 1,
+          v: 2,
           ns: namespaceName,
           op,
           instance: instanceName,
@@ -131,14 +159,39 @@ function createStoreClient(
       const reply = (await response.json()) as StoreReply;
       recordStoreOp({
         event: "store_op",
-        v: 1,
+        v: 2,
         ns: namespaceName,
         op,
         instance: instanceName,
         outcome: classifyStoreOutcome(op, reply),
         latencyMs: Date.now() - startedAt,
         ts: Date.now(),
+        ...(reply.rowsRead !== undefined ? { rowsRead: reply.rowsRead } : {}),
+        ...(reply.rowsWritten !== undefined ? { rowsWritten: reply.rowsWritten } : {}),
+        ...(resource?.attribution ? { caller: resource.attribution.caller } : {}),
+        ...(resource?.attribution ? { trigger: resource.attribution.trigger } : {}),
+        ...(reply.statement !== undefined ? { statement: reply.statement } : {}),
       });
+      if (resource?.resourceSink && reply.rowsRead !== undefined) {
+        try {
+          await resource.resourceSink.record({
+            ns: namespaceName,
+            op,
+            rowsRead: reply.rowsRead,
+            rowsWritten: reply.rowsWritten ?? 0,
+            ...(resource.attribution ? { caller: resource.attribution.caller } : {}),
+            ...(resource.attribution ? { trigger: resource.attribution.trigger } : {}),
+            ...(reply.statement !== undefined ? { statement: reply.statement } : {}),
+            timestampMs: Date.now(),
+            durationMs: Date.now() - startedAt,
+          });
+        } catch (error) {
+          console.warn(
+            `[store:${namespaceName}] resource sink failed:`,
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      }
       return reply;
     } catch (error) {
       console.warn(
@@ -147,7 +200,7 @@ function createStoreClient(
       );
       recordStoreOp({
         event: "store_op",
-        v: 1,
+        v: 2,
         ns: namespaceName,
         op,
         instance: instanceName,
@@ -172,7 +225,10 @@ export function createStoreKv(options: StoreKvOptions): KvLike {
   // migration read, no write fallback, no delete. Gating only the read would
   // leave KV traffic that the flag is supposed to stop.
   const legacyStore = legacyFallback ? legacy : null;
-  const send = createStoreClient(namespace, namespaceName, instanceName);
+  const send = createStoreClient(namespace, namespaceName, instanceName, {
+    attribution: options.attribution,
+    resourceSink: options.resourceSink,
+  });
 
   return {
     async get(key: string): Promise<string | null> {

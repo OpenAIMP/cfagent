@@ -1,5 +1,9 @@
 import type { Env, SessionData } from "../types";
 import { getSession } from "./session";
+import type {
+  ResourceAttribution,
+  ResourceUsagePort,
+} from "../telemetry/resourceUsagePorts";
 
 /**
  * In-isolate cache in front of `getSession` (issue #329).
@@ -64,15 +68,19 @@ function writeEntry(sessionId: string, data: SessionData | null): void {
 /**
  * Returns the session, serving it from the isolate cache when possible.
  * Semantically equivalent to `getSession`, so callers can swap it in directly.
+ * A cache hit performs no store op and therefore emits no resource event —
+ * correctly: no rows were read. The optional resource opts are forwarded only
+ * on the miss path, where the backing read happens (#1819).
  */
 export async function getSessionCached(
   env: Env,
-  sessionId: string
+  sessionId: string,
+  resource?: { attribution?: ResourceAttribution; resourceSink?: ResourceUsagePort }
 ): Promise<SessionData | null> {
   const cached = readEntry(sessionId);
   if (cached) return cached.data;
 
-  const session = await getSession(env, sessionId);
+  const session = await getSession(env, sessionId, resource);
   // A corrupt payload comes back as null from getSession; caching that for the
   // negative TTL is acceptable because the session is unusable either way.
   writeEntry(sessionId, session);

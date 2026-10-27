@@ -31,6 +31,7 @@
 import type {
   FitGateBucket,
   OpportunityScanResult,
+  OptionsPartialQualification,
   ScanCoverage,
   ScanMode,
 } from "./opportunityScanner";
@@ -66,6 +67,13 @@ export interface ScanRunSummary {
    *  summaries persisted before #1239 lack the field at runtime;
    *  readers must treat absent as null. */
   pdfKey?: string | null;
+  /** The run's partial-coverage qualification when the scan did not
+   *  evaluate the full requested universe (issue #1850, R6's
+   *  OptionsPartialQualification). Optional deliberately, same pattern
+   *  as pdfKey: summaries persisted before #1850 lack the field at
+   *  runtime; readers must treat absent as null. Null (not absent)
+   *  means the run evaluated completely. */
+  partial?: OptionsPartialQualification | null;
   /** The login that saved the run (issue #103 per-user scoping).
    *  Optional deliberately: runs persisted before scoping existed —
    *  and runs saved by contexts with no identity — carry none, and
@@ -185,6 +193,7 @@ function summarize(id: string, result: OpportunityScanResult, userLogin?: string
     coverage: result.coverage,
     profileRef: result.profileRef ?? null,
     pdfKey: result.pdfKey ?? null,
+    partial: result.partial ?? null,
     ...(userLogin !== undefined ? { userLogin } : {}),
   };
 }
