@@ -153,7 +153,9 @@ beforeEach(() => {
 const QUOTE_MARKERS = [
   'path.endsWith("/foss/quote") && request.method === "GET"',
   'path.endsWith("/foss/fundamentals") && request.method === "GET"',
-  'path.endsWith("/foss/bars") && request.method === "GET"',
+  // Issue #1888: the bars condition now matches the canonical
+  // /market-data/bars path first, with the legacy path as alias.
+  '(path.endsWith("/market-data/bars") || path.endsWith("/foss/bars")) && request.method === "GET"',
   'path.endsWith("/foss/research") && request.method === "GET"',
 ];
 const SCREEN_MARKERS = [
