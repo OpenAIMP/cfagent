@@ -29,6 +29,7 @@ PR.
 | [0010](0010-llm-gateway-port.md) | LLM gateway port: AI Gateway fallback integration (rate limiting, caching, multi-provider failover) | Accepted |
 | [0011](0011-observability-analytics-engine.md) | Aspect-oriented observability to Analytics Engine: Foundation-layer port (logging/tracing/metrics/correlation), W3C traceparent, whitelist envelope folding | Accepted |
 | [0012](0012-mcp-tool-permissions.md) | MCP tool permissions: per-tool scopes + cryptographic execution isolation, port-first gate at every choke point (factory, JSON-RPC queued path, agent-turn adapter) | Accepted |
+| [0013](0013-test-parity-harness.md) | Test-parity harness: baseline snapshots, behavior comparison, per-PR checklist (capture/compare/checklist/check/report) | Accepted |
 
 ## Template
 
