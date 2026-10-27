@@ -11,6 +11,19 @@
     "ads",
     "research",
     "options-flows",
-    "workflows"
+    "workflows",
+    "autopilot",
+    "trading",
+    "order",
+    "orders",
+    "screeners",
+    "reports",
+    "schedules",
+    "scanner",
+    "options",
+    "portfolio",
+    "ledger",
+    "omnichannel",
+    "voice"
   ]
 }
