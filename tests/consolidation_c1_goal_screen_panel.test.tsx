@@ -129,6 +129,36 @@ describe("C1 GoalScreenPanel", () => {
     expect(container.textContent).not.toContain("Complete — income");
   });
 
+  it("hides the Candidate structures column when no hit carries structures (#1963)", async () => {
+    goalResponse = {
+      status: 200,
+      body: {
+        success: true,
+        executed: true,
+        result: {
+          ...goalResult,
+          hits: [
+            { assetClass: "stocks", providerId: "etrade-yahoo-stocks", symbol: "AAPL" },
+            { assetClass: "stocks", providerId: "etrade-yahoo-stocks", symbol: "MSFT" },
+          ],
+          counts: {
+            stocksScanned: 6594,
+            stocksMatched: 6594,
+            optionsUnderlyingsScanned: 0,
+            optionsContractsMatched: 0,
+            hits: 2,
+          },
+        },
+      },
+    };
+    await act(async () => {
+      root.render(<GoalScreenPanel activeEnv="PROD" userLogin="alice" />);
+    });
+    await submitRun();
+    expect(container.textContent).toContain("AAPL");
+    expect(container.textContent).not.toContain("Candidate structures");
+  });
+
   it("the hub hosts the panel under its goal-screen tab", async () => {
     await act(async () => {
       root.render(<ScreenersHub activeEnv="PROD" userLogin="alice" initialTab="goal-screen" />);
