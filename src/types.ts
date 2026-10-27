@@ -312,6 +312,20 @@ export interface Env {
   FOSS_SNAPSHOT_MODE?: string;
   FOSS_ALPACA_READS_MODE?: string;
   FOSS_ALPACA_ORDER_MODE?: string;
+  // #1733 (parent #1717, slice (m)) — ONE audit-write switch
+  // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
+  // AUDIT_WRITE_MODE: "legacy" | "strict" (R04). legacy = each
+  // audit-write spelling keeps its own contract (POST /audit
+  // unvalidated, POST /audit/event strict); strict = POST /audit
+  // also applies the /audit/event validation while keeping its own
+  // defaults and 200 shape; /audit/event is strict in every mode.
+  // Any other value FAILS CLOSED to legacy, console-logged +
+  // audited as audit.config_error. Resolution order (run > session
+  // > user > global env > built-in) lives in
+  // src/config/restTwinsModes.ts. This slice deliberately does NOT
+  // set a production value: production values are an owner action.
+  // Rollback is unsetting the var and redeploying.
+  AUDIT_WRITE_MODE?: string;
   // #1728 (parent #1717, slice (h)) — SIX agentic-payments +
   // premium-gating switches (non-secret, owner-set, same pattern as
   // PAYMENTS_FLOW_MODE). PAYMENTS_CREATE_MODE: "mcp" | "rest" (P-1).

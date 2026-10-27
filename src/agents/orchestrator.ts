@@ -2109,6 +2109,7 @@ export class OrchestratorAgent extends Agent<Env> {
       getOrm: () => this.getOrm(),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
+      env: this.env, // #1733: global-env fallback for AUDIT_WRITE_MODE.
     });
     if (auditResponse) return auditResponse;
 

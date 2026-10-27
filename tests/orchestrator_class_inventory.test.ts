@@ -131,8 +131,14 @@ const ORCH = "agents/orchestrator.ts";
  *  createActorTurnRunner; the stream lives in src/observability/,
  *  the class gains no logic) — measured 2,420 lines / 111,043 B
  *  on the rebased tree, so budget lines rise to 2430 and bytes
- *  to 112_000. */
-const BUDGET_LINES = 2430;
+ *  to 112_000.
+ *  REST-REST twins (#1733, parent #1717 slice (m)) passes
+ *  env into the audit-routes call (one line, the AUDIT_WRITE_MODE
+ *  global-env level; the switch itself lives in
+ *  src/config/restTwinsModes.ts, the class gains no logic) —
+ *  measured 2,431 lines / 111,643 B after the addition, so
+ *  budget lines rise to 2440 and bytes keep 112_000. */
+const BUDGET_LINES = 2440;
 const BUDGET_BYTES = 112_000;
 
 const count = (haystack: string, needle: string) =>
