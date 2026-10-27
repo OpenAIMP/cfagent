@@ -12,14 +12,6 @@
  *
  * The exact aggregation queries live in `docs/OBSERVABILITY.md` (§4).
  *
- * v2 (issue #1819): the record additionally carries the DO reply's measured
- * rowsRead/rowsWritten/statement and the call site's explicit caller/trigger
- * when the funnel was given attribution. v1 could count ops but could not
- * attribute rows — which is why the 2026-10-26 quota exhaustion was
- * unmeasurable from Workers Logs alone. The new fields are optional: ops
- * against an older DO reply, or without attribution, simply omit them
- * (never inferred).
- *
  * Why client-side records rather than a counter inside the DO: the failures
  * T2 exists to catch — client timeouts (2,000 ms budget), platform
  * *overloaded* responses, a missing binding — are precisely the ones a
@@ -38,7 +30,7 @@ export type StoreOpOutcome = "ok" | "miss" | "failed" | "unavailable";
 
 export interface StoreOpRecord {
   event: "store_op";
-  v: 2;
+  v: 1;
   /** Logical bucket: "sessions", "etrade", "api_keys", "payments". */
   ns: string;
   /** Store op: "get" | "put" | "delete" | "consume" | "list". */
@@ -52,14 +44,6 @@ export interface StoreOpRecord {
   httpStatus?: number;
   /** Completion time, epoch ms. */
   ts: number;
-  /** Platform-measured rows for this op, when the DO reply carried them. */
-  rowsRead?: number;
-  rowsWritten?: number;
-  /** Explicit call-site attribution; absent when not passed (never inferred). */
-  caller?: string;
-  trigger?: string;
-  /** Parameterized statement template, when the DO reply carried it. */
-  statement?: string;
 }
 
 export type StoreOpSink = (record: StoreOpRecord) => void;

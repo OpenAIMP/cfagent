@@ -39,7 +39,7 @@
 import type { ScheduledReportHit } from "./scheduledReports";
 import { scheduledReportPdfUrl } from "./scheduledReports";
 // Via the src/trading barrel — the #290 boundary's sole public surface.
-import type { ScanRunSummary, DiscoveryRunSummary, OptionsPartialQualification } from "../trading";
+import type { ScanRunSummary, DiscoveryRunSummary } from "../trading";
 import type { ScreenerRunResult } from "../agents/screener-agent";
 
 export type RunKind = "screener" | "options_scanner" | "discovery" | "goal" | "report";
@@ -65,13 +65,6 @@ export interface RunSummary {
   /** The store's own headline count (matched / with-trades / evaluated
    *  / completed), or null when it records none. */
   resultCount: number | null;
-  /** Issue #1850: the scan's partial-coverage qualification, when the
-   *  run did not evaluate the full requested universe — carried
-   *  through for scan-store rows so the list can say so. Null when
-   *  the run evaluated completely or the home store records none
-   *  (canonical rows: the qualification, when present, rides in the
-   *  summary text instead). */
-  partial?: OptionsPartialQualification | null;
   pdfKey: string | null;
   reportUrl: string | null;
   /** Issue #1335: stored XLSX / CSV artifact keys + download urls, when
@@ -244,7 +237,6 @@ export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
 export function runSummaryFromScanRun(scan: ScanRunSummary): RunSummary {
   const gate = scan.gate;
   const evaluated = numOrNull(scan.coverage?.evaluated);
-  const partial = scan.partial ?? null;
   return {
     kind: "options_scanner",
     id: scan.id,
@@ -254,18 +246,11 @@ export function runSummaryFromScanRun(scan: ScanRunSummary): RunSummary {
       : `Options scan — ${scan.mode}`,
     summary:
       `Gate: ${gate?.fit ?? 0} fit, ${gate?.borderline ?? 0} borderline, ${gate?.noFit ?? 0} no fit` +
-      (evaluated !== null ? ` across ${evaluated} evaluated.` : ".") +
-      // Issue #1850: the same partial segment the service summary
-      // appends (R6), so a partial scan-store row reads exactly like
-      // a partial canonical row in the same list.
-      (partial
-        ? ` Partial coverage — qualified partial results: evaluated ${partial.evaluatedCount} of ${partial.consideredCount} underlyings (${partial.coverageErrors} failures, ${partial.truncatedCount} truncated).`
-        : ""),
+      (evaluated !== null ? ` across ${evaluated} evaluated.` : "."),
     trigger: null,
     createdAt: scan.generatedAt,
     status: null,
     resultCount: evaluated,
-    partial,
     pdfKey: scan.pdfKey ?? null,
     reportUrl: scan.pdfKey
       ? `/api/options/report.pdf?key=${encodeURIComponent(scan.pdfKey)}`

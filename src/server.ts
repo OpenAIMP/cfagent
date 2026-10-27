@@ -80,8 +80,6 @@ import {
   createTelemetryAdapter,
   ensureTelemetryTables,
 } from "./telemetry/createTelemetryPorts";
-import { createResourceUsagePort } from "./telemetry/createResourceUsagePorts";
-import type { ResourceAttribution } from "./telemetry/resourceUsagePorts";
 import { defaultBreakerRegistry } from "./breakers/createBreakerPorts";
 import { gatewayStatsSnapshot } from "./gateway/createGatewayPorts";
 import { retrievalStatsSnapshot } from "./telemetry/retrievalStats";
@@ -3303,18 +3301,7 @@ async function requireAuth(request: Request, env: Env): Promise<SessionData | nu
   // before the cache and before the session store — junk cookies cost a
   // regex, not a read.
   if (!isSessionIdFormat(sessionId)) return null;
-  // #1819: the auth path is the top SessionStore source, so its backing
-  // reads are attributed (caller requireAuth / validateAndTouchWiredSession,
-  // trigger user) and forwarded to the resource sink when one is durably
-  // bound (Analytics Engine, else D1). When no durable sink is bound the
-  // opts are undefined and the store_op v2 log lines remain the record —
-  // a per-isolate sink that silently dropped events would be worse than
-  // none. A cache hit emits nothing: no rows were read.
-  const resourceSink = createResourceUsagePort(env);
-  const authResource = resourceSink
-    ? { resourceSink, attribution: { caller: "requireAuth", trigger: "user" } as ResourceAttribution }
-    : undefined;
-  const cached = await getSessionCached(env, sessionId, authResource);
+  const cached = await getSessionCached(env, sessionId);
   // #945 Phase 2b-part1: when wiring is ON, a session that already
   // carries an internalUserId (a wired session) is validated through
   // the wired path — fresh read, absolute + idle expiry, touch +
@@ -3323,16 +3310,10 @@ async function requireAuth(request: Request, env: Env): Promise<SessionData | nu
   // wiring OFF is the original single line, and non-wired sessions
   // under wiring ON stay on the legacy cached path, idle-exempt.
   if (isWiringEnabled(env) && cached?.internalUserId) {
-    const wiredResource = resourceSink
-      ? {
-          resourceSink,
-          attribution: { caller: "validateAndTouchWiredSession", trigger: "user" } as ResourceAttribution,
-        }
-      : undefined;
     const result = await validateAndTouchWiredSession(
       {
-        freshRead: (id) => getSession(env, id, wiredResource),
-        persist: (id, data, nowMs) => updateSession(env, id, data, nowMs, wiredResource),
+        freshRead: (id) => getSession(env, id),
+        persist: (id, data, nowMs) => updateSession(env, id, data, nowMs),
         invalidate: (id) => invalidateSessionCache(id),
       },
       cached,
