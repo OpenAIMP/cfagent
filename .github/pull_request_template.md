@@ -10,6 +10,12 @@ If the gate still shows a stale failure after fixing the body, it re-runs
 on body edits; a stale-base failure means update the branch to current main.
 Workflow files can ONLY arrive via the web UI (the API refuses them).
 -->
+<!-- Policy Gate (i)/(j) (gitops §22) — applies to every PR:
+- No file deleted: retire by deprecating in place and naming what
+  superseded it. Pure renames pass; deletions fail with no bypass.
+- Any new deprecation in code files must name what superseded it.
+The gate enforces both; this note exists so you meet them before
+tripping the gate. -->
 ## Agent
 #<your-agent-hashtag>
 
@@ -40,6 +46,8 @@ The full report for this PR — implementation, test evidence, change management
 - [ ] Pins my change alters are updated in this PR (gitops §7)
 - [ ] UX changes use ui/ primitives and tokens only (docs/agents/ux-architecture.md §20)
 - [ ] CHANGELOG fragment added (changelog.d/, preferred) or entry added (additive, under Unreleased)
+- [ ] No file deleted in this PR (pure renames only; deprecate in place instead — gitops §22, gate check (i))
+- [ ] Any new deprecation names what superseded it (gitops §22, gate check (j))
 - [ ] Linked issue's completion report updated with this PR's full report
 - [ ] Related issues recorded above (parent epic, blocks/blocked-by, related, supersedes — or none)
 - [ ] Surfaces touched named (UX / CLI / API / MCP — or none)
