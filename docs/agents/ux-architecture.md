@@ -227,6 +227,29 @@ Color must never be the only indicator.
 - Memory record editor.
 - Change-comparison view.
 
+### Dialogs: one system
+
+Every dialog is built with the Modal primitive from
+`src/client/components/ui/` (`Modal.tsx`). No hand-rolled modal shells
+(backdrop/content divs with their own close, Escape, focus, or scroll
+handling) may be added, and existing shells migrate to Modal when touched.
+
+Creation pattern (uniform across the platform):
+
+- `<Modal open onClose size="none" panelClassName ariaLabel>` — `size="none"`
+  lets the panel class own sizing; `panelClassName` carries the dialog's
+  panel class; `ariaLabel` labels the dialog.
+- No `title` prop when the dialog has a custom header: the custom header
+  (and its close control) stays in children, so there is exactly one close
+  button. `title` is only for dialogs without a custom header.
+- Behavior is the primitive's, everywhere: portal to body, Escape to close,
+  focus trap with initial focus and restore on close, body scroll lock,
+  backdrop-click to close, `role="dialog"` + `aria-modal` semantics.
+  No dialog invents its own Escape, focus, or scroll behavior.
+
+Rationale: one system gives consistent behavior, consistent structure, and
+consistent creation, fully controlled by this architecture — no one-offs.
+
 ## 7. Goal capture and delegation
 
 The creation flow must collect:

@@ -5,7 +5,7 @@ import {
   type ComprehensiveRiskProfile,
 } from "./riskManagementEngine";
 import "./riskAnalysis.css";
-import { Tabs, TabPanel } from "../components/ui";
+import { Tabs, TabPanel, Modal } from "../components/ui";
 
 export interface RiskAnalysisModalProps {
   isOpen: boolean;
@@ -24,16 +24,6 @@ export function RiskAnalysisModal({
   const [accountNav, setAccountNav] = useState<number>(25000);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
-  // Close on Escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
 
   const profile: ComprehensiveRiskProfile | null = useMemo(() => {
     if (!subject) return null;
@@ -65,8 +55,7 @@ export function RiskAnalysisModal({
   };
 
   return (
-    <div className="risk-modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="risk-modal-container" onClick={(e) => e.stopPropagation()}>
+        <Modal open={isOpen} onClose={onClose} size="none" panelClassName="risk-modal-container" ariaLabel="Risk analysis">
         {/* Header */}
         <div className="risk-modal-header">
           <div className="risk-modal-title-group">
@@ -535,7 +524,6 @@ export function RiskAnalysisModal({
             </div>
           </TabPanel>
         </div>
-      </div>
-    </div>
+          </Modal>
   );
 }

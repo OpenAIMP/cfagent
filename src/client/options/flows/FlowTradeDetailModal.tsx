@@ -1,5 +1,5 @@
 import React from "react";
-import { Button } from "../../components/ui";
+import { Button, Modal } from "../../components/ui";
 import { LiveFlowItem } from "../../../trading/options/flows/types";
 
 interface FlowTradeDetailModalProps {
@@ -66,8 +66,8 @@ export function FlowTradeDetailModal({
     `If making this trade now, you would receive a $162.50 credit. The maximum potential loss would be $9,587.50, and the maximum gain would be infinite. There is a ${trade.chance || 68}% chance of profit, achieved when ${trade.symbol} is above $95.88 at expiry.`;
 
   return (
-    <div className="flow-modal-overlay" onClick={onClose}>
-      <div className="flow-modal-card" onClick={(e) => e.stopPropagation()}>
+    <Modal open onClose={onClose} size="none" panelClassName="flow-modal-card" ariaLabel="Flow trade details">
+      {/* Parent mounts this modal conditionally; open is always true here. */}
         {/* Header */}
         <div className="flow-modal-header">
           <div className="flow-modal-title-wrap">
@@ -227,7 +227,6 @@ export function FlowTradeDetailModal({
             </Button>
           )}
         </div>
-      </div>
-    </div>
+          </Modal>
   );
 }
