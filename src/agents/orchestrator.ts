@@ -60,7 +60,7 @@ import { SqlStrategyProfileStore } from "../trading";
 import { createDidAttestation, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErrorFallback";
-import { getScreenerExecutionContext, migrateLegacyScreenSchedules, removeUnownedBaselineSchedules, ensureStrategyScanSchedule, type ScheduleMaintenanceContext } from "./orchestrator/scheduleMaintenance";
+import { getScreenerExecutionContext, migrateLegacyScreenSchedules, removeUnownedBaselineSchedules, ensureStrategyScanSchedule, resolveScheduledLogin, type ScheduleMaintenanceContext } from "./orchestrator/scheduleMaintenance";
 import { autoRenewETradeTokens, autonomousGoalScreen, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
 import { nlqSchedulingPort, nlqSocialBriefPort, nlqStockScreenPort, type NlqPortsContext } from "./orchestrator/nlqPorts";
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
@@ -823,8 +823,8 @@ export class OrchestratorAgent extends Agent<Env> {
     }
     const runAnalysis = async () => {
       const savedContext = await this.getScreenerExecutionContext();
-      const userLogin = savedContext?.userLogin || payload?.userLogin || "";
-      const environment = savedContext?.environment || payload?.environment;
+      const userLogin = resolveScheduledLogin(payload?.userLogin, savedContext?.userLogin) || "";
+      const environment = payload?.environment || savedContext?.environment;
       if (payload?.trigger !== "manual" && !userLogin) {
         await this.removeUnownedBaselineSchedules();
         console.warn("[OrchestratorAgent] Skipping unowned scheduled options screen.");

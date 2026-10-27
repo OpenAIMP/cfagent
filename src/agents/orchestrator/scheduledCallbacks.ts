@@ -21,7 +21,7 @@ import {
   SqlScanRunStore,
   SqlStrategyProfileStore,
 } from "../../trading";
-import type { ScreenerExecutionContext } from "./scheduleMaintenance";
+import { resolveScheduledLogin, type ScreenerExecutionContext } from "./scheduleMaintenance";
 
 type ETradeEnvironment = "TEST" | "PROD";
 
@@ -132,8 +132,8 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
     const trigger = payload?.trigger || "scheduled";
     const universe = payload?.universe || "NASDAQ100";
     const savedContext = await ctx.getScreenerExecutionContext();
-    const userLogin = savedContext?.userLogin || payload?.userLogin;
-    const environment = savedContext?.environment || payload?.environment;
+    const userLogin = resolveScheduledLogin(payload?.userLogin, savedContext?.userLogin);
+    const environment = payload?.environment || savedContext?.environment;
     if (trigger === "scheduled" && !userLogin) {
       // A pre-auth startup schedule has no safe account mapping. Remove it
       // before it can emit the same Slack failure every hour.
@@ -287,8 +287,9 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
  * (consolidation C1, issue #1201, epic #1151 R1). Runs the schedule
  * payload's goal/scenario screen through the Phase 0 registry +
  * Phase 3 semantics via ScheduledTasksService.autonomousGoalScreen.
- * Mirrors the autonomousMarketScreen wrapper: saved execution
- * context wins for identity/environment, unowned scheduled fires are
+ * Mirrors the autonomousMarketScreen wrapper: the payload login and
+ * environment win when present, with the saved execution context as
+ * the legacy fallback (#1965); unowned scheduled fires are
  * skipped, and results AND failures are broadcast (issue #112) — the
  * service itself audits, records the canonical report + activity
  * entry, and delivers over the Phase 6 channels when the payload
@@ -320,8 +321,8 @@ export async function autonomousGoalScreen(ctx: ScheduledCallbacksContext, paylo
   const runGoalScreen = async () => {
     const trigger = payload?.trigger || "scheduled";
     const savedContext = await ctx.getScreenerExecutionContext();
-    const userLogin = savedContext?.userLogin || payload?.userLogin;
-    const environment = savedContext?.environment || payload?.environment;
+    const userLogin = resolveScheduledLogin(payload?.userLogin, savedContext?.userLogin);
+    const environment = payload?.environment || savedContext?.environment;
     if (trigger === "scheduled" && !userLogin) {
       await ctx.removeUnownedBaselineSchedules();
       console.warn("[OrchestratorAgent] Skipping unowned scheduled goal screen.");
@@ -373,8 +374,9 @@ export async function autonomousGoalScreen(ctx: ScheduledCallbacksContext, paylo
  * (issue #126, PR-E). Re-runs the schedule payload's SAVED
  * StrategyRequests verbatim through the discovery pipeline and
  * persists the run (SqlDiscoveryRunStore) for the panel to read
- * back. Mirrors the autonomousOptionsAnalysis wrapper: saved
- * execution context wins for identity/environment, unowned
+ * back. Mirrors the autonomousOptionsAnalysis wrapper: the payload
+ * login and environment win when present, with the saved execution
+ * context as the legacy fallback (#1965); unowned
  * scheduled fires are skipped, duplicate fires within the same
  * minute slot for the same saved-request set are suppressed, and
  * results AND failures are broadcast (issue #112) — the service
@@ -389,8 +391,8 @@ export async function autonomousStrategyDiscovery(ctx: ScheduledCallbacksContext
   }
   const runDiscovery = async () => {
     const savedContext = await ctx.getScreenerExecutionContext();
-    const userLogin = savedContext?.userLogin || payload?.userLogin || "";
-    const environment = savedContext?.environment || payload?.environment;
+    const userLogin = resolveScheduledLogin(payload?.userLogin, savedContext?.userLogin) || "";
+    const environment = payload?.environment || savedContext?.environment;
     if (payload?.trigger !== "manual" && !userLogin) {
       await ctx.removeUnownedBaselineSchedules();
       console.warn("[OrchestratorAgent] Skipping unowned scheduled strategy discovery.");
