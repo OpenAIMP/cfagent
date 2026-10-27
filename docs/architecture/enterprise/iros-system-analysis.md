@@ -73,11 +73,11 @@ IROS is structured across seven distinct architectural layers using the **Ports 
 | **Job Subsystem** | **Built (Partial)** | `src/services/shardJobs.ts`, `src/services/scheduledTasks.ts` | Decompose synchronous worker jobs into retriable queue/workflow step executions. |
 | **Orchestrators & Swarm** | **Needs Refactoring** | Procedural classes (`ScreenerAgent.ts`, `ResearchAgent.ts`) | Migrate to Actor-based Durable Objects (`AgentActorDO`) with isolated working memory and typed MCP tools. |
 | **Workflows Subsystem** | **Built** | `src/workflows/` (`screenerWorkflow.ts`, `workflowPorts.ts`) | Extend workflow-engine coverage across all multi-hour or multi-step pipeline executions. |
-| **Queues Subsystem** | **Built** | `src/messaging/` (`screenerQueueConsumer.ts`, `messagingPorts.ts`) | Replace in-memory event bus with durable queues across ingestion, screening, research, and delivery. |
+| **Queues Subsystem** | **Built** | `src/messaging/` (`screenerQueueConsumer.ts`, `messagingPorts.ts`) | Durable queues across ingestion, screening, research, and delivery, with the in-memory bus retained alongside its in-memory messaging adapter for unbound paths. |
 | **Schedulers Subsystem** | **Built** | `src/schedule.ts`, `src/services/scheduleManagement.ts` | Unified Cron Scheduler with preflight auth checks (`E*TRADE` token validation) and schedule state management. |
 | **Data Foundation Layer** | **Built** | Relational DB (`D1`), KV Cache, R2 Blob Store, Vectorize Embeddings | Consolidate schemas into relational ledger; unify graph memory with D1 market adjacency graph adapters. |
 | **Monolithic Router Handlers** | **Needs Decomposition** | `src/index.ts` (Fat routes handling synchronous market scans) | Extract inline handlers into thin gateway endpoints delegating to async Queues and Workflows. |
-| **In-Memory Event Bus** | **Needs Decomposition** | `src/trading/screener.ts` (In-memory `ScreenerEventBus`) | Completely eliminate in favor of durable messaging queues (`screenerQueueConsumer.ts`). |
+| **In-Memory Event Bus** | **Retained, with its adapter** | `src/events/screenerEvents.ts` (In-memory `ScreenerEventBus`) | Keep the bus along with its in-memory messaging adapter (`src/messaging/inMemoryMessagingAdapter.ts`): the bus is the legacy path used when no provider queue is bound, and durable queue consumers (`screenerQueueConsumer.ts`) bridge into it. Neither is removed. |
 | **Autonomous Self-Fixing Engine** | **Needs Enhancement** | `src/qa/self-healing.ts`, `src/services/repairProposals.ts`, `src/telemetry/calibratedPromptPlug.ts` | Consolidate into unified RSI Loop: Telemetry Collector -> Outcome Analysis -> Calibration -> Auto-Fixing. |
 | **Multi-Agent Swarm Negotiator**| **Needs To Be Built** | Basic prompt routing via LLM gateway | Build multi-agent task planner & negotiation protocol for dynamic agent tool selection and task decomposition. |
 
@@ -245,7 +245,7 @@ To transform IROS into a fully cloud-native, AI-native, cloud-agnostic, and RSI-
 
 ### Phase 1: Decoupling & Ports/Adapters Formalization (Months 0 - 3)
 - Decompose monolithic router handlers (`src/index.ts`) into thin HTTP adapters delegating to background Workflows and Queues.
-- Replace all remaining in-memory event buses (`ScreenerEventBus`) with durable queue consumers (`screenerQueueConsumer.ts`).
+- Keep the in-memory event bus (`ScreenerEventBus`) along with its in-memory messaging adapter (both kept, not removed); route provider-bound paths through queue consumers (`screenerQueueConsumer.ts`), which bridge into the bus; no direct bus imports outside the established seams.
 - Wrap external market APIs in circuit breakers with automatic fallback adapters (`providerHealth.ts`).
 
 ### Phase 2: Actor-Based Multi-Agent Swarm (Months 3 - 6)
@@ -259,7 +259,7 @@ To transform IROS into a fully cloud-native, AI-native, cloud-agnostic, and RSI-
 
 ### Phase 4: Full RSI & Autonomous Auto-Fixing Engine (Months 12 - 24)
 - Complete the autonomous feedback loop linking 5d/30d outcome realization (`outcomeTracking.ts`) to prompt calibration (`calibratedPromptPlug.ts`).
-- Automate portfolio repair proposal generation (`repairProposals.ts`) with zero-touch risk rebalancing under strict HITL trade execution gates.
+- Automate portfolio repair proposal generation (`repairProposals.ts`): trades are recommended and created (prepared) autonomously, but executed only after human approval (HITL trade execution gate).
 - Deploy continuous self-evaluation and automated backtesting calibration across all strategy families.
 
 ---
