@@ -1,0 +1,3 @@
+### Screener workflow doc v2
+
+- Revised `docs/architecture/business/screener-workflow.md` (v2): added the product framing (§0 — multi-dimensional agentic SaaS screener lifecycle as an RSI/ASI research product), folded all six lanes' #1972 feedback (corrections + decisions), and reshaped the transformation: CISO conditional gate + #1344 fail-closed gating, CPO two-thesis proof scope, COO flag rollout + fail-loud + pre-ship list, CDO record rule, CAIO stage events into #1743, Phase 3 as a producing phase (persisted gather output). No implementation in this change; vehicle decision (standalone vs #1904 P1) still open.
