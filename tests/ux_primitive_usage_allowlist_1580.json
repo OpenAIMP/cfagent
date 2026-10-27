@@ -34,7 +34,6 @@
     "src/client/options/RiskAnalysisModal.tsx": 9,
     "src/client/options/ScreeningActivityPanel.tsx": 1,
     "src/client/options/StrategyLibraryModal.tsx": 9,
-    "src/client/options/flows/FlowFiltersSidebar.tsx": 34,
     "src/client/options/flows/FlowTradeDetailModal.tsx": 3,
     "src/client/options/flows/OptionsFlowsHub.tsx": 9,
     "src/client/scheduledOptionsManager/AuditTrailSection.tsx": 2,
