@@ -36,9 +36,10 @@ scale is invented per page.
 - Route-table completeness (`tests/route_table.test.ts`) and nav
   derivation (`tests/nav_derivation.test.ts`): see §3.
 - Shell conformance (`tests/shell_conformance_1804.json` +
-  `tests/shell_conformance.test.ts`): the growing list of pages migrated
-  onto the shell. Unlisted pages are grandfathered but visible as
-  remaining work, like the token allowlist.
+  `tests/shell_conformance.test.ts`): the list of pages migrated
+  onto the shell, complete at 25 of 26 after S4. The only unlisted
+  page is `chat`, deferred by product decision (ADR-0021), not
+  grandfathered work.
 
 ## 2. The design patterns: what pages are built AS
 
@@ -52,14 +53,17 @@ section pattern and the raw `<div>Loading…</div>` state pattern.
 
 **Route-driven navigation.** The URL is the source of truth for
 navigation (see §3). Deep-linking, back/forward, and reload-safe place
-work for every page, not just one hub.
+work for every page at page level (`?tab=`), not just one hub.
+Inner-view deep-linking (the generic `view` param) is S2, still open.
 
 **Retained views.** Some views stay mounted-hidden so in-flight and
 finished work survives tab switches. The exemplar is the trading view
 (`ETradeTradingHub`, kept mounted hidden in Chat). Retention is a
 property of the route, enforced by the outlet once the content switch
-is derived (S4); until then it is declared in this doc and implemented
-in Chat's existing hidden div.
+is derived; S4 migrated pages onto the shell WITHOUT deriving that
+switch, so it is still declared in this doc and implemented in Chat's
+existing hidden div (trading view) — the derived switch + retained-mounted
+outlet remain open work.
 
 **Tabbed browsing (per #1379).** Multi-view pages use tabs that are
 URL-synced, keep visited tabs mounted-hidden so state survives
@@ -67,13 +71,16 @@ switching, and expose ARIA tablist/tabpanel with roving tabindex.
 #1379 built this inside ScreenersHub with a bespoke tablist; S2
 reconciles it into the `Tabs` primitive (URL-sync + retention) and
 migrates the hub onto it, leaving exactly one tab mechanism.
+Standing direction (2026-10-27): tabbed browsing rolls out
+system-wide on this pattern, beginning with the screener hub as the
+exemplar.
 
 **Composition over monoliths.** A page composes components that own
 their data; it never re-fetches and re-renders. The positive exemplar
 is ApprovalsPanel (composes TradingApprovalsQueue + PendingReviewQueue,
 #1799). The negative exemplar is SocialPostingPanel (one component
 fetching goal + approvals + posts + token health + ticks and rendering
-six sections inline) — S3 splits it into sections on the new shell.
+six sections inline) — S3 split it into sections on the new shell (merged).
 
 **Primitive states.** Loading, empty, and error states always come
 from Spinner/Skeleton/EmptyState/Notice. A raw div state is a defect,
@@ -128,12 +135,12 @@ Deliberately NOT in S1, with the slice that owns each:
 ## 4. Migration path
 
 S1 (this doc's build): table + router + PageShell + tests. S3: social
-is the first page proven on the new shell (tabs + PageShell + shared
-approval cards). S4: one pass per remaining nav page, interleaved with
-the platform-wide token migration after E4 — one pass per page doing
-tokens + shell + tabs together, so no page is migrated twice. Each
-migrated page joins `tests/shell_conformance_1804.json`; the epic
-closes when every nav entry is listed.
+was the first page proven on the new shell (tabs + PageShell + shared
+approval cards). S4 (merged as S4-A/B/C1/C2/D): one pass per remaining
+nav page; each migrated page joined `tests/shell_conformance_1804.json`,
+ending at 25 of 26. The epic closes with `chat` deferred (ADR-0021),
+not with every nav entry listed — the deferred page is a recorded
+product decision, not remaining migration work.
 
 ## 5. Rejected alternatives
 
