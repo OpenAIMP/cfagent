@@ -99,10 +99,12 @@
  *   improvementCandidates.ts + stagedPromotion.ts (bounds
  *   and/or the v1 read for drain baselines). No live route
  *   or scheduled caller of the v1 adjustment job.
- * - The stagedPromotion retirement condition is recorded in
- *   BOTH the module header era comment and the route
- *   comment (screenerResearch.ts): delete when GET
- *   promotions/active is empty.
+ * - The stagedPromotion retirement condition (delete when GET
+ *   promotions/active is empty) is now MET: the #1257 retirement
+ *   PR deleted stagedPromotion and its drain endpoints once the
+ *   active list drained to empty, and the W1/P1/P2 pins below
+ *   record the retired outcome. The route comment is gone with
+ *   the endpoints.
  */
 
 export type DiscoveryRankingPinId =
@@ -190,12 +192,12 @@ export const DISCOVERY_RANKING_1730_PINS: readonly DiscoveryRankingPin[] = [
   {
     id: "W1",
     finding:
-      "Strategy weights v1 vs v2: v1 regime-blind raw win-rate (dormant — no live route or scheduled caller of the v1 adjustment job remains) vs v2 regime-conditioned after-cost decayed versioned (live: GET returns v2, POST run runs v2 only).",
+      "Strategy weights v1 vs v2: v1 regime-blind raw win-rate (deleted by the #1257 retirement PR — no live route or scheduled caller of the v1 adjustment job remained) vs v2 regime-conditioned after-cost decayed versioned (live: GET returns v2, POST run runs v2 only).",
     resolution: "pinned",
     reason:
-      "Retirement is gated under #1257's retirement PR, not decided here — and #1257 already retired the routes flag (v2-always), so a v1/v2 route switch in this slice would resurrect a retired flag. Deleting v1 outright would still break live couplings: v2's bounds import (WEIGHTS_V2_DEFAULTS reads STRATEGY_WEIGHT_BOUNDS verbatim), the GET evaluation builder (buildWeightPolicyEvaluation fed the collapsed v2 map), the shared isoWeekKey/settings key (one adjustment/week regardless of engine), and stagedPromotion's v1 reads for drain baselines. Those couplings unwind in the retirement PR, in drain order.",
+      "Retirement is gated under #1257's retirement PR, not decided here — and #1257 already retired the routes flag (v2-always), so a v1/v2 route switch in this slice would resurrect a retired flag. The retirement PR unwound the live couplings in drain order: the bounds, week key, actor, and GET evaluation builder moved into strategyWeightsV2, and stagedPromotion's v1 drain reads went with the drain endpoints once the active list was empty.",
     defaultBehavior:
-      "Routes stay v2-always (GET weightsSource:'v2', POST run runs v2 only); the v1 module stays until the #1257 retirement PR; v1 rows present in the store are ignored by the routes.",
+      "Routes stay v2-always (GET weightsSource:'v2', POST run runs v2 only); the v1 module was deleted by the #1257 retirement PR (bounds, week key, actor, and evaluation builder moved into strategyWeightsV2); v1 rows present in the store are ignored by the routes.",
   },
   {
     id: "W2",
@@ -210,22 +212,22 @@ export const DISCOVERY_RANKING_1730_PINS: readonly DiscoveryRankingPin[] = [
   {
     id: "P1",
     finding:
-      "Promotion: champion/challenger live (new staged creation REFUSED, promote/rollback via championChallenger, promoter = approver of record) vs staged drain-only (advancePromotion live ONLY for in-flight; GET /adaptation/promotions/active still lists in-flight STAGED promotions; two record stores + two GET shapes). proposalChallengerBridge is a migration seam, not a third engine.",
+      "Promotion: champion/challenger live (promote/rollback via championChallenger, promoter = approver of record); staged retired (advancePromotion and GET /adaptation/promotions/active deleted with stagedPromotion once the in-flight list drained to empty; one record store + one GET shape remains). proposalChallengerBridge is a migration seam, not a third engine.",
     resolution: "pinned",
     reason:
-      "Flipping promote to staged would resurrect retired governance (staged lacks the challenger gate's promoter-is-approver rule and frozen-set evaluation); flipping advance to challenger would strand in-flight drain records, which live in the staged store with staged shapes and baselines. The module header's own retirement condition governs the endgame: delete stagedPromotion when GET promotions/active is empty — a drain observation, not a flag flip.",
+      "Flipping promote to staged would resurrect retired governance (staged lacks the challenger gate's promoter-is-approver rule and frozen-set evaluation); flipping advance to challenger would have stranded in-flight drain records, which lived in the staged store with staged shapes and baselines. The module header's retirement condition governed the endgame: stagedPromotion was deleted when GET promotions/active drained to empty — a drain observation, not a flag flip.",
     defaultBehavior:
-      "POST /adaptation/promotions/start keeps refusing new staged promotions; promote/rollback keep running championChallenger; advance keeps draining in-flight staged promotions only; GET /adaptation/promotions lists challenger records (tenant-scoped) and GET /adaptation/promotions/active lists in-flight staged ones.",
+      "POST /adaptation/promotions/start, advance, and GET /adaptation/promotions/active are deleted with stagedPromotion; promote/rollback keep running championChallenger; GET /adaptation/promotions lists challenger records (tenant-scoped).",
   },
   {
     id: "P2",
     finding:
-      "Candidate evaluation: (a) challenger walk-forward over a FROZEN dataset (live) vs (b) candidateEvaluation window replay (dormant) vs (c) promotionGate z-test + INFORMED human approval (dormant) vs (d) recommendationBundle internal evaluateCandidate scenario-grid evaluation — a NAMESAKE in a different domain.",
+      "Candidate evaluation: (a) challenger walk-forward over a FROZEN dataset (live); (b) candidateEvaluation window replay and (c) promotionGate z-test + INFORMED human approval were deleted by the #1257 retirement PR; (d) recommendationBundle internal evaluateCandidate scenario-grid evaluation — a NAMESAKE in a different domain.",
     resolution: "pinned",
     reason:
-      "(b) has no live route caller outside the drain chain and (c) has only a read reference (chainGovernance); wiring either behind a switch would require new route plumbing plus a governance decision for dormant engines — that is #1257 retirement-PR work, not a flag. (d) must NOT be merged into (a)/(b)/(c): it is a bundle-construction optimizer input (expected P&L, CVaR-25, worst P&L, P(profit)), and it is module-private, so it cannot be imported as a promotion evaluator by accident.",
+      "(b) had no live route caller outside the drain chain and (c) had only a read reference (chainGovernance); both were deleted by the #1257 retirement PR, not wired behind a switch. (d) must NOT be merged into (a): it is a bundle-construction optimizer input (expected P&L, CVaR-25, worst P&L, P(profit)), and it is module-private, so it cannot be imported as a promotion evaluator by accident.",
     defaultBehavior:
-      "Challenger frozen-set evaluation is the only live promotion evaluation (split selection/holdout at ceil(half); edge = holdout challenger − champion score; pass iff edge + minEvaluated met; frozen-set quotes labelled synthetic, never a live fetch). (b)/(c) stay dormant and untouched; (d) stays a private bundle helper in its own domain.",
+      "Challenger frozen-set evaluation is the only promotion evaluation (split selection/holdout at ceil(half); edge = holdout challenger − champion score; pass iff edge + minEvaluated met; frozen-set quotes labelled synthetic, never a live fetch). (b)/(c) were deleted by the #1257 retirement PR; (d) stays a private bundle helper in its own domain.",
   },
   {
     id: "S3",

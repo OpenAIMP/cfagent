@@ -700,7 +700,7 @@ export async function handleScreenerResearchRoutes(
       if (!agent) {
         return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
       }
-      const { buildWeightPolicyEvaluation } = await import("../../services/strategyWeights");
+      const { buildWeightPolicyEvaluation } = await import("../../services/strategyWeightsV2");
       const trackRecord = await agent.getTrackRecord();
       // Consolidation #1257 flip (C5's flag is retired): v2 always
       // (collapsed to plain strategy keys so the hub renders
@@ -736,7 +736,7 @@ export async function handleScreenerResearchRoutes(
       // the v1-only skipped detail fields are absent (documented
       // C5 delta).
       const { buildWeightsV2Slices, runWeightsV2Adjustment } = await import("../../services/strategyWeightsV2");
-      const { isoWeekKey, WEIGHTS_LAST_RUN_WEEK_KEY } = await import("../../services/strategyWeights");
+      const { isoWeekKey, WEIGHTS_LAST_RUN_WEEK_KEY } = await import("../../services/strategyWeightsV2");
       const { RESEARCH_CONFIG_DEFAULTS } = await import("../../services/researchConfig");
       const trackRecord = await agent.getTrackRecord();
       const researchConfig = await agent.getResearchConfig().catch(() => null);
@@ -956,57 +956,6 @@ export async function handleScreenerResearchRoutes(
       });
     }
 
-    // Consolidation #1257, drain era: NEW staged promotions are
-    // refused — the #760 chain is retired, and promotion runs
-    // through the challenger gate (promote below). The refusal names
-    // the replacement so API callers are not left guessing. In-flight
-    // promotions still drain via advance below; deleting this module
-    // (retirement PR) waits on GET promotions/active being empty.
-    if (path.endsWith("/adaptation/promotions/start") && request.method === "POST") {
-      let body: any = {};
-      try {
-        body = await request.json();
-      } catch {
-        /* empty body */
-      }
-      const candidateId = typeof body?.candidateId === "string" ? body.candidateId : "";
-      if (!candidateId) {
-        return Response.json({ error: "candidateId is required." }, { status: 400 });
-      }
-      return Response.json({
-        success: false,
-        reason: "Staged promotions are retired under #1257: file a challenger from a re-selection proposal and promote it through the champion/challenger gate.",
-        timestamp: new Date().toISOString(),
-      });
-    }
-    // Drain path, unchanged: in-flight #760 promotions advance to
-    // completed (or roll back on regression) through the #755 seam.
-    if (path.endsWith("/adaptation/promotions/advance") && request.method === "POST") {
-      let body: any = {};
-      try {
-        body = await request.json();
-      } catch {
-        /* empty body */
-      }
-      const promotionId = typeof body?.promotionId === "string" ? body.promotionId : "";
-      if (!promotionId) {
-        return Response.json({ error: "promotionId is required." }, { status: 400 });
-      }
-      const userLogin = request.headers.get("x-user-login") || sessionId;
-      const agent = ctx.getResearchAgent(userLogin);
-      if (!agent) {
-        return Response.json({ error: "ResearchAgent binding not configured." }, { status: 503 });
-      }
-      const { advancePromotion } = await import("../../services/stagedPromotion");
-      const trackRecord = await agent.getTrackRecord();
-      const result = advancePromotion(ctx.getOrm(), promotionId, trackRecord);
-      return Response.json({ success: result.ok, ...result, timestamp: new Date().toISOString() });
-    }
-    // Drain gate visibility: every in-flight staged promotion.
-    if (path.endsWith("/adaptation/promotions/active") && request.method === "GET") {
-      const { listActivePromotions } = await import("../../services/stagedPromotion");
-      return Response.json({ promotions: listActivePromotions(ctx.getOrm()) });
-    }
     if (path.endsWith("/adaptation/promotions") && request.method === "GET") {
       const candidateId = url.searchParams.get("candidateId") || "";
       if (!candidateId) {

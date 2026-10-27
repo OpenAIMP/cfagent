@@ -28,8 +28,8 @@ import path from "node:path";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { isAdaptationHalted, ADAPTATION_KILL_SWITCH_KEY, listAdaptationAudit } from "../src/services/adaptationAudit";
-import { runStrategyWeightAdjustment, getStrategyWeight } from "../src/services/strategyWeights";
-import type { TrackRecord } from "../src/services/researchTrackRecord";
+import { runWeightsV2Adjustment, getStrategyWeightsV2 } from "../src/services/strategyWeightsV2";
+import type { WeightsV2Slice } from "../src/services/strategyWeightsV2";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
 
@@ -59,21 +59,11 @@ describe("entry-point enumeration (#756)", () => {
   });
 
   it("weight-job callers are exactly the enumerated delegating surfaces", () => {
-    // Consolidation #1257 flip: the v1 job has NO production caller
-    // left — the routes run the v2 job (pinned below). The v1 module
-    // stays until the retirement PR (stagedPromotion still reads v1
-    // weights for baselines), but its adjustment job is dead from
-    // production; a new caller must be added here deliberately, with
-    // its halt story, or this pin fails.
-    const v1Callers = prodFiles
-      .filter((f) => f.rel !== "services/strategyWeights.ts")
-      .filter((f) => /\brunStrategyWeightAdjustment\b/.test(f.text))
-      .map((f) => f.rel)
-      .sort();
-    expect(v1Callers).toEqual([]);
-    // The v2 job is the live one: the route delegates to it, it
+    // Consolidation #1257 retirement: the v1 job is deleted, so the
+    // v2 job is the only weight job. The route delegates to it, it
     // self-checks the switch (halted result), and the scheduled tick
-    // calls it directly. Same pin discipline as the v1 job had.
+    // calls it directly. A new caller must be added here deliberately,
+    // with its halt story, or this pin fails.
     const v2Callers = prodFiles
       .filter((f) => f.rel !== "services/strategyWeightsV2.ts")
       .filter((f) => /\brunWeightsV2Adjustment\b/.test(f.text))
@@ -97,16 +87,16 @@ describe("entry-point enumeration (#756)", () => {
   });
 
   it("nothing writes mas_strategy_weights outside the weights service", () => {
-    // Deliberately declared weights services (#1096 Phase 5): the v1
-    // service (strategyWeights.ts) and the v2 service
-    // (strategyWeightsV2.ts — regime-conditioned, versioned records in
-    // mas_strategy_weights_v2 / mas_strategy_weight_versions). The v2
-    // service's halt story: it applies only through applyAdaptation and
-    // consults isAdaptationHalted before applying (pinned by the
+    // Deliberately declared weights service (#1096 Phase 5, #1257
+    // retirement): the v2 service only (strategyWeightsV2.ts —
+    // regime-conditioned, versioned records in
+    // mas_strategy_weights_v2 / mas_strategy_weight_versions). The v1
+    // service was deleted by the retirement PR. The v2 service's halt
+    // story: it applies only through applyAdaptation and consults
+    // isAdaptationHalted before applying (pinned by the
     // applyAdaptation enumeration above and phase5_rsi_loop.test.ts).
     // Any OTHER writer of a mas_strategy_weights* table fails here.
     const weightsServices = new Set([
-      "services/strategyWeights.ts",
       "services/strategyWeightsV2.ts",
     ]);
     const writers = prodFiles
@@ -117,16 +107,15 @@ describe("entry-point enumeration (#756)", () => {
   });
 });
 
-function track(): TrackRecord {
-  const byStrategy = [
-    { key: "Momentum", published: 40, evaluated: 40, winRate: 0.75, avgRMultiple: null },
-    { key: "MeanReversion", published: 40, evaluated: 40, winRate: 0.25, avgRMultiple: null },
+function slices(): WeightsV2Slice[] {
+  // Two slices over the same regime baseline (0.5): Momentum proposes
+  // up, MeanReversion proposes down. Fresh evidence (age 0) so no
+  // decay applies — the drill pins halt/resume, not decay.
+  const at = NOW.toISOString();
+  return [
+    { strategy: "Momentum", regime: "bull", published: 40, evaluated: 40, unpriced: 0, winRateAfterCost: 0.75, avgPnlAfterCost: 10, avgRAfterCost: 1.0, latestEvaluatedAt: at },
+    { strategy: "MeanReversion", regime: "bull", published: 40, evaluated: 40, unpriced: 0, winRateAfterCost: 0.25, avgPnlAfterCost: -10, avgRAfterCost: -0.5, latestEvaluatedAt: at },
   ];
-  return {
-    published: 80, evaluated: 80, invalidated: 0, winRate: 0.5,
-    directionAccuracy: null, avgPnlPerUnit: null, avgRMultiple: null,
-    byStrategy, byPeriod: [], ideas: [],
-  };
 }
 
 function setKillSwitch(storage: any, value: string) {
@@ -149,15 +138,15 @@ afterEach(() => {
   errSpy.mockRestore();
 });
 
-describe("halt / resume drill (#756)", () => {
+describe("halt / resume drill (#756, v2 job)", () => {
   it("halt stops every run mode, survives a restart, and only an explicit unset resumes", () => {
     const storage: any = new MockSqlStorage();
     const orm: any = new DatabaseORM(storage);
 
     // Baseline: adaptation works.
-    const base = runStrategyWeightAdjustment(orm, track(), { now: NOW, force: true });
+    const base = runWeightsV2Adjustment(orm, slices(), { now: NOW });
     expect(base.adjusted).toHaveLength(2);
-    expect(getStrategyWeight(orm, "Momentum")).toBeCloseTo(1.1);
+    expect(getStrategyWeightsV2(orm)["Momentum|bull"]).toBeCloseTo(1.1);
     const auditAfterBase = listAdaptationAudit(orm).length;
     expect(auditAfterBase).toBe(2);
 
@@ -165,27 +154,27 @@ describe("halt / resume drill (#756)", () => {
     setKillSwitch(storage, "on");
     expect(isAdaptationHalted(orm)).toBe(true);
 
-    // Forced and scheduled runs both apply nothing and audit nothing.
-    const forced = runStrategyWeightAdjustment(orm, track(), { now: NOW, force: true });
-    expect(forced.halted).toBe(true);
-    expect(forced.adjusted).toHaveLength(0);
-    const scheduled = runStrategyWeightAdjustment(orm, track(), { now: NOW });
-    expect(scheduled.halted).toBe(true);
+    // Runs while halted apply nothing and audit nothing.
+    const haltedRun = runWeightsV2Adjustment(orm, slices(), { now: NOW });
+    expect(haltedRun.halted).toBe(true);
+    expect(haltedRun.adjusted).toHaveLength(0);
+    const haltedRun2 = runWeightsV2Adjustment(orm, slices(), { now: NOW });
+    expect(haltedRun2.halted).toBe(true);
     expect(listAdaptationAudit(orm).length).toBe(auditAfterBase);
-    expect(getStrategyWeight(orm, "Momentum")).toBeCloseTo(1.1);
+    expect(getStrategyWeightsV2(orm)["Momentum|bull"]).toBeCloseTo(1.1);
 
     // Simulated restart: a fresh ORM over the same durable storage is
     // still halted — no auto-resume.
     const ormAfterRestart: any = new DatabaseORM(storage);
     expect(isAdaptationHalted(ormAfterRestart)).toBe(true);
-    const afterRestart = runStrategyWeightAdjustment(ormAfterRestart, track(), { now: NOW, force: true });
+    const afterRestart = runWeightsV2Adjustment(ormAfterRestart, slices(), { now: NOW });
     expect(afterRestart.halted).toBe(true);
     expect(afterRestart.adjusted).toHaveLength(0);
 
     // Explicit operator resume: adaptation flows again.
     setKillSwitch(storage, "off");
     expect(isAdaptationHalted(ormAfterRestart)).toBe(false);
-    const resumed = runStrategyWeightAdjustment(ormAfterRestart, track(), { now: NOW, force: true });
+    const resumed = runWeightsV2Adjustment(ormAfterRestart, slices(), { now: NOW });
     expect(resumed.halted).toBeFalsy();
     expect(resumed.adjusted.length).toBeGreaterThan(0);
   });

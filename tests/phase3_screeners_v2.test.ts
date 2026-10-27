@@ -73,10 +73,9 @@ import {
 } from "../src/services/researchEconomics";
 import { RESEARCH_CONFIG_DEFAULTS } from "../src/services/researchConfig";
 import {
-  ensureStrategyWeightsTable,
-  getStrategyWeights,
-  setStrategyWeight,
-} from "../src/services/strategyWeights";
+  ensureWeightsV2Tables,
+  getStrategyWeightsV2Collapsed,
+} from "../src/services/strategyWeightsV2";
 import { RESEARCH_SCHEDULED_LAST_RUN_KEY } from "../src/services/researchScheduleGuard";
 
 /* ------------------------------------------------------------------ */
@@ -509,9 +508,11 @@ describe("reselectStrategyBank (Phase 3)", () => {
 
   it("recording a proposal never mutates strategy weights (governance pin)", () => {
     const sql = new MockSqlStorage() as any;
-    ensureStrategyWeightsTable(sql);
-    setStrategyWeight(sql, "iron_condor", 1.25, new Date("2026-10-20T00:00:00.000Z"));
-    const before = getStrategyWeights(sql);
+    ensureWeightsV2Tables(sql);
+    (sql as any).tables.set("mas_strategy_weights_v2", [
+      { strategy: "iron_condor", regime: "bull", weight: 1.25, version: 1, updated_at: "2026-10-20T00:00:00.000Z" },
+    ]);
+    const before = getStrategyWeightsV2Collapsed(sql);
     const proposal = reselectStrategyBank({
       evidence: bank,
       weights: before,
@@ -522,7 +523,7 @@ describe("reselectStrategyBank (Phase 3)", () => {
     ensureStrategyBankProposalTable(sql);
     const id = recordReselectionProposal(sql, "alice", proposal);
     expect(typeof id).toBe("string");
-    expect(getStrategyWeights(sql)).toEqual(before);
+    expect(getStrategyWeightsV2Collapsed(sql)).toEqual(before);
     const stored = listReselectionProposals(sql, "alice");
     expect(stored).toHaveLength(1);
     expect(stored[0].proposal.activeSet.map((a: any) => a.strategy)).toEqual([
