@@ -16,6 +16,17 @@ import {
 // Agents SDK actors now — mock the SDK with a plain base class
 // (the api_chat_route.test.ts idiom) so the real module graph's
 // `cloudflare:` imports never reach the node loader.
+// Issue #1954 (HOLD): TradingAgent extends PortThink, so this file's
+// module graph now reaches bare @cloudflare/think via thinkAdapter.
+// Vitest externalizes that package, so its own graph loads through
+// node (bypassing the `agents` mock above) and fails on the
+// `cloudflare:` scheme. That is the program-level harness gap
+// (tracker #1951; ~33 server-importing suites affected fleet-wide):
+// this file cannot run under node until the harness decision lands.
+// Deliberately NO local stub/mock of thinkAdapter is added here —
+// per coordinator HOLD direction, no per-slice workaround. The real
+// Think turn cannot run under node vitest (spike verdict) and is
+// covered by the workerd proof + think-port-mapping tests, not here.
 vi.mock("agents", () => {
   return {
     Agent: class MockAgent {
@@ -826,5 +837,107 @@ describe("TradingAgent read surface (#291 T5a)", () => {
     plain.config = () => fakeConfig;
     const err: any = await plain.getQuoteDetailed("AAPL").catch((e: any) => e);
     expect(err.code).toBe("provider_unsupported");
+  });
+});
+
+describe("TradingAgent Think turn path (#1954)", () => {
+  // Object.create instances: no constructor runs, so no Think
+  // lifecycle exists here. What IS under test: the class's own
+  // port hooks and its turn delegation seam. The real Think turn
+  // (lifecycle boot, one-shot override, hook order, model call)
+  // cannot run under node vitest (tracker #1951 spike verdict) and
+  // is foundation-owned — covered by the workerd proof and the
+  // think-port-mapping tests, not re-proven here.
+  async function hookAgent(): Promise<any> {
+    const { TradingAgent } = await import("../src/agents/trading-agent");
+    const agent: any = Object.create(TradingAgent.prototype);
+    agent.env = env;
+    agent.config = () => ({ enabledProviders: [], defaultProvider: "none", enabledServices: [] });
+    agent.getModel = () => "mock-model";
+    agent.getSystemPrompt = () => "mock system prompt";
+    agent.getTools = () => ({ mock_tool: { description: "mock" } });
+    return agent;
+  }
+
+  // No prototype-base test here: the real base is pinned by source
+  // in tests/agent-conformance.test.ts (PortThink #1954).
+
+  it("beforeTurn supplies the class's own system prompt, tools, and model", async () => {
+    const agent = await hookAgent();
+    // Hooks live in the portHooks object, never as class methods
+    // (PortThink owns those names with Think's signatures — #1954).
+    const hooks = agent.tradingTurnHooks();
+    const config: any = await hooks.beforeTurn({
+      system: "",
+      messages: [],
+      tools: {},
+      model: null,
+      continuation: false,
+    });
+    expect(config.instructions).toBe("mock system prompt");
+    expect(config.model).toBe("mock-model");
+    expect(config.tools).toEqual({ mock_tool: { description: "mock" } });
+  });
+
+  it("onChatResponse resolves with no side effect, and onChatError is a synchronous string", async () => {
+    const agent = await hookAgent();
+    const hooks = agent.tradingTurnHooks();
+    await expect(hooks.onChatResponse({ status: "completed", requestId: "r1" })).resolves.toBeUndefined();
+    const fromError = hooks.onChatError(new Error("boom"));
+    expect(typeof fromError).toBe("string");
+    expect(fromError).toBe("boom");
+    expect(fromError instanceof Promise).toBe(false);
+    expect(hooks.onChatError("raw failure")).toBe("raw failure");
+  });
+
+  it("getThinkActorPort wires portHooks and memoizes the port", async () => {
+    const agent = await hookAgent();
+    agent.ctx = {
+      storage: {
+        get: async () => undefined,
+        put: async () => {},
+        delete: async () => {},
+        sql: { exec: () => [] },
+      },
+    };
+    expect(agent.portHooks).toBeUndefined();
+    const first = agent.getThinkActorPort();
+    expect(agent.portHooks).toBeDefined();
+    expect(agent.getThinkActorPort()).toBe(first);
+    // The wired hooks delegate to the class's own methods.
+    const config: any = await agent.portHooks.beforeTurn({
+      system: "",
+      messages: [],
+      tools: {},
+      model: null,
+      continuation: false,
+    });
+    expect(config.instructions).toBe("mock system prompt");
+    expect(typeof agent.portHooks.onChatError(new Error("x"))).toBe("string");
+    await expect(agent.portHooks.onChatResponse({ status: "completed" })).resolves.toBeUndefined();
+  });
+
+  it("runThinkTurn delegates the input unchanged to the port turn and returns its result", async () => {
+    const agent = await hookAgent();
+    agent.ctx = {
+      storage: {
+        get: async () => undefined,
+        put: async () => {},
+        delete: async () => {},
+        sql: { exec: () => [] },
+      },
+    };
+    const port: any = agent.getThinkActorPort();
+    const runTurn = vi.spyOn(port.turn, "runTurn").mockResolvedValue({ status: "completed", requestId: "r1" });
+    const stringResult: any = await agent.runThinkTurn("hello");
+    expect(runTurn).toHaveBeenCalledTimes(1);
+    expect(runTurn).toHaveBeenCalledWith("hello");
+    expect(stringResult.status).toBe("completed");
+    // A configOverride input passes through untouched: the class
+    // never reshapes turns — the adapter owns the skipped path.
+    runTurn.mockClear();
+    const overrideResult: any = await agent.runThinkTurn({ configOverride: { instructions: "x" } });
+    expect(runTurn).toHaveBeenCalledWith({ configOverride: { instructions: "x" } });
+    expect(overrideResult.status).toBe("completed");
   });
 });
