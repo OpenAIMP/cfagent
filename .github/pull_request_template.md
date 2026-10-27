@@ -12,5 +12,5 @@ The full report for this PR — implementation, test evidence, change management
 ## Checklist
 - [ ] Required checks green on the current merge with `main`
 - [ ] Pins my change alters are updated in this PR (gitops §7)
-- [ ] CHANGELOG entry added (additive, under Unreleased)
+- [ ] CHANGELOG fragment added (changelog.d/, preferred) or entry added (additive, under Unreleased)
 - [ ] Linked issue's completion report updated with this PR's full report
