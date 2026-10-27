@@ -4,7 +4,7 @@
 - Date: 2026-10-27
 - Deciders: owner (direction 2026-10-27), #CAIO-quns
 - Issue: #1987
-- Implementing PR: TBD (this PR; main commit, when merged)
+- Implementing PR: #1989 (main commit, when merged)
 - Related: #1546 (D1 AgentDB, R1–R9 contract), #1976 (Drizzle repo-wide program — this ADR informs its design), #1951 (Think fleet migration — deepens the DO commitment), ADR 0002 (data foundation layer), ADR 0004 (agents on DO + Agents SDK), ADR 0005 (actor port)
 
 ## Context
