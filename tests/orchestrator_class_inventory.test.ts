@@ -137,9 +137,15 @@ const ORCH = "agents/orchestrator.ts";
  *  global-env level; the switch itself lives in
  *  src/config/restTwinsModes.ts, the class gains no logic) —
  *  measured 2,431 lines / 111,643 B after the addition, so
- *  budget lines rise to 2440 and bytes keep 112_000. */
-const BUDGET_LINES = 2440;
-const BUDGET_BYTES = 112_000;
+ *  budget lines rise to 2440 and bytes keep 112_000.
+ *  Payments re-scope (#1735, parent #1717 slice (o)) adds the
+ *  scopedPaymentsFlowModes carrier field + its import + the
+ *  payments-routes call-site passthrough (the switch itself lives
+ *  in src/config/paymentsFlowModes.ts, the class gains no logic) —
+ *  measured 2,447 lines / 112,495 B after the addition, so
+ *  budget lines rise to 2450 and bytes rise to 113_000. */
+const BUDGET_LINES = 2450;
+const BUDGET_BYTES = 113_000;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;
