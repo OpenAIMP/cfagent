@@ -76,6 +76,43 @@ export const DEFAULT_SCHEDULES: ScheduledGoal[] = [
     budgetCents: 1,
     enabled: false,
   },
+  {
+    // #1819 rollup slice: resource measurement goals. Canonical
+    // definitions: fresh deployments seed from here; the running
+    // deployment needs operator dashboard-API adds (see the rollup
+    // doc). All timeZone "UTC" explicitly — the rollup day is the UTC
+    // calendar day (Cloudflare D1 midnight-UTC reset; DO metering
+    // matches D1). Rollup 01:30 UTC = 90-minute buffer after midnight
+    // for in-flight writes; comparison 02:00 UTC = after the rollup;
+    // alert hourly. The alert goal never stamps lastRun by design
+    // (isDue's 23h guard would suppress hourly evaluation) — dedup
+    // lives in alert state per (budget, day).
+    id: "resource-daily-rollup",
+    name: "SessionStore daily resource rollup",
+    cron: "30 1 * * *",
+    operation: "resource.rollup_daily",
+    budgetCents: 1,
+    enabled: true,
+    timeZone: "UTC",
+  },
+  {
+    id: "resource-cap-alert",
+    name: "SessionStore 70% cap alert",
+    cron: "0 * * * *",
+    operation: "resource.cap_alert",
+    budgetCents: 1,
+    enabled: true,
+    timeZone: "UTC",
+  },
+  {
+    id: "resource-dashboard-comparison",
+    name: "SessionStore dashboard comparison",
+    cron: "0 2 * * *",
+    operation: "resource.dashboard_comparison",
+    budgetCents: 1,
+    enabled: true,
+    timeZone: "UTC",
+  },
 ];
 
 /** Weekday convention: 0 = Sunday … 6 = Saturday (JS Date convention). */

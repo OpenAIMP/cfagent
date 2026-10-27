@@ -110,6 +110,20 @@ export const OPERATION_CATALOG: CatalogEntry[] = [
     blurb:
       "Build the day's social drafts and publish them under the channel gating (issue #1077); pipeline:social-daily runs feed → generate → deliver as one scheduled firing (issue #1224).",
   },
+  {
+    // #1819 rollup slice: resource.* operations are NOT orchestrator
+    // jobs. ScheduledAgent executes them directly through the resource
+    // goal handlers (the social.publish precedent); the catalog entry
+    // exists so addGoal accepts the operations and the dashboard can
+    // list them. Per-op emission stays in-path (buffered AE write);
+    // these goals only READ the D1 projection — they never route
+    // measurement through the job system.
+    agent: "resource",
+    binding: "SCHEDULED_AGENT",
+    operations: ["resource.rollup_daily", "resource.cap_alert", "resource.dashboard_comparison"],
+    blurb:
+      "SessionStore resource rollup, cap alert, and dashboard comparison (issue #1819): daily UTC rollup, hourly 70%-of-cap alert, and the instrumented-vs-dashboard comparison report, all as ScheduledAgent goals.",
+  },
 ];
 
 export function catalogAgent(agent: string): CatalogEntry | undefined {
