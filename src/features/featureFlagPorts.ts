@@ -19,7 +19,8 @@ export type FeatureFlag =
   | "social_publishing"
   | "nlq"
   | "payments"
-  | "schedules";
+  | "schedules"
+  | "enrichment_alpaca";
 
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   "screener",
@@ -31,6 +32,10 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   "nlq",
   "payments",
   "schedules",
+  // Issue #1888: Alpaca enrichment selector. Default off (fail-closed)
+  // means Yahoo enrichment is active; flipping this flag on selects
+  // Alpaca-primary-with-Yahoo-fallback with no code change.
+  "enrichment_alpaca",
 ] as const;
 
 const KNOWN_FLAGS = new Set<string>(ALL_FEATURE_FLAGS);

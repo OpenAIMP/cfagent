@@ -158,7 +158,10 @@ export async function handleFossQuoteResearchRoutes(
   // provider input — service default — small envelope, audit
   // foss.bars.fetched); rest = this route's legacy (explicit
   // provider default yfinance, fuller envelope, no audit).
-  if (path.endsWith("/foss/bars") && request.method === "GET") {
+  // Issue #1888: the bars route's canonical path is now
+  // /market-data/bars; the legacy /foss/bars path is retained as a
+  // backwards-compatible alias (same handler, same response).
+  if ((path.endsWith("/market-data/bars") || path.endsWith("/foss/bars")) && request.method === "GET") {
     try {
       const barsMode = resolveFossRestSwitch(fossSwitchHost(ctx), "bars", url.searchParams.get("mode"), "rest");
       const symbol = barsMode === "mcp" ? (url.searchParams.get("symbol") || "") : (url.searchParams.get("symbol") || "NVDA");
