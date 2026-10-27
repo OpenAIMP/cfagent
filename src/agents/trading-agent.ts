@@ -51,6 +51,10 @@ import {
   isTradingServiceEnabled,
   type TradingAgentConfig,
 } from "../config/tradingAgentConfig";
+import {
+  AGENT_ERROR_CATALOG,
+  AgentErrorCode,
+} from "../aspects/errorCodes";
 
 // ---------------------------------------------------------------------------
 // Stable error tokens (cfpay convention, #291 A3): failures on the A2A and
@@ -69,6 +73,48 @@ export type TradingErrorToken =
   | "provider_unsupported"
   | "invalid_input"
   | "internal_error";
+
+/**
+ * Issue #1763 (scan row F-60) — stable error tokens from the EXISTING
+ * AGENT_ERROR_CATALOG, carried on A2ADataResult as `errorToken`
+ * alongside the existing trading `code`. Consumers judge failures
+ * by token, not prose: `code` keeps the precise trading failure
+ * class (backward compatible, #291 A3), `errorToken` is the
+ * catalog token (ERR_*) whose catalog entry supplies the stable
+ * title/remediation/httpStatus. No new taxonomy is invented here;
+ * every value below is a key of AGENT_ERROR_CATALOG (pinned by
+ * test), and an unmapped future token falls back to
+ * ERR_UNKNOWN_AGENT_ERROR, never to free text.
+ *
+ * Mapping rationale (nearest catalog class, not a 1:1 claim):
+ * - unknown/missing operation or service → the request named
+ *   something the agent does not know (ERR_UNKNOWN_AGENT_ERROR).
+ * - disabled / not-enabled / not-registered / unsupported provider
+ *   → the execution itself could not run (ERR_TOOL_EXECUTION_FAILED).
+ * - invalid_input → the caller's input failed validation; the
+ *   catalog has no validation class, so it maps to the generic
+ *   unknown-agent fallback and the precise class stays in `code`.
+ * - internal_error → execution failed (ERR_TOOL_EXECUTION_FAILED).
+ */
+export const TRADING_ERROR_CATALOG_CODES: Record<TradingErrorToken, AgentErrorCode> = {
+  unknown_service: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+  unknown_operation: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+  missing_operation: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+  service_disabled: AgentErrorCode.TOOL_EXECUTION_FAILED,
+  provider_not_enabled: AgentErrorCode.TOOL_EXECUTION_FAILED,
+  provider_not_registered: AgentErrorCode.TOOL_EXECUTION_FAILED,
+  provider_unsupported: AgentErrorCode.TOOL_EXECUTION_FAILED,
+  invalid_input: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+  internal_error: AgentErrorCode.TOOL_EXECUTION_FAILED,
+};
+
+/** Resolve a trading error token to its AGENT_ERROR_CATALOG token. */
+export function tradingErrorCatalogCode(token: TradingErrorToken): AgentErrorCode {
+  const code = TRADING_ERROR_CATALOG_CODES[token] ?? AgentErrorCode.UNKNOWN_AGENT_ERROR;
+  // Defensive: the catalog is the authority; never emit a token it
+  // does not define.
+  return AGENT_ERROR_CATALOG[code] ? code : AgentErrorCode.UNKNOWN_AGENT_ERROR;
+}
 
 export class TradingServiceError extends Error {
   readonly code: TradingErrorToken;
@@ -542,7 +588,7 @@ export function buildTradingTools(env: Env, config: TradingAgentConfig, userLogi
           return JSON.stringify({ ok: true, service: service.id, result });
         } catch (err) {
           const { code, message } = classifyTradingError(err);
-          return JSON.stringify({ ok: false, service: service.id, code, error: message });
+          return JSON.stringify({ ok: false, service: service.id, code, errorToken: tradingErrorCatalogCode(code), error: message });
         }
       },
     });
@@ -585,6 +631,14 @@ export interface A2ADataResult {
   service?: string;
   /** Stable error token (#291 A3) when ok is false. */
   code?: TradingErrorToken;
+  /**
+   * Stable catalog token (#1763, F-60) when ok is false: a key of
+   * AGENT_ERROR_CATALOG (src/aspects/errorCodes.ts), resolved from
+   * `code` by tradingErrorCatalogCode. `error` prose is retained
+   * only for the mandatory human-readable text part — machines
+   * must judge by `code` + `errorToken`, never by prose.
+   */
+  errorToken?: AgentErrorCode;
   correlationId?: string;
   result?: unknown;
   error?: string;
@@ -607,6 +661,7 @@ export async function dispatchTradingA2A(
     return {
       ok: false,
       code: "missing_operation",
+      errorToken: tradingErrorCatalogCode("missing_operation"),
       correlationId,
       error: "No A2A operation found in the request body.",
     };
@@ -617,6 +672,7 @@ export async function dispatchTradingA2A(
       ok: false,
       operation: extracted.operation,
       code: "unknown_operation",
+      errorToken: tradingErrorCatalogCode("unknown_operation"),
       correlationId,
       error: `Unknown operation: "${extracted.operation}".`,
     };
@@ -639,6 +695,7 @@ export async function dispatchTradingA2A(
       operation: extracted.operation,
       service: service.id,
       code,
+      errorToken: tradingErrorCatalogCode(code),
       correlationId,
       error: message,
     };
