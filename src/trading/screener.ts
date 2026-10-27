@@ -39,7 +39,7 @@ export function inferSectorFromCompanyName(name: string): string | undefined {
   return undefined;
 }
 
-export function resolveStockSector(symbol: string, companyName?: string, rawSector?: string): string {
+export function resolveStockSector(symbol: string, companyName?: string, rawSector?: string): string | undefined {
   if (rawSector && rawSector.toLowerCase() !== "equities" && rawSector.toLowerCase() !== "unknown" && rawSector.trim() !== "") {
     return rawSector;
   }
@@ -48,7 +48,7 @@ export function resolveStockSector(symbol: string, companyName?: string, rawSect
   if (curated?.sector) return curated.sector;
   const inferred = inferSectorFromCompanyName(companyName || symbol);
   if (inferred) return inferred;
-  return rawSector || "Equities";
+  return undefined;
 }
 
 export function calculateDynamicRsi(
@@ -251,6 +251,8 @@ export class DynamicMarketScreener implements IMarketScreener {
         const sec = filter.sector.toLowerCase().trim();
         const effectiveSector = resolveStockSector(stock.symbol, stock.companyName, stock.sector);
         stock.sector = effectiveSector;
+        // Issue #950: no sector data means no sector verdict — pass, never reject.
+        if (effectiveSector) {
         const itemSec = effectiveSector.toLowerCase().trim();
         const sectorMatches =
           (sec === "semiconductors")
@@ -276,6 +278,7 @@ export class DynamicMarketScreener implements IMarketScreener {
             changePercent: stock.changePercent,
           });
           continue;
+        }
         }
       }
 

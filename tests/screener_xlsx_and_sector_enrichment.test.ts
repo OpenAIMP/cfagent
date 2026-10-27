@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateScreenerXlsx, parseScreenerXlsx } from "../src/trading/screenerReportXlsx";
-import { resolveStockSector } from "../src/trading/screener";
+import { DynamicMarketScreener, resolveStockSector } from "../src/trading/screener";
+import type { ScreenedStockItem } from "../src/types";
 import type { ScreenerRunResult } from "../src/agents/screener-agent";
 import * as XLSX from "@e965/xlsx";
 
@@ -155,5 +156,51 @@ describe("Sector Resolution and Enrichment", () => {
 
   it("preserves explicit non-Equities sector", () => {
     expect(resolveStockSector("XYZ", "XYZ Corp", "Energy")).toBe("Energy");
+  });
+});
+
+function makeItem950(overrides: Partial<ScreenedStockItem> = {}): ScreenedStockItem {
+  return {
+    symbol: "TEST",
+    companyName: "Test Co",
+    lastPrice: 100,
+    price: 100,
+    change: 1,
+    changePercent: 1,
+    bid: 99,
+    ask: 101,
+    volume: 1_000_000,
+    open: 99,
+    high: 101,
+    low: 98,
+    timestamp: "2026-10-26T00:00:00.000Z",
+    macdSignal: "MACD unavailable from listing feed",
+    signal: "RANGE_BOUND",
+    technicalSignal: "RSI neutral",
+    momentumScore: 50,
+    highlightReason: "Test Co market listing",
+    ...overrides,
+  } as ScreenedStockItem;
+}
+
+describe("Sector filter with missing sector data (#950)", () => {
+  it("resolveStockSector returns undefined when sector is unresolvable, never the fake Equities", () => {
+    expect(resolveStockSector("ZZQ", "Zzq Widgets LLC", undefined)).toBeUndefined();
+    expect(resolveStockSector("ZZQ", "Zzq Widgets LLC", "Equities")).toBeUndefined();
+  });
+
+  it("sector filter passes stocks with no sector data instead of rejecting them", () => {
+    const items = [
+      makeItem950({ symbol: "ZZQ", companyName: "Zzq Widgets LLC", sector: undefined }),
+      makeItem950({ symbol: "HEALX", companyName: "Healx Corp", sector: "Healthcare" }),
+      makeItem950({ symbol: "TECHX", companyName: "Techx Corp", sector: "Technology" }),
+    ];
+    const result = new DynamicMarketScreener(items).screenStocks({ sector: "Technology" } as never);
+    const passed = result.stocks.map((s) => s.symbol);
+    expect(passed).toContain("ZZQ");
+    expect(passed).toContain("TECHX");
+    expect(passed).not.toContain("HEALX");
+    expect(result.ledger.rejections.find((r) => r.symbol === "ZZQ")).toBeUndefined();
+    expect(result.ledger.rejections.find((r) => r.symbol === "HEALX")?.reason).toMatch(/does not match requested/);
   });
 });

@@ -514,7 +514,7 @@ describe("NLQ fit-discovery phrases (Phase 6, deferred from Phase 2)", () => {
   });
 
   it("control phrases keep their existing routes (no hijack)", () => {
-    expect(parseOptionsStrategyIntent("discover setups")?.action).toBe("options_discovery");
+    expect(parseOptionsStrategyIntent("discover setups")?.action).toBe("options_fit_discovery");
     expect(parseOptionsStrategyIntent("What strategies fit my watchlist?")?.action).not.toBe("options_fit_discovery");
     const best = parseOptionsStrategyIntent("best trade for NVDA");
     expect(best?.action).not.toBe("options_fit_discovery");

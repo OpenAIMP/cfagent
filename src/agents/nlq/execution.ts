@@ -1745,7 +1745,7 @@ async function executeNLQQueryAsyncCore(
       };
     }
 
-    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities" || action === "options_discovery" || action === "options_fit_discovery" || action === "options_comparison") {
+    if (action === "options_strategies" || action === "options_best_trade" || action === "options_opportunities" || action === "options_fit_discovery" || action === "options_comparison") {
       const res = await runOptionsStrategyAction(etrade, action, plan.tradingData?.filters as OptionsStrategyIntent["filters"] | undefined, {
         scanRunStore: deps?.scanRunStore,
         profileStore: deps?.profileStore,
@@ -1764,7 +1764,7 @@ async function executeNLQQueryAsyncCore(
       return {
         plan,
         domain: "trading",
-        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : action === "options_discovery" ? "etrade_options_discovery" : action === "options_fit_discovery" ? "etrade_options_fit_discovery" : action === "options_comparison" ? "etrade_options_comparison" : "etrade_options_strategies",
+        targetTable: action === "options_best_trade" ? "etrade_options_best_trade" : action === "options_opportunities" ? "etrade_options_opportunities" : action === "options_fit_discovery" ? "etrade_options_fit_discovery" : action === "options_comparison" ? "etrade_options_comparison" : "etrade_options_strategies",
         count: res.count,
         status: res.status,
         summary: res.summary,
@@ -1776,7 +1776,8 @@ async function executeNLQQueryAsyncCore(
         // scans only; undefined everywhere else).
         scanRunId: res.scanRunId,
         // Issue #14: surface the persisted discovery run id
-        // (options_discovery only; undefined everywhere else).
+        // (the unified options_fit_discovery action's scope leg
+        // only; undefined everywhere else).
         discoveryRunId: res.discoveryRunId,
         persisted: res.persisted,
         // Issue #28: surface the applied profile's provenance stamp.

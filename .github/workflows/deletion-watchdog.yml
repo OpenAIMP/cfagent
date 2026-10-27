@@ -56,8 +56,5 @@ jobs:
           SHORT_SHA=$(echo "$SHA" | cut -c1-7)
           COUNT=$(echo "$DELETED" | grep -c .)
           LIST=$(echo "$DELETED" | sed 's/^/- /')
-          BODY="Deletion watchdog (issue #1894): push $SHORT_SHA deleted $COUNT file(s). Deletions are prohibited by Policy Gate check (i) — this push bypassed the gate, was a direct push, or the gate failed. A human repair decision is required; this workflow never reverts on its own.
-
-Deleted files:
-$LIST"
+          BODY=$(printf '%s\n\nDeleted files:\n%s' "Deletion watchdog (issue #1894): push $SHORT_SHA deleted $COUNT file(s). Deletions are prohibited by Policy Gate check (i) — this push bypassed the gate, was a direct push, or the gate failed. A human repair decision is required; this workflow never reverts on its own." "$LIST")
           gh api "repos/$GITHUB_REPOSITORY/issues" -f title="[watchdog] File deletion(s) on main: $SHORT_SHA" -f body="$BODY" --jq '.html_url'

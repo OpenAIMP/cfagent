@@ -57,8 +57,10 @@
  * | MCP direct   | ports NO, stores NO, runners NO,       | identical (legacy verbatim)|
  * |              | LLM fn YES                             |                          |
  * Discovery/fit without runners (verified on current main, closing the
- * scan's untraced item): options_discovery → "Discovery isn't wired
- * in this context."; options_fit_discovery → "Fit discovery isn't
+ * scan's untraced item; issue #1918 unified the two actions):
+ * the unified options_fit_discovery action's scope leg without a
+ * discovery runner → "Discovery isn't wired in this context.";
+ * its fit leg without a fit runner → "Fit discovery isn't
  * available in this context — the Name↔Strategy discovery runner
  * (Phase 2 of epic #1096) is not wired here." (nlqOptionsStrategy).
  * Scheduling without a port: "Scheduling (…) unavailable: no live

@@ -132,7 +132,7 @@ function stockToRow(stock: Row): string[] {
   return [
     cell(stock.symbol),
     cell(stock.companyName || stock.symbol),
-    cell(stock.sector || "Equities"),
+    cell(stock.sector || "Unknown"),
     num2(stock.lastPrice),
     num2(stock.changePercent),
     cell(gapVal),
