@@ -96,27 +96,27 @@ describe("live routes on one weights system (#1640 §3)", () => {
     }
   });
 
-  it("the only v1 symbols routes import are the pure helpers", () => {
-    const imports = [...screenerResearch.matchAll(/import\("..\/..\/services\/strategyWeights"\)/g)];
-    expect(imports.length).toBeGreaterThan(0);
-    const allowed = new Set(["buildWeightPolicyEvaluation", "isoWeekKey", "WEIGHTS_LAST_RUN_WEEK_KEY"]);
-    for (const m of screenerResearch.matchAll(
-      /const \{ ([^}]*) \} = await import\("..\/..\/services\/strategyWeights"\)/g
-    )) {
-      for (const name of m[1].split(",").map((s) => s.trim()).filter(Boolean)) {
-        expect(allowed.has(name), `unexpected v1 import in routes: ${name}`).toBe(true);
-      }
+  it("no route imports v1 strategyWeights; the moved helpers come from v2", () => {
+    // The v1 path ends with a quote; the v2 path (strategyWeightsV2)
+    // must not trip this pin.
+    expect(screenerResearch).not.toMatch(/services\/strategyWeights"/);
+    const v2Names = new Set(
+      [...screenerResearch.matchAll(/const \{ ([^}]*) \} = await import\("..\/..\/services\/strategyWeightsV2"\)/g)]
+        .flatMap((m) => m[1].split(",").map((s) => s.trim()).filter(Boolean))
+    );
+    for (const name of ["buildWeightPolicyEvaluation", "isoWeekKey", "WEIGHTS_LAST_RUN_WEEK_KEY"]) {
+      expect(v2Names.has(name), `moved helper ${name} must be imported from v2`).toBe(true);
     }
   });
 });
 
 describe("promotion through championChallenger (#1640 §4)", () => {
-  it("routes promote/approve through the challenger gate, stagedPromotion only drains", () => {
+  it("routes promote/approve through the challenger gate; staged drain is retired", () => {
     for (const name of ["promoteChallenger", "recordChallengerApproval", "rollbackChallengerPromotion"]) {
       expect(screenerResearch).toContain(name);
     }
-    expect(screenerResearch).toContain("advancePromotion");
-    expect(screenerResearch).toContain("listActivePromotions");
+    expect(screenerResearch).not.toContain("advancePromotion");
+    expect(screenerResearch).not.toContain("listActivePromotions");
     expect(screenerResearch).not.toContain("startPromotion(");
   });
 });

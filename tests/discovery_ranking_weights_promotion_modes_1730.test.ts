@@ -62,11 +62,7 @@ import {
 import {
   STRATEGY_WEIGHT_BOUNDS,
   buildWeightPolicyEvaluation,
-  getStrategyWeights,
-  runStrategyWeightAdjustment,
   WEIGHT_ADAPTATION_ACTOR,
-} from "../src/services/strategyWeights";
-import {
   getStrategyWeightsV2,
   getStrategyWeightsV2Collapsed,
   getStrategyWeightsV2ForRegime,
@@ -74,11 +70,8 @@ import {
   WEIGHTS_V2_ACTOR,
   WEIGHTS_V2_DEFAULTS,
 } from "../src/services/strategyWeightsV2";
-import * as stagedPromotion from "../src/services/stagedPromotion";
 import * as championChallenger from "../src/services/championChallenger";
 import * as proposalChallengerBridge from "../src/services/proposalChallengerBridge";
-import * as candidateEvaluation from "../src/services/candidateEvaluation";
-import * as promotionGate from "../src/services/promotionGate";
 import * as recommendationBundle from "../src/services/recommendationBundle";
 import * as kernelDiscoveryMapping from "../src/services/kernelDiscoveryMapping";
 import * as panelPipeline from "../src/trading/options/panelPipeline";
@@ -87,8 +80,12 @@ import { evaluateFitGate } from "../src/trading/options/opportunityScanner";
 import type { BestTradePick, RankedStrategy } from "../src/trading/options/recommendationAgent";
 import type { PipelineResult } from "../src/trading/options/panelPipeline";
 import type { StrategyCandidate, StrategyRequest } from "../src/trading/options/strategyEngine";
-import type { ImprovementCandidate } from "../src/services/improvementCandidates";
-import type { TrackRecord, TrackRecordIdea } from "../src/services/researchTrackRecord";
+
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /* ------------------------------------------------------------------ */
 /* Registry                                                            */
@@ -383,11 +380,11 @@ describe("D4 LLM overlay", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* W1 — v1 dormant, v2 live, bounds shared, drain still reads v1       */
+/* W1 — v1 retired, v2 live, bounds moved into v2       */
 /* ------------------------------------------------------------------ */
 
 describe("W1 weights v1 vs v2", () => {
-  it("v2 reuses the v1 bounds verbatim (no second bounds regime) plus its own decay half-life", () => {
+  it("v2 owns the bounds (moved verbatim from v1 in the #1257 retirement) plus its own decay half-life", () => {
     expect(WEIGHTS_V2_DEFAULTS.min).toBe(STRATEGY_WEIGHT_BOUNDS.min);
     expect(WEIGHTS_V2_DEFAULTS.max).toBe(STRATEGY_WEIGHT_BOUNDS.max);
     expect(WEIGHTS_V2_DEFAULTS.maxStep).toBe(STRATEGY_WEIGHT_BOUNDS.maxStep);
@@ -399,9 +396,7 @@ describe("W1 weights v1 vs v2", () => {
     expect(STRATEGY_WEIGHT_BOUNDS.max).toBe(2.0);
   });
 
-  it("the v1 adjustment, the v1 read, and the GET evaluation builder all still exist — retirement unwinds them, it does not delete them here", () => {
-    expect(typeof runStrategyWeightAdjustment).toBe("function");
-    expect(typeof getStrategyWeights).toBe("function");
+  it("the v1 adjustment job and read are retired; the GET evaluation builder, bounds, and actor live in v2", () => {
     expect(typeof buildWeightPolicyEvaluation).toBe("function");
     expect(WEIGHT_ADAPTATION_ACTOR).toBe("strategy-weight-job");
     expect(WEIGHTS_V2_ACTOR).toBe("strategy-weight-v2-job");
@@ -442,19 +437,16 @@ describe("W2 v2 reads", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* P1 — two promotion record stores, two GET shapes, bridge is a seam  */
+/* P1 — challenger only; staged retired, bridge is a seam  */
 /* ------------------------------------------------------------------ */
 
 describe("P1 promotion", () => {
-  it("challenger and staged promotion APIs are distinct modules with distinct list functions", () => {
+  it("challenger is the only promotion engine; staged promotion is retired", () => {
     expect(typeof championChallenger.listPromotionRecords).toBe("function");
     expect(typeof championChallenger.promoteChallenger).toBe("function");
     expect(typeof championChallenger.rollbackChallengerPromotion).toBe("function");
     expect(typeof championChallenger.evaluateChallenger).toBe("function");
-    expect(typeof stagedPromotion.listActivePromotions).toBe("function");
-    expect(typeof stagedPromotion.startPromotion).toBe("function");
-    expect(typeof stagedPromotion.advancePromotion).toBe("function");
-    expect(championChallenger.listPromotionRecords).not.toBe(stagedPromotion.listActivePromotions);
+    expect(existsSync(path.join(ROOT, "src/services/stagedPromotion.ts"))).toBe(false);
   });
 
   it("the proposal→challenger bridge is a migration seam, not a third promotion engine", () => {
@@ -469,92 +461,9 @@ describe("P1 promotion", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* P2 — four evaluate functions, four methods, one namesake            */
+/* P2 — challenger evaluation only; dormant engines retired, one namesake            */
 /* ------------------------------------------------------------------ */
 
-function trackIdea(structure: string, win: boolean, createdAt: string, n: number): TrackRecordIdea {
-  return {
-    runId: `run_${createdAt.slice(0, 7)}_${n}`,
-    runCreatedAt: createdAt,
-    symbol: `SYM${n}`,
-    structure,
-    outlook: "bullish",
-    thesis: "t",
-    invalidation: "",
-    entrySpot: 100,
-    evaluation: {
-      evaluatedAt: createdAt,
-      invalidated: false,
-      pnlEstimatePerUnit: win ? 1 : -1,
-      rMultiple: null,
-      evalSpot: 101,
-      directionCorrect: win,
-      notes: [],
-    },
-  } as unknown as TrackRecordIdea;
-}
-
-describe("P2 candidate evaluation", () => {
-  it("the four evaluate functions are four distinct exports — and the bundle namesake is module-private", () => {
-    expect(typeof championChallenger.evaluateChallenger).toBe("function");
-    expect(typeof candidateEvaluation.evaluateCandidate).toBe("function");
-    expect(typeof candidateEvaluation.replayCandidate).toBe("function");
-    expect(typeof promotionGate.runPromotionGate).toBe("function");
-    expect(typeof promotionGate.twoProportionZTest).toBe("function");
-    expect(promotionGate.GATE_POLICY.alpha).toBe(0.05);
-    expect(promotionGate.GATE_POLICY.minHeldOutSample).toBe(20);
-    // The bundle's evaluateCandidate is NOT importable: same name,
-    // different domain, must never be merged into (a)/(b)/(c).
-    expect("evaluateCandidate" in recommendationBundle).toBe(false);
-    expect(candidateEvaluation.evaluateCandidate).not.toBe(
-      (recommendationBundle as Record<string, unknown>).evaluateCandidate,
-    );
-  });
-
-  it("window replay (b) is pure and window-bounded: out-of-window ideas never count", () => {
-    const ideas = [
-      trackIdea("Weak", true, "2026-09-05T00:00:00.000Z", 1),
-      trackIdea("Weak", true, "2026-09-05T00:00:00.000Z", 2),
-      trackIdea("Weak", false, "2026-09-05T00:00:00.000Z", 3),
-      trackIdea("Weak", false, "2026-09-05T00:00:00.000Z", 4),
-      trackIdea("Fine", true, "2026-09-06T00:00:00.000Z", 5),
-      trackIdea("Fine", true, "2026-09-06T00:00:00.000Z", 6),
-      trackIdea("Fine", true, "2026-09-06T00:00:00.000Z", 7),
-      trackIdea("Fine", false, "2026-09-06T00:00:00.000Z", 8),
-      // Out of window: must not count toward sample, baseline, or candidate metric.
-      trackIdea("Weak", false, "2026-08-01T00:00:00.000Z", 9),
-      trackIdea("Fine", true, "2026-10-01T00:00:00.000Z", 10),
-    ];
-    const track = {
-      published: 10,
-      evaluated: 10,
-      invalidated: 0,
-      winRate: 0.5,
-      directionAccuracy: null,
-      avgPnlPerUnit: null,
-      avgRMultiple: null,
-      byStrategy: [],
-      byPeriod: [],
-      ideas,
-    } as unknown as TrackRecord;
-    const candidate = {
-      id: "cand-1",
-      target: "strategy-gate:Weak",
-      change: { action: "disable-strategy" },
-      status: "queued",
-    } as unknown as ImprovementCandidate;
-    const report = candidateEvaluation.replayCandidate(candidate, track, {
-      window: { from: "2026-09-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" },
-    });
-    expect(report.method).toBe("counterfactual-replay");
-    expect(report.sampleSize).toBe(8);
-    expect(report.baselineMetric).toBeCloseTo(5 / 8);
-    expect(report.candidateMetric).toBeCloseTo(3 / 4);
-    expect(report.delta).toBeCloseTo(3 / 4 - 5 / 8);
-  });
-});
-
-/* ------------------------------------------------------------------ */
 /* D2 / DF / S3 — identical: layer, adapter, delegation                */
 /* ------------------------------------------------------------------ */
 

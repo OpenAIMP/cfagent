@@ -285,23 +285,13 @@ describe("challenger-backed /adaptation/* routes", () => {
     expect(listed.candidates[0].status).toBe("rolled_back");
   });
 
-  it("POST promotions/start is refused: staged promotions are retired", async () => {
-    const { ctx, sql } = routeCtx();
-    seedChallenger(sql);
-    const { data } = await call(ctx, "POST", "/api/adaptation/promotions/start", { candidateId: "chl-1" });
-    expect(data.success).toBe(false);
-    expect(data.reason).toMatch(/retired/i);
+  it("POST promotions/start is gone: staged promotions are retired", async () => {
+    const { ctx } = routeCtx();
+    await expect(call(ctx, "POST", "/api/adaptation/promotions/start", { candidateId: "chl-1" })).rejects.toThrow("no route matched");
   });
 
-  it("GET promotions/active lists only in-flight staged promotions (drain visibility)", async () => {
-    const { ctx, sql } = routeCtx();
-    tables(sql).set("mas_promotions", [
-      { id: "sp-1", candidate_id: "cand-a", stage: "shadow", stage_started_at: NOW.toISOString(), baseline_json: "{}", applied_json: "{}", last_check_json: null, created_at: NOW.toISOString() },
-      { id: "sp-2", candidate_id: "cand-b", stage: "partial", stage_started_at: NOW.toISOString(), baseline_json: "{}", applied_json: "{}", last_check_json: null, created_at: NOW.toISOString() },
-      { id: "sp-3", candidate_id: "cand-c", stage: "completed", stage_started_at: NOW.toISOString(), baseline_json: "{}", applied_json: "{}", last_check_json: null, created_at: NOW.toISOString() },
-      { id: "sp-4", candidate_id: "cand-d", stage: "rolled_back", stage_started_at: NOW.toISOString(), baseline_json: "{}", applied_json: "{}", last_check_json: null, created_at: NOW.toISOString() },
-    ]);
-    const { data } = await call(ctx, "GET", "/api/adaptation/promotions/active");
-    expect(data.promotions.map((p: any) => p.id).sort()).toEqual(["sp-1", "sp-2"]);
+  it("GET promotions/active is gone: staged drain visibility retired", async () => {
+    const { ctx } = routeCtx();
+    await expect(call(ctx, "GET", "/api/adaptation/promotions/active")).rejects.toThrow("no route matched");
   });
 });
