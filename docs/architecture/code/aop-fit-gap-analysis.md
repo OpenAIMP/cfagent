@@ -329,4 +329,26 @@ To resolve all identified gaps, eliminate code scattering, and elevate `cfagent`
 | **Overall Platform Score** | **69.3 / 100** | **Fully Compliant Agentic SaaS Architecture** | **93.5 / 100** |
 
 ---
+## Addendum (2026-10-27): failure/success codes and messages as a cross-cutting concern
+
+This addendum records the 2026-10-27 program that extends §1 Q1 and §5 Phases 1 + 4. It does not revise the audit scores above; it names the next program the audit implies.
+
+### The worked example (2026-10-27 morning cluster)
+- AUTH_003 (scheduled guard: no stored token) and SCREEN_003 (options scan discarded on the subrequest budget) ARE cataloged in `src/errors/errorCatalog.json` with businessMessage, category, retryable, and httpStatus — yet the same codes surfaced different hand-written texts per channel (Slack alert vs UI banner vs audit), success/outcome strings had no catalog at all, and audit payloads could not be read back through the audit API or the explorer. The catalog existed; single-source rendering and usable captures did not.
+- Failure-point lineage: OpenAIMP/cfagent#1965 (identity) + PR #1966, #1967 (manual-path budget), #1968 (audit read path), #1969 (this program). Prior art: #1785 (scheduled-only sharding), #1527 (Yahoo fallback).
+
+### Principle
+Any information that is captured must be usable. A captured record without its code, its message, and its structured payload fields retrievable through the read path is a defect, not a record.
+
+### Program (OpenAIMP/cfagent#1969, screener-first)
+1. Catalog-first rendering: every emission of a cataloged code renders its message FROM the catalog in every channel (Slack, UI, audit, email) — no hand-written variant per channel.
+2. Success/outcome catalog: run completed, fallback taken, partial published, discarded, blocked-quiet and siblings get catalog entries with the same fields as failure codes.
+3. Aspect-emitted captures: the audit aspect emits coded outcomes with code + message + structured payload fields automatically; manual hand-built audit payloads retire as the aspects land. The fixed audit read path (#1968) is the consumer that proves usability.
+4. Anti-drift: CI fails PRs that add raw throws or hand-written variant messages in domain packages (§5 Phase 4 action 3), so the catalog cannot silently re-scatter.
+
+### Acceptance
+A future incident's audit record answers "which code, what happened, for which login" from the record alone — no live test needed to learn it. That is the usability test for this program.
+
+---
+
 *End of Aspect-Oriented Programming (AOP) Fit/Gap Analysis & Remediation Document.*
