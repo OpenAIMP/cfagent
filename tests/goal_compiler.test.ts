@@ -305,6 +305,11 @@ describe("goal compiler (#1441) — waves and planner prompt on the existing pat
     // renamed; the marker rides the same precedent as the social
     // entry (a goals-list-valid operation handled by its own agent
     // branch, listed in the planner prompt like social.publish).
+    // #1819 rollup slice amends this pin: the catalog gains exactly
+    // one entry, the ScheduledAgent-owned `resource` marker for the
+    // rollup/alert/comparison goals — same precedent as social and
+    // chain (goals-list-valid operations handled by their own agent
+    // branch, not orchestrator jobs).
     expect(OPERATION_CATALOG.map((e) => e.agent)).toEqual([
       "search",
       "payments",
@@ -315,6 +320,7 @@ describe("goal compiler (#1441) — waves and planner prompt on the existing pat
       "trading",
       "scheduled",
       "social",
+      "resource",
     ]);
   });
 });

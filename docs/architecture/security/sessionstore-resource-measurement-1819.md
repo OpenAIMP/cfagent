@@ -17,6 +17,16 @@ cut reads at the named source. Paid plan only as a decided fallback, never
 the default. No fix, no production switch change, no paid-plan decision in
 this slice.
 
+**Update 2026-10-27 (rollup slice, separate PR):** the daily rollup,
+hourly 70% cap alert, and dashboard-comparison report now run as
+ScheduledAgent goals on the existing */30 tick, reading the D1
+projection this slice writes (fan-out enabled for the auth path with
+`withProjection: true`). See
+`sessionstore-resource-rollup-alert-1819.md`. Nothing in the inventory
+or verdicts below is rewritten by that slice; the comparison procedure
+in §5 is now executed by the comparison goal, with dashboard data
+still owner-supplied.
+
 ## 1. Inventory headline
 
 **Top SessionStore source, with numbers: wired `requireAuth` fresh reads —

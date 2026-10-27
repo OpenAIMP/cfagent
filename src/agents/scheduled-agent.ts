@@ -37,6 +37,12 @@ import {
 } from "./social/pipeline";
 import { executeSocialGoal, priorDates } from "./social/goalExecutor";
 import {
+  runResourceCapAlert,
+  runResourceComparison,
+  runResourceRollup,
+} from "./resourceGoals";
+import type { ResourceD1Db } from "../telemetry/d1ResourceUsageAdapter";
+import {
   deliverPendingApprovals,
   fetchSlackPost,
   type SlackPostFn,
@@ -151,6 +157,8 @@ export interface ScheduledAgentCronOpts {
   socialDryRunSink?: DryRunSink;
   /** #1077 Phase 5b slice 3: injected Slack poster for approval-card delivery (tests). Production uses fetch. */
   socialSlackPost?: SlackPostFn;
+  /** #1819 rollup slice: injected Slack poster for cap alerts (tests). Production uses fetch. */
+  resourceSlackPost?: SlackPostFn;
   /** Force evaluation of a specific goal regardless of cron/enabled state (manual trigger). */
   forceGoalId?: string;
   /**
@@ -473,6 +481,80 @@ export class ScheduledAgent extends Agent<Env> {
               }
             }
           }
+          continue;
+        }
+
+        if (
+          goal.operation === "resource.rollup_daily" ||
+          goal.operation === "resource.cap_alert" ||
+          goal.operation === "resource.dashboard_comparison"
+        ) {
+          // #1819 rollup slice: resource goals execute directly through
+          // the resource goal handlers (the social.publish precedent),
+          // never through createJob — createJob mints a pending
+          // descriptor and executes nothing. The catalog entry exists
+          // so addGoal accepts these operations.
+          //
+          // AGENT_DB unbound means there is no projection to query:
+          // fail visible, goal stays due, never stamp a success.
+          const db = (env as unknown as { AGENT_DB?: ResourceD1Db }).AGENT_DB;
+          if (!db) {
+            tick.errors.push(`${goal.id}: AGENT_DB binding unavailable, goal left due`);
+            tick.jobsSkipped++;
+            continue;
+          }
+          if (goal.operation === "resource.rollup_daily") {
+            await runResourceRollup({ db, nowMs: now.getTime() });
+            goal.lastRun = now.toISOString();
+            tick.jobsCreated++;
+            continue;
+          }
+          if (goal.operation === "resource.cap_alert") {
+            // The alert branch NEVER stamps lastRun, deliberately:
+            // isDue's 23h guard would otherwise suppress hourly
+            // evaluation for 23h after any stamp, and no sub-daily
+            // goal can work through lastRun stamping in this codebase
+            // today. Delivery dedup lives in alert state per (budget,
+            // day), not in goal state — so both the :00 and :30 ticks
+            // match the hourly cron (minute-tolerance rule) and the
+            // second evaluation is a deduped no-op.
+            const result = await runResourceCapAlert({
+              db,
+              nowMs: now.getTime(),
+              post: opts?.resourceSlackPost ?? fetchSlackPost,
+              env: rawEnv,
+            });
+            for (const u of result.undelivered) {
+              tick.errors.push(`${goal.id}: alert delivery failed (${u.budget}): ${u.error}`);
+            }
+            for (const n of result.noDestination) {
+              tick.errors.push(
+                `${goal.id}: alert undeliverable — no Slack destination configured (${n.budget}); recorded in alert state`
+              );
+            }
+            if (result.undelivered.length > 0) {
+              // Delivery attempted and failed: state unmarked, so the
+              // next matching tick retries. lastRun untouched by
+              // design (see above).
+              tick.jobsSkipped++;
+            } else {
+              tick.jobsCreated++;
+            }
+            continue;
+          }
+          // resource.dashboard_comparison: latest completed rollup day,
+          // so a forced evaluation reproduces the scheduled run
+          // exactly (same rows, same report JSON).
+          const result = await runResourceComparison({ db });
+          if ("skipped" in result) {
+            // Expected transient state before the first rollup lands;
+            // no tick error (the rollup goal's own errors surface a
+            // real breakage), goal stays due and retries tomorrow.
+            tick.jobsSkipped++;
+            continue;
+          }
+          goal.lastRun = now.toISOString();
+          tick.jobsCreated++;
           continue;
         }
 

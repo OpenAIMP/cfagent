@@ -3306,11 +3306,14 @@ async function requireAuth(request: Request, env: Env): Promise<SessionData | nu
   // #1819: the auth path is the top SessionStore source, so its backing
   // reads are attributed (caller requireAuth / validateAndTouchWiredSession,
   // trigger user) and forwarded to the resource sink when one is durably
-  // bound (Analytics Engine, else D1). When no durable sink is bound the
-  // opts are undefined and the store_op v2 log lines remain the record —
-  // a per-isolate sink that silently dropped events would be worse than
-  // none. A cache hit emits nothing: no rows were read.
-  const resourceSink = createResourceUsagePort(env);
+  // bound. withProjection: true fans out to the Analytics Engine stream
+  // AND the D1 projection, because the ScheduledAgent rollup/alert/
+  // comparison goals can only query D1 from inside the Worker. When no
+  // durable sink is bound the opts are undefined and the store_op v2
+  // log lines remain the record — a per-isolate sink that silently
+  // dropped events would be worse than none. A cache hit emits
+  // nothing: no rows were read.
+  const resourceSink = createResourceUsagePort(env, { withProjection: true });
   const authResource = resourceSink
     ? { resourceSink, attribution: { caller: "requireAuth", trigger: "user" } as ResourceAttribution }
     : undefined;
