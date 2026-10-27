@@ -2522,7 +2522,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     }
 
     // --- Real-Time Market Data Quotes WebSocket Session (Issue #21) ---
-    if ((path === "/api/market/quotes/ws" || path === "/api/foss/quotes/ws") && request.headers.get("Upgrade") === "websocket") {
+    if ((path === "/api/market-data/quotes/ws" || path === "/api/market/quotes/ws" || path === "/api/foss/quotes/ws") && request.headers.get("Upgrade") === "websocket") {
       const pair = new WebSocketPair();
       const [clientWs, serverWs] = Object.values(pair);
       serverWs.accept();
@@ -2540,7 +2540,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     }
 
     // --- Batch Market Quotes HTTP Endpoint (Fallback for non-WebSocket clients) ---
-    if ((path === "/api/market/quotes" || path === "/api/foss/quotes") && request.method === "GET") {
+    if ((path === "/api/market-data/quotes" || path === "/api/market/quotes" || path === "/api/foss/quotes") && request.method === "GET") {
       const symbolsParam = url.searchParams.get("symbols") || "";
       const symbols = symbolsParam
         .split(",")
