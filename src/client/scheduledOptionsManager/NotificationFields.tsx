@@ -1,5 +1,5 @@
 import React from "react";
-import { TextInput } from "../components/ui";
+import { TextInput, Checkbox } from "../components/ui";
 import type { CreatableJob } from "./types";
 
 export interface NotificationFieldsProps {
@@ -40,8 +40,7 @@ export function NotificationFields(props: NotificationFieldsProps) {
                     {/* Slack */}
                     <label className="channel-check-card">
                       <div className="channel-check-top">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={pushToSlack}
                           onChange={(e) => setPushToSlack(e.target.checked)}
                         />
@@ -53,7 +52,7 @@ export function NotificationFields(props: NotificationFieldsProps) {
                       {pushToSlack && (
                         <TextInput
                           type="text"
-                          style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                          style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "0.78rem" }}
                           value={slackChannel}
                           onChange={(e) => setSlackChannel(e.target.value)}
                           placeholder="Slack Channel (e.g. #trading-desk)"
@@ -64,8 +63,7 @@ export function NotificationFields(props: NotificationFieldsProps) {
                     {/* Email */}
                     <label className="channel-check-card">
                       <div className="channel-check-top">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={Boolean(emailTo)}
                           onChange={(e) => setEmailTo(e.target.checked ? "trader@firm.com" : "")}
                         />
@@ -77,7 +75,7 @@ export function NotificationFields(props: NotificationFieldsProps) {
                       {Boolean(emailTo) && (
                         <TextInput
                           type="email"
-                          style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                          style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "0.78rem" }}
                           value={emailTo}
                           onChange={(e) => setEmailTo(e.target.value)}
                           placeholder="Recipient Email (e.g. trader@firm.com)"
@@ -88,8 +86,7 @@ export function NotificationFields(props: NotificationFieldsProps) {
                     {/* Webhook */}
                     <label className="channel-check-card">
                       <div className="channel-check-top">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={Boolean(webhookUrl)}
                           onChange={(e) => setWebhookUrl(e.target.checked ? "https://api.firm.com/webhooks/screener" : "")}
                         />
@@ -101,7 +98,7 @@ export function NotificationFields(props: NotificationFieldsProps) {
                       {Boolean(webhookUrl) && (
                         <TextInput
                           type="url"
-                          style={{ marginTop: "0.3rem", padding: "0.4rem 0.6rem", fontSize: "0.78rem" }}
+                          style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "0.78rem" }}
                           value={webhookUrl}
                           onChange={(e) => setWebhookUrl(e.target.value)}
                           placeholder="https://..."

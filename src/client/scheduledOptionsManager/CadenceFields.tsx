@@ -1,6 +1,6 @@
 import React from "react";
 import { etToUtcCron } from "../options/cronTime";
-import { Select, TextInput } from "../components/ui";
+import { Select, TextInput, Button } from "../components/ui";
 import type { ScheduleMode } from "./types";
 import { CRON_PRESETS, INTERVAL_PRESETS } from "./format";
 
@@ -31,7 +31,7 @@ export function CadenceFields(props: CadenceFieldsProps) {
     setScheduledDate,
   } = props;
   return (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
                 <div className="sched-form-group">
                   <label htmlFor="sched-cadence-type" className="sched-form-label">Cadence Type</label>
                   <Select id="sched-cadence-type"
@@ -58,14 +58,14 @@ export function CadenceFields(props: CadenceFieldsProps) {
                     />
                     <div className="preset-chips-row">
                       {INTERVAL_PRESETS.map((p) => (
-                        <button
+                        <Button
                           key={p.label}
                           type="button"
                           className="preset-chip"
                           onClick={() => setIntervalSeconds(p.seconds)}
                         >
                           {p.label}
-                        </button>
+                        </Button>
                       ))}
                     </div>
                   </div>
@@ -83,7 +83,7 @@ export function CadenceFields(props: CadenceFieldsProps) {
                     />
                     <div className="preset-chips-row">
                       {CRON_PRESETS.map((p) => (
-                        <button
+                        <Button
                           key={p.label}
                           type="button"
                           className="preset-chip"
@@ -94,7 +94,7 @@ export function CadenceFields(props: CadenceFieldsProps) {
                           }
                         >
                           {p.label}
-                        </button>
+                        </Button>
                       ))}
                     </div>
                     <p className="sched-preset-note">
