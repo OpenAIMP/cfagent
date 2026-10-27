@@ -157,17 +157,28 @@ describe("Agent conformance (issue #1738)", () => {
     expect(researchPublish).toContain("runAgentTool(ResearchAgent");
   });
 
-  it("the test harness is the in-memory actor adapter, not a Think stub", () => {
+  it("the test harness is the in-memory actor adapter plus a test-only Think stub", () => {
     const vite = read("vite.config.ts");
-    // The bare @cloudflare/think alias is gone: agent code no longer
-    // imports it, so no stub is needed for it. The workflows alias
-    // stays (workflow files still import that subpath).
-    expect(vite).not.toContain('"@cloudflare/think":');
+    // Issue #2003 (tracker #1951) restates this pin: the bare
+    // @cloudflare/think alias is back, but TEST-ONLY — it points at
+    // tests/stubs/cloudflareThink.ts, a stub that imports nothing
+    // and whose turn methods throw, so the real Think graph (with
+    // its `cloudflare:` imports) never loads under Node vitest. The
+    // workflows alias stays (workflow files still import that
+    // subpath), and no production file may import the stub.
+    expect(vite).toContain('"@cloudflare/think":');
+    expect(vite).toContain("tests/stubs/cloudflareThink.ts");
+    expect(fs.existsSync(path.join(ROOT, "tests/stubs/cloudflareThink.ts"))).toBe(true);
     expect(vite).toContain('"@cloudflare/think/workflows"');
-    expect(fs.existsSync(path.join(ROOT, "tests/stubs/cloudflareThink.ts"))).toBe(false);
-    // The replacement harness: the in-memory actor adapter runs the
-    // same turn runner with a stubbed provider boundary (see
-    // tests/actor-ports-conformance.test.ts).
+    const stub = read("tests/stubs/cloudflareThink.ts");
+    // The stub must import nothing workerd-only (its header may
+    // NAME the schemes it avoids, so check imports, not mentions).
+    expect(stub).not.toMatch(/from\s+"cloudflare:/);
+    expect(stub).not.toMatch(/from\s+"@cloudflare\/think"/);
+    expect(stub).toContain("runTurn() is not implemented under Node tests");
+    // The turn harness itself is unchanged: the in-memory actor
+    // adapter runs the same turn runner with a stubbed provider
+    // boundary (see tests/actor-ports-conformance.test.ts).
     const adapter = read("src/actors/inMemoryActorAdapter.ts");
     expect(adapter).toContain("createInMemoryActorTurn");
     expect(adapter).toContain("Stub assistant reply.");
