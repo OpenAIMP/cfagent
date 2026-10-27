@@ -10,6 +10,8 @@ Repository documentation lives in the [`docs/`](docs/) folder: plans in
 [`docs/plans/`](docs/plans/), agent policy and design docs in
 [`docs/agents/`](docs/agents/). Look there first.
 
+Governance program (templates, labels, traceability, framework mapping): [`docs/agents/governance-v2.md`](docs/agents/governance-v2.md) — why each phase exists, the value it creates, and how agents use it.
+
 UX changes follow the UX architecture in
 [`docs/agents/ux-architecture.md`](docs/agents/ux-architecture.md) (§20
 definition of done): build only from `src/client/components/ui/`
