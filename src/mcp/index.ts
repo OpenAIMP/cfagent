@@ -220,6 +220,8 @@ export async function executeMCPTool(
     scopedJobListModes?: import("../config/asyncJobModes").JobListScopedModes;
     /** #1728: agentic-payments / premium-gating carriers, spread likewise. */
     scopedPaymentsModes?: import("../config/agenticPaymentsModes").PaymentsScopedModes;
+    /** #1729: GOAL_COMPILE_MODE carrier, spread likewise. */
+    scopedGoalChainModes?: import("../config/goalChainModes").GoalChainScopedModes;
     /** #1686: optional DO blob handle, spread through to the tool context like the scoped carriers (the factory spread forwards it to the tool command). */
     storage?: import("../trading").NasdaqUniverseRouteBundleInput["storage"];
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
@@ -407,6 +409,8 @@ export async function handleMCPRequest(
     /** #1724: HTTP_DELIVERY_MODE / JOB_LIST_ENVELOPE carriers, forwarded likewise. */
     scopedHttpDeliveryModes?: import("../config/asyncJobModes").HttpDeliveryScopedModes;
     scopedJobListModes?: import("../config/asyncJobModes").JobListScopedModes;
+    /** #1729: GOAL_COMPILE_MODE carrier, forwarded likewise. */
+    scopedGoalChainModes?: import("../config/goalChainModes").GoalChainScopedModes;
     /** #1724: HTTP_DELIVERY_MODE run level — the `x-delivery-mode` header on the /mcp POST. */
     deliveryModeRun?: unknown;
     audit: (type: string, agent: any, payload: Record<string, unknown>) => void;

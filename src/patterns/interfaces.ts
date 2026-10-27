@@ -100,6 +100,15 @@ export interface McpToolContext {
    * premium gate are never carried here — they are not configurable.
    */
   scopedPaymentsModes?: import("../config/agenticPaymentsModes").PaymentsScopedModes;
+  /**
+   * #1729: optional session/user carriers for the GOAL_COMPILE_MODE
+   * switch (run comes from the per-call `mode` input, global env from
+   * `env`). Populated by the execution-context owner; unset carriers
+   * fall through to env. See src/config/goalChainModes.ts. The
+   * carrier NEVER carries a tenant: tenant resolution stays
+   * resolveIaaaTenant(env) on both surfaces (G04 guard).
+   */
+  scopedGoalChainModes?: import("../config/goalChainModes").GoalChainScopedModes;
   requestId?: string;
   /**
    * #1744: MCP tool permission carriers, populated by the
