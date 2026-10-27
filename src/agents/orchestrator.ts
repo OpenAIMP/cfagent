@@ -1,4 +1,4 @@
-import { Agent, type AgentContext, type Schedule } from "agents";
+import type { AgentContext, Schedule } from "agents";
 import type {
   ChatResponseResult,
   TurnConfig,
@@ -6,12 +6,8 @@ import type {
   UiChatMessage,
 } from "../actors/actorPorts";
 import { createCfActorSession } from "../actors/cfAgentsAdapter";
-import { AgentChatTurnRunner, generateTextModelTurn } from "../actors/actorTurnRunner";
-import { createGatewayPorts } from "../gateway/createGatewayPorts";
-import { createObservabilitySink } from "../observability/createObservabilityPorts";
-import { writeEnvelopeToSink } from "../observability/observabilityPorts";
-import { createGatewayModelTurn } from "../gateway/gatewayModelTurn";
-import type { ActorSessionPort, ActorTurnPort } from "../actors/actorPorts";
+import { PortThink, createThinkActorTurn } from "../actors/thinkAdapter";
+import type { ActorSessionPort, ActorTurnHooks, ActorTurnPort } from "../actors/actorPorts";
 import type { ToolSet } from "ai";
 import { getWorkersAIModel } from "./model";
 import { resolveScreenerAgentName } from "./screenerAgentName";
@@ -192,13 +188,19 @@ export const STRATEGY_SCAN_CRON = "35 * * * *";
 /** Issue #624: research task heartbeat interval while a run is in flight (2 minutes). */
 const RESEARCH_TASK_HEARTBEAT_MS = 120_000;
 
-export class OrchestratorAgent extends Agent<Env> {
+export class OrchestratorAgent extends PortThink {
   constructor(ctx: AgentContext, env: Env) {
     super(ctx, env);
     // Issue #686 (R8): the sanitized step clamp is the production
     // bound — a non-numeric MAS_MAX_STEPS falls back to the default
     // instead of propagating NaN into the turn's stop condition.
     this.maxSteps = resolveShadowMaxSteps(env);
+    // Issue #1952: the port hooks for Think's direct-turn path
+    // (native transports that bypass the turn facet below). The
+    // adapter path builds its own hooks object per turn, so a
+    // test instance built without a constructor still drives
+    // HTTP turns; only direct turns need this assignment.
+    this.portHooks = this.actorTurnHooks();
   }
 
   private scheduledScreenerSlots = new Set<string>();
@@ -231,12 +233,16 @@ export class OrchestratorAgent extends Agent<Env> {
   maxSteps: number;
 
   // ---------------------------------------------------------------------
-  // Issue #1738 (AgentActorDO): the actor session + turn runner.
-  // Think's session store and runTurn are replaced by the port's own
-  // implementations over this DO's storage; the hooks they drive
-  // (beforeTurn/onChatResponse/onChatError) are this class's own
-  // methods, unchanged. Lazily built (Object.create test instances
-  // run without a constructor) and memoized per instance.
+  // Issue #1952 (think-fleet): the actor session + Think turn facet.
+  // The turn runs through the foundation adapter (PortThink's
+  // one-shot override + hook-order protocol, lifecycle boot inside
+  // the adapter) over this DO's port session. The domain hooks keep
+  // their port signatures but live under port* names: PortThink
+  // owns the Think-signature beforeTurn/onChatResponse/onChatError
+  // methods, and a same-named class method would shadow that
+  // protocol and fire the domain logic twice per turn. Lazily
+  // built session (Object.create test instances run without a
+  // constructor) and memoized per instance.
   // ---------------------------------------------------------------------
   private actorSession?: ActorSessionPort;
 
@@ -252,54 +258,76 @@ export class OrchestratorAgent extends Agent<Env> {
 
   /**
    * Issue #1738: reset epoch for in-flight turns. abortAllRequests
-   * bumps it; the turn runner checks it before appending the
-   * assistant message and firing onChatResponse, so a memory reset
+   * bumps it; the facet wrapper below gates onChatResponse on it
+   * and removes a stale turn's appended message, so a memory reset
    * cannot land a stale turn's side effects after the clear.
    */
   private turnEpoch = 0;
 
-  private createActorTurnRunner(): ActorTurnPort {
-    const epoch = this.turnEpoch;
-    // #1741: the turn's generateText call routes through the gateway
-    // port when one exists; otherwise the legacy turn is kept, so
-    // unbound/mocked AI environments behave exactly as before.
-    // #1743: gateway events flow to the observability stream
-    // (the server-boot sink wiring #1741 named as follow-up);
-    // unbound degrades to local logging, never fails the turn.
-    const gateway = createGatewayPorts(this.env, {
-      emit: async (envelope) => {
-        await writeEnvelopeToSink(createObservabilitySink(this.env), envelope);
-      },
-    });
-    const modelTurn = gateway ? createGatewayModelTurn(gateway, { caller: "actor-turn" }) : generateTextModelTurn;
-    return new AgentChatTurnRunner({
-      hooks: {
-        getModel: () => this.getModel(),
-        getSystemPrompt: () => this.getSystemPrompt(),
-        getTools: () => this.getTools(),
-        beforeTurn: (ctx) => this.beforeTurn(ctx),
-        onChatResponse: (result) => this.onChatResponse(result),
-        onChatError: (error) => this.onChatError(error),
-        maxSteps: this.maxSteps,
-      },
-      session: this.getActorSession(),
-      modelTurn,
-      isAborted: () => this.turnEpoch !== epoch,
-    });
+  /**
+   * Issue #1952: the port hooks object. The epoch gate mirrors the
+   * retired runner's isAborted: onChatResponse is suppressed for a
+   * turn aborted mid-flight (its pendingTurn was already consumed
+   * by the reset, so firing would steal a newer turn's stash);
+   * onChatError stays ungated (the retired runner reported model
+   * failures even when aborted). Ungated when no epoch is passed
+   * (the direct-turn portHooks assignment in the constructor).
+   */
+  private actorTurnHooks(epoch?: number): ActorTurnHooks {
+    return {
+      getModel: () => this.getModel(),
+      getSystemPrompt: () => this.getSystemPrompt(),
+      getTools: () => this.getTools(),
+      beforeTurn: (ctx) => this.portBeforeTurn(ctx),
+      onChatResponse: (result) =>
+        epoch === undefined || this.turnEpoch === epoch
+          ? this.portOnChatResponse(result)
+          : Promise.resolve(),
+      onChatError: (error) => this.portOnChatError(error),
+      maxSteps: this.maxSteps,
+    };
   }
 
+  private createActorTurnRunner(): ActorTurnPort {
+    const epoch = this.turnEpoch;
+    const session = this.getActorSession();
+    const inner = createThinkActorTurn(this, this.actorTurnHooks(epoch), session);
+    return {
+      runTurn: async (input) => {
+        const result = await inner.runTurn(input);
+        if (this.turnEpoch !== epoch) {
+          // Aborted mid-flight: the facet already appended the
+          // assistant message, so remove it, and report the same
+          // aborted shape the retired runner returned (no message,
+          // no onChatResponse — already gated above).
+          if (result.message) await session.deleteMessages([result.message.id]);
+          return { status: "error", error: "aborted", requestId: result.requestId, continuation: false };
+        }
+        return result;
+      },
+    };
+  }
+
+  /**
+   * Issue #1952: port* names — Think owns the getMessages /
+   * addMessages / runTurn names with its own session-backed
+   * signatures, so the class's port-transcript accessors cannot
+   * keep those names (their signatures are incompatible). The
+   * route context bags keep the getMessages/addMessages property
+   * names; only the class methods are renamed.
+   */
   /** Actor session transcript (replaces Think's session store). */
-  private getMessages(): Promise<UiChatMessage[]> {
+  private getPortMessages(): Promise<UiChatMessage[]> {
     return this.getActorSession().getMessages();
   }
 
   /** Upsert-by-id transcript append (Think saveMessages semantics). */
-  private addMessages(messages: UiChatMessage[]): Promise<void> {
+  private addPortMessages(messages: UiChatMessage[]): Promise<void> {
     return this.getActorSession().appendMessages(messages);
   }
 
-  /** Agent-native chat turn (replaces Think's runTurn). */
-  private runTurn(input: Parameters<ActorTurnPort["runTurn"]>[0]): Promise<ChatResponseResult> {
+  /** Think chat turn, driven through the port's turn facet. */
+  private runFacetTurn(input: Parameters<ActorTurnPort["runTurn"]>[0]): Promise<ChatResponseResult> {
     return this.createActorTurnRunner().runTurn(input);
   }
 
@@ -310,21 +338,40 @@ export class OrchestratorAgent extends Agent<Env> {
    * resetTurnState + clearConversationMessages separately, so each
    * method keeps its own scope.
    */
-  private abortAllRequests(_reason?: unknown): void {
+  // Protected, not private: Think declares abortAllRequests /
+  // resetTurnState protected, and the class's versions must keep
+  // at least that visibility (see the clearMessages note).
+  protected abortAllRequests(_reason?: unknown): void {
     this.turnEpoch++;
   }
 
   /** Reset the in-flight turn stash. */
-  private resetTurnState(): void {
+  protected resetTurnState(): void {
     this.pendingTurn = undefined;
   }
 
   /**
-   * Clear the actor transcript (Think clearMessages scope:
-   * transcript only — mas_messages audit rows are untouched).
+   * Clear the actor transcript (transcript only — mas_messages
+   * audit rows are untouched). Dual store (#1952): the port
+   * transcript is cleared authoritatively, and Think's tree session
+   * is cleared best-effort behind it — a port-only clear would
+   * leave pre-reset history in the next turn's model context.
+   * The tree clear is best-effort (a failure warns, it never fails
+   * the reset the port clear already performed); the lifecycle
+   * boot covers RPC-only instances whose session is not started.
+   * Public because Think's clearMessages is public; the override
+   * keeps that contract and extends it to both stores.
    */
-  private clearMessages(): Promise<void> {
-    return this.getActorSession().clear();
+  async clearMessages(): Promise<void> {
+    await this.getActorSession().clear();
+    try {
+      await (
+        this as unknown as { lifecycle?: { start?: () => Promise<unknown> } }
+      ).lifecycle?.start?.();
+      await super.clearMessages();
+    } catch (err) {
+      console.warn("[OrchestratorAgent] Think session clear failed; port transcript is cleared:", err);
+    }
   }
 
   /**
@@ -333,8 +380,12 @@ export class OrchestratorAgent extends Agent<Env> {
    * in-flight work this class tracks — until it clears or the
    * timeout elapses. Best-effort: the single caller already
    * catches and continues on timeout.
+   * Issue #1952: renamed — Think owns waitUntilStable with
+   * turn-queue-drain semantics; this polls the class's own stash.
+   * The scheduled-callbacks context bag keeps the waitUntilStable
+   * property name.
    */
-  private async waitUntilStable(options?: { timeout?: number }): Promise<boolean> {
+  private async waitForPendingTurn(options?: { timeout?: number }): Promise<boolean> {
     const timeout = options?.timeout ?? 30_000;
     const deadline = Date.now() + timeout;
     while (this.pendingTurn !== undefined) {
@@ -373,7 +424,7 @@ export class OrchestratorAgent extends Agent<Env> {
       removeUnownedBaselineSchedules: () => this.removeUnownedBaselineSchedules(),
       getOrm: () => this.getOrm(),
       sessionKey: () => this.sessionKey(),
-      waitUntilStable: (options) => this.waitUntilStable(options),
+      waitUntilStable: (options) => this.waitForPendingTurn(options),
       scheduledScreenerSlots: (this.scheduledScreenerSlots ??= new Set<string>()),
       scheduledDiscoverySlots: (this.scheduledDiscoverySlots ??= new Set<string>()),
       scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string, chainReport?: boolean) =>
@@ -464,7 +515,7 @@ export class OrchestratorAgent extends Agent<Env> {
       submitAsyncJob: (job) => this.submitAsyncJob(job),
       getAsyncJob: (jobId) => this.getAsyncJob(jobId),
       listAsyncJobs: (limit) => this.listAsyncJobs(limit),
-      getMessages: () => this.getMessages(),
+      getMessages: () => this.getPortMessages(),
       // Issue #1738: Think's active-turn metadata went away with
       // the base change. deriveTurn falls back to the last user
       // message's metadata, which carries sourceTab/userLogin for
@@ -477,7 +528,7 @@ export class OrchestratorAgent extends Agent<Env> {
     return {
       sessionKey: () => this.sessionKey(),
       recordMessage: (role, content, agent) => this.recordMessage(role, content, agent),
-      addMessages: (messages) => this.addMessages(messages),
+      addMessages: (messages) => this.addPortMessages(messages),
       submitAsyncJob: (job) => this.submitAsyncJob(job),
     };
   }
@@ -695,7 +746,7 @@ export class OrchestratorAgent extends Agent<Env> {
         skipped++;
       }
     }
-    if (valid.length > 0) await this.addMessages(valid as any);
+    if (valid.length > 0) await this.addPortMessages(valid as any);
     if (skipped === 0) {
       sql.exec("DROP TABLE cf_ai_chat_agent_messages");
       return;
@@ -817,7 +868,7 @@ export class OrchestratorAgent extends Agent<Env> {
    */
   async autonomousOptionsAnalysis(payload?: AutonomousOptionsAnalysisOptions): Promise<void> {
     try {
-      await this.waitUntilStable({ timeout: 30_000 });
+      await this.waitForPendingTurn({ timeout: 30_000 });
     } catch {
       // Continue if timeout or unhandled
     }
@@ -1526,11 +1577,12 @@ export class OrchestratorAgent extends Agent<Env> {
   /**
    * Issue #686 (Think migration step 4 — CUTOVER): the turn stash.
    * runAgenticChatTurn (the HTTP driver) fills it before driving
-   * runTurn; beforeTurn creates it when a turn arrives without one.
-   * onChatResponse consumes it. One in-flight chat turn per DO
-   * instance is the live semantic — the AIChatAgent base serialized
-   * turns the same way. Issue #1738: the stash is in-memory only;
-   * there is no durable turn sealing on eviction (see ADR 0005).
+   * runTurn; portBeforeTurn creates it when a turn arrives without
+   * one. portOnChatResponse consumes it. One in-flight chat turn
+   * per DO instance is the live semantic — the AIChatAgent base
+   * serialized turns the same way. Issue #1738: the stash is
+   * in-memory only; there is no durable turn sealing on eviction
+   * (see ADR 0005).
    */
   private pendingTurn?: {
     userText: string;
@@ -1577,11 +1629,12 @@ export class OrchestratorAgent extends Agent<Env> {
 
   /**
    * Actor configuration: the session-memory context block (top-8
-   * mas_memory facts). Under Think it was merged into every turn;
-   * under the actor turn runner (#1738) nothing merges it — the
-   * live prompt already inlines the identical content via
-   * assembleGrounding, so the method stays as the block's resolver
-   * (pinned by the actor-cutover suite) rather than a live hook.
+   * mas_memory facts). Under the actor turn runner (#1738) nothing
+   * merged it; under PortThink (#1952) Think resolves it into
+   * every turn again — the same facts assembleGrounding already
+   * inlines into the prompt, so the block is live but redundant,
+   * not new content. The method stays as the block's resolver
+   * (pinned by the actor-cutover suite).
    */
   configureContext() {
     return [
@@ -1629,8 +1682,10 @@ export class OrchestratorAgent extends Agent<Env> {
    * NLQ pre-dispatch, grounding, and the per-turn TurnConfig (shared
    * prompt builder; tools suppressed on auto-research turns via
    * activeTools: [] — TurnConfig.tools is additive-only).
+   * Issue #1952: port* name — PortThink owns the Think-signature
+   * beforeTurn; this domain method is what the port hooks call.
    */
-  async beforeTurn(ctx: TurnContext): Promise<TurnConfig | void> {
+  async portBeforeTurn(ctx: TurnContext): Promise<TurnConfig | void> {
     this.ensureTables();
     const turn: NonNullable<typeof this.pendingTurn> = this.pendingTurn ?? {
       ...(await this.deriveTurn(ctx)),
@@ -1643,7 +1698,7 @@ export class OrchestratorAgent extends Agent<Env> {
     // by interrupted turns (the messages the live turn used to
     // filter out of its model input); activity entries are kept.
     try {
-      const uiMessages = await this.getMessages();
+      const uiMessages = await this.getPortMessages();
       const staleIds = uiMessages
         .filter((m: any) => {
           if (!m || m.role !== "assistant" || m.metadata?.activity) return false;
@@ -1733,8 +1788,11 @@ export class OrchestratorAgent extends Agent<Env> {
    * mas_messages record (route.agent attribution), judge.evaluate →
    * response.evaluated audit, and best-effort VectorMemory remember.
    * Consumes the turn stash.
+   * Issue #1952: port* name — PortThink owns the Think-signature
+   * onChatResponse (record-only during facet turns); this domain
+   * method is what the port hooks call after the append.
    */
-  async onChatResponse(result: ChatResponseResult): Promise<void> {
+  async portOnChatResponse(result: ChatResponseResult): Promise<void> {
     const turn = this.pendingTurn;
     this.pendingTurn = undefined;
     if (!turn || result.status === "error" || !result.message) return;
@@ -1772,8 +1830,11 @@ export class OrchestratorAgent extends Agent<Env> {
    * surfaces the aspect format the AIChatAgent-era UI stream's
    * onError produced ([code] title: message + remediation steps),
    * after logging the same aspect event that handler recorded.
+   * Issue #1952: port* name and synchronous by design — Think calls
+   * its error hook without awaiting it, so only a sync hook controls
+   * the error text; PortThink owns the Think-signature name.
    */
-  onChatError(error: unknown): string {
+  portOnChatError(error: unknown): string {
     const aspect = resolveErrorAspect(error);
     logAspectEvent({
       aspect: "ChatStream",
@@ -1790,10 +1851,9 @@ export class OrchestratorAgent extends Agent<Env> {
    * Issue #312: the single-owner agentic chat turn. Judge routing, sub-agent
    * tools, memory/vector grounding, and the model call live here and only here.
    * POST /api/chat awaits the final text via this driver. Never duplicate
-   * this pipeline. Issue #1738: Think's native WebSocket chat transport
-   * went away with the base change (no in-repo client used it); the HTTP
-   * driver is the supported chat entry.
-   * Issue #686: the driver runs the turn through the actor turn runner
+   * this pipeline. Issue #1952: the HTTP driver is the supported chat
+   * entry (no in-repo client uses Think's native WebSocket transport).
+   * Issue #686: the driver runs the turn through the Think turn facet
    * and returns the adapter shape the routes expect, {result,
    * route}. The user message enters the session through the factory
    * input (delta-by-id), so an HTTP re-send of the history tail does
@@ -1813,11 +1873,11 @@ export class OrchestratorAgent extends Agent<Env> {
     };
     this.pendingTurn = turn;
     try {
-      const existing = await this.getMessages();
+      const existing = await this.getPortMessages();
       const tailUser = [...existing].reverse().find((m: any) => m?.role === "user");
       const isResend = !!tailUser && this.extractMessageText(tailUser) === opts.userText;
       if (isResend) turn.suppressUserRecord = true;
-      const result = await this.runTurn((current: any[]) =>
+      const result = await this.runFacetTurn((current: any[]) =>
         isResend
           ? current
           : [
@@ -2075,7 +2135,7 @@ export class OrchestratorAgent extends Agent<Env> {
       getAsyncJob: (jobId) => this.getAsyncJob(jobId),
       listAsyncJobs: () => this.listAsyncJobs().map(({ result: _result, ...job }) => job),
       extractMessageText: (message) => this.extractMessageText(message),
-      getMessages: () => this.getMessages(),
+      getMessages: () => this.getPortMessages(),
       recordMessage: (role, content, agent) => this.recordMessage(role, content, agent),
       runAgenticChatTurn: (opts) => this.runAgenticChatTurn(opts),
       buildChatErrorFallback: (err, userText, userLogin) => this.buildChatErrorFallback(err, userText, userLogin),

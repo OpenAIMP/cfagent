@@ -30,11 +30,75 @@ vi.mock("agents", () => {
     },
   };
 });
-vi.mock("../src/actors/actorTurnRunner", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/actors/actorTurnRunner")>();
+// Issue #1952: the Think engine itself cannot load under Node (its
+// module graph needs workerd schemes), so the test stubs Think's
+// runTurn at the engine boundary — the same idiom as the old
+// generateTextModelTurn stub. Everything above the engine stays
+// real: the foundation adapter (ThinkActorTurn) and PortThink's
+// one-shot + hook-order translation run for real; only the model
+// inference step is stubbed. The stub drives PortThink's hooks
+// exactly as the engine would: beforeTurn (consuming the one-shot
+// the adapter installed), then onChatResponse (record-only during
+// a facet turn, flushed by the adapter after the append).
+const thinkStubControl = vi.hoisted(() => ({
+  entered: false,
+  deferred: null as null | { promise: Promise<void>; resolve: () => void },
+  failNext: false,
+}));
+vi.mock("@cloudflare/think", () => {
   return {
-    ...actual,
-    generateTextModelTurn: async () => ({ text: "Stub assistant reply." }),
+    Think: class StubThink {
+      ctx: any;
+      env: any;
+      lifecycle: any;
+      constructor(ctx: any, env: any) {
+        this.ctx = ctx;
+        this.env = env;
+        // The adapter boots this before every turn (idempotent in
+        // the real engine); a no-op here keeps the boot call real.
+        this.lifecycle = { start: async () => {} };
+      }
+      // Schedule methods are inert under Node (the old Think stub's
+      // contract): production schedule calls resolve without firing.
+      async schedule(_when: unknown, _callback: string, _payload?: unknown, _options?: unknown) {
+        return { id: "mock-schedule" };
+      }
+      async scheduleEvery(_intervalSeconds: number, _callback: string, _payload?: unknown) {
+        return { id: "mock-schedule" };
+      }
+      async listSchedules() {
+        return [];
+      }
+      async cancelSchedule(_id: string) {
+        return true;
+      }
+      // The class's dual-store clear calls super.clearMessages()
+      // for the tree session; a no-op here keeps that call real
+      // (the port transcript clear is what the tests assert).
+      async clearMessages() {}
+      async runTurn(_options: any) {
+        thinkStubControl.entered = true;
+        if (thinkStubControl.deferred) await thinkStubControl.deferred.promise;
+        if (thinkStubControl.failNext) {
+          thinkStubControl.failNext = false;
+          throw new Error("stub model failure");
+        }
+        const ctx = { system: "", messages: [], tools: {}, model: undefined, continuation: false, body: {} };
+        await (this as any).beforeTurn(ctx);
+        const message = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          parts: [{ type: "text", text: "Stub assistant reply." }],
+        };
+        await (this as any).onChatResponse({
+          message,
+          requestId: crypto.randomUUID(),
+          continuation: false,
+          status: "completed",
+        });
+        return { status: "completed", message, requestId: crypto.randomUUID(), continuation: false };
+      }
+    },
   };
 });
 vi.mock("@cloudflare/ai-chat", () => {
@@ -78,13 +142,13 @@ import judgeGolden from "./fixtures/judge-golden.json";
  * Issue #686 (Think migration step 4 — CUTOVER), re-pointed by
  * issue #1738 at the Agents SDK actor.
  *
- * The production OrchestratorAgent is an Agents SDK actor under its
+ * The production OrchestratorAgent is a Think-backed actor under its
  * stable identity. This suite carries forward the step-3a/3b evidence
  * pins (prompt byte-identity, clamp, route parity, turn shape, side
  * effects, bounds) re-pointed at the real class, and adds the
  * cutover-specific pins: R1 identity stability, R6 legacy lift,
- * R5 onChatError format. Turns run through the real actor turn
- * runner with the provider boundary stubbed (see the mocks above).
+ * R5 onChatError format. Turns run through the real Think turn
+ * facet with the Think engine stubbed (see the mocks above).
  */
 
 const ROOT = path.resolve(__dirname, "..");
@@ -147,11 +211,15 @@ function readEvents(sql: MockSqlStorage) {
 }
 
 describe("#686 R1 — identity stability under the cutover", () => {
-  it("the production class extends Agent; the shadow file is gone", () => {
+  it("the production class extends PortThink; the shadow file is gone", () => {
     const orch = read("src/agents/orchestrator.ts");
-    expect(orch).toContain("extends Agent<Env>");
+    expect(orch).toContain("extends PortThink");
+    expect(orch).toContain('from "../actors/thinkAdapter"');
     expect(orch).toContain('from "agents"');
     expect(orch).not.toContain("@cloudflare/ai-chat");
+    // No direct Think import: the class reaches Think only through
+    // PortThink in the foundation adapter (the agent-conformance
+    // pin enforces the same from the other side).
     expect(orch).not.toContain("@cloudflare/think");
     expect(fs.existsSync(path.join(ROOT, "src/agents/orchestrator-think.ts"))).toBe(false);
   });
@@ -173,7 +241,7 @@ describe("#686 R1 — identity stability under the cutover", () => {
 
   it("the routes ctx bag exposes Actor session accessors, not AIChatAgent ones", () => {
     const orch = read("src/agents/orchestrator.ts");
-    expect(orch).toContain("getMessages: () => this.getMessages()");
+    expect(orch).toContain("getMessages: () => this.getPortMessages()");
     expect(orch).not.toContain("this.messages");
     const routes = read("src/agents/routes/mcpChatNlq.ts");
     expect(routes).not.toContain("setMessages");
@@ -353,7 +421,7 @@ describe("#686 R2/R3/R4 — the production turn, through runAgenticChatTurn", ()
     };
     await agent.runAgenticChatTurn(opts);
     await agent.runAgenticChatTurn(opts);
-    const session = await agent.getMessages();
+    const session = await agent.getPortMessages();
     expect(session.filter((m: any) => m.role === "user")).toHaveLength(1);
     expect(session.filter((m: any) => m.role === "assistant")).toHaveLength(2);
     expect(readMessages(sql).filter((m) => m.role === "user")).toHaveLength(1);
@@ -362,11 +430,13 @@ describe("#686 R2/R3/R4 — the production turn, through runAgenticChatTurn", ()
 
   it("auto-research: synthetic route, pre-dispatch, suppression in the applied TurnConfig", async () => {
     const { agent, sql } = makeAgent();
-    // The runner applies what beforeTurn returns but stores nothing
-    // on the agent; capture the applied TurnConfig by wrapping the
-    // hook on the instance (the config object itself is untouched).
-    const origBeforeTurn = agent.beforeTurn.bind(agent);
-    agent.beforeTurn = async (ctx: any) => {
+    // The facet applies what the domain hook returns but stores
+    // nothing on the agent; capture the applied TurnConfig by
+    // wrapping the hook on the instance (the config object itself
+    // is untouched). Issue #1952: the domain hook is portBeforeTurn
+    // — PortThink owns the beforeTurn name for its one-shot protocol.
+    const origBeforeTurn = agent.portBeforeTurn.bind(agent);
+    agent.portBeforeTurn = async (ctx: any) => {
       agent.__turnConfig = await origBeforeTurn(ctx);
       return agent.__turnConfig;
     };
@@ -410,10 +480,128 @@ describe("#686 R2/R3/R4 — the production turn, through runAgenticChatTurn", ()
 describe("#686 R5 — onChatError carries the live stream-error format", () => {
   it("formats [code] title: message + remediation steps", () => {
     const { agent } = makeAgent();
-    const out = agent.onChatError(new Error("provider exploded"));
+    // Issue #1952: the domain hook is portOnChatError — PortThink
+    // owns the onChatError name for its fire-and-forget protocol.
+    const out = agent.portOnChatError(new Error("provider exploded"));
     expect(typeof out).toBe("string");
     expect(out as string).toMatch(/^\[[A-Z_]+\] /);
     expect(out as string).toContain("Remediation:");
+  });
+});
+
+describe("#1952 — the Think turn path on the production class", () => {
+  it("aborted mid-flight turn lands no message and no response side effects", async () => {
+    const { agent, sql } = makeAgent();
+    // Park the stub engine inside runTurn, then run the
+    // memory-reset sequence (the route's abort + stash reset +
+    // transcript clear) before releasing it. Reset `entered` first:
+    // earlier tests leave it true, and a stale true would let the
+    // poll below exit before THIS turn reaches the gate (the abort
+    // would then land before the epoch capture and gate nothing).
+    thinkStubControl.entered = false;
+    let release!: () => void;
+    thinkStubControl.deferred = {
+      promise: new Promise<void>((r) => {
+        release = r;
+      }),
+      resolve: () => release(),
+    };
+    try {
+      const turnPromise = agent.runAgenticChatTurn({
+        userText: "hello there",
+        recentTurns: [],
+        userLogin: "cutover-tester",
+        isAutoOptionsResearchRequest: false,
+      });
+      // Capture settlement so a turn that errors before the gate
+      // cannot leave an unhandled rejection behind.
+      let settled = false;
+      turnPromise.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+      // Wait until the stub engine is parked at the gate: by then
+      // the facet's beforeTurn has run (route decided, user row
+      // written, stash set) and the turn is in flight.
+      for (let i = 0; i < 200 && !thinkStubControl.entered && !settled; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(thinkStubControl.entered).toBe(true);
+      agent.abortAllRequests("Session reset requested by user");
+      agent.resetTurnState();
+      await agent.clearMessages();
+      thinkStubControl.deferred.resolve();
+      const { result, route } = await turnPromise;
+      // The retired runner's aborted shape: empty text, route kept.
+      expect(await result.text).toBe("");
+      expect(Object.keys(route).sort()).toEqual(["agent", "confidence", "needsConfirmation", "reason"]);
+      // No stale assistant message in the cleared transcript, and
+      // no assistant record: the gated onChatResponse never fired.
+      expect(await agent.getPortMessages()).toEqual([]);
+      expect(readMessages(sql).filter((m) => m.role === "assistant")).toEqual([]);
+      const events = readEvents(sql);
+      expect(events.filter((e) => e.type === "route.decided")).toHaveLength(1);
+      expect(events.filter((e) => e.type === "response.evaluated")).toEqual([]);
+    } finally {
+      // Release a still-parked stub so no turn dangles past the test.
+      thinkStubControl.deferred?.resolve();
+      thinkStubControl.deferred = null;
+      thinkStubControl.entered = false;
+    }
+  });
+
+  it("model failure reports through onChatError exactly once, then rethrows", async () => {
+    const { agent, sql } = makeAgent();
+    thinkStubControl.failNext = true;
+    try {
+      await expect(
+        agent.runAgenticChatTurn({
+          userText: "hello there",
+          recentTurns: [],
+          userLogin: "cutover-tester",
+          isAutoOptionsResearchRequest: false,
+        })
+      ).rejects.toThrow("stub model failure");
+    } finally {
+      thinkStubControl.failNext = false;
+    }
+    // The aspect event the error hook logs fires exactly once: the
+    // facet calls the hook on the throw path (the stub engine throws
+    // before its own hook, so the facet's call is the only one).
+    const events = readEvents(sql);
+    expect(events.filter((e) => e.type === "chatstream.uistreamerror.error")).toHaveLength(1);
+  });
+
+  it("direct Think turn delegates to the port hooks (no one-shot installed)", async () => {
+    const { agent, sql } = makeAgent();
+    // A direct turn reads its user text from the port session, the
+    // way the facet path seeds it before driving the turn.
+    await agent.addPortMessages([
+      { id: "direct-1", role: "user", parts: [{ type: "text", text: "hello there" }] } as any,
+    ]);
+    // PortThink.beforeTurn with no one-shot installed delegates to
+    // the port hooks — this is the Think-signature name, not the
+    // domain hook, so it must stay callable on the class.
+    const config = await agent.beforeTurn({
+      system: "",
+      messages: [{ role: "user", content: "hello there" }],
+      tools: {},
+      model: undefined,
+      continuation: false,
+      body: {},
+    });
+    expect(config).toBeDefined();
+    expect(typeof (config as any).instructions).toBe("string");
+    expect((config as any).maxSteps).toBe(6);
+    const events = readEvents(sql);
+    expect(events.filter((e) => e.type === "route.decided")).toHaveLength(1);
+    expect(readMessages(sql)).toEqual([
+      { role: "user", content: "hello there", agent: "orchestrator" },
+    ]);
   });
 });
 
@@ -440,7 +628,7 @@ describe("#686 R6 — legacy session transform-migration (residual lift)", () =>
 
     await agent.liftLegacyChatMessages();
 
-    const messages = await agent.getMessages();
+    const messages = await agent.getPortMessages();
     expect(messages.map((m: any) => m.id)).toEqual(["legacy-1", "legacy-2"]);
     const stillThere = Array.from(
       sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cf_ai_chat_agent_messages'")
@@ -451,6 +639,6 @@ describe("#686 R6 — legacy session transform-migration (residual lift)", () =>
   it("is a no-op when no legacy table exists", async () => {
     const { agent } = makeAgent();
     await agent.liftLegacyChatMessages();
-    expect(await agent.getMessages()).toEqual([]);
+    expect(await agent.getPortMessages()).toEqual([]);
   });
 });
