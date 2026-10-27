@@ -37,7 +37,7 @@ import { parseScanRequestTemplate } from "../trading";
 export { buildTypeRollup } from "../trading";
 export type { StrategyTypeRollup } from "../trading";
 
-export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities" | "options_discovery" | "options_fit_discovery" | "options_comparison";
+export type OptionsStrategyAction = "options_strategies" | "options_best_trade" | "options_opportunities" | "options_fit_discovery" | "options_comparison";
 
 /**
  * Issue #1162 (epic #1096 Phase 6; deferred from Phase 2): a parsed
@@ -350,13 +350,16 @@ export function parseOptionsStrategyIntent(question: string): OptionsStrategyInt
   // names no strategy). The default scope is the caller's watchlists
   // (Decision 1); caps ride in the request at the parser's scan
   // defaults, overridable by the question's own stated caps.
+  // Issue #1918: discovery phrasing routes to the unified
+  // options_fit_discovery action's scope leg (no fitDiscovery spec)
+  // — the removed options_discovery action's only phrase family.
   if (
     /\b(?:discover\w*|find\s+(?:me\s+)?setups?|setups?\s+(?:are\s+)?forming|what(?:'s|\s+is)\s+setting\s+up)\b/i.test(
       question,
     )
   ) {
     return {
-      action: "options_discovery",
+      action: "options_fit_discovery",
       filters: {
         request: { maxPlannedLoss: 500, minRewardRisk: 1.5 },
         riskProfile: "balanced",
@@ -623,9 +626,10 @@ export interface OptionsStrategyDeps {
   profileStore?: StrategyProfileStore;
   userLogin?: string;
   /** Issue #14: the Phase 1 discovery runner (createDiscoveryService's
-   *  return shape). When absent, an options_discovery action fails
-   *  with an availability error — the same discipline as the profile
-   *  store — rather than silently answering a different question. */
+   *  return shape). When absent, the unified options_fit_discovery
+   *  action's scope leg fails with an availability error — the same
+   *  discipline as the profile store — rather than silently answering
+   *  a different question. */
   discoveryRunner?: { run(request: DiscoveryRunRequest): Promise<DiscoveryRunOutcome> };
   /** Issue #1162: the Phase 2 Name↔Strategy fit-discovery runner
    *  (createFitDiscoveryRunner's return shape). When absent, an
@@ -755,11 +759,17 @@ export async function runOptionsStrategyAction(
   deps?: OptionsStrategyDeps,
 ): Promise<{ count: number; status: string; summary: string; rows: Array<Record<string, unknown>>; validationError?: string; rejections?: unknown[]; quoteQuality?: unknown; bestTrade?: unknown; evaluations?: unknown[]; nameLedger?: unknown[]; skipped?: Array<{ symbol: string; reason: string }>; matrix?: ScanMatrixRow[]; mode?: ScanMode; scanRunId?: string; persisted?: boolean; typeRollup?: StrategyTypeRollup[] | ScanTypeRollup[]; profileRef?: ProfileRef | null; discoveryRunId?: string; comparison?: ProductionComparisonResult }> {
   const fail = (message: string) => ({ count: 0, status: "invalid_request", summary: message, validationError: message, rows: [] as Array<Record<string, unknown>> });
+  // Issue #1918: one NLQ discovery action. The unified
+  // options_fit_discovery action has two explicit legs, chosen by
+  // the parsed question shape — never by silent fallback: a parsed
+  // fit question (fitDiscovery spec) runs the kernel fit runner;
+  // a scope-only discovery question runs the discovery runner
+  // (kernel discoverPanel via runPanelPipeline). A leg without its
+  // runner fails explicitly inside its own runner function.
   if (action === "options_fit_discovery") {
-    return runFitDiscoveryAction(filters, deps);
-  }
-  if (action === "options_discovery") {
-    return runDiscoveryAction(etrade, filters, deps);
+    return filters?.fitDiscovery
+      ? runFitDiscoveryAction(filters, deps)
+      : runDiscoveryAction(etrade, filters, deps);
   }
   if (action === "options_comparison") {
     return runComparisonAction(etrade, filters, deps);
