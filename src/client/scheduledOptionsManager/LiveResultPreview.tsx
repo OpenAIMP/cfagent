@@ -1,4 +1,5 @@
 import React from "react";
+import { Button } from "../components/ui";
 
 export interface LiveResultPreviewProps {
   liveResult: any;
@@ -29,14 +30,14 @@ export function LiveResultPreview({ liveResult, onPreviewTrade }: LiveResultPrev
           </p>
 
           {Array.isArray(liveResult.opportunities) && liveResult.opportunities.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.75rem", marginTop: "0.5rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "var(--space-3)", marginTop: "0.5rem" }}>
               {liveResult.opportunities.map((opp: any) => {
                 const cand = opp.pick?.best?.candidate;
                 return (
-                  <div key={opp.symbol} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", padding: "0.85rem" }}>
+                  <div key={opp.symbol} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", padding: "var(--space-3)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
                       <strong style={{ color: "var(--color-accent)", fontSize: "0.95rem" }}>{opp.symbol}</strong>
-                      <span style={{ background: "var(--color-accent-subtle)", color: "var(--color-accent)", fontSize: "0.74rem", padding: "0.15rem 0.45rem", borderRadius: "var(--radius-xs, 4px)", fontWeight: "bold" }}>
+                      <span style={{ background: "var(--color-accent-subtle)", color: "var(--color-accent)", fontSize: "0.74rem", padding: "var(--space-0-5) var(--space-2)", borderRadius: "var(--radius-xs, 4px)", fontWeight: "bold" }}>
                         Score: {opp.score}/100
                       </span>
                     </div>
@@ -48,13 +49,13 @@ export function LiveResultPreview({ liveResult, onPreviewTrade }: LiveResultPrev
                       <span>Max Loss: <strong style={{ color: "var(--color-danger)" }}>${cand?.maxLoss?.toFixed(2) || "0"}</strong></span>
                     </div>
                     {cand && onPreviewTrade && (
-                      <button
+                      <Button
                         type="button"
-                        style={{ marginTop: "0.6rem", width: "100%", padding: "0.35rem", fontSize: "0.74rem", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", color: "var(--color-accent)", borderRadius: "var(--radius-xs, 4px)", cursor: "pointer", fontWeight: 600 }}
+                        style={{ marginTop: "0.6rem", width: "100%", padding: "var(--space-1-5)", fontSize: "0.74rem", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", color: "var(--color-accent)", borderRadius: "var(--radius-xs, 4px)", cursor: "pointer", fontWeight: 600 }}
                         onClick={() => onPreviewTrade(cand)}
                       >
                         ⚡ Preview in Order Ticket
-                      </button>
+                      </Button>
                     )}
                   </div>
                 );

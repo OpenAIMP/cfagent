@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Select, TextInput, Modal } from "../components/ui";
+import { Select, TextInput, Modal, Button } from "../components/ui";
 import { listPresets, type ScreenerPreset } from "../ScreenerPresetManager";
 import type { CreatableJob } from "./types";
 import {
@@ -107,16 +107,17 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
         <h3>{editingScheduleId ? "✏ Update Screening Schedule" : "⏰ Configure New Schedule"}</h3>
                 <p>Register an autonomous persistent timer to run in the background.</p>
               </div>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 className="btn-modal-close"
                 onClick={() => setModalOpen(false)}
               >
                 ✕
-              </button>
+              </Button>
             </header>
 
-            <form onSubmit={handleCreateSchedule} style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
+            <form onSubmit={handleCreateSchedule} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
               {/* Job Picker */}
               {!editingScheduleId && (
                 <div className="sched-form-group">
@@ -249,11 +250,11 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
 
               {/* Optional Custom Criteria (Market Screen) */}
               {jobType === "marketScreen" && (
-                <details style={{ marginTop: "0.25rem", padding: "0.5rem 0.75rem", background: "var(--color-surface-sunken)", borderRadius: "6px", border: "1px solid var(--color-border-subtle)" }}>
+                <details style={{ marginTop: "0.25rem", padding: "var(--space-2) var(--space-3)", background: "var(--color-surface-sunken)", borderRadius: "6px", border: "1px solid var(--color-border-subtle)" }}>
                   <summary style={{ fontSize: "0.84rem", cursor: "pointer", color: "var(--color-accent)", fontWeight: 600, userSelect: "none" }}>
                     ⚙️ Custom Screening Criteria &amp; Filters (Optional)
                   </summary>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.6rem" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)", marginTop: "0.6rem" }}>
                     <div className="sched-form-group">
                       <label htmlFor="sched-filter-min-price" className="sched-form-label">Min Price ($)</label>
                       <TextInput id="sched-filter-min-price"
@@ -367,16 +368,17 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                 setWebhookUrl={props.setWebhookUrl}
               />
               <footer className="sched-modal-footer">
-                <button
+                <Button
                   type="button"
                   className="btn-sched-secondary"
                   onClick={() => setModalOpen(false)}
                   disabled={submitting}
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
+                  variant="primary"
                   className="btn-sched-primary"
                   disabled={submitting}
                 >
@@ -385,7 +387,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                     : editingScheduleId
                     ? "✓ Save Updated Schedule"
                     : "✓ Register Durable Schedule"}
-                </button>
+                </Button>
               </footer>
             </form>
                   </Modal>

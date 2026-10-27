@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { apiFetch as fetch } from "./apiFetch";
+import { Button } from "./components/ui";
 
 export interface GoogleAdUnitProps {
   format?: "leaderboard" | "rectangle" | "responsive" | "mobile";
@@ -131,9 +132,9 @@ export function GoogleAdUnit({
         </div>
 
         <div className="google-ad-action-area">
-          <button type="button" className="google-ad-cta-btn">
+          <Button type="button" className="google-ad-cta-btn">
             {campaign.ctaText || "Learn More →"}
-          </button>
+          </Button>
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 import React from "react";
+import { Button, TextInput } from "../components/ui";
 import type { StrategyProfile } from "../../trading";
 import type { ScheduledTaskItem } from "./types";
 import { systemJobFor, triggerRouteFor } from "./systemJobs";
@@ -134,7 +135,7 @@ export function ScheduleCard({
                   className={`schedule-item-card ${isOptions ? "is-options" : isDiscovery ? "is-discovery" : "is-stock"}`}
                 >
                   <div className="schedule-card-top">
-                    <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: "var(--space-1-5)", alignItems: "center" }}>
                       <span className={`schedule-type-badge ${item.type}`}>
                         {item.type}
                       </span>
@@ -350,16 +351,16 @@ export function ScheduleCard({
                   )}
 
                   <div className="schedule-card-footer">
-                    <button
+                    <Button
                       type="button"
                       className="btn-sched-action-sm"
                       onClick={() => handleToggleDetails(item)}
                       title="Inspect this schedule (type, next run, payload)"
                     >
                       {detailId === item.id ? "▾ Hide Details" : "🔍 Details"}
-                    </button>
+                    </Button>
                     {triggerRoute && (
-                      <button
+                      <Button
                         type="button"
                         className="btn-sched-action-sm"
                         onClick={() => handleTriggerCard(item)}
@@ -367,9 +368,9 @@ export function ScheduleCard({
                         title={item.paused ? "Resume before triggering" : `Run ${cardTitle} immediately, on demand`}
                       >
                         {triggeringKey === item.id ? "⚡ Running…" : "⚡ Trigger Now"}
-                      </button>
+                      </Button>
                     )}
-                    <button
+                    <Button
                       type="button"
                       className="btn-sched-action-sm"
                       style={{ background: "var(--color-accent-subtle)", borderColor: "var(--color-border-focus)", color: "var(--color-accent)" }}
@@ -377,40 +378,40 @@ export function ScheduleCard({
                       title="Update parameters or cadence for this schedule"
                     >
                       ✏ Edit / Update
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       className="btn-sched-action-sm"
                       onClick={() => handlePauseResume(item)}
                       title={item.paused ? "Resume schedule" : "Pause schedule"}
                     >
                       {item.paused ? "▶ Resume" : "⏸ Pause"}
-                    </button>
+                    </Button>
                     {(item.type === "cron" || item.type === "interval") && (
-                      <button
+                      <Button
                         type="button"
                         className="btn-sched-action-sm"
                         onClick={() => handleToggleFrequency(item)}
                         title="Edit frequency"
                       >
                         🕐 Edit frequency
-                      </button>
+                      </Button>
                     )}
-                    <button
+                    <Button
                       type="button"
                       className="btn-sched-cancel-sm"
                       onClick={() => handleCancelSchedule(item.id)}
                       title="Permanently cancel this durable schedule"
                     >
                       ✕ Cancel
-                    </button>
+                    </Button>
                   </div>
 
                   {freqEditingId === item.id && (
                     <div className="schedule-editor">
                       <div className="schedule-presets">
                         {FREQUENCY_PRESETS.map((p) => (
-                          <button
+                          <Button
                             key={p.id}
                             type="button"
                             className="preset"
@@ -418,17 +419,17 @@ export function ScheduleCard({
                             title={`Set frequency to ${p.label}`}
                           >
                             {p.label}
-                          </button>
+                          </Button>
                         ))}
                       </div>
                       <div className="schedule-editor-custom">
-                        <input
+                        <TextInput
                           type="text"
                           placeholder="Custom cron, e.g. 0 9 * * 1-5"
                           value={freqCustomCron}
                           onChange={(e) => setFreqCustomCron(e.target.value)}
                         />
-                        <button
+                        <Button
                           type="button"
                           disabled={!freqCustomCron.trim()}
                           onClick={() =>
@@ -439,7 +440,7 @@ export function ScheduleCard({
                           }
                         >
                           Apply cron
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}

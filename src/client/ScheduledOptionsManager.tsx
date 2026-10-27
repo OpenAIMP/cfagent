@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Button } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import { listProfiles } from "./scannerApi";
 import type { StrategyProfile } from "../trading";
@@ -788,7 +789,7 @@ export function ScheduledOptionsManager({
         </div>
 
         <div className="sched-hero-actions">
-          <button
+          <Button
             type="button"
             className="btn-sched-secondary"
             onClick={() => handleTriggerNow()}
@@ -796,15 +797,15 @@ export function ScheduledOptionsManager({
             title="Execute the options intelligence scan immediately on demand"
           >
             {triggeringKey === "hero" ? "⚡ Running Screen…" : "⚡ Run Now"}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="btn-sched-primary"
             onClick={openCreateModal}
             title="Register a new durable schedule"
           >
             <span>+</span> New Schedule
-          </button>
+          </Button>
         </div>
       </div>
 
