@@ -5,7 +5,7 @@ import {
   type ComprehensiveRiskProfile,
 } from "./riskManagementEngine";
 import "./riskAnalysis.css";
-import { Tabs, TabPanel, Modal } from "../components/ui";
+import { Button, Modal, Table, Tabs, TabPanel, TextInput, type TableColumn } from "../components/ui";
 
 export interface RiskAnalysisModalProps {
   isOpen: boolean;
@@ -33,6 +33,31 @@ export function RiskAnalysisModal({
   if (!isOpen || !subject || !profile) return null;
 
   const { anatomy, playbook, scenarioMatrix } = profile;
+  type ScenarioRow = (typeof scenarioMatrix)[number];
+  const scenarioColumns: TableColumn<ScenarioRow>[] = [
+    { key: "scenario", header: "Shock Scenario",
+      render: (p) => (
+        <span style={{ fontWeight: 600 }}>
+          {p.spotChangePct > 0 ? `+${p.spotChangePct}%` : `${p.spotChangePct}%`}
+          {p.spotChangePct === 0 ? " (Current Spot)" : ""}
+        </span>
+      ) },
+    { key: "price", header: "Underlying Price", render: (p) => `$${p.spotPrice.toFixed(2)}` },
+    { key: "pnl", header: "Est. P&L",
+      render: (p) => (
+        <span
+          style={{
+            fontWeight: 700,
+            fontVariantNumeric: "tabular-nums",
+            fontSize: "0.95rem",
+            color: p.estimatedPnL > 0 ? "var(--color-success)" : p.estimatedPnL < 0 ? "var(--color-danger)" : "var(--color-text-muted)",
+          }}
+        >
+          {p.estimatedPnL > 0 ? "+" : ""}${p.estimatedPnL.toFixed(2)}
+        </span>
+      ) },
+    { key: "status", header: "Status", render: (p) => p.outcomeLabel },
+  ];
   const spot = subject.underlyingPrice ?? 100;
   const recommendedContracts = playbook.recommendedMaxContracts(accountNav);
 
@@ -82,7 +107,8 @@ export function RiskAnalysisModal({
             >
               Risk Score: {anatomy.riskScore}/100 • {anatomy.riskLevel}
             </span>
-            <button
+            <Button
+              variant="ghost"
               type="button"
               className="risk-modal-close-btn"
               onClick={onClose}
@@ -90,7 +116,7 @@ export function RiskAnalysisModal({
               aria-label="Close"
             >
               ✕
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -277,11 +303,11 @@ export function RiskAnalysisModal({
                 </div>
 
                 <div className="risk-sizing-input-row">
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                     <span style={{ fontSize: "0.85rem", color: "var(--color-text-secondary)" }}>Account Portfolio NAV:</span>
                     <div className="risk-sizing-input-wrap">
                       <span>$</span>
-                      <input
+                      <TextInput
                         type="number"
                         min="1000"
                         step="1000"
@@ -390,44 +416,15 @@ export function RiskAnalysisModal({
                 </span>
               </div>
 
-              <table className="risk-scenario-table">
-                <thead>
-                  <tr>
-                    <th>Shock Scenario</th>
-                    <th>Underlying Price</th>
-                    <th>Est. P&amp;L</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {scenarioMatrix.map((point) => {
-                    const isPositive = point.estimatedPnL > 0;
-                    const isZero = point.spotChangePct === 0;
-                    return (
-                      <tr key={point.spotChangePct} className={isZero ? "spot-row" : ""}>
-                        <td style={{ fontWeight: 600 }}>
-                          {point.spotChangePct > 0 ? `+${point.spotChangePct}%` : `${point.spotChangePct}%`}
-                          {isZero ? " (Current Spot)" : ""}
-                        </td>
-                        <td>${point.spotPrice.toFixed(2)}</td>
-                        <td
-                          style={{
-                            fontWeight: 700,
-                            fontVariantNumeric: "tabular-nums",
-                            fontSize: "0.95rem",
-                            color: isPositive ? "var(--color-success)" : point.estimatedPnL < 0 ? "var(--color-danger)" : "var(--color-text-muted)",
-                          }}
-                        >
-                          {point.estimatedPnL > 0 ? "+" : ""}${point.estimatedPnL.toFixed(2)}
-                        </td>
-                        <td>{point.outcomeLabel}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <Table
+                className="risk-scenario-table"
+                columns={scenarioColumns}
+                rows={scenarioMatrix}
+                rowKey={(row) => String(row.spotChangePct)}
+                rowClassName={(row) => (row.spotChangePct === 0 ? "spot-row" : "")}
+              />
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)", marginTop: "1rem" }}>
                 <div className="risk-tail-box">
                   <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
                     Tail Shock: -20% Flash Crash
@@ -470,20 +467,20 @@ export function RiskAnalysisModal({
               </div>
 
               <div className="risk-ai-actions">
-                <button
+                <Button
                   type="button"
                   className="risk-btn-ask-ai"
                   onClick={() => handleSendToAiChat()}
                 >
                   💬 Send Prompt to AI Chat
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="risk-btn-copy-prompt"
                   onClick={handleCopyPrompt}
                 >
                   {copiedPrompt ? "✓ Copied to Clipboard!" : "📋 Copy Prompt"}
-                </button>
+                </Button>
               </div>
 
               <div style={{ marginTop: "0.5rem" }}>
@@ -491,34 +488,34 @@ export function RiskAnalysisModal({
                   Quick Question Presets:
                 </span>
                 <div className="risk-chips-carousel">
-                  <button
+                  <Button
                     type="button"
                     className="risk-prompt-chip"
                     onClick={() => handleSendToAiChat(`How do I roll ${subject.underlyingSymbol} ${subject.strategyType || "trade"} if the short strike is breached?`)}
                   >
                     🔄 How do I roll if tested?
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="risk-prompt-chip"
                     onClick={() => handleSendToAiChat(`What is the optimal delta hedge for ${subject.underlyingSymbol} with Delta ${anatomy.netDelta.toFixed(2)}?`)}
                   >
                     ⚖️ How to delta hedge this?
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="risk-prompt-chip"
                     onClick={() => handleSendToAiChat(`Calculate protective collar or put wing costs for ${subject.underlyingSymbol}.`)}
                   >
                     🛡️ Protective collar cost?
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="risk-prompt-chip"
                     onClick={() => handleSendToAiChat(`What happens to this ${subject.underlyingSymbol} trade under an IV crush after earnings?`)}
                   >
                     📉 Impact of IV Crush?
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>

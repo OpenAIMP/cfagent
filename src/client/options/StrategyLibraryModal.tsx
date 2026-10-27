@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Button, Modal } from "../components/ui";
+import { Button, Checkbox, Modal, TextInput } from "../components/ui";
 import {
   DIRECTION_TAGS,
   DIRECTION_TAG_LABELS,
@@ -120,14 +120,14 @@ export function StrategyLibraryModal({
                 : "Choose a pre-made strategy to evaluate profit/loss characteristics"}
             </span>
           </div>
-          <button type="button" className="strat-modal-close-btn" onClick={onClose}>
+          <Button variant="ghost" type="button" className="strat-modal-close-btn" onClick={onClose}>
             ✕
-          </button>
+          </Button>
         </div>
 
         <div className="strat-library-toolbar">
           <div className="strat-library-search">
-            <input
+            <TextInput
               type="text"
               placeholder="Search by strategy name or description..."
               value={searchQuery}
@@ -137,33 +137,33 @@ export function StrategyLibraryModal({
           </div>
           <div className="strat-library-categories">
             {CATEGORIES.map((cat) => (
-              <button
+              <Button
                 key={cat}
                 type="button"
                 className={`strat-cat-pill ${categoryFilter === cat ? "active" : ""}`}
                 onClick={() => setCategoryFilter(cat)}
               >
                 {cat}
-              </button>
+              </Button>
             ))}
           </div>
           <div className="strat-library-directions" aria-label="Filter by direction">
-            <button
+            <Button
               type="button"
               className={`strat-cat-pill ${directionFilter === "All" ? "active" : ""}`}
               onClick={() => setDirectionFilter("All")}
             >
               All directions
-            </button>
+            </Button>
             {DIRECTION_TAGS.map((tag) => (
-              <button
+              <Button
                 key={tag}
                 type="button"
                 className={`strat-cat-pill dir-${tag} ${directionFilter === tag ? "active" : ""}`}
                 onClick={() => setDirectionFilter(tag)}
               >
                 {DIRECTION_TAG_LABELS[tag]}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -190,8 +190,7 @@ export function StrategyLibraryModal({
                     </span>
                   )}
                   {multiSelect && (
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={isSelected}
                       onChange={() => toggleSelect(s.id)}
                       onClick={(e) => e.stopPropagation()}
@@ -224,7 +223,7 @@ export function StrategyLibraryModal({
                   {typeof s.legsCount === "number" && (
                     <span className="strat-lib-legs-tag">{s.legsCount} Leg{s.legsCount > 1 ? "s" : ""}</span>
                   )}
-                  <div style={{ display: "flex", gap: "0.4rem" }}>
+                  <div style={{ display: "flex", gap: "var(--space-1-5)" }}>
                     {onAnalyzeRisk && (
                       <Button variant="warning" tone="subtle" size="sm"
                         type="button"
@@ -238,9 +237,9 @@ export function StrategyLibraryModal({
                       </Button>
                     )}
                     {!multiSelect && (
-                      <button type="button" className="strat-lib-select-btn">
+                      <Button type="button" className="strat-lib-select-btn">
                         Select Strategy →
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -251,10 +250,11 @@ export function StrategyLibraryModal({
 
         {multiSelect && (
           <div className="strat-modal-footer">
-            <button type="button" onClick={onClose}>
+            <Button type="button" onClick={onClose}>
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="button"
               className="primary"
               onClick={() => {
@@ -263,7 +263,7 @@ export function StrategyLibraryModal({
               }}
             >
               Apply ({localSelected.length} selected)
-            </button>
+            </Button>
           </div>
         )}
           </Modal>

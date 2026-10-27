@@ -21,7 +21,7 @@ export function FlowSummaryDualBars({
         </div>
         <div className="flow-leaderboard-rows-list">
           {bullishItems.length === 0 ? (
-            <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-dim)", fontSize: "0.85rem" }}>
+            <div style={{ padding: "calc(var(--space-6) * 2) var(--space-4)", textAlign: "center", color: "var(--color-text-dim)", fontSize: "0.85rem" }}>
               No bullish flow matching active filter criteria
             </div>
           ) : (
@@ -56,7 +56,7 @@ export function FlowSummaryDualBars({
         </div>
         <div className="flow-leaderboard-rows-list">
           {bearishItems.length === 0 ? (
-            <div style={{ padding: "3rem 1rem", textAlign: "center", color: "var(--color-text-dim)", fontSize: "0.85rem" }}>
+            <div style={{ padding: "calc(var(--space-6) * 2) var(--space-4)", textAlign: "center", color: "var(--color-text-dim)", fontSize: "0.85rem" }}>
               No bearish flow matching active filter criteria
             </div>
           ) : (

@@ -499,6 +499,19 @@ div.ui-modal-title { font-size: inherit; font-weight: inherit; }
   text-transform: uppercase;
 }
 
+/* Sticky header cells (RawContractsScreener, #1848): restores the scrollable
+   table's sticky header that the raw <tr> style carried before migration. */
+.ui-table th.sticky-head {
+  position: sticky;
+  top: 0;
+  background: var(--color-surface-sunken);
+  z-index: 10;
+}
+
+/* Clickable rows (OptionsFlowsHub, #1848): rows that open a detail view
+   on click carry this class instead of an inline cursor style. */
+.ui-table tr.clickable-row { cursor: pointer; }
+
 .ui-table td {
   padding: 0.65rem 0.85rem;
   border-top: 1px solid var(--color-border-subtle);

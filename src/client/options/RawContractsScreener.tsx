@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button, Select, Table, TextInput, type TableColumn } from "../components/ui";
 import { apiFetch as fetch } from "../apiFetch";
 import type { ScreenedOptionContractItem } from "../../types";
 import { buildPaymentSignature, describeChallenge, sendUsdcPayment, type PaidTransfer, type X402Challenge } from "../x402Pay";
@@ -209,26 +210,252 @@ export function RawContractsScreener({
     return true;
   });
 
+
+  type ContractRow = ScreenedOptionContractItem & {
+    _idx: number;
+    _isCall: boolean;
+    _mid: number;
+    _ivPct: string;
+    _label: string;
+  };
+  const contractRows: ContractRow[] = filteredContracts.map((c, idx) => ({
+    ...c,
+    _idx: idx,
+    _isCall: c.optionType === "CALL",
+    _mid: Number(((c.bid + c.ask) / 2).toFixed(2)),
+    _ivPct: c.impliedVolatility ? (c.impliedVolatility * 100).toFixed(1) : "—",
+    _label: c.displaySymbol || c.symbol || c.osiKey || `Option #${idx + 1}`,
+  }));
+  const contractColumns: TableColumn<ContractRow>[] = [
+    {
+      key: "contract", header: "Contract", headerClassName: "sticky-head",
+      render: (row) => (
+        <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>{row._label}</span>
+      ),
+    },
+    {
+      key: "type", header: "Type", headerClassName: "sticky-head",
+      render: (row) => (
+        <span
+          style={{
+            padding: "var(--space-0-5) var(--space-1-5)",
+            fontWeight: 700,
+            background: row._isCall ? "var(--color-success-subtle)" : "var(--color-danger-subtle)",
+            color: row._isCall ? "var(--color-success)" : "var(--color-danger)",
+            border: `1px solid ${row._isCall ? "var(--color-success)" : "var(--color-danger)"}`,
+          }}
+        >
+          {row.optionType}
+        </span>
+      ),
+    },
+    {
+      key: "strike", header: "Strike", headerClassName: "sticky-head",
+      render: (row) => (
+        <span style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
+          ${Number(row.strikePrice).toFixed(2)}
+        </span>
+      ),
+    },
+    {
+      key: "moneyness", header: "Moneyness", headerClassName: "sticky-head",
+      render: (row) => (
+        <span
+          style={{
+            fontSize: "0.72rem",
+            padding: "var(--space-0-5) var(--space-1-5)",
+            borderRadius: "var(--radius-xs, 3px)",
+            background: row.moneyness === "ITM" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
+            color: row.moneyness === "ITM" ? "var(--color-accent)" : "var(--color-text-muted)",
+          }}
+        >
+          {row.moneyness || "OTM"}
+        </span>
+      ),
+    },
+    {
+      key: "expiration", header: "Expiration / DTE", headerClassName: "sticky-head",
+      render: (row) => (
+        <span>
+          {row.expirationDate} <span style={{ color: "var(--color-text-dim)" }}>({row.daysToExpiration}d)</span>
+        </span>
+      ),
+    },
+    {
+      key: "bid", header: "Bid", headerClassName: "sticky-head",
+      render: (row) => <span>${Number(row.bid).toFixed(2)}</span>,
+    },
+    {
+      key: "ask", header: "Ask", headerClassName: "sticky-head",
+      render: (row) => <span>${Number(row.ask).toFixed(2)}</span>,
+    },
+    {
+      key: "mid", header: "Mid", headerClassName: "sticky-head",
+      render: (row) => <span style={{ fontWeight: 600 }}>${row._mid.toFixed(2)}</span>,
+    },
+    {
+      key: "spread", header: "Spread %", headerClassName: "sticky-head",
+      render: (row) => (
+        <span style={{ color: row.spreadPct > 15 ? "var(--color-danger)" : "var(--color-text-secondary)" }}>
+          {Number(row.spreadPct).toFixed(1)}%
+        </span>
+      ),
+    },
+    {
+      key: "vol", header: "Vol", headerClassName: "sticky-head",
+      render: (row) => <span style={{ fontWeight: 600 }}>{(row.volume ?? 0).toLocaleString()}</span>,
+    },
+    {
+      key: "oi", header: "Open Int", headerClassName: "sticky-head",
+      render: (row) => <span>{(row.openInterest ?? 0).toLocaleString()}</span>,
+    },
+    {
+      key: "iv", header: "IV %", headerClassName: "sticky-head",
+      render: (row) => <span>{row._ivPct}%</span>,
+    },
+    {
+      key: "delta", header: "Delta", headerClassName: "sticky-head",
+      render: (row) => (
+        <span style={{ color: Number(row.delta) >= 0 ? "var(--color-success)" : "var(--color-danger)" }}>
+          {row.delta !== undefined ? Number(row.delta).toFixed(3) : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "gamma", header: "Gamma", headerClassName: "sticky-head",
+      render: (row) => <span>{row.gamma !== undefined ? Number(row.gamma).toFixed(4) : "—"}</span>,
+    },
+    {
+      key: "theta", header: "Theta", headerClassName: "sticky-head",
+      render: (row) => (
+        <span style={{ color: "var(--color-danger)" }}>
+          {row.theta !== undefined ? Number(row.theta).toFixed(3) : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "vega", header: "Vega", headerClassName: "sticky-head",
+      render: (row) => <span>{row.vega !== undefined ? Number(row.vega).toFixed(3) : "—"}</span>,
+    },
+    {
+      key: "action", header: "Action", headerClassName: "sticky-head",
+      render: (row) => (
+        <div style={{ display: "flex", gap: "var(--space-1)" }}>
+          {onSelectContract && (
+            <Button
+              className="subnav-btn"
+              style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "0.72rem" }}
+              title="Inspect in options tools"
+              onClick={() => onSelectContract(row)}
+            >
+              Select
+            </Button>
+          )}
+          <Button
+            className="subnav-btn"
+            style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "0.72rem", borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
+            title="Analyze risk profile and mitigation playbook"
+            onClick={() =>
+              setRiskSubject({
+                title: `${row.optionType} $${row.strikePrice} (${row.expirationDate})`,
+                underlyingSymbol: row.underlyingSymbol,
+                underlyingPrice: row.underlyingPrice,
+                strategyType: `Long ${row.optionType}`,
+                sentiment: row._isCall ? "bullish" : "bearish",
+                expirationDate: row.expirationDate,
+                dte: row.daysToExpiration,
+                quantity: 1,
+                netDebit: row._mid,
+                maxProfit: row._isCall ? null : row.strikePrice * 100,
+                maxLoss: row._mid * 100,
+                chanceOfProfit: row._isCall ? (row.delta ? Math.min(99, Math.abs(row.delta) * 100) : 50) : (row.delta ? Math.min(99, Math.abs(row.delta) * 100) : 50),
+                breakevens: [row._isCall ? Number((row.strikePrice + row._mid).toFixed(2)) : Number((row.strikePrice - row._mid).toFixed(2))],
+                legs: [
+                  {
+                    side: "BUY",
+                    action: "BUY",
+                    optionType: row.optionType,
+                    strike: row.strikePrice,
+                    expirationDate: row.expirationDate,
+                    entryPrice: row._mid,
+                    bid: row.bid,
+                    ask: row.ask,
+                    iv: row.impliedVolatility,
+                    delta: row.delta,
+                    gamma: row.gamma,
+                    theta: row.theta,
+                    vega: row.vega,
+                  },
+                ],
+                netGreeks: {
+                  delta: row.delta,
+                  gamma: row.gamma,
+                  theta: row.theta,
+                  vega: row.vega,
+                },
+                bid: row.bid,
+                ask: row.ask,
+                openInterest: row.openInterest,
+                volume: row.volume,
+              })
+            }
+          >
+            🛡️ Risk
+          </Button>
+          {onPreviewTrade && (
+            <Button
+              className="subnav-btn"
+              style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "0.72rem", borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+              title="Preview buy trade order"
+              onClick={() =>
+                onPreviewTrade({
+                  assetClass: "options",
+                  symbol: row.underlyingSymbol,
+                  action: "BUY",
+                  quantity: 1,
+                  underlyingPrice: row.underlyingPrice,
+                  label: `Buy 1x ${row._label} (${row.optionType} $${row.strikePrice})`,
+                  legs: [`BUY 1 ${row._label} @ $${row._mid.toFixed(2)}`],
+                  optionLegs: [{
+                    securityType: "OPTN",
+                    side: "BUY",
+                    quantity: 1,
+                    optionType: row.optionType,
+                    strike: row.strikePrice,
+                    expirationDate: row.expirationDate,
+                  }],
+                  strategyNetDebit: row._mid * 100,
+                })
+              }
+            >
+              Trade
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <div className="raw-contracts-screener-view" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+    <div className="raw-contracts-screener-view" style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
       {/* Top Banner & Quick Underlying Chips */}
       <div
         style={{
           background: "var(--color-card)",
           border: "1px solid var(--color-accent-border)",
           borderRadius: "10px",
-          padding: "1rem 1.25rem",
+          padding: "var(--space-4) var(--space-5)",
           display: "flex",
           flexWrap: "wrap",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: "1rem",
+          gap: "var(--space-4)",
         }}
       >
         <div>
-          <h3 style={{ margin: "0 0 0.25rem", fontSize: "1.1rem", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <h3 style={{ margin: "0 0 0.25rem", fontSize: "1.1rem", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
             <span>📋 Raw Option Contracts Screener</span>
-            <span style={{ fontSize: "0.72rem", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", borderRadius: "var(--radius-xs, 4px)", padding: "0.15rem 0.5rem", color: "var(--color-accent)" }}>
+            <span style={{ fontSize: "0.72rem", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", borderRadius: "var(--radius-xs, 4px)", padding: "var(--space-0-5) var(--space-2)", color: "var(--color-accent)" }}>
               Live E*TRADE Chains
             </span>
           </h3>
@@ -238,15 +465,14 @@ export function RawContractsScreener({
         </div>
 
         {/* Quick Ticker Chips */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", flexWrap: "wrap" }}>
           <span style={{ fontSize: "0.78rem", color: "var(--color-text-dim)" }}>Quick symbols:</span>
           {POPULAR_SYMBOLS.map((s) => (
-            <button
+            <Button
               key={s}
-              type="button"
               className="subnav-btn"
               style={{
-                padding: "0.25rem 0.6rem",
+                padding: "var(--space-1) var(--space-2-5)",
                 fontSize: "0.76rem",
                 background: symbol.toUpperCase() === s ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
                 borderColor: symbol.toUpperCase() === s ? "var(--color-border-focus)" : "var(--color-border-subtle)",
@@ -255,7 +481,7 @@ export function RawContractsScreener({
               onClick={() => setSymbol(s)}
             >
               {s}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -268,7 +494,7 @@ export function RawContractsScreener({
       >
         <label className="options-field">
           <span>Underlying Symbol</span>
-          <input
+          <TextInput
             value={symbol}
             onChange={(e) => setSymbol(e.target.value.toUpperCase())}
             placeholder="e.g. NVDA, TSLA, SPY"
@@ -279,17 +505,17 @@ export function RawContractsScreener({
 
         <label className="options-field">
           <span>Sort By</span>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+          <Select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
             <option value="volume">Volume (Highest First)</option>
             <option value="iv">Implied Volatility (IV)</option>
             <option value="spreadPct">Tightest Spread (%)</option>
             <option value="strikeDistance">Strike Distance</option>
-          </select>
+          </Select>
         </label>
 
         <label className="options-field">
           <span>Max Results (Limit)</span>
-          <input
+          <TextInput
             type="number"
             min="10"
             max="10000"
@@ -313,10 +539,10 @@ export function RawContractsScreener({
             lastSentFilters={lastSentOptionsFilters}
           />
         </div>
-        <div className="options-form-footer" style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
-          <button type="submit" disabled={loading} style={{ minWidth: "180px", fontWeight: 600 }}>
+        <div className="options-form-footer" style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: "var(--space-2)" }}>
+          <Button type="submit" disabled={loading} style={{ minWidth: "180px", fontWeight: 600 }}>
             {loading ? "Scanning Chains…" : `⚡ Screen ${symbol || "Options"} Contracts`}
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -326,14 +552,14 @@ export function RawContractsScreener({
           <p>
             <strong>Payment Optional (x402 Protocol).</strong> Pay ${pending.challenge.amount.toFixed(2)} {describeChallenge(pending.challenge).label} or run for free.
           </p>
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
-            <button type="button" disabled={loading} onClick={() => void payAndRun()}>
+          <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "0.5rem" }}>
+            <Button disabled={loading} onClick={() => void payAndRun()}>
               {loading ? payStatus || "Working…" : pending.paid ? "Retry Verification" : `Pay $${pending.challenge.amount.toFixed(2)} & Run`}
-            </button>
+            </Button>
             {!pending.paid && (
-              <button type="button" disabled={loading} onClick={() => void runWithoutPaying()}>
+              <Button disabled={loading} onClick={() => void runWithoutPaying()}>
                 Skip Payment &amp; Run Free
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -348,15 +574,15 @@ export function RawContractsScreener({
             background: "var(--color-surface-sunken)",
             border: "1px solid var(--color-border-subtle)",
             borderRadius: "8px",
-            padding: "0.75rem 1rem",
+            padding: "var(--space-3) var(--space-4)",
             display: "flex",
             flexWrap: "wrap",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: "0.75rem",
+            gap: "var(--space-3)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)" }}>
               {summary || `${contracts.length} contracts retrieved`}
             </span>
@@ -368,15 +594,14 @@ export function RawContractsScreener({
             {reportUrl && <a href={reportUrl} download>📄 Download this run’s PDF</a>}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
             {/* Type selector */}
             <div style={{ display: "flex", border: "1px solid var(--color-border-medium)", borderRadius: "6px", overflow: "hidden" }}>
               {(["ALL", "CALL", "PUT"] as const).map((t) => (
-                <button
+                <Button
                   key={t}
-                  type="button"
                   style={{
-                    padding: "0.25rem 0.6rem",
+                    padding: "var(--space-1) var(--space-2-5)",
                     fontSize: "0.75rem",
                     border: "none",
                     background: typeFilter === t ? "var(--color-info-subtle)" : "transparent",
@@ -386,18 +611,18 @@ export function RawContractsScreener({
                   onClick={() => setTypeFilter(t)}
                 >
                   {t}
-                </button>
+                </Button>
               ))}
             </div>
 
             {/* In-table search input */}
-            <input
+            <TextInput
               type="text"
               placeholder="Filter by strike / expiry…"
               value={tableSearch}
               onChange={(e) => setTableSearch(e.target.value)}
               style={{
-                padding: "0.3rem 0.6rem",
+                padding: "var(--space-1) var(--space-2-5)",
                 fontSize: "0.78rem",
                 background: "var(--color-input)",
                 border: "1px solid var(--color-input-border)",
@@ -421,201 +646,20 @@ export function RawContractsScreener({
 
       {/* Contracts Table */}
       {contracts.length > 0 && (
-        <div className="options-table-scroll" style={{ maxHeight: "650px", overflowY: "auto" }}>
-          <table className="options-comparison-table" style={{ fontSize: "0.82rem" }}>
-            <thead>
-              <tr style={{ position: "sticky", top: 0, background: "var(--color-surface-sunken)", zIndex: 10 }}>
-                <th>Contract</th>
-                <th>Type</th>
-                <th>Strike</th>
-                <th>Moneyness</th>
-                <th>Expiration / DTE</th>
-                <th>Bid</th>
-                <th>Ask</th>
-                <th>Mid</th>
-                <th>Spread %</th>
-                <th>Vol</th>
-                <th>Open Int</th>
-                <th>IV %</th>
-                <th>Delta</th>
-                <th>Gamma</th>
-                <th>Theta</th>
-                <th>Vega</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredContracts.map((c, idx) => {
-                const isCall = c.optionType === "CALL";
-                const mid = Number(((c.bid + c.ask) / 2).toFixed(2));
-                const ivPct = c.impliedVolatility ? (c.impliedVolatility * 100).toFixed(1) : "—";
-                const contractLabel = c.displaySymbol || c.symbol || c.osiKey || `Option #${idx + 1}`;
-
-                return (
-                  <tr key={`${c.symbol || c.displaySymbol || c.osiKey || idx}:${idx}`}>
-                    <td style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
-                      {contractLabel}
-                    </td>
-                    <td>
-                      <span
-                        style={{
-                          padding: "0.15rem 0.45rem",
-                          borderRadius: "var(--radius-xs, 4px)",
-                          fontSize: "0.72rem",
-                          fontWeight: 700,
-                          background: isCall ? "var(--color-success-subtle)" : "var(--color-danger-subtle)",
-                          color: isCall ? "var(--color-success)" : "var(--color-danger)",
-                          border: `1px solid ${isCall ? "var(--color-success)" : "var(--color-danger)"}`,
-                        }}
-                      >
-                        {c.optionType}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
-                      ${Number(c.strikePrice).toFixed(2)}
-                    </td>
-                    <td>
-                      <span
-                        style={{
-                          fontSize: "0.72rem",
-                          padding: "0.1rem 0.35rem",
-                          borderRadius: "var(--radius-xs, 3px)",
-                          background: c.moneyness === "ITM" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
-                          color: c.moneyness === "ITM" ? "var(--color-accent)" : "var(--color-text-muted)",
-                        }}
-                      >
-                        {c.moneyness || "OTM"}
-                      </span>
-                    </td>
-                    <td>
-                      {c.expirationDate} <span style={{ color: "var(--color-text-dim)" }}>({c.daysToExpiration}d)</span>
-                    </td>
-                    <td>${Number(c.bid).toFixed(2)}</td>
-                    <td>${Number(c.ask).toFixed(2)}</td>
-                    <td style={{ fontWeight: 600 }}>${mid.toFixed(2)}</td>
-                    <td>
-                      <span style={{ color: c.spreadPct > 15 ? "var(--color-danger)" : "var(--color-text-secondary)" }}>
-                        {Number(c.spreadPct).toFixed(1)}%
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 600 }}>{(c.volume ?? 0).toLocaleString()}</td>
-                    <td>{(c.openInterest ?? 0).toLocaleString()}</td>
-                    <td>{ivPct}%</td>
-                    <td style={{ color: Number(c.delta) >= 0 ? "var(--color-success)" : "var(--color-danger)" }}>
-                      {c.delta !== undefined ? Number(c.delta).toFixed(3) : "—"}
-                    </td>
-                    <td>{c.gamma !== undefined ? Number(c.gamma).toFixed(4) : "—"}</td>
-                    <td style={{ color: "var(--color-danger)" }}>{c.theta !== undefined ? Number(c.theta).toFixed(3) : "—"}</td>
-                    <td>{c.vega !== undefined ? Number(c.vega).toFixed(3) : "—"}</td>
-                    <td>
-                      <div style={{ display: "flex", gap: "0.3rem" }}>
-                        {onSelectContract && (
-                          <button
-                            type="button"
-                            className="subnav-btn"
-                            style={{ padding: "0.2rem 0.4rem", fontSize: "0.72rem" }}
-                            title="Inspect in options tools"
-                            onClick={() => onSelectContract(c)}
-                          >
-                            Select
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="subnav-btn"
-                          style={{ padding: "0.2rem 0.4rem", fontSize: "0.72rem", borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
-                          title="Analyze risk profile and mitigation playbook"
-                          onClick={() =>
-                            setRiskSubject({
-                              title: `${c.optionType} $${c.strikePrice} (${c.expirationDate})`,
-                              underlyingSymbol: c.underlyingSymbol,
-                              underlyingPrice: c.underlyingPrice,
-                              strategyType: `Long ${c.optionType}`,
-                              sentiment: isCall ? "bullish" : "bearish",
-                              expirationDate: c.expirationDate,
-                              dte: c.daysToExpiration,
-                              quantity: 1,
-                              netDebit: mid,
-                              maxProfit: isCall ? null : c.strikePrice * 100,
-                              maxLoss: mid * 100,
-                              chanceOfProfit: isCall ? (c.delta ? Math.min(99, Math.abs(c.delta) * 100) : 50) : (c.delta ? Math.min(99, Math.abs(c.delta) * 100) : 50),
-                              breakevens: [isCall ? Number((c.strikePrice + mid).toFixed(2)) : Number((c.strikePrice - mid).toFixed(2))],
-                              legs: [
-                                {
-                                  side: "BUY",
-                                  action: "BUY",
-                                  optionType: c.optionType,
-                                  strike: c.strikePrice,
-                                  expirationDate: c.expirationDate,
-                                  entryPrice: mid,
-                                  bid: c.bid,
-                                  ask: c.ask,
-                                  iv: c.impliedVolatility,
-                                  delta: c.delta,
-                                  gamma: c.gamma,
-                                  theta: c.theta,
-                                  vega: c.vega,
-                                },
-                              ],
-                              netGreeks: {
-                                delta: c.delta,
-                                gamma: c.gamma,
-                                theta: c.theta,
-                                vega: c.vega,
-                              },
-                              bid: c.bid,
-                              ask: c.ask,
-                              openInterest: c.openInterest,
-                              volume: c.volume,
-                            })
-                          }
-                        >
-                          🛡️ Risk
-                        </button>
-                        {onPreviewTrade && (
-                          <button
-                            type="button"
-                            className="subnav-btn"
-                            style={{ padding: "0.2rem 0.4rem", fontSize: "0.72rem", borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
-                            title="Preview buy trade order"
-                            onClick={() =>
-                              onPreviewTrade({
-                                assetClass: "options",
-                                symbol: c.underlyingSymbol,
-                                action: "BUY",
-                                quantity: 1,
-                                underlyingPrice: c.underlyingPrice,
-                                label: `Buy 1x ${contractLabel} (${c.optionType} $${c.strikePrice})`,
-                                legs: [`BUY 1 ${contractLabel} @ $${mid.toFixed(2)}`],
-                                optionLegs: [{
-                                  securityType: "OPTN",
-                                  side: "BUY",
-                                  quantity: 1,
-                                  optionType: c.optionType,
-                                  strike: c.strikePrice,
-                                  expirationDate: c.expirationDate,
-                                }],
-                                strategyNetDebit: mid * 100,
-                              })
-                            }
-                          >
-                            Trade
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="options-table-scroll" style={{ maxHeight: "650px", overflowY: "auto", fontSize: "0.82rem" }}>
+          <Table
+            columns={contractColumns}
+            rows={contractRows}
+            rowKey={(row) => `${row.symbol || row.displaySymbol || row.osiKey || row._idx}:${row._idx}`}
+            className="options-comparison-table"
+          />
         </div>
       )}
 
       {contracts.length === 0 && !loading && (
         <div
           style={{
-            padding: "3rem 1.5rem",
+            padding: "calc(var(--space-6) * 2) var(--space-6)",
             textAlign: "center",
             background: "var(--color-surface-sunken)",
             border: "1px dashed var(--color-border-subtle)",

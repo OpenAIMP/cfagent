@@ -10,6 +10,7 @@
  * imports them from there.
  */
 import { useState, useRef, useEffect } from "react";
+import { Button } from "../components/ui";
 import {
   downloadRawOptionsData,
   downloadNormalizedOptionsData,
@@ -83,7 +84,7 @@ export function OptionsDataDownloadDropdown({
 
   return (
     <div className={`options-download-dropdown-wrap ${className}`} ref={dropdownRef}>
-      <button
+      <Button
         type="button"
         className="options-download-main-btn"
         onClick={() => setIsOpen(!isOpen)}
@@ -91,7 +92,7 @@ export function OptionsDataDownloadDropdown({
         title={`Download raw and normalized options datasets for ${symbol.toUpperCase()}`}
       >
         {downloading ? "⏳ Downloading…" : `${label} ▾`}
-      </button>
+      </Button>
 
       {isOpen && (
         <div className="options-download-menu">
@@ -100,7 +101,7 @@ export function OptionsDataDownloadDropdown({
             <span>Excel 97–2003 (.xls) Workbooks</span>
           </div>
 
-          <button
+          <Button
             type="button"
             className="options-download-menu-item"
             disabled={downloading !== null}
@@ -111,9 +112,9 @@ export function OptionsDataDownloadDropdown({
               <strong>Raw E*TRADE Options Data</strong>
               <small>Complete unadulterated option chain JSON &amp; expirations</small>
             </div>
-          </button>
+          </Button>
 
-          <button
+          <Button
             type="button"
             className="options-download-menu-item"
             disabled={downloading !== null}
@@ -124,9 +125,9 @@ export function OptionsDataDownloadDropdown({
               <strong>Normalized LLM Input Data</strong>
               <small>Grouped contracts, Greeks, and exact prompts fed to LLM</small>
             </div>
-          </button>
+          </Button>
 
-          <button
+          <Button
             type="button"
             className="options-download-menu-item highlight"
             disabled={downloading !== null}
@@ -137,7 +138,7 @@ export function OptionsDataDownloadDropdown({
               <strong>Download Both Packages</strong>
               <small>Both raw E*TRADE chains and normalized LLM inputs</small>
             </div>
-          </button>
+          </Button>
 
           {statusMessage && <div className="options-download-status success">{statusMessage}</div>}
           {errorMessage && <div className="options-download-status error">{errorMessage}</div>}
