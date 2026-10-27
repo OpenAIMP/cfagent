@@ -1,0 +1,63 @@
+# Deletion watchdog — issue #1894 (backstop, not prevention).
+#
+# WHAT: on every push to main, lists files deleted by that push. Any
+# deletion is an anomaly under the no-deletion rule (Policy Gate check
+# (i)): it means a bypass, a direct push, or a gate failure. The
+# workflow files an issue naming the commit and the files; it never
+# reverts, pushes, or merges anything itself.
+#
+# WHY A WORKFLOW: the gate blocks deletions in PRs, but it cannot see
+# direct pushes or bypasses. This is the detector for those paths.
+#
+# NOTE: workflow files cannot be written via the GitHub API (403), so
+# this file is created through the repo owner's web UI (see #1894).
+
+name: Deletion watchdog
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: deletion-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch-deletions:
+    name: Alert on deleted files
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: List deletions and file an issue if any
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No parent commit (new branch); nothing to compare. Skipping."
+            exit 0
+          fi
+          DELETED=$(git diff --name-only --diff-filter=D "$BEFORE" "$SHA" || true)
+          if [ -z "$DELETED" ]; then
+            echo "No file deletions in this push."
+            exit 0
+          fi
+          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
+          COUNT=$(echo "$DELETED" | grep -c .)
+          LIST=$(echo "$DELETED" | sed 's/^/- /')
+          BODY="Deletion watchdog (issue #1894): push $SHORT_SHA deleted $COUNT file(s). Deletions are prohibited by Policy Gate check (i) — this push bypassed the gate, was a direct push, or the gate failed. A human repair decision is required; this workflow never reverts on its own.
+
+Deleted files:
+$LIST"
+          gh api "repos/$GITHUB_REPOSITORY/issues" -f title="[watchdog] File deletion(s) on main: $SHORT_SHA" -f body="$BODY" --jq '.html_url'
