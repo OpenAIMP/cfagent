@@ -259,7 +259,7 @@ separate them, this section says so.
 | PEP — Policy Enforcement Point: enforces the PDP's answer at the boundary | Several, one per surface — there is no single gateway. (1) `requireAuth()` in `src/server.ts`: the session gate, which rejects unauthenticated callers before any permission is evaluated. (2) `checkRoutePermission()` in `src/security/iaaaGithubEndToEnd.ts`, called from the E*TRADE start, E*TRADE verifier, Public start, and Public connect routes in `src/server.ts` for `integration:connect` (403 on deny; see §6). The callers first check `shouldEnforcePdp`, which enforces for wired sessions and for legacy sessions past their §8 grace bound, and exempts only legacy sessions inside the bound; a grace-expired legacy denial carries code `legacy_pdp_grace_expired`. (3) The `canGrantRole` checks on the access-request decision route in `src/server.ts`. (4) The `requireAuth` gate at the top of the `/api/schedule/` block in `src/server.ts` (401 before the ScheduledAgent stub is reached). A PEP that cannot reach the PDP denies: a missing session, a legacy session past its grace bound (no internal id to evaluate), or an unresolvable tenant all fail closed. The one documented exception is a legacy session inside its grace bound (§8), which takes the pre-change path at the `integration:connect` gates. |
 | PIP — Policy Information Point: supplies the attributes the PDP reads | The SessionStore Durable Object, read directly — there is no separate attribute service. Memberships under `iaaa-membership:` keys (`src/security/iaaaMembershipStore.ts`), identity bindings under `iaaa-binding:` keys (`src/security/iaaaLogin.ts`), migration aliases under `iaaa-alias:` keys (`src/security/iaaaMigration.ts`), and sessions via `sessionStore(env)`. The tenant attribute defaults to `"primary"` (`IAAA_DEFAULT_TENANT_ID` in `src/security/iaaaGithubEndToEnd.ts`; see §4). |
 | Context Handler — assembles the request the PDP evaluates | The `CheckPermissionInput` in `src/security/iaaaPdpSeam.ts`: subject = `internalUserId` (the derived `v1:` identity, never a login handle or email), resource = `tenantId` plus `scope` / `resourceScope`, action = `permission`, environment = `nowMs` plus caller-side facts the PDP does not itself fetch — session validity (established by `requireAuth` before the call), step-up freshness (`DEFAULT_STEP_UP_FRESHNESS_MS` in `src/security/sessionPolicy.ts`), and the `IAAA_PDP_ENABLED` flag (callers check `shouldEnforcePdp` before calling; the PDP seam itself does not read flags). |
-| Obligations / Advice — things that must or should happen alongside the decision | Partial equivalents only. Audit-on-decision: security events are written to the hash-chained store under `iaaa-audit:` keys (`src/security/iaaaAuditStore.ts`) — the record that a decision happened, not a condition on it. Step-up re-authentication: a fresh-authentication requirement enforced at sensitive gates (API-key mint; see §6), which functions like an obligation to re-authenticate, but it is enforced ad hoc at each gate, not declared as an obligation attached to a policy. There is no obligation service and no advice channel: the PDP returns allow/deny, and everything else is the caller's job. |
+| Obligations / Advice — things that must or should happen alongside the decision | Built (#1751): obligations and advice attach to policy in the frozen `OBLIGATION_POLICY` table (`src/security/obligations.ts`) and are enforced by the PEP-side evaluator `evaluateWithObligations()`, which wraps the PDP seam. Step-up-as-obligation and audit-before-allow (audit as a condition, not a record) are demonstrated for `role:assign`, `membership:revoke`, and `audit:export`; policy advice accompanies allow and deny alike and never changes a decision. Everything fails closed: a missing/stale authentication, a missing audit writer, a failed or throwing audit write, or an unknown obligation kind all deny. The pre-#1751 equivalents remain as the record below (audit-on-decision; ad-hoc per-gate step-up at API-key mint) until CTO-lane #945 route wiring adopts the evaluator route by route — see the residual list under §10 below. |
 
 ### Combining rule
 
@@ -286,9 +286,28 @@ hardcoded, not policy.
   through the membership store. Attributes cannot be federated,
   transformed, or cached by a PIP layer; what the store holds is what
   the decision sees.
-- **There is no obligation service.** Audit and step-up are ad-hoc
-  caller behavior (see Obligations above), not obligations declared in
-  policy and enforced by a handler.
+- **Obligations/advice are policy-declared but not yet route-wired
+  (#1751).** The channel exists and is enforced by its evaluator
+  (`src/security/obligations.ts`, proving tests
+  `tests/iaaa_obligations_1751.test.ts`): obligations attach to the
+  permission in the frozen `OBLIGATION_POLICY` table, not to per-gate
+  code. What is NOT yet true: no live route calls the evaluator,
+  so the ad-hoc gates (per-gate step-up at API-key mint, audit-on-
+  decision elsewhere) still do the live enforcing until CTO-lane
+  #945 route wiring adopts the evaluator route by route, each
+  adopting route supplying its session's `authTimeMs` and its audit
+  sink. Until that wiring lands, "the PDP decided, obligations
+  enforced" describes the evaluator's decisions, not every live
+  route's. The old gates were not removed by #1751, so nothing live
+  regressed in the meantime.
+- **The obligation table is frozen, not configurable — by design.**
+  No env var, session value, run value, or user value can widen,
+  narrow, or disable an obligation, because a caller-configurable
+  obligation would let a caller disable their own enforcement. The
+  step-up window is the reused platform default (15 minutes, still
+  an open CISO value, #1757), not a settled threshold. Scope-
+  qualified obligations (different obligations per scope for the
+  same permission) are not in v1 and are not invented here.
 - **The PDP is not the only gate.** Legacy sessions inside their
   grace bound are PDP-exempt (§8), deliberately ungated routes
   exist (§7), and the `/trade/approve` decision belongs to a
