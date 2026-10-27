@@ -4,7 +4,7 @@
 - Date: 2026-10-27
 - Deciders: owner, #CISO-bhdm
 - Issue: #1819 (consolidation: #1884)
-- Implementing PR: (this slice's PR; main commit, when merged)
+- Implementing PR: #1890 (main commit, when merged)
 - Related: ADR 0015 (instrument first), ADR 0016 (ScheduledAgent
   rollup), docs/architecture/security/sessionstore-resource-process-1819.md §2,
   CAIO track #1736 (program), #1742 (port pattern), #1743 (schema/transport),
