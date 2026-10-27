@@ -13,31 +13,27 @@
  * out of scope (needs Ceos's program decision).
  *
  * UX token architecture compliance is mandatory with no exemptions
- * (ADR-0004): the panel's own chrome is the Card primitive, and every
+ * (ADR-0004): the panel's own chrome is the PageShell primitive, and every
  * control on the surface comes from the primitive-built queues.
  */
-import { Card } from "./components/ui";
+import { PageShell, PageSection } from "./components/ui";
 import { TradingApprovalsQueue } from "./TradingApprovalsQueue";
 import { PendingReviewQueue } from "./PendingReviewQueue";
 
 export function ApprovalsPanel() {
   return (
     <div className="approvals-panel">
-      <Card padding="lg">
-        <h2>Approvals</h2>
-        <p>
-          Every consequential action awaiting your decision, in one place. Trade drafts and held
-          deliveries are the two decidable queues with listable pending items today; each queue
-          below keeps its own loading, decision, and refresh behavior — this surface only
-          composes them.
-        </p>
-      </Card>
-      <section aria-label="Trade approvals">
-        <TradingApprovalsQueue />
-      </section>
-      <section aria-label="Held deliveries">
-        <PendingReviewQueue />
-      </section>
+      <PageShell
+        title="Approvals"
+        scopeNote="Every consequential action awaiting your decision, in one place. Trade drafts and held deliveries are the two decidable queues with listable pending items today; each queue below keeps its own loading, decision, and refresh behavior — this surface only composes them."
+      >
+        <PageSection title="Trade approvals">
+          <TradingApprovalsQueue />
+        </PageSection>
+        <PageSection title="Held deliveries">
+          <PendingReviewQueue />
+        </PageSection>
+      </PageShell>
     </div>
   );
 }

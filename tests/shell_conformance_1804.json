@@ -3,6 +3,11 @@
     "social",
     "audit",
     "payments",
-    "nlq"
+    "nlq",
+    "endpoints",
+    "approvals",
+    "referrals",
+    "revenue",
+    "ads"
   ]
 }
