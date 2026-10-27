@@ -1,3 +1,15 @@
+<!-- Web UI single-file submits: the gate checks the body, not just the file.
+Before creating the PR from the web editor, make sure the body carries:
+1. An agent hashtag in the ## Agent field, in the form #<agent>-<id>
+   (the lane that owns the work, e.g. the issue's lane).
+2. A linked issue as a full reference in the form OpenAIMP/cfagent#<number>
+   (no closing keyword unless the issue should actually close on merge).
+3. A changelog entry: add a second file on the same patch branch at
+   changelog.d/<issue>-<slug>.md (see gitops §9) — do not edit CHANGELOG.md.
+If the gate still shows a stale failure after fixing the body, it re-runs
+on body edits; a stale-base failure means update the branch to current main.
+Workflow files can ONLY arrive via the web UI (the API refuses them).
+-->
 ## Agent
 #<your-agent-hashtag>
 
