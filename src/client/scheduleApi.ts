@@ -10,6 +10,13 @@ export interface ScheduledGoal {
   budgetCents: number;
   enabled: boolean;
   lastRun?: string;
+  timeZone?: string;
+}
+
+export interface CatalogOperation {
+  operation: string;
+  agent: string;
+  blurb: string;
 }
 
 export interface ScheduleTick {
@@ -44,12 +51,91 @@ export function addGoal(goal: {
   operation: string;
   budgetCents: number;
   enabled?: boolean;
+  timeZone?: string;
 }) {
   return api<{ ok: boolean; goal: ScheduledGoal }>("/api/schedule/goals", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(goal),
   });
+}
+
+export function listOperations() {
+  return api<{ ok: boolean; operations: CatalogOperation[] }>("/api/schedule/operations");
+}
+
+/**
+ * Issue #1922 — SessionStore resource goals preset. Values are exactly
+ * the activation payloads in
+ * docs/architecture/security/sessionstore-resource-rollup-alert-1819.md
+ * (issue #1819): all three carry budgetCents 1, enabled true, and
+ * timeZone "UTC" explicitly — the rollup day is a UTC day and an
+ * absent timeZone would fall back to America/New_York firing.
+ */
+export const RESOURCE_GOALS_PRESET: {
+  id: string;
+  name: string;
+  cron: string;
+  operation: string;
+  budgetCents: number;
+  enabled: boolean;
+  timeZone: string;
+}[] = [
+  {
+    id: "resource-daily-rollup",
+    name: "SessionStore daily resource rollup",
+    cron: "30 1 * * *",
+    operation: "resource.rollup_daily",
+    budgetCents: 1,
+    enabled: true,
+    timeZone: "UTC",
+  },
+  {
+    id: "resource-cap-alert",
+    name: "SessionStore 70% cap alert",
+    cron: "0 * * * *",
+    operation: "resource.cap_alert",
+    budgetCents: 1,
+    enabled: true,
+    timeZone: "UTC",
+  },
+  {
+    id: "resource-dashboard-comparison",
+    name: "SessionStore dashboard comparison",
+    cron: "0 2 * * *",
+    operation: "resource.dashboard_comparison",
+    budgetCents: 1,
+    enabled: true,
+    timeZone: "UTC",
+  },
+];
+
+export type PresetGoalResult =
+  | { id: string; status: "added" }
+  | { id: string; status: "skipped"; reason: string }
+  | { id: string; status: "failed"; error: string };
+
+/**
+ * Posts each preset goal in order and reports per-goal results.
+ * A goal the server reports as already existing is SKIPPED, not
+ * failed — the batch never fails wholesale and never duplicates.
+ */
+export async function addResourceGoals(): Promise<PresetGoalResult[]> {
+  const results: PresetGoalResult[] = [];
+  for (const goal of RESOURCE_GOALS_PRESET) {
+    try {
+      await addGoal(goal);
+      results.push({ id: goal.id, status: "added" });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Could not add goal.";
+      if (message.toLowerCase().includes("already exists")) {
+        results.push({ id: goal.id, status: "skipped", reason: message });
+      } else {
+        results.push({ id: goal.id, status: "failed", error: message });
+      }
+    }
+  }
+  return results;
 }
 
 export function setGoalEnabled(id: string, enabled: boolean) {

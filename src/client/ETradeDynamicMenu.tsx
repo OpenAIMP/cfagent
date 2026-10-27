@@ -7,6 +7,7 @@ import {
 } from "./components/NavigationMenu";
 import { isTabFeatureEnabled } from "./featureFlags";
 import { AsyncJobsPanel } from "./AsyncJobsPanel";
+import { ScheduledGoalsPanel } from "./ScheduledGoalsPanel";
 import { ApiKeysPanel } from "./ApiKeysPanel";
 import { DataProvidersPanel } from "./DataProvidersPanel";
 import { IaaaAdminPanel } from "./IaaaAdminPanel";
@@ -1060,6 +1061,19 @@ export function SettingsMenu({
               <small>Async jobs &amp; execution queue</small>
             </div>
             <AsyncJobsPanel embedded />
+          </div>
+
+          {/* Scheduled Goals (issue #1922): the ScheduledAgent dashboard
+              panel (issue #159) was built but never mounted anywhere;
+              this mounts it in Settings, next to the other background
+              scheduling surface. SchedulesPanel (Orchestrator schedules)
+              is a different system and is untouched. */}
+          <div className="etrade-panel-section settings-scheduled-goals-section">
+            <div className="section-label-row">
+              <span>Scheduled goals</span>
+              <small>ScheduledAgent goals, ticks &amp; add-goal form</small>
+            </div>
+            <ScheduledGoalsPanel embedded />
           </div>
 
           {/* Technical Diagnostics & Provenance (Relocated towards end of floating panel) */}
