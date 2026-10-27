@@ -1460,11 +1460,12 @@ implement.
   second parent) and reads attribution — linked issue, lane, hashtag —
   from the PR body and labels only; commit messages are not fallback
   context.
-- **Policy-file handling.** Workflow changes are eligible for the same
-  automatic label and auto-merge flow as all other PRs; no file-path rule
-  requires a human merge. The live `protectmain` ruleset requires zero
-  approving reviews and does not require Code Owner review. Required status
-  checks and review-thread resolution still apply uniformly.
+- **Policy-file handling.** Workflow changes do not get automatic
+  auto-merge: the labeler withholds it for PRs touching workflow files
+  (issue #1894), so those PRs need a human merge click once green. The
+  live `protectmain` ruleset requires zero approving reviews and does
+  not require Code Owner review. Required status checks and
+  review-thread resolution still apply uniformly.
 - **Detection backstop.** `.github/workflows/main-audit.yml`
   ("Main Audit", daily + workflow_dispatch) checks every new main
   commit for an associated merged PR and, on a direct-push commit,
