@@ -66,6 +66,15 @@ export type ReportAssetKind = "screener" | "options" | "research";
  * single-PDF-path pin has one definition site.
  * Issue #290: import via the ../trading public surface (index.ts), never
  * a trading-internal path directly.
+ * Issue #1731 (R-1/R-2 boundary): the dispatch is EXHAUSTIVE — an
+ * unknown type is refused loudly, never silently rendered through the
+ * options branch. The old screener-else-options shape silently
+ * generated an options PDF for a research input (#1641 fixed that
+ * instance by adding the research branch); the remaining else
+ * branch would still silently misrender ANY unknown type (notably
+ * a goal-screen input, whose pinned path is direct, not pipelined).
+ * Typed callers are unaffected: the asset owner accepts only the
+ * three pipeline types, and it is this dispatch's only caller.
  */
 export async function generateReportPdf(
   type: ReportAssetKind,
@@ -77,15 +86,20 @@ export async function generateReportPdf(
   } else if (type === "research") {
     const { generateResearchPdf } = await import("../trading");
     return generateResearchPdf(result as any);
-  } else {
+  } else if (type === "options") {
     const { generateOptionsPdf } = await import("../trading");
     return generateOptionsPdf(result as any);
   }
+  throw new Error(
+    `Unknown report type: ${String(type)} — the pipeline dispatches only screener, options, and research; goal-screen artifacts use their direct path.`
+  );
 }
 
 /**
  * Get the PDF filename for a report.
  * Issue #290: import via the ../trading public surface (index.ts).
+ * Issue #1731: exhaustive like generateReportPdf above — an unknown
+ * type is refused, never silently named as an options report.
  */
 export async function getReportFileName(
   type: ReportAssetKind,
@@ -97,10 +111,13 @@ export async function getReportFileName(
   } else if (type === "research") {
     const { researchPdfFileName } = await import("../trading");
     return researchPdfFileName(result as any);
-  } else {
+  } else if (type === "options") {
     const { optionsPdfFileName } = await import("../trading");
     return optionsPdfFileName(result as any);
   }
+  throw new Error(
+    `Unknown report type: ${String(type)} — the pipeline dispatches only screener, options, and research; goal-screen artifacts use their direct path.`
+  );
 }
 
 /**
