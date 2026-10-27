@@ -10,6 +10,14 @@ vi.mock("agents", () => ({
   Agent: class {},
 }));
 
+// #1958: ReportAssetAgent now extends PortThink, whose @cloudflare/think
+// base needs workerd schemes the node vitest harness cannot load. Stub
+// the base (same idiom as the "agents" mock above); this file's
+// assertions are about the PDF pipeline, not the Think runtime.
+vi.mock("@cloudflare/think", () => ({
+  Think: class {},
+}));
+
 vi.mock("../src/services/cfpayA2A", () => ({
   getCfpayConfig: vi.fn((env: any) => (env?.CFPAY_A2A_TOKEN ? { token: env.CFPAY_A2A_TOKEN } : null)),
   cfpayPostFileToSlack: vi.fn(async (_config, params) => ({

@@ -14,7 +14,7 @@
  * that requested the asset must not fail because rendering did.
  */
 
-import { Agent } from "agents";
+import { PortThink } from "../actors/thinkAdapter";
 import type { Env } from "../types";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { putReportPdf } from "../services/reportBlobStore";
@@ -38,7 +38,19 @@ export interface AssetResult {
   fileName: string;
 }
 
-export class ReportAssetAgent extends Agent<Env> {
+/**
+ * Issue #1958 (think-fleet, tracker #1951, shape (a)): this class
+ * extends PortThink instead of Agent. It has no chat turn and no port
+ * hooks of its own — nothing here drives a turn, so there is no hook
+ * to preserve or translate; the PortThink protocol (one-shot
+ * override, hook-order recording, synchronous onChatError text) is
+ * inherited untouched, and any future turn would go through the
+ * Think adapter, which owns the lifecycle boot (await
+ * think.lifecycle.start() before any turn). The RPC surface below
+ * (generateAsset/getAsset) is unchanged: Think extends Agent, so
+ * this.ctx.storage and this.env behave exactly as before.
+ */
+export class ReportAssetAgent extends PortThink {
   /**
    * Generate + store one PDF asset. Returns null on any failure.
    *
