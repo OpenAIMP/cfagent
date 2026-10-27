@@ -8,7 +8,10 @@ import type { DiscoveryRunOutcome } from "../src/services/discoveryService";
 import type { StoredDiscoverySetupRun } from "../src/trading";
 
 /**
- * Issue #14 slice 5b — the NLQ `options_discovery` surface.
+ * Issue #14 slice 5b — the NLQ discovery surface (issue #1918:
+ * discovery phrasing now routes to the unified `options_fit_discovery`
+ * action's scope leg; the removed `options_discovery` action's pins
+ * were updated to the surviving action in the same change).
  *
  * A view-less prompt ("discover setups across my watchlist") must
  * reach the discovery pipeline with the watchlist universe as the
@@ -17,15 +20,15 @@ import type { StoredDiscoverySetupRun } from "../src/trading";
  */
 
 describe("parseOptionsStrategyIntent — discovery phrasing", () => {
-  it("routes a discovery prompt to options_discovery with the watchlist default scope", () => {
+  it("routes a discovery prompt to options_fit_discovery with the watchlist default scope", () => {
     const intent = parseOptionsStrategyIntent("discover setups across my watchlist");
-    expect(intent?.action).toBe("options_discovery");
+    expect(intent?.action).toBe("options_fit_discovery");
     expect(intent?.filters.scope?.kind).toBe("watchlist");
   });
 
   it("keeps a named watchlist scope", () => {
     const intent = parseOptionsStrategyIntent("find setups in my Semis watchlist");
-    expect(intent?.action).toBe("options_discovery");
+    expect(intent?.action).toBe("options_fit_discovery");
     expect(intent?.filters.scope).toMatchObject({ kind: "watchlist" });
   });
 
@@ -36,7 +39,7 @@ describe("parseOptionsStrategyIntent — discovery phrasing", () => {
 
   it("does not hijack a single-name strategy question", () => {
     const intent = parseOptionsStrategyIntent("what is the best options trade for NVDA");
-    expect(intent?.action).not.toBe("options_discovery");
+    expect(intent?.action).not.toBe("options_fit_discovery");
   });
 });
 
@@ -80,7 +83,7 @@ function fakeEtrade(watchlists: Array<{ name: string; symbols: string[] }> = [])
   };
 }
 
-describe("runOptionsStrategyAction — options_discovery", () => {
+describe("runOptionsStrategyAction — options_fit_discovery scope leg", () => {
   it("runs the discovery runner over the listed symbols and returns the cards", async () => {
     const seen: string[] = [];
     const runner = {
@@ -92,7 +95,7 @@ describe("runOptionsStrategyAction — options_discovery", () => {
     };
     const res = await runOptionsStrategyAction(
       fakeEtrade(),
-      "options_discovery",
+      "options_fit_discovery",
       {
         request: {},
         riskProfile: "balanced",
@@ -122,7 +125,7 @@ describe("runOptionsStrategyAction — options_discovery", () => {
     };
     const res = await runOptionsStrategyAction(
       fakeEtrade([{ name: "Semis", symbols: ["NVDA", "AMD"] }]),
-      "options_discovery",
+      "options_fit_discovery",
       {
         request: {},
         riskProfile: "balanced",
@@ -140,7 +143,7 @@ describe("runOptionsStrategyAction — options_discovery", () => {
   it("fails honestly when discovery is not wired in this context", async () => {
     const res = await runOptionsStrategyAction(
       fakeEtrade(),
-      "options_discovery",
+      "options_fit_discovery",
       {
         request: {},
         riskProfile: "balanced",
@@ -159,7 +162,7 @@ describe("runOptionsStrategyAction — options_discovery", () => {
     const runner = { run: async () => FAKE_OUTCOME };
     const res = await runOptionsStrategyAction(
       fakeEtrade([]),
-      "options_discovery",
+      "options_fit_discovery",
       {
         request: {},
         riskProfile: "balanced",
