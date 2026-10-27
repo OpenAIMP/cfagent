@@ -134,10 +134,20 @@ federation, and it draws a sharp line:
 Do not confuse step-up with 2FA. Step-up (§3) is a **freshness**
 requirement (recent `authTimeMs`), not a second factor: it proves the
 same authentication happened recently, not that a second channel
-confirmed it. A deployment that needs app-level 2FA would add it as a
-new factor checked at step-up time — it does not exist today, and any
+confirmed it. It does not exist today, and any
 doc or claim that cfagent "supports 2FA" must say "via the IdP" or not
 say it at all.
+
+> **Decision record — 2026-10-27 (owner decision, #1752): OUT.**
+> App-level TOTP, WebAuthn/passkey, and magic links are out of scope:
+> no app-level factor code is built under #1752, and none follows
+> from it. Two-factor authentication remains inherited from the IdP,
+> and any "supports 2FA" claim must say "via the IdP". Step-up (§3)
+> remains a freshness requirement, not 2FA. The earlier hypothetical
+> sentence in this section ("a deployment that needs app-level 2FA
+> would add it…") is superseded by this record and must not be read
+> as an open authorization: any future app-level factor work would
+> require a NEW owner decision and a NEW issue, not #1752.
 
 Email plays no role in app authentication: there is no email-code
 login, no email-based recovery, and no email verification step in the
