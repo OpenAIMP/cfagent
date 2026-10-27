@@ -1,6 +1,6 @@
 import React from "react";
 import { adAccentPalette } from "../../designTokens";
-import { Select, Button, TextInput } from "../../components/ui";
+import { Select, Button, TextInput, PageShell, PageSection } from "../../components/ui";
 import type { AdItem } from "../types";
 
 export interface AdsTabProps {
@@ -29,14 +29,11 @@ export interface AdsTabProps {
 export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, handleAdClick, handleCreateAd, newAdColor, newAdCta, newAdSponsor, newAdTagline, newAdTitle, newAdUrl, savingAd, setNewAdColor, setNewAdCta, setNewAdSponsor, setNewAdTagline, setNewAdTitle, setNewAdUrl}: AdsTabProps) {
   return (
           <div className="ads-view">
-            {/* Header */}
-            <div className="tab-hero-header">
-              <div className="hero-text-block">
-                <h3>🚀 Sponsored Offers & Partner Marketplace</h3>
-                <p>
-                  Discover verified developer promotions, cloud compute grants, and API discounts. All placements run with real-time impression and click tracking.
-                </p>
-              </div>
+            <PageShell
+              title="Sponsored Offers & Partner Marketplace"
+              scopeNote="Discover verified developer promotions, cloud compute grants, and API discounts. All placements run with real-time impression and click tracking."
+            >
+            <div>
               <Button
                 className="refresh-btn"
                 onClick={fetchAds}
@@ -47,6 +44,7 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
             </div>
 
             {/* Sponsored Offers Grid */}
+            <PageSection>
             <div className="ads-grid">
               {ads.map((ad) => (
                 <div
@@ -88,8 +86,10 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                 </div>
               ))}
             </div>
+            </PageSection>
 
             {/* Self-serve Ad Submission Form */}
+            <PageSection>
             <div className="sponsor-submission-card">
               <div className="card-header">
                 <h4>📢 Submit a Sponsored Placement</h4>
@@ -179,6 +179,8 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                 </Button>
               </form>
             </div>
+            </PageSection>
+            </PageShell>
           </div>
   );
 }
