@@ -1,0 +1,50 @@
+# Governance scorecard — issue #1893 (epic #1872, G1/G2/G3).
+# DELIVERED, NOT PUSHED: workflow files can only arrive via the web UI
+# (the API refuses .github/workflows/ with 403). Create this file via
+# web UI: repo -> .github/workflows/governance-scorecard.yml -> Add file
+# -> Create new file -> paste -> Commit to a new branch -> PR with the
+# #ceo-aimp hashtag, the full OpenAIMP/cfagent#1893 reference, and a
+# changelog.d fragment (runbook #1864). First workflow_dispatch run
+# IS the baseline: it posts the scorecard as a comment on #1872.
+name: Governance scorecard
+
+on:
+  schedule:
+    # Monthly, 1st, 14:00 UTC (09:00 EST / 10:00 EDT).
+    - cron: "0 14 1 * *"
+  workflow_dispatch:
+    inputs:
+      window_days:
+        description: "Window in days to collect (default 30)"
+        required: false
+        default: "30"
+      post_comment:
+        description: "Post the scorecard as a comment on epic #1872 (true/false)"
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  checks: read
+
+concurrency:
+  group: governance-scorecard
+  cancel-in-progress: false
+
+jobs:
+  scorecard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run governance scorecard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EPIC: "1872"
+        run: |
+          ARGS="--window-days ${{ inputs.window_days || '30' }}"
+          if [ "${{ inputs.post_comment || 'true' }}" = "true" ]; then
+            ARGS="$ARGS --post"
+          fi
+          node scripts/metrics/governance-scorecard.mjs $ARGS
