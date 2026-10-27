@@ -6,10 +6,16 @@
  * path is a separate, reviewed step under #2014, behind FeatureFlagPort,
  * default OFF, testnet only.
  *
- * Rules (from the prototype, 14 tests):
+ * Rules (from the prototype, 16 tests, updated 2026-10-27 for
+ * all-runs-scheduled-behind-the-scenes):
  * - One charge per run-request, never per stage/shard/leg/retry/re-serve.
  * - Manual runs: subscription/credits first, then cfpay checkout (402).
- * - Scheduled runs: subscription/credits only, never unattended card.
+ * - Scheduled runs: subscription/credits only, never unattended card,
+ *   EXCEPT a one-off scheduled run authorized by a human present at
+ *   submission (scheduleKind "one_off" + authorizedAtSubmission), which
+ *   may checkout at submission; execution happens later, on schedule.
+ *   A scheduled run with no scheduleKind is treated as recurring.
+ * - Tenant isolation: run tenant must equal the verified account tenant.
  * - Confirm paid only via cfpay checkout.status == fulfilled.
  *   Stripe return page is never proof. Replay of a tx hash / payment
  *   intent id is rejected. Identity, price, and testnet are fail-closed.
@@ -21,6 +27,7 @@
 
 export type ScreenerFamily = "stock" | "goal" | "options" | "strategy";
 export type RunTrigger = "manual" | "scheduled";
+export type ScheduleKind = "one_off" | "recurring";
 
 export const FAMILY_PRICES: Record<ScreenerFamily, number> = {
   stock: 0.02,
@@ -39,6 +46,7 @@ export interface CfPayCheckoutClient {
 export interface CommercialAccount {
   userId: string;
   email: string;
+  tenantId?: string;
   tier: "Free" | "PayPerUse" | "Subscribed";
   creditsUSD: number;
   includedRunsRemaining: number;
@@ -57,6 +65,7 @@ export type GateDecision =
 interface LedgerRow {
   runRequestId: string;
   userId: string;
+  tenantId?: string;
   family: ScreenerFamily;
   trigger: RunTrigger;
   priceUSD: number;
@@ -87,9 +96,10 @@ export class CfPayMonetizationGate {
     return FAMILY_PRICES[family];
   }
 
-  async check(run: { id: string; family: ScreenerFamily; trigger: RunTrigger; account: CommercialAccount }): Promise<GateDecision> {
+  async check(run: { id: string; family: ScreenerFamily; trigger: RunTrigger; scheduleKind?: ScheduleKind; authorizedAtSubmission?: boolean; tenantId?: string; account: CommercialAccount }): Promise<GateDecision> {
     const { account } = run;
     if (!account.userId || !account.email) throw new Error("Verified user id and email are required");
+    if (run.tenantId && account.tenantId && run.tenantId !== account.tenantId) throw new Error("Tenant mismatch: run tenant must equal the verified account tenant. No cross-tenant billing.");
     const existing = this.byRun.get(run.id);
     if (existing?.status === "paid") {
       return { allowed: true, status: "already_paid", runRequestId: run.id, priceUSD: existing.priceUSD, paidVia: existing.paidVia };
@@ -105,10 +115,15 @@ export class CfPayMonetizationGate {
     if (coverage) {
       if (coverage === "subscription_included") account.includedRunsRemaining -= 1;
       else account.creditsUSD = Math.round((account.creditsUSD - priceUSD) * 100) / 100;
-      this.byRun.set(run.id, { runRequestId: run.id, userId: account.userId, family: run.family, trigger: run.trigger, priceUSD, status: "paid", paidVia: coverage });
+      this.byRun.set(run.id, { runRequestId: run.id, userId: account.userId, tenantId: run.tenantId ?? account.tenantId, family: run.family, trigger: run.trigger, priceUSD, status: "paid", paidVia: coverage });
       return { allowed: true, status: "paid", runRequestId: run.id, priceUSD, paidVia: coverage };
     }
-    if (run.trigger === "scheduled") {
+    // All runs are scheduled behind the scenes: only a one-off scheduled
+    // run authorized at submission may checkout; every other scheduled
+    // run (recurring, or no scheduleKind stated) is coverage-only.
+    const isOneOffScheduled =
+      run.trigger === "scheduled" && run.scheduleKind === "one_off" && run.authorizedAtSubmission === true;
+    if (run.trigger === "scheduled" && !isOneOffScheduled) {
       this.events.push({ runRequestId: run.id, type: "scheduled.skipped_uncovered" });
       return { allowed: false, status: "coverage_required", httpStatus: 402, runRequestId: run.id, priceUSD, family: run.family, reason: "Scheduled runs need subscription included usage or prepaid credits. No unattended card charge is taken." };
     }
@@ -119,7 +134,7 @@ export class CfPayMonetizationGate {
       return { allowed: false, status: "payment_required", httpStatus: 402, runRequestId: run.id, priceUSD, family: run.family };
     }
     const checkout = await this.cfpay.createCheckout({ requestId: run.id, email: account.email, request: `${run.family} run ${run.id}` });
-    this.byRun.set(run.id, { runRequestId: run.id, userId: account.userId, family: run.family, trigger: run.trigger, priceUSD, status: "payment_required" });
+    this.byRun.set(run.id, { runRequestId: run.id, userId: account.userId, tenantId: run.tenantId ?? account.tenantId, family: run.family, trigger: run.trigger, priceUSD, status: "payment_required" });
     return {
       allowed: false, status: "payment_required", httpStatus: 402, runRequestId: run.id, priceUSD, family: run.family, checkout,
       disclosure: "One charge per run-request. Shards, stages, retries and re-serves are free. Automated refunds are not available in v1; a paid run that fails gets a one-time replacement-run credit. Test-network build: no mainnet payment is accepted.",
