@@ -81,7 +81,6 @@ export const nlqPlanSchema = z.object({
           "options_strategies",
           "options_best_trade",
           "options_opportunities",
-          "options_discovery",
           "options_fit_discovery",
           "options_comparison",
           "options_flow",
