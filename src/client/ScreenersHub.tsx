@@ -29,6 +29,7 @@ import { SchedulesPanel } from "./SchedulesPanel";
 import { ScreeningReviewPanel } from "./ScreeningReviewPanel";
 import { ScreeningOutcomesPanel } from "./ScreeningOutcomesPanel";
 import { CalibrationDashboard } from "./CalibrationDashboard";
+import { EnrichmentDashboard } from "./EnrichmentDashboard";
 import { OptionsResearchHost } from "./options/OptionsResearchHost";
 import type { TradeOrderContext } from "./trading/tradeOrderContext";
 import "./optionsResearch.css";
@@ -1331,6 +1332,11 @@ export function ScreenersHub({
         >
           <ErrorBoundary label="Calibration dashboard">
             <CalibrationDashboard userLogin={userLogin} />
+          </ErrorBoundary>
+          {/* Issue #1888: enrichment dashboard panel — provider, coverage,
+              breaker state, killswitch state, recent runs. */}
+          <ErrorBoundary label="Enrichment dashboard">
+            <EnrichmentDashboard userLogin={userLogin} />
           </ErrorBoundary>
           <ErrorBoundary label="Track Record panel">
             <ScreeningOutcomesPanel userLogin={userLogin} />

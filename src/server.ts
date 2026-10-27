@@ -1629,6 +1629,31 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const store = createTelemetryAdapter(env as any);
       if (path === "/api/telemetry/summary") {
         if (store) await ensureTelemetryTables(store);
+        // Issue #1888: enrichment quality feeds the telemetry
+        // summary. Best-effort read of the session user's
+        // orchestrator DO enrichment status (the DO owns the run
+        // records); any failure leaves the field absent and never
+        // fails the summary.
+        let enrichmentQuality: import("./enrichment/enrichmentPorts").EnrichmentQualitySummary | null = null;
+        if (session?.githubLogin) {
+          try {
+            const id = env.SEARCH_AGENT.idFromName(session.githubLogin);
+            const targetUrl = new URL("/enrichment/status", "https://agent.internal");
+            const freq = new Request(targetUrl, {
+              headers: { "x-user-login": session.githubLogin },
+              signal: AbortSignal.timeout(3000),
+            });
+            const fres = await env.SEARCH_AGENT.get(id).fetch(freq);
+            if (fres.ok) {
+              const data = (await fres.json().catch(() => null)) as {
+                quality?: import("./enrichment/enrichmentPorts").EnrichmentQualitySummary;
+              } | null;
+              enrichmentQuality = data?.quality ?? null;
+            }
+          } catch {
+            enrichmentQuality = null;
+          }
+        }
         return handleTelemetrySummaryRoute({
           session,
           method: request.method,
@@ -1637,6 +1662,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           breakerSnapshots: () => defaultBreakerRegistry().snapshots(),
           retrievalStats: () => retrievalStatsSnapshot(),
           gatewayStats: () => gatewayStatsSnapshot(),
+          enrichmentStats: enrichmentQuality ? () => enrichmentQuality : undefined,
         });
       }
       if (path === "/api/telemetry/decisions") {
