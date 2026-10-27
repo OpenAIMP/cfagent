@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import "./workflowsHub.css";
-import { Button, PillGroup, Table, TextInput } from "./components/ui";
+import { Button, PillGroup, Table, TextInput, PageShell } from "./components/ui";
 import { STRATEGY_LIBRARY } from "./options/strategyLibrary";
 import {
   FAQ_QUESTIONS,
@@ -1051,20 +1051,10 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
   return (
     <div className="workflows-hub-container">
-      {/* Hero Header */}
-      <div className="workflows-hero">
-        <div className="workflows-hero-top">
-          <div className="workflows-hero-title-group">
-            <div className="workflows-hero-icon">🧭</div>
-            <div>
-              <h1 className="workflows-hero-title">Platform Workflows, Playbooks &amp; Solutions Hub</h1>
-              <p className="workflows-hero-subtitle">
-                Authoritative architectural specification of all 14 operational workflows (8 Analysis · 6 Execution), step-by-step playbooks for the 8 core quantitative scenarios, algorithmic decision rules, and capability lookup matrix.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PageShell
+        title="Platform Workflows, Playbooks & Solutions Hub"
+        scopeNote="Authoritative architectural specification of all 14 operational workflows (8 Analysis · 6 Execution), step-by-step playbooks for the 8 core quantitative scenarios, algorithmic decision rules, and capability lookup matrix."
+      >
 
       {/* Quick Metrics Bar */}
       <div className="workflows-stats-bar">
@@ -1839,6 +1829,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           </div>
         </div>
       )}
+    </PageShell>
     </div>
   );
 }

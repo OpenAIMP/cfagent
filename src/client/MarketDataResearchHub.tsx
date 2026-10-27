@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch as fetch } from "./apiFetch";
-import { EmptyState, Spinner, Button, Select, Table, TextInput } from "./components/ui";
+import { EmptyState, Spinner, Button, Select, Table, TextInput, PageShell, PageSection } from "./components/ui";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { TabHoverItem } from "./TabHoverItem";
 import { CapabilityNavBar, CopilotTriggerButton } from "./components/CapabilityNavBar";
@@ -393,27 +393,18 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
 
   return (
     <div className="market-data-research-hub">
-      {/* Top Market Data Provider Status Header */}
-      <div className="research-header-banner">
-        <div className="provider-brand-cluster">
-          <div className="provider-logo-box">
-            <span className="provider-logo-icon">🔬</span>
-            <div className="provider-brand-names">
-              <h3>Market Data Research &amp; Quoting Engine</h3>
-              <span className="provider-subbrand">
-                Open-Source Integration: <strong>Yahoo Finance (yfinance)</strong> &amp; <strong>Alpaca Market Data v2</strong>
-              </span>
-            </div>
-          </div>
-
-          <div className="provider-status-chips">
-            <span className="chip-provider yf">
-              <span className="dot yf-dot" /> Yahoo Finance Engine
-            </span>
-            <span className="chip-provider alpaca">
-              <span className="dot alpaca-dot" /> Alpaca Data v2 (Paper &amp; Live)
-            </span>
-          </div>
+      <PageShell
+        title="Market Data Research & Quoting Engine"
+        scopeNote="Zero-credential Yahoo Finance and Alpaca dual feed, fundamental peer comparison"
+      >
+      <div>
+        <div className="provider-status-chips">
+          <span className="chip-provider yf">
+            <span className="dot yf-dot" /> Yahoo Finance Engine
+          </span>
+          <span className="chip-provider alpaca">
+            <span className="dot alpaca-dot" /> Alpaca Data v2 (Paper &amp; Live)
+          </span>
         </div>
 
         {/* Research Agent DID Box */}
@@ -438,6 +429,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
         </div>
       </div>
 
+      <PageSection>
       {/* Symbol Search & Selector Bar */}
       <div className="symbol-selector-bar">
         <div className="active-ticker-display">
@@ -1877,6 +1869,8 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
           />
         </div>
       )}
+    </PageSection>
+    </PageShell>
     </div>
   );
 }
