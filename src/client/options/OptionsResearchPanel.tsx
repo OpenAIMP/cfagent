@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useState, createContext, useRef } from "react";
-import { Button } from "../components/ui";
+import { Button, Checkbox, Select, Table, TextInput } from "../components/ui";
 import { apiFetch as fetch } from "../apiFetch";
 import type {
   ExpectedIvDirection,
@@ -235,17 +235,17 @@ function BestTradeCard({
       <header className="options-results-header">
         <h2>{pick.status === "no_trade" ? "No qualifying trade" : `Best trade: ${pick.best?.candidate.label}`}</h2>
         <span>{pick.status.replace("_", " ").toUpperCase()} · {pick.confidence} confidence · {pick.riskProfile} profile</span>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-          {pick.best && onPreview && <button type="button" onClick={() => onPreview(pick.best!.candidate)}>⚡ Open in Fast Order Ticket</button>}
+        <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap" }}>
+          {pick.best && onPreview && <Button type="button" onClick={() => onPreview(pick.best!.candidate)}>⚡ Open in Fast Order Ticket</Button>}
           {pick.best && onEvaluateLlm && (
-            <button
+            <Button
               type="button"
               className="options-eval-llm-btn"
               onClick={() => onEvaluateLlm(candidateToEval(pick.best!.candidate))}
               title="Evaluate this top trade recommendation with neural strategy AI against complete option chains"
             >
               🧠 Evaluate with AI
-            </button>
+            </Button>
           )}
           {pick.best && onRiskAnalysis && (
             <Button variant="warning" tone="subtle" size="sm"
@@ -257,9 +257,9 @@ function BestTradeCard({
             </Button>
           )}
           {pick.best && onSendToBundle && (
-            <button type="button" onClick={() => onSendToBundle(pick.best!.candidate)} title="Stage this candidate for the bundle builder (Portfolio & Risk panel)">
+            <Button type="button" onClick={() => onSendToBundle(pick.best!.candidate)} title="Stage this candidate for the bundle builder (Portfolio & Risk panel)">
               📦 Send to bundle builder
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -268,15 +268,20 @@ function BestTradeCard({
       {pick.tradePlan && pick.tradePlan.length > 0 && (
         <div className="options-scenario-table-wrap">
           <h4>Trade plan (preview only, requires your approval)</h4>
-          <table className="options-scenario-table">
-            <thead><tr><th>Action</th><th>Qty</th><th>Contract</th><th>Type</th><th>Strike</th><th>Expiration</th><th>Limit</th></tr></thead>
-            <tbody>{pick.tradePlan.map((leg) => (
-              <tr key={`${leg.contract}:${leg.action}`}>
-                <td>{leg.action}</td><td>{leg.quantity}</td><td>{leg.contract}</td><td>{leg.optionType}</td>
-                <td>${leg.strike}</td><td>{leg.expiration}</td><td>${leg.limitPrice.toFixed(2)}</td>
-              </tr>
-            ))}</tbody>
-          </table>
+          <Table
+            className="options-scenario-table"
+            columns={[
+              { key: "action", header: "Action", render: (leg) => leg.action },
+              { key: "qty", header: "Qty", render: (leg) => leg.quantity },
+              { key: "contract", header: "Contract", render: (leg) => leg.contract },
+              { key: "type", header: "Type", render: (leg) => leg.optionType },
+              { key: "strike", header: "Strike", render: (leg) => `$${leg.strike}` },
+              { key: "expiration", header: "Expiration", render: (leg) => leg.expiration },
+              { key: "limit", header: "Limit", render: (leg) => `$${leg.limitPrice.toFixed(2)}` },
+            ]}
+            rows={pick.tradePlan}
+            rowKey={(leg) => `${leg.contract}:${leg.action}`}
+          />
         </div>
       )}
       {pick.best && <StrategyCard candidate={pick.best.candidate} onPreview={onPreview} onEvaluateLlm={onEvaluateLlm} onRiskAnalysis={onRiskAnalysis} onSendToBundle={onSendToBundle} />}
@@ -284,49 +289,52 @@ function BestTradeCard({
         <details className="options-excluded">
           <summary>{pick.alternatives.length} runner-up trades</summary>
           <div className="options-scenario-table-wrap">
-            <table className="options-scenario-table">
-              <thead><tr><th>#</th><th>Strategy</th><th>Expiry</th><th>Max loss</th><th>POP</th><th>Score</th></tr></thead>
-              <tbody>{pick.alternatives.map((alt) => (
-                <tr key={alt.candidate.id} className={onPreview ? "options-clickable-row" : undefined} onClick={() => onPreview?.(alt.candidate)} title="Open in Fast Order Ticket">
-                  <td>{alt.rank}</td>
-                  <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                      <span>{alt.candidate.label}</span>
-                      {onEvaluateLlm && (
-                        <button
-                          type="button"
-                          className="options-eval-llm-btn"
-                          style={{ padding: "0.15rem 0.4rem", fontSize: "0.68rem" }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEvaluateLlm(candidateToEval(alt.candidate));
-                          }}
-                          title="Evaluate runner-up trade with AI"
-                        >
-                          🧠 AI
-                        </button>
-                      )}
-                      {onRiskAnalysis && (
-                        <Button variant="warning" tone="subtle" size="sm"
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onRiskAnalysis(candidateToRiskSubject(alt.candidate));
-                          }}
-                          title="Analyze risk for this trade"
-                        >
-                          🛡️ Risk
-                        </Button>
-                      )}
-                    </div>
-                  </td>
-                  <td>{alt.candidate.expirationDate}</td>
-                  <td>{dollars(alt.candidate.maxLoss)}</td>
-                  <td>{(alt.candidate.modelImpliedProbabilityOfProfit * 100).toFixed(1)}%</td>
-                  <td>{alt.compositeScore.toFixed(1)}</td>
-                </tr>
-              ))}</tbody>
-            </table>
+            <Table
+                className="options-scenario-table"
+                columns={[
+                  { key: "rank", header: "#", render: (alt) => alt.rank },
+                  { key: "strategy", header: "Strategy", render: (alt) => (
+                    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)" }}>
+                                          <span>{alt.candidate.label}</span>
+                                          {onEvaluateLlm && (
+                                            <Button
+                                              type="button"
+                                              className="options-eval-llm-btn"
+                                              style={{ padding: "var(--space-0-5) var(--space-1-5)", fontSize: "0.68rem" }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                onEvaluateLlm(candidateToEval(alt.candidate));
+                                              }}
+                                              title="Evaluate runner-up trade with AI"
+                                            >
+                                              🧠 AI
+                                            </Button>
+                                          )}
+                                          {onRiskAnalysis && (
+                                            <Button variant="warning" tone="subtle" size="sm"
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                onRiskAnalysis(candidateToRiskSubject(alt.candidate));
+                                              }}
+                                              title="Analyze risk for this trade"
+                                            >
+                                              🛡️ Risk
+                                            </Button>
+                                          )}
+                                        </div>
+                  ) },
+                  { key: "expiry", header: "Expiry", render: (alt) => alt.candidate.expirationDate },
+                  { key: "maxLoss", header: "Max loss", render: (alt) => dollars(alt.candidate.maxLoss) },
+                  { key: "pop", header: "POP", render: (alt) => `${(alt.candidate.modelImpliedProbabilityOfProfit * 100).toFixed(1)}%` },
+                  { key: "score", header: "Score", render: (alt) => alt.compositeScore.toFixed(1) },
+                ]}
+                rows={pick.alternatives}
+                rowKey={(alt) => alt.candidate.id}
+                rowClassName={onPreview ? "options-clickable-row" : ""}
+                onRowClick={onPreview ? (alt) => onPreview(alt.candidate) : undefined}
+                rowTitle="Open in Fast Order Ticket"
+              />
           </div>
         </details>
       )}
@@ -357,24 +365,24 @@ function RecommendationComparison({ data, onPreview }: { data: ComparisonData; o
       {data.llm.status === "error" && <div className="options-error" role="alert">Quant results are available, but the LLM ranking failed: {data.llm.error}</div>}
       {data.quant.ranked.length === 0 ? <p>No quant candidates passed the request constraints.</p> : (
         <div className="options-table-scroll">
-          <table className="options-comparison-table">
-            <thead><tr><th>Strategy</th><th>Trade (legs)</th><th>Quant rank</th><th>Quant score</th><th>AI rank</th><th>AI score</th><th>AI rationale</th><th>AI risks</th></tr></thead>
-            <tbody>{data.quant.ranked.map((item) => {
-              const judgment = llmById.get(item.candidate.id);
-              return (
-                <tr key={item.candidate.id} className={onPreview ? "options-clickable-row" : undefined} onClick={() => onPreview?.(item.candidate)} title="Open in Fast Order Ticket">
-                  <td>{item.candidate.label}</td>
-                  <td>{legsText(item.candidate)}</td>
-                  <td>{item.rank}</td>
-                  <td>{item.compositeScore.toFixed(2)}</td>
-                  <td>{judgment?.rank ?? "—"}</td>
-                  <td>{judgment ? judgment.score.toFixed(0) : "—"}</td>
-                  <td>{judgment?.rationale || "—"}</td>
-                  <td>{judgment?.risks.join("; ") || "—"}</td>
-                </tr>
-              );
-            })}</tbody>
-          </table>
+          <Table
+            className="options-comparison-table"
+            columns={[
+              { key: "strategy", header: "Strategy", render: (item) => item.candidate.label },
+              { key: "legs", header: "Trade (legs)", render: (item) => legsText(item.candidate) },
+              { key: "quantRank", header: "Quant rank", render: (item) => item.rank },
+              { key: "quantScore", header: "Quant score", render: (item) => item.compositeScore.toFixed(2) },
+              { key: "aiRank", header: "AI rank", render: (item) => llmById.get(item.candidate.id)?.rank ?? "—" },
+              { key: "aiScore", header: "AI score", render: (item) => { const j = llmById.get(item.candidate.id); return j ? j.score.toFixed(0) : "—"; } },
+              { key: "aiRationale", header: "AI rationale", render: (item) => llmById.get(item.candidate.id)?.rationale || "—" },
+              { key: "aiRisks", header: "AI risks", render: (item) => llmById.get(item.candidate.id)?.risks.join("; ") || "—" },
+            ]}
+            rows={data.quant.ranked}
+            rowKey={(item) => item.candidate.id}
+            rowClassName={onPreview ? "options-clickable-row" : ""}
+            onRowClick={onPreview ? (item) => onPreview(item.candidate) : undefined}
+            rowTitle="Open in Fast Order Ticket"
+          />
         </div>
       )}
       {data.llm.status === "complete" && (data.llm.ranked || []).length === 0 && data.quant.ranked.length > 0 && (
@@ -483,7 +491,7 @@ function PayoffGraph({ candidate }: { candidate: StrategyCandidate }) {
       />
       <label className="options-range-control">
         <span>Range ±{rangePct}%</span>
-        <input type="range" min={2} max={50} step={1} value={rangePct} onChange={(event) => setRangePct(Number(event.target.value))} />
+        <TextInput type="range" min={2} max={50} step={1} value={rangePct} onChange={(event) => setRangePct(Number(event.target.value))} />
       </label>
     </div>
   );
@@ -537,13 +545,13 @@ function LegEditor({ legs, original, contracts, onChange }: {
             <strong>{leg.side} {leg.quantity} {leg.optionType}</strong>
             <label>
               <span>Expiry</span>
-              <select value={leg.expirationDate} onChange={(event) => pick(event.target.value, leg.strike)}>
+              <Select value={leg.expirationDate} onChange={(event) => pick(event.target.value, leg.strike)}>
                 {expiries.map((expiry) => <option key={expiry} value={expiry}>{expiry}</option>)}
-              </select>
+              </Select>
             </label>
             <label className="options-leg-strike">
               <span>Strike ${leg.strike}</span>
-              <input
+              <TextInput
                 type="range"
                 min={0}
                 max={Math.max(0, strikes.length - 1)}
@@ -557,7 +565,7 @@ function LegEditor({ legs, original, contracts, onChange }: {
           </div>
         );
       })}
-      {changed && <button type="button" className="options-leg-reset" onClick={() => onChange(original)}>Reset to suggested legs</button>}
+      {changed && <Button type="button" className="options-leg-reset" onClick={() => onChange(original)}>Reset to suggested legs</Button>}
     </div>
   );
 }
@@ -632,16 +640,16 @@ function StrategyCard({
             {candidate.dataFreshness === "FRESH" ? "Fresh quotes" : candidate.dataFreshness === "STALE" ? "Stale quotes" : "Quote age unknown"}
           </span>
           <div className="options-risk-tag">Max loss {dollars(candidate.maxLoss)}</div>
-          {onPreview && <button type="button" onClick={() => onPreview(candidate)}>⚡ Open in Fast Order Ticket</button>}
+          {onPreview && <Button type="button" onClick={() => onPreview(candidate)}>⚡ Open in Fast Order Ticket</Button>}
           {onEvaluateLlm && (
-            <button
+            <Button
               type="button"
               className="options-eval-llm-btn"
               onClick={() => onEvaluateLlm(candidateToEval(candidate))}
               title="Evaluate this strategy with neural strategy AI against raw and normalized options chains"
             >
               🧠 Evaluate with AI
-            </button>
+            </Button>
           )}
           {onRiskAnalysis && (
             <Button variant="warning" tone="subtle" size="sm"
@@ -653,14 +661,14 @@ function StrategyCard({
             </Button>
           )}
           {onSendToBundle && (
-            <button type="button" onClick={() => onSendToBundle(candidate)} title="Stage this candidate for the bundle builder (Portfolio & Risk panel)">
+            <Button type="button" onClick={() => onSendToBundle(candidate)} title="Stage this candidate for the bundle builder (Portfolio & Risk panel)">
               📦 Send to bundle builder
-            </button>
+            </Button>
           )}
           {chain && (
-            <button type="button" disabled={chain.refreshing} onClick={() => void chain.refresh()}>
+            <Button type="button" disabled={chain.refreshing} onClick={() => void chain.refresh()}>
               {chain.refreshing ? "Refreshing…" : "↻ Refresh option prices"}
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -710,15 +718,15 @@ function StrategyCard({
           {targetScenarios.length > 0 && (
             <div className="options-scenario-table-wrap">
               <h4>Modeled P/L near target date · IV unchanged</h4>
-              <table className="options-scenario-table">
-                <thead><tr><th>Underlying</th><th>Modeled P/L</th></tr></thead>
-                <tbody>{targetScenarios.map((scenario) => (
-                  <tr key={`${scenario.underlyingPrice}:${scenario.daysToExpiry}`}>
-                    <td>${scenario.underlyingPrice.toFixed(2)}</td>
-                    <td>{dollars(scenario.pnl)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
+              <Table
+                className="options-scenario-table"
+                columns={[
+                  { key: "underlying", header: "Underlying", render: (scenario) => `$${scenario.underlyingPrice.toFixed(2)}` },
+                  { key: "pnl", header: "Modeled P/L", render: (scenario) => dollars(scenario.pnl) },
+                ]}
+                rows={targetScenarios}
+                rowKey={(scenario) => `${scenario.underlyingPrice}:${scenario.daysToExpiry}`}
+              />
             </div>
           )}
           <ul className="options-explanations">{candidate.explanations.map((reason) => <li key={reason}>{reason}</li>)}</ul>
@@ -1153,7 +1161,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           },
         ]}
         rightContent={
-          <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2-5)" }}>
             <CopilotTriggerButton label="✨ Ask Copilot" />
             {screenMeta && (
               <div className="options-scan-meta-pill" title="Screen evaluation metrics">
@@ -1171,7 +1179,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               hosts it as this hub's own Schedules tab, so the note is
               now an in-hub switch, not a pointer elsewhere. This mode
               keeps the autonomous-runs record below it. */}
-          <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
+          <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "var(--space-6)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
             <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>⏰ Schedule Management Lives in the Schedules Tab</h4>
             <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
               Every screening schedule — stock screens, options analysis, and strategy discovery in all three input models (saved views, profile-derived, no-view) — is created and managed in one place: this hub's <strong>Schedules</strong> tab, alongside the system and queued jobs that share the same schedule store.
@@ -1180,9 +1188,9 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               Nothing was retired: the create/edit forms, run-now triggers, latest runs, and audit trail all live on that tab.
             </p>
             {onOpenSchedules && (
-              <button type="button" onClick={onOpenSchedules} style={{ padding: "0.45rem 0.9rem", fontWeight: 600 }}>
+              <Button type="button" onClick={onOpenSchedules} style={{ padding: "var(--space-2) var(--space-4)", fontWeight: 600 }}>
                 Open the Schedules tab
-              </button>
+              </Button>
             )}
           </div>
           {/* Issue #223: the persisted autonomous runs (hourly scheduled
@@ -1239,8 +1247,8 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               <div className="options-nlq-examples">
                 {s.examples.map((example) => (
                   <span className="options-example-row" key={example}>
-                    <button type="button" onClick={() => loadExample(example)}>{example}</button>
-                    {onSendPrompt && <button type="button" className="options-example-chat" title="Send this request to the shared Chat" onClick={() => onSendPrompt(example, "E*TRADE · Auto Options Research")}>💬 Chat</button>}
+                    <Button type="button" onClick={() => loadExample(example)}>{example}</Button>
+                    {onSendPrompt && <Button type="button" className="options-example-chat" title="Send this request to the shared Chat" onClick={() => onSendPrompt(example, "E*TRADE · Auto Options Research")}>💬 Chat</Button>}
                   </span>
                 ))}
               </div>
@@ -1252,7 +1260,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       <form className="options-nlq-form" onSubmit={submitNaturalLanguage}>
         <label className="options-field">
           <span>Natural-language options screen</span>
-          <input
+          <TextInput
             value={nlqQuery}
             onChange={(event) => setNlqQuery(event.target.value)}
             placeholder="Screen call options with 20 to 45 DTE"
@@ -1262,7 +1270,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         </label>
         <label className="options-field">
           <span>Maximum underlyings to scan</span>
-          <input
+          <TextInput
             type="number"
             min="1"
             step="1"
@@ -1273,7 +1281,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         </label>
         <label className="options-field">
           <span>Quote-age reference (seconds; older quotes are marked stale)</span>
-          <input
+          <TextInput
             type="number"
             min="0"
             step="1"
@@ -1283,17 +1291,17 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
             placeholder="No limit"
           />
         </label>
-        <button type="submit" disabled={!nlqQuery.trim() || nlqLoading}>
+        <Button type="submit" disabled={!nlqQuery.trim() || nlqLoading}>
           {nlqLoading ? "Running…" : "Run options screen"}
-        </button>
+        </Button>
       </form>
       {nlqError && <p className="options-error" role="alert">{nlqError}</p>}
       {nlqResult && (
         <div className="options-nlq-result" role="status">
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.4rem" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "var(--space-2)", marginBottom: "0.4rem" }}>
             <strong>{nlqResult.count ?? 0} result rows</strong>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <button
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+              <Button
                 type="button"
                 className="options-eval-llm-btn"
                 onClick={() => {
@@ -1308,7 +1316,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
                 title="Evaluate this NLQ screening question against live option chains with neural AI"
               >
                 🧠 Evaluate NLQ with AI
-              </button>
+              </Button>
               <OptionsDataDownloadDropdown
                 symbol={symbol.trim() || (nlqResult.rows?.[0]?.symbol as string) || "NVDA"}
                 activeEnv={activeEnv}
@@ -1323,11 +1331,11 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: "0.5rem",
+                gap: "var(--space-2)",
                 background: "var(--color-accent-subtle)",
                 border: "1px solid var(--color-border-focus)",
                 borderRadius: "var(--radius-sm, 6px)",
-                padding: "0.35rem 0.65rem",
+                padding: "var(--space-1-5) var(--space-2-5)",
                 fontSize: "0.82rem",
                 color: "var(--color-accent)",
                 marginBottom: "0.55rem",
@@ -1356,14 +1364,16 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           )}
           {Array.isArray(nlqResult.rows) && nlqResult.rows.length > 0 && !Array.isArray(nlqResult.rows[0]?.candidateStrategies) && (
             <div className="options-scenario-table-wrap">
-              <table className={`options-scenario-table${Object.prototype.hasOwnProperty.call(nlqResult.rows[0], "reason") ? " options-evaluation-ledger-table" : ""}`}>
-                <thead><tr>{Object.keys(nlqResult.rows[0]).map((key) => <th key={key}>{key}</th>)}</tr></thead>
-                <tbody>{nlqResult.rows.map((row: Record<string, unknown>, index: number) => (
-                  <tr key={`${row.contractSymbol || row.symbol || "row"}:${index}`}>
-                    {Object.values(row).map((value, column) => <td key={column}>{String(value ?? "N/A")}</td>)}
-                  </tr>
-                ))}</tbody>
-              </table>
+              <Table
+            className={`options-scenario-table${Object.prototype.hasOwnProperty.call(nlqResult.rows[0], "reason") ? " options-evaluation-ledger-table" : ""}`}
+            columns={Object.keys(nlqResult.rows[0]).map((key) => ({
+              key,
+              header: key,
+              render: (row: Record<string, unknown>) => String(row[key] ?? "N/A"),
+            }))}
+            rows={nlqResult.rows}
+            rowKey={(row: Record<string, unknown>, index) => `${row.contractSymbol || row.symbol || "row"}:${index}`}
+          />
             </div>
           )}
           {Array.isArray(nlqResult.rejections) && nlqResult.rejections.length > 0 && (
@@ -1384,25 +1394,25 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       <form className="options-request-form" onSubmit={submit}>
         <label className="options-field">
           <span>Underlying</span>
-          <input required maxLength={10} value={symbol} onChange={(event) => setSymbol(event.target.value)} placeholder="Ticker" />
+          <TextInput required maxLength={10} value={symbol} onChange={(event) => setSymbol(event.target.value)} placeholder="Ticker" />
         </label>
         <label className="options-field">
           <span>Thesis</span>
-          <select value={thesis} onChange={(event) => setThesis(event.target.value as OptionThesis)}>
+          <Select value={thesis} onChange={(event) => setThesis(event.target.value as OptionThesis)}>
             <option value="bullish">Bullish</option>
             <option value="bearish">Bearish</option>
             <option value="range_bound">Range-bound</option>
             <option value="large_move">Large move, direction unknown</option>
-          </select>
+          </Select>
         </label>
         <label className="options-field">
           <span>Target price</span>
-          <input required type="number" min="0.01" step="0.01" value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} placeholder="Price at target date" />
+          <TextInput required type="number" min="0.01" step="0.01" value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} placeholder="Price at target date" />
         </label>
         <label className="options-field">
           <span>Target date (type YYYY-MM-DD or pick)</span>
           <div className="options-date-row">
-            <input
+            <TextInput
               required
               type="text"
               inputMode="numeric"
@@ -1411,77 +1421,77 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               value={targetDate}
               onChange={(event) => setTargetDate(event.target.value)}
             />
-            <input type="date" aria-label="Pick target date" value={/^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? targetDate : ""} onChange={(event) => event.target.value && setTargetDate(event.target.value)} />
+            <TextInput type="date" aria-label="Pick target date" value={/^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? targetDate : ""} onChange={(event) => event.target.value && setTargetDate(event.target.value)} />
           </div>
         </label>
         <label className="options-field">
           <span>Expected IV</span>
-          <select value={expectedIvDirection} onChange={(event) => setExpectedIvDirection(event.target.value as ExpectedIvDirection)}>
+          <Select value={expectedIvDirection} onChange={(event) => setExpectedIvDirection(event.target.value as ExpectedIvDirection)}>
             <option value="rise">Rise</option>
             <option value="unchanged">Unchanged</option>
             <option value="fall">Fall</option>
-          </select>
+          </Select>
         </label>
         <label className="options-field">
           <span>Maximum planned loss ($)</span>
-          <input required type="number" min="1" step="1" value={maxPlannedLoss} onChange={(event) => setMaxPlannedLoss(event.target.value)} />
+          <TextInput required type="number" min="1" step="1" value={maxPlannedLoss} onChange={(event) => setMaxPlannedLoss(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Minimum target reward/risk</span>
-          <input required type="number" min="0" step="0.1" value={minRewardRisk} onChange={(event) => setMinRewardRisk(event.target.value)} />
+          <TextInput required type="number" min="0" step="0.1" value={minRewardRisk} onChange={(event) => setMinRewardRisk(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Minimum DTE</span>
-          <input required type="number" min="1" step="1" value={minDte} onChange={(event) => setMinDte(event.target.value)} />
+          <TextInput required type="number" min="1" step="1" value={minDte} onChange={(event) => setMinDte(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Maximum DTE</span>
-          <input required type="number" min={minDte || 1} step="1" value={maxDte} onChange={(event) => setMaxDte(event.target.value)} />
+          <TextInput required type="number" min={minDte || 1} step="1" value={maxDte} onChange={(event) => setMaxDte(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Minimum contract volume</span>
-          <input type="number" min="0" step="1" value={minVolume} onChange={(event) => setMinVolume(event.target.value)} />
+          <TextInput type="number" min="0" step="1" value={minVolume} onChange={(event) => setMinVolume(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Minimum open interest</span>
-          <input type="number" min="0" step="1" value={minOpenInterest} onChange={(event) => setMinOpenInterest(event.target.value)} />
+          <TextInput type="number" min="0" step="1" value={minOpenInterest} onChange={(event) => setMinOpenInterest(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Maximum bid/ask spread (%)</span>
-          <input type="number" min="0" step="0.1" value={maxSpreadPct} onChange={(event) => setMaxSpreadPct(event.target.value)} />
+          <TextInput type="number" min="0" step="0.1" value={maxSpreadPct} onChange={(event) => setMaxSpreadPct(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Quote-age reference (seconds)</span>
-          <input required type="number" min="0" step="1" value={maxQuoteAgeSeconds} onChange={(event) => setMaxQuoteAgeSeconds(event.target.value)} />
+          <TextInput required type="number" min="0" step="1" value={maxQuoteAgeSeconds} onChange={(event) => setMaxQuoteAgeSeconds(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Contracts to evaluate</span>
-          <input type="number" min="1" step="1" value={contractLimit} onChange={(event) => setContractLimit(event.target.value)} />
+          <TextInput type="number" min="1" step="1" value={contractLimit} onChange={(event) => setContractLimit(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Ranked candidates to show</span>
-          <input type="number" min="1" step="1" value={candidateLimit} onChange={(event) => setCandidateLimit(event.target.value)} />
+          <TextInput type="number" min="1" step="1" value={candidateLimit} onChange={(event) => setCandidateLimit(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Strike candidates per side</span>
-          <input type="number" min="1" step="1" value={maxStrikesPerSide} onChange={(event) => setMaxStrikesPerSide(event.target.value)} />
+          <TextInput type="number" min="1" step="1" value={maxStrikesPerSide} onChange={(event) => setMaxStrikesPerSide(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Iron condor combinations</span>
-          <input type="number" min="0" step="1" value={maxIronCondors} onChange={(event) => setMaxIronCondors(event.target.value)} />
+          <TextInput type="number" min="0" step="1" value={maxIronCondors} onChange={(event) => setMaxIronCondors(event.target.value)} />
         </label>
         <label className="options-field">
           <span>Earnings/dividend policy</span>
-          <select value={eventPolicy} onChange={(event) => setEventPolicy(event.target.value as "warn" | "exclude")}>
+          <Select value={eventPolicy} onChange={(event) => setEventPolicy(event.target.value as "warn" | "exclude")}>
             <option value="warn">Warn if event data unavailable</option>
             <option value="exclude">Exclude until event data can be checked</option>
-          </select>
+          </Select>
         </label>
 
         <fieldset className="options-strategy-picker">
           <legend>Allowed strategy templates</legend>
           <label>
-            <input type="checkbox" checked={allowedStrategies.includes("all")} onChange={() => setAllowedStrategies(allowedStrategies.includes("all") ? [] : ["all"])} />
+            <Checkbox checked={allowedStrategies.includes("all")} onChange={() => setAllowedStrategies(allowedStrategies.includes("all") ? [] : ["all"])} />
             <span><strong>All strategies ({defaultRegistry.ids().length})</strong></span>
           </label>
           {!allowedStrategies.includes("all") && Object.entries(strategyGroups).map(([category, choices]) => (
@@ -1490,7 +1500,7 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               <div className="options-strategy-options">
                 {choices.map((choice) => (
                   <label key={choice.id}>
-                    <input type="checkbox" checked={allowedStrategies.includes(choice.id)} onChange={() => toggleStrategy(choice.id)} />
+                    <Checkbox checked={allowedStrategies.includes(choice.id)} onChange={() => toggleStrategy(choice.id)} />
                     <span>{choice.label}</span>
                   </label>
                 ))}
@@ -1501,11 +1511,11 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
 
         <label className="options-field">
           <span>Best-trade risk profile</span>
-          <select value={riskProfile} onChange={(event) => setRiskProfile(event.target.value as RiskProfile)}>
+          <Select value={riskProfile} onChange={(event) => setRiskProfile(event.target.value as RiskProfile)}>
             <option value="conservative">Conservative (favor probability and capital safety)</option>
             <option value="balanced">Balanced</option>
             <option value="aggressive">Aggressive (favor reward/risk)</option>
-          </select>
+          </Select>
         </label>
 
         <div className="options-form-footer">
@@ -1515,18 +1525,18 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
               Buttons unlock once you enter: {[!symbol.trim() && "Underlying", !targetPrice && "Target price", allowedStrategies.length === 0 && "at least one strategy"].filter(Boolean).join(", ")}.
             </p>
           )}
-          <button type="submit" disabled={loading || !canRun}>
+          <Button type="submit" disabled={loading || !canRun}>
             {loading ? "Evaluating candidates…" : "Rank research candidates"}
-          </button>
-          <button type="button" disabled={loading || !canRun} onClick={() => void run("best")}>
+          </Button>
+          <Button type="button" disabled={loading || !canRun} onClick={() => void run("best")}>
             {loading ? "Evaluating…" : "Pick best trade"}
-          </button>
-          <button type="button" disabled={loading || !canRun} onClick={() => void run("compare")}>
+          </Button>
+          <Button type="button" disabled={loading || !canRun} onClick={() => void run("compare")}>
             {loading ? "Comparing…" : "Compare Quant vs AI"}
-          </button>
-          <button type="button" disabled={loading || !canRun} onClick={() => void runThreeWay()}>
+          </Button>
+          <Button type="button" disabled={loading || !canRun} onClick={() => void runThreeWay()}>
             {loading ? "Comparing…" : "Compare generators (LLM / Quant / Hybrid)"}
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -1687,48 +1697,48 @@ function StrategyLedgerTable({ rows }: { rows: Array<Record<string, any>> }) {
 
   return (
     <div className="options-scenario-table-wrap">
-      <table className="options-scenario-table options-evaluation-ledger-table strategy-ledger-table">
-        <thead>
-          <tr>
-            {ledgerColumns.map((column) => (
-              <th key={column.key} aria-sort={sortKey === column.key ? (direction === "asc" ? "ascending" : "descending") : "none"}>
-                <button type="button" className="ledger-sort" onClick={() => sortBy(column.key)}>
+      <Table
+            className="options-scenario-table options-evaluation-ledger-table strategy-ledger-table"
+            columns={ledgerColumns.map((column) => ({
+              key: column.key,
+              header: (
+                <Button type="button" className="ledger-sort" onClick={() => sortBy(column.key)}>
                   {column.label}{sortKey === column.key ? (direction === "asc" ? " ▲" : " ▼") : ""}
-                </button>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((row) => (
-            <tr key={String(row.category)}>
-              <td>{String(row.category)}</td>
-              <td>{Number(row.score ?? 0).toFixed(1)}</td>
-              <td>{String(row.passed)}</td>
-              <td>{String(row.failed)}</td>
-              <td>{String(row.reason)}</td>
-              <td>
-                <ul className="ledger-candidates">
-                  {(row.candidateStrategies as LedgerCandidate[]).map((candidate) => (
-                    <li key={candidate.id} className={`ledger-candidate ledger-${candidate.status}`}>
-                      <a
-                        href={`/strategies/${candidate.id}.html`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={candidate.description || candidate.name}
-                      >
-                        {candidate.name}
-                      </a>
-                      <span className="ledger-verdict">{candidate.status === "accepted" ? "PASSED" : candidate.status === "rejected" ? "FAILED" : "SKIPPED"}</span>
-                      <span className="ledger-why">{candidate.why}</span>
-                    </li>
-                  ))}
-                </ul>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                </Button>
+              ),
+              ariaSort: sortKey === column.key ? (direction === "asc" ? "ascending" : "descending") : "none",
+              render: (row: Record<string, any>) => {
+                switch (column.key) {
+                  case "category": return String(row.category);
+                  case "score": return Number(row.score ?? 0).toFixed(1);
+                  case "passed": return String(row.passed);
+                  case "failed": return String(row.failed);
+                  case "reason": return String(row.reason);
+                  case "candidateStrategies": return (
+                    <ul className="ledger-candidates">
+                                      {(row.candidateStrategies as LedgerCandidate[]).map((candidate) => (
+                                        <li key={candidate.id} className={`ledger-candidate ledger-${candidate.status}`}>
+                                          <a
+                                            href={`/strategies/${candidate.id}.html`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            title={candidate.description || candidate.name}
+                                          >
+                                            {candidate.name}
+                                          </a>
+                                          <span className="ledger-verdict">{candidate.status === "accepted" ? "PASSED" : candidate.status === "rejected" ? "FAILED" : "SKIPPED"}</span>
+                                          <span className="ledger-why">{candidate.why}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                  );
+                  default: return "";
+                }
+              },
+            }))}
+            rows={sorted}
+            rowKey={(row) => String(row.category)}
+          />
     </div>
   );
 }
@@ -1741,16 +1751,18 @@ function EvaluationTable({ evaluations }: { evaluations: StrategyEvaluation[] })
         Strategies evaluated: {evaluations.length} ({counts.accepted || 0} accepted, {counts.rejected || 0} rejected, {counts.skipped || 0} skipped)
       </summary>
       <div className="options-table-scroll">
-        <table>
-          <thead><tr><th>Strategy</th><th>Category</th><th>Status</th><th>Built</th><th>Accepted</th><th>Reason</th></tr></thead>
-          <tbody>
-            {evaluations.map((e) => (
-              <tr key={e.id}>
-                <td>{e.label}</td><td>{e.category}</td><td>{e.status.toUpperCase()}</td><td>{e.generated}</td><td>{e.accepted}</td><td>{e.summary}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Table
+            columns={[
+              { key: "strategy", header: "Strategy", render: (e) => e.label },
+              { key: "category", header: "Category", render: (e) => e.category },
+              { key: "status", header: "Status", render: (e) => e.status.toUpperCase() },
+              { key: "built", header: "Built", render: (e) => e.generated },
+              { key: "accepted", header: "Accepted", render: (e) => e.accepted },
+              { key: "reason", header: "Reason", render: (e) => e.summary },
+            ]}
+            rows={evaluations}
+            rowKey={(e) => e.id}
+          />
       </div>
     </details>
   );

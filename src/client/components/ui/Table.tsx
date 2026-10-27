@@ -5,6 +5,8 @@ export interface TableColumn<T> {
   header: React.ReactNode;
   render: (row: T) => React.ReactNode;
   align?: "left" | "center" | "right";
+  /** aria-sort for the column's <th> (sortable-column tables, #1837). */
+  ariaSort?: "ascending" | "descending" | "none";
   /** Class applied to every body cell in this column (surface cell styles); a function computes it per row. */
   cellClassName?: string | ((row: T) => string);
   /** Class applied to the column's <th> (e.g. sticky first columns). */
@@ -16,13 +18,17 @@ export interface TableColumn<T> {
 export interface TableProps<T> {
   columns: TableColumn<T>[];
   rows: T[];
-  rowKey: (row: T) => string;
+  rowKey: (row: T, index: number) => string;
   caption?: string;
   /** Rendered instead of the table when rows is empty (usually EmptyState). */
   empty?: React.ReactNode;
   rowClassName?: string | ((row: T) => string);
   className?: string;
   containerClassName?: string;
+  /** Row click handler, attached to the <tr> (clickable-row tables, #1837). */
+  onRowClick?: (row: T) => void;
+  /** title for every row's <tr> (string or per-row function). */
+  rowTitle?: string | ((row: T) => string);
 }
 
 /**
@@ -40,6 +46,8 @@ export function Table<T>({
   rowClassName = "",
   className = "",
   containerClassName = "",
+  onRowClick,
+  rowTitle,
 }: TableProps<T>) {
   if (rows.length === 0 && empty) return <>{empty}</>;
   return (
@@ -52,6 +60,7 @@ export function Table<T>({
               <th
                 key={col.key}
                 scope="col"
+                aria-sort={col.ariaSort}
                 className={`${col.headerClassName ?? ""} ${col.align ? `align-${col.align}` : ""}`.trim() || undefined}
               >
                 {col.header}
@@ -60,12 +69,14 @@ export function Table<T>({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {rows.map((row, rowIdx) => (
             <tr
-              key={rowKey(row)}
+              key={rowKey(row, rowIdx)}
               className={
                 (typeof rowClassName === "function" ? rowClassName(row) : rowClassName) || undefined
               }
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              title={typeof rowTitle === "function" ? rowTitle(row) : rowTitle}
             >
               {columns.map((col) => (
                 <td
