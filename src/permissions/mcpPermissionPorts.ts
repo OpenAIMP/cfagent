@@ -1,0 +1,408 @@
+/**
+ * Issue #1744 — MCP tool permission port: per-tool scopes +
+ * cryptographic execution isolation, port-first / adapter-first.
+ *
+ * WHAT THIS IS
+ * Every MCP tool declares exactly one permission scope
+ * (MCP_TOOL_SCOPES, completeness-pinned by test against the live
+ * factory registry). Every tool execution passes through the gate
+ * (executeWithPermissionGate): scope check BEFORE execution,
+ * per-execution cryptographic isolation (see executionStore.ts),
+ * denial as a business error + audit + stream event, never a
+ * technical leak. Scopes resolve from the principal via an
+ * adapter — never from tool-call arguments (a forged `scope`
+ * argument is ignored, pinned by test).
+ *
+ * SCOPE ASSIGNMENT (explicit, #1717 SCOPED DEFAULTS)
+ * The default assignment is current behavior: every interactive
+ * principal kind (session, api-key, agent-turn) and every
+ * platform-internal caller (system) holds every scope, so no
+ * legitimate call changes behavior at launch. That default is
+ * recorded here so the owner can overturn it, and it is the ONLY
+ * thing a future IAAA role→scope adapter changes: the gate,
+ * the declarations, and the isolation mechanics stay untouched.
+ * The one non-default assignment at launch: scanner-payment
+ * principals hold only mcp:payments (the paid-tool entitlement),
+ * and unknown principals hold nothing and are always denied.
+ * Scope assignment tied to IAAA identity beyond kind+login —
+ * i.e. resolving a login to role bindings at the SearchAgent DO
+ * tool-call site — does NOT exist in #945's consumed surface
+ * today, so it is a follow-up for the CISO lane, not built here.
+ *
+ * WHAT THIS IS NOT
+ * - Not session authentication: the Worker /mcp route (401
+ *   without a session or cfk_ key) and IAAA requireAuth stand
+ *   unchanged; this gate sits behind them.
+ * - Not invocation-auth verification or scanner attribution:
+ *   that is #1717/#1763 (CISO lane) territory, linked not
+ *   duplicated.
+ * - Not the chain.run execution binding: chain.run's scope is
+ *   declared (mcp:execute) but its semantics are untouched.
+ * - Not a replacement for HITL approval, x402 payment gates, or
+ *   route auth: the scope gate composes with them.
+ *
+ * CHOKE POINTS (all use this gate; no tool execution bypasses it)
+ * - McpToolFactory.executeTool (JSON-RPC sync path, REST bridge,
+ *   job executor) — principal from context, defaulting to system
+ *   for in-process platform callers whose route layer already
+ *   authenticated; unknown tools keep the pre-existing
+ *   not-registered error (lookup precedes the gate).
+ * - handleMCPRequest tools/call queued path — authorize BEFORE
+ *   submitJob, so a refused call never receives a job receipt.
+ * - McpAgentToolAdapter (agent/chat turns, incl. the queued
+ *   branch) — principal kind agent-turn: the turn runs inside
+ *   the owner's own agent instance, so the instance boundary IS
+ *   the identity boundary; threading the turn's userLogin into
+ *   the principal is a follow-up, not a launch requirement.
+ */
+
+import { BusinessError } from "../errors/errorAspects";
+import {
+  newTraceContext,
+  sessionRefFor,
+  type ObservabilityEvent,
+  type ObservabilitySink,
+} from "../observability/observabilityPorts";
+import { createExecutionStore, type ExecutionRecord, type ExecutionSeal } from "./executionStore";
+
+/** Stable business-error code for a refused tool call (see errorCatalog.json). */
+export const MCP_PERMISSION_DENIED_CODE = "MCP_001";
+
+/** Audit event type for a refused tool call (durable trail, via context.audit). */
+export const MCP_PERMISSION_DENIED_AUDIT = "mcp.permission_denied";
+
+/** Stream event type for a refused tool call (counts/outcomes only, via #1743's port). */
+export const MCP_PERMISSION_DENIED_STREAM = "mcp.permission_denied";
+
+export const MCP_SCOPES = [
+  "mcp:read",
+  "mcp:write",
+  "mcp:execute",
+  "mcp:trade",
+  "mcp:payments",
+  "mcp:admin",
+] as const;
+
+export type McpScope = (typeof MCP_SCOPES)[number];
+
+/**
+ * Caller classes at a tool-call site. `system` = in-process
+ * platform code (REST bridge, job executor) whose route layer
+ * already authenticated; `agent-turn` = model-driven calls inside
+ * the owner's own agent instance; `unknown` = no identity could
+ * be resolved — always denied, never defaulted to system.
+ */
+export type McpPrincipalKind =
+  | "session"
+  | "api-key"
+  | "agent-turn"
+  | "system"
+  | "scanner-payment"
+  | "unknown";
+
+export interface McpPrincipal {
+  login: string | null;
+  kind: McpPrincipalKind;
+}
+
+export interface PermissionDecision {
+  allowed: boolean;
+  /** Null for unknown tools (no scope declared, no execution). */
+  scope: McpScope | null;
+  reason?: string;
+}
+
+export interface ToolPermissionPort {
+  requiredScope(toolName: string): McpScope | null;
+  scopesFor(principal: McpPrincipal): Promise<readonly McpScope[]>;
+  authorize(principal: McpPrincipal, toolName: string): Promise<PermissionDecision>;
+  beginExecution(principal: McpPrincipal, toolName: string): ExecutionSeal;
+  openExecution(executionId: string, executionKey: string): ExecutionRecord | null;
+  endExecution(executionId: string, executionKey: string): boolean;
+}
+
+/**
+ * Per-tool scope declarations. One scope per tool, chosen by
+ * what the tool DOES, not what it reads:
+ * - read: pure reads (quotes, positions, status, history, lists, search).
+ * - write: state-changing, non-financial (manage_*, memory, goal compile/schedule).
+ * - execute: general execution (NLQ, chain.run, sandbox, backtest, webhook, think validation, screenshot).
+ * - trade: order flow (preview counts as trade: it validates/reserves the order path, it is not a market-data read).
+ * - payments: money movement + payment-domain data + paid-tool entitlement.
+ * - admin: platform-wide reads (audit events, table listing/query, revenue summary).
+ * The completeness test pins this table against the live factory
+ * registry in both directions, so a future tool without a scope
+ * fails loudly instead of executing unscoped.
+ */
+export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
+  // read (23)
+  knowledge_search: "mcp:read",
+  query_platform_knowledge: "mcp:read",
+  get_async_job: "mcp:read",
+  list_async_jobs: "mcp:read",
+  etrade_get_quote: "mcp:read",
+  etrade_get_positions: "mcp:read",
+  etrade_auth_status: "mcp:read",
+  etrade_account_discovery: "mcp:read",
+  etrade_market_scan: "mcp:read",
+  foss_get_quote: "mcp:read",
+  foss_company_fundamentals: "mcp:read",
+  foss_historical_bars: "mcp:read",
+  foss_market_research: "mcp:read",
+  foss_alpaca_snapshot: "mcp:read",
+  foss_alpaca_account: "mcp:read",
+  foss_alpaca_positions: "mcp:read",
+  foss_alpaca_orders: "mcp:read",
+  browser_inspect_page: "mcp:read",
+  ai_search_financial_docs: "mcp:read",
+  "agentdb.chain.status": "mcp:read",
+  "agentdb.jobs.history": "mcp:read",
+  "agentdb.audit.history": "mcp:read",
+  "agentdb.reports.list": "mcp:read",
+  // write (6)
+  manage_categories: "mcp:write",
+  manage_referrals: "mcp:write",
+  manage_external_ads: "mcp:write",
+  manage_session_memory: "mcp:write",
+  "goal.compile": "mcp:write",
+  "goal.schedule": "mcp:write",
+  // execute (7)
+  execute_nlq: "mcp:execute",
+  "chain.run": "mcp:execute",
+  run_sandbox_command: "mcp:execute",
+  run_quant_backtest: "mcp:execute",
+  dispatch_trading_webhook: "mcp:execute",
+  think_trade_validation: "mcp:execute",
+  browser_screenshot: "mcp:execute",
+  // payments (7)
+  draft_payment: "mcp:payments",
+  confirm_payment_draft: "mcp:payments",
+  get_transactions: "mcp:payments",
+  get_payment_gateways: "mcp:payments",
+  paid_options_screener: "mcp:payments",
+  paid_market_research: "mcp:payments",
+  agentic_wallet_status: "mcp:payments",
+  // trade (4)
+  etrade_preview_order: "mcp:trade",
+  etrade_execute_order: "mcp:trade",
+  foss_alpaca_place_order: "mcp:trade",
+  execute_durable_twap: "mcp:trade",
+  // admin (4)
+  get_audit_events: "mcp:admin",
+  list_database_tables: "mcp:admin",
+  query_table_data: "mcp:admin",
+  get_revenue_summary: "mcp:admin",
+};
+
+/**
+ * Runtime scope declarations for dynamically registered tools
+ * (the factory's OCP promise: tools can be registered after
+ * boot). Static declarations above are IMMUTABLE: declaring a
+ * scope for a statically declared tool throws, so runtime code
+ * can never weaken a sensitive tool's scope by re-declaring it
+ * (re-registering a static tool's implementation keeps its
+ * static scope, since the gate resolves scope by NAME).
+ */
+const DYNAMIC_TOOL_SCOPES = new Map<string, McpScope>();
+
+export function declareToolScope(toolName: string, scope: McpScope): void {
+  if (!MCP_SCOPES.includes(scope)) {
+    throw new Error(`declareToolScope: unknown scope ${scope} for tool ${toolName}`);
+  }
+  if (toolName in MCP_TOOL_SCOPES) {
+    throw new Error(`declareToolScope: tool ${toolName} already has a static scope declaration`);
+  }
+  DYNAMIC_TOOL_SCOPES.set(toolName, scope);
+}
+
+export function resolveToolScope(toolName: string): McpScope | null {
+  return DYNAMIC_TOOL_SCOPES.get(toolName) ?? MCP_TOOL_SCOPES[toolName] ?? null;
+}
+
+/** Default scope assignment (see the header: current behavior, explicitly recorded). */
+export function defaultScopesForKind(kind: McpPrincipalKind): readonly McpScope[] {
+  switch (kind) {
+    case "system":
+    case "session":
+    case "api-key":
+    case "agent-turn":
+      return MCP_SCOPES;
+    case "scanner-payment":
+      return ["mcp:payments"];
+    case "unknown":
+      return [];
+  }
+}
+
+function basePort(
+  resolveScopes: (principal: McpPrincipal) => readonly McpScope[]
+): ToolPermissionPort {
+  const store = createExecutionStore();
+  return {
+    requiredScope(toolName) {
+      return resolveToolScope(toolName);
+    },
+    async scopesFor(principal) {
+      return resolveScopes(principal);
+    },
+    async authorize(principal, toolName) {
+      const scope = resolveToolScope(toolName);
+      if (scope === null) {
+        return { allowed: false, scope: null, reason: `unknown tool: ${toolName}` };
+      }
+      const scopes = resolveScopes(principal);
+      if (scopes.includes(scope)) return { allowed: true, scope };
+      return {
+        allowed: false,
+        scope,
+        reason: `principal kind ${principal.kind} lacks scope ${scope}`,
+      };
+    },
+    beginExecution(principal, toolName) {
+      return store.begin(principal, toolName);
+    },
+    openExecution(executionId, executionKey) {
+      return store.open(executionId, executionKey);
+    },
+    endExecution(executionId, executionKey) {
+      return store.end(executionId, executionKey);
+    },
+  };
+}
+
+/** Production adapter: static default policy (no durable assignment store exists yet). */
+export function createProductionMcpPermissionPort(): ToolPermissionPort {
+  return basePort((principal) => defaultScopesForKind(principal.kind));
+}
+
+export interface InMemoryPermissionPortOptions {
+  /**
+   * Explicit per-principal assignments, keyed `${kind}:${login ?? ""}`.
+   * A principal with an override uses exactly that set; every other
+   * principal falls back to the production default policy. This is
+   * the seam a future IAAA role→scope adapter plugs into, and the
+   * mechanism tests use to build restricted principals.
+   */
+  overrides?: Map<string, readonly McpScope[]> | Record<string, readonly McpScope[]>;
+}
+
+/** In-memory adapter: explicit overrides over the production default policy. */
+export function createInMemoryMcpPermissionPort(
+  options: InMemoryPermissionPortOptions = {}
+): ToolPermissionPort {
+  const overrides =
+    options.overrides instanceof Map
+      ? options.overrides
+      : new Map(Object.entries(options.overrides ?? {}));
+  return basePort((principal) => {
+    const key = `${principal.kind}:${principal.login ?? ""}`;
+    return overrides.get(key) ?? defaultScopesForKind(principal.kind);
+  });
+}
+
+/**
+ * Resolve the calling principal from the DO-forwarded identity
+ * headers (set by the Worker /mcp route: x-user-login always,
+ * x-principal-kind session|api-key). A missing login resolves to
+ * `unknown` — fail closed, never defaulted to system: only
+ * in-process callers (which never pass through this resolver)
+ * may use the system default.
+ */
+export function resolveMcpPrincipalFromHeaders(headers: {
+  get(name: string): string | null;
+}): McpPrincipal {
+  const login = headers.get("x-user-login");
+  if (!login) return { login: null, kind: "unknown" };
+  const kindRaw = headers.get("x-principal-kind");
+  const kind: McpPrincipalKind = kindRaw === "api-key" ? "api-key" : "session";
+  return { login, kind };
+}
+
+export interface PermissionGateOptions {
+  port: ToolPermissionPort;
+  principal: McpPrincipal;
+  toolName: string;
+  sessionId?: string;
+  audit: (type: string, agent: unknown, payload: Record<string, unknown>) => void;
+  /** Optional #1743 stream sink; denials only. Never fails the call. */
+  decisionSink?: ObservabilitySink;
+}
+
+function denialStreamEvent(
+  toolName: string,
+  scope: McpScope | null,
+  principal: McpPrincipal,
+  sessionId: string | undefined
+): ObservabilityEvent {
+  return {
+    type: MCP_PERMISSION_DENIED_STREAM,
+    level: "warn",
+    operation: toolName,
+    tenantId: null,
+    runId: null,
+    sessionRef: sessionId ? sessionRefFor(sessionId) : null,
+    traceId: newTraceContext().traceId,
+    timestampMs: Date.now(),
+    count: 1,
+    errorCode: MCP_PERMISSION_DENIED_CODE,
+    // Counts/outcomes only: tool, scope, kind. Never arguments,
+    // never login material beyond the session correlator.
+    fields: { tool: toolName, requiredScope: scope, principalKind: principal.kind },
+  };
+}
+
+/**
+ * Authorize one tool call. On allow, returns the decision. On
+ * deny, audits (durable trail, with the authenticated login for
+ * review), streams a denial event (counts/outcomes only), and
+ * throws BusinessError MCP_001 — a business error, never a
+ * technical leak. The sink write is best-effort: a sink failure
+ * never changes the decision.
+ */
+export async function authorizeMcpToolCall(
+  port: ToolPermissionPort,
+  principal: McpPrincipal,
+  toolName: string,
+  opts: Omit<PermissionGateOptions, "port" | "principal" | "toolName">
+): Promise<PermissionDecision> {
+  const decision = await port.authorize(principal, toolName);
+  if (decision.allowed) return decision;
+  opts.audit(MCP_PERMISSION_DENIED_AUDIT, "mcp", {
+    tool: toolName,
+    requiredScope: decision.scope,
+    principalKind: principal.kind,
+    login: principal.login,
+  });
+  if (opts.decisionSink) {
+    try {
+      await opts.decisionSink.write(
+        denialStreamEvent(toolName, decision.scope, principal, opts.sessionId)
+      );
+    } catch {
+      // Sink failure never fails the producer (#1743 discipline).
+    }
+  }
+  throw new BusinessError(MCP_PERMISSION_DENIED_CODE, {
+    tool: toolName,
+    scope: decision.scope ?? "none",
+  });
+}
+
+/**
+ * Run one tool execution behind the gate: authorize first (deny
+ * throws before `run` is invoked), then begin a sealed execution
+ * and destroy its seal in a finally block however `run` settles.
+ * `run` receives the execution id for correlation; the execution
+ * KEY never leaves the gate.
+ */
+export async function executeWithPermissionGate<T>(
+  opts: PermissionGateOptions & { run: (executionId: string) => Promise<T> }
+): Promise<T> {
+  await authorizeMcpToolCall(opts.port, opts.principal, opts.toolName, opts);
+  const seal = opts.port.beginExecution(opts.principal, opts.toolName);
+  try {
+    return await opts.run(seal.executionId);
+  } finally {
+    opts.port.endExecution(seal.executionId, seal.executionKey);
+  }
+}

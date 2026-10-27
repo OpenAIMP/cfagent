@@ -231,6 +231,9 @@ export async function handlePaymentsRoutes(
       orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
       sessionId,
       audit: (type, agent, payload) => ctx.audit(type, agent, payload),
+      // #1744: in-process platform call — the REST route's own auth
+      // is the gate here; the MCP gate still enforces + isolates.
+      principal: { kind: "system", login: null },
     });
     return Response.json({
       gateways: out.gateways,
@@ -526,6 +529,8 @@ export async function handlePaymentsRoutes(
         orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
         sessionId,
         audit: (type, agent, payload) => ctx.audit(type, agent, payload),
+        // #1744: in-process platform call — see get_payment_gateways above.
+        principal: { kind: "system", login: null },
       });
       const tx = out.transaction;
 
@@ -700,6 +705,8 @@ export async function handlePaymentsRoutes(
           orm: ctx.getOrm?.() ?? new DatabaseORM(sql),
           sessionId,
           audit: (type, agent, payload) => ctx.audit(type, agent, payload),
+          // #1744: in-process platform call — see get_payment_gateways above.
+          principal: { kind: "system", login: null },
         });
       } catch (err) {
         // The command throws on a missing draft before either decision

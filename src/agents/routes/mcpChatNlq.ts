@@ -46,6 +46,8 @@ import {
   MCP_SERVER_INFO,
   MCP_TOOLS,
 } from "../../mcp";
+import { createObservabilitySink } from "../../observability/createObservabilityPorts";
+import { resolveMcpPrincipalFromHeaders } from "../../permissions/mcpPermissionPorts";
 import { executeNaturalLanguageQuery, type NLQSchedulingPort, type NLQSocialBriefPort } from "../nlq";
 import {
   NLQ_MODE_SWITCH,
@@ -172,6 +174,13 @@ export async function handleMcpChatNlqRoutes(
           env: ctx.env,
           orm,
           sessionId,
+          // #1744: the calling principal, resolved from the
+          // Worker-forwarded identity headers (x-user-login always,
+          // x-principal-kind session|api-key). No login resolves to
+          // `unknown` (fail closed) — the gate never defaults an
+          // external call to system.
+          principal: resolveMcpPrincipalFromHeaders(request.headers),
+          permissionDecisionSink: createObservabilitySink(ctx.env),
           scopedNlqModes: ctx.scopedNlqModes,
           scopedHttpDeliveryModes: ctx.scopedHttpDeliveryModes,
           scopedJobListModes: ctx.scopedJobListModes,

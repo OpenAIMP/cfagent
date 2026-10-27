@@ -16,6 +16,11 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { McpToolFactory } from "../mcp/commands";
+import {
+  authorizeMcpToolCall,
+  createProductionMcpPermissionPort,
+  executeWithPermissionGate,
+} from "../permissions/mcpPermissionPorts";
 
 export class McpAgentToolAdapter {
   /**
@@ -26,7 +31,24 @@ export class McpAgentToolAdapter {
       description: command.description,
       inputSchema: command.zodSchema,
       execute: async (input: any) => {
+        // #1744: agent-turn calls gate here — this path calls
+        // command.execute directly and never passes through
+        // McpToolFactory.executeTool, so an ungated adapter would
+        // leave the model-driven path (the highest-risk caller
+        // class) outside the permission model. Queued calls
+        // authorize before queueing; the executor gates again at
+        // execution time. Principal defaults to agent-turn: the
+        // turn runs inside the owner's own agent instance, so the
+        // instance boundary IS the identity boundary.
+        const port = context.permissionPort ?? createProductionMcpPermissionPort();
+        const principal = context.principal ?? { kind: "agent-turn" as const, login: null };
+        const gateOpts = {
+          sessionId: context.sessionId,
+          audit: context.audit,
+          decisionSink: context.permissionDecisionSink,
+        };
         if (context.submitJob && command.name !== "get_async_job" && command.name !== "list_async_jobs") {
+          await authorizeMcpToolCall(port, principal, command.name, gateOpts);
           return context.submitJob({
             capability: "mcp.tool",
             payload: {
@@ -35,7 +57,13 @@ export class McpAgentToolAdapter {
             },
           });
         }
-        return command.execute(input, context);
+        return executeWithPermissionGate({
+          port,
+          principal,
+          toolName: command.name,
+          ...gateOpts,
+          run: (executionId) => command.execute(input, { ...context, executionId }),
+        });
       },
     });
   }
@@ -101,7 +129,16 @@ export function createAgentMcpTools(context: McpToolContext) {
       value: z.string().min(1).describe("The information to store"),
     }),
     execute: async ({ key, value }) => {
+      // #1744: same gate as adapt() — this helper calls the command
+      // directly, so it must not bypass the permission model.
+      const port = context.permissionPort ?? createProductionMcpPermissionPort();
+      const principal = context.principal ?? { kind: "agent-turn" as const, login: null };
       if (context.submitJob) {
+        await authorizeMcpToolCall(port, principal, "manage_session_memory", {
+          sessionId: context.sessionId,
+          audit: context.audit,
+          decisionSink: context.permissionDecisionSink,
+        });
         return context.submitJob({
           capability: "mcp.tool",
           payload: { toolName: "manage_session_memory", arguments: { action: "remember", key, value } },
@@ -109,7 +146,16 @@ export function createAgentMcpTools(context: McpToolContext) {
       }
       const command = McpToolFactory.getTool("manage_session_memory");
       if (!command) throw new Error("Memory command missing");
-      return command.execute({ action: "remember", key, value }, context);
+      return executeWithPermissionGate({
+        port,
+        principal,
+        toolName: "manage_session_memory",
+        sessionId: context.sessionId,
+        audit: context.audit,
+        decisionSink: context.permissionDecisionSink,
+        run: (executionId) =>
+          command.execute({ action: "remember", key, value }, { ...context, executionId }),
+      });
     },
   });
 
@@ -119,7 +165,15 @@ export function createAgentMcpTools(context: McpToolContext) {
       filter: z.string().optional().describe("Optional keyword to filter stored memories"),
     }),
     execute: async () => {
+      // #1744: same gate as adapt() — see rememberFact above.
+      const port = context.permissionPort ?? createProductionMcpPermissionPort();
+      const principal = context.principal ?? { kind: "agent-turn" as const, login: null };
       if (context.submitJob) {
+        await authorizeMcpToolCall(port, principal, "manage_session_memory", {
+          sessionId: context.sessionId,
+          audit: context.audit,
+          decisionSink: context.permissionDecisionSink,
+        });
         return context.submitJob({
           capability: "mcp.tool",
           payload: { toolName: "manage_session_memory", arguments: { action: "list" } },
@@ -127,7 +181,15 @@ export function createAgentMcpTools(context: McpToolContext) {
       }
       const command = McpToolFactory.getTool("manage_session_memory");
       if (!command) throw new Error("Memory command missing");
-      return command.execute({ action: "list" }, context);
+      return executeWithPermissionGate({
+        port,
+        principal,
+        toolName: "manage_session_memory",
+        sessionId: context.sessionId,
+        audit: context.audit,
+        decisionSink: context.permissionDecisionSink,
+        run: (executionId) => command.execute({ action: "list" }, { ...context, executionId }),
+      });
     },
   });
 

@@ -14,6 +14,12 @@
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import {
+  createProductionMcpPermissionPort,
+  declareToolScope,
+  executeWithPermissionGate,
+  type McpScope,
+} from "../permissions/mcpPermissionPorts";
+import {
   isSupportedGateway,
   SUPPORTED_GATEWAYS,
   type SupportedGateway,
@@ -1544,6 +1550,9 @@ export class GetAuditEventsCommand implements IMcpToolCommand<{ limit?: number }
 export class McpToolFactory {
   private static tools: Map<string, IMcpToolCommand> = new Map();
 
+  /** #1744: default gate port (production policy) when the caller supplies none. */
+  private static defaultPermissionPort = createProductionMcpPermissionPort();
+
   static {
     // Register platform, async-job, and domain capability commands.
     this.registerTool(new KnowledgeSearchCommand());
@@ -1620,8 +1629,14 @@ export class McpToolFactory {
   /**
    * Registers an IMcpToolCommand.
    * Demonstrates the Open/Closed Principle (OCP): New tools register without modifying the factory internals.
+   * #1744: a dynamically registered tool must declare its scope
+   * (second argument) or the gate denies it — the static table
+   * covers only the boot-time registry. A scope for a statically
+   * declared tool is rejected by declareToolScope, so runtime
+   * registration can never weaken a static tool's scope.
    */
-  static registerTool(command: IMcpToolCommand): void {
+  static registerTool(command: IMcpToolCommand, scope?: McpScope): void {
+    if (scope !== undefined) declareToolScope(command.name, scope);
     this.tools.set(command.name, command);
   }
 
@@ -1646,6 +1661,22 @@ export class McpToolFactory {
     if (!command) {
       throw new Error(`MCP Tool '${name}' is not registered`);
     }
-    return command.execute(input, context);
+    // #1744: permission gate. Lookup precedes the gate, so unknown
+    // tools keep the pre-existing not-registered error (pinned by
+    // tests/rest_mcp_commands_p1644.test.ts). Principal defaults to
+    // system for in-process platform callers (REST bridge, job
+    // executor) whose route layer already authenticated; the /mcp
+    // boundary and agent turns always set an explicit principal.
+    const port = context.permissionPort ?? McpToolFactory.defaultPermissionPort;
+    const principal = context.principal ?? { kind: "system" as const, login: null };
+    return executeWithPermissionGate({
+      port,
+      principal,
+      toolName: name,
+      sessionId: context.sessionId,
+      audit: context.audit,
+      decisionSink: context.permissionDecisionSink,
+      run: (executionId) => command.execute(input, { ...context, executionId }),
+    });
   }
 }

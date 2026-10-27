@@ -17,6 +17,7 @@ import type {
   Env,
 } from "../../types";
 import { VectorMemory } from "../../memory/vector-memory";
+import { createObservabilitySink } from "../../observability/createObservabilityPorts";
 import { McpSystemFacade } from "../../patterns/facade";
 import { createAgentMcpTools } from "../mcpAdapter";
 
@@ -84,6 +85,12 @@ export function createTurnTools(ctx: ChatTurnHelpersContext, requestId: string):
     storage: ctx.storage,
     requestId,
     facade,
+    // #1744: agent-turn principal — the turn runs inside the
+    // owner's own agent instance, so the instance boundary IS the
+    // identity boundary. Threading the turn's userLogin into the
+    // principal (for finer audit attribution) is a follow-up.
+    principal: { kind: "agent-turn", login: null },
+    permissionDecisionSink: createObservabilitySink(ctx.env),
     submitJob: (job) => ctx.submitAsyncJob(job),
     getJob: (jobId) => ctx.getAsyncJob(jobId),
     listJobs: () => ctx.listAsyncJobs().map(({ result: _result, ...job }) => job),
