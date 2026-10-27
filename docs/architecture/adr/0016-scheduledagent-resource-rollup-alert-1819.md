@@ -4,7 +4,7 @@
 - Date: 2026-10-27
 - Deciders: owner, #CISO-bhdm
 - Issue: #1819 (consolidation: #1884)
-- Implementing PR: (this slice's PR; main commit, when merged)
+- Implementing PR: #1890 (main commit, when merged)
 - Related: docs/architecture/security/sessionstore-resource-rollup-alert-1819.md,
   docs/architecture/security/sessionstore-resource-process-1819.md,
   ADR 0015 (instrument first), ADR 0018 (CAIO alignment)

@@ -4,7 +4,7 @@
 - Date: 2026-10-27
 - Deciders: owner, #CISO-bhdm
 - Issue: #1884 (stated for #1819's consolidated process doc)
-- Implementing PR: (this slice's PR; main commit, when merged)
+- Implementing PR: #1890 (main commit, when merged)
 - Related: docs/architecture/security/sessionstore-resource-process-1819.md §4,
   `src/workflows/workflowPorts.ts`
 
