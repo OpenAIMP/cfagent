@@ -340,6 +340,16 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: GET /api/schedule/ticks",
   },
   {
+    id: "schedule-operations-get",
+    method: "GET",
+    path: "/api/schedule/operations",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated (#1156); any signed-in user may read the operation catalog. Flattened from OPERATION_CATALOG at request time, never hardcoded.",
+    source: "src/server.ts branch: GET /api/schedule/operations",
+  },
+  {
     id: "schedule-goal-action",
     method: "POST",
     path: "/api/schedule/goals/:id/(enabled|trigger)",

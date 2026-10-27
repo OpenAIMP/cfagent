@@ -16,6 +16,7 @@ import {
   type CatalogOperation,
   type PresetGoalResult,
 } from "./scheduleApi";
+import { TextInput, Select, Button } from "./components/ui";
 
 export interface ScheduledGoalsPanelProps {
   embedded?: boolean;
@@ -180,8 +181,10 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
         <input style={inputStyle} placeholder="id (e.g. weekly-report)" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} />
         <input style={inputStyle} placeholder="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input style={inputStyle} placeholder='cron (e.g. "0 6 * * *")' value={form.cron} onChange={(e) => setForm({ ...form, cron: e.target.value })} />
-        <select
-          style={inputStyle}
+        {/* Issue #1922: new form controls use the ui primitives
+            (ux-architecture §20), not raw controls — the primitive
+            freeze test pins this file's raw-control count. */}
+        <Select
           aria-label="operation"
           value={form.operation}
           disabled={operations.length === 0}
@@ -193,9 +196,9 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
               {op.operation} ({op.agent})
             </option>
           ))}
-        </select>
+        </Select>
         <input style={inputStyle} placeholder="budget in cents (e.g. 500)" value={form.budgetCents} onChange={(e) => setForm({ ...form, budgetCents: e.target.value })} />
-        <input style={inputStyle} placeholder="timeZone (IANA, e.g. UTC)" value={form.timeZone} onChange={(e) => setForm({ ...form, timeZone: e.target.value })} />
+        <TextInput placeholder="timeZone (IANA, e.g. UTC)" value={form.timeZone} onChange={(e) => setForm({ ...form, timeZone: e.target.value })} />
         <div>
           <button disabled={busy === "add"} onClick={() => void submitGoal()}>
             {busy === "add" ? "Adding…" : "Add goal"}
@@ -203,10 +206,14 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
         </div>
       </div>
 
+      {/* Issue #1922 preset: the three SessionStore resource goals. The
+          issue number lives in this comment, not in rendered text: the
+          UX token gate treats a "#NNNN" pattern in JSX text as a hex
+          color literal. */}
       <h3 style={{ margin: "20px 0 12px" }}>SessionStore resource goals</h3>
       <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 8 }}>
-        Adds the three #1819 goals (daily rollup, 70% cap alert, dashboard comparison) with
-        timeZone UTC. Goals that already exist are skipped, not duplicated.
+        Adds the three SessionStore resource goals (daily rollup, 70% cap alert, dashboard
+        comparison) with timeZone UTC. Goals that already exist are skipped, not duplicated.
       </div>
       {presetResults && (
         <div style={{ marginBottom: 8 }}>
@@ -223,9 +230,9 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
         </div>
       )}
       <div>
-        <button disabled={!!busy} onClick={() => void submitPreset()}>
+        <Button disabled={!!busy} onClick={() => void submitPreset()}>
           {busy === "preset" ? "Adding…" : "Add SessionStore resource goals"}
-        </button>
+        </Button>
       </div>
 
       <h3 style={{ margin: "20px 0 12px" }}>Recent ticks</h3>
