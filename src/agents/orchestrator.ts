@@ -73,6 +73,12 @@ import { ETradeBrowserService } from "../services/browserAgent";
 import { runGovernanceSeed } from "./orchestrator/governanceSeed";
 import { runShardJobReconcile, type ReconcileShardJobsReport } from "./orchestrator/shardJobReconcile";
 import { runCanonicalReportSeed, type SeedCanonicalReportsResult } from "./orchestrator/canonicalReportSeed";
+import {
+  deliverWorkflowGoalScreenOutcome as deliverGoalScreenOutcome,
+  persistWorkflowGoalScreenReport,
+  type WorkflowGoalScreenEnvelope,
+} from "./orchestrator/goalScreenDispatch";
+import type { ScreeningChannel } from "../services/screeningDelivery";
 import type { GovernedHaltState } from "../data/governedHalt";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
 import { deliverScreenerToSlackA2A } from "../services/screenerSlackDelivery";
@@ -1499,6 +1505,40 @@ export class OrchestratorAgent extends PortThink {
       this.asyncJobsContext(),
       deliveryId ? { ...outcome, deliveryId } : outcome,
       userLogin,
+    );
+  }
+
+  /**
+   * Issue #1996 (#1972 slice 1): workflow doors for goal
+   * screens. Thin PUBLIC wrappers over the goal dispatch
+   * module — the same canonical seams the synchronous goal
+   * path uses, so a workflow run and a direct run are
+   * indistinguishable downstream. Called by
+   * ScreenerScreenWorkflow via the shared orchestrator stub.
+   */
+  async recordWorkflowGoalScreenReport(
+    envelope: WorkflowGoalScreenEnvelope,
+    userLogin: string,
+  ): Promise<void> {
+    return persistWorkflowGoalScreenReport(
+      { env: this.env, getOrm: () => this.getOrm() },
+      envelope,
+      userLogin,
+    );
+  }
+
+  async deliverWorkflowGoalScreenOutcome(
+    envelope: WorkflowGoalScreenEnvelope,
+    userLogin: string,
+    channels: ScreeningChannel[],
+    emailTo?: string,
+  ): Promise<void> {
+    return deliverGoalScreenOutcome(
+      { env: this.env, getOrm: () => this.getOrm() },
+      envelope,
+      userLogin,
+      channels,
+      emailTo,
     );
   }
 

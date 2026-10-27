@@ -43,6 +43,7 @@ import {
   startWorkflowInstance,
 } from "./cfWorkflowAdapter";
 import {
+  goalResultToShardResult,
   runParentFlow,
   runShardFlow,
   type ChildWorkflowOps,
@@ -52,6 +53,7 @@ import {
   type ShardScreenRequest,
   type ShardScreenResult,
 } from "./screenerWorkflowFlow";
+import type { WorkflowGoalScreenEnvelope } from "../agents/orchestrator/goalScreenDispatch";
 import {
   assertWorkflowJobCommand,
   type WorkflowJobCommand,
@@ -95,6 +97,36 @@ function screenerAgentRunner(env: Env, userLogin: string): ScreenRunner {
   const agent = env.SCREENER_AGENT.get(id) as unknown as ScreenerAgent;
   return {
     runScreen: async (req) => toShardResult(await agent.runScreen(toAgentRequest(req))),
+    // Issue #1996 — goal-screen execution for workflow children.
+    // A deduplicated run without a result has no outcome to
+    // store: fail loudly (step retries, then the shard fails)
+    // rather than recording a fake empty success.
+    runGoalScreen: async (req) => {
+      const out = await agent.runGoalScreen({
+        scenario: req.scenario,
+        trigger: req.trigger,
+        idempotencyKey: req.idempotencyKey,
+        userLogin: req.userLogin,
+        ...(req.environment ? { environment: req.environment } : {}),
+        ...(req.assetClasses ? { assetClasses: req.assetClasses } : {}),
+        ...(req.symbols ? { symbols: req.symbols } : {}),
+        ...(req.provider ? { provider: req.provider } : {}),
+        ...(req.providerFallback ? { providerFallback: req.providerFallback } : {}),
+      });
+      if (!out.result) {
+        throw new Error(
+          `Goal-screen workflow run ${req.idempotencyKey} was deduplicated without a result; refusing to record an empty success (issue #1996).`,
+        );
+      }
+      return goalResultToShardResult({
+        taskId: out.task.id,
+        scenarioSource: req.scenarioSource,
+        trigger: req.trigger,
+        result: out.result,
+        ...(req.provider ? { provider: req.provider } : {}),
+        ...(req.providerFallback ? { providerFallback: req.providerFallback } : {}),
+      });
+    },
   };
 }
 
@@ -137,22 +169,49 @@ function buildDeps(env: Env, command: WorkflowJobCommand): ScreenerWorkflowDeps 
   return {
     screenRunner: screenerAgentRunner(env, command.userLogin),
     shardStore: createShardJobAdapter(env),
+    // Issue #1996 — goal commands store a goal canonical
+    // report (source "goal_screen") through the goal door,
+    // not the market door: the shapes differ, and a goal
+    // result stored as a market screen would be invisible
+    // to the Runs read surface.
     storeReport: async (payload) => {
-      await orchestrator.recordWorkflowScreenReport(payload as ScreenerRunResult);
+      if (command.goalScreen) {
+        await orchestrator.recordWorkflowGoalScreenReport(
+          payload as WorkflowGoalScreenEnvelope,
+          command.userLogin,
+        );
+      } else {
+        await orchestrator.recordWorkflowScreenReport(payload as ScreenerRunResult);
+      }
     },
+    // Issue #1996 — goal commands deliver through the goal
+    // delivery seam (channels + emailTo ride the command);
+    // the market outcome sink is not used for goal runs,
+    // matching the direct path (no deliveryId convergence
+    // there either — deliver retries share the direct path's
+    // at-least-once property).
     deliverOutcome: async (payload) => {
-      const outcome = screenerOutcomeFromRunResult(
-        "stock",
-        payload as Record<string, unknown>,
-      );
-      // Deterministic per job: a retried deliver step
-      // converges in the outcome sink instead of forking
-      // a second tracked record for the same shard.
-      await orchestrator.deliverWorkflowScreenOutcome(
-        outcome,
-        command.userLogin,
-        `workflow:${command.jobId}`,
-      );
+      if (command.goalScreen) {
+        await orchestrator.deliverWorkflowGoalScreenOutcome(
+          payload as WorkflowGoalScreenEnvelope,
+          command.userLogin,
+          command.goalScreen.deliver ?? [],
+          command.goalScreen.emailTo,
+        );
+      } else {
+        const outcome = screenerOutcomeFromRunResult(
+          "stock",
+          payload as Record<string, unknown>,
+        );
+        // Deterministic per job: a retried deliver step
+        // converges in the outcome sink instead of forking
+        // a second tracked record for the same shard.
+        await orchestrator.deliverWorkflowScreenOutcome(
+          outcome,
+          command.userLogin,
+          `workflow:${command.jobId}`,
+        );
+      }
     },
     nowMs: () => Date.now(),
   };

@@ -43,7 +43,7 @@ export function manualWorkflowJobId(universe: string): string {
 }
 
 /** Tenant for projection rows: server-resolved, never caller input. */
-export function workflowTenantId(env: Env): string {
+export function workflowTenantId(env: Partial<Env> | null | undefined): string {
   return resolveIaaaTenant(env);
 }
 

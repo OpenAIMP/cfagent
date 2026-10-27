@@ -150,9 +150,15 @@ const ORCH = "agents/orchestrator.ts";
  *  Think-signature names), the port-transcript accessor renames
  *  (Think owns getMessages/addMessages/runTurn), and the dual-store
  *  clear — measured 2,507 lines / 115,690 B after the migration,
- *  so budget lines rise to 2520 and bytes rise to 116_500. */
-const BUDGET_LINES = 2520;
-const BUDGET_BYTES = 116_500;
+ *  so budget lines rise to 2520 and bytes rise to 116_500.
+ *  Goal Screen workflow submission (#1996, #1972 slice 1) adds
+ *  the two PUBLIC goal doors (recordWorkflowGoalScreenReport +
+ *  deliverWorkflowGoalScreenOutcome) + their imports
+ *  (execution in orchestrator/goalScreenDispatch.ts) — measured
+ *  2,547 lines / 116,920 B after the addition, so budget lines
+ *  rise to 2560 and bytes rise to 117_500. */
+const BUDGET_LINES = 2560;
+const BUDGET_BYTES = 117_500;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

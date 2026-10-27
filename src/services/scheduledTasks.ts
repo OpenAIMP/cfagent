@@ -1148,6 +1148,9 @@ export class ScheduledTasksService {
       from: "etrade";
       reason: string;
     };
+    /** Issue #1996: workflow run id when the run was submitted to
+     *  the unified run-request path instead of executing direct. */
+    workflowId?: string;
   }>> {
     const timestamp = new Date().toISOString();
     // Issue #1571: whole-run fallback marker, set when the E*TRADE
@@ -1246,6 +1249,57 @@ export class ScheduledTasksService {
             reason: "etrade-auth-dead",
             error: guard.error,
           });
+        }
+      }
+      // Issue #1996 (#1972 slice 1): workflow submission for
+      // scheduled goal screens. Only when NOT in chain mode:
+      // the chain bridge below needs the completed result (its
+      // canonicalReportId + counts) to bridge generate + serve,
+      // and a queued run has no result to bridge — chain mode
+      // keeps direct behavior byte-identical. A null start
+      // (no workflow binding, no projection store, start
+      // error) falls through to the direct path unchanged.
+      if (!chainMode) {
+        const { buildGoalScreenCommand, tryStartGoalScreenWorkflow } =
+          await import("./goalScreenWorkflowSubmission");
+        const { resolveIaaaTenant } = await import("../security/iaaaGithubEndToEnd");
+        const handle = await tryStartGoalScreenWorkflow(
+          this.env,
+          buildGoalScreenCommand({
+            jobId: idempotencyKey,
+            source: "scheduled-tasks",
+            trigger,
+            userLogin,
+            tenantId: resolveIaaaTenant(this.env),
+            scenario,
+            scenarioSource,
+            ...(options.assetClasses ? { assetClasses: options.assetClasses } : {}),
+            ...(options.symbols ? { symbols: options.symbols } : {}),
+            ...(directChannels.length > 0 ? { deliverChannels: directChannels } : {}),
+            ...(options.emailTo ? { emailTo: options.emailTo } : {}),
+            ...(options.environment ? { environment: options.environment } : {}),
+            ...(providerFallback ? { provider: "yahoo" as const, providerFallback } : {}),
+          }),
+        );
+        if (handle) {
+          this.audit("goal_screen.workflow_submitted", {
+            goalKind: scenario.goalKind,
+            jobId: idempotencyKey,
+            workflowId: handle.workflowId,
+            trigger,
+          });
+          return {
+            success: true,
+            taskType: "goal_screen",
+            timestamp,
+            data: {
+              taskId: idempotencyKey,
+              status: "queued",
+              workflowId: handle.workflowId,
+              goalKind: scenario.goalKind,
+              ...(providerFallback ? { providerFallback } : {}),
+            },
+          };
         }
       }
       const out = await runtime.executeGoalScreenRun({
