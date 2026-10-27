@@ -10,6 +10,11 @@ Repository documentation lives in the [`docs/`](docs/) folder: plans in
 [`docs/plans/`](docs/plans/), agent policy and design docs in
 [`docs/agents/`](docs/agents/). Look there first.
 
+UX changes follow the UX architecture in
+[`docs/agents/ux-architecture.md`](docs/agents/ux-architecture.md) (§20
+definition of done): build only from `src/client/components/ui/`
+primitives with token-only styling.
+
 Find your role by matching your name to its role identifier in docs/agentic-org, and advance docs/agentic-org/mission.md through:
 collaboration governed by docs/agentic-org/collaboration.md
 communication governed by docs/agentic-org/communication.md
