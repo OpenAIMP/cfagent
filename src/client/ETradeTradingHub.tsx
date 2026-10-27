@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
-import { Card, Badge, TextInput, Button, EmptyState, Select, Table, Modal } from "./components/ui";
+import { Card, Badge, TextInput, Button, EmptyState, Select, Table, Modal, PageShell } from "./components/ui";
+import { getRoute } from "./routes";
 import {
   ETradeQuote,
   ScreenedStockItem,
@@ -84,6 +85,12 @@ export function ETradeTradingHub({
   // Navigation subtabs: synchronized directly with activeSubTab prop from Chat navigation
   const [subTab, setSubTab] = useState<TradingSubTab>(activeSubTab || "autopilot");
   const effectiveSubTab: TradingSubTab = activeSubTab || subTab || "autopilot";
+  // S4-D (#1991): the hub is the route outlet for every trading page, so
+  // the shell title/scope follow the active subtab via the route table.
+  // iv-history and llm-ideas are inner hub tabs with no route entries.
+  const shellRoute = getRoute(effectiveSubTab);
+  const shellTitle = shellRoute?.crumb ?? (effectiveSubTab === "iv-history" ? "IV History" : "LLM Ideas");
+  const shellScopeNote = shellRoute?.description;
 
   const handleNavigateSubTab = (newSubTab: TradingSubTab) => {
     setSubTab(newSubTab);
@@ -1563,6 +1570,7 @@ export function ETradeTradingHub({
       )}
 
       {/* SUBTAB 0: AUTOPILOT CONTROL CENTER */}
+      <PageShell title={shellTitle} scopeNote={shellScopeNote}>
       {effectiveSubTab === "autopilot" && (
         <AutopilotControlCenter
           user={user}
@@ -3021,6 +3029,7 @@ export function ETradeTradingHub({
           </div>
         </div>
       )}
+      </PageShell>
 
       {/* Quote Inspection Modal */}
       {inspectSymbol && (
