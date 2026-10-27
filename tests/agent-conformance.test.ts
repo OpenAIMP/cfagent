@@ -71,15 +71,15 @@ describe("Agent conformance (issue #1738)", () => {
       .map((f) => path.relative(ROOT, f).replace(/\\/g, "/"))
       .sort();
     // The three pre-#1738 actors (Scheduled, Payments,
-    // ReportAsset) plus the two remaining #1738 migrations
-    // (Orchestrator, Trading). Research left this list in #1953
-    // (think-fleet) and Screener in #1955 (think-fleet): both
-    // extend PortThink now, not Agent.
+    // ReportAsset) plus the one remaining #1738 migration
+    // (Trading). Orchestrator left this list in #1952
+    // (think-fleet), Research in #1953 (think-fleet), and
+    // Screener in #1955 (think-fleet): all three extend
+    // PortThink now, not Agent directly.
     // BrowserAgent/SlackAgent extend AIChatAgent and are
     // deliberately NOT in this list — they are chat agents,
     // not actor-role agents.
     expect(adopters).toEqual([
-      "src/agents/orchestrator.ts",
       "src/agents/payments-agent.ts",
       "src/agents/report-asset-agent.ts",
       "src/agents/scheduled-agent.ts",

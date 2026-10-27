@@ -143,9 +143,16 @@ const ORCH = "agents/orchestrator.ts";
  *  payments-routes call-site passthrough (the switch itself lives
  *  in src/config/paymentsFlowModes.ts, the class gains no logic) —
  *  measured 2,447 lines / 112,495 B after the addition, so
- *  budget lines rise to 2450 and bytes rise to 113_000. */
-const BUDGET_LINES = 2450;
-const BUDGET_BYTES = 113_000;
+ *  budget lines rise to 2450 and bytes rise to 113_000.
+ *  Think fleet (#1952, tracker #1951) migrates the class from
+ *  Agent to PortThink: the Think turn facet + epoch-gated wrapper,
+ *  the port* domain-hook renames (PortThink owns the
+ *  Think-signature names), the port-transcript accessor renames
+ *  (Think owns getMessages/addMessages/runTurn), and the dual-store
+ *  clear — measured 2,507 lines / 115,690 B after the migration,
+ *  so budget lines rise to 2520 and bytes rise to 116_500. */
+const BUDGET_LINES = 2520;
+const BUDGET_BYTES = 116_500;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;
