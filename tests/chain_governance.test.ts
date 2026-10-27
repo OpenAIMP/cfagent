@@ -4,8 +4,10 @@
  *
  * Every behavior here delegates to shipped code; this file pins the
  * wiring, not a new governance machine:
- *  - Promotion: a passing #759 verdict naming the chain is required
- *    (consumed via `listGateVerdicts`, never minted here).
+ *  - Promotion (#1747, branch 2): a Phase 3 approval authorizing this
+ *    chain's content is required (approved record whose steps match
+ *    the version's steps); authority is approval + registry
+ *    verification + staged rollout — never a #759 verdict.
  *  - Rollback: the #760 staged shape (shadow → partial → full →
  *    completed, automatic rollback on failure signals, exact prior
  *    snapshot restore) over versioned chain records.
@@ -53,40 +55,34 @@ function versionedV1(): GovernedChainVersion {
   });
 }
 
-/** A verdict store with no verdicts: promotion must refuse. */
-function emptyVerdictSql() {
-  return {
-    exec(text: string, ..._params: any[]) {
-      if (/^\s*CREATE/i.test(text)) return [];
-      return [];
-    },
-  };
+/**
+ * Phase 3 approval fixtures (#1747): the approval record is synthesized
+ * from the SAME compiled chain the version was versioned from, so its
+ * steps match the version's steps — that match is the authority binding.
+ * A pending record, a killed record, and an approved record for
+ * different chain content must all refuse promotion.
+ */
+function approvedRecordFor(
+  chain: ReturnType<typeof nasdaqChain>,
+  id = "synth-gov-approve",
+): SynthesizedSchedule {
+  const rec = synthesizeSchedule(chain, { id, cron: "0 6 * * *" });
+  return approveSynthesizedRecord(rec, "2026-10-25T01:00:00.000Z");
 }
 
-function passingVerdictSql(chainId: string) {
-  return {
-    exec(text: string, ...params: any[]) {
-      if (/^\s*CREATE/i.test(text)) return [];
-      if (/FROM mas_promotion_gate_verdicts/i.test(text)) {
-        return params[0] === chainId
-          ? [
-              {
-                id: "verdict_1",
-                candidate_id: chainId,
-                passed: 1,
-                reasons_json: "[]",
-                heldout_evaluation_id: "eval_heldout",
-                z: 2.5,
-                p_value: 0.006,
-                approval_id: "appr_1",
-                created_at: "2026-10-25T01:00:00.000Z",
-              },
-            ]
-          : [];
-      }
-      return [];
-    },
-  };
+function pendingRecordFor(
+  chain: ReturnType<typeof nasdaqChain>,
+  id = "synth-gov-pending",
+): SynthesizedSchedule {
+  return synthesizeSchedule(chain, { id, cron: "0 6 * * *" });
+}
+
+/** An approved record for DIFFERENT chain content: a strict prefix of the chain's steps. */
+function approvedRecordForOtherContent(
+  chain: ReturnType<typeof nasdaqChain>,
+): SynthesizedSchedule {
+  const shorter = { ...chain, steps: chain.steps.slice(0, -1) };
+  return approvedRecordFor(shorter as ReturnType<typeof nasdaqChain>, "synth-gov-other");
 }
 
 describe("chain versioning (#1468)", () => {
@@ -128,70 +124,64 @@ describe("chain versioning (#1468)", () => {
   });
 });
 
-describe("promotion gate consumption (#759, #1468)", () => {
-  it("(a) promotion without a passing gate verdict is refused", () => {
-    const v = versionedV1();
-    expect(() => promoteChainVersion(v, emptyVerdictSql())).toThrow(
-      /no passing promotion-gate verdict/,
-    );
-    // A failed verdict is also a refusal, not a promotion.
-    const failedSql = {
-      exec(text: string, ...params: any[]) {
-        if (/^\s*CREATE/i.test(text)) return [];
-        if (/FROM mas_promotion_gate_verdicts/i.test(text)) {
-          return params[0] === "chain-nasdaq-slack"
-            ? [
-                {
-                  id: "verdict_0",
-                  candidate_id: "chain-nasdaq-slack",
-                  passed: 0,
-                  reasons_json: '["no human approval"]',
-                  heldout_evaluation_id: null,
-                  z: null,
-                  p_value: null,
-                  approval_id: null,
-                  created_at: "2026-10-25T01:00:00.000Z",
-                },
-              ]
-            : [];
-        }
-        return [];
-      },
-    };
-    expect(() => promoteChainVersion(v, failedSql)).toThrow(
-      /no passing promotion-gate verdict/,
-    );
-    // A verdict naming a DIFFERENT chain does not promote this one.
-    const otherSql = passingVerdictSql("chain-someone-else");
-    expect(() => promoteChainVersion(v, otherSql)).toThrow(
-      /no passing promotion-gate verdict/,
+describe("promotion authority (#1747, branch 2)", () => {
+  it("(a) promotion without authority is refused: pending, killed, timestamp-less, or mismatched approval", () => {
+    const chain = nasdaqChain();
+    const v = versionChain("chain-nasdaq-slack", chain, 1, {
+      createdAt: "2026-10-25T00:00:00.000Z",
+    });
+    // A pending record is not authority: Phase 3 confirmation never happened.
+    expect(() => promoteChainVersion(v, pendingRecordFor(chain))).toThrow(/not approved/);
+    // A killed record is not authority: killed is terminal against approval.
+    const killed = killSynthesizedRecord(approvedRecordFor(chain, "synth-gov-killed"));
+    expect(() => promoteChainVersion(v, killed)).toThrow(/not approved/);
+    // An approved record with no timestamp is not authority: never trust
+    // a hand-built record shape — the timestamp is part of the evidence.
+    const timestampLess = { ...approvedRecordFor(chain, "synth-gov-nots"), approvedAt: null };
+    expect(() => promoteChainVersion(v, timestampLess)).toThrow(/no approval timestamp/);
+    // An approval for DIFFERENT chain content does not promote this one.
+    expect(() => promoteChainVersion(v, approvedRecordForOtherContent(chain))).toThrow(
+      /does not authorize this chain version/,
     );
   });
 
-  it("a passing verdict naming the chain promotes draft → shadow and records the verdict", () => {
-    const v = versionedV1();
-    const promoted = promoteChainVersion(v, passingVerdictSql("chain-nasdaq-slack"));
+  it("an approved record for this chain's content promotes draft → shadow and records the authority", () => {
+    const chain = nasdaqChain();
+    const v = versionChain("chain-nasdaq-slack", chain, 1, {
+      createdAt: "2026-10-25T00:00:00.000Z",
+    });
+    const approval = approvedRecordFor(chain);
+    const promoted = promoteChainVersion(v, approval);
     expect(promoted.stage).toBe("shadow");
-    expect(promoted.gateVerdictId).toBe("verdict_1");
+    expect(promoted.authorityRef).toBe(approval.id);
     expect(promoted.priorVersion).toBeNull();
     // Promotion never mutates the input record.
     expect(v.stage).toBe("draft");
+    expect(v.authorityRef).toBeNull();
   });
 
   it("only a draft version can be promoted", () => {
+    const chain = nasdaqChain();
+    const approval = approvedRecordFor(chain);
     const promoted = promoteChainVersion(
-      versionedV1(),
-      passingVerdictSql("chain-nasdaq-slack"),
+      versionChain("chain-nasdaq-slack", chain, 1, {
+        createdAt: "2026-10-25T00:00:00.000Z",
+      }),
+      approval,
     );
-    expect(() => promoteChainVersion(promoted, passingVerdictSql("chain-nasdaq-slack"))).toThrow(
-      /only a draft/,
-    );
+    expect(() => promoteChainVersion(promoted, approval)).toThrow(/only a draft/);
   });
 });
 
 describe("staged promotion + rollback (#760 shape, #1468)", () => {
   function shadowed(): GovernedChainVersion {
-    return promoteChainVersion(versionedV1(), passingVerdictSql("chain-nasdaq-slack"));
+    const chain = nasdaqChain();
+    return promoteChainVersion(
+      versionChain("chain-nasdaq-slack", chain, 1, {
+        createdAt: "2026-10-25T00:00:00.000Z",
+      }),
+      approvedRecordFor(chain),
+    );
   }
 
   it("advances shadow → partial → full → completed, and completed is terminal", () => {
@@ -207,12 +197,13 @@ describe("staged promotion + rollback (#760 shape, #1468)", () => {
 
   it("(b) a failure signal rolls back automatically and names the restored prior version", () => {
     const prior = versionedV1();
-    const next = versionChain("chain-nasdaq-slack", nasdaqChain(), 2, {
+    const chain = nasdaqChain();
+    const next = versionChain("chain-nasdaq-slack", chain, 2, {
       priorVersion: 1,
       createdAt: "2026-10-25T02:00:00.000Z",
     });
     void prior;
-    const promoted = promoteChainVersion(next, passingVerdictSql("chain-nasdaq-slack"));
+    const promoted = promoteChainVersion(next, approvedRecordFor(chain));
     const advanced = advanceChainPromotion(promoted, {});
     expect(advanced.version.stage).toBe("partial");
     const failed = advanceChainPromotion(advanced.version, { failed: true });
@@ -224,9 +215,10 @@ describe("staged promotion + rollback (#760 shape, #1468)", () => {
 
   it("rollbackChainVersion restores the prior snapshot exactly", () => {
     const prior = versionedV1();
+    const chain = nasdaqChain();
     const next = promoteChainVersion(
-      versionChain("chain-nasdaq-slack", nasdaqChain(), 2, { priorVersion: 1 }),
-      passingVerdictSql("chain-nasdaq-slack"),
+      versionChain("chain-nasdaq-slack", chain, 2, { priorVersion: 1 }),
+      approvedRecordFor(chain),
     );
     const rolled = rollbackChainVersion(next);
     expect(rolled.stage).toBe("rolled_back");

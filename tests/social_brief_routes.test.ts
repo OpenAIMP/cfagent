@@ -39,6 +39,19 @@ function makeEnv() {
 
 const todayNY = () => zonedDateParts(Date.now(), "America/New_York").date;
 
+/**
+ * Calendar-day arithmetic on a YYYY-MM-DD string (UTC-based, so DST
+ * never shifts the result). Used so the "explicit date" test below
+ * always picks a date that is NOT today: a hardcoded explicit date
+ * eventually becomes today and the test's "today stays null"
+ * assertion fails on that day (observed 2026-10-27, when the
+ * hardcoded date collided with today).
+ */
+const addDays = (date: string, days: number) => {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+};
+
 function req(method: string, body?: unknown, cookie?: string, path = "/api/social/brief") {
   return new Request(`https://agent.test${path}`, {
     method,
@@ -75,10 +88,13 @@ describe("social brief routes (#1077 Phase 5b slice 2)", () => {
 
   it("explicit date stores under that date only; overwrite wins", async () => {
     const env = makeEnv();
-    await worker.fetch(req("POST", { text: "Dated brief.", date: "2026-10-27" }, SESSION_ID), env);
-    await worker.fetch(req("POST", { text: "Replaced.", date: "2026-10-27" }, SESSION_ID), env);
-    const dated = await worker.fetch(req("GET", undefined, SESSION_ID, "/api/social/brief?date=2026-10-27"), env);
-    expect(await dated.json()).toEqual({ ok: true, date: "2026-10-27", brief: "Replaced." });
+    // The explicit date must differ from today by construction (see
+    // addDays above): a hardcoded date eventually IS today.
+    const explicit = addDays(todayNY(), 1);
+    await worker.fetch(req("POST", { text: "Dated brief.", date: explicit }, SESSION_ID), env);
+    await worker.fetch(req("POST", { text: "Replaced.", date: explicit }, SESSION_ID), env);
+    const dated = await worker.fetch(req("GET", undefined, SESSION_ID, `/api/social/brief?date=${explicit}`), env);
+    expect(await dated.json()).toEqual({ ok: true, date: explicit, brief: "Replaced." });
     const today = await worker.fetch(req("GET", undefined, SESSION_ID), env);
     expect((await today.json() as Record<string, unknown>).brief).toBeNull();
   });

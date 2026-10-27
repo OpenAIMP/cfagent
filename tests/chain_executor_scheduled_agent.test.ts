@@ -70,7 +70,15 @@ async function materializedAgent(id: string) {
   if (!chain) throw new Error("test chain did not compile");
   await agent.synthesizeSchedule(chain, { id, cron: dueCron() });
   await agent.approveSynthesizedSchedule(id);
-  await agent.materializeSynthesizedSchedule(id);
+  const goal = await agent.materializeSynthesizedSchedule(id);
+  // Baseline hour-06 flake (not #1747): getGoals() seeds
+  // DEFAULT_SCHEDULES on first read, and daily-qa-sweep (cron
+  // "0 6 * * *", enabled, no lastRun) is due for the whole UTC
+  // hour 06, so its generic-path job inflated jobsCreated to 2
+  // during that hour. This file asserts chain-firing counts, so
+  // scope the tick to the chain goal only. Production seeding is
+  // unchanged.
+  await ctx.storage.put("goals", [goal]);
   return agent;
 }
 

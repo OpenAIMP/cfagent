@@ -1,0 +1,3 @@
+### Changed
+
+- **Chain promotion authority (#1747, branch 2):** `chainGovernance.ts` no longer imports `promotionGate` — chain-version promotion authority is now chain-native: a Phase 3 approval record whose steps match the version's steps, plus the registry verification recorded on the version, plus staged rollout (shadow as the held-out evidence mechanism). `promoteChainVersion` takes the approval record instead of verdict SQL, `gateVerdictId` is renamed to `authorityRef`, and fail-closed refusal (pending, killed, timestamp-less, or mismatched approval) is preserved by test. #759 keeps serving strategy weights untouched (`stagedPromotion` unchanged); this removes only the chain consumer and unblocks #1257's retirement.
