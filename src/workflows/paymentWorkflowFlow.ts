@@ -1,0 +1,243 @@
+/**
+ * PaymentWorkflowFlow — the deterministic payment flow for Goal 1 Phase 2 (#2014).
+ *
+ * This is the flow module behind PaymentWorkflow, mirroring the repo pattern:
+ * ScreenerScreenWorkflow delegates to screenerWorkflowFlow.ts and
+ * TradingTradeWorkflow delegates to runTradeApprovalFlow. The workflow class
+ * itself is a thin adapter; every decision lives here, behind fakeable
+ * interfaces, so it is unit-testable without a worker runtime.
+ *
+ * Deterministic, NOT model-driven. No step prompts a model, no step lets a
+ * model choose an amount, a recipient, or whether to pay. Amounts come from
+ * the price catalogue in cfpayMonetization.ts (proposed, NOT approved).
+ * Payment is confirmed only by re-reading cfpay checkout.status via the
+ * gate; a workflow event is a wake-up signal, never proof of payment.
+ *
+ * CORRECTION (2026-10-27, user): there is NO new payment agent here.
+ * PaymentsAgent already exists in cfagent (src/agents/payments-agent.ts,
+ * fleet slice #1957, tracker #1951, shape (a)): it extends PortThink
+ * (src/actors/thinkAdapter.ts; PortThink extends Think, Think extends
+ * Agent), is a non-chat, RPC-only actor, and its RPC surface is
+ * budgetCheck / processPaidRequest / todaySpent / listPayments /
+ * migrateLegacyLedger. If a second payment-side agent were ever needed
+ * it would extend PortThink too — never raw Think, never plain Agent.
+ * What is new here is ONLY the workflow + orchestration wiring.
+ * OrchestratorAgent is a CALLER, not a base class: like screener runs,
+ * the orchestrator triggers/creates the workflow instance and owns
+ * the store and deliver seams; the workflow class itself extends
+ * ThinkWorkflow. Orchestration is a caller relationship, not inheritance.
+ *
+ * Steps, in order (all step.do() for money ops; never step.prompt()):
+ *   1. gate-check — coverage first, then cfpay checkout (402), or
+ *      coverage_required for recurring / unstated scheduled runs.
+ *   2. await-payment-approval — human gate BEFORE capture, via
+ *      waitForEvent (AgentWorkflow approval support), backed by the
+ *      #1262 shared approval engine in production wiring. Timeout or
+ *      rejection = no capture, no start. Exception: a one-off scheduled
+ *      run already authorized at submission carries that approval in
+ *      its params, so it does not wait for a second human gate; the
+ *      submission approval is recorded instead.
+ *   3. await-payment-verified — durable wait, 24h (cfpay checkout TTL).
+ *      Timeout / termination = expired; nothing starts, nothing charges.
+ *   4. confirm-paid — gate.confirmPaid(), replay-dedupe, fail closed.
+ *      This is the capture step, and it runs only after approval.
+ *   5. record-payment — audit event, same runRequestId, tenant-scoped.
+ *   6. start-screener — injected starter (in production: the
+ *      OrchestratorAgent creates ScreenerScreenWorkflow). If the
+ *      screener starter throws after payment, issue one failure
+ *      credit via the injected dep and return screener_failed_credit_issued.
+ *      There is no cash refund in v1 (cfpay cannot refund, #2024 deferred).
+ *
+ * Params carry ids only — never credentials, never secrets, never a
+ * payment card, never a cfpay key. Identity is the verified userLogin +
+ * email + tenantId; missing identity fails closed (no default_trader).
+ */
+
+import {
+  type CfPayMonetizationGate,
+  type CommercialAccount,
+  type RunTrigger,
+  type ScheduleKind,
+  type ScreenerFamily,
+} from "../services/cfpayMonetization";
+
+export interface PaymentWorkflowParams {
+  runRequestId: string;
+  family: ScreenerFamily;
+  trigger: RunTrigger;
+  scheduleKind?: ScheduleKind;
+  authorizedAtSubmission?: boolean;
+  tenantId: string;
+  userId: string;
+  email: string;
+}
+
+/** Minimal structural step surface the flow needs (fakeable in tests). */
+export interface PaymentWorkflowStep {
+  waitForEvent(
+    name: string,
+    options: { type: string; timeout?: string },
+  ): Promise<{ payload: PaymentApprovalEvent | PaymentVerifiedEvent }>;
+  do<T>(name: string, fn: () => Promise<T>): Promise<T>;
+}
+
+/** Human approval decision, delivered as a workflow event (never a prompt). */
+export interface PaymentApprovalEvent {
+  approved?: boolean;
+  approverId?: string;
+}
+
+/** Wake-up signal only. confirm-paid re-reads checkout.status regardless. */
+export interface PaymentVerifiedEvent {
+  claimTxHash?: string;
+  paymentIntentId?: string;
+}
+
+export interface PaymentWorkflowDeps {
+  gate: CfPayMonetizationGate;
+  account: CommercialAccount;
+  startScreener: (params: PaymentWorkflowParams) => Promise<{ workflowId: string }>;
+  recordEvent: (event: { runRequestId: string; tenantId: string; type: string }) => Promise<void>;
+  issueFailureCredit: (runRequestId: string) => Promise<void>;
+}
+
+export type PaymentWorkflowOutcome =
+  | { status: "started"; runRequestId: string; paidVia: string; screenerWorkflowId: string }
+  | { status: "payment_required"; runRequestId: string; priceUSD: number; checkout?: unknown }
+  | { status: "coverage_required"; runRequestId: string; priceUSD: number }
+  | { status: "approval_rejected"; runRequestId: string }
+  | { status: "expired"; runRequestId: string }
+  | { status: "screener_failed_credit_issued"; runRequestId: string; screenerError: string };
+
+/** How long a checkout waits for verified payment before lapsing. */
+export const PAYMENT_VERIFICATION_TIMEOUT = "24 hours";
+
+export async function runPaymentWorkflowFlow(
+  params: PaymentWorkflowParams,
+  deps: PaymentWorkflowDeps,
+  step: PaymentWorkflowStep,
+): Promise<PaymentWorkflowOutcome> {
+  if (!params.userId || !params.email || !params.tenantId) {
+    throw new Error(
+      "Payment workflow payload is missing verified userId, email, or tenantId: no default identity, fail closed.",
+    );
+  }
+  if (deps.account.tenantId && params.tenantId !== deps.account.tenantId) {
+    throw new Error("Tenant mismatch: run tenant must equal the verified account tenant.");
+  }
+
+  const gateDecision = await step.do("gate-check", () =>
+    deps.gate.check({
+      id: params.runRequestId,
+      family: params.family,
+      trigger: params.trigger,
+      scheduleKind: params.scheduleKind,
+      authorizedAtSubmission: params.authorizedAtSubmission,
+      tenantId: params.tenantId,
+      account: deps.account,
+    }),
+  );
+
+  if (!gateDecision.allowed) {
+    if (gateDecision.status === "coverage_required") {
+      return { status: "coverage_required", runRequestId: params.runRequestId, priceUSD: gateDecision.priceUSD };
+    }
+    // payment_required: a checkout was created (or already exists).
+    // Human gate BEFORE capture: wait for an approval event, never a
+    // model prompt. A one-off scheduled run already authorized at
+    // submission skips this wait — its approval is in the params.
+    const alreadyApproved =
+      params.scheduleKind === "one_off" && params.authorizedAtSubmission === true;
+    if (alreadyApproved) {
+      await step.do("record-approval", () =>
+        deps.recordEvent({ runRequestId: params.runRequestId, tenantId: params.tenantId, type: "payment.approved_at_submission" }),
+      );
+    } else {
+      let approval: PaymentApprovalEvent;
+      try {
+        const event = await step.waitForEvent("await-payment-approval", {
+          type: "approval",
+          timeout: PAYMENT_VERIFICATION_TIMEOUT,
+        });
+        approval = (event.payload ?? {}) as PaymentApprovalEvent;
+      } catch {
+        await step.do("record-expiry", () =>
+          deps.recordEvent({ runRequestId: params.runRequestId, tenantId: params.tenantId, type: "payment.approval_expired" }),
+        );
+        return { status: "expired", runRequestId: params.runRequestId };
+      }
+      if (approval.approved !== true) {
+        await step.do("record-rejection", () =>
+          deps.recordEvent({ runRequestId: params.runRequestId, tenantId: params.tenantId, type: "payment.approval_rejected" }),
+        );
+        return { status: "approval_rejected", runRequestId: params.runRequestId };
+      }
+    }
+    // Then wait for a verified-payment event, then confirm by re-reading status.
+    let verified: PaymentVerifiedEvent;
+    try {
+      const event = await step.waitForEvent("await-payment-verified", {
+        type: "payment_verified",
+        timeout: PAYMENT_VERIFICATION_TIMEOUT,
+      });
+      verified = (event.payload ?? {}) as PaymentVerifiedEvent;
+    } catch {
+      await step.do("record-expiry", () =>
+        deps.recordEvent({ runRequestId: params.runRequestId, tenantId: params.tenantId, type: "payment.expired" }),
+      );
+      return { status: "expired", runRequestId: params.runRequestId };
+    }
+    const confirmed = await step.do("confirm-paid", () =>
+      deps.gate.confirmPaid(
+        { id: params.runRequestId, userId: params.userId, email: params.email },
+        { claimTxHash: verified.claimTxHash, paymentIntentId: verified.paymentIntentId },
+      ),
+    );
+    if (!confirmed.allowed) {
+      return {
+        status: "payment_required",
+        runRequestId: params.runRequestId,
+        priceUSD: confirmed.priceUSD,
+        checkout: gateDecision.checkout,
+      };
+    }
+    await step.do("record-payment", () =>
+      deps.recordEvent({ runRequestId: params.runRequestId, tenantId: params.tenantId, type: "payment.confirmed" }),
+    );
+    return startScreenerOrCredit(params, deps, step, confirmed.paidVia ?? "cfpay_checkout");
+  }
+
+  // Covered, already paid, or free (flag OFF): no wait, no new charge.
+  await step.do("record-payment", () =>
+    deps.recordEvent({ runRequestId: params.runRequestId, tenantId: params.tenantId, type: "payment.covered" }),
+  );
+  return startScreenerOrCredit(params, deps, step, gateDecision.paidVia ?? gateDecision.status);
+}
+
+async function startScreenerOrCredit(
+  params: PaymentWorkflowParams,
+  deps: PaymentWorkflowDeps,
+  step: PaymentWorkflowStep,
+  paidVia: string,
+): Promise<PaymentWorkflowOutcome> {
+  try {
+    const started = await step.do("start-screener", () => deps.startScreener(params));
+    return {
+      status: "started",
+      runRequestId: params.runRequestId,
+      paidVia,
+      screenerWorkflowId: started.workflowId,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await step.do("issue-failure-credit", async () => {
+      await deps.issueFailureCredit(params.runRequestId);
+      await deps.recordEvent({
+        runRequestId: params.runRequestId,
+        tenantId: params.tenantId,
+        type: "payment.failure_credit_issued",
+      });
+    });
+    return { status: "screener_failed_credit_issued", runRequestId: params.runRequestId, screenerError: message };
+  }
+}
