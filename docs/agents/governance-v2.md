@@ -96,9 +96,11 @@ timestamps), deploy runs on push to main, CodeQL alerts, Policy Gate
 pass/fail per PR. Nothing else is measured today; everything else has
 been ad-hoc API queries, not a system.
 
-**Going to measure** (monthly agent run, posted on epic #1872 — no
-dashboard, no new workflow; a dashboard now would be the theater this
-program guards against):
+**Going to measure** (monthly workflow run, posted on epic #1872 — no
+dashboard; a dashboard now would be the theater this program guards
+against. Collector: `.github/workflows/governance-scorecard.yml`
+(created via web UI, see OpenAIMP/cfagent#1893); a manual agent run
+remains the fallback if the workflow is unavailable):
 
 - **First-pass gate rate** (G1): share of PRs whose first head gets all
   required checks green with no branch update and no body fix. Source:
