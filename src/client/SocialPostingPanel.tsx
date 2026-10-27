@@ -8,7 +8,7 @@
  * All reads/writes go through the existing session-gated routes.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Badge, Button, Card, Notice, TextInput } from "./components/ui";
+import { Badge, Button, Card, Notice, PageSection, PageShell, TextInput } from "./components/ui";
 import {
   listGoals,
   triggerGoal,
@@ -123,17 +123,15 @@ export function SocialPostingPanel() {
   };
 
   return (
-    <div className="social-posting-panel">
-      <h3 style={{ margin: "0 0 var(--space-1)" }}>Social posting</h3>
-      <div style={{ fontSize: 13, opacity: 0.7, marginBottom: "var(--space-3)" }}>
-        Today: {date} · manual runs only — triggering never enables the daily schedule.
-      </div>
+    <PageShell
+      title="Social posting"
+      scopeNote={`Today: ${date} · manual runs only — triggering never enables the daily schedule.`}
+      loading={loading}
+    >
       {error && <Notice tone="danger">{error}</Notice>}
-      {loading && <div>Loading…</div>}
-
       {!loading && (
         <>
-          <h3 style={{ margin: "var(--space-3) 0 var(--space-2)" }}>Today&apos;s brief</h3>
+          <PageSection title="Today's brief">
           <div style={{ display: "grid", gap: "var(--space-2)", maxWidth: 640 }}>
             <TextInput
               multiline
@@ -165,7 +163,8 @@ export function SocialPostingPanel() {
             </div>
           </div>
 
-          <h3 style={{ margin: "var(--space-5) 0 var(--space-2)" }}>Daily social post goal</h3>
+          </PageSection>
+          <PageSection title="Daily social post goal">
           {goalMissing && (
             <div style={{ opacity: 0.7 }}>
               The {DAILY_SOCIAL_POST_GOAL_ID} goal is not in the store yet.
@@ -210,7 +209,8 @@ export function SocialPostingPanel() {
             </div>
           )}
 
-          <h3 style={{ margin: "var(--space-5) 0 var(--space-2)" }}>Pending approvals</h3>
+          </PageSection>
+          <PageSection title="Pending approvals">
           {approvals.length === 0 && (
             <div style={{ opacity: 0.7 }}>No pending approvals for {date}.</div>
           )}
@@ -229,7 +229,8 @@ export function SocialPostingPanel() {
           ))}
           </div>
 
-          <h3 style={{ margin: "var(--space-5) 0 var(--space-2)" }}>Submitted posts</h3>
+          </PageSection>
+          <PageSection title="Submitted posts">
           {posts.length === 0 && (
             <div style={{ opacity: 0.7 }}>No submitted posts or drafts for {date}.</div>
           )}
@@ -279,7 +280,8 @@ export function SocialPostingPanel() {
           })}
           </div>
 
-          <h3 style={{ margin: "var(--space-5) 0 var(--space-2)" }}>Token health</h3>
+          </PageSection>
+          <PageSection title="Token health">
           {SOCIAL_CHANNEL_ORDER.filter((id) => tokenChannels[id]).map((id) => {
             const channel = tokenChannels[id];
             return (
@@ -298,8 +300,9 @@ export function SocialPostingPanel() {
             Validity reads Unknown in production by design: no live probe is wired, so validity is
             never assumed — only a real post proves a token works.
           </div>
+          </PageSection>
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
