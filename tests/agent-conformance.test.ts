@@ -70,12 +70,14 @@ describe("Agent conformance (issue #1738)", () => {
       .filter((f) => /extends\s+Agent</.test(read(path.relative(ROOT, f))))
       .map((f) => path.relative(ROOT, f).replace(/\\/g, "/"))
       .sort();
-    // The three pre-#1738 actors (Scheduled, Payments,
-    // ReportAsset) plus the one remaining #1738 migration
-    // (Trading). Orchestrator left this list in #1952
-    // (think-fleet), Research in #1953 (think-fleet), and
-    // Screener in #1955 (think-fleet): all three extend
-    // PortThink now, not Agent directly.
+    // Only the three pre-#1738 actors (Scheduled, Payments,
+    // ReportAsset) remain on plain Agent. Orchestrator left this
+    // list in #1952 (think-fleet), Research in #1953
+    // (think-fleet), Screener in #1955 (think-fleet), and Trading
+    // in #1954 (think-fleet): all four extend PortThink now,
+    // which extends Think, which extends Agent — so they are
+    // still Agents SDK actors, but no longer match the
+    // plain-Agent pin.
     // BrowserAgent/SlackAgent extend AIChatAgent and are
     // deliberately NOT in this list — they are chat agents,
     // not actor-role agents.
@@ -83,7 +85,6 @@ describe("Agent conformance (issue #1738)", () => {
       "src/agents/payments-agent.ts",
       "src/agents/report-asset-agent.ts",
       "src/agents/scheduled-agent.ts",
-      "src/agents/trading-agent.ts",
     ]);
   });
 
@@ -123,10 +124,14 @@ describe("Agent conformance (issue #1738)", () => {
     );
   });
 
-  it("TradingAgent extends Agent with the framework overrides (issue #291, migrated #1738)", () => {
+  it("TradingAgent extends PortThink with the framework overrides (issue #291, migrated #1738, PortThink #1954)", () => {
     const src = read("src/agents/trading-agent.ts");
-    expect(src).toMatch(/import\s*\{\s*Agent\s*\}\s*from\s*"agents"/);
-    expect(src).toMatch(/export\s+class\s+TradingAgent\s+extends\s+Agent</);
+    // Think-fleet shape (a): the agent reaches Think ONLY through
+    // PortThink (foundation adapter); a bare @cloudflare/think
+    // import here would fail the adjacent bare-Think pin.
+    expect(src).toMatch(/import\s*\{\s*PortThink[^}]*\}\s*from\s*"\.\.\/actors\/thinkAdapter"/);
+    expect(src).toMatch(/export\s+class\s+TradingAgent\s+extends\s+PortThink/);
+    expect(src).not.toMatch(/from\s*"agents"/);
     expect(src).toContain("getModel()");
     expect(src).toContain("getSystemPrompt()");
     expect(src).toContain("getTools()");
