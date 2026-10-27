@@ -1,14 +1,70 @@
 # Screener workflow: current state and transformation to the unified workflow
 
-**Status:** published 2026-10-27 for lane feedback. **No implementation starts from this
-document alone** — the journey it describes begins only after lane feedback and the queue
+**Status:** v2, published 2026-10-27. v1 (PR #1979, main `cbbe5f7`) mapped the pipeline and
+proposed the transformation; v2 folds in all six lanes' feedback on #1972 (comments
+`6447040561`, `6447045836`, `6447078725`, `6447089438`, `6447094527`, `6447165544`) and
+the owner's product framing (§0). **No implementation starts from this document alone** —
+the journey it describes begins only after lane feedback (now received) and the queue
 decision in §7. Evidence base: code research on `origin/main` at `4852476` (2026-10-27),
-issue states re-verified 2026-10-27, and the #1963 fix verified on main at `9b38d3b`.
+issue states re-verified 2026-10-27, the #1963 fix verified on main at `9b38d3b` (PR
+#1974, merged), and lane feedback verified against main `b1201801` (2026-10-27).
 
-**Related issues:** #1963 (CLOSED — goal-screen false `Complete`, fix merged `9b38d3b`),
+**Related issues:** #1963 (CLOSED — goal-screen false `Complete`, fix PR #1974 merged),
 #1972 (OPEN — goal screen on the unified workflow), #1904 (OPEN — IROS target-state
 remediation program, owns the target DAG), #1965/#1966 (scheduled-auth fix, merged),
-#1968 (audit read path, open), #1969 (AOP codes program, open).
+#1968 (audit read path, open), #1969 (AOP codes program, open), #1344 (per-user jobs,
+open — gating, see §7), #1955 (PortThink migration sequencing, see §7).
+
+## 0. Product framing: the lifecycle this journey serves
+
+This document's transformation (§7) is one program inside a larger product, stated by the
+owner 2026-10-27. The product is a **multi-dimensional agentic SaaS stocks / options /
+goal / strategy screener — a research product — built as an RSI/ASI product on an
+agentic platform**: multiple engines + thinkagent (goal orientation, memory, vector, and
+related capabilities) + queues + workflows with stages + schedules (timed and manual
+triggers) + D1/DO/R2 state management + Flagship feature flags, with real-time **and**
+batch capability, sync **and** async capability, full resilience and other ilities, and
+observability/testability — built per architecture standards, best practices, blueprint,
+guidelines, and a framework-driven approach with all aspects (AOP) — to build
+competencies and enable capabilities that empower day-traders through wealth managers.
+
+**Boundary:** it is a research product. It recommends and creates autonomously; a human
+approves before any trade execution (#1904 invariant). The lifecycle empowers the
+decision; it does not take the trade.
+
+**The lifecycle, in one line:** the unified workflow (schedule → queues → feed → gather
+→ store → serve → deliver) × all four screen families × the scenario set below, closed
+by the #1904 P4 outcome→calibration loop (thesis realizations feeding calibration
+decisions, #1742) — that loop is what makes the product self-improving rather than a
+collection of screens. #1972 migrates one family (goal) onto that workflow; it does not,
+by itself, deliver the product.
+
+**Scenario set the lifecycle must serve** (owner's list, mapped to coverage):
+
+| Scenario | Coverage today | Journey note |
+|---|---|---|
+| Pick best trade | Standouts/opportunities selection + candidate structures exist in the engines. | Trustworthy only with staged leg honesty (done via #1963). |
+| Name that fits my strategies | Screening (strategies → names) exists. | The staged path makes it auditable per stage. |
+| Strategies that fit my name | Reverse direction: recommendation kernel + comparison route + goal candidate structures exist as pieces. | Not yet a staged flow; a capability to wire, not a new engine. |
+| No-thesis approach | Unknown, intended as everything — works mechanically. | Unusable as a 6594-row table; needs a capped/summarized view in the staged panel (CPO). |
+| Portfolio repair | Repair thesis (one of nine theses). | Deferred by CPO sequencing: after the two-thesis proof. |
+| Hedging | Hedge/Protect thesis (one of nine theses). | Deferred by the same sequencing. |
+
+The nine theses are Income, Directional, Volatility/Event, Hedge/Protect, Repair,
+Deconcentrate, IV Harvest, Capital-Efficient Leverage, Cash-Secured Entry. CPO's
+sequencing proves selective screening on two first (Income+Bullish, Directional+Bullish)
+and lets the other seven follow once the leg pattern is proven — scoping all nine into
+Phase 3 would repeat the everything-or-nothing failure mode at program scale.
+
+**Vision → state, honestly:** engines exist (unification missing); thinkagent is partial
+(actor port + ScreenerAgent-as-actor exist, #1738; retrieval #1740 exists but its graph
+was never populated in production — do not plan on it; PortThink #1955 in flight);
+queues/workflows/schedules/state/flags exist (gaps: Q1 consumer, DLQ, breaker durability);
+batch is real, real-time is live-fetch + poll with **no streaming or push** (true push
+realtime, if the vision needs it, is a named gap, not a current capability); sync + async
+both exist; resilience/observability/testability exist with the gaps §2.5/§6 name; AOP is
+aspect-adjacent, not aspect-driven (#1969 closes that gap); the RSI loop (P4) is an open
+program piece, not a shipped loop.
 
 ## 1. The target workflow in one paragraph
 
@@ -40,8 +96,8 @@ into the caller and analysis into `generate`. The full execution order, with the
 | # | Stage | What it does | Owner |
 |---|---|---|---|
 | 0 | Trigger / schedule fire | Agents SDK schedule (cron or interval) fires a stored callback; manual Trigger-Now dispatches the same callback with `trigger:"manual"`. | `src/agents/orchestrator/scheduledCallbacks.ts:98,299,386`; `src/agents/routes/schedules.ts:120-127` |
-| 1 | Identity + auth guard | Payload login wins over saved execution context (`resolveScheduledLogin`, post-#1965); E*TRADE preflight: verify → one renew attempt → block. Stock/goal-stock blocked runs fall back to Yahoo; options runs block hard (AUTH_003). | `src/agents/orchestrator/scheduleMaintenance.ts`; `src/services/etradeAuthPreflight.ts` via `src/services/scheduledTasks.ts:475-503` |
-| 2 | Feed / acquire | Resolve universe → listings (Nasdaq) → quotes (E*TRADE batch, or Yahoo batch). Sharded stock chains split this into `nasdaq → etrade → yahoo` feed shards, in that dependency order. | `src/trading/screenerPipeline.ts:1010`; `src/services/shardJobs.ts:54,136-172` |
+| 1 | Identity + auth guard | Payload login wins over saved execution context (`resolveScheduledLogin`, post-#1965); E*TRADE preflight: verify → one renew attempt → block. Stock/goal-stock blocked runs fall back to Yahoo; options runs block hard (AUTH_003). **Trust correction (CISO):** the guard stage must also authorize the run itself through the PDP seam (`checkPermission`, #1751) — not just preflight the token — and must carry the #1749 legacy-session bound (PDP-exempt only inside absolute session lifetime; past it, gates deny until re-login). | `src/agents/orchestrator/scheduleMaintenance.ts`; `src/services/etradeAuthPreflight.ts` via `src/services/scheduledTasks.ts:475-503`; `src/security/authorization.ts` |
+| 2 | Feed / acquire | Resolve universe → listings (Nasdaq) → quotes (E*TRADE batch, or Yahoo batch). Sharded stock chains split this into `nasdaq → etrade → yahoo` feed shards, in that dependency order. **Route-table correction (CDO):** live-quotes mode is E*TRADE primary + Yahoo gap-fill **per element** (contract + per-element routing, #1118); etrade-only mode has no gap-fill and fails hard. A gap-filled quote must carry its gap-fill mark; an etrade-only refusal must surface, not silently Yahoo. Every platform-routed leg also writes capture rows (see §2.4 stage 2). | `src/trading/screenerPipeline.ts:1010`; `src/services/shardJobs.ts:54,136-172`; `src/trading/dataProviders/contract.ts`, `adapters.ts` |
 | 3 | Gather / enrich | Attach technicals + factor grades to every quote: RSI/MACD/gap via `attachTechnicals`, grades via `attachFactorGrades`. **This is the pipeline's gather — not `gather.ts`** (§5). | `src/agents/screener-agent.ts:359-364`; `src/trading/screenerPipeline.ts:1810,1840` |
 | 4 | Analysis / score / filter | Apply filters, compute screened set, select standouts/opportunities. Options: strategy engine + direction tags over chains. Goal: scenario/thesis gates over legs (on raw listings quotes, not gathered indicators, for the goal path — §3). | `src/trading/screenerPipeline.ts:1716,1858,1895`; `src/trading/options/unifiedOptionsService.ts` via `src/services/scheduledTasks.ts:1760+` |
 | 5 | Generate report | PDF via ReportAssetAgent (single owner), XLSX, CSV. Per-format failures are recorded, never fatal, in the monolithic path. | `src/services/unifiedReportPipeline.ts:124+`; `src/agents/screener-agent.ts:1408` |
@@ -74,6 +130,9 @@ the *screen engine* layer.
 | Agents SDK schedules (`src/agents/routes/schedules.ts:120-127`) | **The screen scheduler.** Per-schedule cron, interval (options: 3600s), date, or delay. Stored in Orchestrator DO. |
 | Cloudflare Workflow `screener-screen-workflow` (`wrangler.jsonc:15-18`, `src/workflows/screenerWorkflow.ts`) | Parent fan-out (max 4 parallel, 10-min shard deadline, 15-s poll, step retries 3) + child shard flows (execute → store → deliver → project). **Only 3 manual routes call it** (`etradeBrokerScreen.ts:114`, `marketDataResearch.ts:328`, `premium.ts:493`). **Zero callers in `scheduledTasks.ts` or `scheduledCallbacks.ts`.** Falls back to sync on any start failure. |
 | Sharded async-job chains (`src/services/shardJobs.ts`, `src/services/shardExecutors.ts`) | **The scheduled path's actual "workflow".** Chain: feed → generate (assemble → pdf/xlsx/csv) → store → serve → deliver, advanced hook-by-hook on completion. A failed shard stops its chain. Separate from Cloudflare Workflows — two staged systems, same stage names. |
+| `stageChain` mechanism (`src/agents/orchestrator/asyncJobs.ts`, `orchestrator.ts`) | **The per-stage record system the stage model rides on (COO correction — v1 mentioned it once in passing).** Per-record chaining, per-stage status, per-stage retry (`retryAsyncJob`: failed-only, `retryOf` + original stage/chain identity carried, double-retry refused). Market-screen bridge (C3 #1277/#1316); extended to options/discovery/goal + generic http.request (C4 #1329/#1359); goal deliver chaining (#1549). |
+| Feed seam (`mas_feed_snapshots`, `feed.snapshot` job, `snapshotInput` consumer) | **The feed persistence seam (COO correction — v1 cited only `SqlFeedSnapshotStore`, discovery only).** Two snapshot mechanisms exist; the journey must pick one deliberately, not invent a third. `#1236` / PR #1691. |
+| Flag rollout idiom (`FeatureFlagPort` + Cloudflare Flagship `FLAGS` binding) | **The rollout vehicle (COO correction — v1 had no flag idiom).** Precedent: C5 adaptation routes behind a default-OFF flag. The goal flow rolls out behind a default-OFF flag, goal flow only (see §7). |
 | `mas_async_jobs` job table (Orchestrator DO SQLite) | `submitAsyncJob` (`asyncJobs.ts:206`); capabilities include `followup.report`, `followup.deliver`, `followup.notify`, `shard.execute`, `feed.snapshot`. Platform alarm re-arms once at most (`maxAttempts:1`); job-level retry is manual (`retryAsyncJob`). Queued rows re-arm after restart (cap 100/batch). |
 | Follow-up chain, shard reconcile, sweep, retention, token renewal | Chain bridge (`asyncJobs.ts:444,552`); hook-driven reconcile (`shardJobReconcile.ts:51`); stale-ledger sweep; nightly retention; nightly token renewal with deduplicated Slack alert on failure (no morning refresh exists). |
 
@@ -98,19 +157,21 @@ current state.
 | Stage | Persistence | On failure |
 |---|---|---|
 | 0 Trigger | DO schedule store (`schedule.created` audit). | Create throw → API error, nothing created. Callback itself never throws (platform retry deliberately not used; dedup instead). |
-| 1 Guard | Audit only: `mas_events` row `etrade.auth_blocked`. Episode-dedup flag in DO blob storage. Guard is read-only — no token row written. | Blocked → typed `AUTH_003` + one alert per episode; rest of day quiet (dedup, by design). Stock/goal-stock → Yahoo fallback; options → hard fail. Audit-insert failure is **swallowed** (`catch {}`) — a blocked run with a failed audit write leaves no record. |
-| 2 Feed | **None durable by itself** in the monolithic path — quotes live in invocation memory until stage 6. Sharded path: feed shard rows in `mas_async_jobs` + `SqlFeedSnapshotStore` (discovery only). | Per-fetch `withRetry` (acquisition policy, 3 attempts). A *mid-run* feed failure is not retried as a whole run; it surfaces as partial/failed. |
+| 1 Guard | Audit only: `mas_events` row `etrade.auth_blocked`. Episode-dedup flag in DO blob storage. Guard is read-only — no token row written. | Blocked → typed `AUTH_003` + one alert per episode; rest of day quiet (dedup, by design). Stock/goal-stock → Yahoo fallback; options → hard fail. Audit-insert failure is **swallowed** (`catch {}`) — a blocked run with a failed audit write leaves no record. **Trust correction (CISO): a guard decision with no audit record is unverifiable — Phase 4 must make this fail-visible, not just list it.** When a blocked goal-stock run falls back to Yahoo, the audit record must carry which basis ran (E*TRADE vs Yahoo fallback), or the thesis result is not auditable back to its indicators. |
+| 2 Feed | **Correction (CDO): for every platform-routed leg, feed persistence is real — every platform fetch writes a `mas_data_captures` row (raw + normalized, run-linked, immutable history) plus a fetch-outcome row** (`captureStore.ts`, #1133; fetch-outcome recording #1248; capture coverage on ALL stock-screen legs including goal screens, #1686). In the monolithic path, quotes additionally live in invocation memory until stage 6. Sharded path: feed shard rows in `mas_async_jobs` + feed snapshots (see §2.2 feed seam). | Per-fetch `withRetry` (acquisition policy, 3 attempts). A *mid-run* feed failure is not retried as a whole run; it surfaces as partial/failed. |
 | 3 Gather (pipeline) | **None** — technicals attached in memory, persisted only as part of the stage-6 run row. | Missing history → honest nulls; gates fail closed on absence. No retry, no separate failure state — a gather miss is invisible except as missing fields. **In-memory-only stage.** |
 | 3′ Gather (`gather.ts`) | **Would-be:** one JSON blob per run `gather/<runId>.json` (R2 when bound, else DO base64). | N/A — never runs in production (§5). |
 | 4 Analysis | **None** until stage 6. Options: `SqlScanRunStore` rows during scan. | Partial → `SCREEN_002` warn + partial publish (or degraded notice below the #1718 floor); zero evaluated → `SCREEN_003` throw → discard, **no report published**. Goal legs pre-#1963: error-status leg surfaced as `Complete` (§3). |
 | 5 Generate | R2 bucket `screener` (`REPORTS_BUCKET`) via `reportBlobStore.putReportPdf`; unbound → base64 in DO. Keys `report:pdf:*`, `report:xlsx:*`, `report:csv:*`. | Each format is its own failure domain: status `failed` + error recorded, run continues without that artifact; **no fabricated URL**. Report policy retry: 2 attempts. |
-| 6 Store | ScreenerAgent DO storage (`screener:last_runs` capped 20, `LATEST_KEY` + `HISTORY_KEY`); canonical `mas_reports` row (one per generation); D1 `AGENT_DB` projections for the workflow path only. | Persistence failure in the market wrapper is **swallowed** (`catch {}` — "must not break the screen"). A run can succeed on Slack while leaving no stored run. `persistRun` records PDF/XLSX failures as status fields, not throws. |
+| 6 Store | **Authoritative record first (COO/CDO correction): the canonical `mas_reports` row (one per generation, `reportDispatch.ts`) is the run/result record; the data record is `mas_data_captures` (same run id); artifacts are R2 blobs derived from the row.** ScreenerAgent DO storage (`screener:last_runs` capped 20, `LATEST_KEY` + `HISTORY_KEY`) is a delivery cache, not the record — and its persistence failure is swallowed, so it cannot be authoritative. D1 `AGENT_DB` is a governance projection (seeds, shard reconcile, telemetry), **never the run record** (v1's "D1 projections for the workflow path only" qualifier is withdrawn). `SqlFeedSnapshotStore` holds feed input snapshots, not run results. | Persistence failure in the market wrapper is **swallowed** (`catch {}` — "must not break the screen"). A run can succeed on Slack while leaving no stored run. **Trust correction (CISO): for the goal path, deliver must not claim success for a run with no stored record — that breaks the audit chain Phase 4 is supposed to establish.** `persistRun` records PDF/XLSX failures as status fields, not throws. |
 | 7 Serve | Reads stage-6 artifacts; `followup.report` job row in `mas_async_jobs`. | Serve failure → job `failed`, manually retryable only; no `withRetry`. A failed serve blocks deliver (chain stop-point). |
 | 8 Deliver | Delivery job rows (`followup.deliver`/`followup.notify`); channel calls synchronous inside the job; queue path Q2. | Delivery policy 3 attempts with backoff; terminal failure → job `failed` + `DELIVER_002`. Broadcast (websocket) failures are `catch {}`-swallowed. Email false-delivered defect class is #1941 (open; binding + result-propagation fix). |
 
 **Swallowed-failure inventory:** audit insert (stage 1), market-wrapper persistence (stage 6),
 event publish (Q3), websocket broadcast, goal-bridge failure ("canonical row kept"), ledger
-heartbeat ("a missed heartbeat never breaks a screen").
+heartbeat ("a missed heartbeat never breaks a screen"). **Phase 4 must drive this inventory
+to zero or to explicit, owner-accepted exceptions — and for the goal path the stage-1 and
+stage-6 items must become fail-visible, not merely listed (CISO).**
 
 ### 2.5 Retries, backoff, circuit breaker, observability
 
@@ -137,13 +198,25 @@ Observability per stage: audit events via `mas_events` (`schedule.created`,
 `screener.sharded_chain_submitted`, `screener.run_fallback`, `screener.run_completed`,
 `screener.opportunities_detected`, `screener.screen_failed`, `goal_screen.*`,
 `options.scheduled_analysis_*`, `async_job.queued/retried`, …); Workers Logs (100%
-sampling); Analytics Engine `observability` dataset (passive delivery tap); admin/job
+sampling); the **#1743 observability stream — a designed surface, not a passive tap
+(CAIO correction): one event schema, W3C traceparent, key-based redaction with
+truncated-hash `sessionRef`, whitelist envelope folding counts+ids only, tenant-as-index
+single-index rule, Analytics Engine adapter, binding `OBSERVABILITY`, dataset
+`observability`**; admin/job
 surfaces (`/api/jobs/:id`, AsyncJobsPanel, Records & Ledger Explorer, ScreenersHub history).
 **Blind stages:** feed per-symbol failures (only aggregated counts + top skip reason
 survive); gather misses (no event, no metric); serve internals (job row only); Q1 (no
-consumer metric); breaker trips (state-change hook exists, no production subscriber found
-in the screen path — unverified, not proven); audit *read* path (writes proven; payload
-retrievability is #1968, open).
+consumer metric); breaker trips (emission exists as `breaker.state_changed` CloudEvents,
+#1745, but no production subscriber/wiring in the screen path — the #1743 stream is the
+subscriber surface; the gap is the wiring); audit *read* path (writes proven; payload
+retrievability is #1968, open). **Trace correction (CAIO):** trace propagation across
+queue/workflow boundaries is **mechanism-designed, production-proof + surfacing missing**
+— not "none": #1739 gives one correlationId from enqueue → run → events → projected D1
+rows, #1743 events carry W3C traceparent, job rows join the same chain. Genuinely
+missing: production proof on a real staged run, traceparent threading through the
+Cloudflare Workflows runtime itself (Workflows do not natively propagate W3C context, so
+the envelope must carry it — designed but unproven on the Q7 path), and any surface that
+uses the traces (dashboard UI + SQL aggregation are open #1743 follow-ups).
 
 ### 2.6 Async vs sync, batch vs realtime
 
@@ -191,7 +264,11 @@ delivery retry + `DELIVER_002` + notification matrix, but per-channel texts hand
 catalog-rendered (#1969 gap #1). A full AOP pass would not invent new stages — it would wrap
 the existing ones (interceptor-emitted audit + trace propagation across the Q2/Q4/Q7
 boundaries + catalog-only rendering + durable breaker state) and give stage 3 a first-class
-failure state.
+failure state. **v2 notes (CAIO):** the AOP doc's observability 62/100 score predates
+#1743's Foundation layer and is stale; what remains is Phase 2–4 items (the
+MCP-permissions part landed via #1744; the rest sits with IAAA/#1717) plus
+dashboard/aggregation. Gap 7's "trace propagation: none" is reworded per §2.5 (mechanism
+designed, proof + surfacing missing).
 
 ## 3. The goal-screen divergence: why thesis selection was impossible
 
@@ -263,6 +340,26 @@ no hit carries structures. It does not change the intended Unknown semantics, an
 not wire gather. Reported at the time: 36/36 targeted tests, `tsc` clean, full battery
 re-running on the final tree — then PR → merge → §15 + close. That sequence has since
 completed: fix merged as `9b38d3b`, #1963 closed.
+
+### 3.6 Panel and user-read gaps the staged path must fix (CPO)
+
+Two UX gaps the mechanism map misses, both user-facing regressions if the staged panel
+repeats them. **In-flight state today:** on submit the panel clears the previous result
+and shows only a disabled "Screening…" button — no spinner, no progress, no way back if
+the wait exceeds apiFetch's 10-minute deadline (408, job continues in the background). A
+staged run makes that gap permanent unless the panel gains a real in-flight view: live
+stage progress (stage name + leg status, reusing AsyncJobsPanel/RunDetailView, not a
+spinner), the previous result kept visible until the new one lands, and a way back on
+408/timeout (the job link and the stored run in Reports/Runs). **Result shape:** a
+full-universe result renders thousands of rows, so even the intended Unknown case is
+unusable as a table — pagination or a capped/summarized view belongs in the staged
+panel's result contract. **Backtest is a consumer of stored runs** (`POST
+/api/screening/backtest`, provenance + limitations shown): the staged path must keep
+backtest working against stored runs, not just inline results. **The user read:** a user
+cannot distinguish "everything matched because no thesis" from "everything matched
+because the filter failed" — both render identically. The staged path must keep per-stage
+visibility (not per-run only) so that distinction is visible, and must keep the options
+leg's dead-auth failure visible per stage as #1963's PARTIAL does per run.
 
 ## 4. The correction arc: what was overstated, and what replaced it
 
@@ -339,6 +436,23 @@ staged workflow).
   than a pending item; (5) treating #1904 as the decided vehicle for #1972 — the queue
   decision between them is explicitly still open.
 
+### Lane reuse audit (from #1972 feedback — what slices must reuse, not rebuild)
+
+| Lane | Must reuse (module + issue/PR) |
+|---|---|
+| COO | `buildSchedulePayload` + Orchestrator schedule store (C3 #1277/#1316); `stageChain` per-stage records/status/retry + goal deliver chaining (#1549); generate/store/serve split + canonical `mas_reports` (C4 #1329/#1359); feed seam `mas_feed_snapshots` + `feed.snapshot` job (#1691); `SubrequestBudget` (#1204/#1222); v2-only `strategyWeightsV2` + `championChallenger` (#1257/#1889 — v1 deleted); `FeatureFlagPort` + Flagship `FLAGS` rollout idiom; `screenerFollowups` + Q2 delivery chain. |
+| CISO | PDP seam + obligation/advice channel (#1751, merged — **no live route calls it yet**; reuse-by-adoption, a CTO #945 wiring follow-up); revocation targets (#1750); legacy-session PDP bound (#1749); #1763 attribution audit (G-AUD-2/3); SEC-005 sanitizer; SessionStore + wired validation; `mas_events` audit sink — **not** the Analytics Engine. |
+| CPO | GoalScreenPanel + honesty rendering + conditional structures column + backtest (#1963, #1201, #1912/#1981); apiFetch 202-job poll (10-min deadline → 408); AsyncJobsPanel + RunDetailView; ScreenersHub run views; goal report artifacts (#1335). |
+| CAIO | Messaging (#1739); WorkflowPort + `ScreenerScreenWorkflow` (#1737); actor port (#1738); breakers (#1745, `breaker.state_changed` events); telemetry (#1742, thesis-realizations dataset); observability (#1743, one schema + traceparent); AI Gateway (#1741 — inert, owner activation not done); MCP permissions (#1744); parity harness (#1746); enrichment (#1888); D1 foundation (#1546 — halt seed + canonical seed **not run**, `agent_reports` starts empty); delivery (#1262). |
+| CDO | Data-provider platform, epic #1116 (route table, contract + per-element provenance, immutable `mas_data_captures`, capture coverage incl. goal legs #1686, lifecycle, tiers `minTier`, health); enrichment compute `fetchPlatformTechnicalsBatch` (#1331); single `screenerPipeline` (#958); goal-leg attribution (#1571); canonical report writer (`reportDispatch.ts`). |
+| CTO | `ScreenerScreenWorkflow` machinery + delegated screen (#1737); goal-screen engine + #1963 fix (PR #1974); #1972 program scope; #1904 target DAG. (CTO's workflow-questions answer, comment `6447040561`, is the corrected program statement: migration, not build.) |
+
+**Record rule (CDO, decided): one record per concern, no second one invented.** Run/result
+= `mas_reports`; data = `mas_data_captures`; artifacts = R2 blobs derived from the row.
+`SqlFeedSnapshotStore` (feed input snapshots), D1 `AGENT_DB` (governance projection), and
+`screener:last_runs` (delivery cache) are **not** records. A staged goal run writes its
+result to `mas_reports` + its data to `mas_data_captures`, keyed by the same run id.
+
 ## 6. Gap list (what is genuinely missing)
 
 1. A unified run-request path that goal submissions use (same submission endpoint,
@@ -346,26 +460,70 @@ staged workflow).
 2. A goal-screen flow on the existing workflow machinery (not a new workflow).
 3. Thesis gates evaluating on enriched data (technicals gather) for the goal stock leg —
    i.e. real thesis selection, not just surfacing the refusal (§3.2).
-4. A decision on slice-8 `gather.ts`: wire it under its own slice design, or leave it
-   unwired deliberately. #1972 explicitly excludes it ("NOT this program's scope unless
-   the slice design says so") — it must not be wired by drive-by import.
-5. A DLQ for the delivery queue (today: drop after 3 retries).
-6. A durable cross-isolate breaker store (today: per-isolate, fail-open on cold start).
-7. Trace propagation across queue/workflow boundaries (today: none; observability 62/100
-   in the AOP audit for this reason).
+4. ~~A decision on slice-8 `gather.ts`~~ — **DECIDED (CDO, v2): leave it unwired
+   deliberately, and do NOT reuse its schema** for staged-run persistence (a third format
+   violates the record rule, §5). Carry its *idea* instead: per-symbol provenance
+   labeling (bar provider + fetch time + completeness label `iex-partial`/`complete`/
+   `unknown`) into staged-run provenance.
+5. A DLQ for the delivery queue (today: drop after 3 retries). Design + binding choice
+   (queue + `dead_letter_queue` + replay procedure + depth alert) still open.
+6. A durable cross-isolate breaker store (today: per-isolate, fail-open on cold start) —
+   or explicit owner acceptance of fail-open, plus a trip subscriber + trip alerting.
+7. Trace propagation across queue/workflow boundaries — **reworded (CAIO, v2): mechanism
+   designed, production proof + surfacing missing** (see §2.5). Dashboard UI + SQL
+   aggregation are open #1743 follow-ups.
 8. A consumer for `screener-events` (Q1) — or a deliberate decision to remove the
-   producer-only queue.
-9. Serve-stage retry (today: manual `retryAsyncJob` only) and a first-class failure state
-   for pipeline gather in the monolithic path.
+   producer-only queue. **Sequenced to Phase 5, not a slice-1 gate (COO)** — the goal
+   flow must not publish `screener.*` expecting Q1 consumption until then.
+9. Serve-stage retry — **narrowed (COO, v2): chained runs already retry per stage via
+   `retryAsyncJob`; the gap is monolithic serve only** — plus a first-class failure
+   state for pipeline gather in the monolithic path.
 10. A usable audit read path (#1968, open) — captures must be retrievable with their
     code, message, and structured payload fields, or the stage contracts in §7 cannot be
-    verified from the record alone.
+    verified from the record alone. **CISO: #1968 is a precondition for Phase 4 —
+    sequence before or with it.**
+11. **Owner binding for scheduled jobs (#1344) — a requirement, not current state
+    (CISO, v2):** `ScheduledGoal` has no owner/login field today, and the executor
+    falls back to `default_trader` + the static pair for E*TRADE paths. Until owner
+    binding lands, a staged goal run touching E*TRADE must **fail closed**, not run on
+    the shared identity. This may reorder phases (see §7 gate).
+12. **Callback identity (CISO, v2):** Workflow steps and queue consumers have no user
+    session — how a step carries the run's user login must be named at slice design.
+    If it cannot, the step must fail loudly. Admin-triggered runs still execute as the
+    owning user or fail, never as admin; admin run-management (cancel/retry) needs
+    audit-before-allow, and no obligation kind covers it yet.
+13. **Revocation mid-run (#1750) + attribution (G-AUD-2/3, #1763):** targets exist, but
+    no run-path consumer cancels/fails a run whose authorizing grant/session is revoked
+    mid-run; stage records inherit the agent-turn/system-login attribution gaps unless
+    closed or explicitly accepted.
+14. **Q7 (CISO+CDO, blocking #945 Slice 5):** which consequential actions are blocked
+    when durable audit cannot be recorded, the retention period, and the tamper
+    mechanism — `iaaaAudit.ts` proposes a tamper-evident hash chain but states it is a
+    proposal, not settled policy, and makes no retention claim. Correct claims:
+    "tamper-evident hash chain (proposed)" + "retention undecided" — never
+    "tamper-proof" or settled retention.
+15. **Stuck-job handling (COO, v2): none found** — no sweeper, reaper, or heartbeat in
+    asyncJobs/scheduledTasks/scheduledCallbacks. Needs a stuck-`running` alert (age
+    threshold + query over `mas_async_jobs`) + runbook procedure + a sweeper decision
+    (Phase 5).
+16. **Poll-202 design is a rows-read decision under the #1819 lens (COO, v2), not just
+    UX** — interval × isolate churn × per-request auth reads. D1 reads are a separate
+    meter from DO rows.
+17. **#1942 is OPEN, not completed work (CDO, v2):** staged-run provenance must NOT be
+    claimed via the XLSX Formulas & Methodology tab until #1942 is fixed; XLSX
+    provenance is downstream of capture-layer provenance.
 
 ## 7. Transformation to the target state
 
-**Sequencing rule:** each phase lands as its own slice with its own verification; the
-journey does not start until lane feedback on this document and the Phase 1 decision are
-in. #1963's fix is the dependency everything else inherits (its PARTIAL contract).
+**Sequencing rule:** each phase lands as its own slice with its own verification; lane
+feedback on this document is now in (v2). #1963's fix is the dependency everything else
+inherits (its PARTIAL contract). **Ship gate (CISO, CONDITIONAL):** slices may build the
+run path, but **no staged goal run ships as audited** until four things close: #1968,
+Q7 (gap 14), attribution G-AUD-2/3 (gap 13), and fail-visible swallowed failures (§2.4).
+Separately, **gap 11 (#1344 owner binding) gates any E*TRADE-touching staged run** — it
+must fail closed until binding lands, and that fact may reorder phases (an owner-binding
+slice or a fail-closed design for E*TRADE legs may need to precede E*TRADE-leg
+shipments, even if the non-E*TRADE staged path proceeds).
 
 ### Phase 0 — Make the direct path honest (DONE)
 
@@ -382,7 +540,10 @@ The "Venus queue decision" from #1972: **standalone #1972 program, or a #1904 P1
 ruling applies: it is an enhancement program, not a greenfield build — most capabilities
 it describes are already built; P1/P3 are consolidation/formalization, and its first job
 is re-verifying the target doc's gap claims against current main before slicing. Whichever
-vehicle is chosen, the slices below scope to verified gaps, not assumed ones.
+vehicle is chosen, the slices below scope to verified gaps, not assumed ones. **Still open
+at v2:** CTO/owner decision; COO and CISO explicitly defer it. The CISO gates (run
+identity #1344, stage-contract audit, revocation #1750, no `default_trader` fallback) are
+vehicle-independent and must not be absorbed into a later phase without a named owner.
 
 ### Phase 2 — Goal submission through the unified run-request path
 
@@ -394,39 +555,108 @@ the natural shape for this — the submission layer already exists; only the han
 engine changes). No new workflow is built: the goal-screen flow rides the existing
 `ScreenerScreenWorkflow` machinery (parent fan-out + shard children + store/deliver steps
 + stage honesty), extended with a goal-plan step, not a parallel implementation.
+**Rollout (COO):** behind a Flagship/config flag, default OFF, goal flow only; rollback =
+revert PR; the direct path stays until its retirement slice merges. **Failure rule
+(COO):** if the staged path fails, it **fails loudly at the stage** (coded failure +
+persisted record + PARTIAL per #462/#1963) — **never a silent fallback to the direct
+engine mid-run** (that recreates the bypass). Flag-OFF is the rollout control, not a
+per-run fallback. **UX rules (CPO):** sync-looking is acceptable and already the panel's
+shape, but not opaque — live stage progress (AsyncJobsPanel/RunDetailView), previous
+result kept visible until the new one lands, a way back on 408, backtest kept working
+against stored runs (§3.6). **Deployment (COO):** no `deploy.yml` change, no new
+workflow or queue binding for the goal flow (reuses Q2 + job rows), **zero new cron
+triggers** (rides ticks + the existing 3 triggers; the 5-trigger ceiling is not
+engaged), no owner web-UI steps for code/binding changes. **Sequencing (CAIO):** goal
+slices touching ScreenerAgent sequence around the PortThink migration (fleet slice
+#1955) — no-shared-file-races.
 
-### Phase 3 — Thesis gates on enriched data
+### Phase 3 — Thesis gates on enriched data (a PRODUCING phase)
 
 The goal stock leg routes through the delegated screen's technicals gather
 (`attachTechnicals` / `fetchPlatformTechnicalsBatch`) so momentum filters
 (`bullish_breakout`, `bearish_pullback`, `high_relative_volume`) evaluate on RSI, 52-week
 highs, and average volume instead of refusing. This is the actual thesis-selection
-capability §3.2 says is missing. Slice-8 `gather.ts` wiring is **not** in this phase
-unless a separate slice design says so (gap 4) — the two gathers must not be conflated
-in the implementation either.
+capability §3.2 says is missing. **Reframed (CAIO/CDO, v2): this phase PRODUCES the
+persisted gather output and has goal gates read it — it does not read an existing
+enriched dataset, because none exists.** There is no standing enriched dataset today:
+the delegated screen's technicals are computed per run in memory and persisted nowhere,
+and enrichment stage records are feed-side input, not gather output. Stage-spec rule:
+analysis only on post-gather data; each stage stores its own versioned results. Enrichment
+is a compute path, not a store: the goal leg should call `fetchPlatformTechnicalsBatch`
+(the function it currently never calls), over the run's captured bars — **not** wire
+slice-8 as an enrichment store (gap 4: deliberately unwired, schema not reused).
+**Provenance a staged goal run must carry (CDO):** run id → all `mas_data_captures` rows
+(exact quotes/bars/chains, `provider_id` + gap-fill marks + fetch outcomes); route-table
+version at run time; per-leg `providerId` + `providerFallback` (#1571, already carried —
+keep it; the canonical row's `provider` field is a single run-level default, insufficient
+for per-element audit, so make the run-id→capture link the audit path, not a second copy
+of per-element data in the row); deterministic technicals chain (`technicals.ts` over
+captured bars — same bars → same indicators, reproducible without storing them; the slice
+must pin the recomputation with a test asserting indicators recompute from the run's
+captured bars); slice-8 completeness labels on bar inputs. **Scope (CPO, v2): prove
+selective screening on TWO theses first, not all nine** — (1) Income+Bullish (the #1963
+RC4 refused-filter case; proof the gather fix works), (2) Directional+Bullish
+(`bullish_breakout` on enriched data; cleanest selective case). Success from the user's
+side: a selective count (neither 6594 nor 0), rows carrying actual candidate structures
+(not `—` everywhere), backtest working on stock hits. Unknown stays as-is. The remaining
+seven theses follow once the leg pattern is proven.
 
 ### Phase 4 — Stage contracts for legs
 
 Every leg failure has a stage to fail in, with a coded stage failure, a persisted stage
 record, and a retrievable audit event — the §2.4 table becomes the contract, not a
 description. Concretely: gather gets a first-class failure state (not just missing
-fields); serve gets a retry; the swallowed-failure inventory (§2.4) is driven to zero or
-to explicit, documented, owner-accepted exceptions; and the audit read path (#1968) is
-fixed so a future incident's record answers "which code, what happened, for which login"
-from the record alone (the #1969 usable-captures principle).
+fields); serve gets a retry (monolithic path — chained runs already retry per stage);
+the swallowed-failure inventory (§2.4) is driven to zero or to explicit, documented,
+owner-accepted exceptions — and for the goal path the stage-1 and stage-6 items become
+**fail-visible**, not merely listed; and the audit read path (#1968) is fixed so a
+future incident's record answers "which code, what happened, for which login" from the
+record alone (the #1969 usable-captures principle). **Gate (CISO): #1968 is a
+precondition — sequence before or with this phase.** Stage-1 guard completeness: the
+guard must authorize the run through the PDP seam (not just preflight the token) and
+carry the #1749 legacy bound; revocation mid-run (#1750) must cancel/fail the run within
+its target; attribution G-AUD-2/3 must be closed or explicitly accepted; Q7 must be
+decided (gap 14). Stage audit records belong in `mas_events`, **not** the #1743
+Analytics Engine dataset (telemetry has no retention/tamper contract; building stage
+audit there would create a second audit system). Stage contracts use the #1743 stream
+only for operational visibility (new `type` values, counts+ids — see Phase 5).
 
 ### Phase 5 — Harden the shared path
 
-DLQ for the delivery queue; durable cross-isolate breaker store; trace propagation
-across the Q2/Q4/Q7 boundaries; a Q1 consumer (or removal of the producer-only queue);
-catalog-only rendering of per-channel texts (#1969 Phase 1) so the guard's Slack alert
-and every other channel render from the catalog, not hand-written variants. These are
-shared-path improvements: they pay off for every family, not just goal.
+DLQ for the delivery queue (new queue + `dead_letter_queue` in `wrangler.jsonc` per ADR
+0003 + replay procedure + DLQ-depth alert); durable cross-isolate breaker store (or
+explicit owner acceptance of fail-open) + trip subscriber + trip alerting (alerting list:
+DLQ depth, breaker trips, stuck rows, serve-stage failures, gather misses — a gather-miss
+event must exist first); trace propagation across the Q2/Q4/Q7 boundaries (envelope
+carries the traceparent through the Workflows runtime; production proof + dashboard/SQL
+aggregation surfacing); a Q1 consumer (or removal of the producer-only queue — Phase 5,
+not a slice-1 gate); catalog-only rendering of per-channel texts (#1969 Phase 1) so the
+guard's Slack alert and every other channel render from the catalog, not hand-written
+variants. **Stage events (CAIO): YES — emit as event types in the #1743 schema** (one
+envelope, `type` as blob dimension, tenant-as-index; a new stage event = a new `type`
+value with counts+ids payload, NOT a schema change; whitelist + redaction already apply).
+**#1819 resource events: CONFIRMED with conditions** (a #1743 `type` carrying count
+fields fits; counts/aggregates only, no raw payloads/per-row data; cardinality guard +
+aggregation treatment proven through the #1743 dashboard/SQL-aggregation follow-up;
+per-row form rejected). **Stuck-job alert + runbook** (gap 15) and a sweeper decision.
+These are shared-path improvements: they pay off for every family, not just goal.
 
 ### Non-goals (from #1972, carried forward)
 
 PROD E*TRADE reconnect; options Yahoo fallback; #1904 P2 swarm negotiator and P4 closed
 outcome→calibration loop; provider-contract changes. None of these ride this journey.
+**Also non-goals (lane feedback, v2):** any metering/paywall change — goal screens carry
+no payment gate (paid list = OPTIONS_SCREENER, MARKET_RESEARCH, STOCK_SIGNALS via
+x402/USDC; no 402 handling on goal POST); if metering is ever added it must be per user
+run-request (one staged run = one charge, never per stage/shard/leg), and that is a
+product decision on its own issue, not a migration side effect. No new secrets for the
+goal flow if reuse holds (existing SessionStore tokens, bindings, `mas_events` sink) —
+exceptions confirmed at slice design: the callback-identity mechanism (if it needs a new
+scoped platform identity) and any Phase 5 queue/workflow binding (a COO deployment
+item). No gateway change: #1741 is inert in production (owner activation not done) and
+the deterministic screen path makes zero LLM calls, so the journey needs nothing from
+it. No reliance on the #1740 market graph (unpopulated in production) or on #1546
+seeds that have not run (`agent_reports` starts empty).
 
 ### Exit criteria (the journey is done when all hold)
 
@@ -435,31 +665,56 @@ outcome→calibration loop; provider-contract changes. None of these ride this j
 2. A leg failure surfaces at its stage with a coded failure and a persisted record —
    never as a false `Complete`, never silently discarded.
 3. Thesis selection works on enriched data: a thesis produces a selective screen, not
-   everything-or-nothing.
-4. The swallowed-failure inventory is empty or explicitly owner-accepted.
+   everything-or-nothing — proven on Income+Bullish and Directional+Bullish first
+   (selective count, rows with real structures, backtest working).
+4. The swallowed-failure inventory is empty or explicitly owner-accepted, with the
+   goal path's stage-1 and stage-6 items fail-visible.
 5. Delivery is durable or its loss modes are explicit (DLQ wired, Q1 resolved, bus no
    longer the sole path anywhere).
 6. Lane feedback on this document is incorporated and the slices were scoped to verified
    gaps.
+7. **Audited-ship gate (CISO):** a staged goal run is claimed as audited only once
+   #1968, Q7, attribution G-AUD-2/3, and fail-visible swallowed failures have closed.
+8. **Record rule:** every staged run's result is in `mas_reports` and its data in
+   `mas_data_captures`, keyed by the same run id — no second record invented.
+9. **E*TRADE gate:** no staged goal run touching E*TRADE runs on the shared
+   `default_trader` identity — owner binding (#1344) has landed, or the leg fails
+   closed.
 
-## 8. Open questions for lane feedback (answer before slicing)
+## 8. Open questions (v2 — decided items recorded, remaining items for slice design)
 
-1. **Vehicle:** #1972 standalone program, or #1904 P1 slice?
-2. **Slice-8 `gather.ts`:** wire it under its own slice design, or leave it unwired
-   deliberately? (It is not in #1972's scope as filed.)
-3. **Q1:** wire a `screener-events` consumer, or remove the producer-only queue?
-4. **DLQ + breaker durability:** what designs fit the ports/adapters + deterministic
-   execution invariants (#1904: hexagonal throughout, pricing/technicals/risk guards
-   100% AI-free, HITL gates on trade execution)?
-5. **Manual goal UX:** keep a synchronous-looking path (submit → poll 202 job → stored
-   result) or move fully to stored-run reads? What does the panel show while a staged
-   goal run is in flight?
-6. **Thesis selection scope:** is routing the goal stock leg through the delegated
-   screen's technicals gather sufficient, or is a capable-provider route also needed for
-   any thesis?
-7. **Trace + audit:** does the #1968 read-path fix land before, with, or after the
-   goal migration? (Phase 4 assumes it; if it slips, stage contracts cannot be verified
-   from the record.)
+**Decided by lane feedback (v2):** record rule (§5); slice-8 deliberately unwired,
+schema not reused (gap 4); flag rollout default-OFF + revert-PR rollback + fail-loud
+(Phase 2); two-thesis proof scope (Phase 3); sync-looking UX with live stage progress,
+kept previous result, way back on 408 (Phase 2); no metering/paywall change
+(non-goals); stage events into #1743 as new `type` values (Phase 5); #1819 resource
+type confirmed with conditions (Phase 5); Q1 deferred to Phase 5; serve-retry gap
+narrowed to monolithic serve; trace mechanism-designed / proof-missing (§2.5); #1743
+stream as designed surface; #1942 open (gap 17); no gateway change; deployment surface
+(Phase 2).
+
+**Still open (answer at slice design or by owner decision):**
+
+1. **Vehicle:** #1972 standalone program, or #1904 P1 slice? (CTO/owner; COO and CISO
+   defer.)
+2. **Q7:** consequential-action blocking set, retention, tamper mechanism (CISO+CDO,
+   blocking #945 Slice 5).
+3. **Callback identity:** how do Workflow steps / queue consumers carry the run's user
+   login with no session? (Must be named at slice design, CISO.)
+4. **#1344 owner binding:** design + sequencing — does an owner-binding slice precede
+   E*TRADE-leg shipments, or does a fail-closed design for E*TRADE legs ship first?
+5. **DLQ + breaker-store binding choices:** DLQ queue + replay procedure; durable
+   breaker store binding (D1/KV/DO) or explicit owner acceptance of fail-open.
+6. **Q1:** consumer vs remove (Phase 5).
+7. **Sweeper:** stuck-`running` alert now, sweeper decision (Phase 5).
+8. **#1968 sequencing:** before or with Phase 4 (CISO: precondition).
+9. **#1942 fix:** before any XLSX-provenance claim on staged runs.
+10. **#1743 follow-ups:** dashboard/aggregation + production stream confirmation on a
+    real staged run.
+11. **#1955 sequencing detail:** which goal slices touch ScreenerAgent and in what order
+    relative to PortThink.
+12. **Poll-202 rows-read design:** interval × isolate churn × per-request auth reads
+    under the #1819 lens.
 
 ## 9. Sources
 
@@ -474,8 +729,15 @@ outcome→calibration loop; provider-contract changes. None of these ride this j
   `src/messaging/screenerQueueConsumer.ts`, `src/services/goalDrivenScreen.ts`,
   `src/services/screeningRuntime.ts`, `wrangler.jsonc` (queues, workflows, crons,
   bindings) — all on `origin/main` at the evidence base above.
-- Issues: #1963 (closed, fix `9b38d3b`), #1972 (open, incl. correction comment
+- Issues: #1963 (closed, fix `9b38d3b`, PR #1974), #1972 (open, incl. correction comment
   `6445967705`), #1963 claim-withdrawal comment `6445968907`, #1904 (open), #1965
-  (fix merged `c2f7c86`), #1967, #1968, #1969, #1718, #1785, #462 (partial contract).
+  (fix merged `c2f7c86`), #1967, #1968, #1969, #1718, #1785, #462 (partial contract),
+  #1344 (open, gating), #1955 (PortThink sequencing), #1743 (observability), #1742
+  (telemetry), #1741 (AI Gateway, inert), #1740 (retrieval graph, unpopulated), #1546
+  (D1 foundation, seeds not run), #1942 (open, XLSX provenance).
+- Lane feedback on #1972 (2026-10-27, all within ~12 min of the questions, comment
+  `6446863373`): CTO `6447040561`, COO `6447045836`, CISO `6447078725`, CPO
+  `6447089438`, CAIO `6447094527`, CDO `6447165544`. v2 corrections and decisions are
+  attributed to the lane that stated them.
 - Docs: `docs/architecture/code/aop-fit-gap-analysis.md` (incl. 2026-10-27 addendum),
   `docs/architecture/enterprise/iros-system-analysis.md` (IROS target DAG).
