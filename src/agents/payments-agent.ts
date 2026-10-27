@@ -28,8 +28,7 @@
  * are deleted only after every record has landed in the ledger.
  */
 
-import { Agent } from "agents";
-import type { Env } from "../types";
+import { PortThink } from "../actors/thinkAdapter";
 import { BudgetGuard, type BudgetGuardState } from "../payments/budget-guard";
 import {
   fetchLedgerBudgetState,
@@ -54,7 +53,15 @@ const GUARD_ALLOWLIST = [
   "pipeline:social-daily",
 ];
 
-export class PaymentsAgent extends Agent<Env> {
+export class PaymentsAgent extends PortThink {
+  // Issue #1957 (think-fleet, tracker #1951, shape (a)): this class
+  // is a non-chat, RPC-only actor — it drives no turns, has no chat
+  // hooks, and registers no scheduler callbacks — so the migration is
+  // the base class alone. PortThink (Think extends Agent) keeps the
+  // Durable Object surface, this.env, and this.ctx.storage identical;
+  // portHooks is deliberately left unset: there were no port hooks to
+  // keep, and a turn driven against this class would have no hooks
+  // to run. All domain methods below are unchanged.
   /**
    * Load the BudgetGuard with enforcement state derived from the
    * ledger of record (mas_transactions). Throws when the ledger owner
