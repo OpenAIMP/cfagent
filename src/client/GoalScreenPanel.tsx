@@ -263,7 +263,13 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
                   <th style={{ textAlign: "left", padding: "0.25rem 0.75rem 0.25rem 0" }}>Symbol</th>
                   <th style={{ textAlign: "left", padding: "0.25rem 0.75rem 0.25rem 0" }}>Asset class</th>
                   <th style={{ textAlign: "left", padding: "0.25rem 0.75rem 0.25rem 0" }}>Provider</th>
-                  <th style={{ textAlign: "left" }}>Candidate structures</th>
+                  {/* Issue #1963: stock hits never carry structures, so a
+                      structures column over a structure-less result is
+                      6594 meaningless dashes — hide it unless at least
+                      one hit actually carries structures. */}
+                  {result.hits.some((hit) => (hit.structures?.length ?? 0) > 0) && (
+                    <th style={{ textAlign: "left" }}>Candidate structures</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -272,7 +278,9 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
                     <td style={{ padding: "0.25rem 0.75rem 0.25rem 0", fontWeight: 600 }}>{hit.symbol}</td>
                     <td style={{ padding: "0.25rem 0.75rem 0.25rem 0" }}>{hit.assetClass}</td>
                     <td style={{ padding: "0.25rem 0.75rem 0.25rem 0" }}>{hit.providerId}</td>
-                    <td>{hit.structures?.join(", ") ?? "—"}</td>
+                    {result.hits.some((h) => (h.structures?.length ?? 0) > 0) && (
+                      <td>{hit.structures?.join(", ") ?? "—"}</td>
+                    )}
                   </tr>
                 ))}
               </tbody>

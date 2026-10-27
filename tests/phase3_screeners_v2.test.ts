@@ -178,6 +178,20 @@ describe("goal-driven screen plan (Phase 3)", () => {
     expect(volatilePlan.stockFilter.momentum).toBe("high_relative_volume");
   });
 
+  it("an unknown direction means everything — no thesis named (#1963 correction)", () => {
+    const directionalUnknown = buildGoalScreenPlan(
+      buildScenario({ goalKind: "directional", portfolioRef: { kind: "hypothetical" }, direction: "unknown" })
+    );
+    expect(directionalUnknown.outlook).toBe("unknown");
+    expect(directionalUnknown.stockFilter.momentum).toBe("any");
+    // Contrast: no direction sent ("Goal default") resolves to the taxonomy outlook.
+    const directionalDefault = buildGoalScreenPlan(
+      buildScenario({ goalKind: "directional", portfolioRef: { kind: "hypothetical" } })
+    );
+    expect(directionalDefault.outlook).toBe("bullish");
+    expect(directionalDefault.stockFilter.momentum).toBe("bullish_breakout");
+  });
+
   it("caller base filters win per-field over plan defaults", () => {
     const plan = buildGoalScreenPlan(incomeScenario(), {
       baseOptionsFilter: { minDte: 30 },
@@ -225,6 +239,95 @@ describe("runGoalDrivenScreen (Phase 3)", () => {
     expect(out.partial?.failedClasses).toEqual(["options"]);
     expect(out.partial?.reasons.options).toMatch(/timeout/);
     expect(out.hits.map((h) => h.symbol)).toEqual(["AAPL"]);
+  });
+
+  it("an error-status options leg is a qualified partial, never a silent complete (#1963)", async () => {
+    const registry = registryWith({
+      stocks: () => stockResult(["AAPL"]),
+      options: () => ({
+        ...optionsResult([]),
+        totalUnderlyingsScanned: 0,
+        matchedCount: 0,
+        contracts: [],
+        status: "error",
+        validationError:
+          "Specify underlying symbols or set the visible maximum-underlyings limit before scanning option chains.",
+      }),
+    });
+    const out = await runGoalDrivenScreen({ registry, scenario: incomeScenario() });
+    expect(out.status).toBe("partial");
+    expect(out.partial?.failedClasses).toEqual(["options"]);
+    expect(out.partial?.reasons.options).toMatch(/Specify underlying symbols/);
+    expect(out.hits.map((h) => h.symbol)).toEqual(["AAPL"]);
+    expect(out.counts.optionsUnderlyingsScanned).toBe(0);
+  });
+
+  it("an options leg whose fetches all fail surfaces as partial with its reason (#1963)", async () => {
+    const registry = registryWith({
+      stocks: () => stockResult(["AAPL"]),
+      options: () => ({
+        ...optionsResult([]),
+        totalUnderlyingsScanned: 3,
+        matchedCount: 0,
+        contracts: [],
+        status: "error",
+        fetchErrors: [{ symbol: "AAPL", reason: "E*TRADE auth unavailable" }],
+      }),
+    });
+    const out = await runGoalDrivenScreen({ registry, scenario: incomeScenario() });
+    expect(out.status).toBe("partial");
+    expect(out.partial?.failedClasses).toEqual(["options"]);
+    expect(out.partial?.reasons.options).toMatch(/AAPL/);
+  });
+
+  it("a no-universe stock leg is a qualified partial, never a silent complete (#1963)", async () => {
+    const registry = registryWith({
+      stocks: () => ({ ...stockResult([]), totalScanned: 0, matchedCount: 0, stocks: [], status: "no_universe" }),
+      options: () => optionsResult(["NVDA"]),
+    });
+    const out = await runGoalDrivenScreen({ registry, scenario: incomeScenario() });
+    expect(out.status).toBe("partial");
+    expect(out.partial?.failedClasses).toEqual(["stocks"]);
+    expect(out.hits.map((h) => h.symbol)).toEqual(["NVDA"]);
+  });
+
+  it("a stock leg whose filter the feed cannot evaluate surfaces as partial with its reason (#1963)", async () => {
+    const registry = registryWith({
+      stocks: () => ({
+        ...stockResult([]),
+        totalScanned: 6594,
+        totalScreened: 6594,
+        matchedCount: 0,
+        stocks: [],
+        status: "no_matches",
+        validationError:
+          "The dynamic listing feed does not provide technical momentum data. Those criteria were not applied; use only price, daily change, market cap, and ticker/company search.",
+      }),
+      options: () => optionsResult(["NVDA"]),
+    });
+    const out = await runGoalDrivenScreen({ registry, scenario: incomeScenario() });
+    expect(out.status).toBe("partial");
+    expect(out.partial?.failedClasses).toEqual(["stocks"]);
+    expect(out.partial?.reasons.stocks).toMatch(/technical momentum/);
+    expect(out.hits.map((h) => h.symbol)).toEqual(["NVDA"]);
+  });
+
+  it("both legs error-status is a failure with no hits (#1963)", async () => {
+    const registry = registryWith({
+      stocks: () => ({ ...stockResult([]), totalScanned: 0, matchedCount: 0, stocks: [], status: "no_universe" }),
+      options: () => ({
+        ...optionsResult([]),
+        totalUnderlyingsScanned: 0,
+        matchedCount: 0,
+        contracts: [],
+        status: "error",
+        validationError: "Specify underlying symbols.",
+      }),
+    });
+    const out = await runGoalDrivenScreen({ registry, scenario: incomeScenario() });
+    expect(out.status).toBe("failed");
+    expect(out.hits).toEqual([]);
+    expect(out.partial?.failedClasses).toEqual(["stocks", "options"]);
   });
 
   it("both classes failing is a failure with no hits", async () => {
