@@ -1,6 +1,10 @@
 import type { Env, SessionData } from "../types";
 import { createStoreKv, type DoNamespaceLike } from "./durableKv";
 import { type KvLike } from "./kvResilience";
+import type {
+  ResourceAttribution,
+  ResourceUsagePort,
+} from "../telemetry/resourceUsagePorts";
 
 export const SESSION_TTL = 60 * 60 * 24 * 7; // 7 days in seconds
 export const COOKIE_NAME = "session_id";
@@ -42,15 +46,23 @@ export function clearSessionCookie(): string {
  * Sessions live in the SessionStore Durable Object (issue #329), not KV.
  *
  * KV's free tier caps reads at 100k/day and throws once exhausted — that throw
- * was the 1101. The DO has no such cap. The legacy KV fallback was removed in
- * #604: the migration window has passed and SESSIONS_KV_FALLBACK=off made it
- * dormant. Auth material stays in the DO (never moves back to KV).
+ * was the 1101. CORRECTION (issue #1819): the DO is NOT uncapped either
+ * (free-tier 5M rows read/day, 100k rows written/day); the earlier "no such
+ * cap" wording was wrong, and rows-read exhaustion took sign-in down on
+ * 2026-10-26. The legacy KV fallback was removed in #604: the migration
+ * window has passed and SESSIONS_KV_FALLBACK=off made it dormant. Auth
+ * material stays in the DO (never moves back to KV).
  */
-export function sessionStore(env: Env): KvLike {
+export function sessionStore(
+  env: Env,
+  resource?: { attribution?: ResourceAttribution; resourceSink?: ResourceUsagePort }
+): KvLike {
   return createStoreKv({
     namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
     namespaceName: "sessions",
     legacyFallback: false,
+    attribution: resource?.attribution,
+    resourceSink: resource?.resourceSink,
   });
 }
 
@@ -60,8 +72,12 @@ export async function createSession(env: Env, data: SessionData): Promise<string
   return sessionId;
 }
 
-export async function getSession(env: Env, sessionId: string): Promise<SessionData | null> {
-  const raw = await sessionStore(env).get(sessionId);
+export async function getSession(
+  env: Env,
+  sessionId: string,
+  resource?: { attribution?: ResourceAttribution; resourceSink?: ResourceUsagePort }
+): Promise<SessionData | null> {
+  const raw = await sessionStore(env, resource).get(sessionId);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as SessionData;
@@ -137,9 +153,10 @@ export async function updateSession(
   env: Env,
   sessionId: string,
   data: SessionData,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  resource?: { attribution?: ResourceAttribution; resourceSink?: ResourceUsagePort }
 ): Promise<UpdateSessionResult> {
-  return updateSessionWithStore(sessionStore(env), sessionId, data, nowMs);
+  return updateSessionWithStore(sessionStore(env, resource), sessionId, data, nowMs);
 }
 
 export async function deleteSession(env: Env, sessionId: string): Promise<void> {
