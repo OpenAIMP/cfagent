@@ -10,7 +10,7 @@ not in bulk, so each move stays a reviewable pure rename.
 
 | Runbook | Location today | Status |
 | --- | --- | --- |
-| Screening System Runbook (operator runbook for the goal/scenario screening system, Epic #1096 Phase 6) | `docs/SCREENING_SYSTEM_RUNBOOK.md` | Current — candidate to move here |
+| Screening System Runbook (operator runbook for the goal/scenario screening system, Epic #1096 Phase 6) | `docs/operations/runbook/screening-system-runbook.md` | Current |
 | Service Identity Operator Runbook (operator runbook for the service-identity configuration) | `docs/architecture/security/service-identity.md` | Current — candidate to move here |
 
 ## Missing

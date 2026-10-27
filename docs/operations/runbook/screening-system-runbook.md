@@ -18,9 +18,9 @@ system added **no new cron triggers** (Workers cron ceiling).
 
 | Job | Trigger | Guard | Marker (mas_settings) |
 | --- | --- | --- | --- |
-| Research run (#319) | Worker cron `*/30 * * * *` → `POST /research/scheduled-tick` | `shouldFireResearchTick` (#354): once per weekday at/after 21:00 UTC | `research:scheduled-last-run` |
+| Research run (#319) | Worker cron `*/30 * * * *` → `POST /research/scheduled-tick` | `shouldFireResearchTick` (#354): once per weekday at/after 21:00 UTC | `research_scheduled_last_run` |
 | Goal/scenario discovery (Phase 3) | Same tick, after the research run | Agent-side guard, same #354 idiom | agent durable state |
-| Strategy-bank re-selection (Phase 3) | Same tick (Phase 6 wiring) | `shouldFireStrategyBankTick`: once per weekday at/after 21:00 UTC | `strategyBank:scheduled-last-run` |
+| Strategy-bank re-selection (Phase 3) | Same tick (Phase 6 wiring) | `shouldFireStrategyBankTick`: once per weekday at/after 21:00 UTC | `strategy_bank_reselection_last_run` |
 | Strategy-weights v2 job (Phase 5) | Same tick (Phase 6 wiring) | Kill switch + adjustment budget inside the job | — (append-only outcome rows) |
 
 The tick handler is `handleScreenerResearchRoutes`
