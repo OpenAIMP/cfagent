@@ -1108,7 +1108,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* VIEW 1: QUANTITATIVE PLAYBOOKS & FAQS (THE 8 CORE QUESTIONS) */}
       {activeTab === "faq" && (
-        <div className="faq-section-container" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        <div className="faq-section-container" style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
           {/* FAQ Search & Category Filter */}
           <div className="workflows-filter-strip">
             <div className="workflows-search-box">
@@ -1169,7 +1169,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                       {/* Key Parameter Badges Row */}
                       {faq.parameterBadges && faq.parameterBadges.length > 0 && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1-5)" }}>
                           <span className="faq-param-heading">
                             ⚙️ Key Input Parameters &amp; Filter Settings
                           </span>
@@ -1210,7 +1210,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                                   {method.samplePayloadOrCommand}
                                 </div>
                               )}
-                              <div style={{ marginTop: "auto", paddingTop: "0.5rem", display: "flex", gap: "0.4rem" }}>
+                              <div style={{ marginTop: "auto", paddingTop: "var(--space-2)", display: "flex", gap: "var(--space-1-5)" }}>
                                 {method.targetTab && onNavigateTab && method.targetTab !== "chat" && (
                                   <Button
                                   variant="primary"
@@ -1239,7 +1239,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                       </div>
 
                       {/* Optimal Output Structure Callout */}
-                      <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "0.85rem 1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+                      <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "var(--space-3) var(--space-4)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "var(--space-3)" }}>
                         <div>
                           <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
                             🎯 Expected Visual Output Structure
@@ -1279,14 +1279,14 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                       {/* Action Footer */}
                       <div className="workflow-action-footer">
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
                           <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>Primary Workflow:</span>
                           <span className="workflow-tag-badge green">{faq.primaryWorkflow}</span>
                           <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>Secondary:</span>
                           <span className="workflow-tag-badge blue">{faq.secondaryWorkflow}</span>
                         </div>
 
-                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <div style={{ display: "flex", gap: "var(--space-2)" }}>
                           <Button
                           variant="primary"
                             className="workflow-cta-btn"
@@ -1325,7 +1325,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* VIEW 2: PLATFORM WORKFLOWS (ALL 14 ANALYSIS & EXECUTION WORKFLOWS) */}
       {activeTab === "workflows" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
           {/* Track Filter Tabs */}
           <div className="workflow-track-tabs">
             <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginRight: "0.3rem" }}>
@@ -1403,7 +1403,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                       {/* Key Parameters Banner */}
                       {wf.keyParameters && (
-                        <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "6px", padding: "0.6rem 0.9rem", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                        <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "6px", padding: "var(--space-2-5) var(--space-4)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "var(--space-2)" }}>
                           <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
                             ⚙️ <strong style={{ color: "var(--color-accent)" }}>Primary Parameters:</strong> <code style={{ color: "var(--color-text-primary)" }}>{wf.keyParameters}</code>
                           </span>
@@ -1468,8 +1468,8 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                       {/* Upstream APIs & Execution Metrics Breakdown */}
                       {wf.apiMetrics && wf.apiMetrics.length > 0 && (
-                        <div className="workflow-api-metrics-panel" style={{ marginTop: "0.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "1rem" }}>
-                          <h5 style={{ margin: "0 0 0.75rem", color: "var(--color-accent)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <div className="workflow-api-metrics-panel" style={{ marginTop: "0.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "var(--space-4)" }}>
+                          <h5 style={{ margin: "0 0 0.75rem", color: "var(--color-accent)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                             <span>📊</span> Upstream Subrequests &amp; Edge Execution Metrics
                           </h5>
                           <div style={{ overflowX: "auto" }}>
@@ -1500,7 +1500,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                           API: <code>{wf.apiEndpoint}</code>
                         </div>
 
-                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <div style={{ display: "flex", gap: "var(--space-2)" }}>
                           <Button
                           variant="primary"
                             className="workflow-cta-btn"
@@ -1535,7 +1535,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
             })}
 
             {filteredWorkflows.length === 0 && (
-              <div style={{ textAlign: "center", padding: "3rem 1rem", color: "var(--color-text-dim)" }}>
+              <div style={{ textAlign: "center", padding: "calc(var(--space-6) * 2) var(--space-4)", color: "var(--color-text-dim)" }}>
                 <p style={{ fontSize: "1.2rem", margin: "0 0 0.5rem 0" }}>🔍 No workflows match your search query.</p>
                 <p style={{ fontSize: "0.85rem", margin: 0 }}>Try clearing filters or search for terms like &quot;A1&quot;, &quot;E1&quot;, &quot;options&quot;, &quot;screener&quot;, &quot;hitl&quot;, or &quot;nasdaq&quot;.</p>
               </div>
@@ -1546,9 +1546,9 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* VIEW 3: ALGORITHMIC DECISIONING RULES (6 ENGINES) */}
       {activeTab === "decisioning" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
           {/* Decisioning Hero Note */}
-          <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "1.25rem 1.5rem" }}>
+          <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "var(--space-5) var(--space-6)" }}>
             <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>
               📐 Deterministic Decision Logic, Scoring Equations &amp; Selection Gates (6 Engines)
             </h4>
@@ -1587,7 +1587,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                           {sec.title}
                           <span className={`workflow-tag-badge ${sec.badgeColor}`}>{sec.badge}</span>
                           {sec.governedWorkflows && (
-                            <span style={{ fontSize: "0.7rem", color: "var(--color-accent)", background: "var(--color-accent-subtle)", padding: "0.15rem 0.45rem", borderRadius: "4px" }}>
+                            <span style={{ fontSize: "0.7rem", color: "var(--color-accent)", background: "var(--color-accent-subtle)", padding: "var(--space-0-5) var(--space-2)", borderRadius: "4px" }}>
                               Governs: {sec.governedWorkflows.join(", ")}
                             </span>
                           )}
@@ -1643,7 +1643,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
                       {/* Matrix / Weights Table (if present) */}
                       {sec.matrixOrWeights && sec.matrixOrWeights.length > 0 && (
-                        <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "1rem" }}>
+                        <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "var(--space-4)" }}>
                           <h4 style={{ margin: "0 0 0.6rem", color: "var(--color-accent)", fontSize: "0.84rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                             📊 Dimension Weightings &amp; Profile Matrix
                           </h4>
@@ -1688,7 +1688,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                           Architecture: <code>src/trading/options/ · src/client/options/</code>
                         </div>
 
-                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <div style={{ display: "flex", gap: "var(--space-2)" }}>
                           {onSendPrompt && (
                             <Button
                             variant="accent"
@@ -1714,9 +1714,9 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* VIEW 4: CAPABILITY & LOOKUP MATRIX */}
       {activeTab === "matrix" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
           {/* Matrix Header Callout */}
-          <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "1.25rem 1.5rem" }}>
+          <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "var(--space-5) var(--space-6)" }}>
             <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>
               📊 Interactive Capability &amp; Lookup Matrix
             </h4>
@@ -1761,9 +1761,9 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* VIEW 5: WORKFLOW IMPROVEMENTS & ARCHITECTURAL ROADMAP */}
       {activeTab === "improvements" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
           {/* Architectural Analysis Hero Note */}
-          <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "1.25rem 1.5rem" }}>
+          <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "var(--space-5) var(--space-6)" }}>
             <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>
               🏗️ Architectural Optimization Roadmap (Pure Analysis &amp; Design)
             </h4>
@@ -1773,35 +1773,35 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
           </div>
 
           {/* Styled Architecture Flowchart Diagram */}
-          <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "var(--space-5)", display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
             <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--color-accent)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
               📐 System Optimization Flowchart
             </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", padding: "0.5rem 0" }}>
-              <div style={{ background: "var(--color-card)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "var(--space-3)", padding: "var(--space-2) 0" }}>
+              <div style={{ background: "var(--color-card)", padding: "var(--space-2-5) var(--space-4)", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
                 1. Natural Language / Multi-Constraint Query
               </div>
               <span style={{ color: "var(--color-accent)", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "var(--color-card)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
+              <div style={{ background: "var(--color-card)", padding: "var(--space-2-5) var(--space-4)", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
                 2. Cross-Sectional Constraint Compiler
               </div>
               <span style={{ color: "var(--color-accent)", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "var(--color-card)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
+              <div style={{ background: "var(--color-card)", padding: "var(--space-2-5) var(--space-4)", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
                 3. High-Performance Pricing &amp; SVI Vol Engine
               </div>
               <span style={{ color: "var(--color-accent)", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "var(--color-card)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
+              <div style={{ background: "var(--color-card)", padding: "var(--space-2-5) var(--space-4)", borderRadius: "8px", border: "1px solid var(--color-border-medium)", fontSize: "0.8rem", color: "var(--color-text-primary)" }}>
                 4. Multi-Objective Pareto Frontier Solver
               </div>
               <span style={{ color: "var(--color-accent)", fontSize: "1.2rem" }}>➔</span>
-              <div style={{ background: "var(--color-accent-subtle)", padding: "0.6rem 0.9rem", borderRadius: "8px", border: "1px solid var(--color-border-focus)", fontSize: "0.8rem", color: "var(--color-accent)", fontWeight: 700 }}>
+              <div style={{ background: "var(--color-accent-subtle)", padding: "var(--space-2-5) var(--space-4)", borderRadius: "8px", border: "1px solid var(--color-border-focus)", fontSize: "0.8rem", color: "var(--color-accent)", fontWeight: 700 }}>
                 5. Interactive 2D Payoff &amp; Order Staging
               </div>
             </div>
           </div>
 
           {/* The 6 Improvement Cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "var(--space-5)" }}>
             {WORKFLOW_IMPROVEMENTS.map((imp) => (
               <div key={imp.id} className="improvement-card">
                 <div className="improvement-header">
@@ -1826,10 +1826,10 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
                   <p className="improvement-block-desc" style={{ color: "var(--color-success)" }}>{imp.impact}</p>
                 </div>
 
-                <div style={{ marginTop: "0.35rem", display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ marginTop: "0.35rem", display: "flex", gap: "var(--space-1-5)", flexWrap: "wrap", alignItems: "center" }}>
                   <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Target Components:</span>
                   {imp.targetComponents.map((comp, cIdx) => (
-                    <span key={cIdx} style={{ fontSize: "0.72rem", background: "var(--color-accent-subtle)", color: "var(--color-accent)", padding: "0.15rem 0.4rem", borderRadius: "4px" }}>
+                    <span key={cIdx} style={{ fontSize: "0.72rem", background: "var(--color-accent-subtle)", color: "var(--color-accent)", padding: "var(--space-0-5) var(--space-1-5)", borderRadius: "4px" }}>
                       {comp}
                     </span>
                   ))}

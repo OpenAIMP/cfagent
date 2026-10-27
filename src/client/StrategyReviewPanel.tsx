@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { Button } from "./components/ui";
 
 interface StrategyReview {
   id: string;
@@ -51,13 +52,13 @@ export function StrategyReviewPanel() {
       <h3>Strategy Candidates</h3>
       <div className="review-filters">
         {["pending", "approved", "rejected", "all"].map((f) => (
-          <button
+          <Button
             key={f}
             className={`filter-chip ${filter === f ? "active" : ""}`}
             onClick={() => setFilter(f)}
           >
             {f[0].toUpperCase() + f.slice(1)}
-          </button>
+          </Button>
         ))}
       </div>
       {loading && <div className="loading">Loading candidates…</div>}
@@ -75,8 +76,8 @@ export function StrategyReviewPanel() {
           <div className="review-rationale">{r.rationale}</div>
           {r.decision === "pending" ? (
             <div className="review-actions">
-              <button className="approve-btn" onClick={() => decide(r.id, "approved")}>✓ Approve</button>
-              <button className="reject-btn" onClick={() => decide(r.id, "rejected")}>✗ Reject</button>
+              <Button className="approve-btn" onClick={() => decide(r.id, "approved")}>✓ Approve</Button>
+              <Button className="reject-btn" onClick={() => decide(r.id, "rejected")}>✗ Reject</Button>
             </div>
           ) : (
             <div className={`review-decision ${r.decision}`}>{r.decision}</div>

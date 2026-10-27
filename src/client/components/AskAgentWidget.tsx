@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import type { NavTabId } from "./NavigationMenu";
-import { TextInput } from "./ui";
+import { Button, TextInput } from "./ui";
 import { BRAND } from "../branding";
 
 export interface AskAgentWidgetProps {
@@ -242,7 +242,7 @@ export function AskAgentWidget({
       <div className="ask-agent-floating-dock">
         {isMinimized ? (
           <div className="ask-agent-minimized-wrap">
-            <button
+            <Button
               type="button"
               className={`ask-agent-pill-btn minimized ${isOpen ? "active" : ""}`}
               onClick={() => setIsOpen((prev) => !prev)}
@@ -256,8 +256,8 @@ export function AskAgentWidget({
                 </svg>
               </span>
               <span className={`ask-agent-status-dot ${agentStatus.dotClass}`} title={`Status: ${agentStatus.label}`} />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="ask-agent-restore-pill-btn"
               onClick={toggleMinimize}
@@ -265,11 +265,11 @@ export function AskAgentWidget({
               aria-label="Expand button label"
             >
               ⤢
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="ask-agent-pill-wrap">
-            <button
+            <Button
               type="button"
               className={`ask-agent-pill-btn ${isOpen ? "active" : ""}`}
               onClick={() => setIsOpen((prev) => !prev)}
@@ -293,7 +293,7 @@ export function AskAgentWidget({
               >
                 —
               </span>
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -320,7 +320,7 @@ export function AskAgentWidget({
             </div>
 
             <div className="agent-header-actions">
-              <button
+              <Button
                 type="button"
                 className="agent-icon-btn"
                 onClick={() => handleTransferToFullChat()}
@@ -332,8 +332,8 @@ export function AskAgentWidget({
                   <polyline points="15 3 21 3 21 9" />
                   <line x1="10" y1="14" x2="21" y2="3" />
                 </svg>
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className="agent-icon-btn"
                 onClick={() => setIsOpen(false)}
@@ -341,7 +341,7 @@ export function AskAgentWidget({
                 aria-label="Close Ask Agent"
               >
                 ✕
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -366,13 +366,13 @@ export function AskAgentWidget({
           </div>
 
           {/* Quick Prompt Chips */}
-          <div className="ask-agent-quick-prompts-wrap" style={{ padding: "0.4rem 0.85rem 0.2rem" }}>
+          <div className="ask-agent-quick-prompts-wrap" style={{ padding: "var(--space-1-5) var(--space-3) var(--space-1)" }}>
             <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.35rem" }}>
               Suggested for {activeTab ? activeTab.replace("-", " ") : "Current Workspace"}:
             </div>
             <div className="ask-agent-quick-prompts">
               {currentPrompts.map((qp, idx) => (
-                <button
+                <Button
                   key={idx}
                   type="button"
                   className="quick-chip-btn"
@@ -380,7 +380,7 @@ export function AskAgentWidget({
                   title={qp.prompt}
                 >
                   {qp.label}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -396,26 +396,26 @@ export function AskAgentWidget({
               onChange={(e) => setInput(e.target.value)}
               disabled={isBusy}
             />
-            <button
+            <Button
               type="submit"
               className="ask-agent-send-btn"
               disabled={!input.trim() || isBusy}
               title="Send message"
             >
               <span>➔</span>
-            </button>
+            </Button>
           </form>
 
           {/* Footer info bar */}
           <div className="ask-agent-footer-bar">
             <span>Powered by {BRAND.name} Multi-Agent Intelligence</span>
-            <button
+            <Button
               type="button"
               className="open-full-chat-link"
               onClick={() => handleTransferToFullChat()}
             >
               Full Agent Workspace ↗
-            </button>
+            </Button>
           </div>
         </div>
       )}

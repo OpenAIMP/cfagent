@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { Button, TextInput } from "./components/ui";
 import {
   cancelRemoteOrder,
   createWatchlist,
@@ -117,7 +118,7 @@ export function AccountPanels({ activeEnv, onUnreadAlertsChange }: AccountPanels
 
   /** Two-step destructive action: first click arms, second click fires. */
   const destructive = (key: string, label: string, action: () => void) => (
-    <button
+    <Button
       type="button"
       className={confirmKey === key ? "ap-danger armed" : "ap-danger"}
       onClick={() => {
@@ -130,15 +131,15 @@ export function AccountPanels({ activeEnv, onUnreadAlertsChange }: AccountPanels
       }}
     >
       {confirmKey === key ? `Confirm ${label}?` : label}
-    </button>
+    </Button>
   );
 
   const header = (key: keyof typeof open, title: string, reload: () => void) => (
     <div className="ap-header">
-      <button type="button" className="ap-collapse" onClick={() => toggle(key)} aria-expanded={open[key]}>
+      <Button type="button" className="ap-collapse" onClick={() => toggle(key)} aria-expanded={open[key]}>
         {open[key] ? "▾" : "▸"} {title}
-      </button>
-      <button type="button" onClick={reload}>↻</button>
+      </Button>
+      <Button type="button" onClick={reload}>↻</Button>
     </div>
   );
 
@@ -156,10 +157,10 @@ export function AccountPanels({ activeEnv, onUnreadAlertsChange }: AccountPanels
             {!alertsError && alerts.length === 0 && <div className="ap-muted">No alerts.</div>}
             {alerts.map((alert) => (
               <div className="ap-row" key={String(alert.id)}>
-                <button type="button" className="ap-row-main" onClick={() => void fetchAlertDetails(activeEnv, alert.id).then(setAlertDetail).catch(() => setAlertDetail(null))}>
+                <Button type="button" className="ap-row-main" onClick={() => void fetchAlertDetails(activeEnv, alert.id).then(setAlertDetail).catch(() => setAlertDetail(null))}>
                   <strong className={alert.status === "UNREAD" ? "ap-unread" : undefined}>{alert.subject}</strong>
                   <span>{alert.status} · {fmtTime(alert.createTime)}</span>
-                </button>
+                </Button>
                 {destructive(`alert:${alert.id}`, "Delete", () => void deleteAlert(activeEnv, alert.id).then(() => { setAlertDetail(null); void loadAlerts(); }).catch(() => undefined))}
               </div>
             ))}
@@ -183,10 +184,10 @@ export function AccountPanels({ activeEnv, onUnreadAlertsChange }: AccountPanels
             {!txnError && transactions.length === 0 && <div className="ap-muted">No transactions.</div>}
             {transactions.slice(0, 25).map((txn) => (
               <div className="ap-row" key={txn.transactionId}>
-                <button type="button" className="ap-row-main" onClick={() => void fetchTransactionDetails(activeEnv, txn.transactionId).then(setTxnDetail).catch(() => setTxnDetail(null))}>
+                <Button type="button" className="ap-row-main" onClick={() => void fetchTransactionDetails(activeEnv, txn.transactionId).then(setTxnDetail).catch(() => setTxnDetail(null))}>
                   <strong>{txn.description}</strong>
                   <span>{txn.transactionType} · {fmtTime(txn.transactionDate)} · {fmtUsd(txn.amount, 2)}</span>
-                </button>
+                </Button>
               </div>
             ))}
             {txnDetail && (
@@ -212,10 +213,10 @@ export function AccountPanels({ activeEnv, onUnreadAlertsChange }: AccountPanels
             {watchError && <div className="ap-error">{watchError}</div>}
             {watchlists.map((list) => (
               <div className="ap-row" key={String(list.watchlistId)}>
-                <button type="button" className="ap-row-main" onClick={() => void fetchWatchlistDetails(activeEnv, list.watchlistId).then(setWatchlistDetail).catch(() => setWatchlistDetail(null))}>
+                <Button type="button" className="ap-row-main" onClick={() => void fetchWatchlistDetails(activeEnv, list.watchlistId).then(setWatchlistDetail).catch(() => setWatchlistDetail(null))}>
                   <strong>{list.name}</strong>
                   <span>{list.symbols.length} symbols{list.source ? ` · ${list.source === "etrade_api" ? "E*TRADE" : "local"}` : ""}</span>
-                </button>
+                </Button>
                 {destructive(`watchlist:${list.watchlistId}`, "Delete", () => void deleteWatchlist(activeEnv, list.watchlistId).then(() => { setWatchlistDetail(null); void loadWatchlists(); }).catch(() => undefined))}
               </div>
             ))}
@@ -226,10 +227,10 @@ export function AccountPanels({ activeEnv, onUnreadAlertsChange }: AccountPanels
               </div>
             )}
             <div className="ap-form">
-              <input value={newListName} onChange={(e) => setNewListName(e.target.value)} placeholder="New watchlist name" />
-              <input value={newListSymbols} onChange={(e) => setNewListSymbols(e.target.value)} placeholder="Symbols (AAPL, MSFT …)" />
-              <button type="button" disabled={!newListName.trim()} onClick={() => void createWatchlist(activeEnv, newListName.trim(), parseSymbolList(newListSymbols)).then(() => { setNewListName(""); setNewListSymbols(""); void loadWatchlists(); }).catch((err: any) => setWatchError(err?.message || "Create failed"))}>Create</button>
-              <button type="button" disabled={!newListName.trim()} onClick={() => void saveScreenAsWatchlist(activeEnv, newListName.trim(), parseSymbolList(newListSymbols)).then(() => { setNewListName(""); setNewListSymbols(""); void loadWatchlists(); }).catch((err: any) => setWatchError(err?.message || "Save-screen failed"))}>Save as screen</button>
+              <TextInput value={newListName} onChange={(e) => setNewListName(e.target.value)} placeholder="New watchlist name" />
+              <TextInput value={newListSymbols} onChange={(e) => setNewListSymbols(e.target.value)} placeholder="Symbols (AAPL, MSFT …)" />
+              <Button type="button" disabled={!newListName.trim()} onClick={() => void createWatchlist(activeEnv, newListName.trim(), parseSymbolList(newListSymbols)).then(() => { setNewListName(""); setNewListSymbols(""); void loadWatchlists(); }).catch((err: any) => setWatchError(err?.message || "Create failed"))}>Create</Button>
+              <Button type="button" disabled={!newListName.trim()} onClick={() => void saveScreenAsWatchlist(activeEnv, newListName.trim(), parseSymbolList(newListSymbols)).then(() => { setNewListName(""); setNewListSymbols(""); void loadWatchlists(); }).catch((err: any) => setWatchError(err?.message || "Save-screen failed"))}>Save as screen</Button>
             </div>
           </>
         )}

@@ -275,7 +275,7 @@ function GradeBadge({
         display: "inline-block",
         minWidth: "2rem",
         textAlign: "center",
-        padding: "0.1rem 0.4rem",
+        padding: "var(--space-0-5) var(--space-1-5)",
         borderRadius: "4px",
         fontWeight: 700,
         fontSize: "0.8rem",
@@ -371,7 +371,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-2)", flexWrap: "wrap", marginBottom: "0.5rem" }}>
         {result.success && (
           <>
             <Button
@@ -414,7 +414,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             download
             style={{
               fontSize: "0.8rem",
-              padding: "0.35rem 0.75rem",
+              padding: "var(--space-1-5) var(--space-3)",
               borderRadius: "4px",
               border: "1px solid var(--color-accent)",
               color: "var(--color-accent)",
@@ -431,7 +431,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             className="screener-download-xlsx"
             style={{
               fontSize: "0.8rem",
-              padding: "0.35rem 0.75rem",
+              padding: "var(--space-1-5) var(--space-3)",
               borderRadius: "4px",
               border: "1px solid var(--color-accent)",
               color: "var(--color-accent)",
@@ -447,13 +447,13 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             title={result.pdfError || "PDF generation failed"}
             style={{
               fontSize: "0.8rem",
-              padding: "0.35rem 0.75rem",
+              padding: "var(--space-1-5) var(--space-3)",
               borderRadius: "4px",
               border: "1px solid var(--color-danger)",
               color: "var(--color-danger)",
               display: "inline-flex",
               alignItems: "center",
-              gap: "0.4rem",
+              gap: "var(--space-1-5)",
             }}
           >
             ⚠️ PDF failed: {result.pdfError ? result.pdfError.slice(0, 50) : "unknown error"}
@@ -465,13 +465,13 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             title="PDF report was not generated for this run"
             style={{
               fontSize: "0.8rem",
-              padding: "0.35rem 0.75rem",
+              padding: "var(--space-1-5) var(--space-3)",
               borderRadius: "4px",
               border: "1px dashed var(--color-border-subtle)",
               color: "var(--color-text-muted)",
               display: "inline-flex",
               alignItems: "center",
-              gap: "0.4rem",
+              gap: "var(--space-1-5)",
             }}
           >
             ⚠️ PDF unavailable
@@ -501,7 +501,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           style={{
             fontSize: "0.85rem",
             color: "var(--color-warning-text)",
-            padding: "0.75rem",
+            padding: "var(--space-3)",
             border: "1px solid var(--color-warning-border)",
             borderRadius: "4px",
             marginBottom: "0.5rem",
@@ -520,7 +520,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             fontSize: "0.85rem",
             border: "1px solid var(--color-border-subtle)",
             borderRadius: "4px",
-            padding: "0.75rem",
+            padding: "var(--space-3)",
             marginBottom: "0.5rem",
             background: "var(--color-surface-sunken)",
           }}
@@ -564,7 +564,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           style={{
             fontSize: "0.85rem",
             color: "var(--color-danger)",
-            padding: "0.75rem",
+            padding: "var(--space-3)",
             border: "1px solid var(--color-danger)",
             borderRadius: "4px",
           }}

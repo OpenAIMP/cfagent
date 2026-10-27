@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { apiFetch as fetch } from "./apiFetch";
+import { Button, Checkbox, Select, Table, TextInput } from "./components/ui";
 
 /**
  * Goal Screen panel (consolidation C1, issue #1201, epic #1151 R1).
@@ -80,7 +81,7 @@ interface GoalScreenPanelProps {
 const fieldStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "0.25rem",
+  gap: "var(--space-1)",
   fontSize: "0.85rem",
   color: "var(--color-text-muted)",
 };
@@ -193,49 +194,49 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
         : { background: "var(--color-danger-subtle)", color: "var(--color-danger)" };
 
   return (
-    <div style={{ padding: "1rem 0" }}>
+    <div style={{ padding: "var(--space-4) 0" }}>
       <p style={{ margin: "0 0 1rem", color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
         Run a goal-driven screen through the unified screening stack: the goal&rsquo;s scenario
         drives one screen across stocks and options, executed by the shared provider registry.
         Results are recorded in Reports and the screening activity log.
       </p>
-      <form onSubmit={runScreen} style={{ display: "flex", flexWrap: "wrap", gap: "1rem", alignItems: "flex-end" }}>
+      <form onSubmit={runScreen} style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-4)", alignItems: "flex-end" }}>
         <label style={fieldStyle}>
           Goal
-          <select value={goalKind} onChange={(e) => setGoalKind(e.target.value)}>
+          <Select value={goalKind} onChange={(e) => setGoalKind(e.target.value)}>
             {GOAL_KIND_OPTIONS.map((g) => (
               <option key={g.id} value={g.id}>{g.label}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <label style={fieldStyle}>
           Direction
-          <select value={direction} onChange={(e) => setDirection(e.target.value)}>
+          <Select value={direction} onChange={(e) => setDirection(e.target.value)}>
             {DIRECTION_OPTIONS.map((d) => (
               <option key={d.id} value={d.id}>{d.label}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <label style={{ ...fieldStyle, flex: "1 1 220px" }}>
           Symbols (optional, comma-separated — scopes the options leg only; the stock leg always scans the full universe)
-          <input
+          <TextInput
             type="text"
             value={symbolsText}
             onChange={(e) => setSymbolsText(e.target.value)}
             placeholder="AAPL, NVDA, MSFT"
           />
         </label>
-        <label style={{ ...fieldStyle, flexDirection: "row", alignItems: "center", gap: "0.4rem" }}>
-          <input type="checkbox" checked={includeStocks} onChange={(e) => setIncludeStocks(e.target.checked)} />
+        <label style={{ ...fieldStyle, flexDirection: "row", alignItems: "center", gap: "var(--space-1-5)" }}>
+          <Checkbox checked={includeStocks} onChange={(e) => setIncludeStocks(e.target.checked)} />
           Stocks
         </label>
-        <label style={{ ...fieldStyle, flexDirection: "row", alignItems: "center", gap: "0.4rem" }}>
-          <input type="checkbox" checked={includeOptions} onChange={(e) => setIncludeOptions(e.target.checked)} />
+        <label style={{ ...fieldStyle, flexDirection: "row", alignItems: "center", gap: "var(--space-1-5)" }}>
+          <Checkbox checked={includeOptions} onChange={(e) => setIncludeOptions(e.target.checked)} />
           Options
         </label>
-        <button type="submit" disabled={loading}>
+        <Button type="submit" variant="primary" disabled={loading}>
           {loading ? "Screening…" : "Run goal screen"}
-        </button>
+        </Button>
       </form>
 
       {error && <div className="options-error" role="alert">{error}</div>}
@@ -244,7 +245,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
         <div style={{ marginTop: "1rem" }}>
           <div
             role="status"
-            style={{ ...statusStyle, padding: "0.5rem 0.75rem", borderRadius: "6px", fontWeight: 600 }}
+            style={{ ...statusStyle, padding: "var(--space-2) var(--space-3)", borderRadius: "6px", fontWeight: 600 }}
           >
             {result.status === "complete" && `Complete — ${result.goalKind} (${result.outlook})`}
             {result.status === "partial" &&
@@ -257,40 +258,36 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
             contracts matched); {result.counts.hits} hit(s).
           </p>
           {result.hits.length > 0 && (
-            <table style={{ borderCollapse: "collapse", fontSize: "0.9rem" }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", padding: "0.25rem 0.75rem 0.25rem 0" }}>Symbol</th>
-                  <th style={{ textAlign: "left", padding: "0.25rem 0.75rem 0.25rem 0" }}>Asset class</th>
-                  <th style={{ textAlign: "left", padding: "0.25rem 0.75rem 0.25rem 0" }}>Provider</th>
-                  {/* Issue #1963: stock hits never carry structures, so a
-                      structures column over a structure-less result is
-                      6594 meaningless dashes — hide it unless at least
-                      one hit actually carries structures. */}
-                  {result.hits.some((hit) => (hit.structures?.length ?? 0) > 0) && (
-                    <th style={{ textAlign: "left" }}>Candidate structures</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {result.hits.map((hit, i) => (
-                  <tr key={`${hit.assetClass}-${hit.symbol}-${i}`}>
-                    <td style={{ padding: "0.25rem 0.75rem 0.25rem 0", fontWeight: 600 }}>{hit.symbol}</td>
-                    <td style={{ padding: "0.25rem 0.75rem 0.25rem 0" }}>{hit.assetClass}</td>
-                    <td style={{ padding: "0.25rem 0.75rem 0.25rem 0" }}>{hit.providerId}</td>
-                    {result.hits.some((h) => (h.structures?.length ?? 0) > 0) && (
-                      <td>{hit.structures?.join(", ") ?? "—"}</td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <Table
+              columns={[
+                {
+                  key: "symbol",
+                  header: "Symbol",
+                  render: (hit) => <span style={{ fontWeight: 600 }}>{hit.symbol}</span>,
+                },
+                { key: "assetClass", header: "Asset class", render: (hit) => hit.assetClass },
+                { key: "provider", header: "Provider", render: (hit) => hit.providerId },
+                // Issue #1963: stock hits never carry structures — hide the
+                // column unless at least one hit actually carries structures.
+                ...(result.hits.some((hit) => (hit.structures?.length ?? 0) > 0)
+                  ? [
+                      {
+                        key: "structures",
+                        header: "Candidate structures",
+                        render: (hit: GoalScreenHit) => hit.structures?.join(", ") ?? "—",
+                      },
+                    ]
+                  : []),
+              ]}
+              rows={result.hits}
+              rowKey={(hit, i) => `${hit.assetClass}-${hit.symbol}-${i}`}
+            />
           )}
           {stockHits.length > 0 && (
             <div style={{ marginTop: "1rem" }}>
-              <button type="button" onClick={runBacktest} disabled={backtestLoading}>
+              <Button type="button" onClick={runBacktest} disabled={backtestLoading}>
                 {backtestLoading ? "Backtesting…" : `Backtest the ${stockHits.length} stock hit(s)`}
-              </button>
+              </Button>
               {backtestError && <div className="options-error" role="alert">{backtestError}</div>}
               {backtest && (
                 <div style={{ marginTop: "0.75rem", fontSize: "0.9rem" }}>

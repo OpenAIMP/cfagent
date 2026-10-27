@@ -202,7 +202,7 @@ export function TradingApprovalsQueue() {
           description="No proposed orders are awaiting authorization right now."
         />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
           {pending.map((trade) => {
             const expiresAt = proposalExpiresAt(trade);
             const countdown = formatCountdown(expiresAt, nowMs);
@@ -216,10 +216,10 @@ export function TradingApprovalsQueue() {
                 style={{
                   border: "1px solid var(--color-border-subtle)",
                   borderRadius: "8px",
-                  padding: "0.75rem",
+                  padding: "var(--space-3)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
                   <Badge tone={expired ? "danger" : "warning"}>
                     {expired ? "Expired" : "Awaiting approval"}
                   </Badge>
@@ -265,7 +265,7 @@ export function TradingApprovalsQueue() {
                   Commission is not shown here — the approval record carries no commission
                   estimate; commission follows your account schedule.
                 </div>
-                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+                <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "0.5rem" }}>
                   <Button
                     variant="secondary"
                     size="sm"

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePolling } from "./usePolling";
-import { Skeleton, EmptyState } from "./components/ui";
+import { Skeleton, EmptyState, Button, Select, Table, TextInput } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import {
   getScreeningProviders,
@@ -702,7 +702,7 @@ export function ScreenersHub({
         activeTabId={hubTab}
         onTabChange={handleTabChange}
         rightContent={
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
             <CopilotTriggerButton label="✨ Ask Copilot" />
             {scannedAt && (
               <span>
@@ -712,7 +712,7 @@ export function ScreenersHub({
             {rows.length > 0 && (
               <span
                 style={{
-                  padding: "0.15rem 0.5rem",
+                  padding: "var(--space-0-5) var(--space-2)",
                   borderRadius: "4px",
                   background: "var(--color-card)",
                   border: "1px solid var(--color-border-subtle)",
@@ -757,7 +757,7 @@ export function ScreenersHub({
           </div>
           {/* Issue #212: autonomous screener panel — latest scheduled runs. */}
           <div className="screener-feed-callout" style={{ marginBottom: "1rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>🤖 Autonomous Screen</span>
               <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                 Runs every 5 min via the scheduled job — latest results below (refreshes automatically).
@@ -781,9 +781,9 @@ export function ScreenersHub({
                   aria-label="Scheduled jobs by universe"
                   style={{
                     display: "flex",
-                    gap: "0.75rem",
+                    gap: "var(--space-3)",
                     overflowX: "auto",
-                    paddingBottom: "0.5rem",
+                    paddingBottom: "var(--space-2)",
                     marginBottom: "0.75rem",
                   }}
                 >
@@ -800,7 +800,7 @@ export function ScreenersHub({
                     const isSelected = selectedAutoRun?.universe === universe ||
                       (selectedAutoRun && runs.some(r => r.timestamp === selectedAutoRun.timestamp));
                     return (
-                      <button
+                      <Button
                         key={universe}
                         type="button"
                         onClick={() => setSelectedAutoTs(latest.timestamp)}
@@ -809,7 +809,7 @@ export function ScreenersHub({
                           minWidth: "220px",
                           flex: "0 0 auto",
                           textAlign: "left",
-                          padding: "0.75rem",
+                          padding: "var(--space-3)",
                           borderRadius: "8px",
                           border: isSelected
                             ? "2px solid var(--color-accent)"
@@ -830,7 +830,7 @@ export function ScreenersHub({
                         <div style={{
                           display: "inline-block",
                           marginTop: "0.35rem",
-                          padding: "0.15rem 0.5rem",
+                          padding: "var(--space-0-5) var(--space-2)",
                           borderRadius: "12px",
                           fontSize: "0.75rem",
                           fontWeight: 600,
@@ -842,7 +842,7 @@ export function ScreenersHub({
                         }}>
                           {status === "success" ? "✓ Complete" : status === "partial" ? "◐ Partial" : "✗ Failed"}
                         </div>
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -857,7 +857,7 @@ export function ScreenersHub({
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    gap: "0.35rem",
+                    gap: "var(--space-1-5)",
                     marginBottom: "0.75rem",
                   }}
                 >
@@ -866,7 +866,7 @@ export function ScreenersHub({
                     const isSelected = selectedAutoRun?.timestamp === run.timestamp;
                     const oppCount = run.opportunities?.length ?? 0;
                     return (
-                      <button
+                      <Button
                         key={run.timestamp}
                         type="button"
                         className="screener-run-item"
@@ -874,7 +874,7 @@ export function ScreenersHub({
                         onClick={() => setSelectedAutoTs(run.timestamp)}
                         style={{
                           textAlign: "left",
-                          padding: "0.5rem 0.75rem",
+                          padding: "var(--space-2) var(--space-3)",
                           borderRadius: "6px",
                           border: isSelected
                             ? "2px solid var(--color-accent)"
@@ -899,7 +899,7 @@ export function ScreenersHub({
                         </span>
                         {" · "}
                         <span>{isSelected ? "Viewing" : "View"}</span>
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -910,7 +910,7 @@ export function ScreenersHub({
                   style={{
                     border: "1px solid var(--color-border-subtle)",
                     borderRadius: "8px",
-                    padding: "1rem",
+                    padding: "var(--space-4)",
                     background: "var(--color-surface)",
                     marginBottom: "0.75rem",
                   }}
@@ -937,21 +937,21 @@ export function ScreenersHub({
           <form className="options-request-form screeners-filter-form" onSubmit={(event) => void runScreen(event)}>
             <label className="options-field">
               <span>Data provider / API</span>
-              <select value={providerId} onChange={(event) => setProviderId(event.target.value)}>
+              <Select value={providerId} onChange={(event) => setProviderId(event.target.value)}>
                 {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
-              </select>
+              </Select>
             </label>
 
             <div className="screener-feed-callout">
               {providerId === "etrade" ? (
                 <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "0.25rem", flexWrap: "wrap" }}>
                     <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>📡 Live Feed Source:</span>
                     <span className="screener-feed-name" style={{ fontWeight: 600 }}>
                       E*TRADE REST API — live quotes only (<code>api.etrade.com</code>)
                     </span>
                     <span style={{
-                      padding: "0.15rem 0.55rem",
+                      padding: "var(--space-0-5) var(--space-2)",
                       borderRadius: "9999px",
                       fontSize: "0.7rem",
                       fontWeight: 700,
@@ -968,13 +968,13 @@ export function ScreenersHub({
                 </div>
               ) : (
                 <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "0.25rem", flexWrap: "wrap" }}>
                     <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>📡 Live Feed Source:</span>
                     <span className="screener-feed-name" style={{ fontWeight: 600 }}>
                       Yahoo Finance Engine (<code>query1.finance.yahoo.com</code>)
                     </span>
                     <span style={{
-                      padding: "0.15rem 0.55rem",
+                      padding: "var(--space-0-5) var(--space-2)",
                       borderRadius: "9999px",
                       fontSize: "0.7rem",
                       fontWeight: 700,
@@ -994,7 +994,7 @@ export function ScreenersHub({
             {providerSupportsFilter(activeProvider, assetClass, "search") && (
               <label className="options-field">
                 <span>Ticker or company search</span>
-                <input
+                <TextInput
                   value={symbolSearch}
                   onChange={(event) => setSymbolSearch(event.target.value)}
                   placeholder="Optional; e.g. NVDA, AAPL"
@@ -1004,23 +1004,23 @@ export function ScreenersHub({
             {providerSupportsFilter(activeProvider, assetClass, "exchange") && (
               <label className="options-field">
                 <span>Exchange</span>
-                <select value={exchange} onChange={(event) => setExchange(event.target.value)}>
+                <Select value={exchange} onChange={(event) => setExchange(event.target.value)}>
                   <option value="ALL">All U.S. listings</option>
                   <option value="NASDAQ">Nasdaq</option>
                   <option value="NYSE">NYSE</option>
                   <option value="AMEX">AMEX</option>
-                </select>
+                </Select>
               </label>
             )}
             {providerSupportsFilter(activeProvider, assetClass, "price-range") && (
               <>
-                <label className="options-field"><span>Min price</span><input type="number" min="0" step="0.01" value={minPrice} onChange={(event) => setMinPrice(event.target.value)} /></label>
-                <label className="options-field"><span>Max price</span><input type="number" min="0" step="0.01" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} /></label>
+                <label className="options-field"><span>Min price</span><TextInput type="number" min="0" step="0.01" value={minPrice} onChange={(event) => setMinPrice(event.target.value)} /></label>
+                <label className="options-field"><span>Max price</span><TextInput type="number" min="0" step="0.01" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} /></label>
               </>
             )}
             <label className="options-field">
               <span>Universe</span>
-              <select value={universe} onChange={(event) => setUniverse(event.target.value)} title="Index/ETF universe to screen">
+              <Select value={universe} onChange={(event) => setUniverse(event.target.value)} title="Index/ETF universe to screen">
                 <option value="TECH">Technology (discovery)</option>
                 <option value="NASDAQ100">Nasdaq-100</option>
                 <option value="SP100">S&P 100</option>
@@ -1029,11 +1029,11 @@ export function ScreenersHub({
                 <option value="ETF">ETFs</option>
                 <option value="LEV_ETF">Leveraged ETFs</option>
                 <option value="ALL">All (auto-sharded, parallel)</option>
-              </select>
+              </Select>
             </label>
             <label className="options-field">
               <span>Sector</span>
-              <select value={sector} onChange={(event) => setSector(event.target.value)} title="Industry sector filter">
+              <Select value={sector} onChange={(event) => setSector(event.target.value)} title="Industry sector filter">
                 <option value="ALL">All Sectors</option>
                 <option value="Technology">Technology</option>
                 <option value="Semiconductors">Semiconductors</option>
@@ -1043,11 +1043,11 @@ export function ScreenersHub({
                 <option value="Communication Services">Communication Services</option>
                 <option value="Energy">Energy</option>
                 <option value="Industrials">Industrials</option>
-              </select>
+              </Select>
             </label>
             <label className="options-field">
               <span>Min Score (0–100)</span>
-              <input
+              <TextInput
                 type="number"
                 min="0"
                 max="100"
@@ -1059,15 +1059,15 @@ export function ScreenersHub({
             {providerSupportsFilter(activeProvider, assetClass, "trend") && (
               <label className="options-field">
                 <span>Daily trend</span>
-                <select value={trend} onChange={(event) => setTrend(event.target.value)}>
+                <Select value={trend} onChange={(event) => setTrend(event.target.value)}>
                   <option value="all">All</option>
                   <option value="gainers">Gainers</option>
                   <option value="losers">Losers</option>
-                </select>
+                </Select>
               </label>
             )}
             {providerSupportsFilter(activeProvider, assetClass, "limit") && (
-              <label className="options-field"><span>Max results</span><input type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)} /></label>
+              <label className="options-field"><span>Max results</span><TextInput type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)} /></label>
             )}
             <div className="screener-criteria-presets-deck">
               <ScreenerPresetManager
@@ -1083,7 +1083,7 @@ export function ScreenersHub({
               />
             </div>
             <div className="options-form-footer">
-              <button type="submit" disabled={loading || !endpoint}>{loading ? "Screening…" : "Run stock screen"}</button>
+              <Button type="submit" variant="primary" disabled={loading || !endpoint}>{loading ? "Screening…" : "Run stock screen"}</Button>
             </div>
           </form>
 
@@ -1103,19 +1103,19 @@ export function ScreenersHub({
                 <div style={{
                   display: "flex",
                   flexDirection: "column",
-                  gap: "0.6rem",
-                  padding: "0.85rem 1rem",
+                  gap: "var(--space-2-5)",
+                  padding: "var(--space-3) var(--space-4)",
                   background: "var(--color-surface-sunken)",
                   border: "1px solid var(--color-border-subtle)",
                   borderRadius: "8px",
                   marginBottom: "1rem",
                   fontSize: "0.82rem",
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "var(--space-2)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2-5)" }}>
                       <span style={{ color: "var(--color-accent)", fontWeight: 700, fontSize: "0.9rem" }}>📡 Feed Source &amp; Data Provenance</span>
                       <span style={{
-                        padding: "0.2rem 0.6rem",
+                        padding: "var(--space-1) var(--space-2-5)",
                         borderRadius: "4px",
                         fontSize: "0.72rem",
                         fontWeight: 700,
@@ -1131,7 +1131,7 @@ export function ScreenersHub({
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.5rem", padding: "0.5rem 0.75rem", background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-2)", padding: "var(--space-2) var(--space-3)", background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
                     <div>
                       <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.72rem" }}>UPSTREAM API ENDPOINT</span>
                       <span style={{ color: "var(--color-text-primary)", fontWeight: 600, fontSize: "0.78rem" }}>
@@ -1167,46 +1167,50 @@ export function ScreenersHub({
                   )}
                 </div>
 
-                <table className="options-comparison-table">
-                  <thead><tr>{Object.keys(rows[0]).map((key) => <th key={key}>{key.replace(/([a-z])([A-Z])/g, "$1 $2")}</th>)}</tr></thead>
-                  <tbody>{rows.map((row, index) => (
-                    <tr key={`${String(row.symbol || index)}:${index}`}>
-                      {Object.entries(row).map(([key, value], column) => (
-                        <td key={column}>
-                          {key === "source" ? (
-                            <span style={{
-                              display: "inline-block",
-                              padding: "0.15rem 0.45rem",
-                              borderRadius: "4px",
-                              fontSize: "0.72rem",
-                              fontWeight: 600,
-                              background: String(value).includes("Curated") ? "var(--color-warning-subtle)" : "var(--color-accent-subtle)",
-                              color: String(value).includes("Curated") ? "var(--color-warning)" : "var(--color-accent)",
-                              border: `1px solid ${String(value).includes("Curated") ? "var(--color-warning)" : "var(--color-border-focus)"}`,
-                            }}>
-                              {String(value)}
-                            </span>
-                          ) : key === "validationStatus" ? (
-                            <span style={{
-                              display: "inline-block",
-                              padding: "0.15rem 0.45rem",
-                              borderRadius: "4px",
-                              fontSize: "0.72rem",
-                              fontWeight: 600,
-                              background: value === "PASS_CONFIRMED" ? "var(--color-success-subtle)" : "var(--color-danger-subtle)",
-                              color: value === "PASS_CONFIRMED" ? "var(--color-success)" : "var(--color-danger)",
-                              border: `1px solid ${value === "PASS_CONFIRMED" ? "var(--color-success)" : "var(--color-danger)"}`,
-                            }}>
-                              {String(value)}
-                            </span>
-                          ) : (
-                            displayValue(value)
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}</tbody>
-                </table>
+                <Table
+                  columns={Object.keys(rows[0]).map((key) => ({
+                    key,
+                    header: key.replace(/([a-z])([A-Z])/g, "$1 $2"),
+                    render: (row) => {
+                      const value = (row as Record<string, unknown>)[key];
+                      if (key === "source") {
+                        return (
+                          <span style={{
+                            display: "inline-block",
+                            padding: "var(--space-0-5) var(--space-2)",
+                            borderRadius: "4px",
+                            fontSize: "0.72rem",
+                            fontWeight: 600,
+                            background: String(value).includes("Curated") ? "var(--color-warning-subtle)" : "var(--color-accent-subtle)",
+                            color: String(value).includes("Curated") ? "var(--color-warning)" : "var(--color-accent)",
+                            border: `1px solid ${String(value).includes("Curated") ? "var(--color-warning)" : "var(--color-border-focus)"}`,
+                          }}>
+                            {String(value)}
+                          </span>
+                        );
+                      }
+                      if (key === "validationStatus") {
+                        return (
+                          <span style={{
+                            display: "inline-block",
+                            padding: "var(--space-0-5) var(--space-2)",
+                            borderRadius: "4px",
+                            fontSize: "0.72rem",
+                            fontWeight: 600,
+                            background: value === "PASS_CONFIRMED" ? "var(--color-success-subtle)" : "var(--color-danger-subtle)",
+                            color: value === "PASS_CONFIRMED" ? "var(--color-success)" : "var(--color-danger)",
+                            border: `1px solid ${value === "PASS_CONFIRMED" ? "var(--color-success)" : "var(--color-danger)"}`,
+                          }}>
+                            {String(value)}
+                          </span>
+                        );
+                      }
+                      return displayValue(value);
+                    },
+                  }))}
+                  rows={rows}
+                  rowKey={(row, index) => `${String((row as Record<string, unknown>).symbol || index)}:${index}`}
+                />
               </div>
             )
           )}
@@ -1355,7 +1359,7 @@ export function ScreenersHub({
             hidden={hubTab !== asset}
             style={hubTab !== asset ? { display: "none" } : undefined}
           >
-            <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "1.5rem", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
+            <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "var(--space-6)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
               <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)", fontSize: "1.05rem" }}>
                 🚧 {SCREENING_ASSET_CLASSES.find((a) => a.id === asset)?.label || "Asset"} Screener · Planned
               </h4>

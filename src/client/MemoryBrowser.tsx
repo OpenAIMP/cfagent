@@ -8,7 +8,7 @@
  */
 import React, { useCallback, useState } from "react";
 import { searchMemory, type MemoryChunk } from "./memoryApi";
-import { Button } from "./components/ui";
+import { Button, TextInput } from "./components/ui";
 
 export interface MemoryBrowserProps {
   embedded?: boolean;
@@ -44,8 +44,8 @@ export function MemoryBrowser({ embedded = false }: MemoryBrowserProps = {}) {
 
   return (
     <div className={embedded ? "" : "memory-browser"}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <input
+      <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: 12 }}>
+        <TextInput
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -53,9 +53,9 @@ export function MemoryBrowser({ embedded = false }: MemoryBrowserProps = {}) {
             if (e.key === "Enter") void search();
           }}
           placeholder="Search past outcomes… (e.g. options strategy, payment failure)"
-          style={{ flex: 1, padding: "8px 12px" }}
+          style={{ flex: 1, padding: "var(--space-2) var(--space-3)" }}
         />
-        <input
+        <TextInput
           type="text"
           value={operationFilter}
           onChange={(e) => setOperationFilter(e.target.value)}
@@ -63,7 +63,7 @@ export function MemoryBrowser({ embedded = false }: MemoryBrowserProps = {}) {
             if (e.key === "Enter") void search();
           }}
           placeholder="operation filter (optional)"
-          style={{ width: 200, padding: "8px 12px" }}
+          style={{ width: 200, padding: "var(--space-2) var(--space-3)" }}
         />
         <Button onClick={() => void search()} disabled={loading || !query.trim()}>
           {loading ? "Searching…" : "Search"}
@@ -80,17 +80,17 @@ export function MemoryBrowser({ embedded = false }: MemoryBrowserProps = {}) {
       )}
 
       {chunks.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2-5)" }}>
           {chunks.map((c, i) => (
             <div
               key={`${c.operation}-${i}`}
               style={{
                 border: "1px solid var(--color-border-medium)",
                 borderRadius: 8,
-                padding: "10px 12px",
+                padding: "var(--space-2-5) var(--space-3)",
               }}
             >
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+              <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: 6 }}>
                 <span
                   style={{
                     fontWeight: 700,
