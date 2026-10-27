@@ -1263,12 +1263,11 @@ export function Chat({ user }: { user: User }) {
 
         {tab === "nlq" && (
           <div className="nlq-view">
-            <div className="nlq-header">
-              <h3>📊 Natural Language Records &amp; Audit Analytics</h3>
-              <p>
-                Query business records, inspect enterprise data schemas, retrieve transaction records, and manage commercial categories with natural language or interactive record browsing.
-              </p>
-            </div>
+            <PageShell
+              title="Natural Language Records & Audit Analytics"
+              scopeNote="Query business records, inspect enterprise data schemas, retrieve transaction records, and manage commercial categories with natural language or interactive record browsing."
+            >
+            <PageSection>
 
             <div className="nlq-presets">
               <span className="preset-label">Natural Language Queries:</span>
@@ -1340,7 +1339,9 @@ export function Chat({ user }: { user: User }) {
                 Ask in Chat
               </Button>
             </form>
+            </PageSection>
 
+            <PageSection>
             {/* Direct ORM Table Explorer Toolbar */}
             <div className="nlq-orm-toolbar">
               <span className="orm-tag">⚡ RECORD EXPLORER:</span>
@@ -1408,13 +1409,15 @@ export function Chat({ user }: { user: User }) {
                     />
                   </div>
                 ) : (
-                  <div className="empty-results">No records found in table {browsedData.tableName}.</div>
+                  <EmptyState title={`No records found in table ${browsedData.tableName}`} />
                 )}
               </Card>
             )}
+            </PageSection>
 
             {/* Natural Language Query Planner & Execution Results */}
             {nlqResult && (
+              <PageSection>
               <Card padding="none" className="nlq-results-card">
                 {nlqResult.plan && (
                   <div className="plan-badge-group">
@@ -1516,10 +1519,12 @@ export function Chat({ user }: { user: User }) {
                 )}
 
                 {(!nlqResult.rows || nlqResult.rows.length === 0) && (
-                  <div className="empty-results">No records matched the natural language query criteria.</div>
+                  <EmptyState title="No records matched the natural language query criteria." />
                 )}
               </Card>
+              </PageSection>
             )}
+            </PageShell>
           </div>
         )}
 
@@ -1601,13 +1606,11 @@ export function Chat({ user }: { user: User }) {
 
         {tab === "payments" && (
           <div className="payments-view">
-            {/* Header & Agent DID Ribbon */}
-            <div className="tab-hero-header">
-              <div className="hero-text-block">
-                <h3>💳 Payments & Decentralized Identifiers (DID)</h3>
-                <p>
-                  Enterprise payment execution across Stripe, PayPal, and Lemon Squeezy with verifiable W3C Agent DIDs, cryptographic attestation, and human-in-the-loop authorization.
-                </p>
+            <PageShell
+              title="Payments & Decentralized Identifiers (DID)"
+              scopeNote="Enterprise payment execution across Stripe, PayPal, and Lemon Squeezy with verifiable W3C Agent DIDs, cryptographic attestation, and human-in-the-loop authorization."
+            >
+            <div>
                 <div className="agent-dids-ribbon">
                   <span className="did-pill">
                     <span className="did-icon">🤖</span>
@@ -1625,7 +1628,6 @@ export function Chat({ user }: { user: User }) {
                     <span className="did-role-tag authorizer">Authorizer</span>
                   </span>
                 </div>
-              </div>
               <Button
                 variant="secondary"
                 size="sm"
@@ -1637,6 +1639,7 @@ export function Chat({ user }: { user: User }) {
             </div>
 
             {/* Gateway Status Cards Grid */}
+            <PageSection>
             <div className="gateway-cards-grid">
               {gateways.map((gw) => (
                 <Card padding="none" key={gw.id} className={`gateway-card ${gw.id}`}>
@@ -1662,8 +1665,10 @@ export function Chat({ user }: { user: User }) {
                 </Card>
               ))}
             </div>
+            </PageSection>
 
             {/* Financial Analytics Ribbon */}
+            <PageSection>
             <div className="referral-stats-ribbon">
               <Card padding="none" className="stat-card highlight">
                 <span className="stat-icon">💰</span>
@@ -1877,6 +1882,7 @@ export function Chat({ user }: { user: User }) {
                 </div>
               </div>
             </div>
+            </PageSection>
 
             {/* Cryptographic DID Proof Modal */}
             {selectedProofTx && (
@@ -1911,6 +1917,7 @@ export function Chat({ user }: { user: User }) {
                     </div>
               </Modal>
             )}
+            </PageShell>
           </div>
         )}
 
