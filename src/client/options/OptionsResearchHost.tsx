@@ -9,6 +9,7 @@
  * redirect into the hub.
  */
 import { useState } from "react";
+import { Button } from "../components/ui";
 import { OptionsResearchPanel } from "./OptionsResearchPanel";
 import { ResearchRunsPanel } from "./ResearchRunsPanel";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
@@ -36,19 +37,19 @@ export function OptionsResearchHost({
   return (
     <>
       {/* Issue #319: one research-run surface for manual + scheduled runs. */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <button
+      <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: 8 }}>
+        <Button
           onClick={() => setResearchRunsView("symbol")}
           style={{ fontWeight: researchRunsView === "symbol" ? 700 : 400 }}
         >
           Symbol research
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={() => setResearchRunsView("runs")}
           style={{ fontWeight: researchRunsView === "runs" ? 700 : 400 }}
         >
           Autonomous runs
-        </button>
+        </Button>
       </div>
       {researchRunsView === "runs" ? (
         <ResearchRunsPanel userLogin={userLogin} onSendPrompt={onSendPrompt} />

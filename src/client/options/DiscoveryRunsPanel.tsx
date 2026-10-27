@@ -545,7 +545,7 @@ export function DiscoveryRunsPanel({ activeEnv, userLogin }: DiscoveryRunsPanelP
           {runs.map((run) => {
             const selected = run.id === selectedId;
             return (
-              <button
+              <Button
                 key={run.id}
                 type="button"
                 className="discovery-run-item"
@@ -575,7 +575,7 @@ export function DiscoveryRunsPanel({ activeEnv, userLogin }: DiscoveryRunsPanelP
                   </span>
                 )}
                 {selected && <span className="discovery-run-viewing">● Viewing</span>}
-              </button>
+              </Button>
             );
           })}
         </div>
