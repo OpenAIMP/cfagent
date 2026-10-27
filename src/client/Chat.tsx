@@ -22,7 +22,7 @@ import { MarketStatusPill } from "./components/MarketStatusPill";
 import { AskAgentWidget } from "./components/AskAgentWidget";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
 import { adAccentPalette } from "./designTokens";
-import { Button, TextInput, Badge, Select, Table, Card, Notice, Modal } from "./components/ui";
+import { Button, TextInput, Badge, Select, Table, Card, Notice, Modal, PageShell, PageSection, EmptyState } from "./components/ui";
 import { MarkdownContent } from "./chat/MarkdownContent";
 import { renderInlineFormatted } from "./chat/renderInlineFormatted";
 import { ReasoningView } from "./chat/ReasoningView";
@@ -1525,11 +1525,11 @@ export function Chat({ user }: { user: User }) {
 
         {tab === "audit" && (
           <div className="audit-view">
-            <div className="audit-header">
-              <div>
-                <h3>🛡️ System Audit & Memory Vault</h3>
-                <p>Live observability stream into router decisions, sub-agent executions, AI decision evaluations, and firm memory state.</p>
-              </div>
+            <PageShell
+              title="System Audit & Memory Vault"
+              scopeNote="Live observability stream into router decisions, sub-agent executions, AI decision evaluations, and firm memory state."
+            >
+            <div>
               <Button variant="secondary" size="sm" onClick={fetchAuditData} disabled={auditLoading}>
                 {auditLoading ? "Refreshing…" : "🔄 Refresh Data"}
               </Button>
@@ -1537,6 +1537,7 @@ export function Chat({ user }: { user: User }) {
 
             <div className="audit-grid">
               {/* Memory Vault Panel */}
+              <PageSection>
               <Card padding="none" className="audit-panel memory-panel">
                 <div className="panel-title">
                   <span>🧠 Persistent Memory Vault</span>
@@ -1544,7 +1545,7 @@ export function Chat({ user }: { user: User }) {
                 </div>
                 <div className="memory-list">
                   {memories.length === 0 ? (
-                    <div className="empty-notice">No memories saved yet. Try asking the assistant to "Remember that..."</div>
+                    <EmptyState icon="🧠" title="No memories saved yet" description='Try asking the assistant to "Remember that..."' />
                   ) : (
                     memories.map((m) => (
                       <Card padding="none" key={m.key} className="memory-card-item">
@@ -1566,8 +1567,10 @@ export function Chat({ user }: { user: User }) {
                   )}
                 </div>
               </Card>
+              </PageSection>
 
               {/* Audit Events Panel */}
+              <PageSection>
               <Card padding="none" className="audit-panel events-panel">
                 <div className="panel-title">
                   <span>📋 Real-time Event Log</span>
@@ -1575,7 +1578,7 @@ export function Chat({ user }: { user: User }) {
                 </div>
                 <div className="events-stream">
                   {auditEvents.length === 0 ? (
-                    <div className="empty-notice">No audit events logged yet.</div>
+                    <EmptyState icon="📋" title="No audit events logged yet" />
                   ) : (
                     auditEvents.map((e) => (
                       <Card padding="none" key={e.id} className="event-item">
@@ -1590,7 +1593,9 @@ export function Chat({ user }: { user: User }) {
                   )}
                 </div>
               </Card>
+              </PageSection>
             </div>
+            </PageShell>
           </div>
         )}
 
