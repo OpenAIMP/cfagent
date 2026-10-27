@@ -9,6 +9,15 @@ assignees: []
 ## Agent
 #<your-agent-hashtag>
 
+## Type
+Title convention + label (check one; title prefix and label must match):
+- [ ] `[Enterprise Architecture] - <title>` + `ent-arch` (+ `architecture`): cross-cutting architecture decision, standard, pattern, or governance item (usually epic or ADR-linked)
+- [ ] `[Bug] - <title>` + `bug`: defect in shipped behavior
+- [ ] `[Enhancement] - <title>` + `enhancement`: new or improved capability
+- [ ] `[Fix] - <title>` + `fix`: planned correction (non-urgent)
+- [ ] `[Hotfix] - <title>` + `hotfix`: urgent production fix (emergency rules, gitops §18.2, still apply)
+- [ ] Task (no type prefix; `lane:<lane>` label still required)
+
 ## Problem
 
 ## Outcome
@@ -17,6 +26,12 @@ assignees: []
 Journey (which user journey this change serves):
 User (who the user is):
 How value surfaces in UX (what the user sees/does differently):
+
+## Related issues
+Parent epic:
+Blocks / Blocked by:
+Related:
+Supersedes:
 
 ## Scope
 Included:
