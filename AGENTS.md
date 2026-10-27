@@ -37,6 +37,23 @@ In brief:
 - Update any pin your change alters in the same PR (§7, the pin rule).
 - Close each issue with the §15 completion report.
 
+## Policy Gate rules every agent must know (gitops §22)
+
+- **No deletions.** No PR may delete a file — the gate fails any
+  deletion with no label bypass. Retire by deprecating in place:
+  keep the file, mark it deprecated, name what superseded it, and
+  remove it from exports/indexes instead of deleting it. Pure
+  renames pass (the gate sees R, not D). Genuine exceptions
+  (accidentally committed secret, legal takedown) are owner
+  emergency exceptions with the gate staying red.
+- **Deprecations must name a successor.** A new deprecation marker
+  in code files (`src/`, `scripts/`) must name what superseded it
+  (e.g. "superseded by src/new_module.ts"); a marker without a
+  successor fails gate check (j). Docs/prose are excluded.
+- The gate enforces both whether or not you read this section —
+  a red check with a message is how an agent that skipped it learns.
+  Read gitops §22 for the full rule and #1894 for why it exists.
+
 ## Pre-merge checklist (multi-developer integration)
 
 A green result on a stale base proves nothing about the merge, and a
