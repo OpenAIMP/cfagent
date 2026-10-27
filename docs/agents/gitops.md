@@ -814,11 +814,7 @@ Confirm:
 
 ### Merge strategy
 
-Use the configured strategy consistently:
-
-- Squash merge for one logical change per issue when selected by the repository.
-- Rebase merge when preserving individual commits is intentional.
-- Merge commits when required by the project’s history model.
+The configured strategy is rebase-only: the live `protectmain` ruleset permits rebase merges and refuses squash merges and merge commits, so every PR merges by rebase. A different strategy requires a ruleset change first, not a doc edit.
 
 Do not change merge strategy unilaterally.
 
@@ -1324,16 +1320,20 @@ current base before merging.
 ### Default auto-merge automation (issue #1509)
 
 The `auto-merge-trusted` workflow (`.github/workflows/auto-merge-trusted.yml`)
-is the default for every PR targeting `main`, including drafts and PRs that
-change workflow files. It applies the `auto-merge` label to drafts and enables
-rebase auto-merge when they are marked ready for review; GitHub cannot merge a
-draft while it remains a draft. There is no author allowlist. The PR template
-remains focused on description and checklist content; the workflow applies
-the default label.
+is the default for every PR targeting `main`, including drafts, but NOT PRs
+that change workflow files (see the withholding exception below). It applies
+the `auto-merge` label to drafts and enables rebase auto-merge when they are
+marked ready for review; GitHub cannot merge a draft while it remains a
+draft. There is no author allowlist. The PR template remains focused on
+description and checklist content; the workflow applies the default label.
 
-- No file path is excluded from automatic labeling or merging. Workflow
-  changes follow the same required checks, conversation resolution, and
-  merge-queue validation as other PRs.
+- Withholding exception (owner direction 2026-10-27, issue #1894; live since
+  PR #1900): the labeler WITHHOLDS auto-merge for PRs touching workflow
+  files, PRs by bot authors, PRs deleting files, and PRs marked as created
+  automatically by Jules. Those PRs need a human merge click once green (see
+  §22 Policy-file handling). No other file path is excluded from automatic
+  labeling or merging; non-withheld PRs follow the same required checks,
+  conversation resolution, and merge-queue validation as other PRs.
 - Enabling auto-merge does not bypass branch rules. GitHub merges only
   after all required checks pass, conversations are resolved, and queue
   validation passes when the merge queue is enabled. Removing the label
@@ -1374,10 +1374,12 @@ updater, or the run will fail.
 
 ### Default eligibility
 
-All PRs targeting `main` are eligible regardless of draft status or changed
-file paths. Drafts are labeled while in draft and auto-merge is enabled when
-they become ready. Required checks provide the merge gate; there is no author,
-file-path, or docs-only allowlist.
+All PRs targeting `main` are eligible regardless of draft status, except the
+withheld classes in "Default auto-merge automation" above (workflow files,
+bot authors, deletions, Jules-marked PRs). Drafts are labeled while in draft
+and auto-merge is enabled when they become ready, unless withheld. Required
+checks provide the merge gate; there is no author, file-path, or docs-only
+allowlist beyond the withholding exception above.
 
 ### Policy Gate requirement
 
@@ -1431,8 +1433,12 @@ implement.
 - **Ruleset (owner-side setting, §19.4).** `main` must be protected
   by a ruleset that blocks direct pushes, force pushes, and
   deletions, requires a pull request, requires branches to be up to
-  date, requires the CI/test/build and secret-scanning checks, and
-  runs the merge queue. The bypass list must be empty, except for
+  date, and requires four status checks: Load Active Environment,
+  Gitleaks secret scan, Test & Build (Node 22) [PROD], and Policy
+  Gate. NO merge-queue rule exists in `protectmain`: the §19.5 queue
+  steps remain owner-side steps to enable, not live enforcement, and
+  this bullet must be re-verified against the live ruleset if a queue
+  is ever enabled. The bypass list must be empty, except for
   a documented owner emergency path: an owner bypass is permitted
   only when it files a restore issue in the same action (§18.1
   emergency exception), and the bypass is recorded in the ruleset
