@@ -340,6 +340,24 @@ export interface Env {
   AGENTIC_WALLET_MODE?: string;
   PREMIUM_SCREENER_MODE?: string;
   PREMIUM_RESEARCH_MODE?: string;
+  // #1729 (parent #1717, slice (i)) — ONE goal-chain switch
+  // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
+  // GOAL_COMPILE_MODE: "auto" | "fresh" (G01 goal.compile).
+  // Built-in default is "auto" (the MCP surface's current
+  // behavior: bindings present → prior-plan reuse with
+  // provenance, else fresh compile), recorded in
+  // src/config/goalChainModes.ts — unset changes nothing.
+  // Any other value FAILS CLOSED to "auto", console-logged +
+  // audited as goal.config_error. Resolution order (run >
+  // session > user > global env > built-in) lives in
+  // src/config/goalChainModes.ts. This slice deliberately does
+  // NOT set a production value: production values are an owner
+  // action. Rollback is unsetting the var and redeploying.
+  // The switch does NOT govern: goal.schedule's PENDING-only
+  // posture, chain.run's inline-only posture, AgentDB tenant
+  // sourcing, or any AgentDB read source — all pinned, see
+  // src/config/goalChainModes.ts.
+  GOAL_COMPILE_MODE?: string;
   // Payment Gateway Secrets (Stripe, PayPal, Lemon Squeezy)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;

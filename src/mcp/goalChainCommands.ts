@@ -71,6 +71,13 @@ import {
   isSubmittedLeg,
 } from "../agentic/chainExecutor";
 import { VectorMemory } from "../memory/vector-memory";
+import {
+  GOAL_COMPILE_MODE_SWITCH,
+  goalConfigErrorEvent,
+  levelsForGoalCompileSwitch,
+  resolveGoalCompileMode,
+  type GoalCompileMode,
+} from "../config/goalChainModes";
 
 function validBudgetCents(value: unknown): value is number {
   return (
@@ -107,12 +114,21 @@ export interface GoalCompileResult {
  * Phase 2 compiler. Never throws for an unrecognized goal — that
  * is a null chain, not an error, because the compiler never
  * hallucinates a chain for free text it does not recognize.
+ *
+ * #1729 (G01): `opts.compileMode` selects the compiler entry
+ * point — "auto" (default, current behavior: memory when
+ * supplied, fresh otherwise) or "fresh" (always compileGoal,
+ * reuse always null, even when a memory instance is supplied).
+ * Both values call the SAME compilers the planner uses; there
+ * is no second compiler and no "reuse" value (reuse-with-
+ * fallback is exactly "auto" — see src/config/goalChainModes.ts).
  */
 export async function compileGoalForMcp(
   goal: string,
   budgetCents: number,
   budgetCapCents: number | null,
   memory?: VectorMemory | null,
+  opts: { compileMode?: GoalCompileMode } = {},
 ): Promise<GoalCompileResult> {
   if (typeof goal !== "string" || goal.trim().length === 0) {
     throw new Error("goal.compile: goal is required.");
@@ -120,8 +136,9 @@ export async function compileGoalForMcp(
   if (!validBudgetCents(budgetCents)) {
     throw new Error("goal.compile: budgetCents must be a non-negative integer.");
   }
-  const { chain, reuse } = memory
-    ? await compileGoalWithMemory(goal, { budgetCents, budgetCapCents, memory })
+  const effectiveMemory = opts.compileMode === "fresh" ? null : memory;
+  const { chain, reuse } = effectiveMemory
+    ? await compileGoalWithMemory(goal, { budgetCents, budgetCapCents, memory: effectiveMemory })
     : {
         chain: compileGoal(goal, { budgetCents, budgetCapCents }),
         reuse: null as PlanReuse | null,
@@ -138,10 +155,11 @@ export class GoalCompileCommand implements IMcpToolCommand<{
   goal: string;
   budgetCents: number;
   budgetCapCents?: number | null;
+  mode?: string;
 }> {
   readonly name = "goal.compile";
   readonly description =
-    "Compile a plain-text goal into a validated capability chain over the Phase 1 registry (feed → generate → store → serve → deliver, budget-capped), with any prior-plan reuse from composition memory reported with provenance. Compile output is data, not execution: it runs nothing, sends nothing, and creates no schedule.";
+    "Compile a plain-text goal into a validated capability chain over the Phase 1 registry (feed → generate → store → serve → deliver, budget-capped), with any prior-plan reuse from composition memory reported with provenance. Compile output is data, not execution: it runs nothing, sends nothing, and creates no schedule. #1729: the optional `mode` input selects GOAL_COMPILE_MODE (auto | fresh, run > session > user > global env > auto); an unrecognized value fails closed to auto with a goal.config_error audit.";
   readonly jsonSchema = {
     type: "object" as const,
     properties: {
@@ -158,6 +176,10 @@ export class GoalCompileCommand implements IMcpToolCommand<{
         type: "integer",
         description: "Optional budget cap in cents; null when uncapped.",
       },
+      mode: {
+        type: "string",
+        description: "#1729 run-level GOAL_COMPILE_MODE override (auto | fresh)",
+      },
     },
     required: ["goal", "budgetCents"],
   };
@@ -171,16 +193,45 @@ export class GoalCompileCommand implements IMcpToolCommand<{
       .nullable()
       .optional()
       .describe("Optional budget cap in cents"),
+    // Plain optional string (not a zod enum) so an invalid value
+    // reaches execute and fails closed instead of dying in schema
+    // validation — the #1726/#1727 idiom.
+    mode: z.string().optional().describe("#1729 run-level GOAL_COMPILE_MODE override"),
   });
 
   async execute(
-    input: { goal: string; budgetCents: number; budgetCapCents?: number | null },
+    input: { goal: string; budgetCents: number; budgetCapCents?: number | null; mode?: string },
     context: McpToolContext,
   ): Promise<GoalCompileResult> {
     const cap = asBudgetCap(input.budgetCapCents);
+    // #1729 (G01): resolve GOAL_COMPILE_MODE in order run
+    // (per-call `mode`) > session > user (context.
+    // scopedGoalChainModes) > global env > built-in ("auto").
+    // An unrecognized winning value fails closed to "auto",
+    // console-logged by the resolver + audited here as
+    // goal.config_error, with no fall-through.
+    const envForModes = (context.env ?? {}) as unknown as Record<string, unknown>;
+    const resolved = resolveGoalCompileMode(
+      levelsForGoalCompileSwitch(
+        context.scopedGoalChainModes,
+        input.mode,
+        envForModes[GOAL_COMPILE_MODE_SWITCH],
+      ),
+      "auto",
+    );
+    if (resolved.invalid) {
+      context.audit(goalConfigErrorEvent(), "mcp", {
+        switch: GOAL_COMPILE_MODE_SWITCH,
+        raw: resolved.raw,
+        level: resolved.level,
+        failedClosedTo: resolved.mode,
+      });
+    }
     // Phase 4 reuse only when the MCP context actually carries the
     // bindings VectorMemory needs; otherwise this is exactly the
     // Phase 2 compiler. A missing binding is not an error.
+    // In "fresh" mode the bindings are ignored entirely (see
+    // compileGoalForMcp) — deterministic fresh compile.
     const env = (context.env ?? {}) as unknown as Record<string, unknown>;
     const memory =
       env.AI !== undefined &&
@@ -194,12 +245,14 @@ export class GoalCompileCommand implements IMcpToolCommand<{
       input.budgetCents,
       cap,
       memory,
+      { compileMode: resolved.mode },
     );
     context.audit("goal.compile", "mcp", {
       goal: input.goal,
       recognized: result.recognized,
       steps: result.chain?.steps.length ?? 0,
       reused: result.reuse !== null,
+      mode: resolved.mode,
     });
     return result;
   }
