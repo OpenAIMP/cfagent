@@ -74,8 +74,9 @@ has to carry internals to be actionable.
 These are public and must not be treated as protected by obscurity:
 
 - The landing page (server-rendered for unauthenticated visitors).
-- A2A agent cards (GET only; A2A POST per-agent authentication is an
-  open question, not a verified control).
+- A2A agent cards (GET only; A2A POST invocation requires Bearer
+  `A2A_API_TOKEN` at the edge — verified from the entrypoint in
+  #1763, see [mcp-security.md](mcp-security.md) §4).
 - Strategy pages (`public/strategies/`): already public via the asset
   layer. True privacy for them needs removing them from output or adding
   them to `run_worker_first` plus a guard — a worker variable alone
