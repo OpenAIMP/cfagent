@@ -43,7 +43,12 @@ In brief:
   deletion with no label bypass. Retire by deprecating in place:
   keep the file, mark it deprecated, name what superseded it, and
   remove it from exports/indexes instead of deleting it. Pure
-  renames pass (the gate sees R, not D). Genuine exceptions
+  renames pass (the gate sees R, not D). Exception (#1917): a deleted
+  TEST file passes when an added test file preserves every one of its
+  test names (exact, or fuzzy at ratio >= 0.55 under a distinct
+  assignment) and git pairs the two at a 20% rename threshold, or
+  every old title appears verbatim in the new file. Non-test
+  deletions still fail unconditionally. Genuine exceptions
   (accidentally committed secret, legal takedown) are owner
   emergency exceptions with the gate staying red.
 - **Deprecations must name a successor.** A new deprecation marker

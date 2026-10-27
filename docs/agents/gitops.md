@@ -1461,6 +1461,15 @@ implement.
   committed secret, legal takedown) are owner emergency exceptions:
   the gate stays red and only an owner admin bypass with an exception
   record merges.
+  - **Test-rename allowance (owner direction 2026-10-27, #1917).**
+    A deleted TEST file passes check (i) when an added test file
+    preserves every one of its test names — exact match, or fuzzy
+    match at ratio >= 0.55 under a distinct assignment, so titles may
+    be renamed along with the file but none may disappear — and git
+    pairs the two as a rename at a 20% threshold, or every old title
+    appears verbatim in the new file. Non-test deletions still fail
+    unconditionally. The allowance proves no test title disappeared;
+    it does not audit assertion strength.
 - **Where agents meet these rules.** These rules are also stated in
   the PR template checklist (seen at PR creation) and in repo
   AGENTS.md, so an agent meets them before tripping the gate — not
