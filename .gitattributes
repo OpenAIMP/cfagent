@@ -8,3 +8,14 @@
 # "SyntaxError: Invalid or unexpected token" (seen on a Windows checkout with
 # core.autocrlf=true). Keep them LF like the shell scripts.
 *.mjs text eol=lf
+
+# CHANGELOG.md is an append-only list: every PR adds entries, so every PR
+# edits the same lines and conflicts with every other PR. The union driver
+# keeps added lines from both sides instead of conflict markers, which is
+# semantically correct here because both entries are true. Scope is this
+# file ONLY: never apply union (or ours/theirs) to code, where "both" can
+# silently drop a fix or weaken a gate. Limit, stated honestly: GitHub's
+# server-side merges may ignore .gitattributes drivers, so the real fix
+# for the CHANGELOG race is changelog.d fragments (see gitops §6) — the
+# union line only helps local merges and rebases.
+CHANGELOG.md merge=union

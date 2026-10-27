@@ -444,6 +444,17 @@ git merge origin/main
 
 Where a merge queue is configured, use it instead of repeatedly updating a branch solely to chase a moving `main`. GitHub’s queue tests changes against the latest base and earlier queued changes. [docs.github](https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)
 
+### Conflict automation and elimination (issue #1853)
+
+Most merge conflicts in this repository are not real disagreements. Automate the class, not the decision:
+
+- **Fragments-first.** Policy Gate check (d) already accepts a `changelog.d/<issue>-<slug>.md` fragment as an alternative to a CHANGELOG.md entry. Prefer the fragment: no two PRs write the same file, so the CHANGELOG race disappears. A direct CHANGELOG.md entry still passes the gate, but append it at the END of Unreleased, never the top (the #1718 prepend race).
+- **Union driver, one file only.** `.gitattributes` gives CHANGELOG.md `merge=union` (both sides' added lines kept). That is correct for an append-only list and forbidden for code: never apply union, ours, or theirs to source, config, workflow, or test files, where a silent side-choice can drop a fix or weaken a gate.
+- **Never resolve a PR conflict by merging main into the branch.** Resolution merge commits are what make GitHub's rebase-merge refuse with "cannot be rebased" (rebasing would produce a different result than the merge did — the #1748 failure). Resolve by rebasing the branch, or by the fresh-branch rescue (#1748 became #1797). The updater bot's own update call fails on a conflicted branch rather than resolving anything; that failure is the safe behavior, not a gap to automate away.
+- **rerere, with its limit stated.** `git config rerere.enabled true` reuses a resolution you already made when the same conflict recurs across rebases of a long-lived branch. The cache lives in the local clone/worktree, so it helps persistent checkouts and does almost nothing for ephemeral agent worktrees. A reused resolution is still reviewed, never blindly trusted.
+- **Agent proposes, human approves.** An agent may resolve a conflict in a commit and run the gate; the merge decision stays human. Files on the never-list (permissions, approvals, spend, evaluation criteria, production config, deploys, unauthorized financial actions) are human-only, always.
+- **Detection is automated, resolution is not.** The conflict-label workflow labels open PRs whose mergeable state turns dirty when main moves. It changes no PR content. No auto-resolution of code conflicts is authorized: no ours/theirs strategies on code, no third-party auto-resolve bots, no rebase bot.
+
 ***
 
 ## 7. Test-driven development
@@ -654,7 +665,7 @@ The full report for this PR lives in the linked issue's completion report (gitop
 ## Checklist
 - [ ] Required checks green on the current merge with `main`
 - [ ] Pins my change alters are updated in this PR (gitops §7)
-- [ ] CHANGELOG entry added (additive, under Unreleased)
+- [ ] CHANGELOG fragment added (changelog.d/, preferred) or entry added (additive, under Unreleased)
 - [ ] Linked issue's completion report updated with this PR's full report
 ```
 
