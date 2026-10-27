@@ -17,8 +17,7 @@
  * State is persisted via ctx.storage (Durable Object storage).
  */
 
-import { Agent } from "agents";
-import type { Env } from "../types";
+import { PortThink } from "../actors/thinkAdapter";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
@@ -265,7 +264,7 @@ const OPTIONS_XLSX_KEY_PREFIX = "options:xlsx:";
 const OPTIONS_XLSX_LATEST_KEY = "options:latest.xlsx";
 const OPTIONS_CSV_LATEST_KEY = "options:latest.csv";
 
-export class ScreenerAgent extends Agent<Env> {
+export class ScreenerAgent extends PortThink {
   private orm: DatabaseORM | null = null;
 
   private getOrm(): DatabaseORM {
