@@ -74,4 +74,18 @@ describe("autonomousMarketScreen sharded missing-port failure path (#1412)", () 
     const failed = publish.mock.calls.map((c) => c[0]).filter((e: any) => e.type === "screener.failed");
     expect(failed).toHaveLength(0);
   });
+
+  it("a wired sharded run whose submission rejects publishes screener.failed instead of returning silently (#1851)", async () => {
+    const { service, publish } = unblockedService();
+    const shardSubmit = vi.fn(async () => {
+      throw new Error("submit boom");
+    });
+    (service as any).shardSubmit = shardSubmit;
+    const result = await service.autonomousMarketScreen({ sharded: true });
+    expect(result.success).toBe(false);
+    const failed = publish.mock.calls.map((c) => c[0]).filter((e: any) => e.type === "screener.failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0].error).toContain("submit boom");
+    expect(failed[0].trigger).toBe("scheduled");
+  });
 });

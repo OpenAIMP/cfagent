@@ -757,17 +757,18 @@ export class ScheduledTasksService {
         timestamp,
       } as any;
     } catch (err: any) {
+      // Issue #1851 (mirrors #1412): audit the submission attempt, then
+      // RETHROW so the caller catch runs the full failure path (audit +
+      // session message + screener.failed event) instead of returning a
+      // silent {success:false}. The inner audit stays: it carries the
+      // sharded flag (submission-attempt record), distinct from the caller
+      // run-failure record.
       this.audit("screener.screen_failed", {
         sector: sector || "ALL",
         error: err.message,
         sharded: true,
       });
-      return {
-        success: false,
-        taskType: "market_screen",
-        error: err.message || "Market screener execution error",
-        timestamp,
-      } as any;
+      throw err;
     }
   }
 
