@@ -700,7 +700,7 @@ A submit from the GitHub web UI creates a patch branch (e.g. `OpenAIMP-patch-15`
 2. **Linked issue, full reference.** Write the linked issue as `OpenAIMP/cfagent#<number>` in `## Linked issue`. That satisfies the gate without auto-closing the issue. Use a closing keyword (`Closes #<number>`) only when the PR fully resolves the issue.
 3. **Changelog fragment as a second file.** Before the PR merges, add a second file on the same patch branch via the web UI (branch view → Add file → Create new file) at `changelog.d/<issue>-<slug>.md` with a `### ` section header and at least one entry line. Do not edit CHANGELOG.md — that reintroduces the prepend race the fragments exist to end.
 
-If the gate still fails after fixing the body: body edits re-trigger Policy Gate (the workflow triggers on `edited`), so a re-run reflects the new body; a stale-base failure means the branch predates files added to main — update the branch to current main and let checks re-run. No exemption class exists for web submits, and none is proposed: workflow files are the highest-privilege files in the repo and deserve the gate most. If the gate shows a failure you believe is wrong, read the failing check's name — (a) linked issue, (b) lane, (c) hashtag, (d) changelog, (e) docs scope, (f) stale base, (g) test deletion — and fix that item, not the gate.
+If the gate still fails after fixing the body: body edits re-trigger Policy Gate (the workflow triggers on `edited`), so a re-run reflects the new body; a stale-base failure means the branch predates files added to main — update the branch to current main and let checks re-run. No exemption class exists for web submits, and none is proposed: workflow files are the highest-privilege files in the repo and deserve the gate most. If the gate shows a failure you believe is wrong, read the failing check's name — (a) linked issue, (b) lane, (c) hashtag, (d) changelog, (e) docs scope, (f) stale base, (i) no deletion, (j) deprecation — and fix that item, not the gate.
 
 ### Review rules
 
@@ -1446,6 +1446,20 @@ implement.
   ruleset's required checks. Treat the gate as active only after
   verifying the live ruleset includes it; if it is missing, report the
   enforcement gap.
+- **No-deletion and deprecation rule (owner direction 2026-10-27, #1894).**
+  No PR may delete a file — the gate fails any deletion with no label
+  bypass (the `allow-test-deletion` label no longer permits deletions).
+  Retire by deprecating in place: keep the file, mark it deprecated,
+  name what superseded it, and remove it from exports/indexes instead
+  of deleting it. Genuine exceptions (removing an accidentally
+  committed secret, legal takedown) are owner emergency exceptions:
+  the gate stays red and only an owner admin bypass with an exception
+  record merges.
+- **Gate evaluation (owner direction 2026-10-27, #1894).** The gate
+  evaluates the PR branch head (a merge-commit HEAD resolves to its
+  second parent) and reads attribution — linked issue, lane, hashtag —
+  from the PR body and labels only; commit messages are not fallback
+  context.
 - **Policy-file handling.** Workflow changes are eligible for the same
   automatic label and auto-merge flow as all other PRs; no file-path rule
   requires a human merge. The live `protectmain` ruleset requires zero
