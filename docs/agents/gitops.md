@@ -235,6 +235,25 @@ All development on this issue must follow:
 - Next-step gate (PASS / BLOCKED + reason):
 ```
 
+### Title and type conventions (issue #1873)
+
+Titles carry the work type as a prefix, and the matching label is applied at creation. Convention is enforced by review, not by Policy Gate code — the gate does not parse titles except for the docs-scope guard (§10 check (e)).
+
+| Title prefix | Labels | Meaning |
+|---|---|---|
+| `[Enterprise Architecture] - ` | `ent-arch`, `architecture` | Cross-cutting architecture decision, standard, pattern, or governance item (usually epic or ADR-linked) |
+| `[Bug] - ` | `bug` | Defect in shipped behavior |
+| `[Enhancement] - ` | `enhancement` | New or improved capability |
+| `[Fix] - ` | `fix` | Planned correction (non-urgent) |
+| `[Hotfix] - ` | `hotfix` | Urgent production fix (emergency rules §18.2 still apply) |
+
+Rules:
+- The title prefix and the type label must match; a mismatch is a review finding, fixed before merge.
+- Every issue also carries its `lane:<lane>` label (see Required issue metadata) — the type label does not replace the lane label.
+- Related issues are recorded in the `## Related issues` body section with roles, not as a bare list: Parent epic, Blocks / Blocked by, Related, Supersedes. A related issue with no recorded role is invisible to sequencing (see Required issue metadata).
+- PRs carry the same Type section in the PR template; the PR title itself has no type prefix requirement.
+- Labels `fix`, `hotfix`, and `ent-arch` did not exist when this convention landed and were created via the repo web UI (labels cannot be created through the API tools available to agents); until a label exists, its convention row is aspirational, not enforceable.
+
 ### Required issue metadata
 
 The issue body template is not enough — every issue must also have its sidebar fields deliberately set at creation. No field may sit at its empty default (`No labels`, `No projects`, `No milestone`, `None yet`) without a recorded reason in the issue body:

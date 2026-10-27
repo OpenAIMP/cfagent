@@ -15,8 +15,22 @@ Workflow files can ONLY arrive via the web UI (the API refuses them).
 
 ## Summary
 
+## Type
+- [ ] Bug fix (`bug`)
+- [ ] Enhancement (`enhancement`)
+- [ ] Fix (`fix`)
+- [ ] Hotfix (`hotfix`)
+- [ ] Enterprise Architecture (`ent-arch`, `architecture`)
+- [ ] Docs / Chore (no type label required)
+
 ## Linked issue
-Closes #
+OpenAIMP/cfagent#<number> (add a closing keyword only when this PR fully resolves the issue)
+
+## Related issues
+Parent epic:
+Blocks / Blocked by:
+Related:
+Supersedes:
 
 ## Full report
 The full report for this PR — implementation, test evidence, change management, value and impact, risk, delivery, and release — lives in the linked issue's completion report (gitops §15). This PR body is a pointer, not a second record.
@@ -27,3 +41,5 @@ The full report for this PR — implementation, test evidence, change management
 - [ ] UX changes use ui/ primitives and tokens only (docs/agents/ux-architecture.md §20)
 - [ ] CHANGELOG fragment added (changelog.d/, preferred) or entry added (additive, under Unreleased)
 - [ ] Linked issue's completion report updated with this PR's full report
+- [ ] Related issues recorded above (parent epic, blocks/blocked-by, related, supersedes — or none)
+- [ ] Surfaces touched named (UX / CLI / API / MCP — or none)
