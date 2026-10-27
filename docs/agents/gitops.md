@@ -1455,6 +1455,11 @@ implement.
   committed secret, legal takedown) are owner emergency exceptions:
   the gate stays red and only an owner admin bypass with an exception
   record merges.
+- **Where agents meet these rules.** These rules are also stated in
+  the PR template checklist (seen at PR creation) and in repo
+  AGENTS.md, so an agent meets them before tripping the gate — not
+  only in a gate failure message. The gate remains the enforcement
+  for agents that read neither (including external agents).
 - **Gate evaluation (owner direction 2026-10-27, #1894).** The gate
   evaluates the PR branch head (a merge-commit HEAD resolves to its
   second parent) and reads attribution — linked issue, lane, hashtag —
