@@ -28,7 +28,7 @@
 
 import type { SqlStorage } from "../orm";
 import type { Env } from "../types";
-import { YahooFinanceProvider } from "../services/fossResearch";
+import { YahooFinanceProvider } from "../services/marketDataResearch";
 import { DEFAULT_PIPELINE_POLICY, type RetryPolicy } from "../services/pipelinePolicy";
 import { withRetry } from "../services/resilience";
 import { createYahooDataProvider, verifyYahooDataProvider } from "./dataProviders/adapters";
@@ -46,14 +46,14 @@ import { transitionProvider } from "./dataProviders/lifecycle";
 import { DataProviderRegistry } from "./dataProviders/registry";
 import {
   computeTechnicals,
-  fossBarsToDailyBars,
+  marketDataResearchBarsToDailyBars,
   type YahooDailyBar,
   type YahooTechnicals,
 } from "./technicals";
 
 /**
  * Bars requested per symbol. The old path fetched the configured
- * 3mo range (~63 trading days); the FOSS provider serves the last
+ * 3mo range (~63 trading days); the market-data provider serves the last
  * `limit` bars of its range window (limit 60 → 6mo window, last 60
  * bars) — the closest faithful count that still clears the MACD
  * 27-bar minimum with headroom. barsUsed reports the actual count.
@@ -176,7 +176,7 @@ export function bindYahooHistoryDeps(
         return await withRetry(
           async () => {
             const res = await provider.getHistoricalBars!(symbol, "1D", HISTORY_BAR_LIMIT, runContext);
-            const bars = fossBarsToDailyBars(res.result);
+            const bars = marketDataResearchBarsToDailyBars(res.result);
             if (!bars) {
               throw new Error(`Yahoo history unavailable for ${clean} (non-live bars)`);
             }

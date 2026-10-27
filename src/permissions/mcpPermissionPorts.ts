@@ -145,6 +145,17 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   etrade_auth_status: "mcp:read",
   etrade_account_discovery: "mcp:read",
   etrade_market_scan: "mcp:read",
+  market_data_get_quote: "mcp:read",
+  market_data_company_fundamentals: "mcp:read",
+  market_data_historical_bars: "mcp:read",
+  market_data_research: "mcp:read",
+  alpaca_snapshot: "mcp:read",
+  alpaca_account: "mcp:read",
+  alpaca_positions: "mcp:read",
+  alpaca_orders: "mcp:read",
+  // #1906: deprecated aliases for the renamed market-data tools above;
+  // same scopes as their canonical tools. Use canonical names instead.
+  // Removal is a follow-up slice.
   foss_get_quote: "mcp:read",
   foss_company_fundamentals: "mcp:read",
   foss_historical_bars: "mcp:read",
@@ -185,7 +196,8 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   // trade (4)
   etrade_preview_order: "mcp:trade",
   etrade_execute_order: "mcp:trade",
-  foss_alpaca_place_order: "mcp:trade",
+  alpaca_place_order: "mcp:trade",
+  foss_alpaca_place_order: "mcp:trade", // #1906 deprecated alias, same scope as canonical
   execute_durable_twap: "mcp:trade",
   // admin (4)
   get_audit_events: "mcp:admin",

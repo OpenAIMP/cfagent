@@ -6,7 +6,7 @@
  * and both the manual and scheduled stock-screen paths run through
  * ScreenerAgent into it. It is NOT itself an entry point — the entry
  * points are the REST routes (POST /api/etrade/screen,
- * POST /api/foss/screen), the NLQ port, and the autonomousMarketScreen
+ * POST /api/market-data/screen), the NLQ port, and the autonomousMarketScreen
  * schedule callback, and since issue #959 every one of them validates
  * its criteria through the single shared schema module,
  * src/trading/screeningSchemas.ts, before anything reaches this
@@ -77,7 +77,7 @@ import type { SqlStorage } from "../orm";
 import type {
   Env,
   ETradeQuote,
-  FossQuote,
+  MarketDataResearchQuote,
   ScreenedStockItem,
   StockScreenerFilter,
   StockScreenResult,
@@ -271,7 +271,7 @@ export interface PartialQuoteQualification {
  *
  * YFinance's indicator work survives as adapter internals: the RSI-14
  * and MACD values YahooFinanceProvider computes from daily history
- * (computeRsi14 / computeMacd in fossResearch.ts) ride through as DATA
+ * (computeRsi14 / computeMacd in marketDataResearch.ts) ride through as DATA
  * fields on the adapted quote (rsi, macdSignal) where the pipeline can
  * consume them — the pipeline's RSI filter reads the quote's RSI, and
  * screenWithQuotes surfaces the MACD signal on the screened row.
@@ -290,11 +290,11 @@ export const YAHOO_QUOTE_SOURCE = "Yahoo Finance";
  */
 export interface YahooScreenerDeps {
   /** Fetch a live Yahoo quote for a symbol. Throws on failure. */
-  fetchYahooQuote: (symbol: string) => Promise<FossQuote>;
+  fetchYahooQuote: (symbol: string) => Promise<MarketDataResearchQuote>;
   /** Issue #1184 (#1173 R2): batch quote fetcher (one request per
    *  symbol chunk). Optional — providers without it keep the
    *  per-symbol path for everything. */
-  fetchYahooBatchQuotes?: (symbols: string[]) => Promise<FossQuote[]>;
+  fetchYahooBatchQuotes?: (symbols: string[]) => Promise<MarketDataResearchQuote[]>;
   /** Issue #1181 (#1173 R1): retry policy for per-symbol fetches.
    *  Defaults to the pipeline policy's acquisition policy — the
    *  Yahoo path's first retry coverage (it previously had none). */
@@ -305,8 +305,8 @@ export interface YahooScreenerDeps {
 
 /** Bind a YahooFinanceProvider-shaped object as pipeline deps. */
 export function yahooDepsFromProvider(provider: {
-  getQuote: (symbol: string) => Promise<FossQuote>;
-  getQuotes?: (symbols: string[]) => Promise<FossQuote[]>;
+  getQuote: (symbol: string) => Promise<MarketDataResearchQuote>;
+  getQuotes?: (symbols: string[]) => Promise<MarketDataResearchQuote[]>;
 }): YahooScreenerDeps {
   return {
     fetchYahooQuote: (symbol) => provider.getQuote(symbol),
@@ -319,10 +319,10 @@ export function yahooDepsFromProvider(provider: {
 /**
  * Issue #1317: bind the platform yahoo provider to the pipeline seam
  * — the E2 platform-binding pattern for Yahoo. The provider's
- * getQuote/getQuotesBatch results are FossQuote rows (P1 parity: the
+ * getQuote/getQuotesBatch results are MarketDataResearchQuote rows (P1 parity: the
  * envelope wraps by reference); the run context rides along so every
  * quote the run acquires is captured under the run's id. The batch
- * dep exists only when the provider offers getQuotesBatch (the FOSS
+ * dep exists only when the provider offers getQuotesBatch (the market-data
  * adapter offers it only when the wrapped provider has getQuotes),
  * so providers without batch keep the per-symbol path.
  */
@@ -332,11 +332,11 @@ export function bindYahooScreenerDeps(
 ): YahooScreenerDeps {
   return {
     fetchYahooQuote: async (symbol: string) =>
-      (await provider.getQuote!(symbol, runContext)).result as FossQuote,
+      (await provider.getQuote!(symbol, runContext)).result as MarketDataResearchQuote,
     ...(typeof provider.getQuotesBatch === "function"
       ? {
           fetchYahooBatchQuotes: async (symbols: string[]) =>
-            (await provider.getQuotesBatch!(symbols, runContext)).result as FossQuote[],
+            (await provider.getQuotesBatch!(symbols, runContext)).result as MarketDataResearchQuote[],
         }
       : {}),
   };
@@ -764,7 +764,7 @@ export function bindLiveQuotesQuoteDeps(
   const gapQuote = gapFill
     ? async (symbol: string): Promise<ETradeQuote | null> => {
         try {
-          const row = (await gapFill.getQuote!(symbol, runContext)).result as FossQuote;
+          const row = (await gapFill.getQuote!(symbol, runContext)).result as MarketDataResearchQuote;
           return yahooQuoteToPipelineQuote(row);
         } catch {
           return null;
@@ -776,7 +776,7 @@ export function bindLiveQuotesQuoteDeps(
       ? async (symbols: string[]): Promise<Map<string, ETradeQuote>> => {
           try {
             const rows = (await gapFill.getQuotesBatch!(symbols, runContext))
-              .result as FossQuote[];
+              .result as MarketDataResearchQuote[];
             const out = new Map<string, ETradeQuote>();
             for (const row of rows) {
               const quote = yahooQuoteToPipelineQuote(row);
@@ -851,7 +851,7 @@ export function bindLiveQuotesQuoteDeps(
  * symbol rather than screening fabricated data.
  */
 export function yahooQuoteToPipelineQuote(
-  live: FossQuote,
+  live: MarketDataResearchQuote,
   base?: CuratedStockSecurity
 ): ETradeQuote | null {
   if (!live || live.provenance !== "live" || !(live.price > 0)) return null;

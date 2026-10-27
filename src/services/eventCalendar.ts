@@ -17,14 +17,14 @@
  * guesses a date.
  *
  * Source: Yahoo Finance quoteSummary `calendarEvents` (the repo's
- * existing Yahoo crumb session, shared with fossResearch). Results are
+ * existing Yahoo crumb session, shared with marketDataResearch). Results are
  * cached per isolate with the same honesty properties as the quote
  * cache: only successful live (covered) results are cached, a cached
  * value keeps its original fetch timestamp, and the cache is bounded —
  * a cold isolate simply misses, so it can never become a correctness
  * dependency.
  */
-import { getYahooCrumbSession } from "./fossResearch";
+import { getYahooCrumbSession } from "./marketDataResearch";
 import type { EventCalendarInfo } from "../trading";
 
 export const EVENT_CALENDAR_SOURCE = "yahoo-calendarEvents";

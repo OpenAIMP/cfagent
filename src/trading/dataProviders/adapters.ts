@@ -14,8 +14,8 @@
  *            adapter: the full E*TRADE-first lifecycle of epic #1116 is
  *            built against this provider, so its mapping is the
  *            contract's worked example.
- *   yahoo  — YahooFinanceProvider (IFossMarketDataProvider).
- *   alpaca — AlpacaMarketDataProvider (IFossMarketDataProvider).
+ *   yahoo  — YahooFinanceProvider (IMarketDataProvider).
+ *   alpaca — AlpacaMarketDataProvider (IMarketDataProvider).
  *   nasdaq — fetchAllUsStockListings (src/services/nasdaqListings.ts),
  *            promoted from a listings helper to a provider: it serves
  *            the screenUniverse capability (universe membership).
@@ -35,8 +35,8 @@
  * normalized digest, attributed to the caller's run context or a
  * generated collection run. Capture never changes what the fetch
  * returns and never fails it (recordCapture does not throw). Issue
- * #1317 (Yahoo slice) extends the same capture shape to the FOSS
- * adapters: the FOSS surface has no wire-response hook, so the
+ * #1317 (Yahoo slice) extends the same capture shape to the market-data
+ * adapters: the market-data surface has no wire-response hook, so the
  * capture's raw payload is the provider's result itself (rawKind
  * "provider-result", the E*TRADE fallback posture) — the result still
  * travels to the capture store run-linked with its normalized digest.
@@ -58,13 +58,13 @@
  * fetch_failed row and rethrows the identical error, while a
  * successful fetch's only record stays its capture row. The nasdaq
  * adapter takes the recorder by injection only — its capture seam
- * lands with its own slice. Issue #1317 wires the FOSS adapters'
+ * lands with its own slice. Issue #1317 wires the market-data adapters'
  * capture (and, through it, the derived recorder) the same way the
  * E*TRADE adapter derives its own.
  */
 
 import { ETradeService } from "../../services/etrade";
-import { AlpacaMarketDataProvider, YahooFinanceProvider } from "../../services/fossResearch";
+import { AlpacaMarketDataProvider, YahooFinanceProvider } from "../../services/marketDataResearch";
 import { PublicMcpClient } from "../../services/publicMcp";
 import {
   PublicDataError,
@@ -80,7 +80,7 @@ import {
   getPublicAccessToken,
   resolvePublicCredentialRef,
 } from "../../security/publicOAuth";
-import type { IFossMarketDataProvider } from "../../patterns/interfaces";
+import type { IMarketDataProvider } from "../../patterns/interfaces";
 import type {
   Env,
   ETradeOptionChain,
@@ -91,9 +91,9 @@ import type { SqlStorage } from "../../orm";
 import type { QuoteTrace } from "../etrade/quoteTrace";
 import { fetchAllUsStockListings } from "../../services/nasdaqListings";
 import {
-  BreakerWrappedFossProvider,
+  BreakerWrappedMarketDataProvider,
   yahooQuoteCacheFallback,
-} from "../../breakers/fossBreakerWrapper";
+} from "../../breakers/marketDataBreakerWrapper";
 import type { CircuitBreaker } from "../../breakers/breakerPorts";
 import type {
   DataProvider,
@@ -598,8 +598,8 @@ export async function verifyETradeDataProvider(
  */
 
 /**
- * Shared FOSS adapter: YahooFinanceProvider and AlpacaMarketDataProvider
- * both implement IFossMarketDataProvider, whose quote/bars/fundamentals
+ * Shared market-data adapter: YahooFinanceProvider and AlpacaMarketDataProvider
+ * both implement IMarketDataProvider, whose quote/bars/fundamentals
  * surface maps one-for-one onto the contract. Results pass through by
  * reference.
  *
@@ -610,9 +610,9 @@ export async function verifyETradeDataProvider(
  * decorator; omit it and the adapter is the plain parity wrapper,
  * exactly as before.
  *
- * Issue #1317 (Yahoo slice): the FOSS adapters take the E1 capture
+ * Issue #1317 (Yahoo slice): the market-data adapters take the E1 capture
  * seam (options.capture), derived-recorder included, exactly like the
- * E*TRADE adapter. The FOSS surface exposes no wire-response hook,
+ * E*TRADE adapter. The market-data surface exposes no wire-response hook,
  * so the capture's raw payload is the provider's result itself
  * (rawKind "provider-result"); the normalized digest is computed over
  * the same result. A throwing fetch writes fetch_failed via the
@@ -623,7 +623,7 @@ export async function verifyETradeDataProvider(
  * not declare it) — one capture per batch call, mirroring the
  * E*TRADE batch's one-record-per-sub-batch posture.
  */
-export interface FossDataProviderOptions {
+export interface MarketDataProviderOptions {
   capture?: ETradeCaptureDeps;
   /**
    * E7 (issue #1248): the fetch-outcome recorder. Absent, it is
@@ -643,12 +643,12 @@ export interface FossDataProviderOptions {
   breaker?: CircuitBreaker;
 }
 
-function createFossDataProvider(
+function createMarketDataProvider(
   id: "yahoo" | "alpaca",
   name: string,
-  provider: IFossMarketDataProvider,
+  provider: IMarketDataProvider,
   env?: Env,
-  options?: FossDataProviderOptions
+  options?: MarketDataProviderOptions
 ): DataProvider {
   const capture = options?.capture;
   const outcomeRecorder =
@@ -695,11 +695,11 @@ function createFossDataProvider(
     );
   };
   // Issue #1745: breaker decoration is opt-in (see the breaker field
-  // on FossDataProviderOptions). The wrapped provider preserves the
+  // on MarketDataProviderOptions). The wrapped provider preserves the
   // optional getQuotes shape, so the batch dep below still appears
   // exactly when the inner provider offers it.
   const effectiveProvider = options?.breaker
-    ? new BreakerWrappedFossProvider(
+    ? new BreakerWrappedMarketDataProvider(
         provider,
         options.breaker,
         id === "yahoo"
@@ -707,8 +707,8 @@ function createFossDataProvider(
           : {}
       )
     : provider;
-  const batchProvider = effectiveProvider as IFossMarketDataProvider & {
-    getQuotes?: (symbols: string[]) => Promise<import("../../types").FossQuote[]>;
+  const batchProvider = effectiveProvider as IMarketDataProvider & {
+    getQuotes?: (symbols: string[]) => Promise<import("../../types").MarketDataResearchQuote[]>;
   };
   return {
     id,
@@ -771,33 +771,33 @@ export interface YahooDataProviderOptions {
    */
   outcomeRecorder?: FetchOutcomeRecorder;
   /**
-   * Issue #1745: opt-in breaker, forwarded to createFossDataProvider
-   * (same semantics as FossDataProviderOptions.breaker).
+   * Issue #1745: opt-in breaker, forwarded to createMarketDataProvider
+   * (same semantics as MarketDataProviderOptions.breaker).
    */
   breaker?: CircuitBreaker;
 }
 
-/** Yahoo adapter — wraps YahooFinanceProvider (the FOSS "yfinance" impl). */
+/** Yahoo adapter — wraps YahooFinanceProvider (the market-data "yfinance" impl). */
 export function createYahooDataProvider(
-  provider: IFossMarketDataProvider,
+  provider: IMarketDataProvider,
   env?: Env,
   options?: YahooDataProviderOptions
 ): DataProvider {
-  return createFossDataProvider("yahoo", "Yahoo Finance", provider, env, options);
+  return createMarketDataProvider("yahoo", "Yahoo Finance", provider, env, options);
 }
 
 /** Alpaca adapter — wraps AlpacaMarketDataProvider. */
 export function createAlpacaDataProvider(
-  provider: IFossMarketDataProvider,
+  provider: IMarketDataProvider,
   env?: Env,
-  options?: FossDataProviderOptions
+  options?: MarketDataProviderOptions
 ): DataProvider {
-  return createFossDataProvider("alpaca", "Alpaca Markets", provider, env, options);
+  return createMarketDataProvider("alpaca", "Alpaca Markets", provider, env, options);
 }
 
 /**
  * Issue #1317: the Yahoo lifecycle verifier, mirroring
- * verifyETradeDataProvider — configuration from the FOSS provider's
+ * verifyETradeDataProvider — configuration from the market-data provider's
  * own isConfigured, then the conformance kit over the adapter. The
  * provider is injectable for tests; production constructs the real
  * YahooFinanceProvider from env. A failed conformance fails
@@ -806,7 +806,7 @@ export function createAlpacaDataProvider(
 export async function verifyYahooDataProvider(
   env?: Env,
   options?: {
-    provider?: IFossMarketDataProvider;
+    provider?: IMarketDataProvider;
     outcomeRecorder?: FetchOutcomeRecorder;
   }
 ): Promise<{ ok: boolean; summary: string }> {
@@ -839,7 +839,7 @@ export async function verifyYahooDataProvider(
 
 /**
  * Issue #1385: the Alpaca lifecycle verifier, mirroring
- * verifyYahooDataProvider — configuration from the FOSS provider's
+ * verifyYahooDataProvider — configuration from the market-data provider's
  * own isConfigured (key AND secret required — NOT
  * configured-by-construction, unlike nasdaq's public feed), then
  * the conformance kit over the adapter. The provider is injectable
@@ -850,7 +850,7 @@ export async function verifyYahooDataProvider(
 export async function verifyAlpacaDataProvider(
   env?: Env,
   options?: {
-    provider?: IFossMarketDataProvider;
+    provider?: IMarketDataProvider;
     outcomeRecorder?: FetchOutcomeRecorder;
   }
 ): Promise<{ ok: boolean; summary: string }> {
@@ -901,7 +901,7 @@ export interface NasdaqDataProviderOptions {
  *
  * Issue #1368 (Nasdaq slice): the adapter takes the E1 capture seam
  * (options.capture), derived-recorder included, exactly like the
- * FOSS adapters. The listings surface exposes no wire-response hook,
+ * market-data adapters. The listings surface exposes no wire-response hook,
  * so the capture's raw payload is the provider's result itself
  * (rawKind "provider-result"); the normalized digest is computed over
  * the same result. A throwing fetch writes fetch_failed via the
@@ -923,7 +923,7 @@ export function createNasdaqDataProvider(
     name: "Nasdaq Listings",
     capabilities: ["screenUniverse"] as const,
     // Public listings feed, no credentials — configured by construction,
-    // matching the FOSS provider-status semantics for Yahoo.
+    // matching the market-data provider-status semantics for Yahoo.
     isConfigured: () => true,
     getScreenUniverse: async (runContext?: DataRunContext) => {
       const ctx = resolveRunContext(runContext);

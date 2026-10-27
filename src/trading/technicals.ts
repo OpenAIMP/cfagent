@@ -14,8 +14,8 @@
  * quote — it only fills the history-shaped hole.
  */
 
-import { computeRsi14, computeMacd } from "../services/fossResearch";
-import type { FossHistoricalBar, PriceRegime } from "../types";
+import { computeRsi14, computeMacd } from "../services/marketDataResearch";
+import type { MarketDataResearchHistoricalBar, PriceRegime } from "../types";
 import { DEFAULT_SCREENER_CONFIG, type ScreenerConfig } from "./screenerConfig";
 
 export interface YahooDailyBar {
@@ -44,16 +44,16 @@ export interface YahooTechnicals {
 }
 
 /**
- * Issue #1331: map platform FOSS bars to daily bars — but ONLY when
- * every bar is live. The FOSS provider falls back to a generated
+ * Issue #1331: map platform market-data bars to daily bars — but ONLY when
+ * every bar is live. The market-data provider falls back to a generated
  * (synthetic) series when the live fetch fails; the old path
  * returned null on failure ("indicator unavailable, never zero"),
  * so a generated bar anywhere rejects the whole series. A partial
  * live series would corrupt RSI/MACD just as surely as a synthetic
  * one, so there is no partial path: live-all or null.
  */
-export function fossBarsToDailyBars(
-  bars: readonly FossHistoricalBar[] | null | undefined
+export function marketDataResearchBarsToDailyBars(
+  bars: readonly MarketDataResearchHistoricalBar[] | null | undefined
 ): YahooDailyBar[] | null {
   if (!bars || bars.length === 0) return null;
   if (bars.some((b) => b.provenance !== "live")) return null;
@@ -479,7 +479,7 @@ export function classifyPriceRegime(
  * because the repo has no minute-bar source to wire to (read this
  * before adding one):
  *
- * - The Yahoo historical-bars provider (fossResearch.ts yfinance
+ * - The Yahoo historical-bars provider (marketDataResearch.ts yfinance
  *   getHistoricalBars) maps timeframes to 1wk/1mo/1h/1d ONLY. A
  *   "1Min"/"15Min" timeframe silently collapses to interval=1d
  *   (daily bars). Wiring ORB to it would compute OR_H/OR_L from
@@ -501,8 +501,8 @@ export function classifyPriceRegime(
  * provider that (a) accepts a 1-minute (or 15-minute) timeframe and
  * returns bars at that granularity, and (b) preserves full
  * timestamps (time-of-day, not date-only). The seam is
- * FossHistoricalBar-producing getHistoricalBars in
- * src/services/fossResearch.ts (yfinance + alpaca implementations)
+ * MarketDataResearchHistoricalBar-producing getHistoricalBars in
+ * src/services/marketDataResearch.ts (yfinance + alpaca implementations)
  * plus the adapter in src/trading/dataProviders/adapters.ts — slice 8
  * owns that provider work. Until it lands, these functions compute
  * only on bars a caller supplies, and every no-data case returns

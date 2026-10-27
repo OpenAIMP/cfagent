@@ -79,7 +79,7 @@ export function createFeatureDisabledResponse(
 export function matchFeatureForRoute(pathname: string): FeatureFlag | null {
   const p = pathname.toLowerCase();
 
-  // Screener pipeline (E*TRADE & FOSS screeners, presets, and runs)
+  // Screener pipeline (E*TRADE & market-data screeners, presets, and runs)
   if (
     p.startsWith("/api/screener") ||
     p.startsWith("/screener") ||
@@ -89,6 +89,11 @@ export function matchFeatureForRoute(pathname: string): FeatureFlag | null {
     p.startsWith("/api/options/profiles") ||
     p.startsWith("/api/options/runs") ||
     p.startsWith("/api/options/export") ||
+    p.startsWith("/api/market-data/screen") ||
+    p.startsWith("/api/market-data/compare") ||
+    // #1906: deprecated aliases still route to the same handlers, so they
+    // stay feature-gated identically; use canonical prefixes instead.
+    // Alias removal is a follow-up.
     p.startsWith("/api/foss/screen") ||
     p.startsWith("/api/foss/compare")
   ) {

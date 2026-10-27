@@ -10,7 +10,7 @@
  *
  * Live-data-only rule: this module fetches real market history and treats
  * ANY fetch/parse failure as "unavailable". It never substitutes generated
- * bars, and it never consults the static FOSS table. (The FOSS providers'
+ * bars, and it never consults the static market-data table. (The market-data providers'
  * async getHistoricalBars silently falls back to generated bars on
  * failure, which is why beta does not route through it.)
  */
@@ -33,7 +33,7 @@ export type DailyClosesFetcher = (symbol: string) => Promise<Map<string, number>
 
 /**
  * Fetches real daily closes from Yahoo Finance's chart API (the same public
- * endpoint the in-repo FOSS Yahoo provider uses). Returns null on any
+ * endpoint the in-repo Yahoo provider uses). Returns null on any
  * failure — no synthetic substitution, ever.
  */
 export async function fetchYahooDailyCloses(symbol: string): Promise<Map<string, number> | null> {
