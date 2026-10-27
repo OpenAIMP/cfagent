@@ -1,5 +1,5 @@
 import React from "react";
-import { EmptyState } from "../components/ui";
+import { EmptyState, Button } from "../components/ui";
 import type { ScheduledTaskItem } from "./types";
 import { ScheduleCard, type ScheduleCardProps } from "./ScheduleCard";
 
@@ -19,14 +19,14 @@ export function SchedulesSection(props: SchedulesSectionProps) {
             <span>⏱️</span> Active Durable Schedules
             <span className="sched-count-pill">{schedules.length} Active</span>
           </h4>
-          <button
+          <Button
             type="button"
             className="btn-sched-action-sm"
             onClick={fetchSchedules}
             disabled={loading}
           >
             {loading ? "Refreshing…" : "↻ Refresh"}
-          </button>
+          </Button>
         </header>
 
         {schedules.length === 0 && !loading ? (
@@ -34,13 +34,13 @@ export function SchedulesSection(props: SchedulesSectionProps) {
             icon="📅"
             description="Create a stock screen, options analysis, or saved-view discovery schedule to see it here; legacy app-created jobs are not recreated automatically."
             title="No active schedules"
-            action={<button
+            action={<Button
               type="button"
               className="btn-sched-primary"
               onClick={openCreateModal}
             >
               + Create First Schedule
-            </button>}
+            </Button>}
           />
         ) : (
           <div className="schedules-grid">
