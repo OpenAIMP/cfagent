@@ -1,0 +1,3 @@
+### Changed
+
+- **BrowserAgent → PortThink (#1959):** `src/agents/browserAgent.ts` now extends `PortThink` from `src/actors/thinkAdapter.ts` instead of `AIChatAgent` from `@cloudflare/ai-chat`. No chat behavior is dropped: the class defines no chat overrides, no caller opens a WebSocket chat to it, and its domain methods plus HTTP `onRequest` are unchanged; Think's native WS chat is the replacement surface for any future chat use, with port hooks deliberately unset (PortThink handles unset hooks). Covered by `tests/browser-agent-think.test.ts` and the updated mock in `tests/browser_and_slack_agents.test.ts`; `tests/actor-ports-conformance.test.ts` is unchanged and still 24/24.

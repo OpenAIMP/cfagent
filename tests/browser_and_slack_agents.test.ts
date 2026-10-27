@@ -13,6 +13,26 @@ vi.mock("@cloudflare/ai-chat", () => {
   };
 });
 
+// Issue #1959: BrowserAgent now extends PortThink from
+// src/actors/thinkAdapter, whose real module imports @cloudflare/think
+// (workerd-only graph the node vitest harness cannot load). Mock the
+// adapter module with a plain base class, the same idiom as the
+// ai-chat mock above (which SlackAgent, still AIChatAgent-based, keeps
+// using). BrowserAgent's own behavior under test is its domain methods
+// and onRequest, which do not touch the base class beyond ctx/env.
+vi.mock("../src/actors/thinkAdapter", () => {
+  return {
+    PortThink: class MockPortThink {
+      ctx: any;
+      env: any;
+      constructor(ctx: any, env: any) {
+        this.ctx = ctx;
+        this.env = env;
+      }
+    },
+  };
+});
+
 import { BrowserAgent } from "../src/agents/browserAgent";
 import { SlackAgent } from "../src/agents/slackAgent";
 import { ETradeSlackTradingService } from "../src/trading/slack/agent";
