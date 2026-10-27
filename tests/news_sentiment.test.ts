@@ -272,8 +272,10 @@ describe("Issue #132 — hub presentation: assessed vs not assessed", () => {
 
   it("the hub wires the presentation helper into the news table (source pin)", () => {
     const hub = readFileSync("src/client/options/flows/OptionsFlowsHub.tsx", "utf8");
-    expect(hub).toContain("newsSentimentPresentation(item)");
-    expect(hub).toContain("<th>Sentiment</th>");
+    // P4 (#1848): the news table is a Table primitive now, so the header
+    // lives in the columns config, not a raw <th> — the pin follows the
+    // wiring, not the tag: the sentiment column renders through the helper.
+    expect(hub).toMatch(/\{\s*key: "sentiment", header: "Sentiment",[\s\S]*?newsSentimentPresentation\(item\)/);
     const types = readFileSync("src/trading/options/flows/types.ts", "utf8");
     expect(types).toContain("sentimentMethod: NewsSentimentMethod");
   });
