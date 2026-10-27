@@ -1,0 +1,1 @@
+{"compatibility_date":"2026-09-29","compatibility_flags":["nodejs_compat"],"durable_objects":{"bindings":[{"class_name":"ProofThinkAgent","name":"PROOF_THINK_AGENT"}]},"main":"proof-worker.ts","migrations":[{"new_sqlite_classes":["ProofThinkAgent"],"tag":"v1"}],"name":"think-spike-proof"}
