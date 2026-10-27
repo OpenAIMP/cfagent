@@ -15,11 +15,28 @@
  * src/server.ts are the production ingress; this onRequest path is
  * the Agents SDK fallback (the class has no wrangler DO binding, so
  * it is unreachable in production — see src/orm/schema.ts:37).
+ *
+ * Issue #1960 (think-fleet): migrated from AIChatAgent to PortThink
+ * (src/actors/thinkAdapter.ts). Chat-surface mapping, verified from
+ * this file and its tests: the class defines no onChatMessage /
+ * onChatResponse / onChatError / getModel / getSystemPrompt / getTools
+ * and drives no AI chat turn — its "chat" is Slack webhook ingress
+ * (commands, interactions, events) in onRequest below, delegating to
+ * ETradeSlackTradingService, plus the two domain helpers. AIChatAgent's
+ * WS chat-request path therefore only ever reached its default
+ * onChatMessage, which throws; Think's native WS chat (runTurn with
+ * Think defaults) replaces that throwing stub. The get-messages
+ * onRequest intercept maps too: AIChatAgent returned its stored
+ * transcript JSON, Think returns Response.json(this.messages) — and
+ * this class writes to neither store, so both are empty in practice.
+ * No port hooks object exists to keep (none were defined) and no
+ * adapter turn is wired: inventing a model/tools/prompt would be new
+ * behavior, not a preserved turn path. PortThink.portHooks stays
+ * unset, so a direct Think turn uses Think defaults.
  */
 
-import { AIChatAgent } from "@cloudflare/ai-chat";
+import { PortThink } from "../actors/thinkAdapter";
 import type {
-  Env,
   TransactionSnapData,
   PreTradeApprovalDraft,
 } from "../types";
@@ -34,7 +51,7 @@ import {
 import { gateSlackRequest } from "../security/webhookSecurity";
 import { BrowserAgent } from "./browserAgent";
 
-export class SlackAgent extends AIChatAgent<Env> {
+export class SlackAgent extends PortThink {
   private slackService?: ETradeSlackTradingService;
   private browserAgent?: BrowserAgent;
 
