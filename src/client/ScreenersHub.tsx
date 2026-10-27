@@ -971,7 +971,7 @@ export function ScreenersHub({
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
                     <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>📡 Live Feed Source:</span>
                     <span className="screener-feed-name" style={{ fontWeight: 600 }}>
-                      Yahoo Finance FOSS Engine (<code>query1.finance.yahoo.com</code>)
+                      Yahoo Finance Engine (<code>query1.finance.yahoo.com</code>)
                     </span>
                     <span style={{
                       padding: "0.15rem 0.55rem",
@@ -982,7 +982,7 @@ export function ScreenersHub({
                       color: "var(--color-accent)",
                       border: "1px solid var(--color-border-focus)",
                     }}>
-                      ● LIVE FOSS ENGINE
+                      ● LIVE YAHOO ENGINE
                     </span>
                   </div>
                   <div className="screener-feed-meta" style={{ fontSize: "0.76rem" }}>

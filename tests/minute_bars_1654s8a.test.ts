@@ -1,7 +1,7 @@
 /**
  * Issue #1654 slice 8 (adapter half) — minute-bar provider extension.
  *
- * The two historical-bars providers in src/services/fossResearch.ts
+ * The two historical-bars providers in src/services/marketDataResearch.ts
  * (YahooFinanceProvider, AlpacaMarketDataProvider) silently collapsed
  * every minute timeframe to daily bars (slice 7's finding: both mapped
  * only W/M/H/D, and both truncated timestamps to date-only, so no ET
@@ -18,7 +18,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   YahooFinanceProvider,
   AlpacaMarketDataProvider,
-} from "../src/services/fossResearch";
+} from "../src/services/marketDataResearch";
 import type { Env } from "../src/types";
 
 function jsonResponse(body: unknown, ok = true): any {

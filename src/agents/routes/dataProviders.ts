@@ -38,7 +38,7 @@
  * status (isConfigured defers to ETradeService.getStatus) plus the
  * P1 conformance kit over the live adapter; public's resolves the
  * record's configured credential reference to the user's stored
- * token, then runs the same kit; yahoo's is the FOSS provider's own
+ * token, then runs the same kit; yahoo's is the market-data provider's own
  * isConfigured plus the same kit over the yahoo adapter. A provider
  * with no bound verifier gets an honest failure ("no adapter…"),
  * never a rubber stamp: provisioning is configuration, and a config
@@ -51,7 +51,7 @@ import type { Env } from "../../types";
 import {
   AlpacaMarketDataProvider,
   YahooFinanceProvider,
-} from "../../services/fossResearch";
+} from "../../services/marketDataResearch";
 import {
   createETradeDataProviderFromEnv,
   verifyETradeDataProvider,
@@ -137,7 +137,7 @@ function buildPlatformRegistry(ctx: DataProviderRoutesContext): DataProviderRegi
  * kit against the live adapter. The public check resolves the
  * provider record's configured credential REFERENCE (the caller
  * passes it through) to the user's stored token, then runs the
- * same kit. The yahoo and alpaca checks are the FOSS providers'
+ * same kit. The yahoo and alpaca checks are the market-data providers'
  * own isConfigured plus the same kit over their adapters. Any
  * other provider id returns undefined (= no adapter wired for
  * verification), and the route substitutes the honest no-adapter

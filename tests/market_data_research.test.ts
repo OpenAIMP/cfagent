@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   YahooFinanceProvider,
   AlpacaMarketDataProvider,
-  HybridFossProvider,
-  FossResearchService,
-} from "../src/services/fossResearch";
+  HybridMarketDataProvider,
+  MarketDataResearchService,
+} from "../src/services/marketDataResearch";
 import { AGENT_DIDS } from "../src/agents/did";
 import { McpToolFactory } from "../src/mcp/commands";
 import { MCP_RESOURCES, MCP_PROMPTS, readMCPResource } from "../src/mcp/index";
@@ -13,20 +13,20 @@ import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import type { Env } from "../src/types";
 
-describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
+describe("Market Data Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   const mockEnv: Env = {
     APP_BASE_URL: "https://agent.openaimp.com",
     AI_SEARCH_ENDPOINT: "https://ai-search.internal",
     SEARCH_AGENT: {} as any,
     ALPACA_BASE_URL: "https://paper-api.alpaca.markets",
     ALPACA_DATA_URL: "https://data.alpaca.markets",
-    FOSS_MARKET_DATA_PROVIDER: "hybrid",
+    MARKET_DATA_PROVIDER: "hybrid",
   };
 
   let yfProvider: YahooFinanceProvider;
   let alpacaProvider: AlpacaMarketDataProvider;
-  let hybridProvider: HybridFossProvider;
-  let researchService: FossResearchService;
+  let hybridProvider: HybridMarketDataProvider;
+  let researchService: MarketDataResearchService;
   let orm: DatabaseORM;
   const sessionId = "test_research_session_001";
   const userDid = "did:user:github:analyst_user";
@@ -34,20 +34,20 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   beforeEach(() => {
     // #411: hermetic suite — no real network. #923 (epic #913 S5) removed
     // the providers' deterministic fallback data, so with fetch blocked
-    // every live FOSS call now rejects with an explicit unavailable error
+    // every live market-data call now rejects with an explicit unavailable error
     // instead of returning fallback values; the tests below pin that
     // rejection (live behaviour itself is pinned by the mocked-fetch
-    // suites: foss_provenance, foss_substrate_live_only_p923, and the
+    // suites: market_data_provenance, market_data_substrate_live_only_p923, and the
     // data-provider Yahoo/Alpaca suites).
     vi.stubGlobal("fetch", async () => {
       throw new Error(
-        "network disabled in foss_research tests (#411): providers must use their deterministic fallback"
+        "network disabled in market_data_research tests (#411): providers must use their deterministic fallback"
       );
     });
     yfProvider = new YahooFinanceProvider();
     alpacaProvider = new AlpacaMarketDataProvider();
-    hybridProvider = new HybridFossProvider();
-    researchService = new FossResearchService(mockEnv);
+    hybridProvider = new HybridMarketDataProvider();
+    researchService = new MarketDataResearchService(mockEnv);
 
     const sql = new MockSqlStorage();
     orm = new DatabaseORM(sql);
@@ -98,18 +98,18 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   });
 
   // =========================================================================
-  // 3. Hybrid FOSS Provider
+  // 3. Hybrid Market Data Provider
   // =========================================================================
-  describe("HybridFossProvider (Alpaca Real-Time + YFinance Valuation)", () => {
+  describe("HybridMarketDataProvider (Alpaca Real-Time + YFinance Valuation)", () => {
     it("offline hybrid quote rejects — no blended profile quote (#923)", async () => {
       await expect(hybridProvider.getQuote("GOOGL")).rejects.toThrow(/unavailable/i);
     });
   });
 
   // =========================================================================
-  // 4. FossResearchService Facade & Autonomous Agent Attestation
+  // 4. MarketDataResearchService Facade & Autonomous Agent Attestation
   // =========================================================================
-  describe("FossResearchService Facade", () => {
+  describe("MarketDataResearchService Facade", () => {
     it("offline research report rejects — no non-live report is assembled (#923)", async () => {
       await expect(researchService.generateResearchReport("NVDA")).rejects.toThrow(/unavailable/i);
     });
@@ -120,7 +120,7 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       );
     }, 15000);
 
-    it("inspects live health status of FOSS data providers", async () => {
+    it("inspects live health status of market data providers", async () => {
       const statuses = await researchService.getProviderStatuses();
       expect(statuses.length).toBe(3);
       const yf = statuses.find((s) => s.provider === "yfinance");
@@ -141,7 +141,16 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       audit: () => {},
     });
 
-    it("foss_get_quote tool rejects offline — no fallback quote (#923)", async () => {
+    it("market_data_get_quote tool rejects offline — no fallback quote (#923)", async () => {
+      await expect(
+        McpToolFactory.executeTool("market_data_get_quote", {
+          symbol: "TSLA",
+          provider: "hybrid",
+        }, getContext()),
+      ).rejects.toThrow(/unavailable/i);
+    });
+
+    it("foss_get_quote alias tool rejects offline — same as canonical (#1906)", async () => {
       await expect(
         McpToolFactory.executeTool("foss_get_quote", {
           symbol: "TSLA",
@@ -150,17 +159,17 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       ).rejects.toThrow(/unavailable/i);
     });
 
-    it("foss_company_fundamentals tool rejects offline — no profile fundamentals (#923)", async () => {
+    it("market_data_company_fundamentals tool rejects offline — no profile fundamentals (#923)", async () => {
       await expect(
-        McpToolFactory.executeTool("foss_company_fundamentals", {
+        McpToolFactory.executeTool("market_data_company_fundamentals", {
           symbol: "AAPL",
         }, getContext()),
       ).rejects.toThrow(/unavailable/i);
     });
 
-    it("foss_historical_bars tool rejects offline — no synthetic bars (#923)", async () => {
+    it("market_data_historical_bars tool rejects offline — no synthetic bars (#923)", async () => {
       await expect(
-        McpToolFactory.executeTool("foss_historical_bars", {
+        McpToolFactory.executeTool("market_data_historical_bars", {
           symbol: "AMZN",
           period: "1mo",
           timeframe: "1d",
@@ -168,28 +177,28 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       ).rejects.toThrow(/unavailable/i);
     });
 
-    it("foss_market_research tool rejects offline — no non-live report (#923)", async () => {
+    it("market_data_research tool rejects offline — no non-live report (#923)", async () => {
       await expect(
-        McpToolFactory.executeTool("foss_market_research", {
+        McpToolFactory.executeTool("market_data_research", {
           symbol: "PLTR",
         }, getContext()),
       ).rejects.toThrow(/unavailable/i);
     });
 
-    it("foss_alpaca_snapshot tool rejects offline — no profile snapshot (#923)", async () => {
+    it("alpaca_snapshot tool rejects offline — no profile snapshot (#923)", async () => {
       const ctx = {
         ...getContext(),
         audit: () => {},
       };
 
       await expect(
-        McpToolFactory.executeTool("foss_alpaca_snapshot", {
+        McpToolFactory.executeTool("alpaca_snapshot", {
           symbol: "BTC/USD",
         }, ctx),
       ).rejects.toThrow(/unavailable/i);
     });
 
-    it("executes foss_alpaca_account tool via McpToolFactory with agentic DID audit tracing", async () => {
+    it("executes alpaca_account tool via McpToolFactory with agentic DID audit tracing", async () => {
       const audits: any[] = [];
       const ctx = {
         ...getContext(),
@@ -198,12 +207,12 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
         },
       };
 
-      const result = await McpToolFactory.executeTool("foss_alpaca_account", {}, ctx);
+      const result = await McpToolFactory.executeTool("alpaca_account", {}, ctx);
       expect(result).toBeDefined();
       expect(audits.some((a) => a.type === "alpaca.account.query" && a.domain === "trading")).toBe(true);
     });
 
-    it("executes foss_alpaca_positions tool via McpToolFactory with agentic DID audit tracing", async () => {
+    it("executes alpaca_positions tool via McpToolFactory with agentic DID audit tracing", async () => {
       const audits: any[] = [];
       const ctx = {
         ...getContext(),
@@ -212,12 +221,12 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
         },
       };
 
-      const result = await McpToolFactory.executeTool("foss_alpaca_positions", {}, ctx);
+      const result = await McpToolFactory.executeTool("alpaca_positions", {}, ctx);
       expect(result).toBeDefined();
       expect(audits.some((a) => a.type === "alpaca.positions.query" && a.domain === "trading")).toBe(true);
     });
 
-    it("executes foss_alpaca_orders tool via McpToolFactory with status filter and audit tracing", async () => {
+    it("executes alpaca_orders tool via McpToolFactory with status filter and audit tracing", async () => {
       const audits: any[] = [];
       const ctx = {
         ...getContext(),
@@ -226,12 +235,12 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
         },
       };
 
-      const result = await McpToolFactory.executeTool("foss_alpaca_orders", { status: "all" }, ctx);
+      const result = await McpToolFactory.executeTool("alpaca_orders", { status: "all" }, ctx);
       expect(result).toBeDefined();
       expect(audits.some((a) => a.type === "alpaca.orders.query" && a.payload.status === "all")).toBe(true);
     });
 
-    it("executes foss_alpaca_place_order tool via McpToolFactory with agentic DID audit tracing", async () => {
+    it("executes alpaca_place_order tool via McpToolFactory with agentic DID audit tracing", async () => {
       const audits: any[] = [];
       const ctx = {
         ...getContext(),
@@ -240,7 +249,7 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
         },
       };
 
-      const result = await McpToolFactory.executeTool("foss_alpaca_place_order", {
+      const result = await McpToolFactory.executeTool("alpaca_place_order", {
         symbol: "NVDA",
         qty: 1,
         side: "buy",
@@ -263,7 +272,7 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
       expect(provider1.getApiSecret()).toBe("test_secret_alpaca");
       expect(provider1.isConfigured()).toBe(true);
 
-      const service = new FossResearchService(envWithStandardKey);
+      const service = new MarketDataResearchService(envWithStandardKey);
       const statuses = service.getProviderStatuses();
       const alpacaStatus = statuses.find((s) => s.provider === "alpaca");
       expect(alpacaStatus?.configured).toBe(true);
@@ -275,31 +284,47 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   // 6. MCP Protocol Resources & Prompts
   // =========================================================================
   describe("MCP Resources & Prompts", () => {
-    it("exposes FOSS market resources in MCP_RESOURCES", () => {
+    it("exposes market-data resources in MCP_RESOURCES", () => {
+      const uris = MCP_RESOURCES.map((r) => r.uri);
+      expect(uris).toContain("market-data://market/quote/NVDA");
+      expect(uris).toContain("market-data://research/fundamentals/NVDA");
+      expect(uris).toContain("market-data://providers/status");
+    });
+
+    it("lists deprecated legacy resource aliases in MCP_RESOURCES (#1906)", () => {
       const uris = MCP_RESOURCES.map((r) => r.uri);
       expect(uris).toContain("foss://market/quote/NVDA");
       expect(uris).toContain("foss://research/fundamentals/NVDA");
       expect(uris).toContain("foss://providers/status");
     });
 
-    it("foss quote resource rejects offline — no fallback quote (#923)", async () => {
-      await expect(readMCPResource("foss://market/quote/NVDA", { orm, sessionId })).rejects.toThrow(
+    it("market-data quote resource rejects offline — no fallback quote (#923)", async () => {
+      await expect(readMCPResource("market-data://market/quote/NVDA", { orm, sessionId })).rejects.toThrow(
         /unavailable/i,
       );
     });
 
-    it("reads foss providers status resource", async () => {
-      const res = await readMCPResource("foss://providers/status", { orm, sessionId });
-      expect(res.uri).toBe("foss://providers/status");
+    it("reads market-data providers status resource", async () => {
+      const res = await readMCPResource("market-data://providers/status", { orm, sessionId });
+      expect(res.uri).toBe("market-data://providers/status");
+      const legacy = await readMCPResource("foss://providers/status", { orm, sessionId });
+      expect(legacy.uri).toBe("foss://providers/status");
+      expect(JSON.parse(legacy.text)).toEqual(JSON.parse(res.text));
       const parsed = JSON.parse(res.text);
       expect(Array.isArray(parsed)).toBe(true);
       expect(parsed.some((p: any) => p.provider === "yfinance")).toBe(true);
     });
 
-    it("exposes and renders foss_equity_research_report prompt", () => {
-      const prompt = MCP_PROMPTS.find((p) => p.name === "foss_equity_research_report");
+    it("exposes and renders market_data_equity_research_report prompt", () => {
+      const prompt = MCP_PROMPTS.find((p) => p.name === "market_data_equity_research_report");
       expect(prompt).toBeDefined();
       expect(prompt?.description).toContain("equity research report");
+      expect(prompt?.arguments?.some((a) => a.name === "symbol")).toBe(true);
+    });
+
+    it("exposes deprecated legacy prompt alias (#1906)", () => {
+      const prompt = MCP_PROMPTS.find((p) => p.name === "foss_equity_research_report");
+      expect(prompt).toBeDefined();
       expect(prompt?.arguments?.some((a) => a.name === "symbol")).toBe(true);
     });
   });
@@ -309,7 +334,7 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
   // =========================================================================
   describe("NLQ Agentic Research & Quoting Integration", () => {
     it("plans NLQ query for equity research (research NVDA)", async () => {
-      const plan = await planNLQ(mockEnv, "Perform FOSS equity research on NVDA using yfinance and Alpaca");
+      const plan = await planNLQ(mockEnv, "Perform market-data equity research on NVDA using yfinance and Alpaca");
       expect(plan.domain).toBe("research");
       expect(plan.researchData?.action).toBe("report");
       expect(plan.researchData?.symbol).toBe("NVDA");
@@ -344,7 +369,7 @@ describe("FOSS Market Research & Quoting (Yahoo Finance & Alpaca APIs)", () => {
     });
 
     it("executes NLQ quote query and returns explicit unavailable, no rows (#923)", async () => {
-      const plan = await planNLQ(mockEnv, "Get FOSS quote for AAPL on yfinance");
+      const plan = await planNLQ(mockEnv, "Get market-data quote for AAPL on yfinance");
       const result = executeNLQQuery(orm, sessionId, plan, mockEnv, userDid);
 
       expect(result.domain).toBe("research");

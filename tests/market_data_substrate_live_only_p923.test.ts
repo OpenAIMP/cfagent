@@ -2,13 +2,13 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   YahooFinanceProvider,
   AlpacaMarketDataProvider,
-  HybridFossProvider,
-  FossResearchService,
-} from "../src/services/fossResearch";
+  HybridMarketDataProvider,
+  MarketDataResearchService,
+} from "../src/services/marketDataResearch";
 import type { Env } from "../src/types";
 
 /**
- * Issue #923 (epic #913 S5) — FOSS substrate: live-only or explicit
+ * Issue #923 (epic #913 S5) — Market-data substrate: live-only or explicit
  * unavailable. These pins prove the failure path returns an explicit
  * error and NO substitute numbers:
  * - no synthetic bars (generateHistoricalBars) on any live path;
@@ -123,7 +123,7 @@ describe("S5 live-only bars (#923)", () => {
   it("service bars reject when every live provider fails — no synthetic fallback", async () => {
     stubFetchDown();
     await expect(
-      new FossResearchService({} as Env).getHistoricalBars("BARSSVC", "1D", 30, "yfinance"),
+      new MarketDataResearchService({} as Env).getHistoricalBars("BARSSVC", "1D", 30, "yfinance"),
     ).rejects.toThrow(/unavailable/i);
   });
 
@@ -132,7 +132,7 @@ describe("S5 live-only bars (#923)", () => {
     expect(() => new AlpacaMarketDataProvider({} as Env).getHistoricalBarsSync("BARSYNC")).toThrow(
       /unavailable/i,
     );
-    expect(() => new FossResearchService({} as Env).getHistoricalBarsSync("BARSYNC")).toThrow(
+    expect(() => new MarketDataResearchService({} as Env).getHistoricalBarsSync("BARSYNC")).toThrow(
       /unavailable/i,
     );
   });
@@ -172,8 +172,8 @@ describe("S5 live-only profiles (#923)", () => {
     expect(() => new AlpacaMarketDataProvider({} as Env).getFundamentalsSync("AAPL")).toThrow(
       /unavailable/i,
     );
-    expect(() => new FossResearchService({} as Env).getQuoteSync("NVDA")).toThrow(/unavailable/i);
-    expect(() => new FossResearchService({} as Env).getFundamentalsSync("MSFT")).toThrow(
+    expect(() => new MarketDataResearchService({} as Env).getQuoteSync("NVDA")).toThrow(/unavailable/i);
+    expect(() => new MarketDataResearchService({} as Env).getFundamentalsSync("MSFT")).toThrow(
       /unavailable/i,
     );
   });
@@ -182,13 +182,13 @@ describe("S5 live-only profiles (#923)", () => {
     expect(() => new AlpacaMarketDataProvider({} as Env).getMarketSnapshotSync("NVDA")).toThrow(
       /unavailable/i,
     );
-    expect(() => new FossResearchService({} as Env).getAlpacaSnapshotSync("NVDA")).toThrow(
+    expect(() => new MarketDataResearchService({} as Env).getAlpacaSnapshotSync("NVDA")).toThrow(
       /unavailable/i,
     );
-    expect(() => new FossResearchService({} as Env).compareStocksSync(["NVDA", "AMD"])).toThrow(
+    expect(() => new MarketDataResearchService({} as Env).compareStocksSync(["NVDA", "AMD"])).toThrow(
       /unavailable/i,
     );
-    expect(() => new FossResearchService({} as Env).generateResearchReportSync("NVDA")).toThrow(
+    expect(() => new MarketDataResearchService({} as Env).generateResearchReportSync("NVDA")).toThrow(
       /unavailable/i,
     );
   });
@@ -307,7 +307,7 @@ describe("S5 no invented bid/ask, no static PE/market-cap in live quotes (#923)"
 describe("S5 hybrid and snapshot live-only (#923)", () => {
   it("hybrid quote with a live price but failing fundamentals still serves the live price, without invented valuation fields", async () => {
     stubFetchChartOnly("HYBPRICE", 200);
-    const quote = await new HybridFossProvider({} as Env).getQuote("HYBPRICE");
+    const quote = await new HybridMarketDataProvider({} as Env).getQuote("HYBPRICE");
     expect(quote.provenance).toBe("live");
     expect(quote.price).toBe(200);
     expect(quote.trailingPE).toBeUndefined();
@@ -323,7 +323,7 @@ describe("S5 hybrid and snapshot live-only (#923)", () => {
 
   it("offline research report rejects — no non-live report is assembled", async () => {
     stubFetchDown();
-    await expect(new FossResearchService({} as Env).generateResearchReport("REPOFF")).rejects.toThrow(
+    await expect(new MarketDataResearchService({} as Env).generateResearchReport("REPOFF")).rejects.toThrow(
       /unavailable/i,
     );
   });

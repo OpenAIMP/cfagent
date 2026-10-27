@@ -4,7 +4,7 @@ import { __resetQuoteCache } from "../src/services/quoteCache";
 // The orchestrator extends AIChatAgent from @cloudflare/ai-chat, whose real
 // module graph pulls in `cloudflare:` protocol imports the node test loader
 // cannot resolve. Mock it with a plain base class (same pattern as
-// tests/schedules_create_route.test.ts) so the /foss/bars route can be
+// tests/schedules_create_route.test.ts) so the /market-data/bars route can be
 // driven through the real onRequest dispatch.
 vi.mock("@cloudflare/ai-chat", () => {
   return {
@@ -22,11 +22,11 @@ vi.mock("@cloudflare/ai-chat", () => {
 import {
   YahooFinanceProvider,
   AlpacaMarketDataProvider,
-  HybridFossProvider,
-  FossResearchService,
-  fossBarsSourceLabel,
-  weakestFossProvenance,
-} from "../src/services/fossResearch";
+  HybridMarketDataProvider,
+  MarketDataResearchService,
+  marketDataResearchBarsSourceLabel,
+  weakestMarketDataResearchProvenance,
+} from "../src/services/marketDataResearch";
 // Issue #1738: OrchestratorAgent/ResearchAgent/TradingAgent are
 // Agents SDK actors now — mock the SDK with a plain base class
 // (the api_chat_route.test.ts idiom) so the real module graph's
@@ -60,7 +60,7 @@ import type { Env } from "../src/types";
  * issue #923 (epic #913 S5) — live-only: a failed live fetch now REJECTS
  * with an explicit unavailable error; no static/generated substitute is
  * served anywhere. The live pins below are unchanged: a successful
- * (mocked) live fetch IS provenance "live", the /foss/bars route derives
+ * (mocked) live fetch IS provenance "live", the /market-data/bars route derives
  * its `source` from the bars' actual provenance, and a fully live report
  * may say "consensus" with its provenance bound into the DID attestation.
  * The former #117 fallback pins are rewritten here as #923 rejection pins.
@@ -180,19 +180,19 @@ afterEach(() => {
 });
 
 describe("provenance helpers (#117)", () => {
-  it("weakestFossProvenance returns the least-live input", () => {
-    expect(weakestFossProvenance("live")).toBe("live");
-    expect(weakestFossProvenance("live", "static")).toBe("static");
-    expect(weakestFossProvenance("live", "static", "generated")).toBe("generated");
-    expect(weakestFossProvenance()).toBe("live");
+  it("weakestMarketDataResearchProvenance returns the least-live input", () => {
+    expect(weakestMarketDataResearchProvenance("live")).toBe("live");
+    expect(weakestMarketDataResearchProvenance("live", "static")).toBe("static");
+    expect(weakestMarketDataResearchProvenance("live", "static", "generated")).toBe("generated");
+    expect(weakestMarketDataResearchProvenance()).toBe("live");
   });
 
-  it("fossBarsSourceLabel names the provider API only for live bars", () => {
-    expect(fossBarsSourceLabel("yfinance", "live")).toBe("Yahoo Finance FOSS Chart API");
-    expect(fossBarsSourceLabel("alpaca", "live")).toBe("Alpaca Market Data v2");
-    expect(fossBarsSourceLabel("yfinance", "generated")).toContain("not live");
-    expect(fossBarsSourceLabel("alpaca", "generated")).not.toContain("Alpaca Market Data v2");
-    expect(fossBarsSourceLabel("yfinance", "static")).toContain("not live");
+  it("marketDataResearchBarsSourceLabel names the provider API only for live bars", () => {
+    expect(marketDataResearchBarsSourceLabel("yfinance", "live")).toBe("Yahoo Finance Chart API");
+    expect(marketDataResearchBarsSourceLabel("alpaca", "live")).toBe("Alpaca Market Data v2");
+    expect(marketDataResearchBarsSourceLabel("yfinance", "generated")).toContain("not live");
+    expect(marketDataResearchBarsSourceLabel("alpaca", "generated")).not.toContain("Alpaca Market Data v2");
+    expect(marketDataResearchBarsSourceLabel("yfinance", "static")).toContain("not live");
   });
 });
 
@@ -297,12 +297,12 @@ describe("Historical bars provenance (#117)", () => {
   });
 });
 
-describe("GET /foss/bars route source stamping (#117)", () => {
+describe("GET /market-data/bars route source stamping (#117)", () => {
   function makeAgent() {
     const sql = new MockSqlStorage();
     const ctx = {
       storage: { sql },
-      id: { toString: () => "foss-bars-route-test" },
+      id: { toString: () => "market-data-bars-route-test" },
     } as any;
     const agent: any = Object.create(OrchestratorAgent.prototype);
     agent.ctx = ctx;
@@ -319,7 +319,7 @@ describe("GET /foss/bars route source stamping (#117)", () => {
     // (orchestrator.ts, capability "http.request") rebuilds the request and
     // calls routeRequest — drive the same production path here.
     const res = await agent.routeRequest(
-      new Request(new URL(`/api/foss/bars?${qs}`, "https://agent.internal"))
+      new Request(new URL(`/api/market-data/bars?${qs}`, "https://agent.internal"))
     );
     return { status: res.status, body: (await res.json()) as any };
   }
@@ -337,7 +337,7 @@ describe("GET /foss/bars route source stamping (#117)", () => {
     const { status, body } = await getBars(makeAgent(), "symbol=NVDA&provider=yfinance");
     expect(status).toBe(200);
     expect(body.provenance).toBe("live");
-    expect(body.source).toBe("Yahoo Finance FOSS Chart API");
+    expect(body.source).toBe("Yahoo Finance Chart API");
   });
 });
 
@@ -363,7 +363,7 @@ describe("Hybrid quote provenance (#117)", () => {
     // successful-chart test), so a fetch-down stub genuinely exercises
     // the failure path instead of the 5-minute live-quote cache.
     stubFetchDown();
-    const hybrid = new HybridFossProvider({} as Env);
+    const hybrid = new HybridMarketDataProvider({} as Env);
     await expect(hybrid.getQuote("HYBOFF")).rejects.toThrow(/unavailable/i);
     await expect(hybrid.getQuote("CUSTOMCORP")).rejects.toThrow(/unavailable/i);
   });
@@ -372,13 +372,13 @@ describe("Hybrid quote provenance (#117)", () => {
 describe("Research report provenance (#117, F11)", () => {
   it("offline report rejects — no non-live report is assembled (#923)", async () => {
     stubFetchDown();
-    await expect(new FossResearchService({} as Env).generateResearchReport("NVDA")).rejects.toThrow(
+    await expect(new MarketDataResearchService({} as Env).generateResearchReport("NVDA")).rejects.toThrow(
       /unavailable/i,
     );
   });
 
   it("sync report path throws explicit unavailable (#923)", () => {
-    expect(() => new FossResearchService({} as Env).generateResearchReportSync("CUSTOMCORP")).toThrow(
+    expect(() => new MarketDataResearchService({} as Env).generateResearchReportSync("CUSTOMCORP")).toThrow(
       /unavailable/i,
     );
   });
@@ -424,7 +424,7 @@ describe("Live fundamentals and live report (#117)", () => {
 
   it("fully live report: provenance live and the narrative may say consensus", async () => {
     stubFetchLiveYahoo();
-    const report = await new FossResearchService({} as Env).generateResearchReport("NVDA");
+    const report = await new MarketDataResearchService({} as Env).generateResearchReport("NVDA");
     expect(report.quote.provenance).toBe("live");
     expect(report.fundamentals.provenance).toBe("live");
     expect(report.bars.every((b) => b.provenance === "live")).toBe(true);

@@ -41,7 +41,7 @@ Total Criticality Score = Complexity + Criticality + Usage + Operational Risk
 | Functional Category | Primary Source Modules / Files | Total LOC | Complexity (1-5) | Criticality (1-5) | Usage (1-5) | Risk (1-5) | Total Score | Risk Level |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | **1. Feed** | `src/trading/etrade/client.ts`, `alpaca/platform.ts`, `dataProviders/adapters.ts`, `dataSources.ts`, `syntheticChains.ts` | 5,284 | 4 | 5 | 5 | 5 | **19** | **CRITICAL** |
-| **2. Gather** | `src/trading/options/flows/flowService.ts`, `technicals.ts`, `factorGrades.ts`, `vector-memory.ts`, `fossResearch.ts` | 6,064 | 4 | 4 | 4 | 4 | **16** | **HIGH** |
+| **2. Gather** | `src/trading/options/flows/flowService.ts`, `technicals.ts`, `factorGrades.ts`, `vector-memory.ts`, `marketDataResearch.ts` | 6,064 | 4 | 4 | 4 | 4 | **16** | **HIGH** |
 | **3. Analysis** | `src/trading/screener.ts`, `screenerPipeline.ts`, `optionsScreener.ts`, `strategyEngine.ts`, `opportunityScanner.ts`, `recommendationKernel.ts` | 7,174 | 5 | 5 | 4 | 4 | **18** | **CRITICAL** |
 | **4. Generate** | `src/trading/screenerReportPdf.ts`, `screenerReportCsv.ts`, `screenerReportXlsx.ts`, `optionsReportPdf.ts`, `optionsReportXlsx.ts`, `researchReportPdf.ts` | 1,800 | 3 | 3 | 3 | 2 | **11** | **LOW** |
 | **5. Store** | `src/security/sessionStore.ts`, `d1GovernanceAdapter.ts`, `discoveryRunStore.ts`, `strategyProfileStore.ts`, R2 Buckets | 1,128 | 3 | 5 | 4 | 4 | **16** | **HIGH** |
@@ -74,7 +74,7 @@ Total Criticality Score = Complexity + Criticality + Usage + Operational Risk
   * `src/trading/technicals.ts` (277 LOC): Technical indicator calculation engine (RSI-14, MACD, Simple/Exponential Moving Averages, Bollinger Bands, ATR).
   * `src/trading/factorGrades.ts` (216 LOC): Multi-factor scoring (Value, Growth, Momentum, Profitability, Revisions).
   * `src/memory/vector-memory.ts` (199 LOC): RAG semantic retrieval using Cloudflare Vectorize for historic market context and trade memories.
-  * `src/services/fossResearch.ts` (2,893 LOC): Web scraping, repository intelligence gathering, and fundamental news sentiment extraction.
+  * `src/services/marketDataResearch.ts` (2,893 LOC): Web scraping, repository intelligence gathering, and fundamental news sentiment extraction.
 * **Assessment & Purpose:** Enriches raw market feed data with technical calculations, institutional flow indicators, semantic memory contexts, and fundamental metrics.
 * **Key Operational Risks:**
   1. *Subrequest Saturation:* Parallel web scraping or vector queries exceeding Cloudflare Worker subrequest limits (50/100 cap).
@@ -370,7 +370,7 @@ The table below maps all functional workflows currently operational in `cfagent`
 | **1. Quantitative Stock Sweep** | Web UX / Cron / Slack | Symbol Universe, RSI/MACD thresholds, Volume ratio | `Feed -> Gather (Techs) -> Analysis (Screener) -> Store -> Deliver` | JSON Dataset, UX Table, Slack Block Card | UX, Slack, Email, API, MCP |
 | **2. Options Strategy Discovery** | Web UX / MCP / Chat | Target Ticker, Risk profile, Delta/IV criteria | `Feed -> Gather (Chains) -> Analysis (StrategyEngine) -> Generate (PDF)` | Multi-Leg Option Setups, PDF Analysis Brief | UX, Slack, Email, PDF, MCP |
 | **3. Unusual Flow & Dark Pool Alert** | Cron (`scheduledTasks`) | Market-wide options stream, Block volume flags | `Feed -> Gather (FlowService) -> Store -> Deliver` | Real-time Unusual Flow Alert | Slack, Email, Voice, UX |
-| **4. Comprehensive Research Brief** | Web UX / A2A / Voice | Company Symbol or Topic string | `Gather (FossResearch) -> Analysis (RecomKernel) -> Generate (PDF)` | PDF Research Report, Executive Summary | UX, Email, Voice, A2A, R2 Blob |
+| **4. Comprehensive Research Brief** | Web UX / A2A / Voice | Company Symbol or Topic string | `Gather (MarketDataResearch) -> Analysis (RecomKernel) -> Generate (PDF)` | PDF Research Report, Executive Summary | UX, Email, Voice, A2A, R2 Blob |
 | **5. Goal-Chain Multi-Step Execution** | Chat / MCP | Natural Language Goal Statement | `Serve (MCP) -> Analysis (Orchestrator) -> Trade Execution` | Order Preview / Execution Confirmation | UX, MCP, Slack, A2A |
 
 ---
@@ -429,8 +429,8 @@ Pipeline 1: Equity Screening & Indicator Pipeline
 Pipeline 2: Options Strategy Discovery Pipeline
 [Feed: Option Chains] -> [Gather: FlowService/IVCollector] -> [Analysis: StrategyEngine] -> [Generate: PDF/XLSX] -> [Deliver: UX/Email]
 
-Pipeline 3: Market Intelligence & FOSS Research Pipeline
-[Gather: WebScraper/FossResearch] -> [Analysis: RecommendationKernel] -> [Memory: Vectorize] -> [Generate: PDF Brief] -> [Deliver: R2/UX]
+Pipeline 3: Market Intelligence & Market Data Research Pipeline
+[Gather: WebScraper/MarketDataResearch] -> [Analysis: RecommendationKernel] -> [Memory: Vectorize] -> [Generate: PDF Brief] -> [Deliver: R2/UX]
 
 Pipeline 4: Scheduled Digest & Alert Pipeline
 [Scheduling: Cron Trigger] -> [Task Dispatcher: scheduledTasks] -> [Analysis Sweep] -> [Deliver: Slack/Email/Voice]

@@ -304,7 +304,7 @@ export const DEFAULT_PROVIDER_SEEDS: readonly ProviderConfigInput[] = [
     lifecycleState: "configured",
     enabled: false,
     precedence: 5,
-    // Deploy-time Worker env keys (fossResearch.ts reads ALPACA_API_KEY
+    // Deploy-time Worker env keys (marketDataResearch.ts reads ALPACA_API_KEY
     // et al.) — the env var NAME is the reference, never the value.
     credentialRef: "env:ALPACA_API_KEY",
     config: { dataUrl: "https://data.alpaca.markets" },
@@ -515,7 +515,7 @@ export function deleteCapabilityRoutesForProvider(
  *   historicalBars ← yahoo    (technicals history E*TRADE lacks)
  *   quotes         ← etrade primary, yahoo DECLARED gap-fill
  *   optionsChains  ← etrade   (the only chain source)
- *   fundamentals   ← yahoo    (FOSS)
+ *   fundamentals   ← yahoo    (market-data)
  *
  * No route for `news`: nothing serves it yet, and resolution fails
  * explicitly rather than inventing an assignment.

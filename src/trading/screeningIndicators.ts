@@ -259,7 +259,7 @@ export function compute6VoteCompositeBias(
  * Bar-derived 6-vote bias. Computes every vote input from real daily
  * bars — SMA₅₀/SMA₂₀₀ via computeSma, RSI₁₄/MACD via computeTechnicals
  * (whose 15/27-bar minimums gate honestly: below them the field is
- * null and the vote abstains — the fossResearch 50.0/0-line defaults
+ * null and the vote abstains — the marketDataResearch 50.0/0-line defaults
  * for short series are never allowed to vote), regime via
  * classifyPriceRegime — and counts via compute6VoteCompositeBias.
  * Returns null only when no price exists (empty bars or a
@@ -275,7 +275,7 @@ export function compute6VoteCompositeBiasFromBars(
   if (!Number.isFinite(price)) return null;
   const closes = bars.map((b) => b.close);
   const tech = computeTechnicals("", [...bars]);
-  // Finiteness gate: fossResearch's RSI treats a NaN diff as a flat
+  // Finiteness gate: marketDataResearch's RSI treats a NaN diff as a flat
   // day (both gain and loss add 0) instead of propagating NaN, so a
   // corrupt close series would still yield a confident RSI vote.
   // The bias contract requires non-finite inputs to abstain, so RSI

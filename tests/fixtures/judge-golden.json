@@ -164,7 +164,7 @@
       "expectedIntent": "research",
       "expectedNeedsConfirmation": false,
       "id": "research-008",
-      "text": "foss data on price to book"
+      "text": "market data on price to book"
     },
     {
       "expectedConfidence": 0.98,

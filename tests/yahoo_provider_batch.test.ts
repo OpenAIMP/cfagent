@@ -7,7 +7,7 @@
  * policy relies on.
  */
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { YahooFinanceProvider } from "../src/services/fossResearch";
+import { YahooFinanceProvider } from "../src/services/marketDataResearch";
 
 const quotePayload = {
   quoteResponse: {
@@ -72,7 +72,7 @@ afterAll(() => {
 });
 
 describe("YahooFinanceProvider.getQuotes", () => {
-  it("maps the batch payload to live FossQuotes; indicators stay unset", async () => {
+  it("maps the batch payload to live MarketDataResearchQuotes; indicators stay unset", async () => {
     stubYahoo();
     const provider = new YahooFinanceProvider();
     const quotes = await provider.getQuotes(["BAAA", "BBBB"]);

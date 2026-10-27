@@ -41,7 +41,7 @@ check in a refactor has silently become public.
 | `GET /api/me` | Deliberate quirk: returns `{authenticated: false}` without a session (HTTP 200), and the caller's own `internalUserId` only for wired sessions |
 | `/openapi.json`, `/api/docs` | Provisional spike gating: authenticated session required (401 otherwise, 405 non-GET). The final `DOCS_PUBLIC_SURFACES` decision is still open (#1024) |
 | Generic `/api/*` forwarder | Session-gated; downstream DO checks apply per route |
-| WebSocket routes (`/voice/trade`, market/foss quote streams) | Session handling at upgrade; they do not map cleanly onto framework middleware and stay in `handleFetch` during any strangler migration |
+| WebSocket routes (`/voice/trade`, market-data quote streams) | Session handling at upgrade; they do not map cleanly onto framework middleware and stay in `handleFetch` during any strangler migration |
 
 Per-route throttling exists as a helper in the worker dispatch; it is a
 load control, not an authorization control, and must not be cited as one.

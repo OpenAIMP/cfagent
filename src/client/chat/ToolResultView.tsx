@@ -83,9 +83,9 @@ export function ToolResultView({
     );
   }
 
-  // FOSS Market Data & Research Tool (Yahoo Finance & Alpaca)
+  // Market Data & Research Tool (Yahoo Finance & Alpaca)
   if (
-    normalizedType.includes("foss") ||
+    normalizedType.includes("market_data") ||
     data?.provider === "Yahoo Finance" ||
     data?.provider === "Alpaca Market Data v2" ||
     data?.provider === "Hybrid (Alpaca + Yahoo Finance)" ||
@@ -95,7 +95,7 @@ export function ToolResultView({
     (data?.symbol && (data?.trailingPE !== undefined || data?.nbboSpread !== undefined))
   ) {
     const symbol = data?.symbol || data?.input?.symbol || "TICKER";
-    const provider = data?.provider || (data?.analystConsensus ? "Yahoo Finance" : "FOSS Hybrid");
+    const provider = data?.provider || (data?.analystConsensus ? "Yahoo Finance" : "Hybrid");
     const isReport = Boolean(data?.analystConsensus || data?.executiveSummary || data?.keyInsights);
     const isSnapshot = Boolean(data?.latestTrade && data?.latestQuote);
     const price = data?.currentPrice || data?.price || data?.lastPrice || data?.latestTrade?.price || 0;
@@ -105,11 +105,11 @@ export function ToolResultView({
     const targetPrice = data?.analystConsensus?.targetPrice || data?.targetPrice;
 
     return (
-      <Card padding="none" className="tool-card foss-card research-card">
+      <Card padding="none" className="tool-card market-data-card research-card">
         <div className="tool-card-header" onClick={() => setOpen(!open)}>
           <span className="tool-icon">{isReport ? "🔬" : "📈"}</span>
           <div className="tool-summary">
-            <strong>{isReport ? "FOSS Equity Research:" : "FOSS Quote:"}</strong> {symbol} — ${Number(price).toFixed(2)}{" "}
+            <strong>{isReport ? "Market Data Equity Research:" : "Market Data Quote:"}</strong> {symbol} — ${Number(price).toFixed(2)}{" "}
             <span className={change >= 0 ? "change-up" : "change-down"}>
               ({change >= 0 ? "+" : ""}{Number(change).toFixed(2)} / {changePercent >= 0 ? "+" : ""}{Number(changePercent).toFixed(2)}%)
             </span>
@@ -119,8 +119,8 @@ export function ToolResultView({
         </div>
 
         {isReport && (
-          <div className="foss-report-preview">
-            <div className="foss-metrics-row">
+          <div className="market-data-report-preview">
+            <div className="market-data-metrics-row">
               <span className="metric-tag">
                 🎯 <strong>Consensus:</strong> {recommendation.replace("_", " ")}
               </span>
@@ -141,10 +141,10 @@ export function ToolResultView({
               )}
             </div>
             {data?.executiveSummary && (
-              <div className="foss-summary-text">{data.executiveSummary}</div>
+              <div className="market-data-summary-text">{data.executiveSummary}</div>
             )}
             {data?.agentAttestation && (
-              <div className="foss-attestation-tag">
+              <div className="market-data-attestation-tag">
                 🔏 Signed by: <code>{data.agentAttestation.agentDid}</code> (Alg: {data.agentAttestation.algorithm})
               </div>
             )}
@@ -152,8 +152,8 @@ export function ToolResultView({
         )}
 
         {isSnapshot && (
-          <div className="foss-snapshot-preview">
-            <div className="foss-metrics-row">
+          <div className="market-data-snapshot-preview">
+            <div className="market-data-metrics-row">
               <span className="metric-tag">
                 🟢 <strong>Bid:</strong> ${Number(data.latestQuote?.bidPrice || 0).toFixed(2)} ({data.latestQuote?.bidSize || 0})
               </span>
@@ -172,8 +172,8 @@ export function ToolResultView({
             ⚡ Preview Buy 10 {symbol} (E*TRADE)
           </Button>
           {!isReport && (
-            <Button variant="secondary" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Run full FOSS market research on ${symbol}`)}>
-              🔬 Full FOSS Research
+            <Button variant="secondary" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Run full market-data research on ${symbol}`)}>
+              🔬 Full Market Data Research
             </Button>
           )}
           <Button variant="secondary" tone="subtle" disabled={isBusy} onClick={() => onAction?.(`Compare valuation of ${symbol} against peers`)}>

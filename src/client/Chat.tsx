@@ -7,7 +7,7 @@ import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub } from "./ETradeTradingHub";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { SettingsMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
-import { FossResearchHub } from "./FossResearchHub";
+import { MarketDataResearchHub } from "./MarketDataResearchHub";
 import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
 import { AgenticWalletPanel } from "./AgenticWalletPanel";
@@ -2067,7 +2067,7 @@ export function Chat({ user }: { user: User }) {
 
         {tab === "research" && (
           <div className="research-view">
-            <FossResearchHub
+            <MarketDataResearchHub
               user={user}
               onSendPrompt={(prompt, sourceTab) => {
                 setPendingPrompt({ prompt, sourceTab: sourceTab || "Yahoo Finance Research" });

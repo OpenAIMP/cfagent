@@ -6,31 +6,31 @@
  * routeRequest is load-bearing, so each module handler must match the
  * (path, method) pairs in the same sequence as the original inline blocks;
  * (b) the two delegation call sites in orchestrator.ts, at the exact
- * original positions (trading group after the watchlists delegation; foss
- * group between /foss/research and /foss/compare); (c) behavior with a
- * mocked FossResearchService: owned paths return a Response (200 / 400 /
+ * original positions (trading group after the watchlists delegation; market-data
+ * group between /market-data/research and /market-data/compare); (c) behavior with a
+ * mocked MarketDataResearchService: owned paths return a Response (200 / 400 /
  * 500 exactly as before), non-owned paths return null (the orchestrator
  * keeps routing) — each handler ends with an explicit `return null`, never
  * undefined (slice #359-08 caught a missing-return-null bug on exactly
  * this); (d) audit events stay funneled through ctx.audit with the same
- * event names; (e) FossResearchService is constructed with ctx.env
+ * event names; (e) MarketDataResearchService is constructed with ctx.env
  * byte-identically (no credential/env semantics change).
  *
  * LANDMARK RULE (#405): position assertions anchor to DELEGATION CALLS or
  * own-domain markers, never to a neighboring domain's inline comments or
  * blocks. The trading delegation's lower bound anchors to the slice-12
  * watchlists delegation call (the reciprocal note slice #359-12 left in
- * tests/watchlists_routes_extraction.test.ts). The foss delegation anchors
+ * tests/watchlists_routes_extraction.test.ts). The market-data delegation anchors
  * to the trading delegation call (both own-domain). The upper bound is
- * NOT asserted: the /foss/compare block is slice #359-14's (foss research)
- * domain and still inline; slice #377 must anchor its foss delegation's
- * lower bound to the handleAlpacaFossRoutes(...) delegation call when it
+ * NOT asserted: the /market-data/compare block is slice #359-14's (market-data research)
+ * domain and still inline; slice #377 must anchor its market-data delegation's
+ * lower bound to the handleAlpacaMarketDataRoutes(...) delegation call when it
  * extracts that block (reciprocal of this note).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
-vi.mock("../src/services/fossResearch", () => {
+vi.mock("../src/services/marketDataResearch", () => {
   const fns = {
     placeAlpacaOrder: vi.fn(async (args: any) => ({
       success: true,
@@ -59,23 +59,23 @@ vi.mock("../src/services/fossResearch", () => {
     })),
   };
   const seen: any[] = [];
-  class MockFossResearchService {
+  class MockMarketDataResearchService {
     constructor(...args: any[]) {
       seen.push({ ctor: args, svc: this });
       Object.assign(this, fns);
     }
   }
-  return { FossResearchService: MockFossResearchService, __mockFoss: { fns, seen } };
+  return { MarketDataResearchService: MockMarketDataResearchService, __mockMarketData: { fns, seen } };
 });
 
 import {
   handleAlpacaTradingRoutes,
-  handleAlpacaFossRoutes,
+  handleAlpacaMarketDataRoutes,
   type AlpacaRouteContext,
 } from "../src/agents/routes/alpaca";
-import * as fossMod from "../src/services/fossResearch";
+import * as marketDataMod from "../src/services/marketDataResearch";
 
-const mocks = (fossMod as any).__mockFoss as {
+const mocks = (marketDataMod as any).__mockMarketData as {
   fns: Record<string, ReturnType<typeof vi.fn>>;
   seen: Array<{ ctor: any[]; svc: any }>;
 };
@@ -110,12 +110,14 @@ const TRADING_MARKERS = [
   'path.endsWith("/trading/alpaca/orders") && request.method === "GET"',
 ];
 
-const FOSS_MARKERS = [
-  'path.endsWith("/foss/snapshot") && request.method === "GET"',
-  'path.endsWith("/foss/alpaca/account") && request.method === "GET"',
-  'path.endsWith("/foss/alpaca/positions") && request.method === "GET"',
-  'path.endsWith("/foss/alpaca/orders") && request.method === "GET"',
-  'path.endsWith("/foss/alpaca/order") && request.method === "POST"',
+// #1906: each branch matches the canonical /market-data/* path first,
+// with the deprecated /foss/* path as alias on the same branch.
+const ALPACA_MARKERS = [
+  '(path.endsWith(\"/market-data/snapshot\") || path.endsWith(\"/foss/snapshot\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/alpaca/account\") || path.endsWith(\"/foss/alpaca/account\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/alpaca/positions\") || path.endsWith(\"/foss/alpaca/positions\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/alpaca/orders\") || path.endsWith(\"/foss/alpaca/orders\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/alpaca/order\") || path.endsWith(\"/foss/alpaca/order\")) && request.method === \"POST\"',
 ];
 
 function assertOrdered(moduleSrc: string, markers: string[]) {
@@ -130,22 +132,22 @@ function assertOrdered(moduleSrc: string, markers: string[]) {
 
 describe("alpaca route inventory (extraction #376)", () => {
   it("the trading route conditions appear in the module in the original relative order", () => {
-    const tradingSrc = src("agents/routes/alpaca.ts").split("handleAlpacaFossRoutes")[0];
+    const tradingSrc = src("agents/routes/alpaca.ts").split("handleAlpacaMarketDataRoutes")[0];
     assertOrdered(tradingSrc, TRADING_MARKERS);
   });
 
-  it("the foss route conditions appear in the module in the original relative order", () => {
-    const fossSrc = src("agents/routes/alpaca.ts").split("handleAlpacaFossRoutes")[1];
-    assertOrdered(fossSrc, FOSS_MARKERS);
-    // The non-alpaca foss routes are NOT moved (slice #359-14's domain).
+  it("the alpaca route conditions appear in the module in the original relative order", () => {
+    const alpacaSrc = src("agents/routes/alpaca.ts").split("handleAlpacaMarketDataRoutes")[1];
+    assertOrdered(alpacaSrc, ALPACA_MARKERS);
+    // The non-alpaca market-data routes are NOT moved (slice #359-14's domain).
     for (const cond of [
-      'path.endsWith("/foss/quote")',
-      'path.endsWith("/foss/fundamentals")',
-      'path.endsWith("/foss/bars")',
-      'path.endsWith("/foss/research")',
-      'path.endsWith("/foss/compare")',
+      'path.endsWith("/market-data/quote")',
+      'path.endsWith("/market-data/fundamentals")',
+      'path.endsWith("/market-data/bars")',
+      'path.endsWith("/market-data/research")',
+      'path.endsWith("/market-data/compare")',
     ]) {
-      expect(fossSrc, `sibling foss route must stay inline: ${cond}`).not.toContain(cond);
+      expect(alpacaSrc, `sibling market-data route must stay inline: ${cond}`).not.toContain(cond);
     }
   });
 
@@ -153,9 +155,9 @@ describe("alpaca route inventory (extraction #376)", () => {
     const orchSrc = src("agents/orchestrator.ts");
     const moduleSrc = src("agents/routes/alpaca.ts");
     expect(moduleSrc).toContain("export async function handleAlpacaTradingRoutes");
-    expect(moduleSrc).toContain("export async function handleAlpacaFossRoutes");
+    expect(moduleSrc).toContain("export async function handleAlpacaMarketDataRoutes");
     expect(moduleSrc).toContain("export interface AlpacaRouteContext");
-    for (const cond of [...TRADING_MARKERS, ...FOSS_MARKERS].map((m) =>
+    for (const cond of [...TRADING_MARKERS, ...ALPACA_MARKERS].map((m) =>
       m.split(" && ")[0]
     )) {
       expect(orchSrc, `inline condition should be gone: ${cond}`).not.toContain(cond);
@@ -163,24 +165,24 @@ describe("alpaca route inventory (extraction #376)", () => {
     // Exactly one call site each.
     for (const needle of [
       "handleAlpacaTradingRoutes(request, url, path, sessionId,",
-      "handleAlpacaFossRoutes(request, url, path, sessionId,",
+      "handleAlpacaMarketDataRoutes(request, url, path, sessionId,",
     ]) {
       expect(orchSrc.split(needle).length - 1, `expected exactly one call site: ${needle}`).toBe(1);
     }
-    // Slice #359-14 (foss research) legitimately moved this import: no
-    // inline FOSS blocks remain in orchestrator.ts, so FossResearchService
-    // and fossBarsSourceLabel are owned by src/agents/routes/fossResearch.ts
+    // Slice #359-14 (market-data research) legitimately moved this import: no
+    // inline market-data blocks remain in orchestrator.ts, so MarketDataResearchService
+    // and marketDataResearchBarsSourceLabel are owned by src/agents/routes/marketDataResearch.ts
     // now (swap per the #405 landmark rule - the "stays inline" premise was
     // stale after extraction).
-    expect(moduleSrc).toContain('import { FossResearchService } from "../../services/fossResearch"');
-    expect(orchSrc).not.toContain('import { FossResearchService, fossBarsSourceLabel } from "../services/fossResearch"');
-    expect(src("agents/routes/fossResearch.ts")).toContain('import { FossResearchService, fossBarsSourceLabel } from "../../services/fossResearch"');
+    expect(moduleSrc).toContain('import { MarketDataResearchService } from "../../services/marketDataResearch"');
+    expect(orchSrc).not.toContain('import { MarketDataResearchService, marketDataResearchBarsSourceLabel } from "../services/marketDataResearch"');
+    expect(src("agents/routes/marketDataResearch.ts")).toContain('import { MarketDataResearchService, marketDataResearchBarsSourceLabel } from "../../services/marketDataResearch"');
   });
 
-  it("the trading delegation sits after the watchlists delegation; the foss delegation follows it", () => {
+  it("the trading delegation sits after the watchlists delegation; the market-data delegation follows it", () => {
     const orchSrc = src("agents/orchestrator.ts");
     const tradingIdx = orchSrc.indexOf("handleAlpacaTradingRoutes(request, url, path, sessionId,");
-    const fossIdx = orchSrc.indexOf("handleAlpacaFossRoutes(request, url, path, sessionId,");
+    const alpacaIdx = orchSrc.indexOf("handleAlpacaMarketDataRoutes(request, url, path, sessionId,");
     // Lower bound: the slice-12 watchlists delegation call (delegation-call
     // anchor per the #405 rule).
     const watchlistsIdx = orchSrc.indexOf("handleWatchlistsRoutes(request, url, path, sessionId,");
@@ -188,11 +190,11 @@ describe("alpaca route inventory (extraction #376)", () => {
     expect(tradingIdx, "trading delegation must follow the watchlists delegation").toBeGreaterThan(
       watchlistsIdx
     );
-    expect(fossIdx, "foss delegation must follow the trading delegation").toBeGreaterThan(
+    expect(alpacaIdx, "alpaca delegation must follow the trading delegation").toBeGreaterThan(
       tradingIdx
     );
-    // NOTE for slice #359-14 (foss research): anchor its delegation's lower
-    // bound to the handleAlpacaFossRoutes(...) delegation call above.
+    // NOTE for slice #359-14 (market-data research): anchor its delegation's lower
+    // bound to the handleAlpacaMarketDataRoutes(...) delegation call above.
   });
 });
 
@@ -211,12 +213,12 @@ describe("handleAlpacaTradingRoutes behavior", () => {
         baseCtx()
       )
     ).toBeNull();
-    // Sibling-domain paths are not owned (foss alpaca belongs to the other handler).
+    // Sibling-domain paths are not owned (market-data alpaca belongs to the other handler).
     expect(
       await handleAlpacaTradingRoutes(
-        req("GET", "/api/foss/alpaca/account"),
-        urlOf("/api/foss/alpaca/account"),
-        "/api/foss/alpaca/account",
+        req("GET", "/api/market-data/alpaca/account"),
+        urlOf("/api/market-data/alpaca/account"),
+        "/api/market-data/alpaca/account",
         "s",
         baseCtx()
       )
@@ -224,7 +226,7 @@ describe("handleAlpacaTradingRoutes behavior", () => {
   });
 
   it("returns an explicit null, never undefined, for non-owned paths", async () => {
-    for (const h of [handleAlpacaTradingRoutes, handleAlpacaFossRoutes]) {
+    for (const h of [handleAlpacaTradingRoutes, handleAlpacaMarketDataRoutes]) {
       const res = await h(req("GET", "/api/nothing-here"), urlOf("/api/nothing-here"), "/api/nothing-here", "s", baseCtx());
       expect(res).not.toBeUndefined();
       expect(res).toBeNull();
@@ -302,21 +304,21 @@ describe("handleAlpacaTradingRoutes behavior", () => {
   });
 });
 
-describe("handleAlpacaFossRoutes behavior", () => {
+describe("handleAlpacaMarketDataRoutes behavior", () => {
   it("returns null for paths it does not own (orchestrator keeps routing)", async () => {
     expect(
-      await handleAlpacaFossRoutes(req("GET", "/api/audit"), urlOf("/api/audit"), "/api/audit", "s", baseCtx())
+      await handleAlpacaMarketDataRoutes(req("GET", "/api/audit"), urlOf("/api/audit"), "/api/audit", "s", baseCtx())
     ).toBeNull();
     // Sibling-domain paths are not owned (slice #359-14's domain stays inline).
-    for (const p of ["/api/foss/quote", "/api/foss/bars", "/api/foss/research", "/api/foss/compare"]) {
+    for (const p of ["/api/market-data/quote", "/api/market-data/bars", "/api/market-data/research", "/api/market-data/compare"]) {
       expect(
-        await handleAlpacaFossRoutes(req("GET", p), urlOf(p), p, "s", baseCtx()),
+        await handleAlpacaMarketDataRoutes(req("GET", p), urlOf(p), p, "s", baseCtx()),
         p
       ).toBeNull();
     }
     // Trading-alpaca paths belong to the other handler.
     expect(
-      await handleAlpacaFossRoutes(
+      await handleAlpacaMarketDataRoutes(
         req("POST", "/api/trading/alpaca/order"),
         urlOf("/api/trading/alpaca/order"),
         "/api/trading/alpaca/order",
@@ -328,10 +330,10 @@ describe("handleAlpacaFossRoutes behavior", () => {
 
   it("serves the snapshot and audits with the original event name", async () => {
     const ctx = baseCtx();
-    const res = await handleAlpacaFossRoutes(
-      req("GET", "/api/foss/snapshot?symbol=NVDA"),
-      urlOf("/api/foss/snapshot?symbol=NVDA"),
-      "/api/foss/snapshot",
+    const res = await handleAlpacaMarketDataRoutes(
+      req("GET", "/api/market-data/snapshot?symbol=NVDA"),
+      urlOf("/api/market-data/snapshot?symbol=NVDA"),
+      "/api/market-data/snapshot",
       "s",
       ctx
     );
@@ -344,26 +346,26 @@ describe("handleAlpacaFossRoutes behavior", () => {
     );
   });
 
-  it("serves foss alpaca account/positions/orders and audits each", async () => {
+  it("serves market-data alpaca account/positions/orders and audits each", async () => {
     const ctx = baseCtx();
     for (const [p, event] of [
-      ["/api/foss/alpaca/account", "alpaca.account_queried"],
-      ["/api/foss/alpaca/positions", "alpaca.positions_queried"],
-      ["/api/foss/alpaca/orders", "alpaca.orders_queried"],
+      ["/api/market-data/alpaca/account", "alpaca.account_queried"],
+      ["/api/market-data/alpaca/positions", "alpaca.positions_queried"],
+      ["/api/market-data/alpaca/orders", "alpaca.orders_queried"],
     ] as const) {
-      const res = await handleAlpacaFossRoutes(req("GET", p), urlOf(p), p, "s", ctx);
+      const res = await handleAlpacaMarketDataRoutes(req("GET", p), urlOf(p), p, "s", ctx);
       expect(res!.status, p).toBe(200);
       expect((await res!.json()).success, p).toBe(true);
       expect(ctx.audit, event).toHaveBeenCalledWith(event, "trading", expect.anything());
     }
   });
 
-  it("places a foss alpaca order with the original body aliases and audits", async () => {
+  it("places a market-data alpaca order with the original body aliases and audits", async () => {
     const ctx = baseCtx();
-    const res = await handleAlpacaFossRoutes(
-      req("POST", "/api/foss/alpaca/order", { symbol: "aapl", quantity: 5, orderAction: "sell" }),
-      urlOf("/api/foss/alpaca/order"),
-      "/api/foss/alpaca/order",
+    const res = await handleAlpacaMarketDataRoutes(
+      req("POST", "/api/market-data/alpaca/order", { symbol: "aapl", quantity: 5, orderAction: "sell" }),
+      urlOf("/api/market-data/alpaca/order"),
+      "/api/market-data/alpaca/order",
       "s",
       ctx
     );
@@ -378,11 +380,11 @@ describe("handleAlpacaFossRoutes behavior", () => {
     );
   });
 
-  it("rejects a foss order without a symbol with 400", async () => {
-    const res = await handleAlpacaFossRoutes(
-      req("POST", "/api/foss/alpaca/order", {}),
-      urlOf("/api/foss/alpaca/order"),
-      "/api/foss/alpaca/order",
+  it("rejects a market-data order without a symbol with 400", async () => {
+    const res = await handleAlpacaMarketDataRoutes(
+      req("POST", "/api/market-data/alpaca/order", {}),
+      urlOf("/api/market-data/alpaca/order"),
+      "/api/market-data/alpaca/order",
       "s",
       baseCtx()
     );

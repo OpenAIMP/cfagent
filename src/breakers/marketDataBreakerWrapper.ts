@@ -1,5 +1,5 @@
 /**
- * Issue #1745 — Decorator over IFossMarketDataProvider.
+ * Issue #1745 — Decorator over IMarketDataProvider.
  *
  * Protected Variations: the strategy interface is unchanged — the
  * wrapper only adds breaker + fallback behavior around the inner
@@ -10,7 +10,7 @@
  * Sync cache reads pass through unwrapped: they make no provider
  * call, so no breaker gate applies to them.
  *
- * Fallbacks are caller-supplied per method. The FossResearchService
+ * Fallbacks are caller-supplied per method. The MarketDataResearchService
  * wiring supplies the Yahoo quote-cache fallback (5-minute
  * in-memory cache, stamped cached with its age — the #930 rule);
  * every other method defaults to no fallback, so provider errors
@@ -25,24 +25,24 @@ import type {
 import { BreakerFallbackError } from "./breakerPorts";
 import { withBreaker } from "./breakerDecorator";
 import { getCachedQuoteWithAge } from "../services/quoteCache";
-import type { IFossMarketDataProvider } from "../patterns/interfaces";
+import type { IMarketDataProvider } from "../patterns/interfaces";
 import type {
   AlpacaMarketSnapshot,
   Env,
-  FossCompanyFundamentals,
-  FossHistoricalBar,
-  FossQuote,
+  MarketDataResearchCompanyFundamentals,
+  MarketDataResearchHistoricalBar,
+  MarketDataResearchQuote,
 } from "../types";
 
-export interface FossBreakerFallbacks {
-  getQuote?: (symbol: string) => Promise<FossQuote>;
-  getQuotes?: (symbols: string[]) => Promise<FossQuote[]>;
-  getFundamentals?: (symbol: string) => Promise<FossCompanyFundamentals>;
+export interface MarketDataBreakerFallbacks {
+  getQuote?: (symbol: string) => Promise<MarketDataResearchQuote>;
+  getQuotes?: (symbols: string[]) => Promise<MarketDataResearchQuote[]>;
+  getFundamentals?: (symbol: string) => Promise<MarketDataResearchCompanyFundamentals>;
   getHistoricalBars?: (
     symbol: string,
     timeframe?: string,
     limit?: number
-  ) => Promise<FossHistoricalBar[]>;
+  ) => Promise<MarketDataResearchHistoricalBar[]>;
   getMarketSnapshot?: (symbol: string) => Promise<AlpacaMarketSnapshot>;
 }
 
@@ -51,11 +51,11 @@ export interface FossBreakerFallbacks {
  * the Yahoo strategy): the same 5-minute in-memory cache the live
  * path reads, stamped cached with its age (the #930 rule). Throws
  * BreakerFallbackError when no cached quote exists — never invents
- * a price. Shared by the FossResearchService wiring and the
+ * a price. Shared by the MarketDataResearchService wiring and the
  * data-provider factory wiring so both serve the same fallback.
  */
-export function yahooQuoteCacheFallback(symbol: string): FossQuote {
-  const cached = getCachedQuoteWithAge<FossQuote>(
+export function yahooQuoteCacheFallback(symbol: string): MarketDataResearchQuote {
+  const cached = getCachedQuoteWithAge<MarketDataResearchQuote>(
     `yahoo:${symbol.toUpperCase().trim()}`
   );
   if (!cached) {
@@ -72,49 +72,49 @@ export function yahooQuoteCacheFallback(symbol: string): FossQuote {
   };
 }
 
-export interface FossBreakerWrapperOptions {
+export interface MarketDataBreakerWrapperOptions {
   sleep?: (ms: number) => Promise<void>;
   rng?: () => number;
   retryPolicy?: BreakerExecuteOptions<unknown>["retryPolicy"];
 }
 
-type InnerWithOptionals = IFossMarketDataProvider & {
-  getQuotes?: (symbols: string[]) => Promise<FossQuote[]>;
+type InnerWithOptionals = IMarketDataProvider & {
+  getQuotes?: (symbols: string[]) => Promise<MarketDataResearchQuote[]>;
   getMarketSnapshot?: (symbol: string) => Promise<AlpacaMarketSnapshot>;
   getMarketSnapshotSync?: (symbol: string) => AlpacaMarketSnapshot;
-  getQuoteSync?: (symbol: string) => FossQuote;
-  getFundamentalsSync?: (symbol: string) => FossCompanyFundamentals;
+  getQuoteSync?: (symbol: string) => MarketDataResearchQuote;
+  getFundamentalsSync?: (symbol: string) => MarketDataResearchCompanyFundamentals;
   getHistoricalBarsSync?: (
     symbol: string,
     timeframe?: string,
     limit?: number
-  ) => FossHistoricalBar[];
+  ) => MarketDataResearchHistoricalBar[];
 };
 
-export class BreakerWrappedFossProvider implements IFossMarketDataProvider {
-  readonly providerId: IFossMarketDataProvider["providerId"];
+export class BreakerWrappedMarketDataProvider implements IMarketDataProvider {
+  readonly providerId: IMarketDataProvider["providerId"];
   readonly name: string;
   /** Present exactly when the inner provider offers batch quotes. */
-  readonly getQuotes?: (symbols: string[]) => Promise<FossQuote[]>;
+  readonly getQuotes?: (symbols: string[]) => Promise<MarketDataResearchQuote[]>;
   /** Present exactly when the inner provider offers snapshots. */
   readonly getMarketSnapshot?: (symbol: string) => Promise<AlpacaMarketSnapshot>;
   readonly getMarketSnapshotSync?: (symbol: string) => AlpacaMarketSnapshot;
   /** Sync cache reads: pass-through, never breaker-gated. All three
-   *  FOSS strategies carry them, so they are required here (a call
+   *  Market-data strategies carry them, so they are required here (a call
    *  on an inner without one throws exactly as a direct call would). */
-  readonly getQuoteSync: (symbol: string) => FossQuote;
-  readonly getFundamentalsSync: (symbol: string) => FossCompanyFundamentals;
+  readonly getQuoteSync: (symbol: string) => MarketDataResearchQuote;
+  readonly getFundamentalsSync: (symbol: string) => MarketDataResearchCompanyFundamentals;
   readonly getHistoricalBarsSync: (
     symbol: string,
     timeframe?: string,
     limit?: number
-  ) => FossHistoricalBar[];
+  ) => MarketDataResearchHistoricalBar[];
 
   constructor(
-    private readonly inner: IFossMarketDataProvider,
+    private readonly inner: IMarketDataProvider,
     private readonly breaker: CircuitBreaker,
-    private readonly fallbacks: FossBreakerFallbacks = {},
-    private readonly opts: FossBreakerWrapperOptions = {}
+    private readonly fallbacks: MarketDataBreakerFallbacks = {},
+    private readonly opts: MarketDataBreakerWrapperOptions = {}
   ) {
     this.providerId = inner.providerId;
     this.name = inner.name;
@@ -146,14 +146,14 @@ export class BreakerWrappedFossProvider implements IFossMarketDataProvider {
     return this.inner.isConfigured(env);
   }
 
-  async getQuote(symbol: string, opts?: unknown): Promise<FossQuote> {
+  async getQuote(symbol: string, opts?: unknown): Promise<MarketDataResearchQuote> {
     return this.run(
-      () => (this.inner as InnerWithOptionals & { getQuote: (s: string, o?: unknown) => Promise<FossQuote> }).getQuote(symbol, opts),
+      () => (this.inner as InnerWithOptionals & { getQuote: (s: string, o?: unknown) => Promise<MarketDataResearchQuote> }).getQuote(symbol, opts),
       this.fallbacks.getQuote ? () => this.fallbacks.getQuote!(symbol) : undefined
     );
   }
 
-  async getFundamentals(symbol: string): Promise<FossCompanyFundamentals> {
+  async getFundamentals(symbol: string): Promise<MarketDataResearchCompanyFundamentals> {
     return this.run(
       () => this.inner.getFundamentals(symbol),
       this.fallbacks.getFundamentals
@@ -166,7 +166,7 @@ export class BreakerWrappedFossProvider implements IFossMarketDataProvider {
     symbol: string,
     timeframe?: string,
     limit?: number
-  ): Promise<FossHistoricalBar[]> {
+  ): Promise<MarketDataResearchHistoricalBar[]> {
     return this.run(
       () => this.inner.getHistoricalBars(symbol, timeframe, limit),
       this.fallbacks.getHistoricalBars

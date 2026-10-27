@@ -114,8 +114,8 @@ import {
 } from "./routes/etradeBroker";
 import { handleEtradeOptionsRoutes } from "./routes/etradeOptions";
 import { handleWatchlistsRoutes } from "./routes/watchlists";
-import { handleAlpacaFossRoutes, handleAlpacaTradingRoutes } from "./routes/alpaca";
-import { handleFossQuoteResearchRoutes, handleFossCompareScreenRoutes } from "./routes/fossResearch";
+import { handleAlpacaMarketDataRoutes, handleAlpacaTradingRoutes } from "./routes/alpaca";
+import { handleMarketDataQuoteResearchRoutes, handleMarketDataCompareScreenRoutes } from "./routes/marketDataResearch";
 import { handleScreenerResearchRoutes } from "./routes/screenerResearch";
 import { handleSchedulesRoutes, makeRunScheduleCallback } from "./routes/schedules";
 import { TRADING_PAID_SERVICES } from "../services/agenticPayments";
@@ -2362,30 +2362,30 @@ export class OrchestratorAgent extends Agent<Env> {
     if (alpacaTradingResponse) return alpacaTradingResponse;
 
     // ==========================================
-    // FOSS Market Research & Quoting APIs (yfinance & Alpaca)
+    // Market Data Research & Quoting APIs (yfinance & Alpaca)
     // ==========================================
 
-    const fossResearchResponse = await handleFossQuoteResearchRoutes(request, url, path, sessionId, {
+    const marketDataResearchResponse = await handleMarketDataQuoteResearchRoutes(request, url, path, sessionId, {
       env: this.env,
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
       persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
     });
-    if (fossResearchResponse) return fossResearchResponse;
+    if (marketDataResearchResponse) return marketDataResearchResponse;
 
-    const alpacaFossResponse = await handleAlpacaFossRoutes(request, url, path, sessionId, {
+    const alpacaMarketDataResponse = await handleAlpacaMarketDataRoutes(request, url, path, sessionId, {
       env: this.env,
       audit: (type, agent, payload) => this.audit(type, agent, payload),
     });
-    if (alpacaFossResponse) return alpacaFossResponse;
+    if (alpacaMarketDataResponse) return alpacaMarketDataResponse;
 
-    const fossScreeningResponse = await handleFossCompareScreenRoutes(request, url, path, sessionId, {
+    const marketDataScreeningResponse = await handleMarketDataCompareScreenRoutes(request, url, path, sessionId, {
       env: this.env,
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
       persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
     });
-    if (fossScreeningResponse) return fossScreeningResponse;
+    if (marketDataScreeningResponse) return marketDataScreeningResponse;
 
     // ==========================================
     // Cloudflare Agents Task Scheduling Management APIs
@@ -2394,7 +2394,7 @@ export class OrchestratorAgent extends Agent<Env> {
     // Issue #359-15: screener + autonomous research routes (/screener/*,
     // options PDF, /research/*) live in src/agents/routes/screenerResearch.ts
     // (handleScreenerResearchRoutes), invoked at this exact position in the
-    // sequential path.endsWith sequence (after the FOSS compare/screen
+    // sequential path.endsWith sequence (after the market-data compare/screen
     // delegation, before the task schedules block); a non-null return
     // matched. Orchestrator-owned helpers arrive via the context object.
     const screenerResearchResponse = await handleScreenerResearchRoutes(request, url, path, sessionId, {

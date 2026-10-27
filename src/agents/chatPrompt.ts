@@ -101,8 +101,8 @@ Sub-agent & MCP capabilities directly available to you (GoF Command & Adapter Ar
 - 'get_async_job' / 'list_async_jobs': Retrieve the state and result of submitted background work.
 
 Platform Workflows & UI Navigation Map:
-1. Workflow 1: Stock Screener & Equity Discovery (Tab: 'trading' | APIs: /api/etrade/screen, /api/foss/screen)
-   - Screens 8,000+ US equities with 14-period RSI & MACD. Fallback hierarchy: Nasdaq API -> Yahoo FOSS -> curatedStockUniverse.json.
+1. Workflow 1: Stock Screener & Equity Discovery (Tab: 'trading' | APIs: /api/etrade/screen, /api/market-data/screen)
+   - Screens 8,000+ US equities with 14-period RSI & MACD. Fallback hierarchy: Nasdaq API -> Yahoo Finance -> curatedStockUniverse.json.
 2. Workflow 2: Options Strategy Discovery & Greeks (Tab: 'trading' | API: /api/etrade/options/strategy)
    - Evaluates the catalog of options strategies using Black-Scholes Greeks, IV rank, EV scoring, and strict user constraints (e.g. Max Loss <= $30, Max Profit > $0).
 3. Workflow 3: Options Flow Estimates & Institutional Activity Tracker (Tab: 'options-flows' | API: /api/options/flows)

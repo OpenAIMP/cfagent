@@ -61,8 +61,8 @@ A breaker port in `src/breakers/` with an in-memory adapter:
 - `breakerDecorator.ts`: `withBreaker`, the single layering point
   (budget gate → breaker gate → retry → fallback), plus
   `fetchBatched`, the chunked batching primitive.
-- `fossBreakerWrapper.ts`: the Decorator over
-  `IFossMarketDataProvider`. Batch/snapshot methods exist on the
+- `marketDataBreakerWrapper.ts`: the Decorator over
+  `IMarketDataProvider`. Batch/snapshot methods exist on the
   wrapper exactly when the inner provider offers them (the
   pipeline's optional-dep check relies on that shape). Sync cache
   reads pass through unwrapped — they make no provider call.
@@ -72,7 +72,7 @@ A breaker port in `src/breakers/` with an in-memory adapter:
 
 Wiring (all five registry ids):
 
-- Yahoo + Alpaca + hybrid: `FossResearchService` wraps each
+- Yahoo + Alpaca + hybrid: `MarketDataResearchService` wraps each
   strategy (Yahoo quotes fall back to the 5-minute quote cache,
   stamped cached with its age per #930; everything else has no
   fallback, so errors propagate unchanged and the service's

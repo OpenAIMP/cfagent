@@ -52,10 +52,10 @@ import {
 } from "../src/services/quoteCache";
 import {
   AlpacaMarketDataProvider,
-  FossResearchService,
-  HybridFossProvider,
+  MarketDataResearchService,
+  HybridMarketDataProvider,
   YahooFinanceProvider,
-} from "../src/services/fossResearch";
+} from "../src/services/marketDataResearch";
 import { ETradeService } from "../src/services/etrade";
 import { ETradeTradingPlatform } from "../src/trading/etrade/platform";
 import { fetchQuoteLiveStrict, isStubQuote } from "../src/trading/quotePolicies";
@@ -504,7 +504,7 @@ describe("M3/M9 fallback: marketStream fallthrough vs no-substitution", () => {
   });
 });
 
-describe("M6 hybrid gate + M4/M5 Foss provider contracts", () => {
+describe("M6 hybrid gate + M4/M5 Market-data provider contracts", () => {
   function routeFetch(alpacaOk: boolean) {
     return vi.fn(async (url: any) => {
       const u = String(url);
@@ -524,7 +524,7 @@ describe("M6 hybrid gate + M4/M5 Foss provider contracts", () => {
     const fetchMock = routeFetch(true);
     vi.stubGlobal("fetch", fetchMock);
     const env = { ALPACA_API_KEY: "k", ALPACA_SECRET_KEY: "s" } as unknown as Env;
-    const hybrid = new HybridFossProvider(env);
+    const hybrid = new HybridMarketDataProvider(env);
     const quote = await hybrid.getQuote("M6HYB1");
     expect(quote.provider).toBe("hybrid");
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
@@ -536,7 +536,7 @@ describe("M6 hybrid gate + M4/M5 Foss provider contracts", () => {
     const fetchMock = routeFetch(true);
     vi.stubGlobal("fetch", fetchMock);
     const env = { ALPACA_API_KEY: "k", ALPACA_SECRET_KEY: "s" } as unknown as Env;
-    const hybrid = new HybridFossProvider(env);
+    const hybrid = new HybridMarketDataProvider(env);
     const quote = await hybrid.getQuote("M6HYB2", { alpacaKeyMode: "either" });
     expect(quote.provider).toBe("hybrid");
     expect(quote.price).toBe(102);
@@ -549,14 +549,14 @@ describe("M6 hybrid gate + M4/M5 Foss provider contracts", () => {
     const fetchMock = routeFetch(true);
     vi.stubGlobal("fetch", fetchMock);
     const env = { ALPACA_API_KEY: "k", ALPACA_SECRET_KEY: "s" } as unknown as Env;
-    const hybrid = new HybridFossProvider(env);
+    const hybrid = new HybridMarketDataProvider(env);
     const quote = await hybrid.getQuote("M6HYB3", { alpacaKeyMode: "bogus" });
     expect(quote.provider).toBe("hybrid");
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
     expect(urls.some((u) => u.includes("alpaca"))).toBe(false);
   });
 
-  it("Foss Alpaca contract pinned: change 0, volume 0, OHLC all = mid, no throw on success", async () => {
+  it("Alpaca contract pinned: change 0, volume 0, OHLC all = mid, no throw on success", async () => {
     vi.stubGlobal("fetch", routeFetch(true));
     const env = { ALPACA_API_KEY_ID: "k", ALPACA_API_SECRET_KEY: "s" } as unknown as Env;
     const provider = new AlpacaMarketDataProvider(env);
@@ -571,7 +571,7 @@ describe("M6 hybrid gate + M4/M5 Foss provider contracts", () => {
     expect(quote.companyName).toBe("M5ALP Asset");
   });
 
-  it("Foss Yahoo single default: midpoint open + computed indicators", async () => {
+  it("Yahoo single default: midpoint open + computed indicators", async () => {
     vi.stubGlobal("fetch", routeFetch(false));
     const provider = new YahooFinanceProvider({} as unknown as Env);
     const quote = await provider.getQuote("M4DEF");
@@ -583,14 +583,14 @@ describe("M6 hybrid gate + M4/M5 Foss provider contracts", () => {
     expect(quote.volume).toBe(1000000);
   });
 
-  it("Foss Yahoo single under wire: wire open when present", async () => {
+  it("Yahoo single under wire: wire open when present", async () => {
     vi.stubGlobal("fetch", routeFetch(false));
     const provider = new YahooFinanceProvider({} as unknown as Env);
     const quote = await provider.getQuote("M4WIRE", { yahooOpenMode: "wire" });
     expect(quote.open).toBe(155);
   });
 
-  it("Foss Yahoo single under wire with no wire open falls back to midpoint (no invention)", async () => {
+  it("Yahoo single under wire with no wire open falls back to midpoint (no invention)", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: any) => {
@@ -608,7 +608,7 @@ describe("M6 hybrid gate + M4/M5 Foss provider contracts", () => {
     expect(quote.open).toBe(150);
   });
 
-  it("Foss Yahoo single under unset: indicators undefined, never zero-filled", async () => {
+  it("Yahoo single under unset: indicators undefined, never zero-filled", async () => {
     vi.stubGlobal("fetch", routeFetch(false));
     const provider = new YahooFinanceProvider({} as unknown as Env);
     const quote = await provider.getQuote("M4UNSET", { yahooIndicatorsMode: "unset" });
@@ -617,15 +617,15 @@ describe("M6 hybrid gate + M4/M5 Foss provider contracts", () => {
     expect(quote.price).toBe(152);
   });
 
-  it("Foss Yahoo single total failure throws explicit unavailable (live-only, M10 500-shape source)", async () => {
+  it("Yahoo single total failure throws explicit unavailable (live-only, M10 500-shape source)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({}) })));
     const provider = new YahooFinanceProvider({} as unknown as Env);
-    await expect(provider.getQuote("M4FAIL")).rejects.toThrow(/FOSS quote unavailable for M4FAIL/);
+    await expect(provider.getQuote("M4FAIL")).rejects.toThrow(/Market data quote unavailable for M4FAIL/);
   });
 
-  it("Foss service forwards switch opts to the provider", async () => {
+  it("Market-data service forwards switch opts to the provider", async () => {
     vi.stubGlobal("fetch", routeFetch(false));
-    const service = new FossResearchService({} as unknown as Env);
+    const service = new MarketDataResearchService({} as unknown as Env);
     const quote = await service.getQuote("M4SVC", "yfinance", { yahooOpenMode: "wire" });
     expect(quote.open).toBe(155);
   });
@@ -709,11 +709,11 @@ describe("M7 E*TRADE unknown-symbol tail + stub unification", () => {
 describe("M8 caches stay separate, M9 adapter batch asymmetry, M11 Public partial", () => {
   it("a symbol can be fresh in quoteCache and stale/missing in liveMarketCache (and vice versa)", () => {
     const now = Date.now();
-    const fossQuote = { symbol: "M8A", price: 111 } as any;
-    setCachedQuote("yahoo:M8A", fossQuote);
+    const marketDataQuote = { symbol: "M8A", price: 111 } as any;
+    setCachedQuote("yahoo:M8A", marketDataQuote);
     liveMarketCache.set("M8A", { tick: makeTick("M8A", 222, now - 60000), expiresAt: now - 1000 });
     // quoteCache read honours its own 5-min TTL: fresh.
-    expect(getCachedQuoteWithAge("yahoo:M8A")?.value).toEqual(fossQuote);
+    expect(getCachedQuoteWithAge("yahoo:M8A")?.value).toEqual(marketDataQuote);
     // Facade (honour) over liveMarketCache: the same symbol is unavailable.
     const resolved = resolveMarketDataQuotes(["M8A"], (s) => liveMarketCache.get(s), now);
     expect(resolved.unavailable).toEqual(["M8A"]);

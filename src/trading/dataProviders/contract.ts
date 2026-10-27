@@ -2,10 +2,10 @@
  * Issue #1118 (P1 of epic #1116): the DataProvider plugin contract.
  *
  * Before this module, provider identity existed in three incompatible
- * vocabularies — `StockScreenProvider = "etrade" | "yahoo"`, the FOSS
+ * vocabularies — `StockScreenProvider = "etrade" | "yahoo"`, the market-data
  * ids `"yfinance" | "alpaca" | "hybrid"`, and the #1103 ScreeningProvider
  * ids `"etrade-yahoo-stocks" | "dynamic-options"` — provider composition
- * was hardcoded at each call site (FossResearchService constructs its
+ * was hardcoded at each call site (MarketDataResearchService constructs its
  * providers inline; E*TRADE is constructed at 57 data-path sites), and
  * no module could name "the provider that serves capability X" at all.
  *
@@ -19,9 +19,9 @@
  * Normalized shapes consolidate the existing interfaces rather than
  * inventing new DTOs: quotes are the two quote shapes the codebase
  * already normalizes to (ETradeQuote for the E*TRADE/pipeline side,
- * FossQuote for the FOSS side); chains are ETradeOptionChain; the
+ * MarketDataResearchQuote for the market-data side); chains are ETradeOptionChain; the
  * screen universe is NasdaqStockListing[] (nasdaqListings is the
- * universe-membership source); bars and fundamentals are the FOSS
+ * universe-membership source); bars and fundamentals are the market-data
  * shapes. Adapters return the wrapped implementations' results
  * UNCHANGED (parity pinned, the #1103 adapter method) — consolidation
  * here names the shapes under one contract; it does not convert between
@@ -41,8 +41,8 @@
  *      provider call returns one provider's data, the envelope on the
  *      call attributes every element in it. When a run composes
  *      providers, each element keeps the tag of the call that fetched
- *      it. (FossQuote also carries a legacy per-quote `provider` field
- *      in the FOSS vocabulary; the envelope's platform id is the
+ *      it. (MarketDataResearchQuote also carries a legacy per-quote `provider` field
+ *      in the market-data vocabulary; the envelope's platform id is the
  *      authoritative provenance.)
  *   2. WHICH providers compose a run is capability ROUTING — a
  *      per-capability primary plus an optional declared gap-fill —
@@ -53,7 +53,7 @@
  *
  * A provider declares the capabilities it serves; methods for
  * undeclared capabilities are absent (ISP, mirroring
- * IFossMarketDataProvider's optional getMarketSnapshot). The registry
+ * IMarketDataProvider's optional getMarketSnapshot). The registry
  * (registry.ts) resolves capabilities against the provider-config store
  * (providerConfigStore.ts) — declared here, enforced there.
  */
@@ -63,9 +63,9 @@ import type {
   ETradeQuote,
   ETradeOptionChain,
   ETradeOptionExpireDate,
-  FossQuote,
-  FossHistoricalBar,
-  FossCompanyFundamentals,
+  MarketDataResearchQuote,
+  MarketDataResearchHistoricalBar,
+  MarketDataResearchCompanyFundamentals,
 } from "../../types";
 import type { NasdaqStockListing } from "../../services/nasdaqListings";
 
@@ -106,7 +106,7 @@ export function isTier(value: unknown): value is Tier {
 }
 
 /** quotes — the two existing normalized quote shapes (see header). */
-export type QuoteResult = ETradeQuote | FossQuote;
+export type QuoteResult = ETradeQuote | MarketDataResearchQuote;
 
 /**
  * optionsChains request — consolidates the parameter shape
@@ -129,11 +129,11 @@ export type OptionsChainResult = ETradeOptionChain | null;
 /** screenUniverse — listed-stock universe membership (nasdaqListings shape). */
 export type ScreenUniverseResult = NasdaqStockListing[];
 
-/** historicalBars — the FOSS bar shape (Yahoo/Alpaca). */
-export type HistoricalBarsResult = FossHistoricalBar[];
+/** historicalBars — the market-data bar shape (Yahoo/Alpaca). */
+export type HistoricalBarsResult = MarketDataResearchHistoricalBar[];
 
-/** fundamentals — the FOSS company-fundamentals shape (Yahoo/Alpaca). */
-export type FundamentalsResult = FossCompanyFundamentals;
+/** fundamentals — the market-data company-fundamentals shape (Yahoo/Alpaca). */
+export type FundamentalsResult = MarketDataResearchCompanyFundamentals;
 
 /**
  * news — contract-only in this slice: no existing provider surface is
@@ -193,7 +193,7 @@ export interface DataProvider {
   readonly id: DataProviderId;
   readonly name: string;
   readonly capabilities: readonly DataProviderCapability[];
-  /** Mirrors IFossMarketDataProvider: is this provider usable as configured? */
+  /** Mirrors IMarketDataProvider: is this provider usable as configured? */
   isConfigured(env?: Env): boolean;
   getQuote?(
     symbol: string,
@@ -209,7 +209,7 @@ export interface DataProvider {
    * per sub-batch, with no raw payload attached — raw wire responses
    * live in the capture store, one record per sub-batch. Issue
    * #1317: the element type is QuoteResult (the union), not
-   * ETradeQuote alone — the FOSS adapters' batch returns FossQuote
+   * ETradeQuote alone — the market-data adapters' batch returns MarketDataResearchQuote
    * rows, and narrowing the contract to E*TRADE's shape would force
    * the yahoo binding to convert (breaking P1 parity) or to drop
    * batching (repeating the #1184 throttle incident).
@@ -231,7 +231,7 @@ export interface DataProvider {
    * Declared under the optionsChains capability, not a capability of
    * its own: it is chain-shaped metadata from the same source.
    * Optional on the interface so providers that serve chains without
-   * a separate expiry endpoint (and the FOSS adapters, which declare
+   * a separate expiry endpoint (and the market-data adapters, which declare
    * no optionsChains at all) are undisturbed.
    */
   getOptionExpiryDates?(

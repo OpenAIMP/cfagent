@@ -67,15 +67,15 @@ describe("UX Vendor Independence & Capability Representation (Issues #1322 & #13
     expect(modal).toContain("autonomous persistent timer");
   });
 
-  it("ETradeDynamicMenu.tsx and FossResearchHub.tsx express institutional ledgers", () => {
+  it("ETradeDynamicMenu.tsx and MarketDataResearchHub.tsx express institutional ledgers", () => {
     const menu = read("src/client/ETradeDynamicMenu.tsx");
     expect(menu).not.toContain("Durable Objects + SQLite");
     expect(menu).not.toContain("Persistent Distributed SQLite");
     expect(menu).toContain("Institutional Execution Ledger &amp; Audit Trail");
 
-    const foss = read("src/client/FossResearchHub.tsx");
-    expect(foss).not.toContain("SQLite Durable Objects");
-    expect(foss).toContain("persistent event ledger");
+    const marketDataResearch = read("src/client/MarketDataResearchHub.tsx");
+    expect(marketDataResearch).not.toContain("SQLite Durable Objects");
+    expect(marketDataResearch).toContain("persistent event ledger");
   });
 
   it("AgentChatTabContent.tsx, RevenueTab.tsx, and AdsTab.tsx present platform capabilities", () => {

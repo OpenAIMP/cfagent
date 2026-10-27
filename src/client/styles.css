@@ -6155,11 +6155,11 @@ body {
 }
 
 /* ========================================================
-   FOSS Market Research & Quoting Hub (Yahoo Finance & Alpaca)
+   Market Data Research & Quoting Hub (Yahoo Finance & Alpaca)
    ======================================================== */
 /* Research View inherits universal content tab layout & hero styles */
 
-.foss-research-hub {
+.market-data-research-hub {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -7525,12 +7525,12 @@ body {
 }
 
 /* Tool Result Cards in Chat */
-.tool-card.foss-card {
+.tool-card.market-data-card {
   border-left: 4px solid var(--color-accent);
   background: var(--color-card);
 }
 
-.tool-status-pill.foss-badge {
+.tool-status-pill.market-data-badge {
   background: var(--color-accent-subtle);
   color: var(--color-accent);
   border: 1px solid var(--color-accent-border);
@@ -7539,7 +7539,7 @@ body {
   border-radius: 6px;
 }
 
-.foss-report-preview, .foss-snapshot-preview {
+.market-data-report-preview, .market-data-snapshot-preview {
   padding: 0.75rem 1rem;
   display: flex;
   flex-direction: column;
@@ -7547,7 +7547,7 @@ body {
   border-top: 1px solid var(--color-border-subtle);
 }
 
-.foss-metrics-row {
+.market-data-metrics-row {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
@@ -7566,18 +7566,18 @@ body {
   color: var(--color-text-primary);
 }
 
-.foss-summary-text {
+.market-data-summary-text {
   font-size: 0.82rem;
   line-height: 1.5;
   color: var(--color-text-muted);
 }
 
-.foss-attestation-tag {
+.market-data-attestation-tag {
   font-size: 0.72rem;
   color: var(--color-text-dim);
 }
 
-.foss-attestation-tag code {
+.market-data-attestation-tag code {
   color: var(--color-accent);
 }
 
@@ -14245,7 +14245,7 @@ body {
 }
 
 /* ==========================================================================
-   FOSS Research Hub: Active Ticker Dual Feed Real-Time Intelligence Card
+   Market Data Research Hub: Active Ticker Dual Feed Real-Time Intelligence Card
    ========================================================================== */
 .active-ticker-dual-card {
   background: var(--gradient-surface);

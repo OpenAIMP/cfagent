@@ -11,7 +11,8 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
 ## Method and scope
 
 - Inventory source: `src/permissions/mcpPermissionPorts.ts`
-  `MCP_TOOL_SCOPES` (51 tools, completeness-pinned against the live
+  `MCP_TOOL_SCOPES` (60 tools: 51 canonical + 9 deprecated #1906
+  aliases, completeness-pinned against the live
   factory registry in both directions by #1843's tests) plus the
   scanner surface (`src/services/cloudflareWalletsScanner.ts`) and
   the A2A trading operations (`src/agents/trading-agent.ts`
@@ -57,7 +58,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
    authenticated the request is the identity, not the tool call
    itself. See gap G-AUD-3.
 
-## The 51 factory tools — verdict per tool
+## The 60 factory tools — verdict per tool
 
 Verdict key: **L** = login-attributable via door 1 (session /
 API-key); **I** = instance-attributable only via door 2 (gap
@@ -67,7 +68,7 @@ the verdict of the door used; the table lists the strongest
 attribution available (door 1) and the gaps that apply on the
 other doors. Scope column is #1843's declaration, consumed here.
 
-### mcp:read (23)
+### mcp:read (31)
 
 | Tool | Scope | /mcp verdict |
 |---|---|---|
@@ -80,14 +81,22 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `etrade_auth_status` | mcp:read | L (I / R on other doors) |
 | `etrade_account_discovery` | mcp:read | L (I / R on other doors) |
 | `etrade_market_scan` | mcp:read | L (I / R on other doors) |
-| `foss_get_quote` | mcp:read | L (I / R on other doors) |
-| `foss_company_fundamentals` | mcp:read | L (I / R on other doors) |
-| `foss_historical_bars` | mcp:read | L (I / R on other doors) |
-| `foss_market_research` | mcp:read | L (I / R on other doors) |
-| `foss_alpaca_snapshot` | mcp:read | L (I / R on other doors) |
-| `foss_alpaca_account` | mcp:read | L (I / R on other doors) |
-| `foss_alpaca_positions` | mcp:read | L (I / R on other doors) |
-| `foss_alpaca_orders` | mcp:read | L (I / R on other doors) |
+| `market_data_get_quote` | mcp:read | L (I / R on other doors) |
+| `foss_get_quote` (deprecated #1906 alias of `market_data_get_quote`, same scope) | mcp:read | L (I / R on other doors) |
+| `market_data_company_fundamentals` | mcp:read | L (I / R on other doors) |
+| `foss_company_fundamentals` (deprecated #1906 alias of `market_data_company_fundamentals`, same scope) | mcp:read | L (I / R on other doors) |
+| `market_data_historical_bars` | mcp:read | L (I / R on other doors) |
+| `foss_historical_bars` (deprecated #1906 alias of `market_data_historical_bars`, same scope) | mcp:read | L (I / R on other doors) |
+| `market_data_research` | mcp:read | L (I / R on other doors) |
+| `foss_market_research` (deprecated #1906 alias of `market_data_research`, same scope) | mcp:read | L (I / R on other doors) |
+| `alpaca_snapshot` | mcp:read | L (I / R on other doors) |
+| `foss_alpaca_snapshot` (deprecated #1906 alias of `alpaca_snapshot`, same scope) | mcp:read | L (I / R on other doors) |
+| `alpaca_account` | mcp:read | L (I / R on other doors) |
+| `foss_alpaca_account` (deprecated #1906 alias of `alpaca_account`, same scope) | mcp:read | L (I / R on other doors) |
+| `alpaca_positions` | mcp:read | L (I / R on other doors) |
+| `foss_alpaca_positions` (deprecated #1906 alias of `alpaca_positions`, same scope) | mcp:read | L (I / R on other doors) |
+| `alpaca_orders` | mcp:read | L (I / R on other doors) |
+| `foss_alpaca_orders` (deprecated #1906 alias of `alpaca_orders`, same scope) | mcp:read | L (I / R on other doors) |
 | `browser_inspect_page` | mcp:read | L (I / R on other doors) |
 | `ai_search_financial_docs` | mcp:read | L (I / R on other doors) |
 | `agentdb.chain.status` | mcp:read | L (I / R on other doors) |
@@ -130,13 +139,14 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `paid_market_research` | mcp:payments | L (I / R on other doors) |
 | `agentic_wallet_status` | mcp:payments | L (I / R on other doors) |
 
-### mcp:trade (4)
+### mcp:trade (5)
 
 | Tool | Scope | /mcp verdict |
 |---|---|---|
 | `etrade_preview_order` | mcp:trade | L (I / R on other doors) |
 | `etrade_execute_order` | mcp:trade | L (I / R on other doors) |
-| `foss_alpaca_place_order` | mcp:trade | L (I / R on other doors) |
+| `alpaca_place_order` | mcp:trade | L (I / R on other doors) |
+| `foss_alpaca_place_order` (deprecated #1906 alias of `alpaca_place_order`, same scope) | mcp:trade | L (I / R on other doors) |
 | `execute_durable_twap` | mcp:trade | L (I / R on other doors) |
 
 ### mcp:admin (4)
@@ -149,7 +159,8 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `get_revenue_summary` | mcp:admin | L (I / R on other doors) |
 
 Note on the sensitive tools: `etrade_execute_order`,
-`foss_alpaca_place_order`, and `execute_durable_twap` are
+`alpaca_place_order` (and its deprecated #1906 alias
+`foss_alpaca_place_order`), and `execute_durable_twap` are
 additionally HITL-gated at the execution layer (approval workflow);
 the scope gate and HITL compose — neither replaces the other. Their
 attribution verdict is the same L as above; HITL approval records

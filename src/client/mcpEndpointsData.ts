@@ -25,7 +25,7 @@ export interface McpPromptMeta {
 
 export interface RestEndpointMeta {
   id: string;
-  category: "Agents & NLQ" | "Payments & DIDs" | "Enterprise Data & Ledger" | "Monetization & Ads" | "Referrals & Community" | "System & Audit" | "Trading & E*TRADE" | "FOSS Research & Quoting";
+  category: "Agents & NLQ" | "Payments & DIDs" | "Enterprise Data & Ledger" | "Monetization & Ads" | "Referrals & Community" | "System & Audit" | "Trading & E*TRADE" | "Market Data Research & Quoting";
   method: "GET" | "POST" | "DELETE";
   path: string;
   title: string;
@@ -311,9 +311,9 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     sampleArgs: {},
   },
   {
-    name: "foss_get_quote",
-    category: "FOSS Research & Quoting",
-    description: "Retrieve real-time market quote, bid/ask spread, 24h change, and volume using FOSS engines (Yahoo Finance or Alpaca Market Data v2).",
+    name: "market_data_get_quote",
+    category: "Market Data Research & Quoting",
+    description: "Retrieve real-time market quote, bid/ask spread, 24h change, and volume using market-data engines (Yahoo Finance or Alpaca Market Data v2).",
     schema: {
       type: "object",
       properties: {
@@ -325,9 +325,9 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     sampleArgs: { symbol: "NVDA", provider: "hybrid" },
   },
   {
-    name: "foss_company_fundamentals",
-    category: "FOSS Research & Quoting",
-    description: "Extract comprehensive company fundamentals, valuation ratios (P/E, PEG, Price-to-Book, Beta), and Wall Street analyst targets via Yahoo Finance FOSS.",
+    name: "market_data_company_fundamentals",
+    category: "Market Data Research & Quoting",
+    description: "Extract comprehensive company fundamentals, valuation ratios (P/E, PEG, Price-to-Book, Beta), and Wall Street analyst targets via Yahoo Finance.",
     schema: {
       type: "object",
       properties: {
@@ -338,8 +338,8 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     sampleArgs: { symbol: "NVDA" },
   },
   {
-    name: "foss_historical_bars",
-    category: "FOSS Research & Quoting",
+    name: "market_data_historical_bars",
+    category: "Market Data Research & Quoting",
     description: "Query historical OHLCV pricing bars, VWAP, and volume series for equities and crypto.",
     schema: {
       type: "object",
@@ -353,8 +353,8 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     sampleArgs: { symbol: "NVDA", timeframe: "1D", limit: 30 },
   },
   {
-    name: "foss_market_research",
-    category: "FOSS Research & Quoting",
+    name: "market_data_research",
+    category: "Market Data Research & Quoting",
     description: "Generate an autonomous equity research report synthesizing real-time quoting, institutional valuation, technical RSI/MACD indicators, analyst consensus, and cryptographic W3C Agent DID attestation.",
     schema: {
       type: "object",
@@ -366,8 +366,8 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     sampleArgs: { symbol: "NVDA" },
   },
   {
-    name: "foss_alpaca_snapshot",
-    category: "FOSS Research & Quoting",
+    name: "alpaca_snapshot",
+    category: "Market Data Research & Quoting",
     description: "Query real-time Level 1/2 market snapshot, NBBO bid/ask prices, trade prints, and daily volume via Alpaca Market Data v2.",
     schema: {
       type: "object",
@@ -379,22 +379,22 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     sampleArgs: { symbol: "NVDA" },
   },
   {
-    name: "foss_alpaca_account",
-    category: "FOSS Research & Quoting",
+    name: "alpaca_account",
+    category: "Market Data Research & Quoting",
     description: "Query Alpaca Securities brokerage account details, cash balance, buying power, and portfolio equity with agentic DID audit tracing.",
     schema: { type: "object", properties: {} },
     sampleArgs: {},
   },
   {
-    name: "foss_alpaca_positions",
-    category: "FOSS Research & Quoting",
+    name: "alpaca_positions",
+    category: "Market Data Research & Quoting",
     description: "Query open equity and crypto portfolio positions from Alpaca Securities with agentic DID audit tracing.",
     schema: { type: "object", properties: {} },
     sampleArgs: {},
   },
   {
-    name: "foss_alpaca_orders",
-    category: "FOSS Research & Quoting",
+    name: "alpaca_orders",
+    category: "Market Data Research & Quoting",
     description: "Query active and filled orders from Alpaca Securities with status filter and agentic DID audit tracing.",
     schema: {
       type: "object",
@@ -405,8 +405,8 @@ export const MCP_TOOLS_CATALOG: McpToolMeta[] = [
     sampleArgs: { status: "open" },
   },
   {
-    name: "foss_alpaca_place_order",
-    category: "FOSS Research & Quoting",
+    name: "alpaca_place_order",
+    category: "Market Data Research & Quoting",
     description: "Place a stock, ETF, or crypto order on Alpaca Securities with Agent DID attestation and audit tracing.",
     schema: {
       type: "object",
@@ -831,77 +831,77 @@ export const REST_APIS_CATALOG: RestEndpointMeta[] = [
     sampleCurl: `curl -X GET https://agent.openaimp.com/api/etrade/orders`,
   },
   {
-    id: "api_foss_quote",
-    category: "FOSS Research & Quoting",
+    id: "api_market_data_quote",
+    category: "Market Data Research & Quoting",
     method: "GET",
-    path: "/api/foss/quote?symbol=NVDA&provider=hybrid",
-    title: "FOSS Real-Time Quote",
-    description: "Fetches live equity or crypto quote and bid/ask spread via Yahoo Finance, Alpaca Market Data v2, or FOSS Hybrid.",
+    path: "/api/market-data/quote?symbol=NVDA&provider=hybrid",
+    title: "Market Data Real-Time Quote",
+    description: "Fetches live equity or crypto quote and bid/ask spread via Yahoo Finance, Alpaca Market Data v2, or Hybrid.",
     authRequired: true,
-    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/foss/quote?symbol=NVDA&provider=hybrid"`,
+    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/market-data/quote?symbol=NVDA&provider=hybrid"`,
   },
   {
-    id: "api_foss_fundamentals",
-    category: "FOSS Research & Quoting",
+    id: "api_market_data_fundamentals",
+    category: "Market Data Research & Quoting",
     method: "GET",
-    path: "/api/foss/fundamentals?symbol=NVDA",
+    path: "/api/market-data/fundamentals?symbol=NVDA",
     title: "Company Fundamentals & Valuation Ratios",
     description: "Returns institutional valuation metrics, P/E, PEG, Price-to-Book, Beta, and Wall Street price targets from Yahoo Finance.",
     authRequired: true,
-    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/foss/fundamentals?symbol=NVDA"`,
+    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/market-data/fundamentals?symbol=NVDA"`,
   },
   {
-    id: "api_foss_bars",
-    category: "FOSS Research & Quoting",
+    id: "api_market_data_bars",
+    category: "Market Data Research & Quoting",
     method: "GET",
-    path: "/api/foss/bars?symbol=NVDA&timeframe=1D&limit=30",
+    path: "/api/market-data/bars?symbol=NVDA&timeframe=1D&limit=30",
     title: "Historical OHLCV Bars",
     description: "Retrieves daily or intraday OHLCV bars, volume, and VWAP for technical analysis and charts.",
     authRequired: true,
-    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/foss/bars?symbol=NVDA&timeframe=1D&limit=30"`,
+    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/market-data/bars?symbol=NVDA&timeframe=1D&limit=30"`,
   },
   {
-    id: "api_foss_research",
-    category: "FOSS Research & Quoting",
+    id: "api_market_data_research",
+    category: "Market Data Research & Quoting",
     method: "GET",
-    path: "/api/foss/research?symbol=NVDA",
+    path: "/api/market-data/research?symbol=NVDA",
     title: "Autonomous Equity Research Report",
     description: "Generates end-to-end research synthesis with AI analysis, technical indicators (RSI-14/MACD), and cryptographic Agent DID attestation.",
     authRequired: true,
-    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/foss/research?symbol=NVDA"`,
+    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/market-data/research?symbol=NVDA"`,
   },
   {
-    id: "api_foss_snapshot",
-    category: "FOSS Research & Quoting",
+    id: "api_market_data_snapshot",
+    category: "Market Data Research & Quoting",
     method: "GET",
-    path: "/api/foss/snapshot?symbol=NVDA",
+    path: "/api/market-data/snapshot?symbol=NVDA",
     title: "Alpaca Real-Time Market Snapshot",
     description: "Queries Level 1/2 quotes, NBBO bid/ask sizes, latest trade execution, and daily bar via Alpaca Market Data v2.",
     authRequired: true,
-    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/foss/snapshot?symbol=NVDA"`,
+    sampleCurl: `curl -X GET "https://agent.openaimp.com/api/market-data/snapshot?symbol=NVDA"`,
   },
   {
-    id: "api_foss_compare",
-    category: "FOSS Research & Quoting",
+    id: "api_market_data_compare",
+    category: "Market Data Research & Quoting",
     method: "POST",
-    path: "/api/foss/compare",
+    path: "/api/market-data/compare",
     title: "Multi-Ticker Valuation Comparison",
     description: "Compares quotes, valuation multiples, and analyst ratings across up to 6 tickers side-by-side.",
     authRequired: true,
     sampleBody: { symbols: ["NVDA", "AAPL", "MSFT", "GOOGL"] },
-    sampleCurl: `curl -X POST https://agent.openaimp.com/api/foss/compare \\
+    sampleCurl: `curl -X POST https://agent.openaimp.com/api/market-data/compare \\
   -H "Content-Type: application/json" \\
   -d '{"symbols":["NVDA","AAPL","MSFT"]}'`,
   },
   {
-    id: "api_foss_providers",
-    category: "FOSS Research & Quoting",
+    id: "api_market_data_providers",
+    category: "Market Data Research & Quoting",
     method: "GET",
-    path: "/api/foss/providers",
-    title: "FOSS Providers Connectivity & Status",
+    path: "/api/market-data/providers",
+    title: "Market Data Providers Connectivity & Status",
     description: "Inspects connectivity, configuration, API credentials, and capabilities of Yahoo Finance and Alpaca integrations.",
     authRequired: true,
-    sampleCurl: `curl -X GET https://agent.openaimp.com/api/foss/providers`,
+    sampleCurl: `curl -X GET https://agent.openaimp.com/api/market-data/providers`,
   },
   {
     id: "api_async_jobs",

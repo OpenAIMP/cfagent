@@ -1,9 +1,9 @@
 /**
- * FOSS Market Research & Quoting Service (yfinance and Alpaca APIs)
+ * Market Data Research & Quoting Service (yfinance and Alpaca APIs)
  *
  * Implements:
- * - GoF Strategy Pattern: IFossMarketDataProvider implemented by YahooFinanceProvider, AlpacaMarketDataProvider, and HybridFossProvider.
- * - GoF Facade Pattern: FossResearchService coordinates quoting, fundamental analysis, historical bars, and research reports.
+ * - GoF Strategy Pattern: IMarketDataProvider implemented by YahooFinanceProvider, AlpacaMarketDataProvider, and HybridMarketDataProvider.
+ * - GoF Facade Pattern: MarketDataResearchService coordinates quoting, fundamental analysis, historical bars, and research reports.
  * - GRASP Information Expert: Resolves valuations, financial ratios, analyst price targets, and Level 1/2 spreads.
  * - GRASP Protected Variations: Runtime selection between live Alpaca/YFinance endpoints.
  *
@@ -15,7 +15,7 @@
  * static-table price/bar fields, no invented bid/ask. The synchronous
  * accessors cannot fetch live data, so they throw the same explicit
  * unavailable error; callers must use the async accessors. The bundled
- * FOSS_MARKET_UNIVERSE table survives only as exported symbol metadata for
+ * MARKET_DATA_RESEARCH_UNIVERSE table survives only as exported symbol metadata for
  * other modules (name/sector); no price/bar field in it is consumed here.
  * Every live object still carries `provenance` ("live") so consumers can
  * verify what the data actually is.
@@ -23,19 +23,19 @@
 
 import type {
   Env,
-  FossQuote,
-  FossHistoricalBar,
-  FossCompanyFundamentals,
-  FossDataProvenance,
+  MarketDataResearchQuote,
+  MarketDataResearchHistoricalBar,
+  MarketDataResearchCompanyFundamentals,
+  MarketDataResearchProvenance,
   AlpacaMarketSnapshot,
-  FossResearchReport,
-  FossProviderStatus,
+  MarketDataResearchReport,
+  MarketDataResearchProviderStatus,
 } from "../types";
-import type { IFossMarketDataProvider } from "../patterns/interfaces";
+import type { IMarketDataProvider } from "../patterns/interfaces";
 import {
-  BreakerWrappedFossProvider,
+  BreakerWrappedMarketDataProvider,
   yahooQuoteCacheFallback,
-} from "../breakers/fossBreakerWrapper";
+} from "../breakers/marketDataBreakerWrapper";
 import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
 import type { BreakerRegistry } from "../breakers/breakerPorts";
 import { AGENT_DIDS, createDidAttestationSync } from "../agents/did";
@@ -86,7 +86,7 @@ export interface StockMarketProfile {
   description: string;
 }
 
-export const FOSS_MARKET_UNIVERSE: Record<string, StockMarketProfile> = {
+export const MARKET_DATA_RESEARCH_UNIVERSE: Record<string, StockMarketProfile> = {
   NVDA: {
     symbol: "NVDA",
     name: "NVIDIA Corporation",
@@ -1566,58 +1566,58 @@ export const FOSS_MARKET_UNIVERSE: Record<string, StockMarketProfile> = {
 };
 
 /**
- * Live-only accessors (issue #923): the synchronous FOSS accessors cannot
+ * Live-only accessors (issue #923): the synchronous market-data accessors cannot
  * fetch live data, so they throw an explicit unavailable error instead of
  * serving the bundled table, a hash-invented profile, or synthetic bars.
  * Callers must use the async accessors.
  */
-export function fossLiveUnavailableError(symbol: string, what: string, provider: string): Error {
+export function marketDataResearchLiveUnavailableError(symbol: string, what: string, provider: string): Error {
   const sym = symbol.toUpperCase().trim();
   return new Error(
-    `FOSS ${what} unavailable for ${sym} from ${provider}: no live data could be fetched in this call; no static, generated, or synthetic substitute is served (#923).`,
+    `Market data ${what} unavailable for ${sym} from ${provider}: no live data could be fetched in this call; no static, generated, or synthetic substitute is served (#923).`,
   );
 }
 
-function fossSyncUnavailable(symbol: string, what: string, provider: string): never {
-  throw fossLiveUnavailableError(symbol, what, `${provider} sync accessor (use the async accessor)`);
+function marketDataResearchSyncUnavailable(symbol: string, what: string, provider: string): never {
+  throw marketDataResearchLiveUnavailableError(symbol, what, `${provider} sync accessor (use the async accessor)`);
 }
 
-const FOSS_PROVENANCE_RANK: Record<FossDataProvenance, number> = { live: 4, cached: 3, static: 2, generated: 1 };
+const MARKET_DATA_RESEARCH_PROVENANCE_RANK: Record<MarketDataResearchProvenance, number> = { live: 4, cached: 3, static: 2, generated: 1 };
 
 /** Weakest (least-live) of a set — a composite object is only as live as its weakest input (#117). */
-export function weakestFossProvenance(...provenances: FossDataProvenance[]): FossDataProvenance {
-  let weakest: FossDataProvenance = "live";
+export function weakestMarketDataResearchProvenance(...provenances: MarketDataResearchProvenance[]): MarketDataResearchProvenance {
+  let weakest: MarketDataResearchProvenance = "live";
   for (const p of provenances) {
-    if (FOSS_PROVENANCE_RANK[p] < FOSS_PROVENANCE_RANK[weakest]) weakest = p;
+    if (MARKET_DATA_RESEARCH_PROVENANCE_RANK[p] < MARKET_DATA_RESEARCH_PROVENANCE_RANK[weakest]) weakest = p;
   }
   return weakest;
 }
 
 /** Human-readable origin note for a non-live object; undefined when live (#117). */
-export function fossProvenanceNote(provenance: FossDataProvenance, subject: string): string | undefined {
+export function marketDataResearchProvenanceNote(provenance: MarketDataResearchProvenance, subject: string): string | undefined {
   switch (provenance) {
     case "live":
       return undefined;
     case "cached":
       return `${subject} served from the 5-minute in-memory cache — values from an earlier live fetch, not re-fetched in this call.`;
     case "static":
-      return `${subject} served from the bundled FOSS static universe table — not fetched live in this call.`;
+      return `${subject} served from the bundled market-data static universe table — not fetched live in this call.`;
     case "generated":
-      return `${subject} is deterministically generated FOSS data — estimated values, not live market data.`;
+      return `${subject} is deterministically generated market data — estimated values, not live market data.`;
   }
 }
 
-/** Truthful `source` label for the GET /foss/bars route response, derived from the bars' actual provenance (#117). */
-export function fossBarsSourceLabel(provider: "yfinance" | "alpaca" | "hybrid", provenance: FossDataProvenance): string {
+/** Truthful `source` label for the GET /market-data/bars route response, derived from the bars' actual provenance (#117). */
+export function marketDataResearchBarsSourceLabel(provider: "yfinance" | "alpaca" | "hybrid", provenance: MarketDataResearchProvenance): string {
   if (provenance === "live") {
-    return provider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API";
+    return provider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance Chart API";
   }
   if (provenance === "cached") {
-    return "FOSS cached quote (not re-fetched live in this call)";
+    return "Market-data cached quote (not re-fetched live in this call)";
   }
   return provenance === "static"
-    ? "FOSS static universe table (not live market data)"
-    : "FOSS generated series (not live market data)";
+    ? "Market-data static universe table (not live market data)"
+    : "Market-data generated series (not live market data)";
 }
 
 interface YahooCrumbSession {
@@ -1754,26 +1754,26 @@ export function computeMacd(closes: number[]): {
  * 1. Yahoo Finance Provider Strategy (GoF Strategy Pattern)
  * Specializes in deep financial ratios, valuation, enterprise value, and analyst price targets.
  */
-export class YahooFinanceProvider implements IFossMarketDataProvider {
+export class YahooFinanceProvider implements IMarketDataProvider {
   readonly providerId = "yfinance" as const;
-  readonly name = "Yahoo Finance (yfinance FOSS Engine)";
+  readonly name = "Yahoo Finance (yfinance Engine)";
 
   constructor(private readonly env?: Env) {}
 
   isConfigured(_env?: Env): boolean {
-    // FOSS provider: public Yahoo endpoints, no key required (#923: live-only).
+    // market-data provider: public Yahoo endpoints, no key required (#923: live-only).
     return true;
   }
 
-  getQuoteSync(symbol: string): FossQuote {
+  getQuoteSync(symbol: string): MarketDataResearchQuote {
     // #923: no live fetch is possible synchronously — fail explicit.
-    return fossSyncUnavailable(symbol, "quote", "yfinance");
+    return marketDataResearchSyncUnavailable(symbol, "quote", "yfinance");
   }
 
   async getQuote(
     symbol: string,
     opts?: { yahooOpenMode?: unknown; yahooIndicatorsMode?: unknown; scoped?: QuoteScopedModes },
-  ): Promise<FossQuote> {
+  ): Promise<MarketDataResearchQuote> {
     const cleanSym = symbol.toUpperCase().trim();
     // #1725 (M4): QUOTE_YAHOO_OPEN_MODE, default "midpoint" (the
     // single-quote legacy: (dayHigh+dayLow)/2), and
@@ -1797,7 +1797,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
     // #930: a cache hit is stamped "cached" with its age — never bare
     // "live". Values are unchanged (no substitute numbers); only the
     // provenance label and age stamp differ from the fresh fetch.
-    const cachedQuote = getCachedQuoteWithAge<FossQuote>(`yahoo:${cleanSym}`);
+    const cachedQuote = getCachedQuoteWithAge<MarketDataResearchQuote>(`yahoo:${cleanSym}`);
     if (cachedQuote) {
       const ageSeconds = (cachedQuote.ageMs / 1000).toFixed(0);
       return {
@@ -1873,7 +1873,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
               // Ignore enrichment error
             }
 
-            const liveQuote: FossQuote = {
+            const liveQuote: MarketDataResearchQuote = {
               symbol: meta.symbol || cleanSym,
               provider: "yfinance",
               provenance: "live",
@@ -1918,7 +1918,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
     }
 
     // #923: live chart fetch failed — fail explicit, no static/generated substitute.
-    throw fossLiveUnavailableError(symbol, "quote", "yfinance");
+    throw marketDataResearchLiveUnavailableError(symbol, "quote", "yfinance");
   }
 
   /**
@@ -1935,7 +1935,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
    * carry no indicators either). Market cap and trailing PE ride the
    * batch payload — no per-symbol quoteSummary call is needed.
    */
-  async getQuotes(symbols: string[]): Promise<FossQuote[]> {
+  async getQuotes(symbols: string[]): Promise<MarketDataResearchQuote[]> {
     const wanted = [...new Set(symbols.map((s) => s.toUpperCase().trim()).filter(Boolean))];
     if (wanted.length === 0) return [];
     const session = await getYahooCrumbSession();
@@ -1958,7 +1958,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
     if (rows.length === 0) {
       throw new Error("Yahoo batch quotes returned no results");
     }
-    const out: FossQuote[] = [];
+    const out: MarketDataResearchQuote[] = [];
     for (const r of rows) {
       const symbol = String(r?.symbol || "").toUpperCase();
       const price = Number(r?.regularMarketPrice);
@@ -1973,7 +1973,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
       const changePercent = Number.isFinite(pctRaw) && r?.regularMarketChangePercent !== undefined
         ? pctRaw
         : prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
-      const quote: FossQuote = {
+      const quote: MarketDataResearchQuote = {
         symbol,
         provider: "yfinance",
         provenance: "live",
@@ -2003,12 +2003,12 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
     return out;
   }
 
-  getFundamentalsSync(symbol: string): FossCompanyFundamentals {
+  getFundamentalsSync(symbol: string): MarketDataResearchCompanyFundamentals {
     // #923: no live fetch is possible synchronously — fail explicit.
-    return fossSyncUnavailable(symbol, "fundamentals", "yfinance");
+    return marketDataResearchSyncUnavailable(symbol, "fundamentals", "yfinance");
   }
 
-  async getFundamentals(symbol: string): Promise<FossCompanyFundamentals> {
+  async getFundamentals(symbol: string): Promise<MarketDataResearchCompanyFundamentals> {
     const cleanSym = symbol.toUpperCase().trim();
     try {
       const session = await getYahooCrumbSession();
@@ -2070,15 +2070,15 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
     }
 
     // #923: quoteSummary unavailable — no formula analyst block, no profile fallback.
-    throw fossLiveUnavailableError(symbol, "fundamentals", "yfinance");
+    throw marketDataResearchLiveUnavailableError(symbol, "fundamentals", "yfinance");
   }
 
-  getHistoricalBarsSync(symbol: string, _timeframe = "1D", limit = 30): FossHistoricalBar[] {
+  getHistoricalBarsSync(symbol: string, _timeframe = "1D", limit = 30): MarketDataResearchHistoricalBar[] {
     // #923: no live fetch is possible synchronously — fail explicit.
-    return fossSyncUnavailable(symbol, "historical bars", "yfinance");
+    return marketDataResearchSyncUnavailable(symbol, "historical bars", "yfinance");
   }
 
-  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
+  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<MarketDataResearchHistoricalBar[]> {
     const cleanSym = symbol.toUpperCase().trim();
     const upper = timeframe.toUpperCase();
     // #1654 slice 8 adapters: minute intervals pass through to the v8
@@ -2136,7 +2136,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
           const quote = result?.indicators?.quote?.[0];
 
           if (Array.isArray(timestamps) && quote?.close) {
-            const bars: FossHistoricalBar[] = [];
+            const bars: MarketDataResearchHistoricalBar[] = [];
             for (let i = timestamps.length - 1; i >= 0 && bars.length < limit; i--) {
               const c = quote.close?.[i];
               if (c !== null && c !== undefined && !isNaN(c) && c > 0) {
@@ -2171,7 +2171,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
     }
 
     // #923: both live chart hosts failed — fail explicit, no synthetic bars.
-    throw fossLiveUnavailableError(symbol, "historical bars", "yfinance");
+    throw marketDataResearchLiveUnavailableError(symbol, "historical bars", "yfinance");
   }
 }
 
@@ -2180,7 +2180,7 @@ export class YahooFinanceProvider implements IFossMarketDataProvider {
  * Specializes in real-time Level 1/2 quotes, latest trades, NBBO bid/ask spreads, and multi-asset crypto/equities.
  * Also integrates Alpaca v2 Trading API for live/paper order executions, accounts, and portfolio positions.
  */
-export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
+export class AlpacaMarketDataProvider implements IMarketDataProvider {
   readonly providerId = "alpaca" as const;
   readonly name = "Alpaca Market Data v2 (Paper & Live API)";
 
@@ -2215,12 +2215,12 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
     };
   }
 
-  getQuoteSync(symbol: string): FossQuote {
+  getQuoteSync(symbol: string): MarketDataResearchQuote {
     // #923: no live fetch is possible synchronously — fail explicit.
-    return fossSyncUnavailable(symbol, "quote", "alpaca");
+    return marketDataResearchSyncUnavailable(symbol, "quote", "alpaca");
   }
 
-  async getQuote(symbol: string): Promise<FossQuote> {
+  async getQuote(symbol: string): Promise<MarketDataResearchQuote> {
     const isCrypto = symbol.includes("/") || symbol.toLowerCase().includes("btc") || symbol.toLowerCase().includes("eth");
 
     if (this.isConfigured()) {
@@ -2267,26 +2267,26 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
     }
 
     // #923: unconfigured or failed live fetch — no static/generated substitute.
-    throw fossLiveUnavailableError(symbol, "quote", "alpaca");
+    throw marketDataResearchLiveUnavailableError(symbol, "quote", "alpaca");
   }
 
-  getFundamentalsSync(symbol: string): FossCompanyFundamentals {
+  getFundamentalsSync(symbol: string): MarketDataResearchCompanyFundamentals {
     // #923: no live fetch is possible synchronously — fail explicit.
-    return fossSyncUnavailable(symbol, "fundamentals", "alpaca");
+    return marketDataResearchSyncUnavailable(symbol, "fundamentals", "alpaca");
   }
 
-  async getFundamentals(symbol: string): Promise<FossCompanyFundamentals> {
+  async getFundamentals(symbol: string): Promise<MarketDataResearchCompanyFundamentals> {
     // #923: Alpaca has no live fundamentals source in this codebase — fail
     // explicit rather than serving the profile. Use the Yahoo provider.
-    throw fossLiveUnavailableError(symbol, "fundamentals", "alpaca");
+    throw marketDataResearchLiveUnavailableError(symbol, "fundamentals", "alpaca");
   }
 
-  getHistoricalBarsSync(symbol: string, timeframe = "1D", limit = 30): FossHistoricalBar[] {
+  getHistoricalBarsSync(symbol: string, timeframe = "1D", limit = 30): MarketDataResearchHistoricalBar[] {
     // #923: no live fetch is possible synchronously — fail explicit.
-    return fossSyncUnavailable(symbol, "historical bars", "alpaca");
+    return marketDataResearchSyncUnavailable(symbol, "historical bars", "alpaca");
   }
 
-  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
+  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<MarketDataResearchHistoricalBar[]> {
     // #1654 slice 8 adapters: minute timeframes pass through to the
     // Alpaca bars API (upstream supports [1-59]Min) instead of
     // silently collapsing to 1Day (the slice-7 finding). Out-of-range
@@ -2352,12 +2352,12 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
     }
 
     // #923: unconfigured or failed live fetch — fail explicit, no synthetic bars.
-    throw fossLiveUnavailableError(symbol, "historical bars", "alpaca");
+    throw marketDataResearchLiveUnavailableError(symbol, "historical bars", "alpaca");
   }
 
   getMarketSnapshotSync(symbol: string): AlpacaMarketSnapshot {
     // #923: no live fetch is possible synchronously — fail explicit.
-    return fossSyncUnavailable(symbol, "market snapshot", "alpaca");
+    return marketDataResearchSyncUnavailable(symbol, "market snapshot", "alpaca");
   }
 
   async getMarketSnapshot(symbol: string): Promise<AlpacaMarketSnapshot> {
@@ -2430,7 +2430,7 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
     }
 
     // #923: unconfigured or failed live fetch — fail explicit, no profile snapshot.
-    throw fossLiveUnavailableError(symbol, "market snapshot", "alpaca");
+    throw marketDataResearchLiveUnavailableError(symbol, "market snapshot", "alpaca");
   }
 
   /**
@@ -2570,12 +2570,12 @@ export class AlpacaMarketDataProvider implements IFossMarketDataProvider {
 }
 
 /**
- * 3. Hybrid FOSS Provider Strategy (GoF Strategy Pattern)
+ * 3. Hybrid Market Data Provider Strategy (GoF Strategy Pattern)
  * Merges Alpaca real-time Level 1/2 quotes and NBBO spreads with Yahoo Finance institutional fundamentals and analyst consensus.
  */
-export class HybridFossProvider implements IFossMarketDataProvider {
+export class HybridMarketDataProvider implements IMarketDataProvider {
   readonly providerId = "hybrid" as const;
-  readonly name = "FOSS Hybrid Engine (Alpaca Real-time + Yahoo Finance Research)";
+  readonly name = "Hybrid Engine (Alpaca Real-time + Yahoo Finance Research)";
 
   private readonly yfinance: YahooFinanceProvider;
   private readonly alpaca: AlpacaMarketDataProvider;
@@ -2589,15 +2589,15 @@ export class HybridFossProvider implements IFossMarketDataProvider {
     return true;
   }
 
-  getQuoteSync(symbol: string): FossQuote {
+  getQuoteSync(symbol: string): MarketDataResearchQuote {
     // #923: no live fetch is possible synchronously — fail explicit.
-    return fossSyncUnavailable(symbol, "quote", "hybrid");
+    return marketDataResearchSyncUnavailable(symbol, "quote", "hybrid");
   }
 
   async getQuote(
     symbol: string,
     opts?: { alpacaKeyMode?: unknown; scoped?: QuoteScopedModes },
-  ): Promise<FossQuote> {
+  ): Promise<MarketDataResearchQuote> {
     // #923: the price leg must be live or this throws; the fundamentals
     // leg is optional — when live fundamentals are unavailable the live
     // price is still served, WITHOUT backfilling valuation fields from
@@ -2613,39 +2613,39 @@ export class HybridFossProvider implements IFossMarketDataProvider {
     ).mode;
     const isAlpacaLive = isAlpacaConfigured(this.env, keyMode);
     const priceQuote = await (isAlpacaLive ? this.alpaca.getQuote(symbol) : this.yfinance.getQuote(symbol));
-    let yfFundamentals: FossCompanyFundamentals | undefined;
+    let yfFundamentals: MarketDataResearchCompanyFundamentals | undefined;
     try {
       yfFundamentals = await this.yfinance.getFundamentals(symbol);
     } catch {
       yfFundamentals = undefined;
     }
     const provenance = yfFundamentals
-      ? weakestFossProvenance(priceQuote.provenance, yfFundamentals.provenance)
+      ? weakestMarketDataResearchProvenance(priceQuote.provenance, yfFundamentals.provenance)
       : priceQuote.provenance;
     return {
       ...priceQuote,
       provider: "hybrid",
       provenance,
-      note: fossProvenanceNote(provenance, "Quote"),
+      note: marketDataResearchProvenanceNote(provenance, "Quote"),
       companyName: yfFundamentals?.companyName || priceQuote.companyName,
       trailingPE: yfFundamentals?.peTrailing ?? priceQuote.trailingPE,
       marketCap: yfFundamentals?.marketCap ?? priceQuote.marketCap,
     };
   }
 
-  getFundamentalsSync(symbol: string): FossCompanyFundamentals {
+  getFundamentalsSync(symbol: string): MarketDataResearchCompanyFundamentals {
     return this.yfinance.getFundamentalsSync(symbol);
   }
 
-  async getFundamentals(symbol: string): Promise<FossCompanyFundamentals> {
+  async getFundamentals(symbol: string): Promise<MarketDataResearchCompanyFundamentals> {
     return this.yfinance.getFundamentals(symbol);
   }
 
-  getHistoricalBarsSync(symbol: string, timeframe = "1D", limit = 30): FossHistoricalBar[] {
+  getHistoricalBarsSync(symbol: string, timeframe = "1D", limit = 30): MarketDataResearchHistoricalBar[] {
     return this.yfinance.getHistoricalBarsSync(symbol, timeframe, limit);
   }
 
-  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<FossHistoricalBar[]> {
+  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30): Promise<MarketDataResearchHistoricalBar[]> {
     return this.yfinance.getHistoricalBars(symbol, timeframe, limit);
   }
 
@@ -2659,12 +2659,12 @@ export class HybridFossProvider implements IFossMarketDataProvider {
 }
 
 /**
- * GoF Facade & Controller Pattern: FossResearchService
- * High-level orchestration for FOSS financial data, fundamentals, and multi-symbol comparisons.
+ * GoF Facade & Controller Pattern: MarketDataResearchService
+ * High-level orchestration for market data, fundamentals, and multi-symbol comparisons.
  */
-export class FossResearchService {
-  private readonly yfinance: BreakerWrappedFossProvider;
-  private readonly alpaca: BreakerWrappedFossProvider;
+export class MarketDataResearchService {
+  private readonly yfinance: BreakerWrappedMarketDataProvider;
+  private readonly alpaca: BreakerWrappedMarketDataProvider;
   // Trading calls (placeOrder/getAccount/getPositions/getOrders)
   // are NOT market-data acquisition and stay on the raw Alpaca
   // client — breakers never gate trades (issue #1745 scope).
@@ -2672,7 +2672,7 @@ export class FossResearchService {
   // The hybrid strategy is guarded at the composed level (breaker
   // "hybrid"); the service only calls getQuote/getQuoteSync on it,
   // both of which the wrapper carries.
-  private readonly hybrid: BreakerWrappedFossProvider;
+  private readonly hybrid: BreakerWrappedMarketDataProvider;
 
   constructor(
     private readonly env?: Env,
@@ -2683,13 +2683,13 @@ export class FossResearchService {
     breakers?: BreakerRegistry
   ) {
     const registry = breakers ?? defaultBreakerRegistry();
-    this.yfinance = new BreakerWrappedFossProvider(
+    this.yfinance = new BreakerWrappedMarketDataProvider(
       new YahooFinanceProvider(env),
       registry.breakerFor("yahoo"),
       { getQuote: (symbol) => Promise.resolve(yahooQuoteCacheFallback(symbol)) }
     );
     const alpacaInner = new AlpacaMarketDataProvider(env);
-    this.alpaca = new BreakerWrappedFossProvider(
+    this.alpaca = new BreakerWrappedMarketDataProvider(
       alpacaInner,
       registry.breakerFor("alpaca")
     );
@@ -2697,13 +2697,13 @@ export class FossResearchService {
     // The hybrid strategy keeps its own inner instances and is
     // guarded at the composed level (breaker "hybrid"); its legs
     // are covered by the yahoo/alpaca breakers on direct use.
-    this.hybrid = new BreakerWrappedFossProvider(
-      new HybridFossProvider(env),
+    this.hybrid = new BreakerWrappedMarketDataProvider(
+      new HybridMarketDataProvider(env),
       registry.breakerFor("hybrid")
     );
   }
 
-  getProvider(provider: "yfinance" | "alpaca" | "hybrid" = "hybrid"): IFossMarketDataProvider {
+  getProvider(provider: "yfinance" | "alpaca" | "hybrid" = "hybrid"): IMarketDataProvider {
     switch (provider) {
       case "yfinance":
         return this.yfinance;
@@ -2714,7 +2714,7 @@ export class FossResearchService {
     }
   }
 
-  getQuoteSync(symbol: string, provider: "yfinance" | "alpaca" | "hybrid" = "hybrid"): FossQuote {
+  getQuoteSync(symbol: string, provider: "yfinance" | "alpaca" | "hybrid" = "hybrid"): MarketDataResearchQuote {
     switch (provider) {
       case "yfinance":
         return this.yfinance.getQuoteSync(symbol);
@@ -2737,7 +2737,7 @@ export class FossResearchService {
       yahooIndicatorsMode?: unknown;
       scoped?: QuoteScopedModes;
     },
-  ): Promise<FossQuote> {
+  ): Promise<MarketDataResearchQuote> {
     switch (provider) {
       case "yfinance":
         return this.yfinance.getQuote(symbol, opts);
@@ -2748,25 +2748,25 @@ export class FossResearchService {
     }
   }
 
-  getFundamentalsSync(symbol: string): FossCompanyFundamentals {
+  getFundamentalsSync(symbol: string): MarketDataResearchCompanyFundamentals {
     return this.yfinance.getFundamentalsSync(symbol);
   }
 
-  async getFundamentals(symbol: string): Promise<FossCompanyFundamentals> {
+  async getFundamentals(symbol: string): Promise<MarketDataResearchCompanyFundamentals> {
     return this.yfinance.getFundamentals(symbol);
   }
 
-  getHistoricalBarsSync(symbol: string, timeframe = "1D", limit = 30, provider: "yfinance" | "alpaca" | "hybrid" = "yfinance"): FossHistoricalBar[] {
+  getHistoricalBarsSync(symbol: string, timeframe = "1D", limit = 30, provider: "yfinance" | "alpaca" | "hybrid" = "yfinance"): MarketDataResearchHistoricalBar[] {
     if (provider === "alpaca") return this.alpaca.getHistoricalBarsSync(symbol, timeframe, limit);
     return this.yfinance.getHistoricalBarsSync(symbol, timeframe, limit);
   }
 
-  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30, provider: "yfinance" | "alpaca" | "hybrid" = "yfinance"): Promise<FossHistoricalBar[]> {
+  async getHistoricalBars(symbol: string, timeframe = "1D", limit = 30, provider: "yfinance" | "alpaca" | "hybrid" = "yfinance"): Promise<MarketDataResearchHistoricalBar[]> {
     // #923: live providers only, in provider order; every failure is
     // collected and the call throws explicit unavailable — no synthetic
     // bars are ever substituted, from any provider, in any order.
     const sym = symbol.toUpperCase().trim();
-    const attempts: Array<{ name: string; run: () => Promise<FossHistoricalBar[]> }> =
+    const attempts: Array<{ name: string; run: () => Promise<MarketDataResearchHistoricalBar[]> }> =
       provider === "alpaca"
         ? [
             { name: "alpaca", run: () => this.alpaca.getHistoricalBars(symbol, timeframe, limit) },
@@ -2789,7 +2789,7 @@ export class FossResearchService {
       }
     }
     throw new Error(
-      `FOSS historical bars unavailable for ${sym}: ${errors.join("; ")}; no synthetic bars substituted (#923).`,
+      `Market-data historical bars unavailable for ${sym}: ${errors.join("; ")}; no synthetic bars substituted (#923).`,
     );
   }
 
@@ -2803,7 +2803,7 @@ export class FossResearchService {
     return this.alpaca.getMarketSnapshot!(symbol);
   }
 
-  compareStocksSync(symbols: string[]): Array<{ symbol: string; quote: FossQuote; fundamentals: FossCompanyFundamentals }> {
+  compareStocksSync(symbols: string[]): Array<{ symbol: string; quote: MarketDataResearchQuote; fundamentals: MarketDataResearchCompanyFundamentals }> {
     const cleanSymbols = symbols.map(s => s.toUpperCase().trim()).slice(0, 6);
     return cleanSymbols.map((sym) => {
       const quote = this.getQuoteSync(sym);
@@ -2812,7 +2812,7 @@ export class FossResearchService {
     });
   }
 
-  async compareStocks(symbols: string[]): Promise<Array<{ symbol: string; quote: FossQuote; fundamentals: FossCompanyFundamentals }>> {
+  async compareStocks(symbols: string[]): Promise<Array<{ symbol: string; quote: MarketDataResearchQuote; fundamentals: MarketDataResearchCompanyFundamentals }>> {
     const cleanSymbols = symbols.map(s => s.toUpperCase().trim()).slice(0, 6);
     return Promise.all(cleanSymbols.map(async (sym) => {
       const [quote, fundamentals] = await Promise.all([
@@ -2823,7 +2823,7 @@ export class FossResearchService {
     }));
   }
 
-  generateResearchReportSync(symbol: string): FossResearchReport {
+  generateResearchReportSync(symbol: string): MarketDataResearchReport {
     const sym = symbol.toUpperCase().trim();
     const quote = this.getQuoteSync(sym, "hybrid");
     const fundamentals = this.getFundamentalsSync(sym);
@@ -2831,7 +2831,7 @@ export class FossResearchService {
     return this.assembleResearchReport(sym, quote, fundamentals, bars);
   }
 
-  async generateResearchReport(symbol: string): Promise<FossResearchReport> {
+  async generateResearchReport(symbol: string): Promise<MarketDataResearchReport> {
     const sym = symbol.toUpperCase().trim();
     const [quote, fundamentals, bars] = await Promise.all([
       this.getQuote(sym, "hybrid"),
@@ -2847,7 +2847,7 @@ export class FossResearchService {
    * Provenance rules: the report carries the weakest provenance of its
    * inputs; the narrative may quote a target as analyst "consensus" ONLY
    * when the fundamentals are live — otherwise it is labelled a profile
-   * target estimate from non-live FOSS data; the technical summary is
+   * target estimate from non-live market data; the technical summary is
    * flagged `heuristic` (support/resistance are price×0.94/×1.06 formulas
    * and the MACD/trend labels come from a single price-vs-midpoint
    * comparison); and the report provenance is bound into the DID
@@ -2856,11 +2856,11 @@ export class FossResearchService {
    */
   private assembleResearchReport(
     sym: string,
-    quote: FossQuote,
-    fundamentals: FossCompanyFundamentals,
-    bars: FossHistoricalBar[]
-  ): FossResearchReport {
-    const provenance = weakestFossProvenance(
+    quote: MarketDataResearchQuote,
+    fundamentals: MarketDataResearchCompanyFundamentals,
+    bars: MarketDataResearchHistoricalBar[]
+  ): MarketDataResearchReport {
+    const provenance = weakestMarketDataResearchProvenance(
       quote.provenance,
       fundamentals.provenance,
       ...bars.map((b) => b.provenance)
@@ -2915,13 +2915,13 @@ export class FossResearchService {
     const targetSentence = !hasTarget
       ? fundamentals.provenance === "live"
         ? "No consensus target is available."
-        : "No target estimate is available from the non-live FOSS profile."
+        : "No target estimate is available from the non-live market-data profile."
       : fundamentals.provenance === "live"
         ? `Consensus target price of $${targetValue.toFixed(2)} offers an implied upside of ${impliedUpsidePct}%.`
-        : `Profile target estimate of $${targetValue.toFixed(2)} (from ${fundamentals.provenance} FOSS data — not live analyst consensus) implies ${impliedUpsidePct}% versus the quoted price.`;
+        : `Profile target estimate of $${targetValue.toFixed(2)} (from ${fundamentals.provenance} market data — not live analyst consensus) implies ${impliedUpsidePct}% versus the quoted price.`;
 
     const dataNotice = provenance !== "live"
-      ? `Data notice: this report is based on ${provenance} FOSS data, not live market data. `
+      ? `Data notice: this report is based on ${provenance} market data, not live market data. `
       : "";
 
     const aiAnalysis = `${dataNotice}Autonomous research synthesis for ${fundamentals.companyName} (${sym}): Trading at $${quote.price.toFixed(2)} with a trailing P/E of ${peDisplay} and market cap of ${mcapFormatted}. 14-day RSI stands at ${rsi14} indicating ${rsi14 < 35 ? "oversold accumulation" : rsi14 > 70 ? "overbought momentum" : "balanced range"}. ${targetSentence} Overall stance: ${rating}.`;
@@ -2966,7 +2966,7 @@ export class FossResearchService {
   }
 
 
-  getProviderStatuses(): FossProviderStatus[] {
+  getProviderStatuses(): MarketDataResearchProviderStatus[] {
     const alpacaConfigured = Boolean(
       (this.env?.ALPACA_API_KEY || this.env?.ALPACA_API_KEY_ID) &&
       (this.env?.ALPACA_SECRET_KEY || this.env?.ALPACA_API_SECRET_KEY)
@@ -2974,9 +2974,9 @@ export class FossResearchService {
     return [
       {
         provider: "yfinance",
-        name: "Yahoo Finance (FOSS Query Engine)",
+        name: "Yahoo Finance (Open Data Query Engine)",
         configured: true,
-        mode: "foss_open_data",
+        mode: "market_data_open_data",
         capabilities: [
           "real_time_quotes",
           "institutional_fundamentals",
@@ -3002,9 +3002,9 @@ export class FossResearchService {
       },
       {
         provider: "hybrid",
-        name: "FOSS Hybrid Research Engine",
+        name: "Hybrid Research Engine",
         configured: true,
-        mode: "foss_open_data",
+        mode: "market_data_open_data",
         capabilities: [
           "alpaca_real_time_pricing",
           "yfinance_deep_fundamentals",

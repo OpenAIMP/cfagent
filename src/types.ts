@@ -293,31 +293,31 @@ export interface Env {
   ETRADE_POSITIONS_MODE?: string;
   ETRADE_STATUS_MODE?: string;
   ETRADE_DISCOVERY_MODE?: string;
-  // #1727 (parent #1717, slice (g)) — SEVEN FOSS switches
+  // #1727 (parent #1717, slice (g)) — SEVEN market-data switches
   // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
-  // FOSS_QUOTE_MODE: "mcp" | "rest" (F01). FOSS_FUNDAMENTALS_MODE:
-  // "mcp" | "rest" (F01). FOSS_RESEARCH_MODE: "mcp" | "rest" (F01;
-  // audit-name decision: rest spelling foss.research_generated is
+  // MARKET_DATA_QUOTE_MODE: "mcp" | "rest" (F01). MARKET_DATA_FUNDAMENTALS_MODE:
+  // "mcp" | "rest" (F01). MARKET_DATA_RESEARCH_MODE: "mcp" | "rest" (F01;
+  // audit-name decision: rest spelling market_data.research_generated is
   // canonical for new consumers, mcp spelling preserved under
-  // mode=mcp). FOSS_BARS_MODE: "mcp" | "rest" (F02).
-  // FOSS_SNAPSHOT_MODE: "mcp" | "rest" (F03).
-  // FOSS_ALPACA_READS_MODE: "mcp" | "rest" | "none" (F04, three-way).
-  // FOSS_ALPACA_ORDER_MODE: "mcp" | "foss" | "trading" (F05,
+  // mode=mcp). MARKET_DATA_BARS_MODE: "mcp" | "rest" (F02).
+  // MARKET_DATA_SNAPSHOT_MODE: "mcp" | "rest" (F03).
+  // ALPACA_READS_MODE: "mcp" | "rest" | "none" (F04, three-way).
+  // ALPACA_ORDER_MODE: "mcp" | "market-data" | "trading" (F05,
   // three-way). Built-in defaults are per surface (MCP legacy vs
-  // /foss legacy vs /trading legacy), recorded in
-  // src/config/fossModes.ts. Any other value FAILS CLOSED to the
-  // surface legacy, console-logged + audited as foss.config_error.
+  // /market-data legacy vs /trading legacy), recorded in
+  // src/config/marketDataModes.ts. Any other value FAILS CLOSED to the
+  // surface legacy, console-logged + audited as market_data.config_error.
   // Resolution order (run > session > user > global env > built-in)
-  // lives in src/config/fossModes.ts. This slice deliberately does
+  // lives in src/config/marketDataModes.ts. This slice deliberately does
   // NOT set production values: production values are an owner action.
   // Rollback is unsetting the var and redeploying.
-  FOSS_QUOTE_MODE?: string;
-  FOSS_FUNDAMENTALS_MODE?: string;
-  FOSS_RESEARCH_MODE?: string;
-  FOSS_BARS_MODE?: string;
-  FOSS_SNAPSHOT_MODE?: string;
-  FOSS_ALPACA_READS_MODE?: string;
-  FOSS_ALPACA_ORDER_MODE?: string;
+  MARKET_DATA_QUOTE_MODE?: string;
+  MARKET_DATA_FUNDAMENTALS_MODE?: string;
+  MARKET_DATA_RESEARCH_MODE?: string;
+  MARKET_DATA_BARS_MODE?: string;
+  MARKET_DATA_SNAPSHOT_MODE?: string;
+  ALPACA_READS_MODE?: string;
+  ALPACA_ORDER_MODE?: string;
   // #1733 (parent #1717, slice (m)) — ONE audit-write switch
   // (non-secret, owner-set, same pattern as PAYMENTS_FLOW_MODE).
   // AUDIT_WRITE_MODE: "legacy" | "strict" (R04). legacy = each
@@ -413,7 +413,7 @@ export interface Env {
   ETRADE_ENVIRONMENT?: "sandbox" | "live";
   ETRADE_MCP_SERVER_URL?: string;
   ETAPI_CONFIG?: string;
-  // FOSS Market Data & Research Configuration (yfinance & Alpaca)
+  // Market Data & Research Configuration (yfinance & Alpaca)
   ALPACA_API_KEY?: string;
   ALPACA_SECRET_KEY?: string;
   ALPACA_API_KEY_ID?: string;
@@ -421,7 +421,7 @@ export interface Env {
   ALPACA_BASE_URL?: string;
   ALPACA_DATA_URL?: string;
   YFINANCE_API_ENDPOINT?: string;
-  FOSS_MARKET_DATA_PROVIDER?: "alpaca" | "yfinance" | "hybrid";
+  MARKET_DATA_PROVIDER?: "alpaca" | "yfinance" | "hybrid";
   // Cloudflare Email Service & Email Agent Configuration
   EMAIL?: any;
   EMAIL_SECRET?: string;
@@ -1264,12 +1264,12 @@ export interface ETradeBrokerStatus {
 }
 
 /**
- * Data provenance for every FOSS market-data object (issue #117, audit #115
- * findings F10/F11; live-only since #923). The FOSS providers serve live
+ * Data provenance for every market-data object (issue #117, audit #115
+ * findings F10/F11; live-only since #923). The market-data providers serve live
  * data or throw explicit unavailable — the non-live values below are the
  * historical labels, retained so a stale object is never misread as live:
  * - "live": actually fetched from the named provider in this call.
- * - "static": served from the bundled FOSS_MARKET_UNIVERSE table.
+ * - "static": served from the bundled MARKET_DATA_RESEARCH_UNIVERSE table.
  * - "generated": deterministically invented (hash-generated profile for an
  *   unlisted ticker, the synthetic bars generator, formula analyst targets).
  * Mirrors the betaService/correlationService labelling standard: every
@@ -1278,13 +1278,13 @@ export interface ETradeBrokerStatus {
  * but it is the object's production time — `provenance` (and `note`, when
  * present) states what the data actually is.
  */
-export type FossDataProvenance = "live" | "cached" | "static" | "generated";
+export type MarketDataResearchProvenance = "live" | "cached" | "static" | "generated";
 
-export interface FossQuote {
+export interface MarketDataResearchQuote {
   symbol: string;
   provider: "yfinance" | "alpaca" | "hybrid";
   /** Truth about where this quote's values came from in this call (#117). */
-  provenance: FossDataProvenance;
+  provenance: MarketDataResearchProvenance;
   /** Human-readable origin note; set whenever provenance is not "live". */
   note?: string;
   /** #930: set only on cache hits — the values are as old as cacheAgeMs, not fresh. */
@@ -1321,9 +1321,9 @@ export interface FossQuote {
   currency?: string;
 }
 
-export interface FossHistoricalBar {
-  /** "live" = fetched bars; "generated" = synthetic series from the FOSS profile (#117). */
-  provenance: FossDataProvenance;
+export interface MarketDataResearchHistoricalBar {
+  /** "live" = fetched bars; "generated" = synthetic series from the market-data profile (#117). */
+  provenance: MarketDataResearchProvenance;
   timestamp: string;
   open: number;
   high: number;
@@ -1334,9 +1334,9 @@ export interface FossHistoricalBar {
   tradeCount?: number;
 }
 
-export interface FossCompanyFundamentals {
+export interface MarketDataResearchCompanyFundamentals {
   /** Truth about where these fundamentals came from in this call (#117). */
-  provenance: FossDataProvenance;
+  provenance: MarketDataResearchProvenance;
   /** Human-readable origin note; set whenever provenance is not "live". */
   note?: string;
   symbol: string;
@@ -1370,8 +1370,8 @@ export interface FossCompanyFundamentals {
 }
 
 export interface AlpacaMarketSnapshot {
-  /** "live" = fetched from Alpaca in this call; otherwise the FOSS profile (#117). */
-  provenance: FossDataProvenance;
+  /** "live" = fetched from Alpaca in this call; otherwise the market-data profile (#117). */
+  provenance: MarketDataResearchProvenance;
   /** Human-readable origin note; set whenever provenance is not "live". */
   note?: string;
   symbol: string;
@@ -1389,19 +1389,19 @@ export interface AlpacaMarketSnapshot {
     timestamp: string;
   };
   nbboSpread?: number;
-  dailyBar: FossHistoricalBar;
-  prevDailyBar: FossHistoricalBar;
-  minuteBar?: FossHistoricalBar;
+  dailyBar: MarketDataResearchHistoricalBar;
+  prevDailyBar: MarketDataResearchHistoricalBar;
+  minuteBar?: MarketDataResearchHistoricalBar;
 }
 
-export interface FossResearchReport {
+export interface MarketDataResearchReport {
   symbol: string;
   provider: "yfinance" | "alpaca" | "hybrid";
   /** Weakest provenance among quote, fundamentals, and bars (#117). */
-  provenance: FossDataProvenance;
-  quote: FossQuote;
-  fundamentals: FossCompanyFundamentals;
-  bars: FossHistoricalBar[];
+  provenance: MarketDataResearchProvenance;
+  quote: MarketDataResearchQuote;
+  fundamentals: MarketDataResearchCompanyFundamentals;
+  bars: MarketDataResearchHistoricalBar[];
   technicalSummary: {
     rsi14: number;
     macd: string;
@@ -1422,15 +1422,15 @@ export interface FossResearchReport {
     signature: string;
     timestamp: string;
     /** Provenance of the attested inputs; bound into the signed payload (#117). */
-    provenance: FossDataProvenance;
+    provenance: MarketDataResearchProvenance;
   };
 }
 
-export interface FossProviderStatus {
+export interface MarketDataResearchProviderStatus {
   provider: "yfinance" | "alpaca" | "hybrid";
   name: string;
   configured: boolean;
-  mode: "live_api" | "foss_open_data" | "simulated_engine" | "not_configured";
+  mode: "live_api" | "market_data_open_data" | "simulated_engine" | "not_configured";
   capabilities: string[];
 }
 

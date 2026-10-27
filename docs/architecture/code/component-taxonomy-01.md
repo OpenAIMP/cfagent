@@ -43,7 +43,7 @@ The matrix below provides a comparative evaluation across all 11 component categ
 | Component Category | Primary Code Locations | Complexity (1-5) | Criticality (1-5) | Usage (1-5) | Risk (1-5) | Total Score | Risk Level | Primary Risk Driver |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | **1. Feed Components** | `src/trading/etrade/client.ts`, `dataProviders/` | 4 | 5 | 5 | 5 | **19** | **CRITICAL** | Broker API rate limits (429), OAuth 1.0a token refresh race, XML/JSON parsing |
-| **2. Gather Components** | `src/services/fossResearch.ts`, `ivCollector.ts` | 4 | 4 | 4 | 4 | **16** | **HIGH** | Unstructured web scraping timeouts, LLM context budget saturation |
+| **2. Gather Components** | `src/services/marketDataResearch.ts`, `ivCollector.ts` | 4 | 4 | 4 | 4 | **16** | **HIGH** | Unstructured web scraping timeouts, LLM context budget saturation |
 | **3. Analysis Components** | `screenerPipeline.ts`, `strategyEngine.ts` | 5 | 5 | 4 | 4 | **18** | **CRITICAL** | Complex greeks mathematical calculations, multi-factor scoring performance |
 | **4. Generate Components** | `screenerReportPdf.ts`, `runExport.ts` | 3 | 3 | 3 | 2 | **11** | **LOW** | PDF binary compilation overhead in edge memory runtime |
 | **5. Store Components** | `SessionStore` DO, `d1GovernanceAdapter.ts` | 4 | 5 | 5 | 5 | **19** | **CRITICAL** | Dual-write drift between Durable Object SQLite and Cloudflare D1 query models |
@@ -67,10 +67,10 @@ The matrix below provides a comparative evaluation across all 11 component categ
   3. *Payload Schema Mutations:* Inconsistent quote responses (e.g. missing bid/ask implied volatility fields in option chains) causing downstream null pointer crashes.
 
 ### 3.2 Gather Components (Signal Enrichment & Alternative Data Ingest)
-* **Code References:** `src/services/fossResearch.ts` (2,893 LOC), `src/trading/options/ivCollector.ts` (320 LOC), `src/services/aiSearch.ts` (319 LOC), `src/trading/technicals.ts` (277 LOC), `src/services/eventCalendar.ts` (236 LOC), `src/trading/factorGrades.ts` (216 LOC), `src/trading/options/flows/newsSentiment.ts` (160 LOC), `src/trading/screeningIndicators.ts` (149 LOC).
-* **Role & Functionality:** Enriches raw price feeds with technical indicators (RSI, MACD, Bollinger Bands, ATR), Implied Volatility (IV) rank/percentile calculations, news sentiment extraction via Workers AI / GLM-4, earnings event calendar lookups, open-source repository (FOSS) intelligence analysis, and quantitative factor grades.
+* **Code References:** `src/services/marketDataResearch.ts` (2,893 LOC), `src/trading/options/ivCollector.ts` (320 LOC), `src/services/aiSearch.ts` (319 LOC), `src/trading/technicals.ts` (277 LOC), `src/services/eventCalendar.ts` (236 LOC), `src/trading/factorGrades.ts` (216 LOC), `src/trading/options/flows/newsSentiment.ts` (160 LOC), `src/trading/screeningIndicators.ts` (149 LOC).
+* **Role & Functionality:** Enriches raw price feeds with technical indicators (RSI, MACD, Bollinger Bands, ATR), Implied Volatility (IV) rank/percentile calculations, news sentiment extraction via Workers AI / GLM-4, earnings event calendar lookups, open-source repository intelligence analysis, and quantitative factor grades.
 * **Key Operational Risks:**
-  1. *LLM Inference Timeouts:* Unbounded latency when extracting news sentiment or FOSS research summaries, stalling worker execution threads.
+  1. *LLM Inference Timeouts:* Unbounded latency when extracting news sentiment or market-data research summaries, stalling worker execution threads.
   2. *IV History Desynchronization:* Stale IV percentile calculations leading to mispriced option volatility spreads.
 
 ### 3.3 Analysis Components (Screening, Strategy Discovery & Decision Kernel)
@@ -165,7 +165,7 @@ graph TD
         Feed_Alpaca[Alpaca Platform Client]
         Feed_Public[Public Market Data & NASDAQ]
         Gather_IV[IV Collector & Technicals]
-        Gather_FOSS[FOSS Research & News Sentiment]
+        Gather_MarketData[Market Data Research & News Sentiment]
     end
 
     %% Business Intelligence & Screening (Analysis)
@@ -205,7 +205,7 @@ graph TD
     NLQExec --> GoalEngine
     GoalEngine --> ScreenerPipe
     ScreenerPipe --> Gather_IV
-    ScreenerPipe --> Gather_FOSS
+    ScreenerPipe --> Gather_MarketData
     Gather_IV --> Feed_Etrade
     Gather_IV --> Feed_Public
     OptService --> StratEngine
@@ -223,7 +223,7 @@ graph TD
     ShardJobs -.->|Async Execution| ScreenerPipe
     ScreenerPipe -.->|Async Save| AgentDB
     PdfGen -.->|Async Upload| R2Bucket
-    Gather_FOSS -.->|Async Index| VectorDB
+    Gather_MarketData -.->|Async Index| VectorDB
     SchedAgent -.->|Async Push Alert| Slack
     SchedAgent -.->|Async Push Digest| Email
     SchedAgent -.->|Async Outbound Call| Voice
@@ -255,7 +255,7 @@ graph TD
 | • Closed-Loop Strategy Weight Optimization (`src/services/strategyWeightsV2.ts`).                |
 | • Dynamic Prompt Optimization & Autonomous Few-Shot Example Insertion (`reflection.ts`).          |
 | • Automated Strategy Falsification & Champion-Challenger Promotion (`championChallenger.ts`).    |
-| • Self-Healing Code Patching via FOSS Repository Analysis (`src/qa/self-healing.ts`).            |
+| • Self-Healing Code Patching via Open-Source Repository Analysis (`src/qa/self-healing.ts`).            |
 +---------------------------------------------------------------------------------------------------+
                                                   |
                                                   v
@@ -285,7 +285,7 @@ The following table maps the primary end-to-end workflows currently active in `c
 | **3. Automated Trade Approval & Order Placement** | **Slack:** User clicks *"Approve Iron Condor"* button | `slack/agent.ts` -> `channels/approval.ts` -> `iaaaGates.ts` -> `TradingAgent` DO -> `etrade/client.ts` | **E*TRADE / Slack:** Live Order Confirmation ID & Slack Status Thread |
 | **4. MCP Natural Language Goal Execution** | **MCP Client:** JSON-RPC tool call `execute_goal_chain` | `mcp/goalChainCommands.ts` -> `orchestrator.ts` -> `goalScenarioEngine.ts` -> `d1GovernanceAdapter` | **MCP Client:** Structured Execution Result JSON Payload |
 | **5. Voice-Driven Portfolio Risk Query** | **Twilio Voice:** Inbound phone call / spoken prompt | `voice/agent.ts` -> `portfolioRisk.ts` -> `recommendationKernel.ts` | **Voice Channel:** Spoken Audio Summary via Speech Synthesis |
-| **6. Open-Source Intelligence Assessment** | **UX / FOSS Hub:** Repository URL submission | `FossResearchHub.tsx` -> `fossResearch.ts` -> `aiSearch.ts` -> `vector-memory.ts` | **UX / R2:** Rendered FOSS Security Report & PDF Download Link |
+| **6. Open-Source Intelligence Assessment** | **UX / Market Data Research Hub:** Repository URL submission | `MarketDataResearchHub.tsx` -> `marketDataResearch.ts` -> `aiSearch.ts` -> `vector-memory.ts` | **UX / R2:** Rendered Open-Source Security Report & PDF Download Link |
 
 ---
 
@@ -360,9 +360,9 @@ PIPELINE 2: Options Strategy Discovery & Execution Pipeline
 [E*TRADE Chain Fetch] -> [IV Percentile Collector] -> [Spread Leg Compiler] -> [Payoff / Greeks Engine] -> [E*TRADE Order Payload]
 Files: `etrade/client.ts` -> `ivCollector.ts` -> `opportunityScanner.ts` -> `strategyEngine.ts` -> `optionOrders.ts`
 
-PIPELINE 3: Open-Source Research (FOSS) Pipeline
-[GitHub Repo Crawl] -> `aiSearch.ts` -> [LLM Intelligence Extraction] -> [Vector Memory Indexing] -> [FOSS Hub UI]
-Files: `fossResearch.ts` -> `aiSearch.ts` -> `vector-memory.ts` -> `reportSemanticIndex.ts` -> `FossResearchHub.tsx`
+PIPELINE 3: Open-Source Research Pipeline
+[GitHub Repo Crawl] -> `aiSearch.ts` -> [LLM Intelligence Extraction] -> [Vector Memory Indexing] -> [Market Data Research Hub UI]
+Files: `marketDataResearch.ts` -> `aiSearch.ts` -> `vector-memory.ts` -> `reportSemanticIndex.ts` -> `MarketDataResearchHub.tsx`
 ```
 
 ### 9.2 Execution Graphs / DAGs (Directed Acyclic Graphs)

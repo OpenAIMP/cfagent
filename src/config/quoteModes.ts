@@ -58,14 +58,14 @@
  *   surfaces), and fetchQuoteLiveStrict is pinned, not switched
  *   (its policy is #1726-adjacent: MCP-vs-REST command
  *   unification stays #1726 ground).
- * - QUOTE_YAHOO_OPEN_MODE ("midpoint" | "wire") — M4: Foss Yahoo
+ * - QUOTE_YAHOO_OPEN_MODE ("midpoint" | "wire") — M4: Yahoo
  *   single-quote open derivation. Defaults: single "midpoint"
  *   ((dayHigh+dayLow)/2, falling back to price), batch "wire"
  *   (regularMarketOpen, pinned — the batch method is untouched).
  *   Under "wire", a missing wire open falls back to the midpoint
  *   formula (no invented value).
  * - QUOTE_YAHOO_INDICATORS_MODE ("computed" | "unset") — M4:
- *   Foss Yahoo single-quote rsi14/macdSignal. Defaults: single
+ *   Yahoo single-quote rsi14/macdSignal. Defaults: single
  *   "computed" (from 1mo closes), batch "unset" (pinned — parity
  *   note: E*TRADE snapshots carry no indicators either). Under
  *   "unset" the fields are undefined, never zero-filled.
@@ -75,7 +75,7 @@
  * First non-blank level wins; an unrecognized winning value FAILS
  * CLOSED to the surface legacy, logged via console.warn, with NO
  * fall-through. Audit note, stated honestly: the quote surfaces
- * are unaudited today (M10: market HTTP/WS no audit, Foss REST
+ * are unaudited today (M10: market HTTP/WS no audit, Market-data REST
  * quote no audit; MCP audits live at the command layer, which
  * this slice does not touch), so there is no audit writer on
  * these paths to emit quotes.config_error through — adding one
@@ -85,14 +85,14 @@
  *
  * What the switches do NOT govern (ENFORCEMENT, never opt-out):
  * - Auth/audit/error shapes stand in every mode (M10): market HTTP
- *   stays unauthenticated 200+unavailable, Foss REST stays 500 on
- *   failure, Foss MCP stays audited-throw, E*TRADE MCP stays
+ *   stays unauthenticated 200+unavailable, Market-data REST stays 500 on
+ *   failure, Market-data MCP stays audited-throw, E*TRADE MCP stays
  *   session-bound LiveStrict. No switch value widens access,
- *   disables an audit, or changes a symbol-length bound (Foss
+ *   disables an audit, or changes a symbol-length bound (Market-data
  *   1–20, E*TRADE 1–10, zod).
  * - Caches stay separate (M8): liveMarketCache (bare key, 20s
  *   Alpaca / 30s Yahoo, MarketTickData) and quoteCache (namespaced
- *   key, 5 min, FossQuote/listings, 500-entry cap) are NOT merged;
+ *   key, 5 min, MarketDataResearchQuote/listings, 500-entry cap) are NOT merged;
  *   the expiry switch only changes how one cache's entries are
  *   read, never which store a path writes.
  * - Live-only provenance stands in every mode: no switch serves a
@@ -106,7 +106,7 @@
  *   are PINNED, not switched — selection differs by route by
  *   design, and neither evaluator is duplicated.
  * - Route-twin spelling/identity/headers (R02: /etrade/quote vs
- *   /foss/quote vs /api/market|foss/quotes) belong to appendix
+ *   /market-data/quote vs /api/market-data|market|foss/quotes) belong to appendix
  *   (m) — this slice owns provider/cache semantics only and does
  *   not move, merge, or rename any route. Note the scan
  *   disagreement resolved on current main: appendix (e) M10 says

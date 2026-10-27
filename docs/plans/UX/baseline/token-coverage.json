@@ -190,7 +190,7 @@
       "inlineStyleBlocks": 10
     },
     {
-      "file": "src/client/FossResearchHub.tsx",
+      "file": "src/client/MarketDataResearchHub.tsx",
       "hex": 3,
       "functional": 0,
       "inlineStyleBlocks": 78

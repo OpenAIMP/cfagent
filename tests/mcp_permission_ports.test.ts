@@ -58,7 +58,7 @@ describe("MCP tool scope declarations (#1744)", () => {
 
   it("declarations cover the sensitive tools with their strict scopes", () => {
     expect(MCP_TOOL_SCOPES["etrade_execute_order"]).toBe("mcp:trade");
-    expect(MCP_TOOL_SCOPES["foss_alpaca_place_order"]).toBe("mcp:trade");
+    expect(MCP_TOOL_SCOPES["alpaca_place_order"]).toBe("mcp:trade");
     expect(MCP_TOOL_SCOPES["execute_durable_twap"]).toBe("mcp:trade");
     expect(MCP_TOOL_SCOPES["draft_payment"]).toBe("mcp:payments");
     expect(MCP_TOOL_SCOPES["confirm_payment_draft"]).toBe("mcp:payments");
@@ -137,7 +137,7 @@ function runIsolationContract(makePort: () => ToolPermissionPort, label: string)
     it("opening requires the exact key: wrong key and other execution keys fail", () => {
       const port = makePort();
       const a = port.beginExecution(SESSION, "etrade_get_quote");
-      const b = port.beginExecution(SESSION, "foss_get_quote");
+      const b = port.beginExecution(SESSION, "market_data_get_quote");
       expect(port.openExecution(a.executionId, a.executionKey)).not.toBeNull();
       expect(port.openExecution(a.executionId, b.executionKey)).toBeNull();
       expect(port.openExecution(a.executionId, "0".repeat(64))).toBeNull();

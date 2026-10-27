@@ -207,7 +207,7 @@ async function feedYahoo(
     ((etrade.quotes as any[]) || []).map((q: any) => String(q.symbol).toUpperCase())
   );
   const missing = symbols.filter((s) => !quoted.has(s.toUpperCase()));
-  const { YahooFinanceProvider } = await import("./fossResearch");
+  const { YahooFinanceProvider } = await import("./marketDataResearch");
   const {
     yahooQuoteToPipelineQuote,
     bootstrapDataProviders,

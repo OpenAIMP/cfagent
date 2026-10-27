@@ -1,7 +1,7 @@
 /**
  * Issue #1745 ([AGENTIC] Automated market data circuit breakers).
  *
- * Pins: the Decorator over IFossMarketDataProvider (Protected
+ * Pins: the Decorator over IMarketDataProvider (Protected
  * Variations — the interface is unchanged, the wrapper only adds
  * breaker + fallback behavior). Batch/snapshot methods exist on the
  * wrapper exactly when the inner provider offers them (the pipeline's
@@ -11,8 +11,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createBreakerRegistry } from "../src/breakers/breakerPorts";
 import { BreakerOpenError } from "../src/breakers/breakerDecorator";
-import { BreakerWrappedFossProvider } from "../src/breakers/fossBreakerWrapper";
-import type { IFossMarketDataProvider } from "../src/patterns/interfaces";
+import { BreakerWrappedMarketDataProvider } from "../src/breakers/marketDataBreakerWrapper";
+import type { IMarketDataProvider } from "../src/patterns/interfaces";
 
 const noSleep = async () => {};
 
@@ -34,14 +34,14 @@ function fakeProvider(opts: { withBatch?: boolean; withSnapshot?: boolean } = {}
   if (opts.withSnapshot) {
     inner.getMarketSnapshot = vi.fn(async (symbol: string) => ({ symbol }));
   }
-  return inner as IFossMarketDataProvider & Record<string, any>;
+  return inner as IMarketDataProvider & Record<string, any>;
 }
 
-describe("BreakerWrappedFossProvider", () => {
+describe("BreakerWrappedMarketDataProvider", () => {
   it("delegates to the inner provider and passes identity through", async () => {
     const inner = fakeProvider({ withBatch: true });
     const r = createBreakerRegistry();
-    const w = new BreakerWrappedFossProvider(inner, r.breakerFor("yahoo"), {}, { sleep: noSleep });
+    const w = new BreakerWrappedMarketDataProvider(inner, r.breakerFor("yahoo"), {}, { sleep: noSleep });
     expect(w.providerId).toBe("yfinance");
     expect(w.name).toBe("Yahoo Finance (fake)");
     expect(w.isConfigured()).toBe(true);
@@ -56,7 +56,7 @@ describe("BreakerWrappedFossProvider", () => {
     inner.getQuote.mockRejectedValue(new Error("down"));
     const r = createBreakerRegistry();
     const b = r.breakerFor("yahoo");
-    const w = new BreakerWrappedFossProvider(
+    const w = new BreakerWrappedMarketDataProvider(
       inner,
       b,
       { getQuote: async (symbol: string) => ({ symbol, price: 95, provenance: "cached" }) },
@@ -87,7 +87,7 @@ describe("BreakerWrappedFossProvider", () => {
     const inner = fakeProvider();
     const r = createBreakerRegistry();
     const b = r.breakerFor("yahoo");
-    const w = new BreakerWrappedFossProvider(inner, b, {}, { sleep: noSleep });
+    const w = new BreakerWrappedMarketDataProvider(inner, b, {}, { sleep: noSleep });
     inner.getQuote.mockRejectedValue(new Error("raw 500"));
     for (let i = 0; i < 3; i++) {
       await expect(w.getQuote("AAPL")).rejects.toThrow("raw 500");
@@ -98,13 +98,13 @@ describe("BreakerWrappedFossProvider", () => {
 
   it("getQuotes exists exactly when the inner provider offers it", async () => {
     const r = createBreakerRegistry();
-    const withBatch = new BreakerWrappedFossProvider(
+    const withBatch = new BreakerWrappedMarketDataProvider(
       fakeProvider({ withBatch: true }),
       r.breakerFor("yahoo"),
       {},
       { sleep: noSleep }
     );
-    const withoutBatch = new BreakerWrappedFossProvider(
+    const withoutBatch = new BreakerWrappedMarketDataProvider(
       fakeProvider(),
       r.breakerFor("alpaca"),
       {},
@@ -119,7 +119,7 @@ describe("BreakerWrappedFossProvider", () => {
     const inner = fakeProvider();
     const r = createBreakerRegistry();
     const b = r.breakerFor("yahoo");
-    const w = new BreakerWrappedFossProvider(inner, b, {}, { sleep: noSleep });
+    const w = new BreakerWrappedMarketDataProvider(inner, b, {}, { sleep: noSleep });
     expect((w as any).getQuoteSync("AAPL")).toEqual({ symbol: "AAPL", price: 99 });
     expect(b.snapshot().totalCalls).toBe(0);
   });

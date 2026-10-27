@@ -199,7 +199,7 @@ export interface WorkflowJobCommand {
   maxSymbols?: number;
   environment?: "TEST" | "PROD";
   portfolioContext?: boolean;
-  /** Whether the deliver step runs (etrade routes: true; foss/premium: false). */
+  /** Whether the deliver step runs (etrade routes: true; market-data/premium: false). */
   deliver?: boolean;
   /** Parallelism bound (default DEFAULT_MAX_PARALLEL_SHARDS). */
   maxParallelShards?: number;

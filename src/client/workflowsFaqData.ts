@@ -788,7 +788,7 @@ export const DECISIONING_SECTIONS: DecisioningSection[] = [
     ],
     matrixOrWeights: [
       { dimension: "Priority 1 (Live Nasdaq)", weightOrValue: "api.nasdaq.com/api/screener/stocks", details: "All active US equities (~8,500 rows) with real-time 15m delayed exchange pricing" },
-      { dimension: "Priority 2 (Yahoo FOSS)", weightOrValue: "query1.finance.yahoo.com/v8/finance/chart", details: "1-month daily historical OHLCV bars for 14-period RSI and MACD indicators" },
+      { dimension: "Priority 2 (Yahoo Finance)", weightOrValue: "query1.finance.yahoo.com/v8/finance/chart", details: "1-month daily historical OHLCV bars for 14-period RSI and MACD indicators" },
       { dimension: "Priority 3 (Curated Fallback)", weightOrValue: "src/config/curatedStockUniverse.json", details: "Resilient offline fallback with sector, market cap, and exchange metadata" },
       { dimension: "Downstream Client: Options Flow", weightOrValue: "DynamicMarketScreener.screenLive()", details: "Resolves dynamic market underlyings first before tape ingestion; never defaults to static list" },
     ],

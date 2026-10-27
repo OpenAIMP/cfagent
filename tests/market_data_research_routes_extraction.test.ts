@@ -1,14 +1,14 @@
 /**
- * Issue #359-14: characterization for the foss research route extraction.
+ * Issue #359-14: characterization for the market-data research route extraction.
  *
  * Pins (a) the route inventory and relative order of the two extracted
- * handlers in src/agents/routes/fossResearch.ts — the matching order in
+ * handlers in src/agents/routes/marketDataResearch.ts — the matching order in
  * routeRequest is load-bearing, so each module handler must match the
  * (path, method) pairs in the same sequence as the original inline blocks;
  * (b) the two delegation call sites in orchestrator.ts, at the exact
  * original positions (quote-research group before the slice #359-13
- * handleAlpacaFossRoutes delegation; compare/screen group after it); (c)
- * behavior with a mocked FossResearchService and a mocked ScreenerAgent
+ * handleAlpacaMarketDataRoutes delegation; compare/screen group after it); (c)
+ * behavior with a mocked MarketDataResearchService and a mocked ScreenerAgent
  * pipeline seam (issue #1007 adaptation, disclosed: the screen route
  * previously constructed the retired YFinanceMarketScreener engine; it
  * now runs ScreenerAgent.runScreen with provider "yahoo" and stores a
@@ -19,27 +19,27 @@
  * — each handler ends with an explicit `return null`, never undefined
  * (slice #359-08 caught a missing-return-null bug on exactly this); (d)
  * audit events stay funneled through ctx.audit with the same event names;
- * (e) FossResearchService is constructed with ctx.env byte-identically (no
- * credential/env semantics change); (f) the alpaca-named foss routes
- * (/foss/snapshot, /foss/alpaca/*) stay OUT of this module — they belong to
- * slice #359-13's handleAlpacaFossRoutes, which is not moved.
+ * (e) MarketDataResearchService is constructed with ctx.env byte-identically (no
+ * credential/env semantics change); (f) the alpaca-named market-data routes
+ * (/market-data/snapshot, /market-data/alpaca/*) stay OUT of this module — they belong to
+ * slice #359-13's handleAlpacaMarketDataRoutes, which is not moved.
  *
  * LANDMARK RULE (#405): position assertions anchor to DELEGATION CALLS or
  * own-domain markers, never to a neighboring domain's inline comments or
  * blocks. The quote-research delegation's lower bound anchors to the
- * alpaca-trading delegation call (own slice-13 domain); the foss screening
- * delegation's lower bound anchors to the handleAlpacaFossRoutes(...)
+ * alpaca-trading delegation call (own slice-13 domain); the market-data screening
+ * delegation's lower bound anchors to the handleAlpacaMarketDataRoutes(...)
  * delegation call (the reciprocal note slice #359-13 left in
  * tests/alpaca_routes_extraction.test.ts). The upper bound (the Task
  * Scheduling banner + screener routes, slice #359-15/#359-16's domain) is
  * NOT asserted here: slice #378 must anchor its delegation's lower bound to
- * the handleFossCompareScreenRoutes(...) delegation call when it extracts
+ * the handleMarketDataCompareScreenRoutes(...) delegation call when it extracts
  * that block (reciprocal of this note).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
-vi.mock("../src/services/fossResearch", () => {
+vi.mock("../src/services/marketDataResearch", () => {
   const fns = {
     getQuote: vi.fn(async (symbol: string) => ({ symbol, price: 195.5, provider: "hybrid" })),
     getFundamentals: vi.fn(async (symbol: string) => ({ symbol, companyName: "Test Corp" })),
@@ -56,23 +56,23 @@ vi.mock("../src/services/fossResearch", () => {
     getProviderStatuses: vi.fn(() => [{ provider: "yfinance", ok: true }]),
   };
   const seen: any[] = [];
-  class MockFossResearchService {
+  class MockMarketDataResearchService {
     constructor(...args: any[]) {
       seen.push({ ctor: args, svc: this });
       Object.assign(this, fns);
     }
   }
-  const fossBarsSourceLabel = (provider: string, provenance: string) =>
+  const marketDataResearchBarsSourceLabel = (provider: string, provenance: string) =>
     provenance === "live" ? `MOCK-LIVE ${provider}` : `MOCK-GENERATED ${provider}`;
   return {
-    FossResearchService: MockFossResearchService,
-    fossBarsSourceLabel,
-    __mockFoss: { fns, seen },
+    MarketDataResearchService: MockMarketDataResearchService,
+    marketDataResearchBarsSourceLabel,
+    __mockMarketData: { fns, seen },
   };
 });
 
 vi.mock("../src/trading", async () => {
-  // Issue #959 harness note: the foss screen route imports
+  // Issue #959 harness note: the market-data screen route imports
   // parseStockScreenRequest from the trading barrel, so the barrel
   // fake must provide it. It re-exports the REAL parser (imported
   // from its definition module to avoid loading the whole barrel) —
@@ -86,7 +86,7 @@ vi.mock("../src/trading", async () => {
   };
 });
 
-// Issue #1007: the ScreenerAgent seam the FOSS screen route now runs
+// Issue #1007: the ScreenerAgent seam the market-data screen route now runs
 // through (provider "yahoo"), plus the canonical-report seam.
 const screenerMocks = vi.hoisted(() => {
   const fns = {
@@ -111,27 +111,27 @@ const screenerMocks = vi.hoisted(() => {
 });
 
 import {
-  handleFossQuoteResearchRoutes,
-  handleFossCompareScreenRoutes,
-  type FossResearchRouteContext,
-} from "../src/agents/routes/fossResearch";
-import * as fossMod from "../src/services/fossResearch";
+  handleMarketDataQuoteResearchRoutes,
+  handleMarketDataCompareScreenRoutes,
+  type MarketDataResearchRouteContext,
+} from "../src/agents/routes/marketDataResearch";
+import * as marketDataMod from "../src/services/marketDataResearch";
 
-const fossMocks = (fossMod as any).__mockFoss as {
+const marketDataMocks = (marketDataMod as any).__mockMarketData as {
   fns: Record<string, ReturnType<typeof vi.fn>>;
   seen: Array<{ ctor: any[]; svc: any }>;
 };
 
 const src = (rel: string) => readFileSync(`src/${rel}`, "utf8");
 
-const baseCtx = (overrides: Partial<FossResearchRouteContext> = {}): FossResearchRouteContext =>
+const baseCtx = (overrides: Partial<MarketDataResearchRouteContext> = {}): MarketDataResearchRouteContext =>
   ({
     env: { MARKER: "env" } as any,
     audit: vi.fn(),
     getScreenerAgent: () => ({ runScreen: screenerMocks.fns.runScreen, runSharded: screenerMocks.fns.runSharded }),
     persistScreenerReportCanonical: screenerMocks.persist,
     ...overrides,
-  }) as unknown as FossResearchRouteContext;
+  }) as unknown as MarketDataResearchRouteContext;
 
 // Issue #1185: requests model the production session gate (x-user-login
 // set by src/server.ts from the verified session; handlers fail closed
@@ -147,21 +147,22 @@ const urlOf = (path: string) => new URL(`https://agent.internal${path}`);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  fossMocks.seen.length = 0;
+  marketDataMocks.seen.length = 0;
 });
 
+// #1906: each branch matches the canonical /market-data/* path first,
+// with the deprecated /foss/* path as alias on the same branch (the
+// bars branch already had this shape since #1888).
 const QUOTE_MARKERS = [
-  'path.endsWith("/foss/quote") && request.method === "GET"',
-  'path.endsWith("/foss/fundamentals") && request.method === "GET"',
-  // Issue #1888: the bars condition now matches the canonical
-  // /market-data/bars path first, with the legacy path as alias.
-  '(path.endsWith("/market-data/bars") || path.endsWith("/foss/bars")) && request.method === "GET"',
-  'path.endsWith("/foss/research") && request.method === "GET"',
+  '(path.endsWith(\"/market-data/quote\") || path.endsWith(\"/foss/quote\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/fundamentals\") || path.endsWith(\"/foss/fundamentals\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/bars\") || path.endsWith(\"/foss/bars\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/research\") || path.endsWith(\"/foss/research\")) && request.method === \"GET\"',
 ];
 const SCREEN_MARKERS = [
-  'path.endsWith("/foss/compare") && (request.method === "POST" || request.method === "GET")',
-  'path.endsWith("/foss/providers") && request.method === "GET"',
-  'path.endsWith("/yfinance/screen")',
+  '(path.endsWith(\"/market-data/compare\") || path.endsWith(\"/foss/compare\")) && (request.method === \"POST\" || request.method === \"GET\")',
+  '(path.endsWith(\"/market-data/providers\") || path.endsWith(\"/foss/providers\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/screen\") || path.endsWith(\"/foss/screen\") || path.endsWith(\"/yfinance/screen\")) && (request.method === \"POST\" || request.method === \"GET\")',
 ];
 
 function assertOrdered(srcText: string, markers: string[]) {
@@ -174,18 +175,18 @@ function assertOrdered(srcText: string, markers: string[]) {
   }
 }
 
-describe("foss research route inventory (extraction #377)", () => {
+describe("market-data research route inventory (extraction #377)", () => {
   it("the quote/research route conditions appear in the module in the original relative order", () => {
-    assertOrdered(src("agents/routes/fossResearch.ts").split("handleFossCompareScreenRoutes")[0], QUOTE_MARKERS);
+    assertOrdered(src("agents/routes/marketDataResearch.ts").split("handleMarketDataCompareScreenRoutes")[0], QUOTE_MARKERS);
   });
 
   it("the compare/screen route conditions appear in the module in the original relative order", () => {
-    assertOrdered(src("agents/routes/fossResearch.ts").split("handleFossCompareScreenRoutes")[1], SCREEN_MARKERS);
+    assertOrdered(src("agents/routes/marketDataResearch.ts").split("handleMarketDataCompareScreenRoutes")[1], SCREEN_MARKERS);
   });
 
-  it("the alpaca-named foss routes are NOT owned by this module", () => {
-    const moduleSrc = src("agents/routes/fossResearch.ts");
-    for (const p of ["/foss/snapshot", "/foss/alpaca/account", "/foss/alpaca/order"]) {
+  it("the alpaca-named market-data routes are NOT owned by this module", () => {
+    const moduleSrc = src("agents/routes/marketDataResearch.ts");
+    for (const p of ["/market-data/snapshot", "/market-data/alpaca/account", "/market-data/alpaca/order"]) {
       expect(moduleSrc).not.toContain(`"${p}"`);
     }
   });
@@ -193,45 +194,44 @@ describe("foss research route inventory (extraction #377)", () => {
   it("the original inline blocks are gone from orchestrator.ts", () => {
     const orchSrc = src("agents/orchestrator.ts");
     for (const cond of [
-      'path.endsWith("/foss/quote")',
-      'path.endsWith("/foss/fundamentals")',
-      'path.endsWith("/foss/bars")',
-      'path.endsWith("/foss/research")',
-      'path.endsWith("/foss/compare")',
-      'path.endsWith("/foss/providers")',
-      'path.endsWith("/foss/screen")',
-      'path.endsWith("/yfinance/screen")',
+  '(path.endsWith(\"/market-data/quote\") || path.endsWith(\"/foss/quote\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/fundamentals\") || path.endsWith(\"/foss/fundamentals\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/bars\") || path.endsWith(\"/foss/bars\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/research\") || path.endsWith(\"/foss/research\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/compare\") || path.endsWith(\"/foss/compare\")) && (request.method === \"POST\" || request.method === \"GET\")',
+  '(path.endsWith(\"/market-data/providers\") || path.endsWith(\"/foss/providers\")) && request.method === \"GET\"',
+  '(path.endsWith(\"/market-data/screen\") || path.endsWith(\"/foss/screen\") || path.endsWith(\"/yfinance/screen\")) && (request.method === \"POST\" || request.method === \"GET\")',
     ]) {
       expect(orchSrc, `leftover inline condition: ${cond}`).not.toContain(cond);
     }
   });
 
-  it("both delegations stand at the exact original positions around the alpaca-foss delegation", () => {
+  it("both delegations stand at the exact original positions around the alpaca-market-data delegation", () => {
     const orchSrc = src("agents/orchestrator.ts");
-    const quoteIdx = orchSrc.indexOf("handleFossQuoteResearchRoutes(request, url, path, sessionId,");
-    const alpacaIdx = orchSrc.indexOf("handleAlpacaFossRoutes(request, url, path, sessionId,");
-    const screenIdx = orchSrc.indexOf("handleFossCompareScreenRoutes(request, url, path, sessionId,");
+    const quoteIdx = orchSrc.indexOf("handleMarketDataQuoteResearchRoutes(request, url, path, sessionId,");
+    const alpacaIdx = orchSrc.indexOf("handleAlpacaMarketDataRoutes(request, url, path, sessionId,");
+    const screenIdx = orchSrc.indexOf("handleMarketDataCompareScreenRoutes(request, url, path, sessionId,");
     expect(quoteIdx, "quote-research delegation missing").toBeGreaterThan(-1);
-    expect(alpacaIdx, "slice-13 alpaca-foss delegation missing").toBeGreaterThan(-1);
-    expect(screenIdx, "foss-screening delegation missing").toBeGreaterThan(-1);
+    expect(alpacaIdx, "slice-13 alpaca-market-data delegation missing").toBeGreaterThan(-1);
+    expect(screenIdx, "market-data-screening delegation missing").toBeGreaterThan(-1);
     expect(quoteIdx).toBeLessThan(alpacaIdx);
     expect(alpacaIdx).toBeLessThan(screenIdx);
   });
 });
 
-describe("foss research handler behavior (extraction #377)", () => {
-  it("GET /foss/quote returns the service result (200)", async () => {
-    const res = await handleFossQuoteResearchRoutes(req("GET", "/api/foss/quote?symbol=NVDA"), urlOf("/api/foss/quote?symbol=NVDA"), "/api/foss/quote", "s", baseCtx());
+describe("market-data research handler behavior (extraction #377)", () => {
+  it("GET /market-data/quote returns the service result (200)", async () => {
+    const res = await handleMarketDataQuoteResearchRoutes(req("GET", "/api/market-data/quote?symbol=NVDA"), urlOf("/api/market-data/quote?symbol=NVDA"), "/api/market-data/quote", "s", baseCtx());
     expect(res).not.toBeNull();
     expect(res!.status).toBe(200);
     expect(await res!.json()).toMatchObject({ symbol: "NVDA", price: 195.5 });
-    expect(fossMocks.fns.getQuote).toHaveBeenCalledWith("NVDA", "hybrid");
-    // FossResearchService constructed with ctx.env, byte-identically.
-    expect(fossMocks.seen[0].ctor[0]).toMatchObject({ MARKER: "env" });
+    expect(marketDataMocks.fns.getQuote).toHaveBeenCalledWith("NVDA", "hybrid");
+    // MarketDataResearchService constructed with ctx.env, byte-identically.
+    expect(marketDataMocks.seen[0].ctor[0]).toMatchObject({ MARKER: "env" });
   });
 
-  it("GET /foss/bars stamps live provenance and the source label", async () => {
-    const res = await handleFossQuoteResearchRoutes(req("GET", "/api/foss/bars?symbol=NVDA"), urlOf("/api/foss/bars?symbol=NVDA"), "/api/foss/bars", "s", baseCtx());
+  it("GET /market-data/bars stamps live provenance and the source label", async () => {
+    const res = await handleMarketDataQuoteResearchRoutes(req("GET", "/api/market-data/bars?symbol=NVDA"), urlOf("/api/market-data/bars?symbol=NVDA"), "/api/market-data/bars", "s", baseCtx());
     expect(res).not.toBeNull();
     const body = (await res!.json()) as any;
     expect(res!.status).toBe(200);
@@ -241,51 +241,51 @@ describe("foss research handler behavior (extraction #377)", () => {
     expect(body.count).toBe(1);
   });
 
-  it("GET /foss/bars falls back to generated provenance when bars carry none", async () => {
-    fossMocks.fns.getHistoricalBars.mockResolvedValueOnce([{ t: 1, c: 100 }]);
-    const res = await handleFossQuoteResearchRoutes(req("GET", "/api/foss/bars?symbol=NVDA"), urlOf("/api/foss/bars?symbol=NVDA"), "/api/foss/bars", "s", baseCtx());
+  it("GET /market-data/bars falls back to generated provenance when bars carry none", async () => {
+    marketDataMocks.fns.getHistoricalBars.mockResolvedValueOnce([{ t: 1, c: 100 }]);
+    const res = await handleMarketDataQuoteResearchRoutes(req("GET", "/api/market-data/bars?symbol=NVDA"), urlOf("/api/market-data/bars?symbol=NVDA"), "/api/market-data/bars", "s", baseCtx());
     const body = (await res!.json()) as any;
     expect(body.provenance).toBe("generated");
     expect(body.source).toContain("MOCK-GENERATED");
   });
 
-  it("GET /foss/research returns the report and audits the generation", async () => {
+  it("GET /market-data/research returns the report and audits the generation", async () => {
     const ctx = baseCtx();
-    const res = await handleFossQuoteResearchRoutes(req("GET", "/api/foss/research?symbol=NVDA"), urlOf("/api/foss/research?symbol=NVDA"), "/api/foss/research", "s", ctx);
+    const res = await handleMarketDataQuoteResearchRoutes(req("GET", "/api/market-data/research?symbol=NVDA"), urlOf("/api/market-data/research?symbol=NVDA"), "/api/market-data/research", "s", ctx);
     expect(res).not.toBeNull();
     const body = (await res!.json()) as any;
     expect(body.analystRating).toBe("buy");
     expect(ctx.audit).toHaveBeenCalledWith(
-      "foss.research_generated",
+      "market_data.research_generated",
       "research",
       expect.objectContaining({ symbol: "NVDA", rating: "buy", did: "did:test:123", provenance: "hybrid" })
     );
   });
 
-  it("POST /foss/compare honors the body symbols", async () => {
-    const res = await handleFossCompareScreenRoutes(
-      req("POST", "/api/foss/compare", { symbols: ["NVDA", "AMD"] }),
-      urlOf("/api/foss/compare"),
-      "/api/foss/compare",
+  it("POST /market-data/compare honors the body symbols", async () => {
+    const res = await handleMarketDataCompareScreenRoutes(
+      req("POST", "/api/market-data/compare", { symbols: ["NVDA", "AMD"] }),
+      urlOf("/api/market-data/compare"),
+      "/api/market-data/compare",
       "s",
       baseCtx()
     );
     expect(res).not.toBeNull();
     const body = (await res!.json()) as any;
     expect(body.count).toBe(2);
-    expect(fossMocks.fns.compareStocks).toHaveBeenCalledWith(["NVDA", "AMD"]);
+    expect(marketDataMocks.fns.compareStocks).toHaveBeenCalledWith(["NVDA", "AMD"]);
   });
 
-  it("GET /foss/providers returns the provider statuses", async () => {
-    const res = await handleFossCompareScreenRoutes(req("GET", "/api/foss/providers"), urlOf("/api/foss/providers"), "/api/foss/providers", "s", baseCtx());
+  it("GET /market-data/providers returns the provider statuses", async () => {
+    const res = await handleMarketDataCompareScreenRoutes(req("GET", "/api/market-data/providers"), urlOf("/api/market-data/providers"), "/api/market-data/providers", "s", baseCtx());
     expect(res).not.toBeNull();
     expect(await res!.json()).toEqual({ providers: [{ provider: "yfinance", ok: true }] });
   });
 
-  it("POST /foss/screen runs the screener and audits, returning stocks as results", async () => {
+  it("POST /market-data/screen runs the screener and audits, returning stocks as results", async () => {
     const ctx = baseCtx();
     const filters = { sector: "Technology", maxRsi: 65 };
-    const res = await handleFossCompareScreenRoutes(req("POST", "/api/foss/screen", filters), urlOf("/api/foss/screen"), "/api/foss/screen", "s", ctx);
+    const res = await handleMarketDataCompareScreenRoutes(req("POST", "/api/market-data/screen", filters), urlOf("/api/market-data/screen"), "/api/market-data/screen", "s", ctx);
     expect(res).not.toBeNull();
     const body = (await res!.json()) as any;
     expect(body.stocks).toEqual([{ symbol: "NVDA" }]);
@@ -300,17 +300,17 @@ describe("foss research handler behavior (extraction #377)", () => {
       expect.objectContaining({ provider: "yahoo", success: true })
     );
     expect(ctx.audit).toHaveBeenCalledWith(
-      "foss.screener.executed",
+      "market_data.screener.executed",
       "research",
       expect.objectContaining({ filterSummary: "mocked", count: 1 })
     );
   });
 
-  it("GET /foss/screen maps query params to filters", async () => {
-    const res = await handleFossCompareScreenRoutes(
-      req("GET", "/api/foss/screen?sector=Tech&maxRsi=70&gainersOnly=true"),
-      urlOf("/api/foss/screen?sector=Tech&maxRsi=70&gainersOnly=true"),
-      "/api/foss/screen",
+  it("GET /market-data/screen maps query params to filters", async () => {
+    const res = await handleMarketDataCompareScreenRoutes(
+      req("GET", "/api/market-data/screen?sector=Tech&maxRsi=70&gainersOnly=true"),
+      urlOf("/api/market-data/screen?sector=Tech&maxRsi=70&gainersOnly=true"),
+      "/api/market-data/screen",
       "s",
       baseCtx()
     );
@@ -325,13 +325,13 @@ describe("foss research handler behavior (extraction #377)", () => {
 
   it("non-owned paths return null, never undefined (both handlers)", async () => {
     const ctx = baseCtx();
-    for (const p of ["/api/foss/snapshot", "/api/foss/alpaca/account", "/api/audit"]) {
+    for (const p of ["/api/market-data/snapshot", "/api/market-data/alpaca/account", "/api/audit"]) {
       expect(
-        await handleFossQuoteResearchRoutes(req("GET", p), urlOf(p), p, "s", ctx),
+        await handleMarketDataQuoteResearchRoutes(req("GET", p), urlOf(p), p, "s", ctx),
         `quote-research handler on ${p}`
       ).toBeNull();
       expect(
-        await handleFossCompareScreenRoutes(req("GET", p), urlOf(p), p, "s", ctx),
+        await handleMarketDataCompareScreenRoutes(req("GET", p), urlOf(p), p, "s", ctx),
         `compare-screen handler on ${p}`
       ).toBeNull();
     }

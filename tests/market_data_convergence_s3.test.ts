@@ -1,12 +1,12 @@
 /**
- * Issue #1007 (screening consolidation S3) — FOSS convergence pins.
+ * Issue #1007 (screening consolidation S3) — Market-data convergence pins.
  *
  * (a) Adapter: a fixture Yahoo payload feeds the ONE pipeline —
  *     acquireUniverse({mode:"yahoo"}) returns pipeline quotes, and
  *     screenUniverse produces the same scored row shape as an
  *     E*TRADE-provider run. Yahoo's RSI-14 is a DATA field the
  *     pipeline's own RSI filter consumes.
- * (b) FOSS route: POST /api/foss/screen executes through ScreenerAgent
+ * (b) market-data route: POST /api/market-data/screen executes through ScreenerAgent
  *     with provider "yahoo" and stores a canonical report in the REST
  *     idiom (persistScreenerReportCanonical → source "screener", body
  *     carrying provider + trigger provenance), so the run is visible
@@ -37,9 +37,9 @@ import {
 import { DynamicMarketScreener } from "../src/trading/screener";
 import { buildSchedulePayload } from "../src/trading/screeningSchemas";
 import {
-  handleFossCompareScreenRoutes,
-  type FossResearchRouteContext,
-} from "../src/agents/routes/fossResearch";
+  handleMarketDataCompareScreenRoutes,
+  type MarketDataResearchRouteContext,
+} from "../src/agents/routes/marketDataResearch";
 import { persistScreenerReportCanonical } from "../src/agents/orchestrator/reportDispatch";
 import {
   handlePremiumRoutes,
@@ -47,7 +47,7 @@ import {
 } from "../src/agents/routes/premium";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
-import type { Env, FossQuote, X402PaymentProof } from "../src/types";
+import type { Env, MarketDataResearchQuote, X402PaymentProof } from "../src/types";
 
 // On-chain verification is covered by the x402 verifier suites; here
 // the verifier accepts any claim (same stub as
@@ -65,7 +65,7 @@ vi.mock("../src/services/x402Verifier", () => ({
 /* (a) Adapter → pipeline                                              */
 /* ------------------------------------------------------------------ */
 
-function yahooFixture(overrides: Partial<FossQuote> = {}): FossQuote {
+function yahooFixture(overrides: Partial<MarketDataResearchQuote> = {}): MarketDataResearchQuote {
   return {
     symbol: "NVDA",
     provider: "yfinance",
@@ -88,7 +88,7 @@ function yahooFixture(overrides: Partial<FossQuote> = {}): FossQuote {
     timestamp: "2026-10-22T00:00:00.000Z",
     currency: "USD",
     ...overrides,
-  } as FossQuote;
+  } as MarketDataResearchQuote;
 }
 
 const LISTINGS = [
@@ -184,10 +184,10 @@ describe("S3 (a) — Yahoo adapter feeds the one pipeline", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* (b) FOSS route → pipeline + canonical report                        */
+/* (b) market-data route → pipeline + canonical report                        */
 /* ------------------------------------------------------------------ */
 
-function fossResult(overrides: Record<string, unknown> = {}) {
+function marketDataResult(overrides: Record<string, unknown> = {}) {
   return {
     timestamp: "2026-10-22T12:00:00.000Z",
     trigger: "manual",
@@ -211,9 +211,9 @@ function fossResult(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("S3 (b) — FOSS route persists a canonical report with provider provenance", () => {
-  it("POST /api/foss/screen runs the pipeline (provider yahoo) and stores the canonical copy", async () => {
-    const runScreen = vi.fn(async () => fossResult());
+describe("S3 (b) — market-data route persists a canonical report with provider provenance", () => {
+  it("POST /api/market-data/screen runs the pipeline (provider yahoo) and stores the canonical copy", async () => {
+    const runScreen = vi.fn(async () => marketDataResult());
     const persist = vi.fn();
     const audit = vi.fn();
     const ctx = {
@@ -221,13 +221,13 @@ describe("S3 (b) — FOSS route persists a canonical report with provider proven
       audit,
       getScreenerAgent: vi.fn(() => ({ runScreen })),
       persistScreenerReportCanonical: persist,
-    } as unknown as FossResearchRouteContext;
-    const req = new Request("https://agent.internal/api/foss/screen", {
+    } as unknown as MarketDataResearchRouteContext;
+    const req = new Request("https://agent.internal/api/market-data/screen", {
       method: "POST",
       headers: { "content-type": "application/json", "x-user-login": "octocat-s3" },
       body: JSON.stringify({ sector: "Technology", maxRsi: 65 }),
     });
-    const res = await handleFossCompareScreenRoutes(req, new URL(req.url), "/api/foss/screen", "sess-s3", ctx);
+    const res = await handleMarketDataCompareScreenRoutes(req, new URL(req.url), "/api/market-data/screen", "sess-s3", ctx);
     expect(res).not.toBeNull();
     expect(res!.status).toBe(200);
     const body = (await res!.json()) as any;
@@ -252,7 +252,7 @@ describe("S3 (b) — FOSS route persists a canonical report with provider proven
       success: true,
     }));
     expect(audit).toHaveBeenCalledWith(
-      "foss.screener.executed",
+      "market_data.screener.executed",
       "research",
       expect.objectContaining({ provider: "yahoo", count: 1 })
     );
@@ -268,7 +268,7 @@ describe("S3 (b) — FOSS route persists a canonical report with provider proven
       env: {},
       ensureTables: () => sql,
     } as any;
-    await persistScreenerReportCanonical(ctx, fossResult() as any);
+    await persistScreenerReportCanonical(ctx, marketDataResult() as any);
     const { listScheduledReports } = await import("../src/services/scheduledReports");
     let hits = listScheduledReports(sql as any, {});
     expect(hits).toHaveLength(1);
@@ -278,7 +278,7 @@ describe("S3 (b) — FOSS route persists a canonical report with provider proven
     expect(JSON.parse(hits[0].body).trigger).toBe("manual");
     // An E*TRADE run (no provider named) records the etrade default.
     // (Distinct timestamp: the seam dedupes on screener:<timestamp>.)
-    const { provider: _drop, ...etradeResult } = fossResult({
+    const { provider: _drop, ...etradeResult } = marketDataResult({
       timestamp: "2026-10-22T12:05:00.000Z",
     }) as any;
     await persistScreenerReportCanonical(ctx, etradeResult);
@@ -289,7 +289,7 @@ describe("S3 (b) — FOSS route persists a canonical report with provider proven
   });
 
   it("Yahoo failure → visible 502, and the failed run is still stored (REST idiom)", async () => {
-    const runScreen = vi.fn(async () => fossResult({
+    const runScreen = vi.fn(async () => marketDataResult({
       success: false,
       error: "Yahoo Finance unavailable: no live quotes returned (0 of 2 symbols quoted). No fallback data substituted.",
       allStocks: [],
@@ -302,13 +302,13 @@ describe("S3 (b) — FOSS route persists a canonical report with provider proven
       audit: vi.fn(),
       getScreenerAgent: vi.fn(() => ({ runScreen })),
       persistScreenerReportCanonical: persist,
-    } as unknown as FossResearchRouteContext;
-    const req = new Request("https://agent.internal/api/foss/screen", {
+    } as unknown as MarketDataResearchRouteContext;
+    const req = new Request("https://agent.internal/api/market-data/screen", {
       method: "POST",
       headers: { "content-type": "application/json", "x-user-login": "octocat-s3" },
       body: JSON.stringify({}),
     });
-    const res = await handleFossCompareScreenRoutes(req, new URL(req.url), "/api/foss/screen", "sess-s3", ctx);
+    const res = await handleMarketDataCompareScreenRoutes(req, new URL(req.url), "/api/market-data/screen", "sess-s3", ctx);
     expect(res!.status).toBe(502);
     const body = (await res!.json()) as any;
     expect(body.error).toContain("Yahoo Finance unavailable");
@@ -342,7 +342,7 @@ describe("S3 (c) — premium stock-signals: no constant confidence, pipeline-der
       X402_AGENT_WALLET_KEY: "test-agent-wallet-s3",
     } as unknown as Env;
 
-    const runScreen = vi.fn(async () => fossResult());
+    const runScreen = vi.fn(async () => marketDataResult());
     const persist = vi.fn();
     const ctx = {
       env,
@@ -422,7 +422,7 @@ describe("S3 (d) — no production caller executes the retired engine path", () 
     // The two former caller routes must not call ANY screenMarkets
     // engine entry point (screenMarkets is also a generic platform
     // method name elsewhere — the retired path is scoped to these).
-    for (const route of ["src/agents/routes/fossResearch.ts", "src/agents/routes/premium.ts"]) {
+    for (const route of ["src/agents/routes/marketDataResearch.ts", "src/agents/routes/premium.ts"]) {
       expect(readFileSync(route, "utf8")).not.toContain("screenMarkets");
     }
   });
@@ -485,7 +485,7 @@ describe("S3 (f) — ScreenersHub Yahoo adapter declares the pipeline's filter s
     );
     const [etrade, yahoo] = getScreeningProviders("stocks");
     expect(yahoo.id).toBe("yahoo-finance");
-    expect(yahoo.endpointByAssetClass.stocks).toBe("/api/foss/screen");
+    expect(yahoo.endpointByAssetClass.stocks).toBe("/api/market-data/screen");
     for (const filter of ["search", "limit", "exchange", "price-range", "trend"] as const) {
       expect(providerSupportsFilter(yahoo, "stocks", filter)).toBe(true);
       expect(providerSupportsFilter(yahoo, "stocks", filter)).toBe(

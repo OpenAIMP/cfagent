@@ -9,7 +9,7 @@
     "src/client/ETradeDynamicMenu.tsx",
     "src/client/ETradeTradingHub.tsx",
     "src/client/ErrorBoundary.tsx",
-    "src/client/FossResearchHub.tsx",
+    "src/client/MarketDataResearchHub.tsx",
     "src/client/GoalScreenPanel.tsx",
     "src/client/GoogleAdUnit.tsx",
     "src/client/IaaaAdminPanel.tsx",

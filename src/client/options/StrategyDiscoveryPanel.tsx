@@ -521,11 +521,11 @@ export function StrategyDiscoveryPanel({
 
 
 
-  // Fetch live or FOSS quote with optional notification and reanalysis
+  // Fetch live or market-data quote with optional notification and reanalysis
   const fetchQuoteData = async (sym: string, showNotification: boolean = false) => {
     setIsQuoteRefreshing(true);
     try {
-      const resp = await fetch(`/api/foss/quote?symbol=${encodeURIComponent(sym)}`);
+      const resp = await fetch(`/api/market-data/quote?symbol=${encodeURIComponent(sym)}`);
       if (resp.ok) {
         const data = (await resp.json()) as any;
         if (data && (data.lastPrice || data.price)) {

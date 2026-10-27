@@ -5,45 +5,45 @@ import { ResearchReportActions } from "./ResearchReportActions";
 import { TabHoverItem } from "./TabHoverItem";
 import { CapabilityNavBar, CopilotTriggerButton } from "./components/CapabilityNavBar";
 import type {
-  FossQuote,
-  FossCompanyFundamentals,
-  FossHistoricalBar,
-  FossDataProvenance,
+  MarketDataResearchQuote,
+  MarketDataResearchCompanyFundamentals,
+  MarketDataResearchHistoricalBar,
+  MarketDataResearchProvenance,
   AlpacaMarketSnapshot,
-  FossResearchReport,
-  FossProviderStatus,
+  MarketDataResearchReport,
+  MarketDataResearchProviderStatus,
 } from "../types";
 
 /**
- * Data-provenance badge (issue #117). Every FOSS object now states whether
- * it was fetched live, served from the static FOSS table, or generated.
+ * Data-provenance badge (issue #117). Every market-data object now states whether
+ * it was fetched live, served from the static market-data table, or generated.
  * Non-live data is badged visibly — following the repo's 🧪 demo-labelling
  * pattern — instead of being dressed as a live provider feed.
  */
-export function fossProvenanceLabel(provenance?: FossDataProvenance): string {
+export function marketDataResearchProvenanceLabel(provenance?: MarketDataResearchProvenance): string {
   switch (provenance) {
     case "live":
       return "● LIVE provider data";
     case "static":
-      return "🧪 Static FOSS table — not live";
+      return "🧪 Static market-data table — not live";
     case "generated":
-      return "🧪 Generated FOSS estimate — not live market data";
+      return "🧪 Generated market-data estimate — not live market data";
     default:
       return "🧪 Provenance unknown — treat as not live";
   }
 }
 
-export function FossProvenanceBadge({
+export function MarketDataResearchProvenanceBadge({
   provenance,
   note,
 }: {
-  provenance?: FossDataProvenance;
+  provenance?: MarketDataResearchProvenance;
   note?: string;
 }) {
   const isLive = provenance === "live";
   return (
     <span
-      title={note || fossProvenanceLabel(provenance)}
+      title={note || marketDataResearchProvenanceLabel(provenance)}
       style={{
         display: "inline-block",
         padding: "0.1rem 0.45rem",
@@ -57,7 +57,7 @@ export function FossProvenanceBadge({
         whiteSpace: "nowrap",
       }}
     >
-      {fossProvenanceLabel(provenance)}
+      {marketDataResearchProvenanceLabel(provenance)}
     </span>
   );
 }
@@ -68,13 +68,13 @@ export interface User {
   avatar?: string;
 }
 
-export interface FossResearchHubProps {
+export interface MarketDataResearchHubProps {
   user?: User;
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
   onTradeSymbol?: (symbol: string) => void;
 }
 
-export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResearchHubProps) {
+export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: MarketDataResearchHubProps) {
   // Navigation Subtabs
   const [subTab, setSubTab] = useState<"screener" | "report" | "quoting" | "fundamentals" | "bars" | "snapshot" | "compare">("screener");
 
@@ -83,29 +83,29 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   const [symbolInput, setSymbolInput] = useState("NVDA");
 
   // Providers Status
-  const [providers, setProviders] = useState<FossProviderStatus[]>([]);
+  const [providers, setProviders] = useState<MarketDataResearchProviderStatus[]>([]);
 
   // Research Report State
-  const [report, setReport] = useState<FossResearchReport | null>(null);
+  const [report, setReport] = useState<MarketDataResearchReport | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
 
   // Quoting State
   const [quoteProvider, setQuoteProvider] = useState<"yfinance" | "alpaca" | "hybrid">("hybrid");
-  const [activeQuote, setActiveQuote] = useState<FossQuote | null>(null);
-  const [yfinanceQuote, setYfinanceQuote] = useState<FossQuote | null>(null);
-  const [alpacaQuote, setAlpacaQuote] = useState<FossQuote | null>(null);
+  const [activeQuote, setActiveQuote] = useState<MarketDataResearchQuote | null>(null);
+  const [yfinanceQuote, setYfinanceQuote] = useState<MarketDataResearchQuote | null>(null);
+  const [alpacaQuote, setAlpacaQuote] = useState<MarketDataResearchQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
 
   // Fundamentals State
-  const [fundamentals, setFundamentals] = useState<FossCompanyFundamentals | null>(null);
+  const [fundamentals, setFundamentals] = useState<MarketDataResearchCompanyFundamentals | null>(null);
   const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
 
   // Historical Bars State
-  const [bars, setBars] = useState<FossHistoricalBar[]>([]);
+  const [bars, setBars] = useState<MarketDataResearchHistoricalBar[]>([]);
   const [barTimeframe, setBarTimeframe] = useState("1D");
   const [barLimit, setBarLimit] = useState(30);
   const [barProvider, setBarProvider] = useState<"yfinance" | "alpaca">("yfinance");
-  const [barsMeta, setBarsMeta] = useState<{ source?: string; timestamp?: string; provider?: string; provenance?: FossDataProvenance } | null>(null);
+  const [barsMeta, setBarsMeta] = useState<{ source?: string; timestamp?: string; provider?: string; provenance?: MarketDataResearchProvenance } | null>(null);
   const [barsLoading, setBarsLoading] = useState(false);
 
   // Alpaca Snapshot & Tracing State
@@ -120,7 +120,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
 
   // Multi-Stock Comparison State
   const [compareSymbolsInput, setCompareSymbolsInput] = useState("NVDA, AMD, INTC, MSFT");
-  const [comparisonResults, setComparisonResults] = useState<Array<{ symbol: string; quote: FossQuote; fundamentals: FossCompanyFundamentals }>>([]);
+  const [comparisonResults, setComparisonResults] = useState<Array<{ symbol: string; quote: MarketDataResearchQuote; fundamentals: MarketDataResearchCompanyFundamentals }>>([]);
   const [compareLoading, setCompareLoading] = useState(false);
 
   // NLQ Prompt Bar State
@@ -178,7 +178,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
       if (minRsi !== undefined) params.set("minRsi", String(minRsi));
       if (maxRsi !== undefined) params.set("maxRsi", String(maxRsi));
 
-      const resp = await fetch(`/api/foss/screen?${params.toString()}`);
+      const resp = await fetch(`/api/market-data/screen?${params.toString()}`);
       const data = (await resp.json()) as any;
       if (!resp.ok) throw new Error(data.error || `Stock screening failed [HTTP ${resp.status}].`);
       setScreenerStocks(data.stocks || data.results || []);
@@ -194,9 +194,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
 
   const fetchProviders = async () => {
     try {
-      const resp = await fetch("/api/foss/providers");
+      const resp = await fetch("/api/market-data/providers");
       if (resp.ok) {
-        const data = await resp.json() as { providers?: FossProviderStatus[] };
+        const data = await resp.json() as { providers?: MarketDataResearchProviderStatus[] };
         if (data.providers) setProviders(data.providers);
       }
     } catch {
@@ -227,9 +227,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   const loadResearchReport = async (sym: string) => {
     setReportLoading(true);
     try {
-      const resp = await fetch(`/api/foss/research?symbol=${encodeURIComponent(sym)}`);
+      const resp = await fetch(`/api/market-data/research?symbol=${encodeURIComponent(sym)}`);
       if (resp.ok) {
-        const data = await resp.json() as FossResearchReport;
+        const data = await resp.json() as MarketDataResearchReport;
         setReport(data);
       }
     } catch {
@@ -243,16 +243,16 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
     setQuoteLoading(true);
     try {
       const [respYf, respAlpaca] = await Promise.all([
-        fetch(`/api/foss/quote?symbol=${encodeURIComponent(sym)}&provider=yfinance`),
-        fetch(`/api/foss/quote?symbol=${encodeURIComponent(sym)}&provider=alpaca`),
+        fetch(`/api/market-data/quote?symbol=${encodeURIComponent(sym)}&provider=yfinance`),
+        fetch(`/api/market-data/quote?symbol=${encodeURIComponent(sym)}&provider=alpaca`),
       ]);
       if (respYf.ok) {
-        const dataYf = await respYf.json() as FossQuote;
+        const dataYf = await respYf.json() as MarketDataResearchQuote;
         setYfinanceQuote(dataYf);
         setActiveQuote(dataYf);
       }
       if (respAlpaca.ok) {
-        const dataAlpaca = await respAlpaca.json() as FossQuote;
+        const dataAlpaca = await respAlpaca.json() as MarketDataResearchQuote;
         setAlpacaQuote(dataAlpaca);
       }
     } catch {
@@ -265,9 +265,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   const loadFundamentals = async (sym: string) => {
     setFundamentalsLoading(true);
     try {
-      const resp = await fetch(`/api/foss/fundamentals?symbol=${encodeURIComponent(sym)}`);
+      const resp = await fetch(`/api/market-data/fundamentals?symbol=${encodeURIComponent(sym)}`);
       if (resp.ok) {
-        const data = await resp.json() as FossCompanyFundamentals;
+        const data = await resp.json() as MarketDataResearchCompanyFundamentals;
         setFundamentals(data);
       }
     } catch {
@@ -280,9 +280,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   const loadHistoricalBars = async (sym: string, timeframe: string, limit: number, provider: "yfinance" | "alpaca" = barProvider) => {
     setBarsLoading(true);
     try {
-      const resp = await fetch(`/api/foss/bars?symbol=${encodeURIComponent(sym)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}&provider=${provider}`);
+      const resp = await fetch(`/api/market-data/bars?symbol=${encodeURIComponent(sym)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}&provider=${provider}`);
       if (resp.ok) {
-        const data = await resp.json() as { count: number; bars: FossHistoricalBar[]; source?: string; timestamp?: string; provider?: string; provenance?: FossDataProvenance };
+        const data = await resp.json() as { count: number; bars: MarketDataResearchHistoricalBar[]; source?: string; timestamp?: string; provider?: string; provenance?: MarketDataResearchProvenance };
         setBars(data.bars || []);
         setBarsMeta({ source: data.source, timestamp: data.timestamp, provider: data.provider, provenance: data.provenance ?? data.bars?.[0]?.provenance });
       }
@@ -301,7 +301,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
         const data = await resp.json() as any;
         const events = Array.isArray(data?.events) ? data.events : [];
         const alpacaEvents = events.filter((e: any) =>
-          e.type?.startsWith("alpaca") || e.type?.startsWith("foss.alpaca") || e.agent === "trading" || e.agent === "research"
+          e.type?.startsWith("alpaca") || e.agent === "trading" || e.agent === "research"
         );
         setAlpacaTraces(alpacaEvents);
       }
@@ -316,8 +316,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
     setAlpacaAccountLoading(true);
     try {
       const [accRes, posRes] = await Promise.all([
-        fetch("/api/foss/alpaca/account").catch(() => null),
-        fetch("/api/foss/alpaca/positions").catch(() => null),
+        fetch("/api/market-data/alpaca/account").catch(() => null),
+        fetch("/api/market-data/alpaca/positions").catch(() => null),
       ]);
       if (accRes && accRes.ok) {
         const accData = await accRes.json() as any;
@@ -338,7 +338,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   const loadAlpacaSnapshot = async (sym: string) => {
     setSnapshotLoading(true);
     try {
-      const resp = await fetch(`/api/foss/snapshot?symbol=${encodeURIComponent(sym)}`);
+      const resp = await fetch(`/api/market-data/snapshot?symbol=${encodeURIComponent(sym)}`);
       if (resp.ok) {
         const data = await resp.json() as AlpacaMarketSnapshot;
         setSnapshot(data);
@@ -355,13 +355,13 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
     setCompareLoading(true);
     const syms = symbolsStr.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
     try {
-      const resp = await fetch("/api/foss/compare", {
+      const resp = await fetch("/api/market-data/compare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbols: syms }),
       });
       if (resp.ok) {
-        const data = await resp.json() as { count: number; comparison: Array<{ symbol: string; quote: FossQuote; fundamentals: FossCompanyFundamentals }> };
+        const data = await resp.json() as { count: number; comparison: Array<{ symbol: string; quote: MarketDataResearchQuote; fundamentals: MarketDataResearchCompanyFundamentals }> };
         setComparisonResults(data.comparison || []);
       }
     } catch {
@@ -392,14 +392,14 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
   };
 
   return (
-    <div className="foss-research-hub">
-      {/* Top FOSS Provider Status Header */}
+    <div className="market-data-research-hub">
+      {/* Top Market Data Provider Status Header */}
       <div className="research-header-banner">
         <div className="provider-brand-cluster">
           <div className="provider-logo-box">
             <span className="provider-logo-icon">🔬</span>
             <div className="provider-brand-names">
-              <h3>FOSS Market Research &amp; Quoting Engine</h3>
+              <h3>Market Data Research &amp; Quoting Engine</h3>
               <span className="provider-subbrand">
                 Open-Source Integration: <strong>Yahoo Finance (yfinance)</strong> &amp; <strong>Alpaca Market Data v2</strong>
               </span>
@@ -408,7 +408,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
 
           <div className="provider-status-chips">
             <span className="chip-provider yf">
-              <span className="dot yf-dot" /> Yahoo Finance FOSS Engine
+              <span className="dot yf-dot" /> Yahoo Finance Engine
             </span>
             <span className="chip-provider alpaca">
               <span className="dot alpaca-dot" /> Alpaca Data v2 (Paper &amp; Live)
@@ -497,7 +497,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             label: "Yahoo Screener",
             icon: "🔍",
             tooltip: {
-              eyebrow: "FOSS MARKET SCREENER",
+              eyebrow: "MARKET DATA SCREENER",
               title: "Yahoo Finance Screener",
               description: "Filter active stocks, top gainers, and top losers without requiring broker credentials.",
             },
@@ -580,7 +580,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   📊 Yahoo Finance Live Market Screener
                 </h3>
                 <p className="section-intro-desc">
-                  Real-time Level 1 quotes, daily changes, dynamic RSI-14 momentum, and institutional P/E valuations powered 100% by Yahoo Finance FOSS API.
+                  Real-time Level 1 quotes, daily changes, dynamic RSI-14 momentum, and institutional P/E valuations powered 100% by Yahoo Finance API.
                 </p>
               </div>
               <div className="section-intro-actions">
@@ -613,7 +613,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               <div className="dual-card-status-group">
                 <span className="dual-card-live-tag yahoo-live">
                   <span className={`status-dot ${yfinanceQuote?.provenance === "live" ? "green" : "amber"}`} />
-                  {yfinanceQuote?.provenance === "live" ? "Yahoo Finance Live" : "Yahoo Finance — non-live FOSS data"}
+                  {yfinanceQuote?.provenance === "live" ? "Yahoo Finance Live" : "Yahoo Finance — non-live market data"}
                 </span>
                 <span className="dual-card-live-tag alpaca-live">
                   <span className="status-dot amber" />
@@ -630,7 +630,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             </div>
 
             {/* Same-profile disclosure (#117): when neither feed is live,
-                both cards show the SAME FOSS profile — say so plainly
+                both cards show the SAME market-data profile — say so plainly
                 instead of presenting two independent live sources. */}
             {yfinanceQuote && alpacaQuote && yfinanceQuote.provenance !== "live" && alpacaQuote.provenance !== "live" && (
               <div
@@ -645,7 +645,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   fontWeight: 600,
                 }}
               >
-                ⚠ Both feeds are currently serving the same non-live FOSS profile for {activeSymbol} — they are not two independent live sources.
+                ⚠ Both feeds are currently serving the same non-live market-data profile for {activeSymbol} — they are not two independent live sources.
               </div>
             )}
 
@@ -658,7 +658,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     📊 Yahoo Finance Feed
                   </span>
                   <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
-                    <FossProvenanceBadge provenance={yfinanceQuote?.provenance} note={yfinanceQuote?.note} />
+                    <MarketDataResearchProvenanceBadge provenance={yfinanceQuote?.provenance} note={yfinanceQuote?.note} />
                     <span className="dual-feed-market-state">
                       {yfinanceQuote?.marketState || "REGULAR"}
                     </span>
@@ -699,9 +699,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     🦙 Alpaca Market Data v2
                   </span>
                   <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
-                    <FossProvenanceBadge provenance={alpacaQuote?.provenance ?? snapshot?.provenance} note={alpacaQuote?.note ?? snapshot?.note} />
+                    <MarketDataResearchProvenanceBadge provenance={alpacaQuote?.provenance ?? snapshot?.provenance} note={alpacaQuote?.note ?? snapshot?.note} />
                     <span className="dual-feed-snapshot-badge">
-                      {snapshot ? (snapshot.provenance === "live" ? "Live Snapshot" : "FOSS Profile Snapshot") : "Alpaca Feed"}
+                      {snapshot ? (snapshot.provenance === "live" ? "Live Snapshot" : "Market Data Profile Snapshot") : "Alpaca Feed"}
                     </span>
                   </span>
                 </div>
@@ -776,7 +776,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             {showAlpacaDrawerOnScreener && snapshot && (
               <div style={{ background: "var(--color-surface-sunken)", border: "1px dashed var(--color-warning)", borderRadius: "10px", padding: "1rem", marginTop: "0.5rem" }}>
                 <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-warning)", fontSize: "0.95rem" }}>
-                  🦙 Alpaca Market Snapshot {snapshot.provenance === "live" ? "Live" : "FOSS Profile"} Inspection — {activeSymbol}
+                  🦙 Alpaca Market Snapshot {snapshot.provenance === "live" ? "Live" : "Market Data Profile"} Inspection — {activeSymbol}
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem", fontSize: "0.8rem" }}>
                   <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "0.6rem", borderRadius: "6px" }}>
@@ -913,7 +913,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               <strong>Filtered:</strong> {screenerSummary} • <strong>Matches:</strong> {screenerStocks.length} equities
             </span>
             <span>
-              Data Source: <strong>Yahoo Finance FOSS Engine</strong> {screenerLastScanned ? `• ${screenerLastScanned}` : ""}
+              Data Source: <strong>Yahoo Finance Engine</strong> {screenerLastScanned ? `• ${screenerLastScanned}` : ""}
             </span>
           </div>
           {screenerError && <div className="options-error" role="alert">{screenerError}</div>}
@@ -1039,7 +1039,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
           )}
           <ResearchReportActions
             title={`${activeSymbol} stock research`}
-            query={nlqQuery || `Run full FOSS market research on ${activeSymbol} using yfinance and Alpaca`}
+            query={nlqQuery || `Run full market-data research on ${activeSymbol} using yfinance and Alpaca`}
             userLogin={user?.login}
             sheets={[
               { name: "Stock screen data", rows: screenerStocks as Array<Record<string, unknown>> },
@@ -1085,8 +1085,8 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     <span className={`report-change ${report.quote.change >= 0 ? "positive" : "negative"}`}>
                       {report.quote.change >= 0 ? "+" : ""}{report.quote.change.toFixed(2)} ({report.quote.changePercent >= 0 ? "+" : ""}{report.quote.changePercent.toFixed(2)}%)
                     </span>
-                    <span className="source-tag">Source: {report.quote.provider.toUpperCase()} FOSS</span>
-                    <FossProvenanceBadge provenance={report.provenance} />
+                    <span className="source-tag">Source: {report.quote.provider.toUpperCase()} Market Data</span>
+                    <MarketDataResearchProvenanceBadge provenance={report.provenance} />
                   </div>
                 </div>
 
@@ -1105,7 +1105,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                       fontWeight: 600,
                     }}
                   >
-                    🧪 This report is built from {report.provenance} FOSS data — not live market data. Its target is a profile estimate, not analyst consensus, and its technical levels are heuristic formulas.
+                    🧪 This report is built from {report.provenance} market data — not live market data. Its target is a profile estimate, not analyst consensus, and its technical levels are heuristic formulas.
                   </div>
                 )}
 
@@ -1200,7 +1200,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               {/* Right Side: Analyst Rating & Action Card */}
               <div className="report-side-card">
                 <div className="analyst-rating-box">
-                  <h5>{report.fundamentals.provenance === "live" ? "Wall Street Consensus" : "FOSS Profile Rating — not live consensus"}</h5>
+                  <h5>{report.fundamentals.provenance === "live" ? "Wall Street Consensus" : "Market Data Profile Rating — not live consensus"}</h5>
                   <div className={`rating-big-badge ${getRecommendationBadgeClass(report.analystRating)}`}>
                     {report.analystRating}
                   </div>
@@ -1220,7 +1220,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                     <div className="analyst-count-note">
                       {report.fundamentals.provenance === "live"
                         ? `Based on ${report.fundamentals.numberOfAnalystOpinions || 30} Wall Street analyst ratings`
-                        : `Targets and the analyst count come from the ${report.fundamentals.provenance} FOSS profile — not live Wall Street data.`}
+                        : `Targets and the analyst count come from the ${report.fundamentals.provenance} market-data profile — not live Wall Street data.`}
                     </div>
                   </div>
                 </div>
@@ -1256,10 +1256,10 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
               <div className="quote-card-header">
                 <div className="provider-name-row">
                   <span className="dot yf-dot" />
-                  <h4>Yahoo Finance FOSS Engine</h4>
+                  <h4>Yahoo Finance Engine</h4>
                 </div>
                 <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
-                  <FossProvenanceBadge provenance={yfinanceQuote?.provenance} note={yfinanceQuote?.note} />
+                  <MarketDataResearchProvenanceBadge provenance={yfinanceQuote?.provenance} note={yfinanceQuote?.note} />
                   <span className="provider-tag">yfinance API</span>
                 </span>
               </div>
@@ -1309,7 +1309,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   </div>
 
                   <div className="provider-foot">
-                    <span>Protocol: FOSS Query Endpoint</span>
+                    <span>Protocol: Market Data Query Endpoint</span>
                     <span>Updated: {new Date(yfinanceQuote.timestamp).toLocaleTimeString()}</span>
                   </div>
                 </div>
@@ -1326,7 +1326,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <h4>Alpaca Market Data v2</h4>
                 </div>
                 <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
-                  <FossProvenanceBadge provenance={alpacaQuote?.provenance} note={alpacaQuote?.note} />
+                  <MarketDataResearchProvenanceBadge provenance={alpacaQuote?.provenance} note={alpacaQuote?.note} />
                   <span className="provider-tag">Level 1/2 REST &amp; Paper</span>
                 </span>
               </div>
@@ -1399,7 +1399,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
           ) : fundamentals ? (
             <div className="fundamentals-layout">
               <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
-                <FossProvenanceBadge provenance={fundamentals.provenance} note={fundamentals.note} />
+                <MarketDataResearchProvenanceBadge provenance={fundamentals.provenance} note={fundamentals.note} />
                 {fundamentals.provenance !== "live" && (
                   <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
                     {fundamentals.note || "Fundamentals below are not live provider data."}
@@ -1523,7 +1523,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   loadHistoricalBars(activeSymbol, barTimeframe, barLimit, p);
                 }}
               >
-                <option value="yfinance">Yahoo Finance FOSS</option>
+                <option value="yfinance">Yahoo Finance</option>
                 <option value="alpaca">Alpaca Data v2</option>
               </select>
               <label>Timeframe:</label>
@@ -1569,9 +1569,9 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0.5rem 0.25rem 0.75rem 0.25rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
               <span style={{ display: "inline-flex", gap: "0.5rem", alignItems: "center" }}>
                 <span>
-                  📡 Source: <strong style={{ color: "var(--color-accent)" }}>{barsMeta.source || (barProvider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance FOSS Chart API")}</strong>
+                  📡 Source: <strong style={{ color: "var(--color-accent)" }}>{barsMeta.source || (barProvider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance Chart API")}</strong>
                 </span>
-                <FossProvenanceBadge provenance={barsMeta.provenance} />
+                <MarketDataResearchProvenanceBadge provenance={barsMeta.provenance} />
               </span>
               <span>
                 {barsMeta.provenance === "live" ? "Live Synced" : "Retrieved"}: {barsMeta.timestamp ? new Date(barsMeta.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()}
@@ -1645,7 +1645,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                   <h4>Alpaca Market Data v2 Snapshot: {snapshot.symbol}</h4>
                 </div>
                 <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
-                  <FossProvenanceBadge provenance={snapshot.provenance} note={snapshot.note} />
+                  <MarketDataResearchProvenanceBadge provenance={snapshot.provenance} note={snapshot.note} />
                   <span className="asset-tag">{snapshot.assetClass.toUpperCase()}</span>
                 </span>
               </div>
@@ -1678,7 +1678,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
             </div>
           ) : (
             <div className="research-loading-state" style={{ opacity: 0.8 }}>
-              <p>No snapshot data loaded. Enter a ticker above and click Search FOSS Data.</p>
+              <p>No snapshot data loaded. Enter a ticker above and click Search Market Data.</p>
             </div>
           )}
 
@@ -1832,7 +1832,7 @@ export function FossResearchHub({ user, onSendPrompt, onTradeSymbol }: FossResea
                           <div className="ticker-company">
                             <span className="ticker-badge">{symbol}</span>
                             <span className="company-title">{f.companyName}</span>
-                            <FossProvenanceBadge provenance={quote.provenance === "live" && f.provenance === "live" ? "live" : quote.provenance === "generated" || f.provenance === "generated" ? "generated" : "static"} />
+                            <MarketDataResearchProvenanceBadge provenance={quote.provenance === "live" && f.provenance === "live" ? "live" : quote.provenance === "generated" || f.provenance === "generated" ? "generated" : "static"} />
                           </div>
                         </td>
                         <td>
