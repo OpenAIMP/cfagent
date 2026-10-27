@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Button } from "./components/ui";
 
 interface SetupSignature {
   description: string;
@@ -39,13 +40,13 @@ export function SetupCatalogPanel({ onLaunchScreen }: { onLaunchScreen?: (setupI
       <h3>Setup Catalog</h3>
       <div className="review-filters">
         {["all", "stock", "options"].map((f) => (
-          <button
+          <Button
             key={f}
             className={`filter-chip ${filter === f ? "active" : ""}`}
             onClick={() => setFilter(f)}
           >
             {f[0].toUpperCase() + f.slice(1)}
-          </button>
+          </Button>
         ))}
       </div>
       {loading && <div className="loading">Loading setups…</div>}
@@ -78,9 +79,9 @@ export function SetupCatalogPanel({ onLaunchScreen }: { onLaunchScreen?: (setupI
           )}
           {onLaunchScreen && (
             <div className="review-actions">
-              <button className="approve-btn" onClick={() => onLaunchScreen(s.id)}>
+              <Button className="approve-btn" onClick={() => onLaunchScreen(s.id)}>
                 ▶ Screen this setup
-              </button>
+              </Button>
             </div>
           )}
         </div>

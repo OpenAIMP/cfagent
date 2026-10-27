@@ -14,7 +14,7 @@ export function ThesisRiskFields(props: ThesisRiskFieldsProps) {
   const { jobType, thesis, setThesis, riskProfile, setRiskProfile } = props;
   if (jobType !== "optionsAnalysis") return null;
   return (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
                   <div className="sched-form-group">
                     <label htmlFor="sched-market-thesis" className="sched-form-label">Market Thesis / Outlook</label>
                     <Select id="sched-market-thesis"

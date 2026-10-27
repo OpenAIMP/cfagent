@@ -1,11 +1,3 @@
 {
-  "files": {
-    "src/client/scheduledOptionsManager/AuditTrailSection.tsx": 1,
-    "src/client/scheduledOptionsManager/CadenceFields.tsx": 1,
-    "src/client/scheduledOptionsManager/LiveResultPreview.tsx": 4,
-    "src/client/scheduledOptionsManager/NotificationFields.tsx": 3,
-    "src/client/scheduledOptionsManager/ScheduleCard.tsx": 1,
-    "src/client/scheduledOptionsManager/ScheduleFormModal.tsx": 3,
-    "src/client/scheduledOptionsManager/ThesisRiskFields.tsx": 1
-  }
+  "files": {}
 }

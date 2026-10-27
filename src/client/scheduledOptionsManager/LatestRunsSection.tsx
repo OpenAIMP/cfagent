@@ -1,4 +1,5 @@
 import React from "react";
+import { Button } from "../components/ui";
 import type { OptionsRunSummary } from "./types";
 
 export interface LatestRunsSectionProps {
@@ -21,14 +22,14 @@ export function LatestRunsSection({
             <span>📈</span> Latest Autonomous Options Runs
             <span className="sched-count-pill">{latestRuns.length} Runs</span>
           </h4>
-          <button
+          <Button
             type="button"
             className="btn-sched-action-sm"
             onClick={fetchLatestRuns}
             disabled={runsLoading}
           >
             {runsLoading ? "Refreshing…" : "↻ Refresh"}
-          </button>
+          </Button>
         </header>
 
         {runsError ? (

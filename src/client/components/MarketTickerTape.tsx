@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import type { NavTabId } from "./NavigationMenu";
+import { Button } from "./ui";
 
 export interface TickerTapeQuote {
   symbol: string;
@@ -216,7 +217,7 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
     const live = quotes[base.symbol] || base;
     const flash = flashStates[base.symbol];
     return (
-      <button
+      <Button
         key={`${copy}-${base.symbol}`}
         type="button"
         className={`ticker-tape-chip ${flash ? `flash-${flash}` : ""}`}
@@ -229,7 +230,7 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
         <span className={`chip-change ${live.isPositive ? "up" : "down"}`}>
           {live.change}
         </span>
-      </button>
+      </Button>
     );
   };
 
