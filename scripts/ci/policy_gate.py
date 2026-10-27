@@ -10,7 +10,19 @@ Evaluates GitOps compliance:
     under changelog.d/ and never touches CHANGELOG.md)
 (e) Docs scope guard (docs PR cannot touch src/ or tests/)
 (f) Stale base reversion guard (cannot delete files added to main since branching)
-(g) Test deletion guard (cannot delete tests without allow-test-deletion label)
+(g) superseded by (i) (owner direction 2026-10-27, issue #1894):
+    no file may be deleted at all — see (i)
+(i) No-deletion rule (owner direction 2026-10-27, issue #1894):
+    any file deletion fails, with no label bypass. Retire by deprecating
+    in place (see (j)), never by deleting. Pure renames pass.
+(j) Deprecation completeness (owner direction 2026-10-27, issue #1894):
+    a new deprecation marker in code must name what superseded it, e.g.
+    'superseded by src/new_module.ts'. Deprecated code must not be used.
+Head evaluation: a merge-commit HEAD (CI checkout default on
+pull_request events) resolves to its second parent, the PR branch head,
+so (d)/(e)/(f)/(i)/(j) evaluate the branch tree, not the merge tree.
+Attribution: (a)/(b)/(c) read the PR body and labels ONLY — commit
+messages are not fallback context.
 (h) Process documentation line (gitops §23: PR body must carry the §9
     "Process documentation impact:" checklist line — presence only,
     never a judgment of the decision's quality)
@@ -40,6 +52,46 @@ def unreleased_section(text_content: str) -> List[str]:
     return section
 
 
+def resolve_effective_head(head: str) -> str:
+    """Resolve the tree the gate must evaluate.
+
+    In CI, actions/checkout on pull_request events checks out the MERGE
+    commit (the workflow passes no ref), and the gate runs with HEAD set
+    to it. Evaluating the merge tree makes check (f) vacuous: the merge
+    base of main and a merge commit is main itself, so no file ever
+    counts as added-to-main-since-branching. A merge commit's second
+    parent is the PR branch head — evaluate that instead. A
+    single-parent head resolves to itself. Unresolvable heads fall back
+    to the given ref rather than crashing the gate.
+    """
+    try:
+        sha = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{head}^{{commit}}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        ).stdout.strip()
+    except Exception:
+        return head
+    try:
+        out = subprocess.run(
+            ["git", "cat-file", "-p", sha],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        ).stdout
+        parents = [line.split()[1] for line in out.splitlines() if line.startswith("parent ")]
+    except Exception:
+        return head
+    if len(parents) >= 2:
+        return parents[1]
+    return head
+
+
 def evaluate_policy(
     base: str = "origin/main",
     head: str = "HEAD",
@@ -50,23 +102,16 @@ def evaluate_policy(
 ) -> List[str]:
     """Run all policy gate evaluations and return any failure reasons."""
     labels = labels or []
+    # Evaluate the branch tree, not a merge-commit tree (see
+    # resolve_effective_head). All diffs below use the resolved head.
+    head = resolve_effective_head(head)
 
-    # Extract git commit messages as fallback context for issue, lane, and agent hashtag
-    commit_context = ""
-    try:
-        commit_context = subprocess.run(
-            ["git", "log", "--format=%s%n%b", f"{base}..{head}"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=True,
-        ).stdout
-    except Exception:
-        pass
-
-    text = body + "\n" + title + "\n" + commit_context
-    full_body = body + "\n" + commit_context
+    # Attribution reads the PR body and labels ONLY (owner direction
+    # 2026-10-27, issue #1894). Commit messages are NOT fallback context:
+    # a bot must not satisfy (a)/(b)/(c) by pasting an issue ref or a
+    # hashtag into a commit message while the PR body carries neither.
+    text = body
+    full_body = body
     failures: List[str] = []
 
     if not diff_only:
@@ -265,22 +310,117 @@ def evaluate_policy(
     except Exception as e:
         failures.append(f"(f) stale base verification error: {e}")
 
-    # (g) Test deletion guard: disallow deleting test files without explicit label
+    # (i) No-deletion rule (owner direction 2026-10-27, issue #1894):
+    # NO file may be deleted in a PR — any deletion fails, with no label
+    # bypass. The allow-test-deletion label no longer permits deletions.
+    # Retire by deprecating in place (see (j)): keep the file, mark it
+    # deprecated with its superseding reference, and remove it from
+    # exports/indexes instead of deleting it. Pure renames (git R
+    # status) are moves, not deletions, and pass; a rename paired with
+    # a rewrite that falls below rename similarity still reports as D
+    # and fails — split it into a pure rename commit plus a
+    # modification commit. If a listed file is one the branch simply
+    # lacks because main moved, update the branch to current main.
+    # Genuine exceptions (e.g. removing an accidentally committed
+    # secret, legal takedown) are owner emergency exceptions: the gate
+    # stays red and only an owner admin bypass with an exception record
+    # merges.
     try:
-        deleted_tests = [
-            f
-            for f in (head_missing_files | deleted_files)
-            if f.startswith("tests/") and (f.endswith(".ts") or f.endswith(".js") or f.endswith(".json"))
+        status_lines = subprocess.run(
+            ["git", "diff", "--name-status", "-M", base, head],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        ).stdout.splitlines()
+        deleted_all = [
+            line.split("\t", 1)[1] for line in status_lines if line.startswith("D\t")
         ]
-        if deleted_tests and "allow-test-deletion" not in labels:
-            sample = ", ".join(deleted_tests[:5])
-            suffix = "..." if len(deleted_tests) > 5 else ""
+        if deleted_all:
+            sample = ", ".join(sorted(deleted_all)[:5])
+            suffix = "..." if len(deleted_all) > 5 else ""
             failures.append(
-                f"(g) test deletion: PR deletes {len(deleted_tests)} test file(s): {sample}{suffix}. "
-                "Deleting test files requires the 'allow-test-deletion' label and explicit justification."
+                f"(i) no deletion: PR deletes {len(deleted_all)} file(s): {sample}{suffix}. "
+                "No file may be deleted — mark the code deprecated in place (see (j)) "
+                "and remove it from exports/indexes instead. "
+                "The 'allow-test-deletion' label no longer permits deletions. "
+                "If a listed file is one the branch simply lacks because main moved, "
+                "update the branch to current main."
             )
     except Exception as e:
-        failures.append(f"(g) test deletion verification error: {e}")
+        failures.append(f"(i) no-deletion verification error: {e}")
+
+    # (j) Deprecation completeness (owner direction 2026-10-27, #1894):
+    # Deprecated code must not be used, and a deprecation must name what
+    # superseded it — e.g. 'superseded by src/new_module.ts'. Applies to
+    # ADDED lines in code files only (src/, scripts/); tests, docs, and
+    # prose are excluded because their comments routinely mention
+    # already-deprecated APIs without declaring a new deprecation.
+    # Lines negating deprecation ("not deprecated", "never deprecated")
+    # are not markers. File-level: if a file's added lines contain any
+    # marker but no superseding reference anywhere in that file's added
+    # lines, the deprecation is incomplete.
+    try:
+        diff_text = subprocess.run(
+            ["git", "diff", base, head],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        ).stdout
+        deprecation_re = re.compile(r"@deprecated|\bdeprecated\b", re.IGNORECASE)
+        negation_re = re.compile(
+            r"\b(not|never|isn'?t)\s+deprecated\b|not-deprecated", re.IGNORECASE
+        )
+        superseding_re = re.compile(
+            r"superseded\s+by|superseded-by|replaced\s+by|in\s+favor\s+of|use\s+.+\s+instead",
+            re.IGNORECASE,
+        )
+        current_path = None
+        current_added: List[str] = []
+        file_chunks = []
+
+        def flush():
+            if current_path is not None:
+                file_chunks.append((current_path, list(current_added)))
+
+        for line in diff_text.splitlines():
+            if line.startswith("diff --git "):
+                flush()
+                current_path = None
+                current_added = []
+                continue
+            if line.startswith("+++ "):
+                target = line[4:].strip()
+                if target.startswith("b/"):
+                    target = target[2:]
+                current_path = target
+                continue
+            if current_path is not None and line.startswith("+") and not line.startswith("+++"):
+                current_added.append(line[1:])
+        flush()
+        for path, added in file_chunks:
+            if not (path.startswith("src/") or path.startswith("scripts/")):
+                continue
+            if path.endswith(".md"):
+                continue
+            markers = [
+                line.strip()
+                for line in added
+                if deprecation_re.search(line) and not negation_re.search(line)
+            ]
+            if markers and not any(superseding_re.search(line) for line in added):
+                marker = markers[0][:100]
+                failures.append(
+                    f"(j) deprecation incomplete: {path} adds a deprecation marker "
+                    f"({marker}) but no superseding reference in the same file's added lines. "
+                    "Deprecated code must not be used — name what superseded it, "
+                    "e.g. 'superseded by src/new_module.ts'."
+                )
+    except Exception as e:
+        failures.append(f"(j) deprecation verification error: {e}")
 
     return failures
 
@@ -318,7 +458,8 @@ def main() -> int:
     print(
         "Policy gate passed: linked issue, lane label, agent hashtag, "
         "CHANGELOG [Unreleased] entry or changelog.d fragment, docs scope, "
-        "non-regression guards, and process documentation line verified."
+        "non-regression guards, no deletions, deprecation completeness, "
+        "and process documentation line verified."
     )
     return 0
 

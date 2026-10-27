@@ -8,7 +8,14 @@
  * - (d) CHANGELOG entry under ## [Unreleased]
  * - (e) docs scope guard (docs PR cannot touch code/tests)
  * - (f) stale base reversion guard (cannot delete recently merged main additions)
- * - (g) test deletion guard (cannot delete tests without allow-test-deletion)
+ * - (i) no-deletion rule (issue #1894, supersedes (g)): no file may be
+ *   deleted at all, with no label bypass; retire by deprecating in place
+ * - (j) deprecation completeness (issue #1894): a new deprecation marker
+ *   in code must name what superseded it
+ * - head evaluation (issue #1894): a merge-commit HEAD resolves to the
+ *   PR branch head, so (f)/(i)/(j) see the branch tree
+ * - body-only attribution (issue #1894): (a)/(b)/(c) read the PR body
+ *   and labels only; commit messages are not fallback context
  * - (h) process documentation line (gitops §23: PR body must carry the
  *   §9 "Process documentation impact:" checklist line, presence only)
  *
@@ -134,6 +141,61 @@ describe("Policy Gate Guards (#1684)", () => {
     fs.writeFileSync(path.join(tempRepoDir, "src", "nochange.ts"), "export const n = 1;\n");
     runGit(tempRepoDir, ["add", "-A"]);
     runGit(tempRepoDir, ["commit", "-m", "feat: no changelog at all"]);
+
+    // Branch 8: deletes a src file (no-deletion rule covers every file).
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["checkout", "-b", "branch-src-deletion"]);
+    fs.unlinkSync(path.join(tempRepoDir, "src", "index.ts"));
+    fs.mkdirSync(path.join(tempRepoDir, "changelog.d"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempRepoDir, "changelog.d", "1894-src-del.md"),
+      "### Added\n\n- **Src deletion fixture (#1894):** no-deletion test\n"
+    );
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "refactor: delete src file"]);
+
+    // Branch 9: deprecation that names its superseding module.
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["checkout", "-b", "branch-deprecation-good"]);
+    fs.appendFileSync(
+      path.join(tempRepoDir, "src", "index.ts"),
+      "/**\n * @deprecated Do not use. Superseded by src/feature.ts - use feature instead.\n */\nexport const oldApi = 1;\n"
+    );
+    fs.mkdirSync(path.join(tempRepoDir, "changelog.d"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempRepoDir, "changelog.d", "1894-dep-good.md"),
+      "### Added\n\n- **Deprecation fixture (#1894):** complete deprecation\n"
+    );
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "refactor: deprecate old API"]);
+
+    // Branch 10: deprecation that names nothing superseding it.
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["checkout", "-b", "branch-deprecation-bad"]);
+    fs.appendFileSync(
+      path.join(tempRepoDir, "src", "index.ts"),
+      "// @deprecated Do not use this anymore.\nexport const oldApi2 = 1;\n"
+    );
+    fs.mkdirSync(path.join(tempRepoDir, "changelog.d"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempRepoDir, "changelog.d", "1894-dep-bad.md"),
+      "### Added\n\n- **Deprecation fixture (#1894):** incomplete deprecation\n"
+    );
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "refactor: deprecate without successor"]);
+
+    // Branch 11: attribution lives ONLY in the commit message (must fail
+    // under body-only attribution: body carries no ref, no hashtag).
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["checkout", "-b", "branch-commit-attribution"]);
+    fs.writeFileSync(path.join(tempRepoDir, "src", "commitattr.ts"), "export const c = 1;\n");
+    fs.mkdirSync(path.join(tempRepoDir, "changelog.d"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempRepoDir, "changelog.d", "1894-attr.md"),
+      "### Added\n\n- **Attribution fixture (#1894):** commit-only attribution\n"
+    );
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "feat: commit attribution", "-m", "Fixes #1684 #CISO-bhdm"]);
   });
 
   afterAll(() => {
@@ -189,7 +251,7 @@ describe("Policy Gate Guards (#1684)", () => {
     expect(res.stdout).toContain("(e) docs scope");
   });
 
-  it("rejects test deletion without allow-test-deletion label", () => {
+  it("rejects any file deletion under the no-deletion rule (supersedes (g))", () => {
     const resWithoutLabel = runPolicyGate(
       {
         PR_TITLE: "refactor: cleanup tests (#1684) #CTO-mbshr",
@@ -199,10 +261,10 @@ describe("Policy Gate Guards (#1684)", () => {
       ["--base", "main", "--head", "branch-test-deletion"]
     );
     expect(resWithoutLabel.status).toBe(1);
-    expect(resWithoutLabel.stdout).toContain("(g) test deletion");
+    expect(resWithoutLabel.stdout).toContain("(i) no deletion");
   });
 
-  it("allows test deletion when explicitly authorized with allow-test-deletion label", () => {
+  it("rejects test deletion even with allow-test-deletion label (label no longer permits deletions)", () => {
     const resWithLabel = runPolicyGate(
       {
         PR_TITLE: "refactor: retirement cleanup (#1684) #CTO-mbshr",
@@ -211,7 +273,8 @@ describe("Policy Gate Guards (#1684)", () => {
       },
       ["--base", "main", "--head", "branch-test-deletion"]
     );
-    expect(resWithLabel.stdout).not.toContain("(g) test deletion");
+    expect(resWithLabel.status).toBe(1);
+    expect(resWithLabel.stdout).toContain("(i) no deletion");
   });
 
   it("rejects PR cut from stale base that reverts newly added main files", () => {
@@ -310,5 +373,97 @@ describe("Policy Gate Guards (#1684)", () => {
     );
     expect(res.status).toBe(1);
     expect(res.stdout).toContain("(d) CHANGELOG");
+  });
+
+  it("rejects a src file deletion under the no-deletion rule", () => {
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "refactor: delete src file (#1684) #CTO-mbshr",
+        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [ ] Process documentation impact: none",
+        PR_LABELS: "lane:cto-mbshr",
+      },
+      ["--base", "main", "--head", "branch-src-deletion"]
+    );
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("(i) no deletion");
+    expect(res.stdout).toContain("src/index.ts");
+  });
+
+  it("passes a deprecation that names its superseding module", () => {
+    runGit(tempRepoDir, ["checkout", "branch-deprecation-good"]);
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "refactor: deprecate old API (#1684) #CTO-mbshr",
+        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [ ] Process documentation impact: none",
+        PR_LABELS: "lane:cto-mbshr",
+      },
+      ["--base", "main", "--head", "branch-deprecation-good"]
+    );
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Policy gate passed");
+  });
+
+  it("rejects a deprecation that names no superseding module", () => {
+    runGit(tempRepoDir, ["checkout", "branch-deprecation-bad"]);
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "refactor: deprecate without successor (#1684) #CTO-mbshr",
+        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [ ] Process documentation impact: none",
+        PR_LABELS: "lane:cto-mbshr",
+      },
+      ["--base", "main", "--head", "branch-deprecation-bad"]
+    );
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("(j) deprecation");
+  });
+
+  it("rejects attribution that lives only in commit messages (body-only rule)", () => {
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "feat: commit attribution",
+        PR_BODY: "No refs here",
+        PR_LABELS: "unrelated-label",
+      },
+      ["--base", "main", "--head", "branch-commit-attribution"]
+    );
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("(a) linked issue");
+    expect(res.stdout).toContain("(c) agent hashtag");
+  });
+
+  it("detects a stale branch through a merge commit via head resolution (f)", () => {
+    // Branch from current main; main then adds a fresh file the branch
+    // never sees. The CI-style merge commit must NOT hide the staleness:
+    // resolving HEAD to its second parent (the branch head) makes (f)
+    // see the branch tree. This test advances main and merges, so it
+    // runs last.
+    runGit(tempRepoDir, ["checkout", "-b", "branch-merge-sim"]);
+    runGit(tempRepoDir, ["checkout", "main"]);
+    fs.writeFileSync(path.join(tempRepoDir, "src", "fresh.ts"), "export const fresh = 1;\n");
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "feat: fresh file on main"]);
+    const mainWithFresh = runGit(tempRepoDir, ["rev-parse", "main"]);
+    runGit(tempRepoDir, ["checkout", "branch-merge-sim"]);
+    fs.mkdirSync(path.join(tempRepoDir, "changelog.d"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempRepoDir, "changelog.d", "1894-sim.md"),
+      "### Added\n\n- **Sim fragment (#1894):** merge-head test\n"
+    );
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "feat: sim fragment"]);
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["merge", "branch-merge-sim", "--no-ff", "-m", "ci merge simulation"]);
+    const mergeHead = runGit(tempRepoDir, ["rev-parse", "main"]);
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "feat: sim fragment (#1684) #CTO-mbshr",
+        PR_BODY: "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [ ] Process documentation impact: none",
+        PR_LABELS: "lane:cto-mbshr",
+      },
+      ["--base", mainWithFresh, "--head", mergeHead]
+    );
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("(f) stale base reversion");
+    expect(res.stdout).toContain("src/fresh.ts");
   });
 });
