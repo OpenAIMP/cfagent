@@ -1,6 +1,8 @@
 {
   "migrated": [
     "social",
-    "audit"
+    "audit",
+    "payments",
+    "nlq"
   ]
 }
