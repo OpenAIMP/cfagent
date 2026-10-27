@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-// Issue #1738: OrchestratorAgent/ResearchAgent/TradingAgent are
-// Agents SDK actors now — mock the SDK with a plain base class
-// (the api_chat_route.test.ts idiom) so the real module graph's
-// `cloudflare:` imports never reach the node loader.
-vi.mock("agents", () => {
+// Issue #1953: ResearchAgent is a PortThink now — mock the
+// Think-coupled adapter module with a plain base class (the
+// api_chat_route.test.ts idiom) so the real module graph's
+// `cloudflare:` imports never reach the node loader. The agents
+// mock this replaced served the same purpose pre-migration.
+vi.mock("../src/actors/thinkAdapter", () => {
   return {
-    Agent: class MockAgent {
+    PortThink: class MockPortThink {
       ctx: any;
       env: any;
       constructor(ctx: any, env: any) {
