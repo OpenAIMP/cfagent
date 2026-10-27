@@ -40,6 +40,25 @@ export async function getScreenerExecutionContext(ctx: ScheduleMaintenanceContex
   return storage.get<ScreenerExecutionContext>(ctx.screenerExecutionContextKey);
 }
 
+/**
+ * Issue #1965: scheduled-run identity resolution. The schedule payload's
+ * own login wins when present: it is the login that created and owns the
+ * schedule (panel-verified). The saved execution context is the fallback
+ * for legacy schedules whose payloads carry no login. Previously the
+ * saved context won, so a stale context (a login with no stored token)
+ * blocked scheduled runs with AUTH_003 while manual runs under the
+ * session login passed the guard. Callers resolve environment the same
+ * way (payload first, saved context second): the payload owns the
+ * schedule's environment too, and the context remains the legacy
+ * fallback for payloads that carry none.
+ */
+export function resolveScheduledLogin(
+  payloadLogin: string | undefined,
+  savedLogin: string | undefined,
+): string | undefined {
+  return payloadLogin || savedLogin;
+}
+
 /** Retire old internal maintenance jobs while preserving account screening schedules. */
 export async function migrateLegacyScreenSchedules(ctx: ScheduleMaintenanceContext, context: ScreenerExecutionContext): Promise<void> {
   const storage = ctx.agentCtx?.storage;
