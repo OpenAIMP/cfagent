@@ -450,4 +450,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BASE_URL: https://agent.openaimp.com
+          # #1754: service token for POST /api/qa/investigate (session-less
+          # caller). Owner action: create the QA_INVESTIGATE_TOKEN GitHub
+          # secret and set the same value as a Worker secret; until then
+          # the smoke's AI-diagnosis comment warns 401 and is skipped.
+          QA_INVESTIGATE_TOKEN: ${{ secrets.QA_INVESTIGATE_TOKEN }}
         run: node scripts/qa-smoke.mjs

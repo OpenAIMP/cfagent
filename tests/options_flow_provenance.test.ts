@@ -31,6 +31,7 @@ vi.mock("agents/x402", () => {
   return { withX402: (cls: any) => cls };
 });
 
+import { makeFakeSessionStore } from "./fake-session-store";
 import {
   RAW_LIVE_FLOW_ITEMS,
   FLOW_PROVENANCE_NOTICE,
@@ -50,6 +51,21 @@ import worker from "../src/server";
  * real executed print, every surface must disclose the modelled basis, and
  * the fabricated RAW_NEWS_FLOW_ITEMS wire must stay deleted.
  */
+
+// #1754: /api/options/flows/* is session-gated. These envelope pins
+// keep every assertion and only gain a session: the envelope behavior
+// under test is unchanged, the caller is now authenticated.
+const FLOWS_SESSION_ID = "0d9a1754-1c2b-4e3f-8a5b-119000000001";
+function authedFlowsRequest(path: string) {
+  const { namespace: sessionStoreNs, seed: seedSession } = makeFakeSessionStore();
+  seedSession("sessions", FLOWS_SESSION_ID, { githubLogin: "octocat-119", userLogin: "octocat-119" });
+  return {
+    request: new Request(`https://agent.test${path}`, {
+      headers: { Cookie: `session_id=${FLOWS_SESSION_ID}` },
+    }),
+    env: { SESSION_STORE: sessionStoreNs } as any,
+  };
+}
 
 const mockChain: ETradeOptionChain = {
   symbol: "NVDA",
@@ -154,10 +170,8 @@ describe("Issue #119 — /api/options/flows route envelopes disclose provenance"
   // empty + an explicit unavailable state instead, so the pin now asserts
   // exactly that, keeping the envelope provenance assertions.
   it("GET /live with all sources failing returns empty + dataUnavailable, never generated samples (issue #925)", async () => {
-    const res = await worker.fetch(
-      new Request("https://agent.test/api/options/flows/live?tickers=ZZZUNKNOWN"),
-      {} as any
-    );
+    const { request, env } = authedFlowsRequest("/api/options/flows/live?tickers=ZZZUNKNOWN");
+    const res = await worker.fetch(request, env);
     expect(res.status).toBe(200);
     const body: any = await res.json();
     expect(Array.isArray(body.flows)).toBe(true);
@@ -178,10 +192,8 @@ describe("Issue #119 — /api/options/flows route envelopes disclose provenance"
   }, 30000);
 
   it("GET /historical discloses that no historical tape exists", async () => {
-    const res = await worker.fetch(
-      new Request("https://agent.test/api/options/flows/historical?tickers=ZZZUNKNOWN"),
-      {} as any
-    );
+    const { request, env } = authedFlowsRequest("/api/options/flows/historical?tickers=ZZZUNKNOWN");
+    const res = await worker.fetch(request, env);
     expect(res.status).toBe(200);
     const body: any = await res.json();
     expect(body.provenance?.isModelled).toBe(true);

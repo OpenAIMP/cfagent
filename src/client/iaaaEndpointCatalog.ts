@@ -31,6 +31,7 @@ export type ApiEndpointAuth =
   | "public"
   | "session"
   | "session-or-apikey"
+  | "session-or-service-token"
   | "session-optional"
   | "platform-admin"
   | "webhook-signature"
@@ -294,8 +295,8 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     path: "/api/qa/investigate",
     aliases: [],
     kind: "http",
-    auth: "public",
-    authNote: "No session check in the handler (QA diagnostic). Listed as public; whether that is intended is not asserted here.",
+    auth: "session-or-service-token",
+    authNote: "Gated by #1754: valid app session OR the dedicated QA_INVESTIGATE_TOKEN Bearer token (timing-safe, fail-closed when unset); unauthenticated callers get 401 before any LLM work.",
     source: "src/server.ts branch: POST /api/qa/investigate",
   },
   {
@@ -304,8 +305,8 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     path: "/api/memory/search",
     aliases: [],
     kind: "http",
-    auth: "public",
-    authNote: "No session check in the handler; throttled per caller (60 per minute).",
+    auth: "session",
+    authNote: "Gated by #1754: requireAuth (401 unauthenticated); throttled per caller (60 per minute) after the gate.",
     source: "src/server.ts branch: POST /api/memory/search",
   },
   {
@@ -938,8 +939,8 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     path: "/api/options/flows/*",
     aliases: [],
     kind: "http",
-    auth: "public",
-    authNote: "No session check in the handler (live and historical sub-paths). Listed as public; whether that is intended is not asserted here.",
+    auth: "session",
+    authNote: "Gated by #1754: requireAuth at the top of the family (401 unauthenticated, before any sub-path work). Public market quotes stay ungated per the recorded #1725 M10 decision; flows are not quotes.",
     source: "src/server.ts branch: path.startsWith /api/options/flows/",
     prefixes: ["/api/options/flows/"],
   },
