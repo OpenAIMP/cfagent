@@ -19,6 +19,7 @@ import type {
   WatchlistEntry,
   RejectedEntry,
 } from "../services/researchPipeline";
+import { researchLegLine, researchReportFileName } from "./researchReportData";
 
 /** Print palette — same scale as the screener PDFs (#473). */
 const PRINT_INK: [number, number, number] = [0.15, 0.15, 0.15];
@@ -236,13 +237,9 @@ function renderTradeCard(ctx: Ctx, idea: TradeCard): void {
   labeled(ctx, "Contractual max loss", fmtMoney(idea.contractualMaxLoss));
   if (idea.legs.length > 0) {
     text(ctx, "Legs", { size: 10, bold: true });
-    for (const leg of idea.legs) {
-      const l = leg as unknown as Record<string, unknown>;
-      bullet(
-        ctx,
-        `${String(l.action ?? "")} ${String(l.quantity ?? "")}× ${String(l.symbol ?? "")} ${String(l.expiry ?? "")} ${String(l.strike ?? "")}${String(l.optionType ?? "")} @ ${fmtMoney(Number(l.price ?? NaN))}`
-      );
-    }
+    // Issue #2167: the shared leg line. The old cast read fields ResearchLeg
+    // does not have (action/symbol/price), so every leg printed blanks.
+    for (const leg of idea.legs) bullet(ctx, researchLegLine(leg));
   }
   ctx.y -= 4;
 
@@ -352,10 +349,6 @@ export async function generateResearchPdf(
  * Format: research_{trigger}_{timestamp}_{runId}.pdf
  */
 export function researchPdfFileName(report: ResearchReport): string {
-  const ts =
-    new Date(report.createdAt).toISOString().replace(/[:.]/g, "-").slice(0, 19) +
-    "Z";
-  const trigger = (report.trigger || "manual").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const runId = (report.runId || "adhoc").replace(/[^a-zA-Z0-9-]+/g, "").slice(0, 24);
-  return `research_${trigger}_${ts}_${runId}.pdf`;
+  // Issue #2167: one naming rule for all three formats.
+  return researchReportFileName(report, "pdf");
 }

@@ -672,6 +672,103 @@ export class ResearchAgent extends PortThink {
   }
 
   /**
+   * Issue #2167: generate + store the research run's workbook and CSV —
+   * the research twin of ScreenerAgent.generateAndStoreStrategyReport.
+   *
+   * Keys mirror the PDF's `report:pdf:research:<id>` family, so one run's
+   * artifacts sit together in storage. Each format has its own failure
+   * domain (#1278): a failed leg is recorded, never fatal.
+   */
+  async generateAndStoreResearchArtifacts(
+    report: import("../services/researchPipeline").ResearchReport,
+  ): Promise<import("../trading").ResearchWorkbookOutcome> {
+    const { withRetry } = await import("../services/resilience");
+    const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+    const { putReportPdf } = await import("../services/reportBlobStore");
+    const { generateResearchReportXlsx, generateResearchReportCsv, researchReportFileName } = await import(
+      "../trading"
+    );
+    const policy = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+    const id = crypto.randomUUID().slice(0, 8);
+    const outcome: import("../trading").ResearchWorkbookOutcome = {
+      xlsxStatus: "failed",
+      csvStatus: "failed",
+    };
+
+    try {
+      const key = `report:xlsx:research:${id}`;
+      const bytes = generateResearchReportXlsx(report);
+      await withRetry(
+        () =>
+          putReportPdf(
+            this.env,
+            this.ctx.storage,
+            key,
+            researchReportFileName(report, "xlsx"),
+            bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          ),
+        policy,
+        { label: "research-xlsx" },
+      );
+      outcome.xlsxKey = key;
+      outcome.xlsxStatus = "generated";
+    } catch (err) {
+      outcome.xlsxError = err instanceof Error ? err.message : String(err);
+      console.error("[ResearchAgent] Research XLSX generation failed:", outcome.xlsxError);
+    }
+
+    try {
+      const key = `report:csv:research:${id}`;
+      const bytes = new TextEncoder().encode(generateResearchReportCsv(report));
+      await withRetry(
+        () =>
+          putReportPdf(
+            this.env,
+            this.ctx.storage,
+            key,
+            researchReportFileName(report, "csv"),
+            bytes,
+            "text/csv",
+          ),
+        policy,
+        { label: "research-csv" },
+      );
+      outcome.csvKey = key;
+      outcome.csvStatus = "generated";
+    } catch (err) {
+      outcome.csvError = err instanceof Error ? err.message : String(err);
+      console.error("[ResearchAgent] Research CSV generation failed:", outcome.csvError);
+    }
+
+    return outcome;
+  }
+
+  /** Issue #2167: serve a stored research workbook by key. */
+  async getResearchXlsxByKey(
+    key: string
+  ): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    try {
+      const { getReportPdf } = await import("../services/reportBlobStore");
+      return await getReportPdf(this.env, this.ctx.storage, key);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Issue #2167: serve a stored research CSV by key. */
+  async getResearchCsvByKey(
+    key: string
+  ): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    try {
+      const { getReportPdf } = await import("../services/reportBlobStore");
+      return await getReportPdf(this.env, this.ctx.storage, key);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * #336: pre-entry refresh. Re-fetch live quotes for the shortlisted ideas
    * and flag any that moved materially or went stale since the run. Returns
    * one flag per affected idea; empty means "no change". Best-effort — never

@@ -460,6 +460,9 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.csv\")",
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/report.pdf\")",
+  // Issue #2167: the research workbook and CSV download routes.
+  "handleScreenerResearchRoutes :: endsWith(\"/research/report.xlsx\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/research/report.csv\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/run\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/scheduled-tick\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/latest\")",
