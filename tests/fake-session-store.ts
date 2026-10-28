@@ -10,6 +10,12 @@
  *   seed("sessions", SESSION_ID, { githubLogin: "octocat" });
  *   const env = { SESSION_STORE: namespace } as Env;
  */
+import type { IaaaAuditEvent } from "../src/security/iaaaAudit";
+import { computeEventHash } from "../src/security/iaaaAudit";
+import {
+  IAAA_AUDIT_ARCHIVE_KEY_PREFIX,
+  IAAA_AUDIT_LOG_KEY,
+} from "../src/security/iaaaAuditStore";
 export interface FakeSessionStore {
   namespace: {
     idFromName: (name: string) => unknown;
@@ -78,6 +84,85 @@ export function makeFakeSessionStore(): FakeSessionStore {
           claims.set(k, Date.now() + (typeof body.ttl === "number" ? body.ttl * 1000 : 0));
           store.set(k, body.value ?? "");
           return Response.json({ consumed: true });
+        }
+        if (body.op === "audit-append") {
+          // #1760: mirrors the real SessionStore DO's audit-append
+          // op (single-flight in this fake: no await between the
+          // tail read and the write, exactly like the real DO's
+          // serialized request). Same caps, same clamps, same
+          // rotation, same storeFull signal.
+          const caps = body as unknown as {
+            liveMax?: number;
+            segmentSize?: number;
+            maxArchiveSegments?: number;
+          };
+          const clamp = (v: unknown, hard: number): number =>
+            typeof v === "number" && Number.isInteger(v) && v > 0 ? Math.min(v, hard) : hard;
+          const liveMax = clamp(caps.liveMax, 2000);
+          const segmentSize = clamp(caps.segmentSize, 2000);
+          const maxSegments = clamp(caps.maxArchiveSegments, 10);
+          if (body.ns !== "sessions" || body.key !== IAAA_AUDIT_LOG_KEY) {
+            return Response.json({ error: "audit-append is restricted" }, { status: 400 });
+          }
+          const parseArray = (raw: string | undefined): IaaaAuditEvent[] | null => {
+            if (raw === undefined) return [];
+            try {
+              const parsed: unknown = JSON.parse(raw);
+              return Array.isArray(parsed) ? (parsed as IaaaAuditEvent[]) : null;
+            } catch {
+              return null;
+            }
+          };
+          const live = parseArray(store.get(k));
+          if (live === null) {
+            return Response.json({ error: "audit log corrupt" }, { status: 500 });
+          }
+          const archiveKeys = [...store.keys()]
+            .filter((kk) => kk.startsWith(`${body.ns}:${IAAA_AUDIT_ARCHIVE_KEY_PREFIX}`))
+            .sort();
+          const segments: IaaaAuditEvent[][] = [];
+          for (const ak of archiveKeys) {
+            const seg = parseArray(store.get(ak));
+            if (seg === null) {
+              return Response.json({ error: "audit log corrupt" }, { status: 500 });
+            }
+            segments.push(seg);
+          }
+          const archived = segments.reduce((sum, seg) => sum + seg.length, 0);
+          if (live.length + archived >= liveMax + maxSegments * segmentSize) {
+            return Response.json({ storeFull: true });
+          }
+          const input = JSON.parse(body.value ?? "") as Omit<
+            IaaaAuditEvent,
+            "id" | "previousEventHash" | "eventHash"
+          >;
+          const lastArchived =
+            segments.length > 0 && segments[segments.length - 1].length > 0
+              ? segments[segments.length - 1][segments[segments.length - 1].length - 1]
+              : null;
+          const previousEventHash =
+            live.length > 0
+              ? live[live.length - 1].eventHash
+              : lastArchived
+                ? lastArchived.eventHash
+                : null;
+          const unsigned = { ...input, id: crypto.randomUUID(), previousEventHash };
+          const event: IaaaAuditEvent = {
+            ...unsigned,
+            eventHash: await computeEventHash(unsigned),
+          };
+          live.push(event);
+          let nextIndex = archiveKeys.length;
+          while (live.length > liveMax) {
+            const segment = live.splice(0, segmentSize);
+            store.set(
+              `${body.ns}:${IAAA_AUDIT_ARCHIVE_KEY_PREFIX}${String(nextIndex).padStart(6, "0")}`,
+              JSON.stringify(segment),
+            );
+            nextIndex += 1;
+          }
+          store.set(k, JSON.stringify(live));
+          return Response.json({ ok: true, event });
         }
         return Response.json({ error: "unknown op" }, { status: 400 });
       },
