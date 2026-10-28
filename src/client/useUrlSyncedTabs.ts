@@ -1,0 +1,135 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+/**
+ * Shared URL-synced-tabs behavior (#1804 S2, issue #2027): one behavior
+ * for every tabbed surface, consumed by both the `Tabs` primitive and
+ * `CapabilityNavBar` — the #1379 ScreenersHub pattern, generalized.
+ *
+ * - Read order: query `param`, query `aliases` in order (legacy params
+ *   such as `screenerTab`, read-only), bare hash, hash `param`, hash
+ *   `aliases` — mirroring ScreenersHub's `parseScreenerTabFromUrl`.
+ * - Write: only `param` is ever written (aliases stay read-only, so a
+ *   legacy param migrates to the canonical one on first change).
+ * - Retention: every visited tab joins `visitedTabs`; panels render
+ *   mounted-hidden for visited tabs (see `TabPanel retain` mode) so
+ *   in-flight and finished work survives tab switches.
+ * - Back/forward: a popstate listener re-reads the URL and adopts it.
+ */
+export interface UseUrlSyncedTabsOptions<T extends string> {
+  /** Canonical query param, e.g. "view". */
+  param: string;
+  /** Legacy params, read in order, never written. */
+  aliases?: string[];
+  isValid: (value: unknown) => value is T;
+  defaultTab: T;
+  /** Prop override (e.g. a parent driving the tab); adopted when valid. */
+  initialTab?: T | null;
+  onTabChange?: (tab: T) => void;
+}
+
+export interface UseUrlSyncedTabsResult<T extends string> {
+  activeTab: T;
+  visitedTabs: ReadonlySet<T>;
+  handleTabChange: (tab: string) => void;
+}
+
+function readTabFromHref<T extends string>(
+  href: string,
+  param: string,
+  aliases: string[],
+  isValid: (value: unknown) => value is T,
+): T | null {
+  try {
+    const url = new URL(href, "http://localhost");
+    const query = url.searchParams.get(param);
+    if (query !== null && isValid(query)) return query;
+    for (const alias of aliases) {
+      const value = url.searchParams.get(alias);
+      if (value !== null && isValid(value)) return value;
+    }
+    const hash = url.hash.replace(/^#/, "");
+    if (hash) {
+      if (isValid(hash)) return hash;
+      const hashParams = new URLSearchParams(hash);
+      const hashValue = hashParams.get(param);
+      if (hashValue !== null && isValid(hashValue)) return hashValue;
+      for (const alias of aliases) {
+        const value = hashParams.get(alias);
+        if (value !== null && isValid(value)) return value;
+      }
+    }
+  } catch {
+    // Malformed URL, ignore
+  }
+  return null;
+}
+
+export function useUrlSyncedTabs<T extends string>(
+  options: UseUrlSyncedTabsOptions<T>,
+): UseUrlSyncedTabsResult<T> {
+  const { param, aliases = [], isValid, defaultTab, initialTab = null, onTabChange } = options;
+  const aliasKey = aliases.join(",");
+  const readFromLocation = useCallback((): T | null => {
+    if (typeof window === "undefined") return null;
+    return readTabFromHref(window.location.href, param, aliases, isValid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [param, aliasKey]);
+
+  const initialResolvedTab = useMemo<T>(() => {
+    const fromUrl = readFromLocation();
+    if (fromUrl) return fromUrl;
+    if (initialTab && isValid(initialTab)) return initialTab;
+    return defaultTab;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readFromLocation]);
+
+  const [activeTab, setActiveTab] = useState<T>(initialResolvedTab);
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<T>>(
+    () => new Set([initialResolvedTab]),
+  );
+
+  useEffect(() => {
+    if (initialTab && isValid(initialTab) && initialTab !== activeTab) {
+      setActiveTab(initialTab);
+      setVisitedTabs((prev) => new Set(prev).add(initialTab));
+    }
+  }, [initialTab, activeTab, isValid]);
+
+  const handleTabChange = useCallback(
+    (newTabId: string) => {
+      if (!isValid(newTabId)) return;
+      setActiveTab(newTabId);
+      setVisitedTabs((prev) => new Set(prev).add(newTabId));
+      onTabChange?.(newTabId);
+
+      if (typeof window !== "undefined" && window.history) {
+        try {
+          const url = new URL(window.location.href);
+          if (url.searchParams.get(param) !== newTabId) {
+            url.searchParams.set(param, newTabId);
+            window.history.pushState(null, "", url.toString());
+          }
+        } catch {
+          // Safe fallback for environments with restricted history
+        }
+      }
+    },
+    [isValid, onTabChange, param],
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handlePopState = () => {
+      const tabFromUrl = readFromLocation();
+      if (tabFromUrl && tabFromUrl !== activeTab) {
+        setActiveTab(tabFromUrl);
+        setVisitedTabs((prev) => new Set(prev).add(tabFromUrl));
+        onTabChange?.(tabFromUrl);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [activeTab, onTabChange, readFromLocation]);
+
+  return { activeTab, visitedTabs, handleTabChange };
+}
