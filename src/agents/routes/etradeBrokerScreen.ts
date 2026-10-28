@@ -37,16 +37,20 @@ async function publishOrBridge(
   ctx: EtradeBrokerRouteContext,
   userLogin: string,
   result: unknown,
+  emailTo?: string,
 ): Promise<void> {
   if (ctx.asyncJobId) return;
+  const enriched = emailTo && result && typeof result === "object"
+    ? { ...(result as Record<string, unknown>), emailTo }
+    : result;
   if (ctx.scheduleScreenerFollowups) {
     await ctx.scheduleScreenerFollowups(
-      screenerOutcomeFromRunResult("stock", result as Record<string, unknown>),
+      screenerOutcomeFromRunResult("stock", enriched as Record<string, unknown>),
       userLogin,
     );
     return;
   }
-  await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, result as any);
+  await publishManualScreenerRun(ctx.env, ctx.getOrm(), userLogin, enriched as any);
 }
 
 type StockScreenValue = Extract<ReturnType<typeof parseStockScreenRequest>, { ok: true }>["value"];
@@ -94,8 +98,9 @@ export async function executeEtradeScreen(args: {
   validatedFilters: StockScreenValue["filters"];
   /** Issue #1737: opt-in async path — start a workflow, return 202, never await the scan. */
   asyncRequested?: boolean;
+  emailTo?: string;
 }): Promise<Response> {
-  const { ctx, sessionId, requestedEnv, userLogin, agent, universe, validatedFilters } = args;
+  const { ctx, sessionId, requestedEnv, userLogin, agent, universe, validatedFilters, emailTo } = args;
   // Issue #17: the portfolio-context flag is read here (orchestrator
   // storage owns mas_settings; the screener agent cannot read it) and
   // rides the run request — runSharded spreads it onto every shard.
@@ -138,7 +143,7 @@ export async function executeEtradeScreen(args: {
   if (universe === "ALL") {
     const shards = await agent.runSharded({ trigger: "manual", filters: validatedFilters, userLogin, environment: requestedEnv, portfolioContext });
     for (const shard of shards) {
-      await publishOrBridge(ctx, userLogin, shard);
+      await publishOrBridge(ctx, userLogin, shard, emailTo);
     }
     const failed = shards.filter((r) => !r.success);
     if (failed.length === shards.length) {
@@ -199,7 +204,7 @@ export async function executeEtradeScreen(args: {
       error,
       timestamp: new Date().toISOString(),
       universe: universe as any,
-    });
+    }, emailTo);
     throw screenErr;
   }
   ctx.audit("etrade.screened", "trading", {
@@ -212,7 +217,7 @@ export async function executeEtradeScreen(args: {
   // Issue #911: pass userLogin so the report is stored under the
   // correct user scope (not "default").
   await ctx.persistScreenerReportCanonical({ ...result, userLogin });
-  await publishOrBridge(ctx, userLogin, result);
+  await publishOrBridge(ctx, userLogin, result, emailTo);
   if (!result.success) {
     return Response.json({ error: result.error || "E*TRADE unavailable" }, { status: 502 });
   }

@@ -16,6 +16,11 @@ import type { DatabaseORM } from "../orm";
 import type { ScreenerAgent } from "../agents/screener-agent";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "./tradingWebhooks";
+import {
+  cfpaySendEmail,
+  cfpaySendEmailWithAttachments,
+  getCfpayConfig,
+} from "./cfpayA2A";
 import { deliverScreenerToSlack } from "./screenerSlackDelivery";
 import {
   formatFollowupDeliveryText,
@@ -109,6 +114,7 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
       if (channel === "email") {
         const to = outcome.emailTo ?? config.channels.email.to;
         if (!to) return { ok: false, error: "Email delivery is not configured (SCREENER_EMAIL_TO is unset)." };
+        const subject = followupDeliveryEmailSubject(outcome);
         // Issue #1191: attach EVERY artifact (text + PDF + XLSX +
         // CSV since #1346), each with its own content type — the
         // pre-R3 leg attached only the first file, as PDF.
@@ -117,14 +123,53 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
           for (let i = 0; i < f.bytes.length; i += 8192) binary += String.fromCharCode(...f.bytes.subarray(i, i + 8192));
           return { fileName: f.fileName, contentType: f.contentType, contentBase64: btoa(binary) };
         });
-        const email = new ETradeEmailTradingService(deps.env, deps.getOrm(), userLogin);
-        await email.sendOutboundEmail(
+        // Issue #1941: try cfpay A2A first (matching Slack and the direct
+        // publishers), then fall back to local ETradeEmailTradingService
+        // and check the boolean return value so a missing/failing binding
+        // never produces a false 'delivered' receipt.
+        const cfpay = getCfpayConfig(deps.env);
+        let a2aError: string | undefined;
+        if (cfpay) {
+          const r = attachments.length > 0
+            ? await cfpaySendEmailWithAttachments(cfpay, {
+                to,
+                subject,
+                body: text,
+                attachments: attachments.map((a) => ({
+                  filename: a.fileName,
+                  contentB64: a.contentBase64,
+                  contentType: a.contentType,
+                })),
+              })
+            : await cfpaySendEmail(cfpay, to, subject, text);
+          if (r.ok) {
+            return { ok: true, ...(missingNote ? { detail: missingNote } : {}) };
+          }
+          a2aError = r.error || "cfpay A2A email send failed";
+          console.warn("[screenerFollowupDelivery] cfpay email failed, falling back to local:", a2aError);
+        }
+        let orm: DatabaseORM | undefined;
+        try {
+          orm = deps.getOrm();
+        } catch {
+          orm = undefined;
+        }
+        const email = new ETradeEmailTradingService(deps.env, orm, userLogin);
+        const sent = await email.sendOutboundEmail(
           to,
-          followupDeliveryEmailSubject(outcome),
+          subject,
           `<pre>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`,
           text,
           attachments.length > 0 ? attachments : undefined,
         );
+        if (!sent) {
+          return {
+            ok: false,
+            error: a2aError
+              ? `cfpay email failed (${a2aError}) and local email send failed (env.EMAIL binding is not configured or send failed).`
+              : "Outbound email send failed (env.EMAIL binding is not configured or send failed).",
+          };
+        }
         return { ok: true, ...(missingNote ? { detail: missingNote } : {}) };
       }
       const webhookUrl = outcome.webhookUrl ?? config.channels.webhook.url;
@@ -157,13 +202,36 @@ export function createFollowupDeliveryPort(deps: FollowupDeliveryDeps): {
         // the executor's allowlist check on the same address.
         const to = emailTo ?? config.channels.email.to;
         if (!to) return { ok: false, error: "Email notification is not configured (SCREENER_EMAIL_TO is unset)." };
-        const email = new ETradeEmailTradingService(deps.env, deps.getOrm(), userLogin);
-        await email.sendOutboundEmail(
+        const subject = text.split("\n")[0].slice(0, 120);
+        const cfpay = getCfpayConfig(deps.env);
+        let a2aError: string | undefined;
+        if (cfpay) {
+          const r = await cfpaySendEmail(cfpay, to, subject, text);
+          if (r.ok) return { ok: true };
+          a2aError = r.error || "cfpay A2A email notification failed";
+          console.warn("[screenerFollowupDelivery] cfpay email notify failed, falling back to local:", a2aError);
+        }
+        let orm: DatabaseORM | undefined;
+        try {
+          orm = deps.getOrm();
+        } catch {
+          orm = undefined;
+        }
+        const email = new ETradeEmailTradingService(deps.env, orm, userLogin);
+        const sent = await email.sendOutboundEmail(
           to,
-          text.split("\n")[0].slice(0, 120),
+          subject,
           `<pre>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`,
           text,
         );
+        if (!sent) {
+          return {
+            ok: false,
+            error: a2aError
+              ? `cfpay email notification failed (${a2aError}) and local email send failed (env.EMAIL binding is not configured or send failed).`
+              : "Outbound email notification failed (env.EMAIL binding is not configured or send failed).",
+          };
+        }
         return { ok: true };
       }
       return { ok: false, error: "Webhook is a delivery channel, not a notification channel." };

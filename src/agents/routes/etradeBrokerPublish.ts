@@ -14,7 +14,7 @@ export async function publishManualScreenerRun(
   env: Env,
   orm: DatabaseORM,
   userLogin: string,
-  result: ScreenerRunResult,
+  result: ScreenerRunResult & { emailTo?: string },
 ): Promise<void> {
   const deps = { env, orm, userLogin };
   if (!result.success) {
@@ -26,6 +26,7 @@ export async function publishManualScreenerRun(
       deliveryId: `manual:${result.timestamp}:${result.universe}`,
       sector: result.sector,
       error: result.error || "E*TRADE unavailable",
+      ...(result.emailTo ? { emailTo: result.emailTo } : {}),
     });
     return;
   }
@@ -43,6 +44,7 @@ export async function publishManualScreenerRun(
     totalScanned: result.totalScanned,
     matchedCount: result.matchedCount,
     opportunities: result.opportunities,
+    ...(result.emailTo ? { emailTo: result.emailTo } : {}),
     ...(result.partial
       ? {
           partial: {
