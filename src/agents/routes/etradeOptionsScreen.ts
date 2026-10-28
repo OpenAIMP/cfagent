@@ -530,6 +530,53 @@ export async function executeUnifiedOptions(args: {
         createdAt: generatedAt,
       },
     );
+  } else if (result.success) {
+    // Strategy screener / AI actions (strategies, best-trade, compare,
+    // llm_ideas, llm_evaluate) produce strategy-level results, not a
+    // contract screen. Record the run too — both fit directions ("names
+    // that fit my strategy", "strategies that fit my name") and the AI
+    // evaluation must appear on the Reports tab and in Workflow Runs.
+    const generatedAt = new Date().toISOString();
+    const action = String(reqData.action || "strategies");
+    const symbol = String(reqData.symbol || reqData.symbols?.[0] || "universe").toUpperCase();
+    const generationId = `options_strategy:${action}:${symbol}:${generatedAt}`;
+    const data = result.data as Record<string, any> | undefined;
+    const ranked = Array.isArray(data?.ranked)
+      ? data.ranked
+      : Array.isArray(data?.quant?.ranked) ? data.quant.ranked : undefined;
+    const matched = ranked?.length ?? (data?.bestTrade ? 1 : undefined);
+    const orm = ctx.getOrm();
+    storeOptionsCanonicalReport(orm, {
+      runId: generationId,
+      generationId,
+      title: `Options strategy ${action === "llm_ideas" || action === "llm_evaluate" ? "AI" : "screener"} — ${symbol} (${action})`,
+      source: "options_strategy",
+      summary: result.summary,
+      body: {
+        generatedAt,
+        action,
+        symbol,
+        request: reqData,
+        success: true,
+        withTrades: matched,
+        report: result.toWebhook(),
+      },
+      createdAt: generatedAt,
+      userLogin,
+    });
+    recordOptionsRunOutcome(
+      typeof (orm as { getSql?: () => unknown }).getSql === "function"
+        ? ((orm as { getSql: () => unknown }).getSql() as any)
+        : undefined,
+      {
+        id: ctx.asyncJobId ?? generationId,
+        trigger: "manual",
+        status: "completed",
+        matched,
+        origin: "options-strategy-ai",
+        createdAt: generatedAt,
+      },
+    );
   } else if (!result.success && reqData.pushToSlack !== false && reqData.pushToSlack !== "false") {
     const slackChannel = reqData.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
     const slackPayload = result.toSlack();
