@@ -128,13 +128,71 @@ and the approval each independently allow.
 
 ## 7. Deliberately ungated — and why
 
-- **E*TRADE revoke and API-key deletion.** Revocation is a safety action;
-  gating it would let the policy it escapes from block the escape.
-- **`/trade/approve`.** A downstream Durable Object human-in-the-loop
-  gate owns that decision.
-- **The generic `/api/*` forwarder and schedule-goal mutations.** Not
-  PDP-gated; the forwarder itself is session-gated (see
-  [api-security.md](api-security.md)).
+"Ungated" in this section has always meant "not PDP-gated" (or, for
+the revocations, "not step-up-gated") — NOT "reachable without any
+authentication". The precise gate for each surface is in the
+gate-coverage inventory
+([gate-coverage-inventory-1754.md](gate-coverage-inventory-1754.md)),
+audited surface-by-surface for #1754; the summary below states the
+gate, not just the exemption, so the shorthand cannot be misread.
+
+- **E*TRADE revoke and API-key deletion.** Session-gated; NOT
+  PDP-gated (revoke) / NOT step-up-gated (key deletion; minting IS
+  step-up-gated). Revocation is a safety action; gating it would let
+  the policy it escapes from block the escape. A stale session can
+  still kill its own keys, and deletion is scoped to the session's
+  own keys.
+- **`/trade/approve`.** Session-gated at the edge AND a downstream
+  Durable Object human-in-the-loop gate owns the decision (the draft
+  must exist, still be `previewed`, and match the preview).
+- **The generic `/api/*` forwarder and schedule-goal mutations.**
+  Session-gated, not PDP-gated; the forwarder is instance-scoped to
+  the caller (see [api-security.md](api-security.md)). Membership /
+  admin revocation does not deny forwarder routes (§9 residual).
+
+### Gate-coverage inventory (#1754)
+
+Every Worker route was inventoried against current main and given
+exactly one status — gated, deliberately ungated with reason, or
+gap closed — with no route left "unknown". Full table (branch,
+gate, evidence):
+[gate-coverage-inventory-1754.md](gate-coverage-inventory-1754.md).
+
+- **PDP-gated:** the four `integration:connect` routes (§6).
+  The PDP enforces nothing else by design; session-gated routes
+  never consult it.
+- **Session-gated:** the bulk of the API (schedule dashboard,
+  social, governance/jobs/retention/audit/reports, API keys, MCP
+  transport, wallet, premium, omnichannel, browser, forwarder,
+  Agents SDK routing, OpenAPI/docs, clear/reset).
+- **Session + admin / grant-gated:** overview, access-request
+  family (`canGrantRole`), telemetry mutations, retention purge,
+  seed-halt, reconcile routes, canonical seeding.
+- **Signature / token / payment-gated:** NLQ webhooks (HMAC +
+  replay nonce), Slack webhooks (signing secret, 503 when
+  unconfigured), payment webhooks (provider HMAC), email approval
+  links (signed token, verified twice), A2A dispatch
+  (`A2A_API_TOKEN` Bearer, 503 when unset), scanner
+  `screen_options` (x402 payment).
+- **Public by design:** landing page, A2A agent cards, strategy
+  pages and static assets, health, OAuth metadata document, CORS
+  preflights, login/OAuth entry points, logout, market quotes
+  (recorded #1725 M10 decision), sandbox demo page.
+- **Gaps closed by #1754 (were ungated with no recorded
+  decision):** `POST /api/qa/investigate` (now session OR the
+  dedicated `QA_INVESTIGATE_TOKEN` service token, fail-closed when
+  unset — deliberately NOT the A2A token), `POST /api/memory/search`
+  (now session-gated), `GET|ANY /api/options/flows/*` (now
+  session-gated). Proving tests:
+  `tests/iaaa_gate_coverage_1754.test.ts`.
+- **F-44 verdict:** NOT a verified live bypass. `iaaaGates.ts`
+  holds two predicates, not middleware — no route is "wrapped"
+  with it, so no route can bypass it; every route's gate is named
+  in the inventory. The token-cache race is mitigated by #1218
+  epochs (60 s positive-TTL residual); the derived-identity
+  collision risk is designed out (SHA-256 over issuer + subject).
+  See the inventory §7 for the full reasoning, and §9 below for
+  the scanner shared-instance and quotes-quota residuals.
 
 ## 8. Legacy sessions and the bounded exemption (#1749)
 

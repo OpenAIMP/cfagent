@@ -35,6 +35,8 @@ import { AdsTab } from "./chat/tabs/AdsTab";
 import { RevenueTab } from "./chat/tabs/RevenueTab";
 import { EndpointsTab } from "./chat/tabs/EndpointsTab";
 import { ApprovalsPanel } from "./ApprovalsPanel";
+import { PaymentWorkflowAssurance } from "./PaymentWorkflowAssurance";
+import { DocsAndReportsPanel } from "./DocsAndReportsPanel";
 import { SocialPostingPanel } from "./SocialPostingPanel";
 import {
   isTabFeatureEnabled,
@@ -2153,6 +2155,14 @@ export function Chat({ user }: { user: User }) {
         {tab === "approvals" && (
           <ApprovalsPanel />
         )}
+
+        {tab === "payment-assurance" && (
+          <PaymentWorkflowAssurance />
+        )}
+
+        {/* Screener-workflow document index: one row per run, with the
+            PDF / XLSX / CSV artifacts it recorded. */}
+        {tab === "docs" && <DocsAndReportsPanel />}
 
           </>
         )}

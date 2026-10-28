@@ -1,0 +1,160 @@
+/**
+ * Issue #2065: goal-workflow start fails in production with a generic 500.
+ *
+ * The start path had two diagnosability defects and one repair gap:
+ *  - a failed `create` followed by a failed adoption `get` discarded the
+ *    provider error, so the only trace was "start_failed";
+ *  - the route could not say WHICH dependency was missing;
+ *  - an unusable derived instance id (over the provider's 100-char ceiling
+ *    or rejected characters) could never start, even though a shorter id
+ *    would have worked.
+ *
+ * Pins here:
+ *  - the composition root names the missing dependency;
+ *  - a rejected derived id is retried once with a short provider-safe id,
+ *    with the job id still carried in params;
+ *  - an existing instance is still adopted instead of duplicated;
+ *  - a genuine failure preserves the original provider error.
+ */
+import { describe, it, expect, vi, afterEach } from "vitest";
+import {
+  startWorkflowInstance,
+  type WorkflowBindingLike,
+} from "../src/workflows/cfWorkflowAdapter";
+import { workflowPortsUnavailableReason } from "../src/workflows/createWorkflowPorts";
+import { WorkflowError, type WorkflowJobCommand } from "../src/workflows/workflowPorts";
+
+const COMMAND: WorkflowJobCommand = {
+  jobId: "goal-screen:manual:alice:income:2026-10-27T12:00:00.000Z",
+  type: "run-screen",
+  source: "manual",
+  trigger: "manual",
+  userLogin: "alice",
+  role: "parent",
+  shards: [{ shardId: "goal" }],
+  goalScreen: {
+    scenario: { goalKind: "income" } as never,
+    scenarioSource: "built",
+  },
+} as WorkflowJobCommand;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("workflowPortsUnavailableReason (#2065)", () => {
+  it("names a missing or malformed workflow binding", () => {
+    expect(workflowPortsUnavailableReason({})).toBe("workflow_binding_unavailable");
+    expect(
+      workflowPortsUnavailableReason({ SCREENER_WORKFLOW: {} } as never),
+    ).toBe("workflow_binding_unavailable");
+  });
+
+  it("names a missing projection store", () => {
+    expect(
+      workflowPortsUnavailableReason({
+        SCREENER_WORKFLOW: { create: async () => ({}), get: async () => ({}) },
+      } as never),
+    ).toBe("projection_store_unavailable");
+  });
+
+  it("returns null when both dependencies are present", () => {
+    expect(
+      workflowPortsUnavailableReason({
+        SCREENER_WORKFLOW: { create: async () => ({}), get: async () => ({}) },
+        AGENT_DB: {},
+      } as never),
+    ).toBeNull();
+  });
+});
+
+describe("startWorkflowInstance repair (#2065)", () => {
+  it("creates the derived instance id when the provider accepts it", async () => {
+    const created: string[] = [];
+    const binding: WorkflowBindingLike = {
+      create: async ({ id }) => {
+        created.push(id);
+        return { id };
+      },
+      get: async (id) => ({ id, status: async () => ({ status: "queued" }) }),
+    };
+
+    const out = await startWorkflowInstance(binding, COMMAND);
+
+    expect(out.existing).toBe(false);
+    expect(out.workflowId).toMatch(/^screen-goal-screen-manual-alice-income-/);
+    expect(created).toHaveLength(1);
+  });
+
+  it("adopts an existing instance instead of duplicating it", async () => {
+    const binding: WorkflowBindingLike = {
+      create: async () => {
+        throw new Error("instance already exists");
+      },
+      get: async (id) => ({ id, status: async () => ({ status: "running" }) }),
+    };
+
+    const out = await startWorkflowInstance(binding, COMMAND);
+
+    expect(out.existing).toBe(true);
+    expect(out.workflowId).toMatch(/^screen-goal-screen-manual-alice-income-/);
+  });
+
+  it("retries with a short safe id when the derived id is rejected", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const created: Array<{ id: string; params: unknown }> = [];
+    const binding: WorkflowBindingLike = {
+      create: async ({ id, params }) => {
+        if (id.startsWith("screen-goal-screen")) {
+          throw new Error("invalid instance id");
+        }
+        created.push({ id, params });
+        return { id };
+      },
+      get: async () => {
+        throw new Error("no such instance");
+      },
+    };
+
+    const out = await startWorkflowInstance(binding, COMMAND);
+
+    expect(out.existing).toBe(false);
+    expect(out.adoptedFallbackId).toBe(true);
+    expect(out.workflowId).toMatch(/^screen-[0-9a-f]{40}$/);
+    expect(created).toHaveLength(1);
+    expect((created[0].params as WorkflowJobCommand).jobId).toBe(COMMAND.jobId);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs a job id whose derived instance id exceeds the provider ceiling", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const longCommand = { ...COMMAND, jobId: "x".repeat(120) } as WorkflowJobCommand;
+    const binding: WorkflowBindingLike = {
+      create: async ({ id }) => ({ id }),
+      get: async () => {
+        throw new Error("no such instance");
+      },
+    };
+
+    const out = await startWorkflowInstance(binding, longCommand);
+
+    expect(out.adoptedFallbackId).toBe(true);
+    expect(out.workflowId).toMatch(/^screen-[0-9a-f]{40}$/);
+  });
+
+  it("preserves the provider error when every attempt fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const binding: WorkflowBindingLike = {
+      create: async ({ id }) => {
+        throw new Error(id.startsWith("screen-goal") ? "binding boom" : "retry boom");
+      },
+      get: async () => {
+        throw new Error("no instance");
+      },
+    };
+
+    await expect(startWorkflowInstance(binding, COMMAND)).rejects.toThrow(WorkflowError);
+    await expect(startWorkflowInstance(binding, COMMAND)).rejects.toThrow(/binding boom/);
+    await expect(startWorkflowInstance(binding, COMMAND)).rejects.toThrow(/retry boom/);
+  });
+});

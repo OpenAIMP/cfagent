@@ -20,6 +20,7 @@ export const TAB_TO_FEATURE_MAP: Partial<Record<NavTabId, FeatureFlag>> = {
   screeners: "screener",
   scanner: "screener",
   reports: "screener",
+  docs: "screener",
   schedules: "schedules",
   options: "screener",
   "options-flows": "options_research",
@@ -32,6 +33,8 @@ export const TAB_TO_FEATURE_MAP: Partial<Record<NavTabId, FeatureFlag>> = {
   social: "social_publishing",
   nlq: "nlq",
   payments: "payments",
+  // Issue #2049: assurance page, own flag, default OFF fail-closed.
+  "payment-assurance": "payment_assurance",
 };
 
 /**

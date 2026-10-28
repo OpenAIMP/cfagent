@@ -26,7 +26,11 @@ export type FeatureFlag =
   | "schedules"
   // Issue #1997: goal-screen workflow path. Default off (fail-closed).
   | "goal_workflow"
-  | "enrichment_alpaca";
+  | "enrichment_alpaca"
+  // Issue #2049: PaymentWorkflow assurance page. Default off
+  // (fail-closed). Provider key "payment_assurance": OFF = page
+  // hidden, ON = assurance page visible (test-only, fake seams).
+  | "payment_assurance";
 
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   "screener",
@@ -48,6 +52,9 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   // Issue #1997: goal-screen workflow path. Default off (fail-closed);
   // flag OFF = the direct engine, flag ON = the staged goal flow.
   "goal_workflow",
+  // Issue #2049: PaymentWorkflow assurance page. Default off
+  // (fail-closed); flag OFF = page hidden, flag ON = page visible.
+  "payment_assurance",
 ] as const;
 
 const KNOWN_FLAGS = new Set<string>(ALL_FEATURE_FLAGS);

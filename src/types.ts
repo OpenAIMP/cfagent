@@ -490,6 +490,8 @@ export interface Env {
   TRADING_AGENT?: DurableObjectNamespace;
   /** Bearer token required on A2A dispatch POSTs (#291 A5). Unset = dispatch disabled (fail closed). */
   A2A_API_TOKEN?: string;
+  /** Dedicated Bearer token for POST /api/qa/investigate when no app session exists (#1754). Unset = the service-token path denies (fail closed); the session path is unaffected. Deliberately distinct from A2A_API_TOKEN. */
+  QA_INVESTIGATE_TOKEN?: string;
   /** Trade approval workflow binding (#291 T3b). */
   TRADE_WORKFLOW?: Workflow;
   /** Screener screen workflow binding (#1737). */

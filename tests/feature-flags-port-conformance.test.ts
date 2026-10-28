@@ -112,6 +112,20 @@ describe("FeatureFlagPort Conformance Suite (Issue #1815)", () => {
       expect(await port.isEnabled("random_flag")).toBe(false);
     });
 
+    it("keeps payment_assurance strictly closed in a bare env (issue #2049)", async () => {
+      // Like goal_workflow: the bare-env default-TRUE rule must never
+      // silently expose a test-only page in an environment with zero
+      // feature configuration. Explicit enablement only.
+      const bare = new EnvFeatureFlagAdapter({});
+      expect(await bare.isEnabled("payment_assurance")).toBe(false);
+      const enabled = new EnvFeatureFlagAdapter({
+        FEATURE_FLAGS: JSON.stringify({ payment_assurance: true }),
+      });
+      expect(await enabled.isEnabled("payment_assurance")).toBe(true);
+      const direct = new EnvFeatureFlagAdapter({ FEATURE_PAYMENT_ASSURANCE: "1" });
+      expect(await direct.isEnabled("payment_assurance")).toBe(true);
+    });
+
     it("keeps goal_workflow strictly closed in a bare env (issue #1997)", async () => {
       // The bare-env default-TRUE rule ("baseline routes do not
       // fail closed prematurely") must never silently enable a

@@ -21,6 +21,12 @@ import { PortThink } from "../actors/thinkAdapter";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
+import {
+  acquireScreenRunLock,
+  isScreenRunning as isScreenRunningLock,
+  releaseScreenRunLock,
+  type ScreenRunLockSql,
+} from "../services/screenRunLock";
 import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
 import {
   applyPortfolioContextToOpportunities,
@@ -460,6 +466,29 @@ export class ScreenerAgent extends PortThink {
   }
 
   /**
+   * Issue #1993: synchronous-SQL adapter for the run lock, plus the
+   * submission-gate probe the sharded path calls on this instance's
+   * stub. The probe takes an explicit login: a fresh stub has no
+   * recorded owner yet, and the gate knows the run's owner already.
+   * These live before runScreen on purpose: the #624 heartbeat pin
+   * slices runScreen's source up to the next async method, so no
+   * async method may sit between runScreen and runScreenInner.
+   */
+  private lockSql(): ScreenRunLockSql {
+    const sql = (this.ctx.storage as any).sql;
+    return (statement: string, params: unknown[]) =>
+      [...sql.exec(statement, ...(params ?? []))] as Array<Record<string, unknown>>;
+  }
+
+  async isScreenRunning(
+    universe: string,
+    userLogin?: string,
+  ): Promise<{ running: boolean; startedAt: number | null }> {
+    const login = userLogin ?? (await this.userLogin());
+    return isScreenRunningLock(this.lockSql(), login, universe || "nasdaq100");
+  }
+
+  /**
    * Run a screen through the one pipeline. Market data comes from the
    * run's provider (E*TRADE by default, or the Yahoo adapter) — a
    * provider failure surfaces honestly (no fallback substitution).
@@ -473,23 +502,29 @@ export class ScreenerAgent extends PortThink {
     // Issue #1185: the run's owner is the request's threaded login;
     // record it at entry so later reads on this instance resolve to
     // the same owner. Without one, the recorded/derived owner applies.
+    // Issue #1993: the lock lives in this instance's own SQLite and is
+    // acquired synchronously — the old async-KV check-then-act let two
+    // truly simultaneous calls both pass. Same scope (user + universe)
+    // and same 5-minute stale takeover, now atomic. The monolithic
+    // scheduled / Trigger-Now path delegates here on this same
+    // per-owner instance, so this one lock covers manual, scheduled,
+    // Trigger-Now, and workflow runs alike.
     if (req.userLogin) await this.recordOwner(req.userLogin);
-    const lockKey = `screen_lock:${await this.userLogin()}:${req.universe || "nasdaq100"}`;
-    const existingLock = await this.ctx.storage.get<string>(lockKey);
-    if (existingLock) {
-      const lockAge = Date.now() - parseInt(existingLock, 10);
-      // Stale lock (>5 min) — assume the previous run died, take over.
-      if (lockAge < 5 * 60 * 1000) {
-        throw new Error(`Screen already running for ${req.universe || "nasdaq100"} (started ${Math.round(lockAge / 1000)}s ago). Please wait for it to complete.`);
-      }
-      console.warn(`[ScreenerAgent] Stale lock detected (${Math.round(lockAge / 1000)}s old), taking over.`);
+    const lockLogin = await this.userLogin();
+    const lockUniverse = req.universe || "nasdaq100";
+    const lock = acquireScreenRunLock(this.lockSql(), lockLogin, lockUniverse);
+    if (!lock.acquired) {
+      const age = lock.startedAt ? Math.round((Date.now() - lock.startedAt) / 1000) : 0;
+      throw new Error(`Screen already running for ${lockUniverse} (started ${age}s ago). Please wait for it to complete.`);
     }
-    await this.ctx.storage.put(lockKey, Date.now().toString());
+    if (lock.tookOverStale) {
+      console.warn(`[ScreenerAgent] Stale lock detected, taking over.`);
+    }
     try {
       return await this.runScreenInner(req, timestamp, cfg);
     } finally {
       // Always release the lock, even on failure.
-      await this.ctx.storage.delete(lockKey);
+      releaseScreenRunLock(this.lockSql(), lockLogin, lockUniverse, lock.token);
     }
   }
 
@@ -1460,6 +1495,9 @@ export class ScreenerAgent extends PortThink {
       console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
     }
 
+    // Issue #2062: every stock run records its full document set.
+    await this.generateRunCsv(result);
+
     await this.ctx.storage.put(LATEST_KEY, result);
     const history =
       (await this.ctx.storage.get<ScreenerRunResult[]>(HISTORY_KEY)) ?? [];
@@ -1474,6 +1512,38 @@ export class ScreenerAgent extends PortThink {
     // store every report surface reads — Reports tab, routes, AI Search);
     // this method keeps only the delivery cache above (latest/history in
     // DO storage + the per-run PDFs).
+  }
+
+  /**
+   * Issue #2062: generate + store the per-run CSV artifact.
+   *
+   * Every stock run records a full document set (PDF + XLSX + CSV); the
+   * CSV is the machine-readable companion the Docs and Reports page links
+   * beside the workbook. Same contract as the XLSX leg: retried under the
+   * R1 report policy, and a real failure is recorded on the run
+   * (`csvStatus` / `csvError`) instead of failing the screen.
+   */
+  private async generateRunCsv(result: ScreenerRunResult): Promise<void> {
+    try {
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const { withRetry } = await import("../services/resilience");
+      const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+      const { generateScreenerCsv, screenerCsvFileName, SCREENER_CSV_KEY_PREFIX } = await import("../trading");
+      const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+      const csvKey = `${SCREENER_CSV_KEY_PREFIX}${crypto.randomUUID().slice(0, 8)}`;
+      await withRetry(async () => {
+        const csvBytes = new TextEncoder().encode(generateScreenerCsv(result));
+        const csvFileName = screenerCsvFileName(result);
+        await putReportPdf(this.env, this.ctx.storage as any, csvKey, csvFileName, csvBytes, "text/csv");
+        await putReportPdf(this.env, this.ctx.storage as any, CSV_LATEST_KEY, csvFileName, csvBytes, "text/csv");
+        result.csvKey = csvKey;
+        result.csvStatus = "generated";
+      }, reportRetry, { label: "screener-csv" });
+    } catch (csvErr) {
+      result.csvStatus = "failed";
+      result.csvError = csvErr instanceof Error ? csvErr.message : String(csvErr);
+      console.error("[ScreenerAgent] CSV generation failed:", result.csvError);
+    }
   }
 
   /**
