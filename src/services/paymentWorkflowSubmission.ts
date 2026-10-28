@@ -45,6 +45,11 @@
  *     The caller must NOT start the screener for free in that case.
  *   - Monetization OFF → the caller does not use this seam at all;
  *     it proceeds on the existing free path (Phase 2 design).
+ *   - "Monetization ON/OFF" is the Flagship feature flag
+ *     "monetization" (#2043, via createFeatureFlagPort), not a raw
+ *     env var: the adopting route must evaluate that flag and
+ *     only use this seam when it is ON; the workflow re-evaluates
+ *     the same flag itself before any checkout.
  *   - A payment workflow that returns payment_required,
  *     coverage_required, approval_rejected, or expired → the caller
  *     must NOT start the screener. Only "started" starts it, and

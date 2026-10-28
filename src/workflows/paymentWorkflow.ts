@@ -33,14 +33,17 @@
  *     and the route that adopts it is a reviewed wiring step — a
  *     route must NOT start a screener for free when monetization is
  *     on and the payment workflow cannot start.
- *   - Flag: MONETIZATION_ENABLED env var in this draft, default OFF
- *     (unset = false = free, no checkout, as designed for Phase 2).
- *     Production wiring must evaluate it through FeatureFlagPort
- *     (src/features/, fail-closed on unknown flags) instead of a raw
- *     env read, and staging-only enablement must be explicit.
+ *   - Flag: Flagship feature flag "monetization" (#2043), default OFF,
+ *     fail-closed. When the FLAGS binding is present, Flagship is
+ *     the source of truth: the flag must exist in the Flagship
+ *     dashboard with key "monetization", and turning it ON/OFF
+ *     there turns monetization ON/OFF — no code change, no env
+ *     change. When FLAGS is absent, the env adapter evaluates it
+ *     from FEATURE_FLAGS bulk JSON, FEATURE_MONETIZATION, or the
+ *     legacy MONETIZATION_ENABLED var, and is otherwise OFF.
  *     Flag OFF in PROD would mean free runs at scale — a revenue
  *     risk, not a charge risk — so PROD enablement needs COO/CTO
- *     sign-off, not just an env change.
+ *     sign-off and explicit staging-only enablement first.
  *   - Account: caller-supplied pay-per-use identity until the
  *     subscription/credits store exists (#2015/#1623). Recurring
  *     runs stay coverage_required until that store exists.
@@ -72,6 +75,7 @@ import {
   type PaymentWorkflowStep,
 } from "./paymentWorkflowFlow";
 import { getCfpayConfig, cfpayA2AOperation } from "../services/cfpayA2A";
+import { createFeatureFlagPort } from "../features/createFeatureFlagPort";
 import { createWorkflowPorts, type WorkflowEnv } from "./createWorkflowPorts";
 import type { WorkflowJobCommand } from "./workflowPorts";
 
@@ -140,7 +144,14 @@ export class PaymentWorkflow extends ThinkWorkflow<
         },
       },
       {
-        monetizationEnabled: (this.env as unknown as Record<string, unknown>).MONETIZATION_ENABLED === "true",
+        // Flagship feature flag "monetization" (#2043): OFF = free
+        // path (no checkout), ON = payment gate. Fail-closed: an
+        // unknown flag, a missing Flagship binding value, or a
+        // Flagship error all evaluate to false in the port.
+        monetizationEnabled: await createFeatureFlagPort(this.env).isEnabled(
+          "monetization",
+          { userId: p.userId, userLogin: p.userId },
+        ),
         network: ((this.env as unknown as Record<string, unknown>).MONETIZATION_NETWORK as string) ?? "base-sepolia",
       },
     );
