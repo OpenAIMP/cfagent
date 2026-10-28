@@ -1,7 +1,11 @@
 /**
- * Client for the read-only IAAA admin overview (issue #945, IAAA-UI v1):
- * GET /api/iaaa/overview. Read-only by construction — there is no
- * mutation endpoint to call, and this module exposes no write call.
+ * Client for the IAAA admin overview (issue #945, IAAA-UI v1) and
+ * the lifecycle mutations (issue #1758): membership grant, revoke,
+ * edit, and list, plus self-deactivation and admin offboarding.
+ * The overview itself stays read-only; the mutations below are
+ * server-gated (see the route comments in src/server.ts) and this
+ * module never decides authorization — a 403 here means the server
+ * refused, never a client bug.
  *
  * All calls go through src/client/apiFetch.ts (the #71 rule).
  * The panel renders only payloads that pass isAdminOverview; a 403
@@ -142,6 +146,107 @@ export async function fetchAccessRequests(): Promise<AccessRequestView[]> {
     throw new Error("Unexpected access-request list response.");
   }
   return data.requests;
+}
+
+/**
+ * Issue #1758 — lifecycle mutations. Role bindings are passed
+ * through verbatim; the server validates roles/scopes and enforces
+ * the no-self-grant rule, the PDP obligation channel, and the admin
+ * gates. Membership payloads reuse the overview shape guard.
+ */
+export interface MembershipMutationBinding {
+  role: string;
+  scope: string;
+  workspaceId?: string;
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const resp = await apiFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await resp.json().catch(() => ({}))) as T & { error?: string };
+  if (!resp.ok) throw new Error(data.error || `Request failed (${resp.status})`);
+  return data;
+}
+
+export async function fetchMemberships(): Promise<AdminMembershipView[]> {
+  const data = await send<{ memberships?: unknown }>("/api/iaaa/memberships");
+  if (!Array.isArray(data.memberships) || !data.memberships.every(isMembership)) {
+    throw new Error("Unexpected membership list response.");
+  }
+  return data.memberships;
+}
+
+export async function grantMembershipApi(
+  internalUserId: string,
+  roleBindings: MembershipMutationBinding[],
+): Promise<AdminMembershipView> {
+  const data = await postJson<{ membership?: unknown }>("/api/iaaa/membership/grant", {
+    internalUserId,
+    roleBindings,
+  });
+  if (!isMembership(data.membership)) throw new Error("Unexpected grant response.");
+  return data.membership;
+}
+
+export async function revokeMembershipApi(membershipId: string): Promise<void> {
+  await postJson("/api/iaaa/membership/revoke", { membershipId });
+}
+
+export async function editMembershipApi(
+  membershipId: string,
+  roleBindings: MembershipMutationBinding[],
+): Promise<{ membership: AdminMembershipView; oldRevoked: boolean }> {
+  const data = await postJson<{ membership?: unknown; oldRevoked?: unknown }>(
+    "/api/iaaa/membership/edit",
+    { membershipId, roleBindings },
+  );
+  if (!isMembership(data.membership) || typeof data.oldRevoked !== "boolean") {
+    throw new Error("Unexpected edit response.");
+  }
+  return { membership: data.membership, oldRevoked: data.oldRevoked };
+}
+
+export interface DeactivationReport {
+  verified: boolean;
+  offboarded: boolean;
+  sessionsRevoked: string[];
+  membershipsRevoked: string[];
+  apiKeysRevoked: string[];
+  etradeLogins: string[];
+  mailSuppressed: boolean;
+  auditEmitted: boolean;
+  residuals: string[];
+}
+
+function isDeactivationReport(value: unknown): value is DeactivationReport {
+  return (
+    isRecord(value) &&
+    typeof value.verified === "boolean" &&
+    Array.isArray(value.residuals)
+  );
+}
+
+/** Self-service deactivation: the server always targets the caller's own session identity. */
+export async function deactivateSelf(): Promise<DeactivationReport> {
+  const data = await postJson<unknown>("/api/iaaa/deactivate", { confirm: "deactivate" });
+  if (!isDeactivationReport(data)) throw new Error("Unexpected deactivation response.");
+  return data;
+}
+
+/** Admin offboarding: server-gated; the caller never supplies session ids. */
+export async function offboardPrincipalApi(
+  internalUserId: string,
+  login?: string,
+): Promise<DeactivationReport> {
+  const data = await postJson<unknown>("/api/iaaa/offboard", {
+    internalUserId,
+    ...(login ? { login } : {}),
+  });
+  if (!isDeactivationReport(data)) throw new Error("Unexpected offboard response.");
+  return data;
 }
 
 export async function decideAccessRequest(
