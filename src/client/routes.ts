@@ -78,6 +78,7 @@ const SCREENERS_DESC =
 export const ROUTES = [
   {
     id: "ads",
+    shellRetain: true,
     navGroup: "ads",
     crumb: "Marketplace",
     category: "Platform",
@@ -318,6 +319,7 @@ export const ROUTES = [
   },
   {
     id: "referrals",
+    shellRetain: true,
     navGroup: "referrals",
     crumb: "Referrals",
     category: "Platform",
@@ -351,6 +353,7 @@ export const ROUTES = [
   },
   {
     id: "revenue",
+    shellRetain: true,
     navGroup: "revenue",
     crumb: "Revenue",
     category: "Platform",
