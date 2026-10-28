@@ -130,6 +130,11 @@ export interface ShardScreenResult {
   expectedCount: number;
   matchedCount: number;
   pdfKey?: string;
+  /** Issue #2080: the workbook/CSV keys the child recorded. */
+  xlsxKey?: string;
+  csvKey?: string;
+  /** Issue #2080: the run's trigger, so the canonical body records it. */
+  trigger?: "manual" | "scheduled";
   error?: string;
   full?: unknown;
   stored?: boolean;
@@ -219,6 +224,8 @@ export interface ShardRowSummary {
   expectedCount: number;
   matchedCount: number;
   pdfKey?: string;
+  xlsxKey?: string;
+  csvKey?: string;
   error?: string;
   timestamp: string;
 }
@@ -235,6 +242,8 @@ export function shardSummaryFromResult(
     expectedCount: result.expectedCount,
     matchedCount: result.matchedCount,
     ...(result.pdfKey ? { pdfKey: result.pdfKey } : {}),
+    ...(result.xlsxKey ? { xlsxKey: result.xlsxKey } : {}),
+    ...(result.csvKey ? { csvKey: result.csvKey } : {}),
     ...(result.error ? { error: result.error } : {}),
     timestamp: result.timestamp,
   };
@@ -267,6 +276,9 @@ export function asShardScreenResult(value: unknown): ShardScreenResult | null {
     expectedCount: v.expectedCount,
     matchedCount: v.matchedCount,
     ...(typeof v.pdfKey === "string" ? { pdfKey: v.pdfKey } : {}),
+    ...(typeof v.xlsxKey === "string" ? { xlsxKey: v.xlsxKey } : {}),
+    ...(typeof v.csvKey === "string" ? { csvKey: v.csvKey } : {}),
+    ...(v.trigger === "manual" || v.trigger === "scheduled" ? { trigger: v.trigger } : {}),
     ...(typeof v.error === "string" ? { error: v.error } : {}),
     ...(typeof v.stored === "boolean" ? { stored: v.stored } : {}),
     ...(typeof v.delivered === "boolean" ? { delivered: v.delivered } : {}),
@@ -480,6 +492,8 @@ export function goalResultToShardResult(input: {
     expectedCount: totalScanned,
     matchedCount: result.counts.hits,
     ...(result.pdfKey ? { pdfKey: result.pdfKey } : {}),
+    ...(result.xlsxKey ? { xlsxKey: result.xlsxKey } : {}),
+    ...(result.csvKey ? { csvKey: result.csvKey } : {}),
     ...(result.status === "failed"
       ? { error: `Goal screen failed (${result.goalKind}/${result.outlook}).` }
       : {}),
@@ -558,7 +572,18 @@ export async function runShardFlow(
         () => deps.screenRunner.runScreen(shardScreenRequest(command)),
         { retries: { limit: WORKFLOW_STEP_MAX_RETRIES } },
       );
-  const payload = result.full ?? result;
+  // Issue #2080: the canonical body must carry the run's trigger and its
+  // full artifact set. The child summary is the fallback payload, so the
+  // trigger rides on it explicitly (a summary never carried one).
+  const payload = {
+    ...((result.full as Record<string, unknown> | undefined) ?? result),
+    // Issue #2080: keys recorded on the shard summary win over a full
+    // envelope that predates them, so the canonical body always carries
+    // the artifacts this run actually produced.
+    ...(result.xlsxKey ? { xlsxKey: result.xlsxKey } : {}),
+    ...(result.csvKey ? { csvKey: result.csvKey } : {}),
+    trigger: command.trigger,
+  };
   let stored = false;
   let storeError: string | undefined;
   let reportId: string | undefined;
@@ -772,6 +797,8 @@ export async function runParentFlow(
               expectedCount: o.expectedCount ?? 0,
               matchedCount: o.matchedCount ?? 0,
               pdfKey: o.pdfKey,
+              ...(o.xlsxKey ? { xlsxKey: o.xlsxKey } : {}),
+              ...(o.csvKey ? { csvKey: o.csvKey } : {}),
               // The child's flags, so a shard whose own row
               // is missing still carries its store/deliver
               // state in the parent's record.
@@ -882,6 +909,8 @@ async function pollBatch(
             expectedCount: result.expectedCount,
             matchedCount: result.matchedCount,
             ...(result.pdfKey ? { pdfKey: result.pdfKey } : {}),
+            ...(result.xlsxKey ? { xlsxKey: result.xlsxKey } : {}),
+            ...(result.csvKey ? { csvKey: result.csvKey } : {}),
             ...(result.error ? { error: result.error } : {}),
             // The child's own store/deliver flags (the parent
             // collates them; it never stores or delivers).

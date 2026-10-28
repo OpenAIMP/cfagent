@@ -86,6 +86,9 @@ function toShardResult(result: ScreenerRunResult): ShardScreenResult {
     expectedCount: result.expectedCount ?? result.totalScanned,
     matchedCount: result.matchedCount,
     ...(result.pdfKey ? { pdfKey: result.pdfKey } : {}),
+    ...(result.xlsxKey ? { xlsxKey: result.xlsxKey } : {}),
+    ...(result.csvKey ? { csvKey: result.csvKey } : {}),
+    trigger: result.trigger,
     ...(result.error ? { error: result.error } : {}),
     full: result,
   };
