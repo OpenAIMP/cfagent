@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../../apiFetch";
 import { Button, TextInput } from "../../components/ui";
+import { buildJson, downloadTextFile } from "../../runExport";
 import type { SearchTabProps } from "../searchTabTypes";
 
 interface HybridHit {
@@ -18,6 +19,11 @@ interface HybridHit {
 export function SemanticSearchTab({ pendingQuery, onHealth, onSearch }: SearchTabProps) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<HybridHit[]>([]);
+  // Issue #1169 S4-4: the last successful raw semantic-search
+  // response, retained verbatim for the Download button (native
+  // {hits, semantic} shape; the hydrated titles are display-only
+  // and are not part of the download).
+  const [lastResult, setLastResult] = useState<unknown>(null);
   const [titles, setTitles] = useState<Record<string, string>>({});
   const [semantic, setSemantic] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,6 +44,7 @@ export function SemanticSearchTab({ pendingQuery, onHealth, onSearch }: SearchTa
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const found: HybridHit[] = data.hits || [];
       setHits(found);
+      setLastResult(data);
       setSemantic(data.semantic === true);
       const ids = found.map((h) => h.reportId);
       if (ids.length > 0) {
@@ -83,6 +90,9 @@ export function SemanticSearchTab({ pendingQuery, onHealth, onSearch }: SearchTa
           {loading ? "Searching…" : "Search"}
         </Button>
       </form>
+      <Button type="button" onClick={() => downloadTextFile("semantic-search-results.json", buildJson(lastResult), "application/json")} disabled={!lastResult} title="Download current results as JSON">
+        Download results (JSON)
+      </Button>
       {error && <p role="alert">{error}</p>}
       {semantic !== null && (
         <div>
