@@ -1213,10 +1213,20 @@ export class ScreenerAgent extends PortThink {
           });
         }
       } catch (err) {
+        const attachError = err instanceof Error ? err.message : String(err);
         console.warn(
-          `[screener-agent] goal gather unavailable, technical filters refuse as before: ${err instanceof Error ? err.message : String(err)}`
+          `[screener-agent] goal gather unavailable, technical filters refuse as before: ${attachError}`
         );
-        gatherEnrichment = undefined;
+        // Issue #1999: an attach failure is a gather failure, not
+        // a silent no-hook. The stub throws into screenLive's
+        // failed-gather path when a technical filter needs it;
+        // filters that need no enrichment never call it, so
+        // flag-OFF and Yahoo runs are unchanged.
+        gatherEnrichment = {
+          enrich: async () => {
+            throw new Error(attachError);
+          },
+        };
       }
     }
     // Issue #1686: non-Yahoo goal screens previously defaulted to a

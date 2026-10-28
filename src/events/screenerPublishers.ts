@@ -511,8 +511,13 @@ async function publishFailed(
         },
         createdAt: new Date().toISOString(),
       });
-    } catch {
-      // Non-critical audit insertion error
+    } catch (err) {
+      // Issue #1999 (D2): #424 put this audit on the record so the
+      // skip is diagnosable — a lost insert must warn, not
+      // re-introduce the exact silence #424 fixed.
+      console.warn(
+        `[screener-publishers] Audit insertion failed (type=screener.failure_notify_skipped, login=${deps.userLogin}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }
