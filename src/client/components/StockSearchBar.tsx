@@ -1,45 +1,22 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { apiFetch as fetch } from "../apiFetch";
+import { useMarketQuotes } from "../quotes/useMarketQuotes";
+import { SEARCH_SYMBOLS, type NamedQuoteSymbol } from "../quotes/symbolSets";
 import type { NavTabId } from "./NavigationMenu";
 import { Badge, Button, Modal, PillGroup, TextInput, type BadgeTone, type PillOption } from "./ui";
 import { BRAND } from "../branding";
 
-export interface StockTickerItem {
-  symbol: string;
-  name: string;
-  price: string;
-  change: string;
-  isPositive: boolean;
-  type: "stock" | "crypto" | "etf";
-  volume?: string;
-  pe?: string;
+export type StockTickerItem = NamedQuoteSymbol & {
   bid?: string;
   ask?: string;
   rawPrice?: number;
   flashState?: "up" | "down" | null;
-}
+};
 
 export interface StockSearchBarProps {
   onSelectTab?: (tab: NavTabId) => void;
   onAskAgent?: (query: string) => void;
   className?: string;
 }
-
-export const POPULAR_TICKERS: StockTickerItem[] = [
-  { symbol: "NVDA", name: "NVIDIA Corporation", price: "$138.25", change: "+3.42%", isPositive: true, type: "stock", volume: "48.2M", pe: "54.2" },
-  { symbol: "AAPL", name: "Apple Inc.", price: "$232.10", change: "+0.84%", isPositive: true, type: "stock", volume: "32.1M", pe: "34.1" },
-  { symbol: "TSLA", name: "Tesla Inc.", price: "$220.50", change: "-1.24%", isPositive: false, type: "stock", volume: "65.4M", pe: "68.3" },
-  { symbol: "MSFT", name: "Microsoft Corporation", price: "$428.90", change: "+1.15%", isPositive: true, type: "stock", volume: "21.0M", pe: "36.2" },
-  { symbol: "SPY", name: "SPDR S&P 500 ETF Trust", price: "$582.40", change: "+0.52%", isPositive: true, type: "etf", volume: "41.5M" },
-  { symbol: "QQQ", name: "Invesco QQQ Trust", price: "$492.15", change: "+0.94%", isPositive: true, type: "etf", volume: "29.8M" },
-  { symbol: "BTC/USD", name: "Bitcoin", price: "$67,450.00", change: "+2.14%", isPositive: true, type: "crypto", volume: "$28.4B" },
-  { symbol: "ETH/USD", name: "Ethereum", price: "$2,642.50", change: "+1.52%", isPositive: true, type: "crypto", volume: "$14.1B" },
-  { symbol: "SOL/USD", name: "Solana", price: "$154.20", change: "+3.91%", isPositive: true, type: "crypto", volume: "$4.8B" },
-  { symbol: "AMD", name: "Advanced Micro Devices", price: "$156.40", change: "+2.18%", isPositive: true, type: "stock", volume: "38.0M", pe: "104.2" },
-  { symbol: "AMZN", name: "Amazon.com Inc.", price: "$187.80", change: "+1.65%", isPositive: true, type: "stock", volume: "27.5M", pe: "42.1" },
-  { symbol: "META", name: "Meta Platforms Inc.", price: "$592.30", change: "+1.88%", isPositive: true, type: "stock", volume: "15.2M", pe: "27.8" },
-  { symbol: "GOOGL", name: "Alphabet Inc.", price: "$168.50", change: "+0.72%", isPositive: true, type: "stock", volume: "19.3M", pe: "23.4" },
-];
 
 interface NavShortcut {
   id: NavTabId;
@@ -123,194 +100,17 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Real-time market streaming states (Issue #21)
-  const [liveQuotes, setLiveQuotes] = useState<Record<string, Partial<StockTickerItem>>>({});
-  const [flashStates, setFlashStates] = useState<Record<string, "up" | "down">>({});
-  const [isLiveStreaming, setIsLiveStreaming] = useState(false);
-  const flashTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const rawPricesRef = useRef<Record<string, number>>({});
-
-  // Helper to process tick updates and trigger directional visual flashes
-  const handleIncomingTick = (tick: {
-    symbol: string;
-    price: number;
-    formattedPrice: string;
-    formattedChange: string;
-    changePercent: number;
-    formattedBid?: string;
-    formattedAsk?: string;
-    volume?: string;
-    isPositive: boolean;
-  }) => {
-    const sym = tick.symbol;
-    const prevPrice = rawPricesRef.current[sym];
-    let flash: "up" | "down" | null = null;
-
-    if (prevPrice !== undefined && prevPrice !== tick.price) {
-      flash = tick.price > prevPrice ? "up" : "down";
-    }
-    rawPricesRef.current[sym] = tick.price;
-
-    if (flash) {
-      setFlashStates((prev) => ({ ...prev, [sym]: flash! }));
-      if (flashTimersRef.current[sym]) {
-        clearTimeout(flashTimersRef.current[sym]);
-      }
-      flashTimersRef.current[sym] = setTimeout(() => {
-        setFlashStates((prev) => {
-          const next = { ...prev };
-          delete next[sym];
-          return next;
-        });
-      }, 750);
-    }
-
-    setLiveQuotes((prev) => ({
-      ...prev,
-      [sym]: {
-        price: tick.formattedPrice,
-        change: tick.formattedChange,
-        isPositive: tick.isPositive,
-        bid: tick.formattedBid,
-        ask: tick.formattedAsk,
-        volume: tick.volume,
-        rawPrice: tick.price,
-      },
-    }));
-  };
-
-  // Real-time WebSocket Quote Streaming Lifecycle:
-  // Active ONLY when the modal is open (isOpen === true)
-  // Immediate teardown / socket close on modal close or ESC to conserve bandwidth
-  useEffect(() => {
-    if (!isOpen) {
-      setIsLiveStreaming(false);
-      setFlashStates({});
-      Object.values(flashTimersRef.current).forEach((t) => clearTimeout(t));
-      flashTimersRef.current = {};
-      return;
-    }
-
-    let ws: WebSocket | null = null;
-    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
-    let isSubscribed = true;
-
-    // Real-time market quote HTTP fetcher for fallback or initial sync
-    const fetchLiveHttpQuotes = async () => {
-      if (!isSubscribed) return;
-      try {
-        const symbols = POPULAR_TICKERS.map((t) => t.symbol).join(",");
-        const res = await fetch(`/api/market/quotes?symbols=${encodeURIComponent(symbols)}`);
-        if (res.ok) {
-          const data = (await res.json()) as any;
-          if (Array.isArray(data?.quotes)) {
-            setIsLiveStreaming(true);
-            for (const q of data.quotes) {
-              if (!q || !q.symbol) continue;
-              rawPricesRef.current[q.symbol] = q.price;
-              setLiveQuotes((prev) => ({
-                ...prev,
-                [q.symbol]: {
-                  price: q.formattedPrice,
-                  change: q.formattedChange,
-                  isPositive: q.isPositive,
-                  bid: q.formattedBid,
-                  ask: q.formattedAsk,
-                  volume: q.volume,
-                  rawPrice: q.price,
-                },
-              }));
-            }
-          }
-        }
-      } catch {
-        // Retain baseline popular tickers
-      }
-    };
-
-    // Immediately fetch authentic live quotes upon opening
-    fetchLiveHttpQuotes();
-
-    const startHttpPollingFallback = () => {
-      if (fallbackInterval) return;
-      setIsLiveStreaming(true);
-      fallbackInterval = setInterval(() => {
-        if (!isSubscribed) return;
-        fetchLiveHttpQuotes();
-      }, 10000);
-    };
-
-    try {
-      const isHttps = typeof window !== "undefined" && window.location.protocol === "https:";
-      const host = typeof window !== "undefined" && window.location.host ? window.location.host : "localhost";
-      const wsUrl = `${isHttps ? "wss:" : "ws:"}//${host}/api/market/quotes/ws`;
-
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        if (!isSubscribed) return;
-        setIsLiveStreaming(true);
-        const symbols = POPULAR_TICKERS.map((t) => t.symbol);
-        ws?.send(JSON.stringify({ type: "subscribe", symbols }));
-      };
-
-      ws.onmessage = (evt) => {
-        if (!isSubscribed) return;
-        try {
-          const data = JSON.parse(evt.data);
-          if (data.type === "snapshot" && Array.isArray(data.quotes)) {
-            for (const q of data.quotes) {
-              rawPricesRef.current[q.symbol] = q.price;
-              setLiveQuotes((prev) => ({
-                ...prev,
-                [q.symbol]: {
-                  price: q.formattedPrice,
-                  change: q.formattedChange,
-                  isPositive: q.isPositive,
-                  bid: q.formattedBid,
-                  ask: q.formattedAsk,
-                  volume: q.volume,
-                  rawPrice: q.price,
-                },
-              }));
-            }
-          } else if (data.type === "tick" && data.tick) {
-            handleIncomingTick(data.tick);
-          }
-        } catch (_e) {
-          // Ignore malformed frames
-        }
-      };
-
-      ws.onerror = () => {
-        startHttpPollingFallback();
-      };
-
-      ws.onclose = () => {
-        if (isSubscribed) {
-          startHttpPollingFallback();
-        }
-      };
-    } catch (_err) {
-      startHttpPollingFallback();
-    }
-
-    return () => {
-      isSubscribed = false;
-      if (ws) {
-        try {
-          ws.close();
-        } catch (_e) {}
-      }
-      if (fallbackInterval) {
-        clearInterval(fallbackInterval);
-      }
-      setIsLiveStreaming(false);
-      setFlashStates({});
-      Object.values(flashTimersRef.current).forEach((t) => clearTimeout(t));
-      flashTimersRef.current = {};
-    };
-  }, [isOpen]);
+  // Issue #2100: the feed lifecycle (socket, fallback, flash) lives in
+  // the quotes service; the palette only renders what the hook returns.
+  // Subscribed only while the modal is open, as before.
+  const {
+    quotes: liveQuotes,
+    flash: flashStates,
+    isLive: isLiveStreaming,
+  } = useMarketQuotes(
+    SEARCH_SYMBOLS.map((t) => t.symbol),
+    isOpen,
+  );
 
   // Global keyboard shortcut: Ctrl+K or Cmd+K toggles the palette.
   // Escape is owned by the Modal primitive (#1695) — no duplicate
@@ -337,11 +137,11 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
   }, [isOpen]);
 
   // Filtered results
-  const filteredTickers = useMemo(() => {
+  const filteredTickers: StockTickerItem[] = useMemo(() => {
     if (filterType === "navigation" || filterType === "actions") return [];
     const q = query.trim().toUpperCase();
-    if (!q) return POPULAR_TICKERS;
-    return POPULAR_TICKERS.filter(
+    if (!q) return SEARCH_SYMBOLS;
+    return SEARCH_SYMBOLS.filter(
       (t) => t.symbol.toUpperCase().includes(q) || t.name.toUpperCase().includes(q)
     );
   }, [query, filterType]);
@@ -565,12 +365,12 @@ export function StockSearchBar({ onSelectTab, onAskAgent, className = "" }: Stoc
                     {filteredTickers.map((ticker, idx) => {
                       const isSelected = selectedIndex === idx;
                       const live = liveQuotes[ticker.symbol];
-                      const currentPrice = live?.price || ticker.price;
-                      const currentChange = live?.change || ticker.change;
+                      const currentPrice = live?.formattedPrice || ticker.price;
+                      const currentChange = live?.formattedChange || ticker.change;
                       const currentIsPositive =
                         live?.isPositive !== undefined ? live.isPositive : ticker.isPositive;
-                      const currentBid = live?.bid || ticker.bid;
-                      const currentAsk = live?.ask || ticker.ask;
+                      const currentBid = live?.formattedBid || ticker.bid;
+                      const currentAsk = live?.formattedAsk || ticker.ask;
                       const currentVolume = live?.volume || ticker.volume;
                       const flash = flashStates[ticker.symbol];
 
