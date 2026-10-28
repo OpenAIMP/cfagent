@@ -1,7 +1,7 @@
 /**
  * Shell derivation contract (#1804 S1, issue #1808): NAVIGATION_ITEMS,
  * isTabActive, and the visibility defaults all derive from the route
- * table, reproducing the historical nav exactly — same 21 items, same
+ * table, reproducing the historical nav exactly — same 23 items, same
  * display order, same active-state groups.
  */
 import { describe, it, expect } from "vitest";
@@ -24,6 +24,7 @@ const EXPECTED_ORDER = [
   "voice",
   "omnichannel",
   "workflows",
+  "workflow-runs",
   "endpoints",
   "nlq",
   "audit",
@@ -37,7 +38,7 @@ const EXPECTED_ORDER = [
 ];
 
 describe("nav derivation", () => {
-  it("derives the 22 nav items in display order", () => {
+  it("derives the 23 nav items in display order", () => {
     expect(NAVIGATION_ITEMS.map((i) => i.id)).toEqual(EXPECTED_ORDER);
   });
 
