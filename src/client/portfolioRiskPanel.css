@@ -56,14 +56,6 @@
   font-size: 0.75rem;
   color: var(--color-text-muted);
 }
-.prp-note {
-  margin-top: 0.7rem;
-  font-size: 0.85rem;
-  color: var(--color-text-secondary);
-}
-.prp-warn {
-  color: var(--color-warning);
-}
 .prp-error {
   margin-top: 0.7rem;
   padding: 0.5rem 0.75rem;
