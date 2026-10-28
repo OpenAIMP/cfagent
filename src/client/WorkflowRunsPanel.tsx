@@ -20,7 +20,7 @@
  * stores do not record renders as absent/not recorded — never invented.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./workflowRuns.css";
 import {
   Badge,
@@ -191,6 +191,7 @@ export function WorkflowRunsPanel() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
+  const detailRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -213,6 +214,16 @@ export function WorkflowRunsPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Selecting a run renders its detail below the run table; bring it
+  // into view so a click on a long list visibly opens the run.
+  useEffect(() => {
+    if (!selectedId) return;
+    const node = detailRef.current;
+    if (node && typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [selectedId]);
 
   const filtered = useMemo(
     () =>
@@ -445,7 +456,7 @@ export function WorkflowRunsPanel() {
 
       {selected && (
         <PageSection title="Run detail" description="One run's full recorded story: trigger, stages, inputs, outputs, and failures.">
-          <div id="workflow-run-detail">
+          <div id="workflow-run-detail" ref={detailRef}>
             <RunDetail run={selected} onClose={() => setSelectedId(null)} />
           </div>
         </PageSection>
