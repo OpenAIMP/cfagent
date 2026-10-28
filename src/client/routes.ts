@@ -139,6 +139,22 @@ export const ROUTES = [
     },
   },
   {
+    id: "checkout",
+    navGroup: "payments",
+    crumb: "Checkout",
+    category: "Platform",
+    icon: "Payments",
+    description:
+      "Pay for a screener run or manage a subscription: per-run checkout with the failure policy disclosed before payment, and plan purchase, status, and cancel-at-period-end",
+    navEntry: {
+      label: "Checkout",
+      shortLabel: "Checkout",
+      navOrder: 24,
+      defaultVisible: true,
+      badge: "Testnet",
+    },
+  },
+  {
     id: "docs",
     navGroup: "docs",
     crumb: "Docs & Reports",
