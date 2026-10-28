@@ -1472,6 +1472,99 @@ export class ScreenerAgent extends PortThink {
     return await getReportPdf(this.env, this.ctx.storage, OPTIONS_XLSX_LATEST_KEY);
   }
 
+  /**
+   * Generate + store the strategy screener's PDF/XLSX/CSV for one run.
+   *
+   * Strategy screens (both fit directions and the AI actions) store
+   * these under the existing options key families, so the established
+   * /api/options/report.pdf|xlsx|csv endpoints serve them with no new
+   * route surface. Each format has its own failure domain and retry
+   * policy (#1278): a failed format is recorded, never fatal.
+   */
+  async generateAndStoreStrategyReport(
+    input: import("../trading").StrategyReportInput,
+  ): Promise<import("../trading").StrategyReportArtifactOutcome> {
+    const { withRetry } = await import("../services/resilience");
+    const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+    const { putReportPdf } = await import("../services/reportBlobStore");
+    const {
+      generateStrategyReportPdf,
+      generateStrategyReportXlsx,
+      generateStrategyReportCsv,
+      strategyReportFileName,
+    } = await import("../trading");
+    const policy = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+    const id = crypto.randomUUID().slice(0, 8);
+    const outcome: import("../trading").StrategyReportArtifactOutcome = {
+      pdfStatus: "failed",
+      xlsxStatus: "failed",
+      csvStatus: "failed",
+    };
+
+    try {
+      const key = `options:pdf:strategy:${id}`;
+      const bytes = await generateStrategyReportPdf(input);
+      await withRetry(
+        () => putReportPdf(this.env, this.ctx.storage as any, key, strategyReportFileName(input, "pdf"), bytes),
+        policy,
+        { label: "strategy-pdf" },
+      );
+      outcome.pdfKey = key;
+      outcome.pdfStatus = "generated";
+    } catch (err) {
+      outcome.pdfError = err instanceof Error ? err.message : String(err);
+      console.error("[ScreenerAgent] Strategy PDF generation failed:", outcome.pdfError);
+    }
+
+    try {
+      const key = `options:xlsx:strategy:${id}`;
+      const bytes = generateStrategyReportXlsx(input);
+      await withRetry(
+        () =>
+          putReportPdf(
+            this.env,
+            this.ctx.storage as any,
+            key,
+            strategyReportFileName(input, "xlsx"),
+            bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          ),
+        policy,
+        { label: "strategy-xlsx" },
+      );
+      outcome.xlsxKey = key;
+      outcome.xlsxStatus = "generated";
+    } catch (err) {
+      outcome.xlsxError = err instanceof Error ? err.message : String(err);
+      console.error("[ScreenerAgent] Strategy XLSX generation failed:", outcome.xlsxError);
+    }
+
+    try {
+      const key = `options:csv:strategy:${id}`;
+      const bytes = new TextEncoder().encode(generateStrategyReportCsv(input));
+      await withRetry(
+        () =>
+          putReportPdf(
+            this.env,
+            this.ctx.storage as any,
+            key,
+            strategyReportFileName(input, "csv"),
+            bytes,
+            "text/csv",
+          ),
+        policy,
+        { label: "strategy-csv" },
+      );
+      outcome.csvKey = key;
+      outcome.csvStatus = "generated";
+    } catch (err) {
+      outcome.csvError = err instanceof Error ? err.message : String(err);
+      console.error("[ScreenerAgent] Strategy CSV generation failed:", outcome.csvError);
+    }
+
+    return outcome;
+  }
+
   private async persistRun(result: ScreenerRunResult): Promise<void> {
     // Issue #269/#914: PDF generation + storage lives in generateRunPdf
     // (shared with regeneration, #1278).
