@@ -23,9 +23,11 @@
  * - 500 only on an unexpected failure; validation and bucket-binding
  *   failures are honest 400s via KnowledgeCorpusError.
  *
- * TWO path conditions live in this module (the inventory scanner
- * pins both, 216 -> 217): POST /knowledge/corpus (S1) and GET
- * /knowledge/file (S2, flag-gated — see below).
+ * FOUR path conditions live in this module (the inventory scanner
+ * pins all four): GET /knowledge/file (S2, flag-gated — see below),
+ * GET /knowledge/integrity (S4-4, audit read, NOT flag-gated),
+ * POST /knowledge/corpus (S1), and POST /knowledge/corpus-sync
+ * (S4-4, weekly scheduled sync).
  * Non-matching paths/methods return null so routeRequest falls
  * through to the next handler.
  *
@@ -43,6 +45,24 @@
 
 import { unauthenticatedResponse } from "./routeIdentity";
 import { base64ToBytes } from "../../services/reportBlobStore";
+import {
+  runCorpusIntegrityCheck,
+  runCorpusSync,
+  runCanonicalIndexBackfillAll,
+  shouldFireCorpusSyncTick,
+  CORPUS_SYNC_LAST_RUN_KEY,
+} from "../../services/corpusSync";
+import {
+  settingReadFromSql,
+  settingWriteFromSql,
+} from "../../services/screeningFlags";
+import type { SqlStorage } from "../../orm";
+// Issue #1169 (S4-4): the seed manifest is a checked-in repo file;
+// JSON imports are the established idiom (cf.
+// researchEvaluationDatasets.ts importing evaluations/*/manifest.json).
+// Entries are mapped to SeedManifestEntry below; the manifest itself
+// is never rewritten by this route.
+import seedManifest from "../../../docs/knowledge-corpus-seed-manifest.json";
 import {
   putKnowledgeDoc,
   getKnowledgeDoc,
@@ -67,10 +87,37 @@ interface BlobStorage {
 }
 
 export interface KnowledgeCorpusRouteContext {
-  env: { REPORTS_BUCKET?: R2Bucket; KNOWLEDGE_SERVING_ENABLED?: string };
+  env: {
+    REPORTS_BUCKET?: R2Bucket;
+    KNOWLEDGE_SERVING_ENABLED?: string;
+    // Issue #1169 S4-4: AI + Vectorize join the env (type-only
+    // widening, cf. the reports route's S4-1 widening) so the
+    // corpus-sync branch can run the index backfill; the
+    // orchestrator mount already passes the full env.
+    AI?: any;
+    VECTOR_MEMORY?: any;
+  };
   storage: BlobStorage;
   userLogin: string;
+  /**
+   * Report store (the orchestrator mount passes
+   * this.ctx.storage.sql). Optional so older callers keep working;
+   * the corpus-sync branch skips honestly when it is absent.
+   */
+  sql?: SqlStorage;
 }
+
+/** Seed-manifest entries, mapped to the corpus module's entry shape. */
+const SEED_MANIFEST_ENTRIES = (
+  seedManifest as unknown as {
+    entries?: Array<Record<string, unknown>>;
+  }
+).entries?.map((e) => ({
+  title: typeof e.title === "string" ? e.title : "",
+  category: typeof e.category === "string" ? e.category : "",
+  sha256: typeof e.sha256 === "string" ? e.sha256 : null,
+  fetchStatus: typeof e.fetchStatus === "string" ? e.fetchStatus : undefined,
+})) ?? [];
 
 function badRequest(message: string): Response {
   return Response.json({ success: false, error: message }, { status: 400 });
@@ -163,6 +210,32 @@ export async function handleKnowledgeCorpusRoutes(
       );
     }
   }
+  // Issue #1169 (S4-4): session-gated integrity read. NOT
+  // flag-gated: integrity is an audit read, not serving, so
+  // KNOWLEDGE_SERVING_ENABLED must not gate it. Runs the integrity
+  // leg live (read-only) and returns its native JSON shape with 200
+  // even when the check could not run — ok:false + reason IS the
+  // result, never a fabricated pass.
+  if (path.endsWith("/knowledge/integrity") && request.method === "GET") {
+    if (!ctx.userLogin) return unauthenticatedResponse();
+    try {
+      const report = await runCorpusIntegrityCheck({
+        manifest: SEED_MANIFEST_ENTRIES,
+        recordStore: ctx.storage,
+        bucket: ctx.env.REPORTS_BUCKET ?? null,
+      });
+      console.info(
+        `[knowledgeCorpus] integrity GET ok=${report.ok} missing=${report.missing.length} mismatched=${report.mismatched.length} extra=${report.extra.length}`
+      );
+      return Response.json(report);
+    } catch (err) {
+      console.error("[knowledgeCorpus] integrity GET failed:", err);
+      return Response.json(
+        { success: false, error: "Failed to run corpus integrity check." },
+        { status: 500 }
+      );
+    }
+  }
   if (path.endsWith("/knowledge/corpus") && request.method === "POST") {
     try {
       if (!ctx.userLogin) return unauthenticatedResponse();
@@ -222,6 +295,49 @@ export async function handleKnowledgeCorpusRoutes(
         { status: 500 }
       );
     }
+  }
+  // Issue #1169 (S4-4): weekly corpus sync, dispatched from
+  // server.ts scheduled() on the existing */30 tick (no new cron
+  // trigger — the Workers Free ceiling, same constraint as
+  // #354/#705/#754). Session-gated like every other branch (the
+  // dispatch carries the service identity via x-user-login).
+  // Fire/no-fire is decided by the weekly guard + the durable
+  // mas_settings marker, written ONLY on a completed run
+  // (integrity executed) so a run that could not check retries on
+  // the next tick instead of advancing the marker.
+  if (path.endsWith("/knowledge/corpus-sync") && request.method === "POST") {
+    if (!ctx.userLogin) return unauthenticatedResponse();
+    const sql = ctx.sql;
+    if (!sql) {
+      return Response.json({
+        success: true,
+        skipped: true,
+        reason: "report-store-unavailable",
+      });
+    }
+    const readSetting = settingReadFromSql(sql);
+    const decision = shouldFireCorpusSyncTick(
+      new Date(),
+      readSetting(CORPUS_SYNC_LAST_RUN_KEY)
+    );
+    if (!decision.fire) {
+      return Response.json({
+        success: true,
+        skipped: true,
+        reason: decision.reason,
+        lastFiredAt: decision.lastFiredAt,
+      });
+    }
+    const result = await runCorpusSync({
+      manifest: SEED_MANIFEST_ENTRIES,
+      recordStore: ctx.storage,
+      bucket: ctx.env.REPORTS_BUCKET ?? null,
+      backfill: () => runCanonicalIndexBackfillAll(ctx.env, sql),
+    });
+    if (result.completed) {
+      settingWriteFromSql(sql)(CORPUS_SYNC_LAST_RUN_KEY, result.ranAt);
+    }
+    return Response.json({ success: true, ...result });
   }
   return null;
 }
