@@ -367,6 +367,35 @@ export const agentSubscriptions = sqliteTable("agent_subscriptions", {
 });
 
 /**
+ * Minimal double-entry journal (#2155, sub-issue of #2012). This
+ * schema MAPS tables; it does not create them — DDL authority
+ * lives in migration 0009 (src/data/migrationRunner.ts), and a
+ * test pins that this mapping and that DDL agree on columns.
+ * The chart is global (same codes for all tenants); entries are
+ * tenant-scoped. This is a projection of the DO ledger, not a
+ * second financial record.
+ */
+export const agentJournalAccounts = sqliteTable("agent_journal_accounts", {
+  code: text("code").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  createdAtMs: integer("created_at_ms").notNull(),
+});
+
+export const agentJournalEntries = sqliteTable("agent_journal_entries", {
+  id: text("id").primaryKey(),
+  transactionRef: text("transaction_ref").notNull(),
+  accountCode: text("account_code").notNull(),
+  debitUSD: real("debit_usd").notNull(),
+  creditUSD: real("credit_usd").notNull(),
+  currency: text("currency").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  runRequestId: text("run_request_id").notNull(),
+  family: text("family").notNull(),
+  createdAtMs: integer("created_at_ms").notNull(),
+});
+
+/**
  * Subscription plans (#2020/#2127) as OPERATOR DATA, not code:
  * operators create plans; no price is hardcoded anywhere, because
  * no subscription price is owner-approved. Active plans are what

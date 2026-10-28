@@ -403,6 +403,40 @@ ALTER TABLE agent_commercial_accounts ADD COLUMN tier_source TEXT;
 `,
 };
 
+/**
+ * Minimal double-entry journal (#2155, sub-issue of #2012). DDL
+ * authority for the journal tables lives here; the Drizzle
+ * mapping in drizzleSchema.ts must agree (pinned by test).
+ * The chart accounts themselves are seeded by
+ * ensureJournalSchema, not by DDL — seeding is data, not schema.
+ */
+export const MIGRATION_0009_JOURNAL: DataMigration = {
+  version: 9,
+  name: "0009_journal",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_journal_accounts (
+  code TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_journal_entries (
+  id TEXT PRIMARY KEY,
+  transaction_ref TEXT NOT NULL,
+  account_code TEXT NOT NULL,
+  debit_usd REAL NOT NULL,
+  credit_usd REAL NOT NULL,
+  currency TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  run_request_id TEXT NOT NULL,
+  family TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_journal_entries_tenant_account_idx ON agent_journal_entries (tenant_id, account_code);
+CREATE INDEX IF NOT EXISTS agent_journal_entries_ref_idx ON agent_journal_entries (transaction_ref);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -412,6 +446,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0006_AGENT_TELEMETRY_CALIBRATION,
   MIGRATION_0007_COMMERCIAL_STORE,
   MIGRATION_0008_SUBSCRIPTIONS,
+  MIGRATION_0009_JOURNAL,
 ];
 
 function splitStatements(sqlText: string): string[] {

@@ -85,6 +85,15 @@ import {
   createCommercialAdapter,
   ensureCommercialSchema,
 } from "../data/createCommercialPorts";
+import {
+  createJournalAdapter,
+  ensureJournalSchema,
+} from "../data/createJournalPorts";
+import {
+  mapChargeToJournalEntries,
+  mapFailureCreditToJournalEntries,
+} from "../data/journalPorts";
+import { postJournalBestEffort } from "../services/journalPosting";
 import { getCfpayConfig, cfpayA2AOperation } from "../services/cfpayA2A";
 import { createFeatureFlagPort } from "../features/createFeatureFlagPort";
 import { createWorkflowPorts, type WorkflowEnv } from "./createWorkflowPorts";
@@ -227,6 +236,24 @@ export class PaymentWorkflow extends ThinkWorkflow<
               `[payment-workflow] charge row already exists for run=${e.runRequestId} (retried step, deduped)`,
             );
           }
+          // Issue #2155: project the charge into the D1 double-entry
+          // journal (Dr 1000 / Cr 4000). BEST-EFFORT, never thrown:
+          // the DO row above is authoritative and already written;
+          // a journal failure is a loud log + a reconcile flag, not
+          // a failed payment. Replay is safe: postEntries is a
+          // no-op for an already-posted transactionRef.
+          await postJournalBestEffort(async () => {
+            const adapter = createJournalAdapter(this.env as { AGENT_DB?: unknown });
+            if (!adapter) return null;
+            await ensureJournalSchema(adapter.db);
+            return adapter;
+          }, mapChargeToJournalEntries({
+            transactionRef: e.runRequestId,
+            tenantId: p.tenantId,
+            runRequestId: e.runRequestId,
+            family: p.family,
+            amountUSD: e.priceUSD,
+          }));
           try {
             const rows = await listCfpayLedgerRows(this.env, e.runRequestId);
             const check = reconcileCfpayRun(rows, e.runRequestId, "fulfilled");
@@ -287,6 +314,26 @@ export class PaymentWorkflow extends ThinkWorkflow<
             err,
           );
         }
+        // Issue #2155: project the failure credit into the D1
+        // journal (Dr 4000 / Cr 2000), BEST-EFFORT like the claim
+        // above and independent of it: the DO credit row is the
+        // trigger, and a journal failure never fails the credit.
+        await postJournalBestEffort(async () => {
+          const adapter = createJournalAdapter(this.env as { AGENT_DB?: unknown });
+          if (!adapter) return null;
+          await ensureJournalSchema(adapter.db);
+          return adapter;
+        }, mapFailureCreditToJournalEntries({
+          // Distinct from the charge's ref: a failed paid run has
+          // BOTH a charge and a credit under one runRequestId, and
+          // posting the credit under the charge's ref would be
+          // swallowed as a replay (see journalPorts.ts).
+          transactionRef: `${runRequestId}:credit`,
+          tenantId: p.tenantId,
+          runRequestId,
+          family: p.family,
+          amountUSD: priceUSD,
+        }));
       },
       consumeCoverage: async (use: { userId: string; paidVia: string; priceUSD: number }) => {
         // Issue #2015: consume the coverage in the D1 account store.
