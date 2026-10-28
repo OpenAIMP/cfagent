@@ -60,14 +60,20 @@ export interface WorkflowGoalScreenEnvelope {
  * summary, body (artifact keys top-level so the Runs read
  * surface finds them), and activity detail — so a workflow
  * run and a direct run are indistinguishable downstream.
- * Throws on persistence failure (the flow records it as
- * storeError; the screen outcome stands).
+ * Returns the canonical report id (the panel fetches the
+ * stored run by it). Throws on persistence failure — the
+ * store never throws itself (it returns null), so the null
+ * check here is what makes the module docstring's
+ * "store failure throws" true and lets the flow record
+ * stored=false + storeError instead of claiming stored.
+ * An existing generation returns its id (created: false),
+ * never null, so a retried store still surfaces the id.
  */
 export async function persistWorkflowGoalScreenReport(
   ctx: GoalScreenDispatchContext,
   envelope: WorkflowGoalScreenEnvelope,
   userLogin: string,
-): Promise<void> {
+): Promise<string> {
   const result = envelope.result;
   // Issue #1571: the recorded result carries the fallback
   // marker even if the agent did not stamp it — the canonical
@@ -86,7 +92,7 @@ export async function persistWorkflowGoalScreenReport(
     `${result.counts.hits} hit(s) from ${result.counts.stocksScanned} stocks + ` +
     `${result.counts.optionsUnderlyingsScanned} option underlyings.`;
   const orm = ctx.getOrm();
-  orm.storeCanonicalReport({
+  const stored = orm.storeCanonicalReport({
     runId: `goal-screen:${envelope.taskId}`,
     generationId: `goal-screen:${envelope.taskId}`,
     title: `Goal screen — ${result.goalKind} (${result.outlook})`,
@@ -112,6 +118,11 @@ export async function persistWorkflowGoalScreenReport(
     },
     createdAt: result.completedAt,
   });
+  if (!stored) {
+    throw new Error(
+      `Goal screen report could not be stored for run goal-screen:${envelope.taskId} (canonical store returned null).`,
+    );
+  }
   recordScreeningActivity(orm as any, {
     userLogin,
     kind: "screen_run",
@@ -125,6 +136,7 @@ export async function persistWorkflowGoalScreenReport(
     },
     refId: envelope.taskId,
   });
+  return stored.reportId;
 }
 
 /**

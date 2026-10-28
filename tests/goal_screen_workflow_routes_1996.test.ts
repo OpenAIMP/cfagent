@@ -98,7 +98,10 @@ describe("POST /screening/goal-screen async flag (#1996)", () => {
       getOrm: vi.fn(() => orm),
       readSettingRaw: vi.fn((key: string) => settings.get(key) ?? null),
       writeSetting: vi.fn((key: string, value: string) => void settings.set(key, value)),
-      env: {},
+      // Issue #1997: the #1996 opt-in path is flag-gated, so
+      // these tests run with the flag ON (the flag-OFF direct
+      // behavior is pinned in goal_workflow_flag_1997.test.ts).
+      env: { FEATURE_FLAGS: JSON.stringify({ goal_workflow: true }) },
     } as unknown as ScreenerResearchRouteContext;
     return { ctx, orm };
   }
@@ -130,7 +133,7 @@ describe("POST /screening/goal-screen async flag (#1996)", () => {
     expect(mockedStart).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to the synchronous direct path when the workflow start returns null", async () => {
+  it("flag ON: a null workflow start fails loudly instead of falling back to direct (#1997)", async () => {
     mockedStart.mockResolvedValue(null as never);
     const agent = {
       runGoalScreen: vi.fn(async () => ({
@@ -139,7 +142,7 @@ describe("POST /screening/goal-screen async flag (#1996)", () => {
         result: fakeGoalResult(),
       })),
     };
-    const { ctx, orm } = routeCtx(agent);
+    const { ctx } = routeCtx(agent);
     const res = await handleScreenerResearchRoutes(
       req("POST", "/screening/goal-screen", { goalKind: "income", async: true }, { "x-user-login": "alice" }),
       urlOf("/screening/goal-screen"),
@@ -148,13 +151,10 @@ describe("POST /screening/goal-screen async flag (#1996)", () => {
       ctx,
     );
     expect(res).not.toBeNull();
-    expect(res!.status).toBe(200);
+    expect(res!.status).toBe(500);
     const body = (await res!.json()) as Record<string, unknown>;
-    expect(body.success).toBe(true);
-    expect(body.executed).toBe(true);
-    expect(agent.runGoalScreen).toHaveBeenCalledTimes(1);
-    const rows = [...orm.exec("SELECT source FROM mas_reports WHERE source = 'goal_screen'")] as unknown[];
-    expect(rows).toHaveLength(1);
+    expect(body.error).toBe("goal_workflow_start_failed");
+    expect(agent.runGoalScreen).not.toHaveBeenCalled();
   });
 
   it("validates before submitting: an unknown goal kind 400s and never starts a workflow", async () => {
@@ -203,7 +203,14 @@ describe("POST /screening/goal-screen async flag (#1996)", () => {
 
 describe("autonomousGoalScreen workflow submission (#1996)", () => {
   function goalService(opts: { followupScheduler?: unknown } = {}) {
-    const mockEnv = { ETRADE_ENVIRONMENT: "sandbox" } as unknown as Env;
+    // Issue #1997: the #1996 workflow-first path is
+    // flag-gated, so these tests run with the flag ON (the
+    // flag-OFF direct behavior is pinned in
+    // goal_workflow_flag_1997.test.ts).
+    const mockEnv = {
+      ETRADE_ENVIRONMENT: "sandbox",
+      FEATURE_FLAGS: JSON.stringify({ goal_workflow: true }),
+    } as unknown as Env;
     const mockOrm = new DatabaseORM(new MockSqlStorage() as any);
     const service = new ScheduledTasksService(mockEnv, mockOrm, "test_trader");
     const audit = vi.fn(() => {});
@@ -247,13 +254,13 @@ describe("autonomousGoalScreen workflow submission (#1996)", () => {
     expect(audit.mock.calls.find((c) => c[0] === "goal_screen.workflow_submitted")).toBeDefined();
   });
 
-  it("falls back to the direct engine when the workflow start returns null", async () => {
+  it("flag ON: a null workflow start fails the tick instead of falling back to direct (#1997)", async () => {
     mockedStart.mockResolvedValue(null as never);
-    const { service, runGoalScreen } = goalService();
+    const { service, audit, runGoalScreen } = goalService();
     const result = await service.autonomousGoalScreen({ goalKind: "income" });
-    expect(result.success).toBe(true);
-    expect(runGoalScreen).toHaveBeenCalledTimes(1);
-    expect((result as { data: Record<string, unknown> }).data.status).toBe("complete");
+    expect(result.success).toBe(false);
+    expect(runGoalScreen).not.toHaveBeenCalled();
+    expect(audit.mock.calls.find((c) => c[0] === "goal_screen.run_failed")).toBeDefined();
   });
 
   it("chain mode keeps the direct path even when a workflow start would succeed", async () => {

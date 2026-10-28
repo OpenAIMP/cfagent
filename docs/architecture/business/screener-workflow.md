@@ -570,6 +570,31 @@ engaged), no owner web-UI steps for code/binding changes. **Sequencing (CAIO):**
 slices touching ScreenerAgent sequence around the PortThink migration (fleet slice
 #1955) — no-shared-file-races.
 
+**Phase 2 implementation shape (#1997, rebased onto #1996):** #1996 shipped the goal flow itself — a goal run is
+one "goal" shard on the existing parent machinery (parent poll + collate + project unchanged), executed by the
+child's `runGoalScreen` and stored/delivered through the goal doors (`goalScreenDispatch.ts`), with the run
+request carried as `command.goalScreen`. Phase 2 does NOT add a second flow: it adds the rollout control and
+the read-back #1996 deferred. Flag: `goal_workflow`, strictly default-closed in the env adapter (the bare-env
+default-TRUE rule would otherwise silently enable a new execution path in any environment with zero feature
+configuration). Flag OFF → manual and scheduled goal runs go direct, exactly as before #1996's opt-in (the
+#1996 scheduled workflow-first default is gated, so scheduled runs return to direct until the flag is enabled;
+reversible by enabling the flag). Flag ON → the workflow is REQUIRED on both entries: a null start answers a
+coded 500 on the route (`goal_workflow_start_failed`) and throws on the scheduled tick (failure result +
+`run_failed` audit) — a flagged run fails loudly at its stage, never by silent fallback to direct. Chain-mode
+scheduled runs stay direct (they need the completed result for the chain bridge, as #1996 established), and
+Yahoo-fallback scheduled runs ride the workflow with their provider markers when the flag is ON (the #1996
+command carries provider/providerFallback through). Report-id surfacing: the goal door returns the canonical
+report id (throwing when the store returns null, making #1996's "store failure throws" docstring true), the
+flow surfaces it on the shard row result, and the panel fetches the stored run by that id. Panel: the UX rules
+above hold, but the progress source is the job-history route (`/api/jobs/history?chainId=`), polled directly
+with a small stage list — AsyncJobsPanel reads `mas_async_jobs` and RunDetailView renders reports, neither
+reads D1 stage rows, so reuse there would have been the wrong source. Leg visibility in Phase 2 is the stored
+result's PARTIAL rendering (failed classes + reasons, per #1963), read from the fetched report body — per-leg
+D1 stage rows are deferred to a follow-up, not dropped: the shard row carries one whole-run outcome, and
+splitting it into leg rows needs a projection step the market flow does not have. Per-leg EXECUTION
+(timeouts/isolation) is likewise deferred: per-leg agent calls would mint stray artifacts (`runGoalScreen`
+generates artifacts unconditionally per executed run), so leg execution needs artifact discipline first.
+
 ### Phase 3 — Thesis gates on enriched data (a PRODUCING phase)
 
 The goal stock leg routes through the delegated screen's technicals gather
