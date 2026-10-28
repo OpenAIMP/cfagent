@@ -194,6 +194,12 @@
  * /reports/research/browse) — bringing the pinned array to 263 entries; the
  * delegation sequence is unchanged (same handler, same position).
  *
+ * Issue #2192 added one more — POST /payments/agentic/ledger/record-native (in
+ * handleAgenticPaymentsRoutes, after the record-cfpay endpoint) — bringing the
+ * pinned array to 275 entries; the delegation sequence is unchanged (same
+ * handler, same position). The webhook native branch reuses the existing
+ * /payments/webhook condition, so it adds no inventory entry.
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -344,6 +350,7 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: includes(\"/payments/agentic/wallet\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/record\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/record-cfpay\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/record-native\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/cfpay\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/cfpay-revenue\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account\")",
