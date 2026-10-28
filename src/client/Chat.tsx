@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import type { ReactNode } from "react";
 import { BRAND } from "./branding";
 import { apiFetch as fetch } from "./apiFetch";
 import { didProofSignatureDisplay } from "./didProofCard";
@@ -35,6 +36,7 @@ import { AdsTab } from "./chat/tabs/AdsTab";
 import { RevenueTab } from "./chat/tabs/RevenueTab";
 import { EndpointsTab } from "./chat/tabs/EndpointsTab";
 import { ApprovalsPanel } from "./ApprovalsPanel";
+import { DocsAndReportsPanel } from "./DocsAndReportsPanel";
 import { PaymentWorkflowAssurance } from "./PaymentWorkflowAssurance";
 import { SocialPostingPanel } from "./SocialPostingPanel";
 import {
@@ -994,252 +996,118 @@ export function Chat({ user }: { user: User }) {
     }
   };
 
-  return (
-    <div className={`app-container ${navLayout === "left" ? "layout-sidebar" : "layout-top"} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      {/* 1. Left Sidebar Navigation (When layout === 'left') */}
-      {navLayout === "left" && (
-        <NavigationMenu
-          layout="left"
-          onToggleLayout={handleToggleNavLayout}
-          activeTab={tab}
-          onSelectTab={(newTab) => {
-            handleSelectTab(newTab);
-            setTbdMenuOpen(false);
-          }}
-          alertBadgeCount={unreadAlerts}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={handleToggleSidebarCollapsed}
-          user={user}
-          agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
-          accountMode={accountMode}
-          onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
-          theme={theme}
-          onCycleTheme={handleCycleTheme}
-          onAskAgent={handleAskAgent}
-          visibleTabs={visibleTabs}
-        />
-      )}
-
-      {/* Main Content Layout Container */}
-      <div className={navLayout === "left" ? "app-main-layout" : "app-top-layout"}>
-        {/* Sub-Header for Left Sidebar mode OR Full Header for Top Nav mode */}
-        {navLayout === "left" ? (
-          <header className="app-sub-header">
-            <div className="sub-header-left">
-              <div className="sub-header-brand-crumbs">
-                <span className="crumb-module">
-                  {getCrumb(tab)}
-                </span>
-                <span className="crumb-divider">/</span>
-                <span className="crumb-subtitle">
-                  {accountMode === "paper" ? "Paper" : "Live Execution"}
-                </span>
-              </div>
-              <MarketStatusPill variant="sub-header" />
-            </div>
-
-            <div className="sub-header-right">
-              {/* Global Stock Search Bar */}
-              <StockSearchBar
-                onSelectTab={(newTab) => {
-                  handleSelectTab(newTab);
-                  setTbdMenuOpen(false);
-                }}
-                onAskAgent={handleAskAgent}
-              />
-
-              {/* Universal Top Bar Refresh Button */}
-              <Button
-                variant="ghost"
-                onClick={handleGlobalRefresh}
-                disabled={isRefreshing}
-                title={`Refresh active workspace & market data feeds${lastRefreshedAt ? ` (last refreshed: ${lastRefreshedAt})` : ""}`}
-                aria-label="Refresh workspace data"
-              >
-                <span className={`nav-refresh-icon ${isRefreshing ? "spin" : ""}`}>↻</span>
-                <span className="nav-refresh-text">Refresh</span>
-                {lastRefreshedAt && <span className="nav-refresh-time">{lastRefreshedAt}</span>}
-              </Button>
-
-              {/* Trade Button (Orange/Amber pill matching reference) */}
-              <Button
-                variant="trade"
-                onClick={() => {
-                  handleSelectTab("order");
-                  setTbdMenuOpen(false);
-                }}
-                title="Quick Trade & Fast Order Ticket"
-              >
-                Trade
-              </Button>
-
-              {/* Unified Settings & Broker Menu (Icon-only with hover) */}
-              <SettingsMenu
-                userLogin={user.login}
-                userName={user.name}
-                userAvatar={user.avatar}
-                theme={theme}
-                onCycleTheme={handleCycleTheme}
-                onSelectTheme={handleSelectTheme}
-                currentLayout={navLayout}
-                onToggleLayout={handleToggleNavLayout}
-                accountMode={accountMode}
-                onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
-                visibleTabs={visibleTabs}
-                onToggleTabVisibility={handleToggleTabVisibility}
-                onSetVisibleTabs={handleSetVisibleTabs}
-                autoRefreshEnabled={autoRefreshEnabled}
-                autoRefreshInterval={autoRefreshInterval}
-                onToggleAutoRefresh={handleToggleAutoRefresh}
-                reportDispatchHitl={reportDispatchHitl}
-                onToggleReportDispatchHitl={handleToggleReportDispatchHitl}
-                pendingReportConfirmations={pendingReportConfirmations}
-                onRefreshReportConfirmations={refreshPendingReportConfirmations}
-                onDecideReportConfirmation={handleDecideReportConfirmation}
-                adBannerConfig={adBannerConfig}
-                onUpdateAdBannerConfig={handleUpdateAdBannerConfig}
-                onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
-                {...(brokerProps || {})}
-              />
-
-              {/* User Sign Out — Top Right Corner Fixed Icon with Hover Tooltip */}
-              {user && (
-                <a
-                  href="/auth/logout"
-                  className="top-nav-logout-btn icon-only-logout"
-                  title={`Sign Out (@${user.login} · ${user.name})`}
-                  aria-label="Sign out"
-                >
-                  <span className="top-nav-logout-icon"><NavIcons.Logout /></span>
-                </a>
-              )}
-            </div>
-          </header>
-        ) : (
-          <header className="app-top-header nextgentp-top-header app-header">
-            <NavigationMenu
-              layout="top"
-              alertBadgeCount={unreadAlerts}
-              onToggleLayout={handleToggleNavLayout}
-              activeTab={tab}
-              onSelectTab={(newTab) => {
-                handleSelectTab(newTab);
-                setTbdMenuOpen(false);
-              }}
-              user={user}
-              agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
-              accountMode={accountMode}
-              onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
-              onRefresh={handleGlobalRefresh}
-              isRefreshing={isRefreshing}
-              lastRefreshedAt={lastRefreshedAt}
-              headerChildren={
-                <SettingsMenu
-                  userLogin={user.login}
-                  userName={user.name}
-                  userAvatar={user.avatar}
-                  theme={theme}
-                  onCycleTheme={handleCycleTheme}
-                onSelectTheme={handleSelectTheme}
-                  currentLayout={navLayout}
-                  onToggleLayout={handleToggleNavLayout}
-                  accountMode={accountMode}
-                  onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
-                  visibleTabs={visibleTabs}
-                  onToggleTabVisibility={handleToggleTabVisibility}
-                  onSetVisibleTabs={handleSetVisibleTabs}
-                  autoRefreshEnabled={autoRefreshEnabled}
-                  autoRefreshInterval={autoRefreshInterval}
-                  onToggleAutoRefresh={handleToggleAutoRefresh}
-                reportDispatchHitl={reportDispatchHitl}
-                onToggleReportDispatchHitl={handleToggleReportDispatchHitl}
-                pendingReportConfirmations={pendingReportConfirmations}
-                onRefreshReportConfirmations={refreshPendingReportConfirmations}
-                onDecideReportConfirmation={handleDecideReportConfirmation}
-                  adBannerConfig={adBannerConfig}
-                  onUpdateAdBannerConfig={handleUpdateAdBannerConfig}
-                  onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
-                  {...(brokerProps || {})}
-                />
-              }
-              theme={theme}
-              onCycleTheme={handleCycleTheme}
-              onAskAgent={handleAskAgent}
-              visibleTabs={visibleTabs}
-            />
-          </header>
-        )}
-
-      {/* Real-Time Market Ticker Tape (Streaming Live Benchmark Quotes) */}
-      <MarketTickerTape
-        onSelectTab={(newTab) => {
-          handleSelectTab(newTab);
-          setTbdMenuOpen(false);
-        }}
-        onSelectSymbol={(sym) => {
-          handleAskAgent(`Quote and analyze ${sym}`);
-        }}
-      />
-
-      {/* External Ad Network Monetization Strip (Configurable via Settings) */}
-      {adBannerConfig.enabled && adBannerConfig.showAdNetworkStrip && Boolean(adBannerConfig.tabVisibility[tab]) && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
-        <div className="external-ad-banner-strip">
-          <div className="ext-ad-badge-group">
-            <span className="ext-network-badge">
-              {externalAds[activeExtAdIndex].network === "google" || externalAds[activeExtAdIndex].network === "adsense"
-                ? "🌐 Google Ads"
-                : externalAds[activeExtAdIndex].network === "ethicalads"
-                ? "🛡️ EthicalAds"
-                : externalAds[activeExtAdIndex].network === "carbon"
-                ? "⚡ Carbon Ads"
-                : "⭐ Direct Partner"}
-            </span>
-            <span className="ext-placement-badge">
-              {externalAds[activeExtAdIndex].placement.replace("_", " ").toUpperCase()}
-            </span>
-          </div>
-
-          <div className="ext-ad-content">
-            <span className="ext-ad-title">{externalAds[activeExtAdIndex].title}</span>
-            <span className="ext-ad-divider">—</span>
-            <span className="ext-ad-tagline">{externalAds[activeExtAdIndex].tagline}</span>
-          </div>
-
-          <div className="ext-ad-earnings-pill" title="Live platform revenue generated by this placement">
-            💰 CPM: ${externalAds[activeExtAdIndex].cpmRate.toFixed(2)} | CPC: ${externalAds[activeExtAdIndex].cpcRate.toFixed(2)} | Earned: ${externalAds[activeExtAdIndex].earnings.toFixed(2)}
-          </div>
-
-          <div className="ext-ad-actions">
-            <Button
-              variant="primary"
-              onClick={() => handleExternalAdClick(externalAds[activeExtAdIndex])}
-            >
-              {externalAds[activeExtAdIndex].ctaText}
-            </Button>
-            {externalAds.length > 1 && (
-              <Button
-                variant="secondary"
-                size="sm"
-                title="View next ad in rotation"
-                onClick={() => setActiveExtAdIndex((prev) => (prev + 1) % externalAds.length)}
-              >
-                ↻ Next ({activeExtAdIndex + 1}/{externalAds.length})
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Main Tab Content */}
-      <main className="tab-viewport">
-        {!isTabFeatureEnabled(tab) ? (
-          <FeatureDisabledNotice
-            featureName={TAB_TO_FEATURE_MAP[tab]}
-            tabLabel={tab}
+  // #2077 (#1804 S6): the route-table-derived content switch. One
+  // table-keyed lookup replaces the 14 inline {tab === ...} conditionals
+  // that used to live in <main>; coverage is pinned against ROUTES in
+  // tests/route_content_switch_1804.test.ts. Trading ids have no entry
+  // here — they render through the retained ETradeTradingHub below,
+  // hidden for non-trading tabs via isTradingTab (table-backed retain
+  // flags, see routes.ts). docs previously rendered blank; its existing
+  // panel is wired here (no props).
+  const TAB_CONTENT: Record<string, ReactNode> = {
+    ads: (
+          <AdsTab
+            adFormError={adFormError}
+            adFormSuccess={adFormSuccess}
+            ads={ads}
+            adsLoading={adsLoading}
+            fetchAds={fetchAds}
+            handleAdClick={handleAdClick}
+            handleCreateAd={handleCreateAd}
+            newAdColor={newAdColor}
+            newAdCta={newAdCta}
+            newAdSponsor={newAdSponsor}
+            newAdTagline={newAdTagline}
+            newAdTitle={newAdTitle}
+            newAdUrl={newAdUrl}
+            savingAd={savingAd}
+            setNewAdColor={setNewAdColor}
+            setNewAdCta={setNewAdCta}
+            setNewAdSponsor={setNewAdSponsor}
+            setNewAdTagline={setNewAdTagline}
+            setNewAdTitle={setNewAdTitle}
+            setNewAdUrl={setNewAdUrl}
           />
-        ) : (
-          <>
-            {tab === "chat" && (
+    ),
+    approvals: (
+          <ApprovalsPanel />
+    ),
+    audit: (
+          <div className="audit-view">
+            <PageShell
+              title="System Audit & Memory Vault"
+              scopeNote="Live observability stream into router decisions, sub-agent executions, AI decision evaluations, and firm memory state."
+            >
+            <div>
+              <Button variant="secondary" size="sm" onClick={fetchAuditData} disabled={auditLoading}>
+                {auditLoading ? "Refreshing…" : "🔄 Refresh Data"}
+              </Button>
+            </div>
+
+            <div className="audit-grid">
+              {/* Memory Vault Panel */}
+              <PageSection>
+              <Card padding="none" className="audit-panel memory-panel">
+                <div className="panel-title">
+                  <span>🧠 Persistent Memory Vault</span>
+                  <Badge size="xs" tone="info">{memories.length} facts</Badge>
+                </div>
+                <div className="memory-list">
+                  {memories.length === 0 ? (
+                    <EmptyState icon="🧠" title="No memories saved yet" description='Try asking the assistant to "Remember that..."' />
+                  ) : (
+                    memories.map((m) => (
+                      <Card padding="none" key={m.key} className="memory-card-item">
+                        <div className="mem-header">
+                          <span className="mem-key">🔑 {m.key}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteMemory(m.key)}
+                            title="Delete memory"
+                          >
+                            ×
+                          </Button>
+                        </div>
+                        <div className="mem-value">{m.value}</div>
+                        <div className="mem-date">{new Date(m.updatedAt).toLocaleString()}</div>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </Card>
+              </PageSection>
+
+              {/* Audit Events Panel */}
+              <PageSection>
+              <Card padding="none" className="audit-panel events-panel">
+                <div className="panel-title">
+                  <span>📋 Real-time Event Log</span>
+                  <Badge size="xs" tone="info">{auditEvents.length} events</Badge>
+                </div>
+                <div className="events-stream">
+                  {auditEvents.length === 0 ? (
+                    <EmptyState icon="📋" title="No audit events logged yet" />
+                  ) : (
+                    auditEvents.map((e) => (
+                      <Card padding="none" key={e.id} className="event-item">
+                        <div className="event-header">
+                          <span className={`event-agent-tag ${e.agent}`}>{e.agent.toUpperCase()}</span>
+                          <span className="event-type">{e.type}</span>
+                          <span className="event-time">{new Date(e.created_at).toLocaleTimeString()}</span>
+                        </div>
+                        <pre className="event-payload">{JSON.stringify(e.payload, null, 2)}</pre>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </Card>
+              </PageSection>
+            </div>
+            </PageShell>
+          </div>
+    ),
+    chat: (
           <AgentChatTabContent
             key={chatNonce}
             user={user}
@@ -1262,9 +1130,16 @@ export function Chat({ user }: { user: User }) {
             pendingPrompt={pendingPrompt}
             onClearPendingPrompt={() => setPendingPrompt(null)}
           />
-        )}
+    ),
+    docs: (
+      <DocsAndReportsPanel />
+    ),
+    endpoints: (
+          <EndpointsTab
 
-        {tab === "nlq" && (
+          />
+    ),
+    nlq: (
           <div className="nlq-view">
             <PageShell
               title="Natural Language Records & Audit Analytics"
@@ -1555,85 +1430,25 @@ export function Chat({ user }: { user: User }) {
             )}
             </PageShell>
           </div>
-        )}
-
-        {tab === "audit" && (
-          <div className="audit-view">
-            <PageShell
-              title="System Audit & Memory Vault"
-              scopeNote="Live observability stream into router decisions, sub-agent executions, AI decision evaluations, and firm memory state."
-            >
-            <div>
-              <Button variant="secondary" size="sm" onClick={fetchAuditData} disabled={auditLoading}>
-                {auditLoading ? "Refreshing…" : "🔄 Refresh Data"}
-              </Button>
-            </div>
-
-            <div className="audit-grid">
-              {/* Memory Vault Panel */}
-              <PageSection>
-              <Card padding="none" className="audit-panel memory-panel">
-                <div className="panel-title">
-                  <span>🧠 Persistent Memory Vault</span>
-                  <Badge size="xs" tone="info">{memories.length} facts</Badge>
-                </div>
-                <div className="memory-list">
-                  {memories.length === 0 ? (
-                    <EmptyState icon="🧠" title="No memories saved yet" description='Try asking the assistant to "Remember that..."' />
-                  ) : (
-                    memories.map((m) => (
-                      <Card padding="none" key={m.key} className="memory-card-item">
-                        <div className="mem-header">
-                          <span className="mem-key">🔑 {m.key}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteMemory(m.key)}
-                            title="Delete memory"
-                          >
-                            ×
-                          </Button>
-                        </div>
-                        <div className="mem-value">{m.value}</div>
-                        <div className="mem-date">{new Date(m.updatedAt).toLocaleString()}</div>
-                      </Card>
-                    ))
-                  )}
-                </div>
-              </Card>
-              </PageSection>
-
-              {/* Audit Events Panel */}
-              <PageSection>
-              <Card padding="none" className="audit-panel events-panel">
-                <div className="panel-title">
-                  <span>📋 Real-time Event Log</span>
-                  <Badge size="xs" tone="info">{auditEvents.length} events</Badge>
-                </div>
-                <div className="events-stream">
-                  {auditEvents.length === 0 ? (
-                    <EmptyState icon="📋" title="No audit events logged yet" />
-                  ) : (
-                    auditEvents.map((e) => (
-                      <Card padding="none" key={e.id} className="event-item">
-                        <div className="event-header">
-                          <span className={`event-agent-tag ${e.agent}`}>{e.agent.toUpperCase()}</span>
-                          <span className="event-type">{e.type}</span>
-                          <span className="event-time">{new Date(e.created_at).toLocaleTimeString()}</span>
-                        </div>
-                        <pre className="event-payload">{JSON.stringify(e.payload, null, 2)}</pre>
-                      </Card>
-                    ))
-                  )}
-                </div>
-              </Card>
-              </PageSection>
-            </div>
-            </PageShell>
+    ),
+    "options-flows": (
+          <div className="options-flows-view" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <OptionsFlowsHub
+              user={user}
+              onSendPrompt={(prompt, sourceTab) => {
+                setPendingPrompt({ prompt, sourceTab: sourceTab || "Options Flows" });
+                handleSelectTab("chat");
+              }}
+              onTradeSymbol={(symbol) => {
+                handleSelectTab("order");
+              }}
+            />
           </div>
-        )}
-
-        {tab === "payments" && (
+    ),
+    "payment-assurance": (
+          <PaymentWorkflowAssurance userLogin={user.login} />
+    ),
+    payments: (
           <div className="payments-view">
             <PageShell
               title="Payments & Decentralized Identifiers (DID)"
@@ -1948,9 +1763,8 @@ export function Chat({ user }: { user: User }) {
             )}
             </PageShell>
           </div>
-        )}
-
-        {tab === "referrals" && (
+    ),
+    referrals: (
           <ReferralsTab
             activeShareRefId={activeShareRefId}
             adBannerConfig={adBannerConfig}
@@ -1987,34 +1801,22 @@ export function Chat({ user }: { user: User }) {
             setNewRefUrl={setNewRefUrl}
             user={user}
           />
-        )}
-
-        {tab === "ads" && (
-          <AdsTab
-            adFormError={adFormError}
-            adFormSuccess={adFormSuccess}
-            ads={ads}
-            adsLoading={adsLoading}
-            fetchAds={fetchAds}
-            handleAdClick={handleAdClick}
-            handleCreateAd={handleCreateAd}
-            newAdColor={newAdColor}
-            newAdCta={newAdCta}
-            newAdSponsor={newAdSponsor}
-            newAdTagline={newAdTagline}
-            newAdTitle={newAdTitle}
-            newAdUrl={newAdUrl}
-            savingAd={savingAd}
-            setNewAdColor={setNewAdColor}
-            setNewAdCta={setNewAdCta}
-            setNewAdSponsor={setNewAdSponsor}
-            setNewAdTagline={setNewAdTagline}
-            setNewAdTitle={setNewAdTitle}
-            setNewAdUrl={setNewAdUrl}
-          />
-        )}
-
-        {tab === "revenue" && (
+    ),
+    research: (
+          <div className="research-view">
+            <MarketDataResearchHub
+              user={user}
+              onSendPrompt={(prompt, sourceTab) => {
+                setPendingPrompt({ prompt, sourceTab: sourceTab || "Yahoo Finance Research" });
+                handleSelectTab("chat");
+              }}
+              onTradeSymbol={(symbol) => {
+                handleSelectTab("order");
+              }}
+            />
+          </div>
+    ),
+    revenue: (
           <RevenueTab
             adBannerConfig={adBannerConfig}
             ads={ads}
@@ -2073,18 +1875,272 @@ export function Chat({ user }: { user: User }) {
             setTab={handleSelectTab}
             tables={tables}
           />
-        )}
-
-        {tab === "social" && (
+    ),
+    social: (
           <SocialPostingPanel />
+    ),
+    workflows: (
+          <div className="workflows-view" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <WorkflowsHub
+              onNavigateTab={(targetTab) => {
+                handleSelectTab(targetTab as any);
+                setTbdMenuOpen(false);
+              }}
+              onSendPrompt={(prompt, sourceTab) => {
+                setPendingPrompt({ prompt, sourceTab: sourceTab || "Platform Workflows" });
+                handleSelectTab("chat");
+              }}
+            />
+          </div>
+    ),
+  };
+
+  return (
+    <div className={`app-container ${navLayout === "left" ? "layout-sidebar" : "layout-top"} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      {/* 1. Left Sidebar Navigation (When layout === 'left') */}
+      {navLayout === "left" && (
+        <NavigationMenu
+          layout="left"
+          onToggleLayout={handleToggleNavLayout}
+          activeTab={tab}
+          onSelectTab={(newTab) => {
+            handleSelectTab(newTab);
+            setTbdMenuOpen(false);
+          }}
+          alertBadgeCount={unreadAlerts}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={handleToggleSidebarCollapsed}
+          user={user}
+          agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
+          accountMode={accountMode}
+          onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+          theme={theme}
+          onCycleTheme={handleCycleTheme}
+          onAskAgent={handleAskAgent}
+          visibleTabs={visibleTabs}
+        />
+      )}
+
+      {/* Main Content Layout Container */}
+      <div className={navLayout === "left" ? "app-main-layout" : "app-top-layout"}>
+        {/* Sub-Header for Left Sidebar mode OR Full Header for Top Nav mode */}
+        {navLayout === "left" ? (
+          <header className="app-sub-header">
+            <div className="sub-header-left">
+              <div className="sub-header-brand-crumbs">
+                <span className="crumb-module">
+                  {getCrumb(tab)}
+                </span>
+                <span className="crumb-divider">/</span>
+                <span className="crumb-subtitle">
+                  {accountMode === "paper" ? "Paper" : "Live Execution"}
+                </span>
+              </div>
+              <MarketStatusPill variant="sub-header" />
+            </div>
+
+            <div className="sub-header-right">
+              {/* Global Stock Search Bar */}
+              <StockSearchBar
+                onSelectTab={(newTab) => {
+                  handleSelectTab(newTab);
+                  setTbdMenuOpen(false);
+                }}
+                onAskAgent={handleAskAgent}
+              />
+
+              {/* Universal Top Bar Refresh Button */}
+              <Button
+                variant="ghost"
+                onClick={handleGlobalRefresh}
+                disabled={isRefreshing}
+                title={`Refresh active workspace & market data feeds${lastRefreshedAt ? ` (last refreshed: ${lastRefreshedAt})` : ""}`}
+                aria-label="Refresh workspace data"
+              >
+                <span className={`nav-refresh-icon ${isRefreshing ? "spin" : ""}`}>↻</span>
+                <span className="nav-refresh-text">Refresh</span>
+                {lastRefreshedAt && <span className="nav-refresh-time">{lastRefreshedAt}</span>}
+              </Button>
+
+              {/* Trade Button (Orange/Amber pill matching reference) */}
+              <Button
+                variant="trade"
+                onClick={() => {
+                  handleSelectTab("order");
+                  setTbdMenuOpen(false);
+                }}
+                title="Quick Trade & Fast Order Ticket"
+              >
+                Trade
+              </Button>
+
+              {/* Unified Settings & Broker Menu (Icon-only with hover) */}
+              <SettingsMenu
+                userLogin={user.login}
+                userName={user.name}
+                userAvatar={user.avatar}
+                theme={theme}
+                onCycleTheme={handleCycleTheme}
+                onSelectTheme={handleSelectTheme}
+                currentLayout={navLayout}
+                onToggleLayout={handleToggleNavLayout}
+                accountMode={accountMode}
+                onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+                visibleTabs={visibleTabs}
+                onToggleTabVisibility={handleToggleTabVisibility}
+                onSetVisibleTabs={handleSetVisibleTabs}
+                autoRefreshEnabled={autoRefreshEnabled}
+                autoRefreshInterval={autoRefreshInterval}
+                onToggleAutoRefresh={handleToggleAutoRefresh}
+                reportDispatchHitl={reportDispatchHitl}
+                onToggleReportDispatchHitl={handleToggleReportDispatchHitl}
+                pendingReportConfirmations={pendingReportConfirmations}
+                onRefreshReportConfirmations={refreshPendingReportConfirmations}
+                onDecideReportConfirmation={handleDecideReportConfirmation}
+                adBannerConfig={adBannerConfig}
+                onUpdateAdBannerConfig={handleUpdateAdBannerConfig}
+                onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
+                {...(brokerProps || {})}
+              />
+
+              {/* User Sign Out — Top Right Corner Fixed Icon with Hover Tooltip */}
+              {user && (
+                <a
+                  href="/auth/logout"
+                  className="top-nav-logout-btn icon-only-logout"
+                  title={`Sign Out (@${user.login} · ${user.name})`}
+                  aria-label="Sign out"
+                >
+                  <span className="top-nav-logout-icon"><NavIcons.Logout /></span>
+                </a>
+              )}
+            </div>
+          </header>
+        ) : (
+          <header className="app-top-header nextgentp-top-header app-header">
+            <NavigationMenu
+              layout="top"
+              alertBadgeCount={unreadAlerts}
+              onToggleLayout={handleToggleNavLayout}
+              activeTab={tab}
+              onSelectTab={(newTab) => {
+                handleSelectTab(newTab);
+                setTbdMenuOpen(false);
+              }}
+              user={user}
+              agentStatus={{ dotClass: statusDotClass, label: statusLabel }}
+              accountMode={accountMode}
+              onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+              onRefresh={handleGlobalRefresh}
+              isRefreshing={isRefreshing}
+              lastRefreshedAt={lastRefreshedAt}
+              headerChildren={
+                <SettingsMenu
+                  userLogin={user.login}
+                  userName={user.name}
+                  userAvatar={user.avatar}
+                  theme={theme}
+                  onCycleTheme={handleCycleTheme}
+                onSelectTheme={handleSelectTheme}
+                  currentLayout={navLayout}
+                  onToggleLayout={handleToggleNavLayout}
+                  accountMode={accountMode}
+                  onToggleAccountMode={() => setAccountMode((m) => (m === "paper" ? "live" : "paper"))}
+                  visibleTabs={visibleTabs}
+                  onToggleTabVisibility={handleToggleTabVisibility}
+                  onSetVisibleTabs={handleSetVisibleTabs}
+                  autoRefreshEnabled={autoRefreshEnabled}
+                  autoRefreshInterval={autoRefreshInterval}
+                  onToggleAutoRefresh={handleToggleAutoRefresh}
+                reportDispatchHitl={reportDispatchHitl}
+                onToggleReportDispatchHitl={handleToggleReportDispatchHitl}
+                pendingReportConfirmations={pendingReportConfirmations}
+                onRefreshReportConfirmations={refreshPendingReportConfirmations}
+                onDecideReportConfirmation={handleDecideReportConfirmation}
+                  adBannerConfig={adBannerConfig}
+                  onUpdateAdBannerConfig={handleUpdateAdBannerConfig}
+                  onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
+                  {...(brokerProps || {})}
+                />
+              }
+              theme={theme}
+              onCycleTheme={handleCycleTheme}
+              onAskAgent={handleAskAgent}
+              visibleTabs={visibleTabs}
+            />
+          </header>
         )}
 
-        {/* API & Model Context Protocol (MCP) Endpoints Explorer */}
-        {tab === "endpoints" && (
-          <EndpointsTab
+      {/* Real-Time Market Ticker Tape (Streaming Live Benchmark Quotes) */}
+      <MarketTickerTape
+        onSelectTab={(newTab) => {
+          handleSelectTab(newTab);
+          setTbdMenuOpen(false);
+        }}
+        onSelectSymbol={(sym) => {
+          handleAskAgent(`Quote and analyze ${sym}`);
+        }}
+      />
 
+      {/* External Ad Network Monetization Strip (Configurable via Settings) */}
+      {adBannerConfig.enabled && adBannerConfig.showAdNetworkStrip && Boolean(adBannerConfig.tabVisibility[tab]) && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
+        <div className="external-ad-banner-strip">
+          <div className="ext-ad-badge-group">
+            <span className="ext-network-badge">
+              {externalAds[activeExtAdIndex].network === "google" || externalAds[activeExtAdIndex].network === "adsense"
+                ? "🌐 Google Ads"
+                : externalAds[activeExtAdIndex].network === "ethicalads"
+                ? "🛡️ EthicalAds"
+                : externalAds[activeExtAdIndex].network === "carbon"
+                ? "⚡ Carbon Ads"
+                : "⭐ Direct Partner"}
+            </span>
+            <span className="ext-placement-badge">
+              {externalAds[activeExtAdIndex].placement.replace("_", " ").toUpperCase()}
+            </span>
+          </div>
+
+          <div className="ext-ad-content">
+            <span className="ext-ad-title">{externalAds[activeExtAdIndex].title}</span>
+            <span className="ext-ad-divider">—</span>
+            <span className="ext-ad-tagline">{externalAds[activeExtAdIndex].tagline}</span>
+          </div>
+
+          <div className="ext-ad-earnings-pill" title="Live platform revenue generated by this placement">
+            💰 CPM: ${externalAds[activeExtAdIndex].cpmRate.toFixed(2)} | CPC: ${externalAds[activeExtAdIndex].cpcRate.toFixed(2)} | Earned: ${externalAds[activeExtAdIndex].earnings.toFixed(2)}
+          </div>
+
+          <div className="ext-ad-actions">
+            <Button
+              variant="primary"
+              onClick={() => handleExternalAdClick(externalAds[activeExtAdIndex])}
+            >
+              {externalAds[activeExtAdIndex].ctaText}
+            </Button>
+            {externalAds.length > 1 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                title="View next ad in rotation"
+                onClick={() => setActiveExtAdIndex((prev) => (prev + 1) % externalAds.length)}
+              >
+                ↻ Next ({activeExtAdIndex + 1}/{externalAds.length})
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Tab Content */}
+      <main className="tab-viewport">
+        {!isTabFeatureEnabled(tab) ? (
+          <FeatureDisabledNotice
+            featureName={TAB_TO_FEATURE_MAP[tab]}
+            tabLabel={tab}
           />
-        )}
+        ) : (
+          <>
+            {TAB_CONTENT[tab] ?? null}
 
         {/* E*TRADE Agentic Trading Hub */}
         {/* Kept mounted (hidden) so in-flight and finished requests survive tab switches */}
@@ -2105,59 +2161,6 @@ export function Chat({ user }: { user: User }) {
           />
           </ErrorBoundary>
         </div>
-
-        {tab === "research" && (
-          <div className="research-view">
-            <MarketDataResearchHub
-              user={user}
-              onSendPrompt={(prompt, sourceTab) => {
-                setPendingPrompt({ prompt, sourceTab: sourceTab || "Yahoo Finance Research" });
-                handleSelectTab("chat");
-              }}
-              onTradeSymbol={(symbol) => {
-                handleSelectTab("order");
-              }}
-            />
-          </div>
-        )}
-
-        {tab === "options-flows" && (
-          <div className="options-flows-view" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <OptionsFlowsHub
-              user={user}
-              onSendPrompt={(prompt, sourceTab) => {
-                setPendingPrompt({ prompt, sourceTab: sourceTab || "Options Flows" });
-                handleSelectTab("chat");
-              }}
-              onTradeSymbol={(symbol) => {
-                handleSelectTab("order");
-              }}
-            />
-          </div>
-        )}
-
-        {tab === "workflows" && (
-          <div className="workflows-view" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <WorkflowsHub
-              onNavigateTab={(targetTab) => {
-                handleSelectTab(targetTab as any);
-                setTbdMenuOpen(false);
-              }}
-              onSendPrompt={(prompt, sourceTab) => {
-                setPendingPrompt({ prompt, sourceTab: sourceTab || "Platform Workflows" });
-                handleSelectTab("chat");
-              }}
-            />
-          </div>
-        )}
-
-        {tab === "approvals" && (
-          <ApprovalsPanel />
-        )}
-
-        {tab === "payment-assurance" && (
-          <PaymentWorkflowAssurance userLogin={user.login} />
-        )}
 
           </>
         )}

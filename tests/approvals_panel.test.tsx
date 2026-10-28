@@ -140,7 +140,7 @@ describe("Issue #1705 — Approvals surface composes the existing queues", () =>
     expect(nav).toContain("DEFAULT_VISIBLE_NAV_TABS");
     const chat = readFileSync("src/client/Chat.tsx", "utf8");
     expect(chat).toContain('from "./ApprovalsPanel"');
-    expect(chat).toContain('tab === "approvals"');
+    expect(chat).toContain('approvals: (');
     expect(chat).toContain("<ApprovalsPanel />");
   });
 

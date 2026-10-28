@@ -1,25 +1,14 @@
 import type { TradingSubTab } from "../ETradeTradingHub";
+import { ROUTES } from "../routes";
 export interface User {
   login: string;
   name: string;
   avatar: string;
 }
 
-export const TRADING_TABS = new Set<string>([
-  "trading",
-  "autopilot",
-  "order",
-  "orders",
-  "portfolio",
-  "ledger",
-  "screeners",
-  "scanner",
-  "reports",
-  "schedules",
-  "options",
-  "voice",
-  "omnichannel",
-]);
+export const TRADING_TABS = new Set<string>(
+  ROUTES.filter((r) => "retain" in r && r.retain).map((r) => r.id),
+);
 
 export function isTradingTab(targetTab: string): boolean {
   return TRADING_TABS.has(targetTab);
