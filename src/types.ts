@@ -2223,6 +2223,8 @@ export interface ShardChainContext {
     targetDate: string;
     riskProfile: "conservative" | "balanced" | "aggressive";
     allowedStrategies?: string[];
+    /** Issue #2091: scheduled chains judge every wanted strategy. */
+    evaluateAllStrategies?: boolean;
     eventCalendarBySymbol?: Record<string, unknown>;
   };
 }
