@@ -51,6 +51,7 @@ export { Tabs, TabPanel, type TabsProps, type TabOption, type TabPanelProps } fr
 export { TextInput, type TextInputProps } from "./TextInput";
 export { Select, type SelectProps } from "./Select";
 export { Checkbox, type CheckboxProps } from "./Checkbox";
+export { FieldShell, type FieldShellProps } from "./Field";
 export { Modal, type ModalProps } from "./Modal";
 export { Table, type TableProps, type TableColumn } from "./Table";
 export { Skeleton, type SkeletonProps } from "./Skeleton";
