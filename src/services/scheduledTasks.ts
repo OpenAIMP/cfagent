@@ -521,7 +521,7 @@ export class ScheduledTasksService {
         // record-only (chainReport=false); their delivery stays on
         // the #223 direct path.
         await this.followupScheduler(
-          screenerOutcomeFromEvent(event),
+          screenerOutcomeFromEvent(event, this.env.APP_BASE_URL),
           this.userLogin,
           Boolean((event as { stageChain?: unknown }).stageChain) || event.type.startsWith("screener."),
         );

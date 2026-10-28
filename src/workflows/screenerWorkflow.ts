@@ -210,6 +210,7 @@ function buildDeps(env: Env, command: WorkflowJobCommand): ScreenerWorkflowDeps 
         const outcome = screenerOutcomeFromRunResult(
           "stock",
           payload as Record<string, unknown>,
+          env.APP_BASE_URL,
         );
         // Deterministic per job: a retried deliver step
         // converges in the outcome sink instead of forking

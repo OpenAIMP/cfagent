@@ -211,7 +211,7 @@ export async function executeOptionsScreen(args: {
         csvStatus: optionsCsvStatus,
         csvError: optionsCsvError,
         summary: `${result.totalUnderlyingsScanned} underlyings scanned · ${result.totalContractsEvaluated} contracts evaluated · ${result.matchedCount} matched.`,
-      }),
+      }, ctx.env.APP_BASE_URL),
       userLogin,
     );
   } else if (shouldNotifySlack) {

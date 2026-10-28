@@ -45,7 +45,7 @@ async function publishOrBridge(
     : result;
   if (ctx.scheduleScreenerFollowups) {
     await ctx.scheduleScreenerFollowups(
-      screenerOutcomeFromRunResult("stock", enriched as Record<string, unknown>),
+      screenerOutcomeFromRunResult("stock", enriched as Record<string, unknown>, ctx.env.APP_BASE_URL),
       userLogin,
     );
     return;
