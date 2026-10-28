@@ -22,6 +22,8 @@ import {
   canonicalResearchEmailBody,
   canonicalResearchWebhookBody,
 } from "../../services/scheduledReports";
+import { indexCanonicalReport } from "../../services/reportSemanticIndex";
+import { unauthenticatedResponse } from "./routeIdentity";
 
 /** The subset of OrchestratorAgent surface the reports/HITL handlers need. */
 export interface ReportsRouteContext {
@@ -29,8 +31,11 @@ export interface ReportsRouteContext {
   /** Worker bindings for the semantic-search handler (#2120 slice 0):
    *  AI + Vectorize arrive via the orchestrator mount ctx. Optional so
    *  older callers without bindings keep working; the handler falls
-   *  back to lexical-only when they are absent. */
-  env?: { AI?: any; VECTOR_MEMORY?: any };
+   *  back to lexical-only when they are absent.
+   *  Issue #1169 S4-1: REPORTS_BUCKET joins them (type-only widening)
+   *  so the index-backfill hook can resolve R2 bodies for WithR2 rows;
+   *  the orchestrator mount already passes the full env. */
+  env?: { AI?: any; VECTOR_MEMORY?: any; REPORTS_BUCKET?: any };
   /** ScreenerAgent accessor (owner: OrchestratorAgent.getScreenerAgent) —
    *  the #1057 Runs merge reads the agent's latest/history feed via it. */
   getScreenerAgent(userLogin?: string): ScreenerAgent;
@@ -550,6 +555,62 @@ export async function handleReportsRoutes(
     }
     ctx.audit("research_report.webhook_dispatched", "trading", { status: result.status, sheets: body.sheets.length, reportId: stored.reportId });
     return Response.json({ success: true, status: result.status });
+  }
+
+  // Issue #1169 S4-1: one-off semantic-index backfill for canonical
+  // rows stored before their write-time hook existed, or written by
+  // call sites without bindings at call time (optionsServeRecord's
+  // recordOptionsOrchestratorRun, screeningRuntime, bundle rows).
+  // Session-gated: the x-user-login header is set by server.ts from
+  // the verified session (same gate as the knowledge-corpus route).
+  // Paginated ({limit, offset}); re-runnable — re-upserts the same
+  // `report:<id>` vector ids, so no duplicates. Skips `retention`.
+  // NOT /api/reports/*, deliberately: the /api/reports/<id> detail
+  // regex would swallow a same-shaped path (slice 0's 404-first fix).
+  if (path.endsWith("/trading/reports/index-backfill") && request.method === "POST") {
+    const login = request.headers.get("x-user-login") || "";
+    if (!login) return unauthenticatedResponse();
+    const body = (await request.json().catch(() => ({}))) as {
+      limit?: number;
+      offset?: number;
+    };
+    const limit = Math.min(500, Math.max(1, Math.floor(Number(body.limit) || 100)));
+    const offset = Math.max(0, Math.floor(Number(body.offset) || 0));
+    try {
+      const sql = ctx.ensureTables();
+      const rows = Array.from(
+        sql.exec(
+          `SELECT id, title, source, summary, body, body_r2_key FROM mas_reports ORDER BY created_at ASC LIMIT ? OFFSET ?`,
+          limit,
+          offset
+        )
+      ) as Array<Record<string, unknown>>;
+      let upserted = 0;
+      let skippedRetention = 0;
+      for (const row of rows) {
+        const ok = await indexCanonicalReport(ctx.env, {
+          reportId: typeof row.id === "string" ? row.id : "",
+          title: typeof row.title === "string" ? row.title : "",
+          source: typeof row.source === "string" ? row.source : "",
+          summary: typeof row.summary === "string" ? row.summary : "",
+          body: typeof row.body === "string" ? row.body : "",
+          bodyR2Key: typeof row.body_r2_key === "string" ? row.body_r2_key : null,
+        });
+        if (row.source === "retention") skippedRetention += 1;
+        else if (ok) upserted += 1;
+      }
+      return Response.json({
+        upserted,
+        skippedRetention,
+        rows: rows.length,
+        nextOffset: rows.length < limit ? null : offset + rows.length,
+      });
+    } catch (err) {
+      return Response.json(
+        { error: `Index backfill failed: ${err instanceof Error ? err.message : String(err)}` },
+        { status: 500 }
+      );
+    }
   }
 
   // Issue #341: watchlist & rejected-ideas browser — the §8 outputs of

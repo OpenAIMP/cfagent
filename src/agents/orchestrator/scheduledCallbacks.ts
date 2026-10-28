@@ -233,7 +233,10 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
         },
         createdAt: res.timestamp,
         userLogin,
-      });
+      },
+      // Issue #1169 S4-1: thread ctx.env so the seam indexes this
+      // screener row at write time.
+      ctx.env);
       }
     } catch {
       // Non-critical: persistence failure must not break the screen.

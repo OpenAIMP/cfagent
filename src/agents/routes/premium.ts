@@ -320,7 +320,10 @@ export async function handlePremiumRoutes(
             body: { filter, result, failed },
             createdAt: timestamp,
             userLogin,
-          });
+          },
+          // Issue #1169 S4-1: thread ctx.env so the seam indexes this
+          // options_scanner row at write time.
+          ctx.env);
         } catch {
           // Non-critical: persistence failure must not break the scan.
         }
@@ -415,7 +418,10 @@ export async function handlePremiumRoutes(
             body: report ?? {},
             createdAt: timestamp,
             userLogin,
-          });
+          },
+          // Issue #1169 S4-1: thread ctx.env so the seam indexes this
+          // research_report row at write time.
+          ctx.env);
         } catch {
           // Non-critical: persistence failure must not break the report.
         }

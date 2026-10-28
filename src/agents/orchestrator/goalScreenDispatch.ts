@@ -125,7 +125,10 @@ export async function persistWorkflowGoalScreenReport(
     },
     createdAt: result.completedAt,
     userLogin,
-  });
+  },
+  // Issue #1169 S4-1: thread the dispatch env so the seam indexes this
+  // goal_screen row at write time (ctx.env is unknown-typed here).
+  ctx.env as { AI?: any; VECTOR_MEMORY?: any });
   if (!stored) {
     throw new Error(
       `Goal screen report could not be stored for run goal-screen:${envelope.taskId} (canonical store returned null).`,

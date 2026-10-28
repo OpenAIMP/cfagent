@@ -156,33 +156,25 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
       report = fallback.report;
     }
     const sql = ctx.ensureTables();
-    const stored = storeReportAtGeneration(sql, {
-      runId: report.runId,
-      generationId: report.generationId,
-      title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
-      source: "options_research",
-      summary: report.summary,
-      userLogin: login,
-      body: report as unknown as Record<string, unknown>,
-    });
-    // #337: index the canonical report for semantic search (best-effort).
-    if (stored?.reportId) {
-      try {
-        const { indexReport } = await import("../../services/reportSemanticIndex");
-        const ideaText = report.ideas
-          .slice(0, 5)
-          .map((i) => `${i.symbol} ${i.outlook} ${i.structure}: ${i.thesis}`)
-          .join("\n");
-        void indexReport(ctx.env, {
-          reportId: stored.reportId,
-          title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
-          source: "options_research",
-          text: `${report.summary}\n${ideaText}`,
-        });
-      } catch {
-        // Indexing never fails the run.
-      }
-    }
+    // Issue #1169 S4-1: the seam now indexes the canonical report itself
+    // (same text the explicit #337 call produced — summary + first 5
+    // ideas, moved verbatim into the seam builder), so the explicit call
+    // is removed rather than duplicated (two writers on one vector id
+    // would make last-write-wins nondeterministic). Indexing stays
+    // best-effort: the seam hook never fails the run.
+    const stored = storeReportAtGeneration(
+      sql,
+      {
+        runId: report.runId,
+        generationId: report.generationId,
+        title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
+        source: "options_research",
+        summary: report.summary,
+        userLogin: login,
+        body: report as unknown as Record<string, unknown>,
+      },
+      ctx.env as { AI?: any; VECTOR_MEMORY?: any }
+    );
     // #335: render the run PDF from the canonical stored report (best-effort;
     // the PDF is a delivery artifact, never a second copy).
     // #680: PDF generation is owned by ReportAssetAgent (single owner for

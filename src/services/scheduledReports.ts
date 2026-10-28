@@ -43,6 +43,10 @@
 
 import type { SqlStorage } from "../orm";
 import type { ScheduledReportRecord } from "../types";
+import {
+  indexCanonicalReport,
+  type IndexEnv,
+} from "./reportSemanticIndex";
 
 export const SCHEDULED_REPORTS_TABLE = "mas_reports";
 /** Body payload cap — keeps every row far under the SQLite row limit. */
@@ -225,6 +229,43 @@ function existingReportIdForGeneration(
   return existing[0] ? String(existing[0].id ?? "") : "";
 }
 
+/**
+ * Issue #1169 S4-1: the full row behind an existing report id, for the
+ * redelivery index hook (a redelivery re-upserts the same vector id, so
+ * the hook needs the stored title/source/summary/body, not the caller's
+ * possibly-partial input). Null when the row cannot be loaded.
+ */
+function existingReportRowForId(
+  sql: SqlStorage,
+  id: string
+): {
+  title: string;
+  source: string;
+  summary: string;
+  body: string;
+  bodyR2Key: string | null;
+} | null {
+  try {
+    const rows = Array.from(
+      sql.exec(
+        `SELECT title, source, summary, body, body_r2_key FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
+        id
+      )
+    ) as Array<Record<string, unknown>>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      title: typeof row.title === "string" ? row.title : "",
+      source: typeof row.source === "string" ? row.source : "",
+      summary: typeof row.summary === "string" ? row.summary : "",
+      body: typeof row.body === "string" ? row.body : "",
+      bodyR2Key: typeof row.body_r2_key === "string" ? row.body_r2_key : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function generationIdOf(input: ScheduledReportInput): string | null {
   return typeof input.generationId === "string" && input.generationId
     ? input.generationId
@@ -269,9 +310,18 @@ function insertScheduledReportRow(
   );
 }
 
+/**
+ * Issue #1169 S4-1: the optional env a caller passes when it has the
+ * AI/Vectorize bindings — the seam then fires the index hook after a
+ * successful store (fresh or redelivery). Callers without bindings omit
+ * it; the hook is a silent no-op and those rows are covered by the
+ * backfill route instead. The seam stays SYNC: the hook is
+ * fire-and-forget (`void`), mirroring researchPublish's call.
+ */
 export function storeReportAtGeneration(
   sql: SqlStorage,
-  input: ScheduledReportInput
+  input: ScheduledReportInput,
+  env?: IndexEnv
 ): CanonicalStoreResult | null {
   try {
     if (!input || typeof input.runId !== "string" || !input.runId) return null;
@@ -280,10 +330,31 @@ export function storeReportAtGeneration(
     const generationId = generationIdOf(input);
     if (generationId) {
       const id = existingReportIdForGeneration(sql, generationId, owner);
-      if (id) return { reportId: id, created: false };
+      if (id) {
+        const row = existingReportRowForId(sql, id);
+        if (row) {
+          void indexCanonicalReport(env, {
+            reportId: id,
+            title: row.title,
+            source: row.source,
+            summary: row.summary,
+            body: row.body,
+            bodyR2Key: row.bodyR2Key,
+          });
+        }
+        return { reportId: id, created: false };
+      }
     }
     const rec = toScheduledReportRecord(input);
     insertScheduledReportRow(sql, rec, generationId, owner, null);
+    void indexCanonicalReport(env, {
+      reportId: rec.id,
+      title: rec.title,
+      source: rec.source,
+      summary: rec.summary,
+      body: rec.body,
+      bodyR2Key: null,
+    });
     return { reportId: rec.id, created: true };
   } catch (err) {
     // Issue #876: never silent. The caller (#835's null check) can only
@@ -308,7 +379,7 @@ export function storeReportAtGeneration(
  */
 export async function storeReportAtGenerationWithR2(
   sql: SqlStorage,
-  env: { REPORTS_BUCKET?: R2Bucket },
+  env: { REPORTS_BUCKET?: R2Bucket; AI?: any; VECTOR_MEMORY?: any },
   input: ScheduledReportInput
 ): Promise<CanonicalStoreResult | null> {
   try {
@@ -318,7 +389,20 @@ export async function storeReportAtGenerationWithR2(
     const generationId = generationIdOf(input);
     if (generationId) {
       const id = existingReportIdForGeneration(sql, generationId, owner);
-      if (id) return { reportId: id, created: false };
+      if (id) {
+        const row = existingReportRowForId(sql, id);
+        if (row) {
+          void indexCanonicalReport(env, {
+            reportId: id,
+            title: row.title,
+            source: row.source,
+            summary: row.summary,
+            body: row.body,
+            bodyR2Key: row.bodyR2Key,
+          });
+        }
+        return { reportId: id, created: false };
+      }
     }
     const rec = toScheduledReportRecord(input);
     let bodyR2Key: string | null = null;
@@ -338,6 +422,14 @@ export async function storeReportAtGenerationWithR2(
       }
     }
     insertScheduledReportRow(sql, rec, generationId, owner, bodyR2Key);
+    void indexCanonicalReport(env, {
+      reportId: rec.id,
+      title: rec.title,
+      source: rec.source,
+      summary: rec.summary,
+      body: bodyR2Key ? "" : rec.body,
+      bodyR2Key,
+    });
     return { reportId: rec.id, created: true };
   } catch (err) {
     console.error(
