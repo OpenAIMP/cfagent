@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button, TextInput } from "../../components/ui";
+import { buildJson, downloadTextFile } from "../../runExport";
 import {
   MCP_TOOLS_CATALOG,
   MCP_RESOURCES_CATALOG,
@@ -83,6 +84,11 @@ export function ToolSearchTab({ pendingQuery, onHealth, onSearch }: SearchTabPro
           Search
         </Button>
       </form>
+      {/* Issue #1169 S4-4: no backend response exists here — the
+          filtered list itself is the tab's native result shape. */}
+      <Button type="button" onClick={() => downloadTextFile("tool-search-results.json", buildJson(results), "application/json")} disabled={!searched} title="Download current results as JSON">
+        Download results (JSON)
+      </Button>
       {searched && (
         <div>
           <p>{results.length} results</p>
