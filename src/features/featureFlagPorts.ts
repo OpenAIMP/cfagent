@@ -20,6 +20,8 @@ export type FeatureFlag =
   | "nlq"
   | "payments"
   | "schedules"
+  // Issue #1997: goal-screen workflow path. Default off (fail-closed).
+  | "goal_workflow"
   | "enrichment_alpaca";
 
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
@@ -36,6 +38,9 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   // means Yahoo enrichment is active; flipping this flag on selects
   // Alpaca-primary-with-Yahoo-fallback with no code change.
   "enrichment_alpaca",
+  // Issue #1997: goal-screen workflow path. Default off (fail-closed);
+  // flag OFF = the direct engine, flag ON = the staged goal flow.
+  "goal_workflow",
 ] as const;
 
 const KNOWN_FLAGS = new Set<string>(ALL_FEATURE_FLAGS);

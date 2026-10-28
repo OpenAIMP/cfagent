@@ -185,8 +185,12 @@ export interface ScreenerWorkflowDeps {
    * runner provides none) — the flow never inspects it.
    * Keyed by screener:<timestamp>, so a retried store step
    * overwrites the same canonical row (idempotent).
+   * Issue #1997: a door MAY return the canonical report id
+   * (the goal door does); the flow surfaces it on the shard
+   * row so the panel can fetch the stored run by id. The
+   * market door returns void (no id to surface).
    */
-  storeReport: (payload: unknown, userLogin: string) => Promise<void>;
+  storeReport: (payload: unknown, userLogin: string) => Promise<string | void>;
   /**
    * Tracked-pipeline delivery (the route's deliver decision,
    * via the owner's door). Same opaque payload. The door
@@ -554,9 +558,11 @@ export async function runShardFlow(
   const payload = result.full ?? result;
   let stored = false;
   let storeError: string | undefined;
+  let reportId: string | undefined;
   await step.do("store-shard", async () => {
     try {
-      await deps.storeReport(payload, command.userLogin);
+      const storedId = await deps.storeReport(payload, command.userLogin);
+      if (typeof storedId === "string") reportId = storedId;
       stored = true;
     } catch (err) {
       storeError = err instanceof Error ? err.message : String(err);
@@ -579,6 +585,7 @@ export async function runShardFlow(
     ...summary,
     stored,
     delivered,
+    ...(reportId ? { reportId } : {}),
     ...(storeError ? { storeError } : {}),
     ...(deliverError ? { deliverError } : {}),
   };

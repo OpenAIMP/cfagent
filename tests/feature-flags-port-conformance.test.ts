@@ -111,6 +111,19 @@ describe("FeatureFlagPort Conformance Suite (Issue #1815)", () => {
       expect(await port.isEnabled("screener")).toBe(false);
       expect(await port.isEnabled("random_flag")).toBe(false);
     });
+
+    it("keeps goal_workflow strictly closed in a bare env (issue #1997)", async () => {
+      // The bare-env default-TRUE rule ("baseline routes do not
+      // fail closed prematurely") must never silently enable a
+      // new execution path: goal_workflow is default-OFF and
+      // needs explicit enablement (bulk JSON or direct var).
+      const bare = new EnvFeatureFlagAdapter({});
+      expect(await bare.isEnabled("goal_workflow")).toBe(false);
+      const enabled = new EnvFeatureFlagAdapter({
+        FEATURE_FLAGS: JSON.stringify({ goal_workflow: true }),
+      });
+      expect(await enabled.isEnabled("goal_workflow")).toBe(true);
+    });
   });
 
   describe("CfFlagshipAdapter", () => {

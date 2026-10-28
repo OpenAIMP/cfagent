@@ -1259,7 +1259,17 @@ export class ScheduledTasksService {
       // keeps direct behavior byte-identical. A null start
       // (no workflow binding, no projection store, start
       // error) falls through to the direct path unchanged.
-      if (!chainMode) {
+      // Issue #1997: the workflow-first path above is
+      // flag-gated. Flag OFF → the block is skipped and the
+      // run goes direct (scheduled runs return to direct by
+      // default until the flag is enabled). Flag ON → the
+      // workflow is REQUIRED: a null start throws, so the
+      // tick records a failure (run_failed audit) instead of
+      // silently running direct.
+      const goalWorkflowOn = await (
+        await import("../features/createFeatureFlagPort")
+      ).createFeatureFlagPort(this.env).isEnabled("goal_workflow");
+      if (!chainMode && goalWorkflowOn) {
         const { buildGoalScreenCommand, tryStartGoalScreenWorkflow } =
           await import("./goalScreenWorkflowSubmission");
         const { resolveIaaaTenant } = await import("../security/iaaaGithubEndToEnd");
@@ -1300,6 +1310,11 @@ export class ScheduledTasksService {
               ...(providerFallback ? { providerFallback } : {}),
             },
           };
+        }
+        if (!handle) {
+          throw new Error(
+            "goal_workflow_start_failed: goal workflow could not be started in this environment.",
+          );
         }
       }
       const out = await runtime.executeGoalScreenRun({

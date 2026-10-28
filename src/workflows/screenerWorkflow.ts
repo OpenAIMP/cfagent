@@ -176,7 +176,11 @@ function buildDeps(env: Env, command: WorkflowJobCommand): ScreenerWorkflowDeps 
     // to the Runs read surface.
     storeReport: async (payload) => {
       if (command.goalScreen) {
-        await orchestrator.recordWorkflowGoalScreenReport(
+        // Issue #1997: the goal door returns the canonical
+        // report id so the flow can surface it on the shard
+        // row for the panel's fetch; the market door returns
+        // void (no id to surface).
+        return orchestrator.recordWorkflowGoalScreenReport(
           payload as WorkflowGoalScreenEnvelope,
           command.userLogin,
         );
