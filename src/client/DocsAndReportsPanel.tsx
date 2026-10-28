@@ -60,11 +60,24 @@ function ArtifactLink({
   url,
   kind,
   runId,
+  status,
+  error,
 }: {
   url: string | null;
   kind: "PDF" | "XLSX" | "CSV";
   runId: string;
+  status?: string | null;
+  error?: string | null;
 }) {
+  if (!url && status === "failed") {
+    // Issue #2088: a recorded leg failure renders as a failure
+    // state with its reason, never a bare "—".
+    return (
+      <span className="docs-artifact-failed" title={error ?? undefined}>
+        <Badge size="sm" tone="danger">failed</Badge>
+      </span>
+    );
+  }
   if (!url) {
     return (
       <span className="docs-artifact-missing" title={`This run recorded no ${kind} artifact`}>
@@ -112,17 +125,17 @@ const COLUMNS: TableColumn<DocumentRow>[] = [
   {
     key: "pdf",
     header: "PDF",
-    render: (row) => <ArtifactLink url={row.pdfUrl} kind="PDF" runId={row.runId} />,
+    render: (row) => <ArtifactLink url={row.pdfUrl} kind="PDF" runId={row.runId} status={row.pdfStatus} error={row.pdfError} />,
   },
   {
     key: "xlsx",
     header: "XLSX",
-    render: (row) => <ArtifactLink url={row.xlsxUrl} kind="XLSX" runId={row.runId} />,
+    render: (row) => <ArtifactLink url={row.xlsxUrl} kind="XLSX" runId={row.runId} status={row.xlsxStatus} error={row.xlsxError} />,
   },
   {
     key: "csv",
     header: "CSV",
-    render: (row) => <ArtifactLink url={row.csvUrl} kind="CSV" runId={row.runId} />,
+    render: (row) => <ArtifactLink url={row.csvUrl} kind="CSV" runId={row.runId} status={row.csvStatus} error={row.csvError} />,
   },
   {
     key: "runId",
