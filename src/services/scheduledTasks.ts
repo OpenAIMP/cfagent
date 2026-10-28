@@ -93,6 +93,7 @@ import { createFollowupDeliveryPort } from "./screenerFollowupDelivery";
 import { deliverDiscoveryDirect } from "./screeningDelivery";
 import { recordJobOutcome } from "./jobOutcomes";
 import { storeReportStage } from "./unifiedReportPipeline";
+import { storeOptionsCanonicalReport } from "./optionsServeRecord";
 import { registerScreenerPublishers } from "../events/screenerPublishers";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
 import { getEventCalendarCoverage, getSymbolEventCalendar } from "./eventCalendar";
@@ -2046,7 +2047,7 @@ export class ScheduledTasksService {
       // PDF remains in ScreenerAgent storage; mas_reports keeps its key/URL
       // and the complete structured scan payload for AI Search.
       const generationId = reportRunId;
-      const canonical = this.orm?.storeCanonicalReport({
+      const canonical = storeOptionsCanonicalReport(this.orm, {
         runId: generationId,
         generationId,
         title: `Options scanner — ${targetThesis} (${timestamp.slice(0, 10)})`,
@@ -2060,8 +2061,14 @@ export class ScheduledTasksService {
           withTrades: response.data?.withTrades ?? 0,
           opportunities: response.data?.opportunities ?? [],
           pdfKey: optionsPdfKey,
+          pdfStatus: optionsPdfKey ? "generated" : "failed",
           xlsxKey: optionsXlsxKey,
+          xlsxStatus: optionsXlsxKey ? "generated" : "failed",
+          xlsxUrl: optionsXlsxKey
+            ? `/api/options/report.xlsx?key=${encodeURIComponent(optionsXlsxKey)}`
+            : undefined,
           csvKey: optionsCsvKey,
+          csvStatus: optionsCsvKey ? "generated" : "failed",
           csvUrl: optionsCsvKey
             ? `/api/options/report.csv?key=${encodeURIComponent(optionsCsvKey)}`
             : undefined,
@@ -2069,6 +2076,10 @@ export class ScheduledTasksService {
           report: typeof response.toWebhook === "function" ? response.toWebhook() : response.data,
         },
         createdAt: timestamp,
+        // Options run-record fix: owner-scope the canonical row. Without it the
+        // report is stored under `default` and the owner-scoped Reports
+        // read cannot see the run it just produced.
+        userLogin,
       });
 
       // Consolidation C4 (#1329): chain mode suppresses the direct
@@ -2271,6 +2282,13 @@ export class ScheduledTasksService {
         reportUrl,
         pdfKey: optionsPdfKey,
         pdfStatus: optionsPdfKey ? "generated" : undefined,
+        // Options run-record fix: the bus event is what the bridge records the run
+        // from; without these the run's workbook + CSV never reach the
+        // outcome, so Workflow Runs lists a PDF-only run.
+        xlsxKey: optionsXlsxKey,
+        xlsxStatus: optionsXlsxKey ? "generated" : undefined,
+        csvKey: optionsCsvKey,
+        csvStatus: optionsCsvKey ? "generated" : undefined,
         stageChain: options.stageChain,
         // Issue #1718: the qualification rides the event so the
         // lifecycle completed notice can apply the broadcast floor.

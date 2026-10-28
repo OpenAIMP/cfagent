@@ -627,9 +627,22 @@ export function screenerOutcomeFromEvent(
         pdfKeys: event.pdfKey ? [event.pdfKey] : [],
         pdfStatus: event.pdfStatus,
         pdfError: event.pdfError,
+        // Options run-record fix: carry every produced format (and its failure)
+        // into the recorded outcome — the job-tree outcome is what
+        // Workflow Runs reads its artifact list from.
+        xlsxKey: event.xlsxKey,
+        xlsxStatus: event.xlsxStatus,
+        xlsxError: event.xlsxError,
+        csvKey: event.csvKey,
+        csvStatus: event.csvStatus,
+        csvError: event.csvError,
         reportUrl: event.reportUrl
           ? absoluteReportUrl(appBaseUrl, event.reportUrl)
           : undefined,
+        // The options event names matches "withTrades"; the ledger
+        // calls the same fact matchedCount. Dropping it rendered every
+        // options run with a null match count.
+        matchedCount: event.withTrades,
         totalScanned: event.totalScanned,
         thesis: event.thesis,
         summary: event.summary,

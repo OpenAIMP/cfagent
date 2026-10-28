@@ -474,6 +474,12 @@ export async function recordScreenerRunMainJob(
       matchedCount: outcome.matchedCount,
       totalScanned: outcome.totalScanned,
       reportUrl: outcome.reportUrl,
+      // Options run-record fix: the stage output names every artifact the run
+      // produced, not just the PDF — the artifact set is the run's
+      // evidence on the ledger.
+      pdfKey: outcome.pdfKeys?.[0],
+      xlsxKey: outcome.xlsxKey,
+      csvKey: outcome.csvKey,
       bridged: true,
     }),
     outcome.success ? null : outcome.error ?? null,
