@@ -12,6 +12,7 @@ import { SemanticSearchTab } from "./tabs/SemanticSearchTab";
 import { MemorySearchTab } from "./tabs/MemorySearchTab";
 import { KnowledgeTab } from "./tabs/KnowledgeTab";
 import { ToolSearchTab } from "./tabs/ToolSearchTab";
+import { CorpusTab } from "./tabs/CorpusTab";
 
 /**
  * Search hub (#2120 slice 1) — additive left-nav page, ScreenersHub
@@ -40,6 +41,7 @@ export const SEARCH_HUB_TABS = [
   "knowledge",
   "tools",
   "mas-search",
+  "corpus",
 ] as const;
 
 export type SearchHubTab = (typeof SEARCH_HUB_TABS)[number];
@@ -56,6 +58,7 @@ const TAB_META: Array<{ id: SearchHubTab; label: string; tooltip: string }> = [
   { id: "knowledge", label: "Knowledge", tooltip: "Platform capability catalog" },
   { id: "tools", label: "Tools", tooltip: "MCP tool + endpoint catalog" },
   { id: "mas-search", label: "MAS Search", tooltip: "Merged scheduled reports + AI Search results" },
+  { id: "corpus", label: "Corpus", tooltip: "Corpus integrity, sync, and upload" },
 ];
 
 const RECENT_KEY = "searchhub.recent";
@@ -127,6 +130,8 @@ export function SearchHub() {
         return <ToolSearchTab {...props} />;
       case "mas-search":
         return <SearchMasTab {...props} />;
+      case "corpus":
+        return <CorpusTab {...props} />;
     }
   }
 
