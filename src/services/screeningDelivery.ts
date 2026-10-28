@@ -30,6 +30,7 @@
 import type { DatabaseORM } from "../orm";
 import { ETradeEmailTradingService } from "../trading";
 import { validateEmailRecipient } from "../security/webhookReplay";
+import { cfpaySendEmail, getCfpayConfig } from "./cfpayA2A";
 import { deliverScreenerToSlack } from "./screenerSlackDelivery";
 import { ETradeWebhookService } from "./tradingWebhooks";
 import { codedMessage } from "../errors/errorAspects";
@@ -311,6 +312,11 @@ export function createScreeningDeliverySenders(
   senders.email = async ({ to, subject, text }) => {
     const check = validateEmailRecipient(to, e.EMAIL_TO_ALLOWED_DOMAINS as string | undefined);
     if (!check.ok) return { ok: false, error: check.reason ?? "Recipient not allowed." };
+    const cfpay = getCfpayConfig(env);
+    if (cfpay) {
+      const r = await cfpaySendEmail(cfpay, to, subject, text);
+      if (r.ok) return { ok: true };
+    }
     const service = new ETradeEmailTradingService(env as never, orm, userLogin);
     const html = `<p>${text
       .replace(/&/g, "&amp;")

@@ -174,24 +174,29 @@ export interface StockScreenRequest {
    *  split out of the filter; no server code reads it today (harvested
    *  in the #959 compatibility fixtures) — it is NOT an engine filter. */
   minScore?: number;
+  /** Per-request email recipient for the manual route (#1941);
+   *  never forwarded into the engine filter. */
+  emailTo?: string;
 }
 
 const stockScreenRequestSchema = z.strictObject({
   ...stockScreenerFilterFields,
   universe: universeNameSchema.optional(),
   minScore: fin().optional(),
+  emailTo: z.string().optional(),
 });
 
 export function parseStockScreenRequest(input: unknown): ScreeningValidationResult<StockScreenRequest> {
   const parsed = parseWith("stock screen request", stockScreenRequestSchema, input);
   if (!parsed.ok) return parsed;
-  const { universe, minScore, ...filters } = parsed.value as Record<string, unknown>;
+  const { universe, minScore, emailTo, ...filters } = parsed.value as Record<string, unknown>;
   return {
     ok: true,
     value: {
       filters: filters as StockScreenerFilter,
       universe: (universe as string | undefined) ?? "NASDAQ100",
       ...(minScore !== undefined ? { minScore: minScore as number } : {}),
+      ...(emailTo !== undefined ? { emailTo: emailTo as string } : {}),
     },
   };
 }
