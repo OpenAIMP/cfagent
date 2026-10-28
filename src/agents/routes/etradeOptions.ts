@@ -113,6 +113,7 @@ import {
   executeOptionsScreen,
   executeUnifiedOptions,
 } from "./etradeOptionsScreen";
+import { recordStrategyScreenRun } from "../../services/optionsServeRecord";
 
 /** The subset of OrchestratorAgent surface the E*TRADE options handlers need. */
 export interface EtradeOptionsRouteContext {
@@ -723,7 +724,22 @@ export async function handleEtradeOptionsRoutes(
           dataSource: result.snapshot.dataSource,
           snapshotError: result.snapshot.validationError,
         };
-        if (path.endsWith("/best-trade")) {
+        const isBestTrade = path.endsWith("/best-trade");
+        recordStrategyScreenRun(ctx.getOrm(), {
+          userLogin,
+          symbol: parsedDiscovery.value.request.symbol,
+          trigger: "manual",
+          mode: isBestTrade ? "best-trade" : "strategies",
+          ranked: result.ranked,
+          bestTrade: result.bestTrade,
+          riskReports: result.riskReports,
+          screenedOut: result.screenedOut,
+          screen: result.snapshot.screen,
+          contracts: result.snapshot.contracts,
+          dataSource: result.snapshot.dataSource,
+          asyncJobId: ctx.asyncJobId,
+        });
+        if (isBestTrade) {
           return Response.json({ bestTrade: result.bestTrade, evaluations: result.legacy?.evaluations, nameLedger: result.legacy?.nameLedger, ...common });
         }
         return Response.json({

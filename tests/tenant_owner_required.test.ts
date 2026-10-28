@@ -24,6 +24,7 @@ import {
 } from "../src/services/scheduledReports";
 import { persistWorkflowGoalScreenReport } from "../src/agents/orchestrator/goalScreenDispatch";
 import { listJobOutcomes } from "../src/services/jobOutcomes";
+import { recordStrategyScreenRun } from "../src/services/optionsServeRecord";
 
 const OWNER = "tenant-a@example.com";
 
@@ -79,6 +80,63 @@ describe("canonical report owner is mandatory", () => {
     const id = persistScheduledReportSql(sql as any, report as any);
     expect(id).toBeNull();
     expect(rowCount(sql)).toBe(0);
+  });
+});
+
+describe("strategy screener run record", () => {
+  it("records the run under its owner and in the outcome ledger", () => {
+    const sql = new MockSqlStorage();
+    const orm = {
+      storeCanonicalReport: vi.fn(() => ({ reportId: "strategy-1", created: true })),
+      getSql: () => sql,
+    };
+
+    const stored = recordStrategyScreenRun(orm as any, {
+      userLogin: OWNER,
+      symbol: "NVDA",
+      trigger: "manual",
+      mode: "strategies",
+      ranked: [{ candidate: { type: "iron_condor" } }, { candidate: { type: "credit_spread" } }],
+      contracts: [{}, {}, {}],
+      createdAt: "2026-10-28T14:00:00.000Z",
+    });
+
+    expect(stored).toMatchObject({ reportId: "strategy-1" });
+    expect(orm.storeCanonicalReport.mock.calls[0][0]).toMatchObject({
+      source: "options_strategy",
+      userLogin: OWNER,
+    });
+
+    const outcomes = listJobOutcomes(sql as any, 5);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]).toMatchObject({
+      kind: "options",
+      status: "completed",
+      scanned: 3,
+      matched: 2,
+      origin: "options-strategy-screener",
+    });
+  });
+
+  it("twins an async job's id instead of inventing a second run", () => {
+    const sql = new MockSqlStorage();
+    const orm = {
+      storeCanonicalReport: vi.fn(() => ({ reportId: "strategy-2", created: true })),
+      getSql: () => sql,
+    };
+
+    recordStrategyScreenRun(orm as any, {
+      userLogin: OWNER,
+      symbol: "AAPL",
+      trigger: "manual",
+      mode: "best-trade",
+      ranked: [{ candidate: { type: "long_call" } }],
+      bestTrade: { candidate: { type: "long_call" } },
+      asyncJobId: "job-123",
+      createdAt: "2026-10-28T14:05:00.000Z",
+    });
+
+    expect(listJobOutcomes(sql as any, 5)[0].id).toBe("job-123");
   });
 });
 
