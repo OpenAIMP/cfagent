@@ -708,6 +708,19 @@ export async function handleAgenticPaymentsRoutes(
             return Response.json({ error: "Credit redeemed but the screener could not start; an operator must re-issue.", runRequestId, creditRedeemed: true }, { status: 503 });
           }
           ctx.audit("commercial.credit.redeemed", "payments", { runRequestId, creditRunId: credit.creditRunId, family, userId: login });
+          // Issue #2137 follow-ups: record the submission owner
+          // (verified session login) so submission-status can
+          // enforce owner-only reads. BEST-EFFORT here, like the
+          // journal post below: the run already started and the
+          // credit is already spent, so a record failure must not
+          // fail a delivered run — it is a loud log + audit row,
+          // and the status read then fails closed (404) for it.
+          try {
+            await store.recordPaidSubmission({ workflowId: handle.workflowId, userId: login, runRequestId });
+          } catch (err: any) {
+            console.error(`[payments] paid-submission record failed for ${handle.workflowId}: ${err?.message || "unknown error"}`);
+            ctx.audit("commercial.submission.record_failed", "payments", { runRequestId, workflowId: handle.workflowId, userId: login });
+          }
           // Issue #2155: project the redemption into the D1 journal
           // (Dr 2000 / Cr 4000 — the replacement run is delivered).
           // BEST-EFFORT, never thrown: the run already started and
@@ -747,9 +760,32 @@ export async function handleAgenticPaymentsRoutes(
         // survive into the workflow.
         screenerCommand: { ...(screenerCommand as Record<string, unknown>), userLogin: login } as WorkflowJobCommand,
       });
+      // Issue #2137 follow-ups: record the submission owner
+      // BEFORE starting the workflow, so a record failure fails
+      // closed (503) with nothing started — never an orphaned
+      // workflow whose status no owner can read. The binding
+      // creates the instance with id = runRequestId, so the
+      // workflowId is known here; if the binding ever returns a
+      // different id, that id is recorded too, below.
+      try {
+        await store.recordPaidSubmission({ workflowId: runRequestId, userId: login, runRequestId });
+      } catch (err: any) {
+        return Response.json({ error: `Submission could not be recorded: ${err.message || "unknown error"}` }, { status: 503 });
+      }
       try {
         const binding = ctx.env.PAYMENT_WORKFLOW as unknown as PaymentWorkflowBinding | undefined;
         const started = await startPaymentWorkflowViaBinding(binding, params);
+        if (started.workflowId !== runRequestId) {
+          // Binding broke the id = runRequestId contract: record
+          // the returned id best-effort (the workflow already
+          // started, so this must not fail the submission).
+          try {
+            await store.recordPaidSubmission({ workflowId: started.workflowId, userId: login, runRequestId });
+          } catch (recordErr: any) {
+            console.error(`[payments] paid-submission record failed for ${started.workflowId}: ${recordErr?.message || "unknown error"}`);
+            ctx.audit("commercial.submission.record_failed", "payments", { runRequestId, workflowId: started.workflowId, userId: login });
+          }
+        }
         return Response.json({ runRequestId, workflowId: started.workflowId, status: "payment_started" });
       } catch (err: any) {
         return Response.json({ error: err.message || "Payment workflow could not start; no screener started." }, { status: 503 });
@@ -760,12 +796,36 @@ export async function handleAgenticPaymentsRoutes(
   }
 
   // GET /payments/agentic/commercial/submission-status?workflowId=
+  // Issue #2137 follow-ups: ownership is enforced, not assumed.
+  // A workflowId is no longer proof of anything — any verified
+  // caller could guess or replay one — so the read first checks
+  // the paid-submission record the submit route wrote at submit
+  // time: unknown submission → 404, another user's submission →
+  // 403, store unavailable → 503. Only the recorded owner reaches
+  // the workflow binding. The binding read itself is unchanged.
   if (path.endsWith("/payments/agentic/commercial/submission-status") && request.method === "GET") {
     try {
       const login = commercialLogin();
       if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
       const workflowId = url.searchParams.get("workflowId") ?? "";
       if (!workflowId) return Response.json({ error: "workflowId is required." }, { status: 400 });
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      try {
+        await ensureCommercialSchema(store.db);
+      } catch (err: any) {
+        return Response.json({ error: `Commercial store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      let submission;
+      try {
+        submission = await store.getPaidSubmission(workflowId);
+      } catch (err: any) {
+        return Response.json({ error: `Commercial store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      if (!submission) return Response.json({ error: "Submission not found." }, { status: 404 });
+      if (submission.userId !== login) {
+        return Response.json({ error: "Forbidden: this submission belongs to another user." }, { status: 403 });
+      }
       const binding = ctx.env.PAYMENT_WORKFLOW as unknown as { get(id: string): Promise<unknown> } | undefined;
       if (!binding || typeof binding.get !== "function") {
         return Response.json({ error: "Payment workflow binding is not configured." }, { status: 503 });

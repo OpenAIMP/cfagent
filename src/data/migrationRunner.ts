@@ -437,6 +437,27 @@ CREATE INDEX IF NOT EXISTS agent_journal_entries_ref_idx ON agent_journal_entrie
 `,
 };
 
+/**
+ * Migration 0010 — paid-submission ownership (#2137 follow-ups).
+ * Portable subset (same rules as migrations 0001-0009): `?` params
+ * only where params exist (DDL has none), epoch-ms integers, no
+ * dialect date functions, no RETURNING. One row per submitted
+ * paid run; workflow_id is the primary key because the status
+ * read is keyed by it.
+ */
+export const MIGRATION_0010_PAID_SUBMISSIONS: DataMigration = {
+  version: 10,
+  name: "0010_paid_submissions",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_paid_submissions (
+  workflow_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  run_request_id TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -447,6 +468,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0007_COMMERCIAL_STORE,
   MIGRATION_0008_SUBSCRIPTIONS,
   MIGRATION_0009_JOURNAL,
+  MIGRATION_0010_PAID_SUBMISSIONS,
 ];
 
 function splitStatements(sqlText: string): string[] {

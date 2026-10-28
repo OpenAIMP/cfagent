@@ -334,6 +334,21 @@ export const agentCreditClaims = sqliteTable("agent_credit_claims", {
   createdAtMs: integer("created_at_ms").notNull(),
 });
 
+/**
+ * Paid-submission ownership (#2137 follow-ups). One row per
+ * submitted paid run, keyed by the workflowId the submit route
+ * returns, so submission-status can enforce owner-only reads.
+ * This schema MAPS tables; it does not create them — DDL
+ * authority lives in migration 0010
+ * (src/data/migrationRunner.ts).
+ */
+export const agentPaidSubmissions = sqliteTable("agent_paid_submissions", {
+  workflowId: text("workflow_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  runRequestId: text("run_request_id").notNull(),
+  createdAtMs: integer("created_at_ms").notNull(),
+});
+
 /** One-time redemption of a credit claim: the PK makes a second redemption impossible. */
 export const agentCreditRedemptions = sqliteTable("agent_credit_redemptions", {
   creditRunId: text("credit_run_id").primaryKey(),
