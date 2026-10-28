@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useUrlSyncedTabs } from "./useUrlSyncedTabs";
 import { apiFetch as fetch } from "./apiFetch";
 import { EmptyState, Spinner, Button, Select, Table, TextInput, PageShell, PageSection } from "./components/ui";
 import { ResearchReportActions } from "./ResearchReportActions";
@@ -74,9 +75,38 @@ export interface MarketDataResearchHubProps {
   onTradeSymbol?: (symbol: string) => void;
 }
 
+export type ResearchSubTab =
+  | "screener"
+  | "report"
+  | "quoting"
+  | "fundamentals"
+  | "bars"
+  | "snapshot"
+  | "compare";
+
+export function isValidResearchSubTab(tab: unknown): tab is ResearchSubTab {
+  return (
+    typeof tab === "string" &&
+    (
+      ["screener", "report", "quoting", "fundamentals", "bars", "snapshot", "compare"] as readonly string[]
+    ).includes(tab)
+  );
+}
+
 export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: MarketDataResearchHubProps) {
-  // Navigation Subtabs
-  const [subTab, setSubTab] = useState<"screener" | "report" | "quoting" | "fundamentals" | "bars" | "snapshot" | "compare">("screener");
+  // Navigation subtabs via the shared hook (S2, #2027): inner tabs live
+  // in `?view=` (no legacy param — research never had one). Panels stay
+  // conditional (no retention change). The lazy-load side effects run on
+  // every tab change, including back/forward.
+  const { activeTab: subTab, handleTabChange } = useUrlSyncedTabs<ResearchSubTab>({
+    param: "view",
+    isValid: isValidResearchSubTab,
+    defaultTab: "screener",
+    onTabChange: (targetTab) => {
+      if (targetTab === "screener" && screenerStocks.length === 0) fetchScreener();
+      if (targetTab === "compare" && comparisonResults.length === 0) runComparison(compareSymbolsInput);
+    },
+  });
 
   // Active Symbol State
   const [activeSymbol, setActiveSymbol] = useState("NVDA");
@@ -477,12 +507,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
       <CapabilityNavBar
         ariaLabel="Research &amp; Due Diligence Modes"
         activeTabId={subTab}
-        onTabChange={(id) => {
-          const targetTab = id as typeof subTab;
-          setSubTab(targetTab);
-          if (targetTab === "screener" && screenerStocks.length === 0) fetchScreener();
-          if (targetTab === "compare" && comparisonResults.length === 0) runComparison(compareSymbolsInput);
-        }}
+        onTabChange={handleTabChange}
         tabs={[
           {
             id: "screener",
@@ -731,7 +756,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
               <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)", fontWeight: 600 }}>Deep-Dive Analysis:</span>
               <Button variant="accent" tone="subtle" size="sm"
                 type="button"
-                onClick={() => setSubTab("report")}
+                onClick={() => handleTabChange("report")}
               >
                 🔬 In-Depth AI Research Report →
               </Button>
@@ -743,13 +768,13 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
               </Button>
               <Button variant="secondary" tone="subtle" size="sm"
                 type="button"
-                onClick={() => setSubTab("fundamentals")}
+                onClick={() => handleTabChange("fundamentals")}
               >
                 ⚖️ Fundamentals &amp; Multiples →
               </Button>
               <Button variant="trade" tone="subtle" size="sm"
                 type="button"
-                onClick={() => setSubTab("bars")}
+                onClick={() => handleTabChange("bars")}
               >
                 📈 Candlestick Bars →
               </Button>
@@ -1033,7 +1058,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                           onClick={() => {
                             setActiveSymbol(stock.symbol);
                             loadAllSymbolData(stock.symbol);
-                            setSubTab("report");
+                            handleTabChange("report");
                           }}
                         >
                           🔬 Report
@@ -1044,7 +1069,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                           onClick={() => {
                             setActiveSymbol(stock.symbol);
                             loadFundamentals(stock.symbol);
-                            setSubTab("fundamentals");
+                            handleTabChange("fundamentals");
                           }}
                         >
                           ⚖️ Ratios
