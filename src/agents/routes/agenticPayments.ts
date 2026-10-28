@@ -18,6 +18,18 @@
  *                                                  state derived from the ledger)
  *   GET      /payments/agentic/ledger/payments    (issue #896: PaymentsAgent-
  *                                                  origin rows read back)
+ *   POST     /payments/agentic/ledger/record-cfpay (issue #2019: cfpay
+ *                                                  write-through — charge and
+ *                                                  one-time credit rows, session
+ *                                                  screener-payment:<runId>)
+ *   GET      /payments/agentic/ledger/cfpay       (issue #2019: cfpay-origin
+ *                                                  rows for one run, for
+ *                                                  reconciliation)
+ *   GET      /payments/agentic/ledger/cfpay-revenue (issue #2022: cfpay
+ *                                                  revenue report — ledger
+ *                                                  totals, audit-joined
+ *                                                  family/coverage
+ *                                                  attribution)
  *
  * Each route constructs the ETradeAgenticPaymentService per request,
  * exactly as the inline block did. The handler ends with an explicit
@@ -31,6 +43,13 @@
  */
 
 import { ETradeAgenticPaymentService } from "../../services/agenticPayments";
+import {
+  aggregateCfpayRevenue,
+  buildCfpayChargeTransaction,
+  buildCfpayCreditTransaction,
+  cfpayLedgerSessionId,
+  isCfpayLedgerRow,
+} from "../../services/cfpayLedger";
 import {
   buildLedgerTransaction,
   deriveBudgetGuardState,
@@ -204,6 +223,129 @@ export async function handleAgenticPaymentsRoutes(
       return Response.json({ duplicate: false, record: toPaymentRecord(tx) });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to record payment in ledger" }, { status: 500 });
+    }
+  }
+
+  // Issue #2019: cfpay ledger write-through. mas_transactions in THIS
+  // instance's store is the single payment ledger of record; the
+  // PaymentWorkflow (via the SEARCH_AGENT channel) records cfpay
+  // charge and credit rows here. Deliberately separate from the #896
+  // record endpoint: that endpoint builds PaymentsAgent-origin x402
+  // rows only, and reusing it for cfpay would mislabel gateway and
+  // session. Dedupe mirrors #896 and is atomic for the same reason
+  // (this Durable Object is single-threaded): one charge row and one
+  // credit row per run — a replayed write returns 409 with the
+  // existing row instead of a second row.
+  if (path.endsWith("/payments/agentic/ledger/record-cfpay") && request.method === "POST") {
+    try {
+      const body = (await request.json().catch(() => ({}))) as {
+        kind?: unknown;
+        runRequestId?: unknown;
+        userId?: unknown;
+        family?: unknown;
+        priceUSD?: unknown;
+        checkoutId?: unknown;
+        claimTxHash?: unknown;
+        paymentIntentId?: unknown;
+      };
+      const kind = body.kind === "credit" ? "credit" : body.kind === "charge" ? "charge" : "";
+      const runRequestId = typeof body.runRequestId === "string" ? body.runRequestId.trim() : "";
+      const userId = typeof body.userId === "string" ? body.userId.trim() : "";
+      const family = typeof body.family === "string" ? body.family.trim() : "";
+      const priceUSD = Number(body.priceUSD);
+      if (!kind || !runRequestId || !userId || !family || !Number.isFinite(priceUSD) || priceUSD <= 0) {
+        return Response.json(
+          { error: "kind (charge|credit), runRequestId, userId, family and a positive priceUSD are required" },
+          { status: 400 },
+        );
+      }
+      const orm = ctx.getOrm();
+      const sessionId = cfpayLedgerSessionId(runRequestId);
+      const existing = orm
+        .transactions.findMany()
+        .find((t) => t.sessionId === sessionId && t.action === kind);
+      if (existing) {
+        return Response.json({ duplicate: true, record: existing }, { status: 409 });
+      }
+      const tx =
+        kind === "charge"
+          ? buildCfpayChargeTransaction({
+              runRequestId,
+              userId,
+              family,
+              priceUSD,
+              checkoutId: typeof body.checkoutId === "string" ? body.checkoutId : undefined,
+              claimTxHash: typeof body.claimTxHash === "string" ? body.claimTxHash : undefined,
+              paymentIntentId:
+                typeof body.paymentIntentId === "string" ? body.paymentIntentId : undefined,
+            })
+          : buildCfpayCreditTransaction({ runRequestId, userId, family, priceUSD });
+      orm.transactions.create(tx);
+      ctx.audit("payments_cfpay.recorded", "payments", {
+        transactionId: tx.id,
+        runRequestId,
+        kind,
+        priceUSD,
+      });
+      return Response.json({ duplicate: false, record: tx });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to record cfpay payment in ledger" }, { status: 500 });
+    }
+  }
+
+  // Issue #2019: cfpay-origin rows for one run, read back for
+  // reconciliation (cfpay checkout.status vs mas_transactions on
+  // run-request id + checkout id + tx hash / payment intent id).
+  if (path.endsWith("/payments/agentic/ledger/cfpay") && request.method === "GET") {
+    try {
+      const runRequestId = (url.searchParams.get("runRequestId") ?? "").trim();
+      if (!runRequestId) {
+        return Response.json({ error: "runRequestId is required" }, { status: 400 });
+      }
+      const sessionId = cfpayLedgerSessionId(runRequestId);
+      const rows = ctx
+        .getOrm()
+        .transactions.findMany()
+        .filter((t) => t.sessionId === sessionId);
+      return Response.json({ runRequestId, count: rows.length, rows });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to list cfpay ledger rows" }, { status: 500 });
+    }
+  }
+
+  // Issue #2022: cfpay revenue report. Money is authoritative from
+  // the mas_transactions charge/credit rows; family and coverage
+  // attribution come from the mas_events payment payloads joined on
+  // run id, with explicit "unknown" buckets where an audit row is
+  // missing (audit writes are best-effort, so attribution can lag
+  // the ledger — totals never do). Cost-per-run is NOT reported
+  // here: no per-run cost accounting exists yet to report against.
+  if (path.endsWith("/payments/agentic/ledger/cfpay-revenue") && request.method === "GET") {
+    try {
+      const orm = ctx.getOrm();
+      const cfpayRows = orm.transactions.findMany().filter(isCfpayLedgerRow);
+      const charges = cfpayRows.filter((t) => t.action === "charge");
+      const credits = cfpayRows.filter((t) => t.action === "credit");
+      const payloadsOf = (type: string): Array<Record<string, unknown>> =>
+        orm.events.findMany({ where: { type } }).map((e) => {
+          const raw = (e as { payload?: unknown }).payload;
+          if (raw && typeof raw === "object") return raw as Record<string, unknown>;
+          try {
+            return JSON.parse(String(raw ?? "{}")) as Record<string, unknown>;
+          } catch {
+            return {};
+          }
+        });
+      const report = aggregateCfpayRevenue(
+        charges,
+        credits,
+        payloadsOf("payment.confirmed"),
+        payloadsOf("payment.covered"),
+        payloadsOf("payment.failure_credit_issued"),
+      );
+      return Response.json(report);
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to build cfpay revenue report" }, { status: 500 });
     }
   }
 
