@@ -37,6 +37,7 @@ import { EndpointsTab } from "./chat/tabs/EndpointsTab";
 import { ApprovalsPanel } from "./ApprovalsPanel";
 import { DocsAndReportsPanel } from "./DocsAndReportsPanel";
 import { PaymentWorkflowAssurance } from "./PaymentWorkflowAssurance";
+import { CheckoutPanel } from "./CheckoutPanel";
 import { SocialPostingPanel } from "./SocialPostingPanel";
 import { PaymentsPage } from "./PaymentsPage";
 import { SearchHub } from "./search/SearchHub";
@@ -1364,6 +1365,9 @@ export function Chat({ user }: { user: User }) {
     ),
     "payment-assurance": (
           <PaymentWorkflowAssurance userLogin={user.login} />
+    ),
+    "checkout": (
+          <CheckoutPanel userLogin={user.login} />
     ),
     referrals: (
           <ReferralsTab

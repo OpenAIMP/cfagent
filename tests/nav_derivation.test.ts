@@ -1,9 +1,11 @@
 /**
  * Shell derivation contract (#1804 S1, issue #1808): NAVIGATION_ITEMS,
  * isTabActive, and the visibility defaults all derive from the route
- * table, reproducing the historical nav exactly — same 24 items, same
+ * table, reproducing the historical nav exactly — same 25 items, same
  * display order, same active-state groups.
  * (#2120 slice 1 added the Search nav entry, navOrder 23, last in
+ * display order; pin updated in the same PR per the §7 pin rule.)
+ * (#2137 rebuild added the Checkout nav entry, navOrder 24, last in
  * display order; pin updated in the same PR per the §7 pin rule.)
  */
 import { describe, it, expect } from "vitest";
@@ -38,10 +40,11 @@ const EXPECTED_ORDER = [
   "payment-assurance",
   "docs",
   "search",
+  "checkout",
 ];
 
 describe("nav derivation", () => {
-  it("derives the 24 nav items in display order", () => {
+  it("derives the 25 nav items in display order", () => {
     expect(NAVIGATION_ITEMS.map((i) => i.id)).toEqual(EXPECTED_ORDER);
   });
 

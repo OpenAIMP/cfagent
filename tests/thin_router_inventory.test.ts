@@ -155,10 +155,11 @@
  * across instances, the adapter and submit route call the port
  * directly, so no hop-only endpoint needs to exist.
  *
- * Issue #2120 (slice 1) added two — POST /search/agent and POST
- * /search/knowledge (in handleSearchHubRoutes, after the
- * knowledgeCorpus handler) — bringing the pinned array to 256
- * entries and the delegation sequence to 28 calls.
+ * Issue #2137 added three — the checkout UI support routes
+ * (pricing, submission check-payment, goal-command, in
+ * handleAgenticPaymentsRoutes, after the submission-status
+ * endpoint) — bringing the pinned array to 257 entries; the
+ * delegation sequence is unchanged (same handler, same position).
  *
  * Issues #2020/#2127 added seven — the subscription plans list,
  * create, and deactivate endpoints plus the subscription
@@ -167,6 +168,15 @@
  * endpoint) — bringing the pinned array to 263 entries; the
  * delegation sequence is unchanged (same handler, same
  * position).
+ *
+ * Rebuild of #2137 onto current main (superseding #2141)
+ * re-applies the same three checkout UI routes (pricing,
+ * submission check-payment, goal-command, in
+ * handleAgenticPaymentsRoutes, after the subscription
+ * endpoints) — bringing the pinned array to 266 entries; the
+ * delegation sequence is unchanged. The rebuild also restores
+ * the two search-hub entries and the search nav entry the old
+ * branch had dropped at navOrder 23.
  *
  * Issue #1169 (S4-1) added one more — POST /trading/reports/index-backfill (in
  * handleReportsRoutes, after the trading/reports webhook handler and before
@@ -336,6 +346,9 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription/purchase\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription/cancel\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/pricing\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submission/check-payment\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/goal-command\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/budget-state\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/payments\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/auto-approve-limit\")",
