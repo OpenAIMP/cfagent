@@ -456,6 +456,9 @@ export interface ShardOutcome {
   matchedCount?: number;
   /** Canonical report reference for this shard (pdfKey), when one was stored. */
   pdfKey?: string;
+  /** Issue #2080: the workbook/CSV keys this shard recorded. */
+  xlsxKey?: string;
+  csvKey?: string;
   /** Failure detail (never a spec payload, never auth material). */
   error?: string;
   /**
