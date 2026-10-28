@@ -70,6 +70,16 @@ export interface PaymentWorkflowParams {
   tenantId: string;
   userId: string;
   email: string;
+  /**
+   * Operational wiring (2026-10-27): the screener command the caller
+   * already built (WorkflowJobCommand, ids + references only, no bulk
+   * data, no credentials). The payment workflow does NOT invent a
+   * screener command — inventing shards/scenario would be a wiring
+   * lie. The caller (route / schedule service, via
+   * paymentWorkflowSubmission.ts) supplies it; the start-screener
+   * step hands it, unchanged, to the screener workflow port.
+   */
+  screenerCommand?: unknown;
 }
 
 /** Minimal structural step surface the flow needs (fakeable in tests). */
