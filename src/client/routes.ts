@@ -385,6 +385,21 @@ export const ROUTES = [
     },
   },
   {
+    id: "search",
+    navGroup: "search",
+    crumb: "Search",
+    category: "Intelligence",
+    icon: "Research",
+    description:
+      "One search hub: NLQ records, AI search agent, semantic report search, agent memory, platform knowledge, and tool catalog",
+    navEntry: {
+      label: "Search",
+      shortLabel: "Search",
+      navOrder: 23,
+      defaultVisible: true,
+    },
+  },
+  {
     id: "social",
     navGroup: "social",
     crumb: "Social",
