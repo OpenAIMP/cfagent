@@ -82,9 +82,19 @@ import {
 } from "../../config/agenticPaymentsModes";
 import {
   buildPaymentWorkflowParams,
+  deliverPaymentVerifiedViaHost,
   startPaymentWorkflowViaBinding,
   type PaymentWorkflowBinding,
+  type PaymentWorkflowHost,
 } from "../../services/paymentWorkflowSubmission";
+import { createFeatureFlagPort } from "../../features/createFeatureFlagPort";
+import { cfpayA2AOperation, getCfpayConfig } from "../../services/cfpayA2A";
+import {
+  FAMILY_PRICES,
+  PAYMENT_DISCLOSURE,
+} from "../../services/cfpayMonetization";
+import { buildScenario, GOAL_TAXONOMY } from "../../services/goalScenarioEngine";
+import { buildGoalScreenCommand } from "../../services/goalScreenWorkflowSubmission";
 import {
   createCommercialAdapter,
   ensureCommercialSchema,
@@ -103,8 +113,6 @@ import {
 } from "../../data/createSubscriptionPorts";
 import type { D1SubscriptionAdapter } from "../../data/d1SubscriptionAdapter";
 import { resolveEffectiveTier } from "../../data/subscriptionPorts";
-import { createFeatureFlagPort } from "../../features/createFeatureFlagPort";
-import { cfpayA2AOperation, getCfpayConfig } from "../../services/cfpayA2A";
 import { activateSubscription } from "../../services/subscriptionActivation";
 import { createWorkflowPorts, type WorkflowEnv } from "../../workflows/createWorkflowPorts";
 import { tryStartScreenerWorkflow } from "../../workflows/screenerWorkflowRoutes";
@@ -732,7 +740,12 @@ export async function handleAgenticPaymentsRoutes(
         userId: login,
         email,
         account,
-        screenerCommand: screenerCommand as WorkflowJobCommand,
+        // Issue #2137: stamp the screener command's owner from the
+        // verified session login, never from a caller claim. The
+        // command's userLogin is run attribution; authentication is
+        // the session header, and a caller-supplied owner must not
+        // survive into the workflow.
+        screenerCommand: { ...(screenerCommand as Record<string, unknown>), userLogin: login } as WorkflowJobCommand,
       });
       try {
         const binding = ctx.env.PAYMENT_WORKFLOW as unknown as PaymentWorkflowBinding | undefined;
@@ -1051,6 +1064,143 @@ export async function handleAgenticPaymentsRoutes(
       return Response.json({ userId, effectiveTier, current, subscriptions });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to read subscription" }, { status: 500 });
+    }
+  }
+
+  // Issue #2137: checkout UI support routes (commercial block, read-only
+  // pricing + payment verification + goal-command builder). The UI never
+  // hardcodes prices and never decides charging — the gate does. These
+  // routes only expose server truth to the verified caller.
+  //
+  // GET /payments/agentic/commercial/pricing — server-truth family prices
+  // (PROPOSED until owner approval), the monetization flag state, the
+  // testnet-only marker, and the gate's failure policy, all from one
+  // source so UI copy can never drift from the gate.
+  if (path.endsWith("/payments/agentic/commercial/pricing") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const monetizationEnabled = await createFeatureFlagPort(ctx.env).isEnabled("monetization");
+      return Response.json({
+        monetizationEnabled,
+        prices: { ...FAMILY_PRICES },
+        testnetOnly: true,
+        failurePolicy: PAYMENT_DISCLOSURE,
+      });
+    } catch {
+      return Response.json({ error: "Failed to read pricing." }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/submission/check-payment — the
+  // production mirror of the assurance check-payment, for REAL runs.
+  // Re-reads cfpay checkout.status for requestId == runRequestId (the
+  // gate's checkout id) and delivers payment_verified ONLY when
+  // fulfilled. The wake-up event is never sent for an unfulfilled
+  // checkout, and a Stripe return page is never proof (the gate
+  // re-checks status itself). Ownership: runRequestId is unguessable,
+  // the same standard as submission-status. A payment URL is returned
+  // only when cfpay provides one; the UI must not invent one.
+  if (path.endsWith("/payments/agentic/commercial/submission/check-payment") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as { runRequestId?: unknown };
+      const runRequestId = typeof body.runRequestId === "string" ? body.runRequestId : "";
+      if (!runRequestId) return Response.json({ error: "runRequestId is required." }, { status: 400 });
+      const config = getCfpayConfig(ctx.env);
+      if (!config) return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
+      const res = await cfpayA2AOperation(config, "/a2a/payments", "checkout.status", { requestId: runRequestId });
+      if (!res.ok) return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
+      const checkout = (res.data ?? {}) as {
+        status?: unknown; state?: unknown; paid?: unknown;
+        claimTxHash?: unknown; paymentIntentId?: unknown;
+        checkoutUrl?: unknown; url?: unknown; paymentUrl?: unknown; checkout_url?: unknown;
+      };
+      const state = String(checkout.status ?? checkout.state ?? "").toLowerCase();
+      const paid = state === "fulfilled" || state === "paid" || checkout.paid === true;
+      const paymentUrl = [checkout.checkoutUrl, checkout.url, checkout.paymentUrl, checkout.checkout_url].find(
+        (v) => typeof v === "string" && v.length > 0
+      ) as string | undefined;
+      if (!paid) {
+        return Response.json({ runRequestId, paid: false, state: state || "unknown", paymentUrl: paymentUrl ?? null });
+      }
+      const binding = ctx.env.PAYMENT_WORKFLOW as unknown as PaymentWorkflowBinding | undefined;
+      if (!binding || typeof binding.get !== "function") {
+        return Response.json({ runRequestId, paid: true, delivered: false, state });
+      }
+      try {
+        const host: PaymentWorkflowHost = {
+          runWorkflow: async (_bindingName: string, params: unknown) => {
+            const started = await startPaymentWorkflowViaBinding(binding, params as never);
+            return { id: started.workflowId };
+          },
+          sendWorkflowEvent: async (_bindingName: string, workflowId: string, event: { type: string; payload: unknown }) => {
+            const instance = await binding.get(workflowId);
+            if (!instance || typeof instance.sendEvent !== "function") {
+              throw new Error("Workflow binding cannot deliver events.");
+            }
+            await instance.sendEvent(event);
+          },
+        };
+        await deliverPaymentVerifiedViaHost(host, runRequestId, {
+          claimTxHash: typeof checkout.claimTxHash === "string" ? checkout.claimTxHash : undefined,
+          paymentIntentId: typeof checkout.paymentIntentId === "string" ? checkout.paymentIntentId : undefined,
+        });
+        return Response.json({ runRequestId, paid: true, delivered: true, state });
+      } catch {
+        return Response.json({ runRequestId, paid: true, delivered: false, state });
+      }
+    } catch {
+      return Response.json({ error: "Failed to check payment." }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/goal-command — minimal server-side
+  // builder for the checkout UI's goal path. GoalScreenCommand requires
+  // a server-built scenario, which the client cannot construct, so this
+  // route builds it from goalKind/direction via the same builders the
+  // server submission path uses. It starts NOTHING — it only returns a
+  // screenerCommand the caller then submits via the paid route (which
+  // enforces the gate). userLogin is the verified login, never a
+  // caller claim.
+  if (path.endsWith("/payments/agentic/commercial/goal-command") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as {
+        jobId?: unknown; goalKind?: unknown; direction?: unknown; symbols?: unknown; tenantId?: unknown;
+      };
+      const jobId = typeof body.jobId === "string" ? body.jobId : "";
+      const goalKind = typeof body.goalKind === "string" ? body.goalKind : "";
+      const direction = typeof body.direction === "string" ? body.direction : "";
+      const tenantId = typeof body.tenantId === "string" ? body.tenantId : "";
+      const symbols = Array.isArray(body.symbols)
+        ? body.symbols.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+        : undefined;
+      if (!jobId) return Response.json({ error: "jobId is required." }, { status: 400 });
+      if (!(goalKind in GOAL_TAXONOMY)) return Response.json({ error: "goalKind is not a known goal kind." }, { status: 400 });
+      if (!["bullish", "bearish", "range_bound", "volatile", "unknown"].includes(direction)) {
+        return Response.json({ error: "direction must be bullish, bearish, range_bound, volatile, or unknown." }, { status: 400 });
+      }
+      const scenario = buildScenario({
+        goalKind: goalKind as keyof typeof GOAL_TAXONOMY,
+        portfolioRef: { kind: "hypothetical" },
+        direction: direction as "bullish" | "bearish" | "range_bound" | "volatile" | "unknown",
+      });
+      const screenerCommand = buildGoalScreenCommand({
+        jobId,
+        source: "manual",
+        trigger: "manual",
+        userLogin: login,
+        tenantId: tenantId || undefined,
+        scenario,
+        scenarioSource: "built",
+        symbols,
+      });
+      return Response.json({ screenerCommand });
+    } catch {
+      return Response.json({ error: "Failed to build goal command." }, { status: 500 });
     }
   }
 
