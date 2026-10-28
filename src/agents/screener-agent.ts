@@ -1137,12 +1137,15 @@ export class ScreenerAgent extends PortThink {
     // leg. The agent resolves the flag itself from its env, so both
     // direct and workflow-child goal runs gather when ON, and none
     // do when OFF. Yahoo-fallback runs keep their Yahoo engine
-    // (gather is listings-leg only). Any binding failure degrades
-    // to no hook — the leg then refuses technical filters exactly
-    // as before, never a silent partial enrichment. The hook rides
-    // the same seam as the universe bundle; the run id is the
-    // caller run id (D2, the idempotency key), matching every
-    // other goal-run capture.
+    // Issue #2056: the gather fetches live and Yahoo separately —
+    // rows come from the live side alone, Yahoo complements columns
+    // where present (never adds rows, never vetoes them). The
+    // combined gap-fill seam is NOT used here, because gap-fill
+    // alone cannot prove Yahoo membership for a live-served symbol.
+    // Without a Yahoo gap-fill provider the Yahoo side is absent
+    // and rows store with live columns only. Any binding failure
+    // degrades to no hook — the leg then refuses technical filters
+    // exactly as before, never a silent partial enrichment.
     let gatherEnrichment: import("../trading").ScreenLiveEnrichment | undefined;
     if (req.provider !== "yahoo") {
       try {
@@ -1157,7 +1160,8 @@ export class ScreenerAgent extends PortThink {
             listCapabilityRoutes: gatherListRoutes,
             listProviderConfigs: gatherListConfigs,
             quotesProvidersFromRoute: gatherQuotesFromRoute,
-            bindLiveQuotesQuoteDeps: gatherBindQuotes,
+            bindEtradeQuoteDeps: gatherBindLive,
+            bindYahooQuoteDeps: gatherBindYahoo,
             resolveYahooHistoryDeps: gatherResolveHistory,
           } = await import("../trading");
           const { createObservabilitySink } = await import("../observability/createObservabilityPorts");
@@ -1184,7 +1188,10 @@ export class ScreenerAgent extends PortThink {
             tenantId: "default",
             userLogin,
           };
-          const gatherQuoteDeps = gatherBindQuotes(gatherPrimary, gatherGapFill, gatherRunContext);
+          const gatherLiveQuoteDeps = gatherBindLive(gatherPrimary, gatherRunContext);
+          const gatherYahooQuoteDeps = gatherGapFill
+            ? gatherBindYahoo(gatherGapFill, gatherRunContext)
+            : undefined;
           const gatherHistoryDeps = await gatherResolveHistory({
             sql: this.ctx.storage.sql,
             env: this.env,
@@ -1199,7 +1206,8 @@ export class ScreenerAgent extends PortThink {
             tenantId: "default",
             userLogin,
             runId: req.idempotencyKey,
-            quoteDeps: gatherQuoteDeps,
+            liveQuoteDeps: gatherLiveQuoteDeps,
+            ...(gatherYahooQuoteDeps ? { yahooQuoteDeps: gatherYahooQuoteDeps } : {}),
             ...(gatherHistoryDeps ? { historyDeps: gatherHistoryDeps } : {}),
             sink: createObservabilitySink(this.env),
           });

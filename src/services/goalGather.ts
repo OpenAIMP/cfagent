@@ -6,19 +6,29 @@
  * validationError. The gather enriches the acquired universe before
  * evaluation:
  *
- *   batch live quotes (E*TRADE-primary + Yahoo gap-fill) for
- *   week52High/averageVolume → technicals batch (Yahoo history) for
- *   real RSI/MACD → persist one mas_data_captures row per symbol
- *   (capability "quotes", runId = the caller run id per D2) → read
- *   the rows BACK and evaluate those, never the in-memory join.
+ *   live quotes + Yahoo quotes, intersected on symbols → technicals
+ *   batch (Yahoo history) for real RSI/MACD → persist one
+ *   mas_data_captures row per intersected symbol (capability
+ *   "quotes", runId = the caller run id per D2) → read the rows
+ *   BACK and evaluate those, never the in-memory join.
+ *
+ * Issue #2056 dataset rule (refined by the owner 2026-10-27,
+ * superseding the intersection wording for the row dimension):
+ * when a live real-time source (E*TRADE) is present, Yahoo has NO
+ * row effect — it neither adds rows (gap-fill, retired) nor vetoes
+ * them (intersection, superseded). Rows come from the live source
+ * alone; Yahoo complements COLUMNS on those rows (live wins on a
+ * shared column, Yahoo fills live gaps) where present. A live-only
+ * symbol is still stored, with live columns; a Yahoo-only symbol is
+ * never stored. Provenance is by construction — each side is
+ * fetched through its own deps object, so no source-label parsing
+ * is needed (the #1998 label rule is superseded for this path;
+ * the combined seam's labels still serve other paths).
  *
  * No new store, no new capability value, no gather.ts schema. A
  * symbol with no valid stored row is missing, never zero-filled:
- * per-field missingness is recorded, and the screen ledger-rejects
- * it with the honest reason. Provider attribution is exact — the
- * composer labels primary quotes "E*TRADE live" and gap-fill quotes
- * "Yahoo Finance"; any other source label is unattributed and its
- * symbol goes missing rather than riding an invented provider.
+ * per-symbol missingness is recorded, and the screen ledger-rejects
+ * it with the honest reason.
  */
 
 import type { ETradeQuote } from "../types";
@@ -44,21 +54,18 @@ import type { ObservabilitySink } from "../observability/observabilityPorts";
 
 export const GATHER_REQUEST_MARKER = "goal-gather-1998";
 
-const ETRADE_LIVE_SOURCE = "E*TRADE live";
-const YAHOO_SOURCE = "Yahoo Finance";
-
-function providerIdForSource(source: string | undefined): DataProviderId | null {
-  if (source === ETRADE_LIVE_SOURCE) return "etrade";
-  if (source === YAHOO_SOURCE) return "yahoo";
-  return null;
-}
-
 function missingFieldsFor(enriched: Partial<ETradeQuote>): string[] {
   const missing: string[] = [];
   if (enriched.week52High == null && enriched.high52 == null) missing.push("week52High");
   if (enriched.averageVolume == null) missing.push("averageVolume");
   if (enriched.rsi == null) missing.push("rsi");
   return missing;
+}
+
+/** First non-null value wins (live-first column union). */
+function pick<T>(...values: (T | null | undefined)[]): T | undefined {
+  for (const v of values) if (v != null) return v;
+  return undefined;
 }
 
 export interface GoalGatherInput {
@@ -69,8 +76,14 @@ export interface GoalGatherInput {
   userLogin?: string;
   /** Caller run id (D2: the idempotency key) — the rows' runId. */
   runId: string;
-  /** Composed platform quote seam (primary + gap-fill). */
-  quoteDeps: QuoteScreenerDeps;
+  /** Live-source quote seam (the route's primary provider, no gap-fill). */
+  liveQuoteDeps: QuoteScreenerDeps;
+  /**
+   * Yahoo quote seam. Complements columns on live rows where
+   * present; absent (or failing) degrades to live-only rows, never
+   * to an empty dataset — Yahoo has no row effect.
+   */
+  yahooQuoteDeps?: QuoteScreenerDeps;
   /** History deps; absent = technicals degrade to null per symbol. */
   historyDeps?: YahooHistoryDeps;
   /**
@@ -96,6 +109,39 @@ function routeSnapshotHash(routes: CapabilityRouteRecord[]): Promise<string> {
   return sha256Hex(canonicalJson(snapshot));
 }
 
+/**
+ * Fetch one side's quotes. Batch preferred, per-symbol fallback.
+ * A side carries a symbol iff it returns a positive-price row for it.
+ * Per-symbol failure → missing on this side; whole-batch failure →
+ * this side is empty. Never throws.
+ */
+async function fetchSide(
+  deps: QuoteScreenerDeps | undefined,
+  symbols: string[]
+): Promise<Map<string, ETradeQuote>> {
+  const out = new Map<string, ETradeQuote>();
+  if (!deps) return out;
+  try {
+    if (deps.fetchQuotes) {
+      for (const row of await deps.fetchQuotes(symbols)) {
+        if (row && row.lastPrice > 0) out.set(row.symbol.toUpperCase(), row);
+      }
+    } else {
+      for (const symbol of symbols) {
+        try {
+          const row = await deps.fetchQuote(symbol);
+          if (row && row.lastPrice > 0) out.set(symbol, row);
+        } catch {
+          // Per-symbol failure → honest null on this side, never fabricated.
+        }
+      }
+    }
+  } catch {
+    // Whole-batch failure: this side stays empty below.
+  }
+  return out;
+}
+
 export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEnrichment {
   const blobDeps: CaptureBlobDeps = { storage: input.blobStorage, env: input.blobEnv };
   return {
@@ -104,78 +150,80 @@ export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEn
       for (const q of quotes) listingsBySymbol.set(q.symbol.toUpperCase(), q);
       const symbols = [...listingsBySymbol.keys()];
 
-      // 1. Batch live quotes (primary + gap-fill, composer-diffed).
-      const served = new Map<string, ETradeQuote>();
-      try {
-        if (input.quoteDeps.fetchQuotes) {
-          for (const row of await input.quoteDeps.fetchQuotes(symbols)) {
-            if (row && row.lastPrice > 0) served.set(row.symbol.toUpperCase(), row);
-          }
+      // 1. Fetch both sides separately; rows come from the live
+      // side alone, Yahoo complements columns where present.
+      const live = await fetchSide(input.liveQuoteDeps, symbols);
+      const yahoo = await fetchSide(input.yahooQuoteDeps, symbols);
+      const kept: string[] = [];
+      const missingFields: Record<string, string[]> = {};
+      for (const symbol of symbols) {
+        if (live.has(symbol)) {
+          kept.push(symbol);
+        } else if (yahoo.has(symbol)) {
+          // Yahoo-only: never a row (no gap-fill rows).
+          missingFields[symbol] = ["quote:live"];
         } else {
-          for (const symbol of symbols) {
-            try {
-              const row = await input.quoteDeps.fetchQuote(symbol);
-              if (row && row.lastPrice > 0) served.set(symbol, row);
-            } catch {
-              // Per-symbol failure → honest null, never fabricated.
-            }
-          }
+          missingFields[symbol] = ["quote"];
         }
-      } catch {
-        // Whole-batch failure: every symbol stays missing below.
       }
+      const yahooComplemented = kept.filter((s) => yahoo.has(s)).length;
 
-      // 2. Technicals batch (per-symbol null on failure, by contract).
+      // 2. Technicals batch over the live rows only.
       const technicals = input.historyDeps
-        ? await fetchPlatformTechnicalsBatch(input.historyDeps, symbols)
+        ? await fetchPlatformTechnicalsBatch(input.historyDeps, kept)
         : new Map();
 
-      // 3. Route snapshot at run time = the version.
+      // 3. Route snapshot at run time = the version. The stored row's
+      // provider is the route's quotes primary (the live source the
+      // run chose); without a quotes route there is no live provider
+      // to attribute, so kept symbols go missing instead of riding
+      // an invented provider.
       const routes = input.routes ?? listCapabilityRoutes(input.sql);
       const routeVersionHash = await routeSnapshotHash(routes);
       const quotesRoute = routes.find((r) => r.capability === "quotes");
-      const gapFillId = quotesRoute?.gapFillProviderId ?? null;
+      const providerId: DataProviderId | null =
+        (quotesRoute?.primaryProviderId as DataProviderId | undefined) ?? null;
 
-      // 4. Persist one row per served, attributable symbol.
-      const missingFields: Record<string, string[]> = {};
-      for (const symbol of symbols) {
-        const servedQuote = served.get(symbol);
-        const providerId = providerIdForSource(servedQuote?.source);
-        if (!servedQuote || !providerId) {
-          missingFields[symbol] = servedQuote ? ["provider"] : ["quote"];
+      // 4. Persist one row per live symbol, columns unioned
+      // live-first (Yahoo fills live gaps where it served the
+      // symbol; a live-only symbol stores with live columns).
+      // A row is stored even when some fields are missing:
+      // the row IS the audit trail for partial coverage, and the screen
+      // rejects on the missing fields honestly (see step 5 note).
+      for (const symbol of kept) {
+        if (!providerId) {
+          missingFields[symbol] = ["provider"];
           continue;
         }
         const base = listingsBySymbol.get(symbol)!;
+        const liveQuote = live.get(symbol)!;
+        const yahooQuote = yahoo.get(symbol);
         const t = technicals.get(symbol);
         const enriched: ETradeQuote = {
           ...base,
-          lastPrice: servedQuote.lastPrice,
-          price: servedQuote.lastPrice,
-          change: servedQuote.change,
-          changePercent: servedQuote.changePercent,
-          bid: servedQuote.bid,
-          ask: servedQuote.ask,
-          volume: servedQuote.volume,
-          open: servedQuote.open,
-          high: servedQuote.high,
-          low: servedQuote.low,
-          previousClose: servedQuote.previousClose ?? base.previousClose,
-          week52High: servedQuote.week52High,
-          week52Low: servedQuote.week52Low,
-          high52: servedQuote.high52 ?? servedQuote.week52High,
-          low52: servedQuote.low52 ?? servedQuote.week52Low,
-          averageVolume: servedQuote.averageVolume,
-          source: servedQuote.source,
-          quoteStatus: servedQuote.quoteStatus ?? base.quoteStatus,
-          timestamp: servedQuote.timestamp ?? base.timestamp,
+          lastPrice: liveQuote.lastPrice,
+          price: liveQuote.lastPrice,
+          change: pick(liveQuote.change, yahooQuote?.change) ?? base.change,
+          changePercent: pick(liveQuote.changePercent, yahooQuote?.changePercent) ?? base.changePercent,
+          bid: pick(liveQuote.bid, yahooQuote?.bid) ?? base.bid,
+          ask: pick(liveQuote.ask, yahooQuote?.ask) ?? base.ask,
+          volume: pick(liveQuote.volume, yahooQuote?.volume) ?? base.volume,
+          open: pick(liveQuote.open, yahooQuote?.open) ?? base.open,
+          high: pick(liveQuote.high, yahooQuote?.high) ?? base.high,
+          low: pick(liveQuote.low, yahooQuote?.low) ?? base.low,
+          previousClose: pick(liveQuote.previousClose, yahooQuote?.previousClose, base.previousClose),
+          week52High: pick(liveQuote.week52High, yahooQuote?.week52High),
+          week52Low: pick(liveQuote.week52Low, yahooQuote?.week52Low),
+          high52: pick(liveQuote.high52, liveQuote.week52High, yahooQuote?.high52, yahooQuote?.week52High),
+          low52: pick(liveQuote.low52, liveQuote.week52Low, yahooQuote?.low52, yahooQuote?.week52Low),
+          averageVolume: pick(liveQuote.averageVolume, yahooQuote?.averageVolume),
+          source: pick(liveQuote.source, yahooQuote?.source),
+          quoteStatus: pick(liveQuote.quoteStatus, yahooQuote?.quoteStatus, base.quoteStatus),
+          timestamp: pick(liveQuote.timestamp, yahooQuote?.timestamp, base.timestamp) ?? base.timestamp,
           ...(t?.rsi14 != null ? { rsi: t.rsi14 } : {}),
           ...(t?.macdSignal != null ? { macdSignal: t.macdSignal } : {}),
         };
         const missing = missingFieldsFor(enriched);
-        // A row is stored even when some fields are missing: the row
-        // IS the audit trail for partial coverage, and the screen
-        // rejects on the missing fields honestly (see step 5 note).
-        // Only unattributed/unserved symbols go missing.
         missingFields[symbol] = missing;
         await recordCapture(input.sql, blobDeps, {
           providerId,
@@ -185,7 +233,9 @@ export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEn
             runId: input.runId,
             symbol,
             routeVersionHash,
-            gapFilled: gapFillId !== null && providerId === gapFillId,
+            gapFilled: false,
+            liveProviderId: providerId,
+            yahooPresent: yahoo.has(symbol),
             routeSnapshot: routes
               .filter((r) => r.capability === "quotes" || r.capability === "historicalBars")
               .map((r) => ({
@@ -217,7 +267,10 @@ export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEn
         .sort((a, b) => (b.fetchedAt ?? "").localeCompare(a.fetchedAt ?? ""));
       const seen = new Set<string>();
       const enrichedBySymbol = new Map<string, ETradeQuote>();
-      let gapFilledCount = 0;
+      // #2056: gap-filled members are retired — Yahoo never adds
+      // rows, so this count stays 0. The field remains on the
+      // result for seam stability.
+      const gapFilledCount = 0;
       for (const row of rows) {
         const params = row.requestParams as Record<string, unknown>;
         const symbol = String(params.symbol ?? "");
@@ -232,7 +285,6 @@ export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEn
             if (digest !== row.normalizedDigest) continue;
           }
           enrichedBySymbol.set(symbol, parsed);
-          if (params.gapFilled === true) gapFilledCount += 1;
         } catch {
           continue;
         }
@@ -263,6 +315,7 @@ export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEn
               stored: enrichedQuotes.length,
               missing: missingSymbols.length,
               gapFilled: gapFilledCount,
+              yahooComplemented,
               routeVersionHash,
             },
           });
