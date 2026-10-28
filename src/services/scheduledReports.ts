@@ -1035,6 +1035,8 @@ export function scheduledReportPdfUrl(source: string, body: unknown): string | u
       if (source === "options_strategy") return `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
       // Issue #2167: options research runs serve all three from /api/research.
       if (source === "options_research") return `/api/research/report.pdf?key=${encodeURIComponent(pdfKey)}`;
+      // Issue #2180: discovery run reports serve from /api/discovery.
+      if (source === "discovery") return `/api/discovery/report.pdf?key=${encodeURIComponent(pdfKey)}`;
       // Issue #1335: goal-screen PDFs serve from the goal-screen route.
       if (source === "goal_screen")
         return `/api/screening/goal-screen/report.pdf?key=${encodeURIComponent(pdfKey)}`;

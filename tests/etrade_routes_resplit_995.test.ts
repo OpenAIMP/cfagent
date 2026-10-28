@@ -70,6 +70,10 @@ const OPTIONS_CONDITIONS_BASELINE = [
   'endsWith("/etrade/options/expire-dates")',
   'endsWith("/etrade/options/scans")',
   'endsWith("/etrade/options/scans/diff")',
+  // Issue #2180: the discovery run-report downloads.
+  'endsWith("/discovery/report.pdf")',
+  'endsWith("/discovery/report.xlsx")',
+  'endsWith("/discovery/report.csv")',
   'endsWith("/etrade/options/discovery-runs")',
   'endsWith("/etrade/options/iv-history")',
   'endsWith("/etrade/options/profiles")',
