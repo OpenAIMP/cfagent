@@ -276,14 +276,21 @@ describe("wired callback on /auth/callback/github (characterization)", () => {
 
     expect([...store.keys()].some((k) => k.includes("iaaa-binding:"))).toBe(true);
 
+    // #1760: post-login work runs before the login-success audit,
+    // so a fresh login now records TWO events in order: the alias
+    // recording, then the login success. The pin is the pair, not
+    // the login event alone — the alias event is new evidence, not
+    // a duplicate login event.
     const events = auditEvents(store);
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe("auth.login");
-    expect(events[0].outcome).toBe("succeeded");
-    expect(events[0].decision).toBe("allow");
-    expect(events[0].tenantId).toBe("primary");
+    expect(events).toHaveLength(2);
+    expect(events[0].type).toBe("iaaa.alias.record");
     expect(events[0].actorPrincipalId).toBe(session.internalUserId);
-    expect(events[0].correlationId).toBe(sessionKey.replace("sessions:", ""));
+    expect(events[1].type).toBe("auth.login");
+    expect(events[1].outcome).toBe("succeeded");
+    expect(events[1].decision).toBe("allow");
+    expect(events[1].tenantId).toBe("primary");
+    expect(events[1].actorPrincipalId).toBe(session.internalUserId);
+    expect(events[1].correlationId).toBe(sessionKey.replace("sessions:", ""));
   });
 
   it("wiring OFF: the generic callback route is the generic 403 with zero upstream calls", async () => {

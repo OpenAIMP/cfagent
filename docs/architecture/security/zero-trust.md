@@ -87,10 +87,19 @@ A zero-trust claim that omits its gaps is marketing. These are the gaps:
    [gate-coverage-inventory-1754.md](gate-coverage-inventory-1754.md).
    See [api-security.md](api-security.md) and
    [mcp-security.md](mcp-security.md).
-3. **The audit store has a known race.** The Kv audit store is
-   read-modify-write: concurrent appends can lose events or fork the
-   chain. Verification detects this; it does not repair it. The store is
-   also unbounded until a retention decision is made.
+3. **The audit store race is closed on production wiring (#1760).**
+   Appends now go through the SessionStore DO's `audit-append` op:
+   one DO request reads the tail, chains the event, rotates, and
+   writes back, and a DO handles one request at a time, so
+   concurrent appends cannot lose events or fork the chain. The
+   live key is bounded (2,000 events, rotated into archive
+   segments) and the whole store caps at 22,000 events, failing
+   visible (`AUDIT_STORE_FULL`) instead of deleting evidence. The
+   old read-modify-write Kv store is retained only for backends
+   without a DO and is still racy there — it is no longer
+   production wiring. Retention itself is still undecided (Q7,
+   owner Mubasher; #1757 D-3): the cap bounds rows, not time.
+   Full record: [audit-store-bounded-backend-1760.md](audit-store-bounded-backend-1760.md).
 4. **Login-keyed state can orphan — cutover DECIDED (#1759).**
    Token and DO state keyed by login string (not internal id)
    can detach on rename. The #1759 decision is alias-forever

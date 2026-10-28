@@ -59,10 +59,16 @@ tenants' events are never returned by this route.
 - `MembershipStore` has no list-all API (`getMembershipsByUser`
   only), so v1 shows the **caller's own** memberships, not every
   user's. Cross-user listing needs a new store capability.
-- The audit store is a single tenant-mixed log key read in full
-  and filtered in memory; acceptable at auth-event volume, but
-  this route must not be used for per-request audit until a
-  bounded backend exists.
+- The audit store is a single tenant-mixed log read in full
+  and filtered in memory; acceptable at auth-event volume, and
+  now bounded: since #1760 the wired store appends atomically
+  through the SessionStore DO's `audit-append` op, the live key
+  rotates into archive segments, and the whole store caps at
+  22,000 events (failing visible instead of deleting evidence).
+  New audit consumers append through that bounded backend and
+  must not list-and-filter per request; this overview route
+  stays an admin-only read (capped at 100 newest), not a
+  per-request path.
 - A corrupt membership/audit read answers `500` with a generic
   error and no partial data (the stores refuse to overwrite
   corrupt evidence).
@@ -84,9 +90,12 @@ server route, no fetch beyond the v1 overview call:
   plus a gaps list of server capabilities the catalog lacks (scanner
   tools and other command classes), reported, never invented.
 - **IAAA**: the audit-event taxonomy (builders plus live emitters) and
-  the explicit gaps list of IAAA occurrences that emit no audit event
-  (PDP denials, step-up denials, idle-expiry rejection, bootstrap
-  grants, alias recording, genesis marker, silent logout-audit skips).
+  the explicit gaps list of IAAA occurrences that emit no audit event.
+  Since #1760, bootstrap grants, alias recording, the genesis marker,
+  and legacy-session logout-audit skips DO emit (see
+  [audit-store-bounded-backend-1760.md](audit-store-bounded-backend-1760.md));
+  the remaining explicitly-decided silences are PDP denials, step-up
+  denials, and idle-expiry rejection, each with a recorded trigger.
 - **Correlations**: endpoint-to-MCP-tool rows (transport for every
   catalog tool, one shares-source row for the audit store, UNMAPPED rows
   for tools with no worker HTTP handler) and event-to-endpoint rows
