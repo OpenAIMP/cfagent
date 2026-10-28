@@ -1,5 +1,13 @@
 # IAAA admin UI — read-only v1 (issue #945)
 
+> Update (#1758): the read-only limitation below described v1.
+> The panel has since gained a Members tab (grant / revoke /
+> membership-edit) plus self-deactivation on the Overview tab,
+> backed by the routes in `docs/architecture/security/iaaa-lifecycle-wiring-1758.md`.
+> The overview builder itself (`buildAdminOverview`) stays
+> read-only; the audit/catalog tabs stay read-only. Access-request
+> approve/deny (#1274) predates #1758.
+
 ## Agent #ceo-aimp
 
 ## What the panel shows

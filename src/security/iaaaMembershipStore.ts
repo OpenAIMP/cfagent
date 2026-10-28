@@ -132,6 +132,60 @@ async function readMembership(
   return parsed as Membership;
 }
 
+/**
+ * #1758 — read one membership record by id, for the admin revoke
+ * route. The MembershipStore interface has no get-by-id (it was
+ * built around getMembershipsByUser), and revoke-by-id in the
+ * store does not return the record the gate needs to inspect
+ * (tenant, scope) before revoking. Returns null for a missing
+ * record; corrupt bytes still throw, loudly, like every other read.
+ */
+export async function readMembershipById(
+  kv: KvLike,
+  membershipId: string,
+): Promise<Membership | null> {
+  return readMembership(kv, membershipId);
+}
+
+/**
+ * #1758 — list all memberships from a store listing (F-21: the
+ * store had no list-all API, so the panel could only ever show
+ * the caller's own memberships). Entries come from the sessions
+ * namespace listing with prefix `iaaa-membership:`; per-user
+ * index keys (`iaaa-membership:user:<id>`, whose values are id
+ * arrays, not memberships) are skipped, as is any entry whose
+ * record id does not match its key or whose shape is wrong.
+ * Corrupt record bytes are skipped here — unlike point reads,
+ * a listing must not fail the whole panel because one record is
+ * corrupt; the point read still throws loudly when that record
+ * is addressed directly.
+ */
+export function listMembershipsFromEntries(
+  entries: Array<{ key: string; value: string }>,
+): Membership[] {
+  const found: Membership[] = [];
+  for (const entry of entries) {
+    if (!entry.key.startsWith(IAAA_MEMBERSHIP_KEY_PREFIX)) continue;
+    const remainder = entry.key.slice(IAAA_MEMBERSHIP_KEY_PREFIX.length);
+    if (remainder.startsWith("user:")) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(entry.value);
+    } catch {
+      continue;
+    }
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      (parsed as Membership).membershipId === remainder &&
+      Array.isArray((parsed as Membership).roleBindings)
+    ) {
+      found.push(parsed as Membership);
+    }
+  }
+  return found;
+}
+
 /** Durable MembershipStore backed by a KvLike store (production: SessionStore DO). */
 export function createKvMembershipStore(kv: KvLike): MembershipStore {
   return {
