@@ -137,8 +137,15 @@ describe("options run history (#223)", () => {
     const start = src.indexOf("async autonomousOptionsAnalysis(");
     const end = src.indexOf("async autonomousStrategyDiscovery(", start);
     const body = src.slice(start, end);
-    expect(body).toContain("recordOptionsRun(this.ctx.storage");
-    expect(body).toContain("Could not persist options run");
+    // Issue #2091: the wrapper delegates to the shared recorder
+    // (recordOptionsOrchestratorRun) instead of inlining the writes —
+    // the "not re-declared" intent holds, via delegation. The helper
+    // itself must still call the shared history writer and log a
+    // storage failure instead of swallowing it.
+    expect(body).toContain("recordOptionsOrchestratorRun(");
+    const helper = readFileSync(new URL("../src/services/optionsServeRecord.ts", import.meta.url), "utf-8");
+    expect(helper).toContain("recordOptionsRun(deps.storage");
+    expect(helper).toContain("Could not persist options run");
     // The route lives in the options route module.
     expect(src).not.toContain('path.endsWith("/options/latest")');
   });

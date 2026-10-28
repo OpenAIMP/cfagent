@@ -292,6 +292,10 @@ export function planServeJob(
         csvStatus: byFormat.get("csv") ? "generated" : "failed",
         universe: chain.universe,
         thesis: chain.options?.thesis,
+        // Issue #2091: the serve stage records the run from these —
+        // without them the outcome names artifacts but no run.
+        timestamp: chain.timestamp,
+        symbols: chain.options?.symbols ?? [],
         totalScanned: chain.screenType === "options" ? (dataset.scanned as number | undefined) : dataset.totalScanned,
         matchedCount: chain.screenType === "options" ? (dataset.withTrades as number | undefined) : dataset.matchedCount,
         summary: chain.screenType === "options"
