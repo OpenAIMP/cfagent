@@ -123,6 +123,7 @@ function screenerAgentRunner(env: Env, userLogin: string): ScreenRunner {
         scenarioSource: req.scenarioSource,
         trigger: req.trigger,
         result: out.result,
+        idempotencyKey: req.idempotencyKey,
         ...(req.provider ? { provider: req.provider } : {}),
         ...(req.providerFallback ? { providerFallback: req.providerFallback } : {}),
       });

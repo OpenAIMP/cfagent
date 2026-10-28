@@ -461,6 +461,8 @@ export function goalResultToShardResult(input: {
   scenarioSource: "built" | "stored";
   trigger: "manual" | "scheduled";
   result: GoalDrivenScreenResult;
+  /** Issue #1998: caller run id (D2) the run's captures are keyed by. */
+  idempotencyKey?: string;
   /** Issue #1571: carried so the store door can stamp it when the result lacks it. */
   provider?: "yahoo";
   providerFallback?: {
@@ -486,6 +488,7 @@ export function goalResultToShardResult(input: {
       scenarioSource: input.scenarioSource,
       trigger: input.trigger,
       result,
+      ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       ...(input.provider ? { provider: input.provider } : {}),
       ...(input.providerFallback ? { providerFallback: input.providerFallback } : {}),
     },

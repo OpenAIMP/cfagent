@@ -351,6 +351,11 @@ export async function executeGoalScreenRun(input: {
       trigger: input.trigger,
       scenarioSource: input.scenarioSource,
       taskId: run.task.id,
+      // Issue #1998: the caller run id (D2) the run's data captures
+      // are keyed by — the provenance link from this record alone
+      // to mas_data_captures (the report runId itself is
+      // goal-screen:<taskId>; captures use the idempotency key).
+      idempotencyKey: input.idempotencyKey,
       result,
       // Issue #1335: artifact keys ride top-level so the Runs read
       // surface (runSummaryFromReport) finds them — the result object

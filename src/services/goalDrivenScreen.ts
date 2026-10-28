@@ -177,6 +177,10 @@ export interface GoalDrivenScreenResult {
     from: "etrade";
     reason: string;
   };
+  /** Issue #1998: persisted-gather summary for the stock leg, when
+   *  the leg ran through the gather hook. Absent = no gather (the
+   *  leg refused technical filters or did not need them). */
+  gather?: import("../types").StockScreenGatherSummary;
   /** Issue #1335: stored report artifacts (PDF + XLSX + CSV), set by
    *  the agent after the run completes — 0-hit runs included. Each
    *  format records its own generated/failed state; a failed artifact
@@ -218,6 +222,8 @@ export async function runGoalDrivenScreen(input: {
   };
   const failedClasses: ScreeningProviderAssetClass[] = [];
   const reasons: Record<string, string> = {};
+  // Issue #1998: the stock leg's gather summary, when it gathered.
+  let stockGather: import("../types").StockScreenGatherSummary | undefined;
 
   for (const assetClass of requested) {
     try {
@@ -267,7 +273,13 @@ export async function runGoalDrivenScreen(input: {
         continue;
       }
       if (screened.assetClass === "stocks") {
-        const result = screened.result as { totalScanned?: number; matchedCount?: number; stocks?: Array<{ symbol: string }> };
+        const result = screened.result as {
+          totalScanned?: number;
+          matchedCount?: number;
+          stocks?: Array<{ symbol: string }>;
+          gather?: import("../types").StockScreenGatherSummary;
+        };
+        if (result.gather) stockGather = result.gather;
         counts.stocksScanned = result.totalScanned ?? 0;
         counts.stocksMatched = result.matchedCount ?? result.stocks?.length ?? 0;
         for (const stock of result.stocks ?? []) {
@@ -314,6 +326,7 @@ export async function runGoalDrivenScreen(input: {
     status,
     hits,
     counts,
+    ...(stockGather ? { gather: stockGather } : {}),
     ...(failedClasses.length > 0
       ? { partial: { failedClasses, reasons } }
       : {}),
