@@ -162,6 +162,7 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
       title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
       source: "options_research",
       summary: report.summary,
+      userLogin: login,
       body: report as unknown as Record<string, unknown>,
     });
     // #337: index the canonical report for semantic search (best-effort).

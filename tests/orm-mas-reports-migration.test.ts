@@ -150,6 +150,7 @@ describe("mas_reports migration (issue #389)", () => {
       source: "screener",
       summary: "after migration",
       body: { key: "value" },
+      userLogin: "tenant@example.com",
     });
     expect(first).not.toBeNull();
     expect(first?.created).toBe(true);
@@ -161,6 +162,7 @@ describe("mas_reports migration (issue #389)", () => {
       source: "screener",
       summary: "after migration",
       body: { key: "value" },
+      userLogin: "tenant@example.com",
     });
     expect(second).not.toBeNull();
     expect(second?.created).toBe(false);

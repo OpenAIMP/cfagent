@@ -101,6 +101,7 @@ const input = {
   source: "research_report",
   summary: "Probe summary",
   body: { title: "Probe", fileName: "probe.xlsx", attachmentBase64: "QUJD" },
+  userLogin: "tenant@example.com",
 };
 const bodyJson = JSON.stringify(input.body);
 
@@ -191,6 +192,7 @@ describe("#338 S4 lazy backfill on read", () => {
     const stored = await storeResearchReportCanonicalAsync(noBucketCtx, bodyJson2, {
       title: "Weekly scan",
       summary: "s",
+      userLogin: "venus",
     });
     expect(getCanonicalReport(sql, stored!.reportId)?.bodyR2Key).toBeNull();
     const outcome = await deliverStoredReportEmail(ctx, stored!.reportId, "a@b.com", "venus");

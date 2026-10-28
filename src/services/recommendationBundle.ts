@@ -710,6 +710,7 @@ export function persistRecommendationBundle(
 export function buildBundleCanonicalReportInput(
   bundle: RecommendationBundle,
   primarySymbol: string,
+  userLogin: string,
 ): import("./unifiedReportPipeline").CanonicalReportInput {
   return {
     runId: bundle.id,
@@ -719,6 +720,7 @@ export function buildBundleCanonicalReportInput(
     summary: formatRecommendationBundleReport(bundle),
     body: bundle,
     createdAt: bundle.asOf,
+    userLogin,
   };
 }
 
@@ -734,8 +736,9 @@ export function persistBundleReport(
   orm: Parameters<typeof storeReportStage>[0],
   bundle: RecommendationBundle,
   primarySymbol: string,
+  userLogin: string,
 ): { reportId: string; created: boolean } | null {
-  return storeReportStage(orm, buildBundleCanonicalReportInput(bundle, primarySymbol));
+  return storeReportStage(orm, buildBundleCanonicalReportInput(bundle, primarySymbol, userLogin));
 }
 
 export function formatRecommendationBundleReport(bundle: RecommendationBundle): string {
