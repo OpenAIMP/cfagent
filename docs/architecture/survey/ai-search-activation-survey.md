@@ -122,18 +122,29 @@ Vectorize + lexical hybrid — a third, separate system (see §8).
   `searchScheduledReports` (`src/services/scheduledReports.ts:641`) is
   lexical SQL token search over `LOWER(title) LIKE ? OR LOWER(summary)
   LIKE ? OR LOWER(body) LIKE ?` (tokens > 2 chars, max 8).
-- THE WIRING GAP: the route comment at `reports.ts:804-805` states it:
-  > "Note: the route context doesn't expose env, so semantic search
-  > degrades to lexical-only when the bindings are unavailable."
-  The code reads `const env = (ctx as any).env || {};`. The typed
-  `ReportsRouteContext` (`reports.ts:27-60`) has NO `env` field, and the
-  only caller, `src/agents/orchestrator.ts:2121`, passes no `env`
-  either. Therefore via this path `semanticSearchReports({}, ...)`
-  returns `[]` (bindings absent guard, `reportSemanticIndex.ts:120`),
-  `semantic: false`, and the tab's "Semantic" toggle is lexical-only
-  in production TODAY. The semantic half is dead by route-context
-  omission, not by flag or by index emptiness. (The route is mounted:
-  `orchestrator.ts:2119-2121` delegates to `handleReportsRoutes`.)
+- THE WIRING GAP — CORRECTED 2026-10-28 (#2120 slice 0, PR #2126):
+  the survey's original account below named only the env omission,
+  but a FIRST defect shadows it. The `/api/reports/<id>` detail
+  branch (`reports.ts:704`, regex `/\/api\/reports\/([^/]+)$/`) runs
+  BEFORE the semantic branch (`:806`), so `GET
+  /api/reports/semantic-search` matches the detail branch first; the
+  lookup for id `"semantic-search"` misses and the route returns 404
+  "Report not found", and the panel throws on `!res.ok`. Production
+  behavior was therefore an ERROR STATE, not lexical-only. The env
+  omission is real but SECOND: the route comment at `reports.ts:804-805`
+  stated "semantic search degrades to lexical-only when the bindings
+  are unavailable", the code read `const env = (ctx as any).env || {}`,
+  the typed `ReportsRouteContext` (`reports.ts:27-60`) had NO `env`
+  field, and the only caller, `src/agents/orchestrator.ts:2121`,
+  passed no `env` either — so IF the semantic branch had been
+  reached, `semanticSearchReports({}, ...)` would have returned `[]`
+  (bindings absent guard, `reportSemanticIndex.ts:120`) and
+  `semantic: false`. Downstream mentions of "lexical-only" elsewhere
+  in this survey describe that would-be branch behavior, not the
+  production behavior, which was the 404. Fixed in #2120 slice 0
+  (detail-branch guard + `env` on the route context and mount); the
+  semantic half was dead by route shadowing first and route-context
+  omission second, not by flag or by index emptiness.
 - NLQ is not involved anywhere on this path: no NLQ file references
   `searchFinancialDocs`, `ETradeAISearchService`, or `searchKnowledge`
   (grep over `src/agents/nlq/*` and `src/agents/orchestrator/*` returns

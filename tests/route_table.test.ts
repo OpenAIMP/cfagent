@@ -1,8 +1,10 @@
 /**
  * Route table contract (#1804 S1, issue #1808): the table is the single
- * source of truth for navigation, so its shape is pinned — 29 entries
- * (23 nav entries + 6 alias ids), sorted ids, complete metadata, alias
+ * source of truth for navigation, so its shape is pinned — 30 entries
+ * (24 nav entries + 6 alias ids), sorted ids, complete metadata, alias
  * groups resolving to real nav entries, and derived defaults.
+ * (#2120 slice 1 added the Search route id; pin updated in the same
+ * PR per the §7 pin rule.)
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -40,6 +42,7 @@ const EXPECTED_IDS = [
   "scanner",
   "schedules",
   "screeners",
+  "search",
   "social",
   "trading",
   "voice",
@@ -50,7 +53,7 @@ const EXPECTED_IDS = [
 const ALIAS_IDS = ["options", "orders", "reports", "scanner", "schedules", "trading"];
 
 describe("route table", () => {
-  it("has exactly the 29 tab ids, sorted and unique", () => {
+  it("has exactly the 30 tab ids, sorted and unique", () => {
     const ids = ROUTES.map((r) => r.id);
     expect(ids).toEqual(EXPECTED_IDS);
     expect(new Set(ids).size).toBe(ids.length);
@@ -76,11 +79,11 @@ describe("route table", () => {
     }
   });
 
-  it("has exactly 23 nav entries with unique 0..22 display order", () => {
+  it("has exactly 24 nav entries with unique 0..23 display order", () => {
     const nav = ROUTES.filter(hasNavEntry);
-    expect(nav).toHaveLength(23);
+    expect(nav).toHaveLength(24);
     const orders = nav.map((r) => r.navEntry.navOrder).sort((a, b) => a - b);
-    expect(orders).toEqual(Array.from({ length: 23 }, (_, i) => i));
+    expect(orders).toEqual(Array.from({ length: 24 }, (_, i) => i));
     for (const r of nav) {
       expect(r.navEntry.label.length).toBeGreaterThan(0);
       expect(r.navEntry.shortLabel.length).toBeGreaterThan(0);
