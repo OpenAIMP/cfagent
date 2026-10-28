@@ -17,6 +17,8 @@ import {
   type ResearchExecutionPath,
 } from "../../services/researchTaskLedger";
 import type { ResearchAgent } from "../research-agent";
+import type { ResearchReport } from "../../services/researchPipeline";
+import type { ResearchReportArtifactOutcome, ResearchWorkbookOutcome } from "../../trading";
 
 /**
  * Ports the research-publish functions receive from the class.
@@ -43,6 +45,89 @@ export interface ResearchPublishContext {
 }
 
 /**
+ * Issue #2167: generate the run's full document set and store the canonical
+ * row that carries it.
+ *
+ * Parity with every other report path: PDF (via the #1641 generate stage —
+ * ReportAssetAgent stays the single PDF owner), XLSX and CSV (via the
+ * ResearchAgent workbook seam), each with its own status and error, all
+ * recorded on one owner-scoped `options_research` row.
+ *
+ * The row is written AFTER generation, because the canonical store is
+ * insert-only per generation id: writing it first (as before) left the row
+ * permanently keyless even though a PDF was delivered.
+ *
+ * Never throws: a run whose documents all failed still gets its record.
+ */
+export async function generateAndStoreResearchReport(
+  ctx: Pick<ResearchPublishContext, "env" | "ensureTables">,
+  agent: { generateAndStoreResearchArtifacts: (report: ResearchReport) => Promise<ResearchWorkbookOutcome> },
+  report: ResearchReport,
+  opts: { trigger: "manual" | "scheduled"; userLogin: string },
+): Promise<{ reportId: string | null; created: boolean; artifacts: ResearchReportArtifactOutcome }> {
+  const artifacts: ResearchReportArtifactOutcome = {
+    pdfStatus: "failed",
+    xlsxStatus: "failed",
+    csvStatus: "failed",
+  };
+
+  try {
+    const { generateReportStage } = await import("../../services/unifiedReportPipeline");
+    const staged = await generateReportStage(ctx.env as any, {
+      type: "research",
+      trigger: opts.trigger === "scheduled" ? "scheduled" : "manual",
+      result: report,
+      userLogin: opts.userLogin,
+      title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
+      summary: report.summary,
+      timestamp: report.createdAt,
+    });
+    if (staged.pdfStatus === "generated" && staged.pdfKey) {
+      artifacts.pdfKey = staged.pdfKey;
+      artifacts.pdfStatus = "generated";
+    } else {
+      artifacts.pdfError = staged.pdfError ?? "PDF generation failed.";
+      console.warn("[OrchestratorAgent] Research PDF generation failed:", artifacts.pdfError);
+    }
+  } catch (err) {
+    artifacts.pdfError = err instanceof Error ? err.message : String(err);
+    console.warn("[OrchestratorAgent] Research PDF generation failed:", err);
+  }
+
+  try {
+    Object.assign(artifacts, await agent.generateAndStoreResearchArtifacts(report));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    artifacts.xlsxStatus = "failed";
+    artifacts.xlsxError = message;
+    artifacts.csvStatus = "failed";
+    artifacts.csvError = message;
+    console.warn("[OrchestratorAgent] Research workbook generation failed:", message);
+  }
+
+  const stored = storeReportAtGeneration(
+    ctx.ensureTables(),
+    {
+      runId: report.runId,
+      generationId: report.generationId,
+      title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
+      source: "options_research",
+      summary: report.summary,
+      userLogin: opts.userLogin,
+      body: {
+        ...(report as unknown as Record<string, unknown>),
+        ...Object.fromEntries(Object.entries(artifacts).filter(([, value]) => value !== undefined)),
+      },
+    },
+    ctx.env as { AI?: any; VECTOR_MEMORY?: any },
+  );
+
+  const reportId = stored?.reportId ?? null;
+  const created = stored?.created ?? false;
+  return { reportId, created, artifacts };
+}
+
+/**
  * Issue #319: THE single publish entry for autonomous options research.
  * The manual route and the scheduled tick are thin triggers over this
  * method (amendment 2). The ResearchAgent runs the pipeline; the
@@ -58,6 +143,8 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
   reportId?: string | null;
   created?: boolean;
   emailed?: boolean;
+  /** Issue #2167: the run's recorded document set (keys + per-format status). */
+  artifacts?: ResearchReportArtifactOutcome;
   report?: unknown;
   taskId?: string | null;
   executionPath?: ResearchExecutionPath;
@@ -155,54 +242,15 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
       executionPath = "fallback";
       report = fallback.report;
     }
-    const sql = ctx.ensureTables();
-    // Issue #1169 S4-1: the seam now indexes the canonical report itself
-    // (same text the explicit #337 call produced — summary + first 5
-    // ideas, moved verbatim into the seam builder), so the explicit call
-    // is removed rather than duplicated (two writers on one vector id
-    // would make last-write-wins nondeterministic). Indexing stays
-    // best-effort: the seam hook never fails the run.
-    const stored = storeReportAtGeneration(
-      sql,
-      {
-        runId: report.runId,
-        generationId: report.generationId,
-        title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
-        source: "options_research",
-        summary: report.summary,
-        userLogin: login,
-        body: report as unknown as Record<string, unknown>,
-      },
-      ctx.env as { AI?: any; VECTOR_MEMORY?: any }
-    );
-    // #335: render the run PDF from the canonical stored report (best-effort;
-    // the PDF is a delivery artifact, never a second copy).
-    // #680: PDF generation is owned by ReportAssetAgent (single owner for
-    // the Generate step). Issue #1641: research runs go through the
-    // unified pipeline's generate stage (same ReportAssetAgent key
-    // source, plus the #1278 retry policy and the explicit
-    // pdfStatus/pdfError contract) instead of a direct asset call.
-    // Best-effort; never fails the run. A failed stage maps to a null
-    // key, exactly as a null asset did before.
-    let pdfKey: string | null = null;
-    try {
-      const { generateReportStage } = await import("../../services/unifiedReportPipeline");
-      const staged = await generateReportStage(ctx.env as any, {
-        type: "research",
-        trigger: trigger === "scheduled" ? "scheduled" : "manual",
-        result: report,
-        userLogin: login,
-        title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
-        summary: report.summary,
-        timestamp: report.createdAt,
-      });
-      pdfKey = staged.pdfStatus === "generated" ? staged.pdfKey : null;
-      if (staged.pdfStatus !== "generated") {
-        console.warn("[OrchestratorAgent] Research PDF generation failed:", staged.pdfError ?? "unknown");
-      }
-    } catch (err) {
-      console.warn("[OrchestratorAgent] Research PDF generation failed:", err);
-    }
+    // Issue #2167: generate the full document set BEFORE the canonical write,
+    // so the row carries the artifact keys. Previously the row was written
+    // first and never updated — the PDF was delivered but the record could
+    // not prove or serve it.
+    const publication = await generateAndStoreResearchReport(ctx, agent, report, {
+      trigger,
+      userLogin: login,
+    });
+    const pdfKey = publication.artifacts.pdfKey ?? null;
     // #336: full delivery through the #308 seams (Slack, email, webhook),
     // delivering the canonical stored copy. Best-effort; never fails the run.
     let emailed = false;
@@ -211,7 +259,7 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
         agent,
         report,
         {
-          reportId: stored?.reportId ?? null,
+          reportId: publication.reportId,
           pdfKey,
           trigger,
           userLogin: login,
@@ -267,9 +315,10 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
     }
     return {
       success: true,
-      reportId: stored?.reportId ?? null,
-      created: stored?.created ?? false,
+      reportId: publication.reportId,
+      created: publication.created,
       emailed,
+      artifacts: publication.artifacts,
       report,
       taskId,
       executionPath,

@@ -68,6 +68,10 @@ const PINNED_STAR_REEXPORTS = [
   "./optionsReportXlsx",
   "./setupCatalog",
   "./researchReportPdf",
+  // Issue #2167: the research workbook/CSV renderers join the trading surface.
+  "./researchReportData",
+  "./researchReportXlsx",
+  "./researchReportCsv",
   "./options",
   "./options/flows",
   "./options/flows/types",

@@ -1033,6 +1033,8 @@ export function scheduledReportPdfUrl(source: string, body: unknown): string | u
       // Issue #2162: strategy screens store their report under the same options
       // key families, so they serve from the same options route.
       if (source === "options_strategy") return `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`;
+      // Issue #2167: options research runs serve all three from /api/research.
+      if (source === "options_research") return `/api/research/report.pdf?key=${encodeURIComponent(pdfKey)}`;
       // Issue #1335: goal-screen PDFs serve from the goal-screen route.
       if (source === "goal_screen")
         return `/api/screening/goal-screen/report.pdf?key=${encodeURIComponent(pdfKey)}`;
