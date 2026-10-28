@@ -228,8 +228,6 @@ export interface CanonicalReportInput {
   summary: string;
   body: unknown;
   createdAt: string;
-  /** Owning tenant login — required (multi-tenant SaaS; no "default"). */
-  userLogin: string;
 }
 
 /**
@@ -245,14 +243,16 @@ export interface CanonicalReportInput {
 export function storeReportStage(
   orm: {
     storeCanonicalReport: (
-      input: CanonicalReportInput
+      input: CanonicalReportInput,
+      env?: { AI?: any; VECTOR_MEMORY?: any }
     ) => { reportId: string; created: boolean } | null;
   } | null | undefined,
-  input: CanonicalReportInput
+  input: CanonicalReportInput,
+  env?: { AI?: any; VECTOR_MEMORY?: any }
 ): { reportId: string; created: boolean } | null {
   if (!orm || typeof orm.storeCanonicalReport !== "function") return null;
   try {
-    return orm.storeCanonicalReport(input);
+    return orm.storeCanonicalReport(input, env);
   } catch {
     return null;
   }
