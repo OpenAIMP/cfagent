@@ -70,10 +70,17 @@ import {
 import {
   PAYMENT_VERIFICATION_TIMEOUT,
   runPaymentWorkflowFlow,
+  type PaymentWorkflowEvent,
   type PaymentWorkflowOutcome,
   type PaymentWorkflowParams,
   type PaymentWorkflowStep,
 } from "./paymentWorkflowFlow";
+import {
+  listCfpayLedgerRows,
+  recordCfpayAuditEvent,
+  recordCfpayLedgerRow,
+  reconcileCfpayRun,
+} from "../services/cfpayLedger";
 import { getCfpayConfig, cfpayA2AOperation } from "../services/cfpayA2A";
 import { createFeatureFlagPort } from "../features/createFeatureFlagPort";
 import { createWorkflowPorts, type WorkflowEnv } from "./createWorkflowPorts";
@@ -177,25 +184,81 @@ export class PaymentWorkflow extends ThinkWorkflow<
         const handle = await ports.start(p.screenerCommand);
         return { workflowId: handle.workflowId };
       },
-      recordEvent: async (e: { runRequestId: string; tenantId: string; type: string }) => {
-        // Operational audit, honestly scoped: Workers Logs (the
-        // repo's observability pipeline, enabled in wrangler.jsonc),
-        // NOT mas_events and NOT mas_transactions. A durable cfpay
-        // ledger row (gateway stripe, action charge, session
-        // screener-payment:<runId>) is Phase 4 (#2019): the existing
-        // recordLedgerPayment route builds PaymentsAgent-origin
-        // x402 rows only, and reusing it for cfpay would mislabel
-        // gateway and session. Until Phase 4 lands, the cfpay
-        // dashboard ledger is the cross-check, and this log + the
-        // workflow outcome are the in-repo record — never claimed
-        // as mas_transactions.
-        console.log(`[payment-workflow] ${e.type} run=${e.runRequestId} tenant=${e.tenantId}`);
+      recordEvent: async (e: PaymentWorkflowEvent) => {
+        // Issue #2019: the durable cfpay ledger + audit trail.
+        //
+        // A confirmed payment writes ONE mas_transactions row
+        // (gateway stripe, action charge, session
+        // screener-payment:<runId>) through the ledger owner's
+        // record-cfpay endpoint, deduped per run so a retried step
+        // can never double-record. The write FAILS LOUD: a payment
+        // must never be recorded into the void, and the step retry
+        // that follows is safe exactly because of the dedupe. The
+        // read-back reconciliation after the write is best-effort
+        // (logged, never thrown): the POST result is authoritative,
+        // and a verification failure must not fail a paid run.
+        //
+        // Every event, including the confirmed payment, also appends
+        // one mas_events audit row with the same run id, via the
+        // audit endpoint. Audit is best-effort with a loud Workers
+        // Logs fallback (mirroring the orchestrator's audit()): an
+        // audit failure must never fail a paid run's workflow.
+        if (e.type === "payment.confirmed") {
+          if (e.priceUSD === undefined || !Number.isFinite(e.priceUSD) || e.priceUSD <= 0) {
+            throw new Error(
+              `Refusing to record a cfpay charge for run ${e.runRequestId} without a positive price.`,
+            );
+          }
+          const { duplicate } = await recordCfpayLedgerRow(this.env, "charge", {
+            runRequestId: e.runRequestId,
+            userId: p.userId,
+            family: p.family,
+            priceUSD: e.priceUSD,
+            checkoutId: e.checkoutId,
+            claimTxHash: e.claimTxHash,
+            paymentIntentId: e.paymentIntentId,
+          });
+          if (duplicate) {
+            console.log(
+              `[payment-workflow] charge row already exists for run=${e.runRequestId} (retried step, deduped)`,
+            );
+          }
+          try {
+            const rows = await listCfpayLedgerRows(this.env, e.runRequestId);
+            const check = reconcileCfpayRun(rows, e.runRequestId, "fulfilled");
+            if (!check.matched) {
+              console.error(
+                `[payment-workflow] ledger reconciliation mismatch for run=${e.runRequestId}: ${check.reasons.join("; ")}`,
+              );
+            }
+          } catch (err) {
+            console.error(
+              `[payment-workflow] ledger read-back failed for run=${e.runRequestId}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+        await recordCfpayAuditEvent(this.env, e);
       },
-      issueFailureCredit: async (runRequestId: string) => {
-        // Draft: failure-credit issuance is Phase 4 (#2019). Until then
-        // this throws, so a screener failure after payment is visible
-        // instead of silently claiming a credit that was never issued.
-        throw new Error(`Failure credit not yet implemented for run ${runRequestId} (Phase 4, #2019).`);
+      issueFailureCredit: async (runRequestId: string, priceUSD: number) => {
+        // Issue #2019: issuance is real now — one durable credit row
+        // (gateway stripe, action credit, session
+        // screener-payment:<runId>), deduped per run, plus the
+        // payment.failure_credit_issued audit event the flow emits
+        // next. This is ISSUANCE only: redemption — a later run
+        // consuming a stored credit — belongs to the account store
+        // (#2015), which reads these rows. Nothing here claims
+        // redemption works, and no cash moves: cfpay cannot refund.
+        if (!Number.isFinite(priceUSD) || priceUSD <= 0) {
+          throw new Error(
+            `Refusing to issue a failure credit for run ${runRequestId} without a positive price.`,
+          );
+        }
+        await recordCfpayLedgerRow(this.env, "credit", {
+          runRequestId,
+          userId: p.userId,
+          family: p.family,
+          priceUSD,
+        });
       },
     };
 

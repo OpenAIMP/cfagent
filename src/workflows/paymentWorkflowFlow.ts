@@ -103,12 +103,62 @@ export interface PaymentVerifiedEvent {
   paymentIntentId?: string;
 }
 
+/**
+ * Audit event the flow emits. Optional detail fields are carried so the
+ * adapter can write a complete ledger row and a complete mas_events
+ * payload from the same event — the flow, not the adapter, holds the
+ * price, the checkout, and the verified proof at each step.
+ */
+export interface PaymentWorkflowEvent {
+  runRequestId: string;
+  tenantId: string;
+  type: string;
+  priceUSD?: number;
+  checkoutId?: string;
+  claimTxHash?: string;
+  paymentIntentId?: string;
+}
+
+/**
+ * Pull a checkout id out of the gate's checkout value (the cfpay
+ * createCheckout response, whose shape is the raw A2A result). Falls
+ * back to undefined — the run id itself is the checkout join key
+ * (checkout.create used requestId == runRequestId), so the ledger
+ * writer falls back to it.
+ */
+export function extractCheckoutId(checkout: unknown): string | undefined {
+  if (!checkout || typeof checkout !== "object") return undefined;
+  const record = checkout as Record<string, unknown>;
+  for (const key of ["id", "checkoutId", "requestId"]) {
+    if (typeof record[key] === "string" && (record[key] as string)) {
+      return record[key] as string;
+    }
+  }
+  const data = record["data"];
+  if (data && typeof data === "object") {
+    const inner = data as Record<string, unknown>;
+    for (const key of ["id", "checkoutId", "requestId"]) {
+      if (typeof inner[key] === "string" && (inner[key] as string)) {
+        return inner[key] as string;
+      }
+    }
+  }
+  return undefined;
+}
+
 export interface PaymentWorkflowDeps {
   gate: CfPayMonetizationGate;
   account: CommercialAccount;
   startScreener: (params: PaymentWorkflowParams) => Promise<{ workflowId: string }>;
-  recordEvent: (event: { runRequestId: string; tenantId: string; type: string }) => Promise<void>;
-  issueFailureCredit: (runRequestId: string) => Promise<void>;
+  recordEvent: (event: PaymentWorkflowEvent) => Promise<void>;
+  /**
+   * Issue the one-time replacement-run credit for a failed run, at the
+   * run's list price. Called for paid and covered runs alike: a failed
+   * covered run consumed one included run, so a replacement is owed
+   * there too. Redemption is the account store's job (#2015); this is
+   * issuance only.
+   */
+  issueFailureCredit: (runRequestId: string, priceUSD: number) => Promise<void>;
 }
 
 export type PaymentWorkflowOutcome =
@@ -150,9 +200,33 @@ export async function runPaymentWorkflowFlow(
 
   if (!gateDecision.allowed) {
     if (gateDecision.status === "coverage_required") {
+      // #2019: a skip is audited, not silent — the gate's in-memory
+      // skip note would otherwise be lost with the workflow instance.
+      await step.do("record-coverage-required", () =>
+        deps.recordEvent({
+          runRequestId: params.runRequestId,
+          tenantId: params.tenantId,
+          type: "payment.coverage_required",
+          priceUSD: gateDecision.priceUSD,
+        }),
+      );
       return { status: "coverage_required", runRequestId: params.runRequestId, priceUSD: gateDecision.priceUSD };
     }
     // payment_required: a checkout was created (or already exists).
+    // #2019: a newly created checkout is audited with its id; a
+    // pre-existing checkout (gateDecision.checkout undefined) is not
+    // re-announced as created.
+    if (gateDecision.checkout !== undefined) {
+      await step.do("record-checkout", () =>
+        deps.recordEvent({
+          runRequestId: params.runRequestId,
+          tenantId: params.tenantId,
+          type: "payment.checkout_created",
+          priceUSD: gateDecision.priceUSD,
+          checkoutId: extractCheckoutId(gateDecision.checkout),
+        }),
+      );
+    }
     // Human gate BEFORE capture: wait for an approval event, never a
     // model prompt. A one-off scheduled run already authorized at
     // submission skips this wait — its approval is in the params.
@@ -212,16 +286,45 @@ export async function runPaymentWorkflowFlow(
       };
     }
     await step.do("record-payment", () =>
-      deps.recordEvent({ runRequestId: params.runRequestId, tenantId: params.tenantId, type: "payment.confirmed" }),
+      deps.recordEvent({
+        runRequestId: params.runRequestId,
+        tenantId: params.tenantId,
+        type: "payment.confirmed",
+        // The gate-check price, not the confirm price: gate-check ran
+        // in a durable step before any suspend, while confirm-paid
+        // re-executes against a fresh in-memory gate after resume and
+        // would report 0 for a run it never saw checked.
+        priceUSD: gateDecision.priceUSD,
+        checkoutId: extractCheckoutId(gateDecision.checkout),
+        claimTxHash: verified.claimTxHash,
+        paymentIntentId: verified.paymentIntentId,
+      }),
     );
-    return startScreenerOrCredit(params, deps, step, confirmed.paidVia ?? "cfpay_checkout");
+    return startScreenerOrCredit(
+      params,
+      deps,
+      step,
+      confirmed.paidVia ?? "cfpay_checkout",
+      gateDecision.priceUSD,
+    );
   }
 
   // Covered, already paid, or free (flag OFF): no wait, no new charge.
   await step.do("record-payment", () =>
-    deps.recordEvent({ runRequestId: params.runRequestId, tenantId: params.tenantId, type: "payment.covered" }),
+    deps.recordEvent({
+      runRequestId: params.runRequestId,
+      tenantId: params.tenantId,
+      type: "payment.covered",
+      priceUSD: gateDecision.priceUSD,
+    }),
   );
-  return startScreenerOrCredit(params, deps, step, gateDecision.paidVia ?? gateDecision.status);
+  return startScreenerOrCredit(
+    params,
+    deps,
+    step,
+    gateDecision.paidVia ?? gateDecision.status,
+    gateDecision.priceUSD,
+  );
 }
 
 async function startScreenerOrCredit(
@@ -229,6 +332,7 @@ async function startScreenerOrCredit(
   deps: PaymentWorkflowDeps,
   step: PaymentWorkflowStep,
   paidVia: string,
+  priceUSD: number,
 ): Promise<PaymentWorkflowOutcome> {
   try {
     const started = await step.do("start-screener", () => deps.startScreener(params));
@@ -241,11 +345,12 @@ async function startScreenerOrCredit(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await step.do("issue-failure-credit", async () => {
-      await deps.issueFailureCredit(params.runRequestId);
+      await deps.issueFailureCredit(params.runRequestId, priceUSD);
       await deps.recordEvent({
         runRequestId: params.runRequestId,
         tenantId: params.tenantId,
         type: "payment.failure_credit_issued",
+        priceUSD,
       });
     });
     return { status: "screener_failed_credit_issued", runRequestId: params.runRequestId, screenerError: message };
