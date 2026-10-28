@@ -1,0 +1,104 @@
+/**
+ * Docs and Reports page styles.
+ *
+ * Layout only — every color/spacing value comes from the design tokens so
+ * the page follows the active theme (docs/agents/ux-architecture.md).
+ */
+
+.docs-report-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 1rem);
+  padding: var(--space-4, 1rem);
+  width: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.docs-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4, 1rem);
+  flex-wrap: wrap;
+}
+
+.docs-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.docs-scope {
+  margin: 0.35rem 0 0;
+  max-width: 72ch;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.docs-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 0.75rem);
+}
+
+.docs-loaded-at {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.docs-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 0.75rem);
+  padding: var(--space-6, 1.5rem);
+  color: var(--color-text-muted);
+}
+
+.docs-count {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.docs-table-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.docs-table-container .ui-table {
+  width: 100%;
+}
+
+.docs-time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.docs-source {
+  font-weight: 600;
+}
+
+.docs-run-id {
+  font-size: 0.75rem;
+  word-break: break-all;
+  color: var(--color-text-muted);
+}
+
+.docs-artifact-link {
+  font-weight: 600;
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.docs-artifact-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+.docs-artifact-missing,
+.docs-run-type.unknown {
+  color: var(--color-text-muted);
+}

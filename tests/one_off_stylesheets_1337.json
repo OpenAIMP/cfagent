@@ -20,6 +20,11 @@
     "reason": "grandfathered (#1337)"
   },
   {
+    "path": "src/client/docsAndReports.css",
+    "lines": 105,
+    "reason": "Docs and Reports page layout (new page; tokens only)"
+  },
+  {
     "path": "src/client/iaaaAdminPanel.css",
     "lines": 74,
     "reason": "grandfathered (#1337)"
