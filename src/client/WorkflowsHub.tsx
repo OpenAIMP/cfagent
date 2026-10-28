@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import "./workflowsHub.css";
-import { Button, PillGroup, Table, TextInput, PageShell } from "./components/ui";
+import { Button, PillGroup, Table, TextInput, PageShell, Tabs } from "./components/ui";
+import { useUrlSyncedTabs } from "./useUrlSyncedTabs";
 import { STRATEGY_LIBRARY } from "./options/strategyLibrary";
 import {
   FAQ_QUESTIONS,
@@ -910,9 +911,25 @@ export interface WorkflowsHubProps {
   onSendPrompt?: (prompt: string, sourceTab?: string) => void;
 }
 
+export type WorkflowsSubTab = "faq" | "workflows" | "decisioning" | "matrix" | "improvements";
+
+export function isValidWorkflowsSubTab(tab: unknown): tab is WorkflowsSubTab {
+  return (
+    typeof tab === "string" &&
+    (["faq", "workflows", "decisioning", "matrix", "improvements"] as readonly string[]).includes(tab)
+  );
+}
+
 export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps) {
-  // Primary Navigation
-  const [activeTab, setActiveTab] = useState<"faq" | "workflows" | "decisioning" | "matrix" | "improvements">("faq");
+  // Primary navigation via the shared hook (S2, #2027): inner tabs live
+  // in `?view=` (no legacy param — the subnav never had one). The subnav
+  // itself becomes real Tabs (it was PillGroup pills with no tab
+  // semantics). Panels stay conditional (no retention change).
+  const { activeTab, handleTabChange } = useUrlSyncedTabs<WorkflowsSubTab>({
+    param: "view",
+    isValid: isValidWorkflowsSubTab,
+    defaultTab: "faq",
+  });
 
   // Workflows Tab State
   const [trackFilter, setTrackFilter] = useState<"all" | "analysis" | "execution">("all");
@@ -1045,7 +1062,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
   };
 
   const jumpToDecisionRule = (ruleId: string) => {
-    setActiveTab("decisioning");
+    handleTabChange("decisioning");
     setExpandedDecisioningId(ruleId);
   };
 
@@ -1082,23 +1099,24 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* Primary Sub-Navigation Tabs */}
       <div className="workflows-subnav-bar">
-        <PillGroup
+        <Tabs
           ariaLabel="Workflows sections"
-          options={[
-            { id: "faq", label: "💡 Quantitative Playbooks (8 Core FAQs)" },
-            { id: "workflows", label: "🧭 Platform Workflows (14 Track A & E)" },
-            { id: "decisioning", label: "⚖️ Algorithmic Decisioning Rules (6 Engines)" },
-            { id: "matrix", label: "📋 Capability & Lookup Matrix" },
-            { id: "improvements", label: "🚀 Optimization Roadmap (6 Enhancements)" },
+          idBase="workflows"
+          tabs={[
+            { id: "faq", icon: "💡", label: "Quantitative Playbooks (8 Core FAQs)" },
+            { id: "workflows", icon: "🧭", label: "Platform Workflows (14 Track A & E)" },
+            { id: "decisioning", icon: "⚖️", label: "Algorithmic Decisioning Rules (6 Engines)" },
+            { id: "matrix", icon: "📋", label: "Capability & Lookup Matrix" },
+            { id: "improvements", icon: "🚀", label: "Optimization Roadmap (6 Enhancements)" },
           ]}
           value={activeTab}
-          onChange={setActiveTab}
+          onChange={handleTabChange}
         />
       </div>
 
       {/* VIEW 1: QUANTITATIVE PLAYBOOKS & FAQS (THE 8 CORE QUESTIONS) */}
       {activeTab === "faq" && (
-        <div className="faq-section-container" style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+        <div className="faq-section-container" style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }} role="tabpanel" id="workflows-panel-faq" aria-labelledby="workflows-tab-faq">
           {/* FAQ Search & Category Filter */}
           <div className="workflows-filter-strip">
             <div className="workflows-search-box">
@@ -1315,7 +1333,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* VIEW 2: PLATFORM WORKFLOWS (ALL 14 ANALYSIS & EXECUTION WORKFLOWS) */}
       {activeTab === "workflows" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }} role="tabpanel" id="workflows-panel-workflows" aria-labelledby="workflows-tab-workflows">
           {/* Track Filter Tabs */}
           <div className="workflow-track-tabs">
             <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginRight: "0.3rem" }}>
@@ -1536,7 +1554,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* VIEW 3: ALGORITHMIC DECISIONING RULES (6 ENGINES) */}
       {activeTab === "decisioning" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }} role="tabpanel" id="workflows-panel-decisioning" aria-labelledby="workflows-tab-decisioning">
           {/* Decisioning Hero Note */}
           <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "var(--space-5) var(--space-6)" }}>
             <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>
@@ -1704,7 +1722,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* VIEW 4: CAPABILITY & LOOKUP MATRIX */}
       {activeTab === "matrix" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }} role="tabpanel" id="workflows-panel-matrix" aria-labelledby="workflows-tab-matrix">
           {/* Matrix Header Callout */}
           <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "var(--space-5) var(--space-6)" }}>
             <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>
@@ -1751,7 +1769,7 @@ export function WorkflowsHub({ onNavigateTab, onSendPrompt }: WorkflowsHubProps)
 
       {/* VIEW 5: WORKFLOW IMPROVEMENTS & ARCHITECTURAL ROADMAP */}
       {activeTab === "improvements" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }} role="tabpanel" id="workflows-panel-improvements" aria-labelledby="workflows-tab-improvements">
           {/* Architectural Analysis Hero Note */}
           <div style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "10px", padding: "var(--space-5) var(--space-6)" }}>
             <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>
