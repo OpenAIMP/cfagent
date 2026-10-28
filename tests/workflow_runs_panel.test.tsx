@@ -147,25 +147,30 @@ describe("WorkflowRunsPanel", () => {
     const pageRule = css.match(/\.workflow-runs-page\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(pageRule).toContain("flex: 1 0 auto");
     expect(pageRule).toContain("overflow: auto");
-    expect(css).toMatch(/\.workflow-runs-table-container\s*\{[^}]*max-height:\s*52vh/);
   });
 
-  it("scrolls the selected run detail into view", async () => {
-    const scrollSpy = vi.fn();
-    const original = (Element.prototype as any).scrollIntoView;
-    (Element.prototype as any).scrollIntoView = scrollSpy;
-    try {
-      payload = { count: 1, runs: [run()] };
-      await renderPanel();
-      await act(async () => {
-        buttonByText("Details").dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
-      expect(scrollSpy).toHaveBeenCalled();
-      expect(container.querySelector("#workflow-run-detail")).not.toBeNull();
-    } finally {
-      if (original) (Element.prototype as any).scrollIntoView = original;
-      else delete (Element.prototype as any).scrollIntoView;
-    }
+  it("opens the selected run in a dialog and closes it", async () => {
+    payload = { count: 1, runs: [run()] };
+    await renderPanel();
+    const opener = buttonByText("Details");
+    expect(opener.getAttribute("aria-haspopup")).toBe("dialog");
+    await act(async () => {
+      opener.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
+    expect(dialog).not.toBeNull();
+    expect(dialog!.getAttribute("aria-modal")).toBe("true");
+    const titleId = dialog!.getAttribute("aria-labelledby");
+    expect(document.getElementById(titleId ?? "")?.textContent).toBe("Workflow run detail");
+    expect(dialog!.textContent).toContain("Generate — screen / analysis");
+    // The detail lives only in the dialog; no stale inline section remains.
+    expect(container.querySelector("#workflow-run-detail")).toBeNull();
+
+    const close = document.querySelector('[aria-label="Close dialog"]') as HTMLButtonElement;
+    await act(async () => {
+      close.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it("renders a row per run with trigger, status, and stage progress", async () => {
@@ -185,14 +190,14 @@ describe("WorkflowRunsPanel", () => {
     await act(async () => {
       buttonByText("Details").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    const text = container.textContent ?? "";
-    expect(text).toContain("Run detail");
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Workflow run detail");
     expect(text).toContain("Generate — screen / analysis");
     expect(text).toContain("Deliver — channel dispatch");
     expect(text).toContain("[SLACK_002] channel not configured");
     expect(text).toContain("Scheduled — recorded on the run's job tree");
     expect(text).toContain("matchedCount");
-    const pdf = [...container.querySelectorAll("a")].find((a) => a.textContent === "PDF report");
+    const pdf = [...document.querySelectorAll("a")].find((a) => a.textContent === "PDF report");
     expect(pdf?.getAttribute("href")).toBe("/api/screener/report.pdf?key=report");
     expect(text).toContain("slack: failed");
   });
@@ -222,8 +227,8 @@ describe("WorkflowRunsPanel", () => {
     await act(async () => {
       buttonByText("Details").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(container.textContent).toContain("No stage records exist for this run");
-    expect(container.textContent).toContain("Stages are never inferred");
+    expect(document.body.textContent).toContain("No stage records exist for this run");
+    expect(document.body.textContent).toContain("Stages are never inferred");
   });
 
   it("filters by status and trigger", async () => {

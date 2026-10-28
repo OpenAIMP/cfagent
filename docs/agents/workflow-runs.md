@@ -27,11 +27,14 @@ has no job tree.
 - **One row per run**: start/end, workflow and run id, trigger badge
   plus the evidence text, status, duration, stage progress, and a result
   summary (matched/scanned, artifact count).
-- **Run detail**: the recorded failure, the trigger and who/what fired
+- **Run detail dialog**: the recorded failure, the trigger and who/what fired
   it, every stage in execution order (status, recorded-by, timing,
   description, reason, error), the run's normalized inputs and outputs,
   artifact links, delivery states, and a per-stage inputs/outputs
-  disclosure.
+  disclosure. It opens in the shared `Modal` primitive (`size="xl"`):
+  Escape, the backdrop, or the close button dismisses it; focus stays
+  inside while it is open and returns to the row's Details button on
+  close.
 - **Filters**: trigger, status (including "in flight"), and free-text
   search across run id, workflow, stage, and error text.
 
