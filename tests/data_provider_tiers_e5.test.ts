@@ -222,15 +222,23 @@ describe("route minTier persistence (issue #1202)", () => {
 
 describe("tier-aware route resolution (issue #1202)", () => {
   it("serves a freemium route to both caller tiers, primary + gap-fill intact", () => {
-    const sql = storeWithEnabled(["etrade", "yahoo"]);
+    const sql = storeWithEnabled(["etrade", "yahoo", "alpaca"]);
     const registry = registryWithStubs();
+    registry.register(stubProvider("alpaca", ["optionsChains"]));
+    // Issue #2144: quotes no longer carries a gap-fill, so the tier
+    // fixture uses optionsChains (etrade primary, alpaca gap-fill).
+    upsertCapabilityRoute(sql, {
+      capability: "optionsChains",
+      primaryProviderId: "etrade",
+      gapFillProviderId: "alpaca",
+    });
     const configs = listProviderConfigs(sql);
     const routes = listCapabilityRoutes(sql);
 
     for (const tier of ["freemium", "premium"] as const) {
-      const assignment = registry.resolveRoute("quotes", configs, routes, tier);
+      const assignment = registry.resolveRoute("optionsChains", configs, routes, tier);
       expect(assignment.primary.id).toBe("etrade");
-      expect(assignment.gapFill?.id).toBe("yahoo");
+      expect(assignment.gapFill?.id).toBe("alpaca");
     }
   });
 
@@ -275,25 +283,33 @@ describe("tier-aware route resolution (issue #1202)", () => {
   });
 
   it("gates the whole route: a premium route's gap-fill never leaks to a freemium caller, and serves a premium caller whole", () => {
-    const sql = storeWithEnabled(["etrade", "yahoo"]);
-    setRouteTier(sql, "quotes", "premium");
+    const sql = storeWithEnabled(["etrade", "yahoo", "alpaca"]);
     const registry = registryWithStubs();
+    registry.register(stubProvider("alpaca", ["optionsChains"]));
+    // Issue #2144: quotes no longer carries a gap-fill, so the tier
+    // fixture uses optionsChains (etrade primary, alpaca gap-fill).
+    upsertCapabilityRoute(sql, {
+      capability: "optionsChains",
+      primaryProviderId: "etrade",
+      gapFillProviderId: "alpaca",
+    });
+    setRouteTier(sql, "optionsChains", "premium");
     const configs = listProviderConfigs(sql);
     const routes = listCapabilityRoutes(sql);
 
     let caught: unknown;
     try {
-      registry.resolveRoute("quotes", configs, routes, "freemium");
+      registry.resolveRoute("optionsChains", configs, routes, "freemium");
     } catch (err) {
       caught = err;
     }
     expect(caught).toBeInstanceOf(DataProviderTierError);
     expect((caught as DataProviderTierError).providerId).toBe("etrade");
-    expect((caught as DataProviderTierError).capability).toBe("quotes");
+    expect((caught as DataProviderTierError).capability).toBe("optionsChains");
 
-    const assignment = registry.resolveRoute("quotes", configs, routes, "premium");
+    const assignment = registry.resolveRoute("optionsChains", configs, routes, "premium");
     expect(assignment.primary.id).toBe("etrade");
-    expect(assignment.gapFill?.id).toBe("yahoo");
+    expect(assignment.gapFill?.id).toBe("alpaca");
   });
 
   it("an omitted caller tier keeps the pre-E5 behaviour exactly, even on a premium route", () => {
@@ -376,7 +392,14 @@ describe("configure routeTiers (issue #1202)", () => {
     seedProviderConfigs(sql);
     const { sink } = auditCollector();
 
-    // Yahoo is the gap-fill on quotes (etrade is primary).
+    // Yahoo is the gap-fill on quotes (etrade is primary) — declared
+    // on the stored route. Issue #2144 suppresses quotes gap-fill at
+    // resolution, not at storage, so tier configuration still applies.
+    upsertCapabilityRoute(sql, {
+      capability: "quotes",
+      primaryProviderId: "etrade",
+      gapFillProviderId: "yahoo",
+    });
     await transitionProvider(sql, "yahoo", "configure", ACTOR, {
       audit: sink,
       configure: { routeTiers: { quotes: "premium" } },

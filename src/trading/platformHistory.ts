@@ -69,12 +69,11 @@ const HISTORY_BATCH_GAP_MS = 60;
 /**
  * Issue #1331: resolve the bars provider from the platform route
  * table — the historicalBars route's primary assignment (seeded:
- * yahoo, freemium, no gap-fill). Mirrors
- * yahooQuoteProviderFromRoute: the route must name yahoo as
- * primary, yahoo's config must be enabled (state and flag), and
- * the registry must hold a historicalBars-capable yahoo adapter.
- * Anything else throws — no silent substitution, no fallback to
- * another provider.
+ * yahoo, freemium, no gap-fill). Same discipline as quote provider
+ * resolution: the route must name yahoo as primary, yahoo's config
+ * must be enabled (state and flag), and the registry must hold a
+ * historicalBars-capable yahoo adapter. Anything else throws — no
+ * silent substitution, no fallback to another provider.
  */
 export function yahooBarsProviderFromRoute(
   registry: DataProviderRegistry,

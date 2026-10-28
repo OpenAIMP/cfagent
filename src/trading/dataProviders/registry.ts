@@ -22,8 +22,12 @@
  * on #1116), so the headline resolution is resolveRoute(): given the
  * capability ROUTING table, it returns the routed assignment — the
  * route's primary provider plus its declared gap-fill provider when
- * that provider is also servable. The semantics are strict in both
- * directions:
+ * that provider is also servable. EXCEPTION (issue #2144, owner
+ * ruling): the quotes capability never resolves a gap-fill — a
+ * live quote row is never filled by another provider, even when a
+ * stored route declares one. Yahoo still fills columns
+ * (technicals/history) through other capabilities and paths.
+ * The semantics are strict in both directions:
  *
  *   - A routed PRIMARY that is not servable fails EXPLICITLY
  *     (DataProviderNotFoundError). The gap-fill is never silently
@@ -207,9 +211,17 @@ export class DataProviderRegistry {
         callerTier
       );
     }
-    const gapFill = route.gapFillProviderId
-      ? this.servable(route.gapFillProviderId, capability, configsById)
-      : undefined;
+    // Issue #2144 (owner ruling): live quote ROWS are never
+    // gap-filled. Yahoo may fill columns (technicals/history) but
+    // never a whole symbol's live quote, so the quotes capability
+    // resolves no gap-fill even when a stored route declares one.
+    // Every other capability keeps its declared gap-fill.
+    const gapFill =
+      capability === "quotes"
+        ? undefined
+        : route.gapFillProviderId
+          ? this.servable(route.gapFillProviderId, capability, configsById)
+          : undefined;
     return gapFill
       ? { capability, primary, gapFill }
       : { capability, primary };

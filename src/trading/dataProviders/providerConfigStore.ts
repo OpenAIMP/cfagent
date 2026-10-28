@@ -513,7 +513,8 @@ export function deleteCapabilityRoutesForProvider(
  *
  *   screenUniverse ← nasdaq   (listings/universe membership)
  *   historicalBars ← yahoo    (technicals history E*TRADE lacks)
- *   quotes         ← etrade primary, yahoo DECLARED gap-fill
+ *   quotes         ← etrade primary, NO gap-fill (issue #2144:
+ *                     live quote rows are never gap-filled)
  *   optionsChains  ← etrade   (the only chain source)
  *   fundamentals   ← yahoo    (market-data)
  *
@@ -523,7 +524,7 @@ export function deleteCapabilityRoutesForProvider(
 export const DEFAULT_CAPABILITY_ROUTES: readonly CapabilityRouteInput[] = [
   { capability: "screenUniverse", primaryProviderId: "nasdaq", gapFillProviderId: null, minTier: "freemium" },
   { capability: "historicalBars", primaryProviderId: "yahoo", gapFillProviderId: null, minTier: "freemium" },
-  { capability: "quotes", primaryProviderId: "etrade", gapFillProviderId: "yahoo", minTier: "freemium" },
+  { capability: "quotes", primaryProviderId: "etrade", gapFillProviderId: null, minTier: "freemium" },
   { capability: "optionsChains", primaryProviderId: "etrade", gapFillProviderId: null, minTier: "freemium" },
   { capability: "fundamentals", primaryProviderId: "yahoo", gapFillProviderId: null, minTier: "freemium" },
 ];

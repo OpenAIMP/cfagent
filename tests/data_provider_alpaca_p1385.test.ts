@@ -487,7 +487,7 @@ describe("lifecycle + routes: alpaca verifies, enables, and serves with health; 
     expect(typeof alpaca.health.status).toBe("string");
   });
 
-  it("no seeded route names alpaca, and every seeded route is unchanged", async () => {
+  it("no seeded route names alpaca, and every seeded route is unchanged except quotes gap-fill (issue #2144)", async () => {
     const sql = new MockSqlStorage();
     seedProviderConfigs(sql as never);
     const routes = listCapabilityRoutes(sql as never);
@@ -500,7 +500,8 @@ describe("lifecycle + routes: alpaca verifies, enables, and serves with health; 
     ]);
     const byCap = new Map(routes.map((r) => [r.capability, r]));
     expect(byCap.get("quotes")?.primaryProviderId).toBe("etrade");
-    expect(byCap.get("quotes")?.gapFillProviderId).toBe("yahoo");
+    // Issue #2144: the seed names no quotes gap-fill.
+    expect(byCap.get("quotes")?.gapFillProviderId).toBeNull();
     expect(byCap.get("historicalBars")?.primaryProviderId).toBe("yahoo");
     expect(byCap.get("historicalBars")?.gapFillProviderId).toBeNull();
     expect(byCap.get("fundamentals")?.primaryProviderId).toBe("yahoo");
