@@ -734,6 +734,45 @@ export function bindEtradeQuoteDeps(
 }
 
 /**
+ * Issue #2056: bind a Yahoo-only quote seam — the mirror of
+ * bindEtradeQuoteDeps, with Yahoo rows adapted through
+ * yahooQuoteToPipelineQuote (non-live or non-positive rows are
+ * refused, never re-stamped). The gather path fetches live and
+ * Yahoo separately and intersects on symbols, so it needs Yahoo
+ * membership proven independently — the combined seam's gap-fill
+ * alone cannot prove it (gap-fill only touches live-missed
+ * symbols). fetchQuote throws on failure, per the QuoteScreenerDeps
+ * contract; fetchQuotes returns only adapted rows.
+ */
+export function bindYahooQuoteDeps(
+  provider: DataProvider,
+  runContext: DataRunContext
+): QuoteScreenerDeps {
+  return {
+    fetchQuote: async (symbol: string) => {
+      const row = (await provider.getQuote!(symbol, runContext)).result as MarketDataResearchQuote;
+      const quote = yahooQuoteToPipelineQuote(row);
+      if (!quote) throw new Error(`Yahoo Finance returned no live quote for ${symbol}`);
+      return quote;
+    },
+    ...(typeof provider.getQuotesBatch === "function"
+      ? {
+          fetchQuotes: async (symbols: string[]) => {
+            const rows = (await provider.getQuotesBatch!(symbols, runContext))
+              .result as MarketDataResearchQuote[];
+            const out: ETradeQuote[] = [];
+            for (const row of rows) {
+              const quote = yahooQuoteToPipelineQuote(row);
+              if (quote) out.push(quote);
+            }
+            return out;
+          },
+        }
+      : {}),
+  };
+}
+
+/**
  * Issue #1356: bind the live-quotes composition to the pipeline
  * seam — E*TRADE primary + Yahoo gap-fill, per element. Each
  * element is served by the primary when it serves a positive-price
