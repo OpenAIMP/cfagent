@@ -1,0 +1,3 @@
+### 2155 — Minimal double-entry journal (#2155)
+
+- **Minimal double-entry journal (#2155)**: D1 journal behind a `JournalPort` (Drizzle + in-memory adapters, migration 0009), with a minimal chart (1000 funds received, 2000 customer credits outstanding, 4000 revenue, 5000 refunds reserved), charge / failure-credit / redemption mappings, per-tenant trial balance, and a pure reconcile function. The DO ledger stays authoritative; journal posting is best-effort and never fails a payment. Designed to be replaced by a real GL adapter behind the same port. No new routes, no money-path behavior change, draft only.

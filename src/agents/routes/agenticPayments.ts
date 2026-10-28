@@ -99,6 +99,12 @@ import {
   createCommercialAdapter,
   ensureCommercialSchema,
 } from "../../data/createCommercialPorts";
+import {
+  createJournalAdapter,
+  ensureJournalSchema,
+} from "../../data/createJournalPorts";
+import { mapRedemptionToJournalEntries } from "../../data/journalPorts";
+import { postJournalBestEffort } from "../../services/journalPosting";
 import type { D1CommercialAdapter } from "../../data/d1CommercialAdapter";
 import { toCommercialAccount } from "../../data/commercialPorts";
 import {
@@ -702,6 +708,24 @@ export async function handleAgenticPaymentsRoutes(
             return Response.json({ error: "Credit redeemed but the screener could not start; an operator must re-issue.", runRequestId, creditRedeemed: true }, { status: 503 });
           }
           ctx.audit("commercial.credit.redeemed", "payments", { runRequestId, creditRunId: credit.creditRunId, family, userId: login });
+          // Issue #2155: project the redemption into the D1 journal
+          // (Dr 2000 / Cr 4000 — the replacement run is delivered).
+          // BEST-EFFORT, never thrown: the run already started and
+          // the credit is already claimed; a journal failure is a
+          // loud log + a reconcile flag. Posted only on start
+          // success, never on the start_failed path above.
+          await postJournalBestEffort(async () => {
+            const adapter = createJournalAdapter(ctx.env as { AGENT_DB?: unknown });
+            if (!adapter) return null;
+            await ensureJournalSchema(adapter.db);
+            return adapter;
+          }, mapRedemptionToJournalEntries({
+            transactionRef: runRequestId,
+            tenantId,
+            runRequestId,
+            family,
+            amountUSD: credit.amountUSD,
+          }));
           return Response.json({ runRequestId, status: "redeemed_started", creditRunId: credit.creditRunId, workflowId: handle.workflowId });
         }
       }
