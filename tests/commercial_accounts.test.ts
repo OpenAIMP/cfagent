@@ -15,6 +15,10 @@ import {
   D1CommercialAdapter,
   ensureCommercialSchema,
 } from "../src/data/d1CommercialAdapter";
+import {
+  createD1SubscriptionDb,
+  ensureSubscriptionSchema,
+} from "../src/data/d1SubscriptionAdapter";
 import { InMemoryCommercialAdapter } from "../src/data/inMemoryCommercialAdapter";
 import { toCommercialAccount, type CommercialStore } from "../src/data/commercialPorts";
 
@@ -56,6 +60,11 @@ async function makeD1Store(): Promise<D1CommercialAdapter> {
   const mock = new MockD1Database();
   const db = createD1CommercialDb(mock as unknown as D1Database);
   await ensureCommercialSchema(db);
+  // Migration 0008 alters the accounts table (tier_source), so
+  // the commercial mapping requires 0008 applied after 0007 —
+  // the same order the money routes ensure at runtime.
+  const subsDb = createD1SubscriptionDb(mock as unknown as D1Database);
+  await ensureSubscriptionSchema(subsDb);
   return new D1CommercialAdapter(db);
 }
 

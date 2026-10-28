@@ -24,10 +24,20 @@ export type StoreTier = "Free" | "PayPerUse" | "Subscribed";
 
 export const VALID_TIERS: readonly StoreTier[] = ["Free", "PayPerUse", "Subscribed"];
 
+/**
+ * Who granted a stored Subscribed tier. "operator" = a store
+ * operator set it (survives a lapsed subscription); "subscription"
+ * = a purchase set it (confers nothing once every subscription
+ * row has expired — see resolveEffectiveTier). NULL on
+ * pre-0008 rows reads as "operator".
+ */
+export type TierSource = "operator" | "subscription";
+
 export interface CommercialAccountRecord {
   id: string;
   tenantId: string;
   tier: StoreTier;
+  tierSource?: TierSource | null;
   creditsUSD: number;
   includedRuns: number;
   updatedAtMs: number;
@@ -118,6 +128,7 @@ export interface CommercialStore {
     userId: string;
     tenantId: string;
     tier: unknown;
+    tierSource?: unknown;
     creditsUSD?: unknown;
     includedRuns?: unknown;
   }): Promise<CommercialAccountRecord>;
