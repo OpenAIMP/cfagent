@@ -170,6 +170,7 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
         title: `Options research — ${report.createdAt.slice(0, 10)} (${report.trigger})`,
         source: "options_research",
         summary: report.summary,
+        userLogin: login,
         body: report as unknown as Record<string, unknown>,
       },
       ctx.env as { AI?: any; VECTOR_MEMORY?: any }
