@@ -1,5 +1,6 @@
 /**
- * IAAA Admin panel (issue 945, IAAA-UI v1 + v2: READ-ONLY).
+ * IAAA Admin panel (issue 945, IAAA-UI v1 + v2; mutations added by
+ * issue #1758).
  *
  * v1: the platform admin's own memberships + role bindings, the
  * tenant's platform-genesis status, and recent tenant audit events
@@ -9,20 +10,32 @@
  * the mapping tables between them. The explorer tabs are static
  * code knowledge (no user data) and render only after the overview
  * fetch succeeds — the panel stays gated behind the overview route
- * as a whole. There is no mutation UI here: nothing here can grant,
- * revoke, or change anything — those are a later slice. The server
- * is the gate; on 403 this panel shows a plain "not an admin" state
- * and fetches nothing else.
+ * as a whole. The server is the gate; on 403 this panel shows a
+ * plain "not an admin" state and fetches nothing else.
+ *
+ * #1758 mutations: the Members tab grants, revokes, and edits
+ * memberships, and the Overview tab offers self-deactivation.
+ * Access-request approve/deny (from #1274) was already a mutation
+ * here. The audit/catalog tabs stay read-only. Nothing client-side
+ * decides authorization: every mutation can still 403 server-side
+ * (non-granter, self-grant, stale auth for the step-up obligation),
+ * and the panel surfaces that refusal instead of hiding it.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, EmptyState, Notice, Spinner, Table, Tabs, TabPanel } from "./components/ui";
+import { Button, EmptyState, Notice, Select, Spinner, Table, Tabs, TabPanel, TextInput } from "./components/ui";
 import {
+  deactivateSelf,
   decideAccessRequest,
+  editMembershipApi,
   fetchAccessRequests,
   fetchAdminOverview,
+  fetchMemberships,
   formatEventTime,
+  grantMembershipApi,
+  revokeMembershipApi,
   type AccessRequestView,
+  type AdminMembershipView,
   type AdminOverview,
 } from "./iaaaAdminApi";
 import {
@@ -38,15 +51,19 @@ import {
 } from "./mcpEndpointsData";
 import "./iaaaAdminPanel.css";
 
-type IaaaAdminTab = "overview" | "api" | "mcp" | "iaaa" | "correlations";
+type IaaaAdminTab = "overview" | "members" | "api" | "mcp" | "iaaa" | "correlations";
 
 const IAAA_ADMIN_TABS = [
   { id: "overview", label: "Overview" },
+  { id: "members", label: "Members" },
   { id: "api", label: "API" },
   { id: "mcp", label: "MCP" },
   { id: "iaaa", label: "IAAA" },
   { id: "correlations", label: "Correlations" },
 ] as const;
+
+const MEMBER_ROLES = ["member", "approver", "auditor", "workspace-admin", "tenant-admin", "platform-admin"] as const;
+const MEMBER_SCOPES = ["tenant", "workspace", "platform"] as const;
 
 export function IaaaAdminPanel() {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
@@ -61,6 +78,20 @@ export function IaaaAdminPanel() {
   const [accessRequests, setAccessRequests] = useState<AccessRequestView[]>([]);
   const [accessError, setAccessError] = useState("");
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  // #1758: Members tab state. Memberships load lazily when the tab
+  // is first selected; the grant/edit forms post to the server
+  // routes, which enforce the no-self-grant and admin gates.
+  const [memberships, setMemberships] = useState<AdminMembershipView[]>([]);
+  const [membersError, setMembersError] = useState("");
+  const [membersLoaded, setMembersLoaded] = useState(false);
+  const [actingId, setActingId] = useState<string | null>(null);
+  const [grantTarget, setGrantTarget] = useState("");
+  const [grantRole, setGrantRole] = useState<string>("member");
+  const [grantScope, setGrantScope] = useState<string>("tenant");
+  const [editRole, setEditRole] = useState<Record<string, string>>({});
+  const [editScope, setEditScope] = useState<Record<string, string>>({});
+  const [deactivateArmed, setDeactivateArmed] = useState(false);
+  const [deactivateResult, setDeactivateResult] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,6 +127,91 @@ export function IaaaAdminPanel() {
   useEffect(() => {
     if (!loading && !notAdmin && !error) void loadAccessRequests();
   }, [loading, notAdmin, error, loadAccessRequests]);
+
+  const loadMemberships = useCallback(async () => {
+    setMembersError("");
+    try {
+      setMemberships(await fetchMemberships());
+      setMembersLoaded(true);
+    } catch (err: any) {
+      setMembersError(err?.message || "Failed to load memberships.");
+      setMemberships([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "members" && !membersLoaded) void loadMemberships();
+  }, [tab, membersLoaded, loadMemberships]);
+
+  const grant = useCallback(async () => {
+    if (grantTarget.trim() === "") {
+      setMembersError("A target internal user id is required.");
+      return;
+    }
+    setActingId("grant");
+    setMembersError("");
+    try {
+      await grantMembershipApi(grantTarget.trim(), [{ role: grantRole, scope: grantScope }]);
+      setGrantTarget("");
+      await loadMemberships();
+    } catch (err: any) {
+      setMembersError(err?.message || "Failed to grant membership.");
+    } finally {
+      setActingId(null);
+    }
+  }, [grantTarget, grantRole, grantScope, loadMemberships]);
+
+  const revoke = useCallback(
+    async (membershipId: string) => {
+      setActingId(membershipId);
+      setMembersError("");
+      try {
+        await revokeMembershipApi(membershipId);
+        await loadMemberships();
+      } catch (err: any) {
+        setMembersError(err?.message || "Failed to revoke membership.");
+      } finally {
+        setActingId(null);
+      }
+    },
+    [loadMemberships],
+  );
+
+  const edit = useCallback(
+    async (membershipId: string) => {
+      setActingId(membershipId);
+      setMembersError("");
+      try {
+        await editMembershipApi(membershipId, [
+          { role: editRole[membershipId] ?? "member", scope: editScope[membershipId] ?? "tenant" },
+        ]);
+        await loadMemberships();
+      } catch (err: any) {
+        setMembersError(err?.message || "Failed to edit membership.");
+      } finally {
+        setActingId(null);
+      }
+    },
+    [editRole, editScope, loadMemberships],
+  );
+
+  const deactivate = useCallback(async () => {
+    if (!deactivateArmed) {
+      setDeactivateArmed(true);
+      return;
+    }
+    setDeactivateArmed(false);
+    try {
+      const report = await deactivateSelf();
+      setDeactivateResult(
+        report.verified
+          ? "Deactivated: sessions, memberships, keys, and tokens revoked and verified."
+          : `Deactivation completed with unverified items: ${report.residuals.join("; ") || "see report"}.`,
+      );
+    } catch (err: any) {
+      setDeactivateResult(err?.message || "Failed to deactivate.");
+    }
+  }, [deactivateArmed]);
 
   const decide = useCallback(
     async (requestId: string, decision: "approve" | "deny") => {
@@ -162,9 +278,21 @@ export function IaaaAdminPanel() {
         </div>
 
         <p className="iaaa-admin-note">
-          Memberships and audit events are read-only. Pending access requests below can be
+          Audit events are read-only. Pending access requests below can be
           approved or denied here; approval grants the requested role, denial grants nothing.
+          Membership grant, revoke, and edit live on the Members tab.
         </p>
+
+        <h4>Deactivate my account</h4>
+        <p className="iaaa-admin-note">
+          Deactivation revokes your sessions, memberships, API keys, and E*TRADE tokens,
+          suppresses mail, and verifies the result. It cannot be undone from this panel.
+          Click once to arm, again to confirm.
+        </p>
+        {deactivateResult && <Notice tone="danger">{deactivateResult}</Notice>}
+        <Button type="button" onClick={() => void deactivate()}>
+          {deactivateArmed ? "Confirm deactivation" : "Deactivate my account"}
+        </Button>
 
         <h4>Access requests</h4>
         {accessError && <Notice tone="danger">{accessError}</Notice>}
@@ -230,6 +358,121 @@ export function IaaaAdminPanel() {
             ]}
             rows={overview.recentAuditEvents}
             rowKey={(event) => event.id}
+          />
+        )}
+      </TabPanel>
+
+      <TabPanel idBase="iaaa-admin" tabId="members" active={tab === "members"}>
+        <p className="iaaa-admin-note">
+          Memberships in this tenant (platform admins see all tenants&apos; memberships).
+          Granting yourself a role is refused server-side; a grant requires fresh
+          authentication for the step-up obligation, so a stale session must sign in again.
+        </p>
+        {membersError && <Notice tone="danger">{membersError}</Notice>}
+        <h4>Grant membership</h4>
+        <TextInput
+          label="Target internal user id"
+          value={grantTarget}
+          onChange={(e) => setGrantTarget(e.target.value)}
+        />
+        <Select
+          label="Role"
+          value={grantRole}
+          onChange={(e) => setGrantRole(e.target.value)}
+        >
+          {MEMBER_ROLES.map((role) => (
+            <option key={role} value={role}>
+              {role}
+            </option>
+          ))}
+        </Select>
+        <Select
+          label="Scope"
+          value={grantScope}
+          onChange={(e) => setGrantScope(e.target.value)}
+        >
+          {MEMBER_SCOPES.map((scope) => (
+            <option key={scope} value={scope}>
+              {scope}
+            </option>
+          ))}
+        </Select>
+        <Button type="button" disabled={actingId === "grant"} onClick={() => void grant()}>
+          Grant
+        </Button>
+        <h4>Memberships</h4>
+        {memberships.length === 0 ? (
+          <EmptyState title="No memberships" description="No memberships returned for this tenant yet." />
+        ) : (
+          <Table
+            columns={[
+              { key: "user", header: "User", render: (m) => <code>{m.internalUserId}</code> },
+              { key: "tenant", header: "Tenant", render: (m) => m.tenantId },
+              {
+                key: "roles",
+                header: "Roles",
+                render: (m) =>
+                  m.roleBindings.map((b) => `${b.role} (${b.scope})`).join(", "),
+              },
+              {
+                key: "revoked",
+                header: "Revoked",
+                render: (m) => (m.revokedAtMs !== undefined ? "Yes" : "No"),
+              },
+              {
+                key: "actions",
+                header: "Actions",
+                render: (m) =>
+                  m.revokedAtMs !== undefined ? (
+                    "—"
+                  ) : (
+                    <>
+                      <Button
+                        type="button"
+                        disabled={actingId === m.membershipId}
+                        onClick={() => void revoke(m.membershipId)}
+                      >
+                        Revoke
+                      </Button>{" "}
+                      <Select
+                        label="Edit role"
+                        value={editRole[m.membershipId] ?? "member"}
+                        onChange={(e) =>
+                          setEditRole((prev) => ({ ...prev, [m.membershipId]: e.target.value }))
+                        }
+                      >
+                        {MEMBER_ROLES.map((role) => (
+                          <option key={role} value={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </Select>{" "}
+                      <Select
+                        label="Edit scope"
+                        value={editScope[m.membershipId] ?? "tenant"}
+                        onChange={(e) =>
+                          setEditScope((prev) => ({ ...prev, [m.membershipId]: e.target.value }))
+                        }
+                      >
+                        {MEMBER_SCOPES.map((scope) => (
+                          <option key={scope} value={scope}>
+                            {scope}
+                          </option>
+                        ))}
+                      </Select>{" "}
+                      <Button
+                        type="button"
+                        disabled={actingId === m.membershipId}
+                        onClick={() => void edit(m.membershipId)}
+                      >
+                        Save edit
+                      </Button>
+                    </>
+                  ),
+              },
+            ]}
+            rows={memberships}
+            rowKey={(m) => m.membershipId}
           />
         )}
       </TabPanel>

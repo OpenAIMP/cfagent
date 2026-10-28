@@ -1,9 +1,9 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
-import { getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
+import { clearSessionCookie, getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
 import { getServiceUserLogin, isLoginShaped, SHARED_ORCHESTRATOR_INSTANCE } from "./security/serviceIdentity";
 import { getSessionCached, invalidateSessionCache } from "./security/sessionCache";
-import { getSession, sessionStore, updateSession } from "./security/session";
-import type { DoNamespaceLike } from "./security/durableKv";
+import { deleteSession, getSession, sessionStore, updateSession } from "./security/session";
+import { listStoreEntries, type DoNamespaceLike } from "./security/durableKv";
 import { zonedDateParts } from "./schedule";
 import { OPERATION_CATALOG } from "./orchestrate";
 import {
@@ -31,10 +31,29 @@ import { checkAllTokenHealth } from "./agents/social/tokenHealth";
 import { validateAndTouchWiredSession } from "./security/iaaaEnforcement";
 import { requiresStepUpForMint } from "./security/iaaaGates";
 import { createWiredAuditStore } from "./security/iaaaAuditStore";
-import { createKvMembershipStore, grantMembership } from "./security/iaaaMembershipStore";
-import { canGrantRole } from "./security/authorization";
+import {
+  createKvMembershipStore,
+  grantMembership,
+  listMembershipsFromEntries,
+  readMembershipById,
+} from "./security/iaaaMembershipStore";
+import { canGrantRole, type AuthorizationScope, type Role } from "./security/authorization";
 import { createAccessRequestStore } from "./security/iaaaAccessRequests";
-import { buildAdminOverview } from "./security/iaaaAdminOverview";
+import { buildAdminOverview, isPlatformAdmin } from "./security/iaaaAdminOverview";
+import {
+  evaluateWithObligations,
+  type ObligationAuditWriter,
+} from "./security/obligations";
+import {
+  IAAA_AUDIT_POLICY_VERSION,
+  recordAuditEvent,
+} from "./security/iaaaAudit";
+import { parseSessionRegistryEntries } from "./security/iaaaSessionRegistry";
+import {
+  isMailSuppressed,
+  runOffboard,
+  setMailSuppression,
+} from "./security/iaaaLifecycleWiring";
 import { handleSeedGovernanceRoute } from "./data/seedGovernanceRoute";
 import {
   handleChainStatusRoute,
@@ -2159,6 +2178,444 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         return Response.json({ ok: true, request: decided.request });
       } catch {
         return Response.json({ error: "Access requests unavailable." }, { status: 500 });
+      }
+    }
+
+    // --- IAAA lifecycle wiring (issue #1758, #1717): grants, revokes,
+    // membership edit + list, self-service deactivation, admin offboarding.
+    //
+    // What was module-only before this slice, and is now callable:
+    // - grantMembership (#945 machinery, previously no route) via POST
+    //   /api/iaaa/membership/grant. The approvals flow itself was
+    //   already wired by #1274 (access-request create/list/decide);
+    //   this slice does NOT rebuild it — the panel's decide buttons
+    //   keep calling that flow, and this grant route is the direct
+    //   admin path for grants without a request.
+    // - MembershipStore list-all (F-21) via GET /api/iaaa/memberships,
+    //   backed by the sessions-namespace listing (the same listing
+    //   the session registry uses); revoke + edit via POST
+    //   /api/iaaa/membership/revoke and /edit.
+    // - Self-service deactivation (F-17) via POST /api/iaaa/deactivate
+    //   and admin offboarding via POST /api/iaaa/offboard, both
+    //   running offboard+verify (iaaaLifecycleWiring.ts) over the
+    //   session registry — the caller never supplies session ids.
+    //
+    // Gates (fail-closed, in order): requireAuth session (401);
+    // wired session with internalUserId (403 for legacy sessions,
+    // which carry no Slice 1 identity to revoke by); then the
+    // route's admin gate. Grant/revoke gates run through the #1751
+    // obligation channel (evaluateWithObligations): role:assign
+    // carries step-up + audit-before-allow, membership:revoke
+    // carries audit-before-allow, and a denied obligation denies
+    // the route — the grantMembership canGrantRole check then
+    // re-enforces the same rule at the store call. NO SELF-GRANT:
+    // a caller can never grant or edit their own membership
+    // through these routes, for any role, even one they already
+    // hold — elevation of oneself goes through another admin.
+    // Platform-admin is NOT a tenant superuser (Slice 3 policy):
+    // a platform-admin grants platform-scope roles only, and a
+    // tenant-admin grants tenant/workspace roles only; the panel
+    // gate (platform-admin) therefore does not by itself authorize
+    // tenant grants — the caller must hold the granting role in
+    // scope. Membership revoke deliberately does NOT delete the
+    // principal's sessions (#1750 semantics: the PDP denies on
+    // its next fresh read once the membership is revoked; session
+    // termination is offboarding, not revocation).
+    // Deactivation/offboarding responses are 200 with the full
+    // report even when verification fails: the revocation already
+    // happened, and a 500 would hide exactly the report that names
+    // what remains. The caller checks `verified`, not just status.
+    if (
+      path === "/api/iaaa/membership/grant" ||
+      path === "/api/iaaa/membership/revoke" ||
+      path === "/api/iaaa/membership/edit" ||
+      path === "/api/iaaa/memberships" ||
+      path === "/api/iaaa/deactivate" ||
+      path === "/api/iaaa/offboard"
+    ) {
+      const session = await requireAuth(request, env);
+      if (!session) {
+        return Response.json({ error: "Unauthorized: Please log in." }, { status: 401 });
+      }
+      if (!session.internalUserId) {
+        return Response.json({ error: "Forbidden: lifecycle actions require a wired session." }, { status: 403 });
+      }
+      const tenantId = resolveIaaaTenant(env);
+      const membershipStore = createKvMembershipStore(sessionStore(env));
+      const kv = sessionStore(env);
+      const nowMs = Date.now();
+      const callerMemberships = await membershipStore.getMembershipsByUser(session.internalUserId);
+      const callerIsPlatformAdmin = isPlatformAdmin(callerMemberships, nowMs);
+      const callerCanGrantTenantAdmin = async (): Promise<boolean> => {
+        const check = await canGrantRole(membershipStore, {
+          granterInternalUserId: session.internalUserId as string,
+          targetTenantId: tenantId,
+          targetScope: "tenant",
+          targetRole: "tenant-admin",
+          nowMs,
+        });
+        return check.decision === "allow";
+      };
+      const wiredAuditWriter = (permission: "role:assign" | "membership:revoke"): ObligationAuditWriter => {
+        return async (event) => {
+          const result = await recordAuditEvent(createWiredAuditStore(env), {
+            timestamp: event.nowMs,
+            type: "iaaa.lifecycle",
+            actorPrincipalId: event.principalId,
+            actorType: "human",
+            initiatingPrincipalId: event.principalId,
+            tenantId: event.tenantId,
+            correlationId: crypto.randomUUID(),
+            action: permission,
+            decision: "allow",
+            policyVersion: IAAA_AUDIT_POLICY_VERSION,
+            outcome: "succeeded",
+          });
+          return result.ok;
+        };
+      };
+      const offboardAudit = async (action: string, actor: string, tenant: string, atMs: number): Promise<boolean> => {
+        const result = await recordAuditEvent(createWiredAuditStore(env), {
+          timestamp: atMs,
+          type: "iaaa.lifecycle",
+          actorPrincipalId: actor,
+          actorType: "human",
+          initiatingPrincipalId: actor,
+          tenantId: tenant,
+          correlationId: crypto.randomUUID(),
+          action,
+          decision: "allow",
+          policyVersion: IAAA_AUDIT_POLICY_VERSION,
+          outcome: "succeeded",
+        });
+        return result.ok;
+      };
+      const offboardDeps = () => ({
+        sessions: {
+          async list() {
+            const entries = await listStoreEntries({
+              namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+              namespaceName: "sessions",
+              prefix: "",
+            });
+            // A null listing means the registry cannot see sessions:
+            // fail closed (500) rather than offboarding against an
+            // empty list and claiming success.
+            if (!entries) throw new Error("session listing unavailable");
+            return parseSessionRegistryEntries(entries);
+          },
+          async delete(sessionId: string) {
+            await deleteSession(env, sessionId);
+          },
+        },
+        memberships: membershipStore,
+        delegations: null,
+        apiKeys: {
+          async list(login: string) {
+            return (await listApiKeys(env, login)).map((k) => k.id);
+          },
+          async revoke(login: string, keyId: string) {
+            return revokeApiKey(env, login, keyId);
+          },
+        },
+        etrade: {
+          async revoke(login: string) {
+            // Upstream revoke + stored-token deletion (revokeRemote
+            // still deletes stored tokens when the upstream call
+            // fails, so a network failure never leaves local tokens
+            // live; it is recorded only as a step outcome upstream).
+            await revokeRemoteAccessToken(env, login);
+          },
+          async hasTokens(login: string) {
+            const entries = await listStoreEntries({
+              namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+              namespaceName: "etrade",
+              prefix: "etrade:token:",
+            });
+            // Cannot prove absence when the listing is unavailable:
+            // fail closed to "tokens present" so verification fails
+            // visibly instead of passing on an unknown store state.
+            if (!entries) return true;
+            return entries.some((entry) => {
+              const parts = entry.key.split(":");
+              return parts[parts.length - 1].toLowerCase() === login.toLowerCase();
+            });
+          },
+        },
+        suppression: {
+          async set(userId: string, atMs: number) {
+            await setMailSuppression(kv, userId, atMs);
+          },
+          async isSet(userId: string) {
+            return isMailSuppressed(kv, userId);
+          },
+        },
+        audit: {
+          async emit(input: { action: string; actorInternalUserId: string; tenantId: string; nowMs: number; correlationId: string }) {
+            return offboardAudit(input.action, input.actorInternalUserId, input.tenantId, input.nowMs);
+          },
+        },
+        invalidateSession: (sessionId: string) => invalidateSessionCache(sessionId),
+      });
+      try {
+        if (path === "/api/iaaa/memberships") {
+          if (request.method !== "GET") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          if (!callerIsPlatformAdmin && !(await callerCanGrantTenantAdmin())) {
+            return Response.json({ error: "Forbidden: listing memberships requires admin access." }, { status: 403 });
+          }
+          const entries = await listStoreEntries({
+            namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+            namespaceName: "sessions",
+            prefix: "iaaa-membership:",
+          });
+          if (!entries) {
+            return Response.json({ error: "Membership listing unavailable." }, { status: 500 });
+          }
+          const all = listMembershipsFromEntries(entries);
+          const memberships = callerIsPlatformAdmin
+            ? all
+            : all.filter((m) => m.tenantId === tenantId);
+          return Response.json({ ok: true, memberships });
+        }
+        if (path === "/api/iaaa/membership/grant") {
+          if (request.method !== "POST") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+          const targetId = typeof body?.internalUserId === "string" ? body.internalUserId.trim() : "";
+          const bindings = Array.isArray(body?.roleBindings) ? body.roleBindings : [];
+          if (targetId === "" || bindings.length === 0) {
+            return Response.json({ error: "internalUserId and a non-empty roleBindings array are required." }, { status: 400 });
+          }
+          if (targetId === session.internalUserId) {
+            return Response.json({ error: "Self-grant is forbidden: another admin must grant your roles.", code: "SELF_GRANT" }, { status: 403 });
+          }
+          const grantTenantId = typeof body?.tenantId === "string" && body.tenantId.trim() !== "" ? body.tenantId.trim() : tenantId;
+          for (const raw of bindings) {
+            const binding = raw as { role?: unknown; scope?: unknown; workspaceId?: unknown };
+            const scope = binding.scope === "platform" ? "platform" : "tenant";
+            const evaluated = await evaluateWithObligations(membershipStore, {
+              internalUserId: session.internalUserId,
+              tenantId: grantTenantId,
+              permission: "role:assign",
+              scope,
+              resourceScope:
+                binding.scope === "workspace" && typeof binding.workspaceId === "string"
+                  ? { workspaceId: binding.workspaceId }
+                  : undefined,
+              nowMs,
+              authTimeMs: session.authTimeMs,
+              audit: wiredAuditWriter("role:assign"),
+            });
+            if (evaluated.decision === "deny") {
+              return Response.json(
+                { error: "Forbidden: grant denied.", code: evaluated.reason, reason: evaluated.reason },
+                { status: 403 },
+              );
+            }
+          }
+          const granted = await grantMembership(membershipStore, {
+            granterInternalUserId: session.internalUserId,
+            internalUserId: targetId,
+            tenantId: grantTenantId,
+            roleBindings: bindings.map((raw) => {
+              const binding = raw as { role: string; scope: string; workspaceId?: string };
+              return {
+                role: binding.role as Role,
+                scope: binding.scope as AuthorizationScope,
+                ...(binding.workspaceId ? { workspaceId: binding.workspaceId } : {}),
+                grantedBy: session.internalUserId as string,
+              };
+            }),
+            nowMs,
+          });
+          if (!granted.ok) {
+            return Response.json(
+              { error: granted.error, code: granted.code },
+              { status: granted.code === "GRANT_DENIED" ? 403 : 400 },
+            );
+          }
+          return Response.json({ ok: true, membership: granted.membership }, { status: 201 });
+        }
+        if (path === "/api/iaaa/membership/revoke") {
+          if (request.method !== "POST") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+          const membershipId = typeof body?.membershipId === "string" ? body.membershipId.trim() : "";
+          if (membershipId === "") {
+            return Response.json({ error: "membershipId is required." }, { status: 400 });
+          }
+          const record = await readMembershipById(kv, membershipId);
+          if (!record) {
+            return Response.json({ error: "Membership not found." }, { status: 404 });
+          }
+          const isPlatformScope = record.roleBindings.some((b) => b.scope === "platform");
+          if (isPlatformScope) {
+            // PDP platform grants carry no membership:revoke, so a
+            // platform-scope revoke is gated on live platform-admin
+            // membership + a wired audit record written BEFORE the
+            // revoke (fail closed on audit failure). This is the
+            // documented platform-scope exception, not a PDP bypass
+            // for tenant memberships, which use the obligation
+            // channel below.
+            if (!callerIsPlatformAdmin) {
+              return Response.json({ error: "Forbidden: revoking a platform membership requires platform-admin." }, { status: 403 });
+            }
+            const audited = await offboardAudit("membership:revoke", session.internalUserId, record.tenantId, nowMs);
+            if (!audited) {
+              return Response.json({ error: "Forbidden: audit-before-revoke failed.", code: "AUDIT_FAILED" }, { status: 403 });
+            }
+          } else {
+            const evaluated = await evaluateWithObligations(membershipStore, {
+              internalUserId: session.internalUserId,
+              tenantId: record.tenantId,
+              permission: "membership:revoke",
+              scope: "tenant",
+              nowMs,
+              audit: wiredAuditWriter("membership:revoke"),
+            });
+            if (evaluated.decision === "deny") {
+              return Response.json(
+                { error: "Forbidden: revoke denied.", code: evaluated.reason, reason: evaluated.reason },
+                { status: 403 },
+              );
+            }
+          }
+          const revoked = await membershipStore.revokeMembership(membershipId, nowMs);
+          if (!revoked) {
+            return Response.json({ error: "Membership not found." }, { status: 404 });
+          }
+          return Response.json({ ok: true, membershipId, revoked: true });
+        }
+        if (path === "/api/iaaa/membership/edit") {
+          if (request.method !== "POST") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+          const membershipId = typeof body?.membershipId === "string" ? body.membershipId.trim() : "";
+          const bindings = Array.isArray(body?.roleBindings) ? body.roleBindings : [];
+          if (membershipId === "" || bindings.length === 0) {
+            return Response.json({ error: "membershipId and a non-empty roleBindings array are required." }, { status: 400 });
+          }
+          const record = await readMembershipById(kv, membershipId);
+          if (!record) {
+            return Response.json({ error: "Membership not found." }, { status: 404 });
+          }
+          if (record.internalUserId === session.internalUserId) {
+            return Response.json({ error: "Self-edit is forbidden: another admin must edit your membership.", code: "SELF_GRANT" }, { status: 403 });
+          }
+          // Grant first, revoke second: a failed grant leaves the
+          // old membership intact; a failed revoke after a
+          // successful grant is reported (oldRevoked: false) rather
+          // than hidden, so the principal never silently holds both.
+          for (const raw of bindings) {
+            const binding = raw as { scope?: unknown; workspaceId?: unknown };
+            const scope = binding.scope === "platform" ? "platform" : "tenant";
+            const evaluated = await evaluateWithObligations(membershipStore, {
+              internalUserId: session.internalUserId,
+              tenantId: record.tenantId,
+              permission: "role:assign",
+              scope,
+              resourceScope:
+                binding.scope === "workspace" && typeof binding.workspaceId === "string"
+                  ? { workspaceId: binding.workspaceId }
+                  : undefined,
+              nowMs,
+              authTimeMs: session.authTimeMs,
+              audit: wiredAuditWriter("role:assign"),
+            });
+            if (evaluated.decision === "deny") {
+              return Response.json(
+                { error: "Forbidden: edit denied.", code: evaluated.reason, reason: evaluated.reason },
+                { status: 403 },
+              );
+            }
+          }
+          const granted = await grantMembership(membershipStore, {
+            granterInternalUserId: session.internalUserId,
+            internalUserId: record.internalUserId,
+            tenantId: record.tenantId,
+            workspaceId: record.workspaceId,
+            roleBindings: bindings.map((raw) => {
+              const binding = raw as { role: string; scope: string; workspaceId?: string };
+              return {
+                role: binding.role as Role,
+                scope: binding.scope as AuthorizationScope,
+                ...(binding.workspaceId ? { workspaceId: binding.workspaceId } : {}),
+                grantedBy: session.internalUserId as string,
+              };
+            }),
+            nowMs,
+          });
+          if (!granted.ok) {
+            return Response.json(
+              { error: granted.error, code: granted.code },
+              { status: granted.code === "GRANT_DENIED" ? 403 : 400 },
+            );
+          }
+          const oldRevoked = await membershipStore.revokeMembership(membershipId, nowMs);
+          return Response.json({
+            ok: true,
+            membership: granted.membership,
+            oldRevoked,
+            ...(oldRevoked ? {} : { warning: "New membership granted but the old record could not be revoked; the principal currently holds both." }),
+          });
+        }
+        if (path === "/api/iaaa/deactivate") {
+          if (request.method !== "POST") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+          if (body?.confirm !== "deactivate") {
+            return Response.json({ error: "Deactivation requires { confirm: \"deactivate\" }." }, { status: 400 });
+          }
+          const report = await runOffboard(offboardDeps(), {
+            internalUserId: session.internalUserId,
+            tenantId,
+            nowMs,
+            actorInternalUserId: session.internalUserId,
+            auditAction: "iaaa.deactivate",
+          });
+          return Response.json(
+            { ok: true, ...report },
+            { headers: { "Set-Cookie": clearSessionCookie() } },
+          );
+        }
+        // POST /api/iaaa/offboard — admin offboarding of another principal
+        // (or, with the caller's own id, the admin path to self-offboard).
+        if (request.method !== "POST") {
+          return Response.json({ error: "Method not allowed" }, { status: 405 });
+        }
+        const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+        const targetId = typeof body?.internalUserId === "string" ? body.internalUserId.trim() : "";
+        const loginHint = typeof body?.login === "string" ? body.login.trim() : "";
+        if (targetId === "" && loginHint === "") {
+          return Response.json({ error: "internalUserId or login is required." }, { status: 400 });
+        }
+        if (!callerIsPlatformAdmin && !(await callerCanGrantTenantAdmin())) {
+          return Response.json({ error: "Forbidden: offboarding requires admin access." }, { status: 403 });
+        }
+        // A login-only offboard targets legacy sessions for that
+        // login; it needs a principal id for the membership/key
+        // stores, so without an internalUserId it offboards the
+        // legacy session set under a login-scoped principal id.
+        // Wired sessions are never selected by login (see the
+        // wiring module's identity rules).
+        const principalId = targetId !== "" ? targetId : `login:${loginHint}`;
+        const report = await runOffboard(offboardDeps(), {
+          internalUserId: principalId,
+          tenantId,
+          nowMs,
+          actorInternalUserId: session.internalUserId,
+          extraLogins: loginHint !== "" ? [loginHint] : [],
+          auditAction: "iaaa.offboard",
+        });
+        return Response.json({ ok: true, ...report });
+      } catch {
+        return Response.json({ error: "IAAA lifecycle action unavailable." }, { status: 500 });
       }
     }
 
