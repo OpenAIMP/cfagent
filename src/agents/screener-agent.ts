@@ -21,6 +21,12 @@ import { PortThink } from "../actors/thinkAdapter";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
+import {
+  acquireScreenRunLock,
+  isScreenRunning as isScreenRunningLock,
+  releaseScreenRunLock,
+  type ScreenRunLockSql,
+} from "../services/screenRunLock";
 import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
 import {
   applyPortfolioContextToOpportunities,
@@ -460,6 +466,29 @@ export class ScreenerAgent extends PortThink {
   }
 
   /**
+   * Issue #1993: synchronous-SQL adapter for the run lock, plus the
+   * submission-gate probe the sharded path calls on this instance's
+   * stub. The probe takes an explicit login: a fresh stub has no
+   * recorded owner yet, and the gate knows the run's owner already.
+   * These live before runScreen on purpose: the #624 heartbeat pin
+   * slices runScreen's source up to the next async method, so no
+   * async method may sit between runScreen and runScreenInner.
+   */
+  private lockSql(): ScreenRunLockSql {
+    const sql = (this.ctx.storage as any).sql;
+    return (statement: string, params: unknown[]) =>
+      [...sql.exec(statement, ...(params ?? []))] as Array<Record<string, unknown>>;
+  }
+
+  async isScreenRunning(
+    universe: string,
+    userLogin?: string,
+  ): Promise<{ running: boolean; startedAt: number | null }> {
+    const login = userLogin ?? (await this.userLogin());
+    return isScreenRunningLock(this.lockSql(), login, universe || "nasdaq100");
+  }
+
+  /**
    * Run a screen through the one pipeline. Market data comes from the
    * run's provider (E*TRADE by default, or the Yahoo adapter) — a
    * provider failure surfaces honestly (no fallback substitution).
@@ -473,23 +502,29 @@ export class ScreenerAgent extends PortThink {
     // Issue #1185: the run's owner is the request's threaded login;
     // record it at entry so later reads on this instance resolve to
     // the same owner. Without one, the recorded/derived owner applies.
+    // Issue #1993: the lock lives in this instance's own SQLite and is
+    // acquired synchronously — the old async-KV check-then-act let two
+    // truly simultaneous calls both pass. Same scope (user + universe)
+    // and same 5-minute stale takeover, now atomic. The monolithic
+    // scheduled / Trigger-Now path delegates here on this same
+    // per-owner instance, so this one lock covers manual, scheduled,
+    // Trigger-Now, and workflow runs alike.
     if (req.userLogin) await this.recordOwner(req.userLogin);
-    const lockKey = `screen_lock:${await this.userLogin()}:${req.universe || "nasdaq100"}`;
-    const existingLock = await this.ctx.storage.get<string>(lockKey);
-    if (existingLock) {
-      const lockAge = Date.now() - parseInt(existingLock, 10);
-      // Stale lock (>5 min) — assume the previous run died, take over.
-      if (lockAge < 5 * 60 * 1000) {
-        throw new Error(`Screen already running for ${req.universe || "nasdaq100"} (started ${Math.round(lockAge / 1000)}s ago). Please wait for it to complete.`);
-      }
-      console.warn(`[ScreenerAgent] Stale lock detected (${Math.round(lockAge / 1000)}s old), taking over.`);
+    const lockLogin = await this.userLogin();
+    const lockUniverse = req.universe || "nasdaq100";
+    const lock = acquireScreenRunLock(this.lockSql(), lockLogin, lockUniverse);
+    if (!lock.acquired) {
+      const age = lock.startedAt ? Math.round((Date.now() - lock.startedAt) / 1000) : 0;
+      throw new Error(`Screen already running for ${lockUniverse} (started ${age}s ago). Please wait for it to complete.`);
     }
-    await this.ctx.storage.put(lockKey, Date.now().toString());
+    if (lock.tookOverStale) {
+      console.warn(`[ScreenerAgent] Stale lock detected, taking over.`);
+    }
     try {
       return await this.runScreenInner(req, timestamp, cfg);
     } finally {
       // Always release the lock, even on failure.
-      await this.ctx.storage.delete(lockKey);
+      releaseScreenRunLock(this.lockSql(), lockLogin, lockUniverse, lock.token);
     }
   }
 
