@@ -530,6 +530,9 @@ export const unifiedOptionsRequestFields = {
   limit: intAtLeast(1).optional(),
   userLogin: z.string().optional(),
   overrideEnv: z.string().optional(),
+  // Issue #2091: scheduled all-strategy scope (client/manual callers
+  // omit it; the schema must still declare the key).
+  evaluateAllStrategies: z.boolean().optional(),
 } satisfies Record<keyof UnifiedOptionsRequest, z.ZodType>;
 
 export const unifiedOptionsRequestSchema = z.strictObject(unifiedOptionsRequestFields);
