@@ -492,6 +492,13 @@ export async function nasdaqUniverseRouteBundle(
 export interface NasdaqUniverseSeam {
   universeDeps?: NasdaqUniverseDeps;
   universeRoute?: NasdaqUniverseRouteBundle;
+  /**
+   * Issue #1998 (Phase 3): optional gather hook for listing-feed
+   * screens whose filter needs technical fields. Absent = today's
+   * refusal behavior, unchanged. Type-only import: the hook
+   * implementation lives outside src/trading.
+   */
+  enrichment?: import("./screener").ScreenLiveEnrichment;
 }
 
 /**

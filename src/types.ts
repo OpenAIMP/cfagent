@@ -822,6 +822,31 @@ export interface StockScreenLedger {
   rejections: StockScreenRejection[];
 }
 
+/**
+ * Issue #1998 (Phase 3): the persisted-gather summary a stock screen
+ * carries when its technical fields came from stored gather rows
+ * rather than the listing feed. Optional by construction — screens
+ * without a gather hook never set it.
+ */
+export interface StockScreenGatherSummary {
+  /** Caller run id the gather rows are keyed by (D2: the idempotency key). */
+  runId: string;
+  /** Symbols with a valid stored gather row read back. */
+  stored: number;
+  /** Acquired symbols with no valid stored gather row. */
+  missing: number;
+  /**
+   * Stored-row symbols excluded from evaluation because the row
+   * lacks a field this filter needs (honest missing-data
+   * rejection, not a market-fact rejection).
+   */
+  excluded: number;
+  /** Stored rows served by the gap-fill provider. */
+  gapFilled: number;
+  /** Content hash of the capability-route snapshot at run time. */
+  routeVersionHash: string;
+}
+
 export interface ScreenedStockItem extends ETradeQuote {
   price: number;
   rsi14?: number;
@@ -885,6 +910,8 @@ export interface StockScreenResult {
   status?: "matches_found" | "no_matches" | "SCAN_INVALID_DATA_MISMATCH" | "no_universe";
   ledger?: StockScreenLedger;
   validationError?: string;
+  /** Issue #1998: present only when a gather hook enriched this screen. */
+  gather?: StockScreenGatherSummary;
   discovery?: {
     mode: "all_us_listings";
     candidateCount: number;

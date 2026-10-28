@@ -44,6 +44,8 @@ export interface WorkflowGoalScreenEnvelope {
   scenarioSource: "built" | "stored";
   trigger: "manual" | "scheduled";
   result: GoalDrivenScreenResult;
+  /** Issue #1998: caller run id (D2) the run's captures are keyed by. */
+  idempotencyKey?: string;
   /** Issue #1571: carried so the store can stamp it when the result lacks it. */
   provider?: "yahoo";
   providerFallback?: {
@@ -102,6 +104,10 @@ export async function persistWorkflowGoalScreenReport(
       trigger: envelope.trigger,
       scenarioSource: envelope.scenarioSource,
       taskId: envelope.taskId,
+      // Issue #1998: the caller run id (D2) the run's data captures
+      // are keyed by — mirrors the direct path's body field, so a
+      // staged run's provenance resolves from this record alone.
+      ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
       result,
       // Issue #1335: artifact keys ride top-level so the Runs
       // read surface (runSummaryFromReport) finds them — the
