@@ -89,10 +89,12 @@ import {
 } from "../../services/paymentWorkflowSubmission";
 import { createFeatureFlagPort } from "../../features/createFeatureFlagPort";
 import { cfpayA2AOperation, getCfpayConfig } from "../../services/cfpayA2A";
+import { PAYMENT_DISCLOSURE } from "../../services/cfpayMonetization";
+import { PROPOSED_SEED_PRICES } from "../../data/priceCataloguePorts";
 import {
-  FAMILY_PRICES,
-  PAYMENT_DISCLOSURE,
-} from "../../services/cfpayMonetization";
+  createPriceCatalogueAdapter,
+  ensurePriceCatalogueSchema,
+} from "../../data/createPriceCataloguePorts";
 import { buildScenario, GOAL_TAXONOMY } from "../../services/goalScenarioEngine";
 import { buildGoalScreenCommand } from "../../services/goalScreenWorkflowSubmission";
 import {
@@ -1075,20 +1077,72 @@ export async function handleAgenticPaymentsRoutes(
   // GET /payments/agentic/commercial/pricing — server-truth family prices
   // (PROPOSED until owner approval), the monetization flag state, the
   // testnet-only marker, and the gate's failure policy, all from one
-  // source so UI copy can never drift from the gate.
+  // source so UI copy can never drift from the gate. Prices come
+  // from the operator catalogue (#2185) when the store is bound;
+  // the display fallback to the proposed seeds below is DISPLAY
+  // ONLY — the gate never reads it and never charges from it, so
+  // a store outage shows proposed prices instead of failing the
+  // panel, but can never mint a charge. This GET never ensures
+  // the schema (no writes on a read path).
   if (path.endsWith("/payments/agentic/commercial/pricing") && request.method === "GET") {
     try {
       const login = commercialLogin();
       if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
       const monetizationEnabled = await createFeatureFlagPort(ctx.env).isEnabled("monetization");
+      let prices: Record<string, number> = { ...PROPOSED_SEED_PRICES };
+      try {
+        const catalogue = createPriceCatalogueAdapter(ctx.env as { AGENT_DB?: unknown });
+        if (catalogue) {
+          const entries = await catalogue.getAllPrices();
+          if (entries.length > 0) {
+            prices = Object.fromEntries(entries.map((e) => [e.family, e.priceUSD]));
+          }
+        }
+      } catch {
+        // Display fallback only (see above): keep the proposed seeds.
+      }
       return Response.json({
         monetizationEnabled,
-        prices: { ...FAMILY_PRICES },
+        prices,
         testnetOnly: true,
         failurePolicy: PAYMENT_DISCLOSURE,
       });
     } catch {
       return Response.json({ error: "Failed to read pricing." }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/prices (operator only, #2185)
+  // — the operator price upsert: changing a per-run price needs no
+  // code deploy, because the gate reads the catalogue, not code.
+  // Operator gating follows the commercial pattern above
+  // (COMMERCIAL_STORE_OPERATORS, empty = deny all). A money write
+  // path, so the schema is ensured first (migration 0010 seeds
+  // the proposed defaults on a fresh store; the upsert then
+  // overwrites exactly the family named). Invalid family or price
+  // is 400; an unbound store is 503, never a silent no-op.
+  if (path.endsWith("/payments/agentic/commercial/prices") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!isStoreOperator(login)) {
+        return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => ({}))) as { family?: unknown; priceUSD?: unknown };
+      const catalogue = createPriceCatalogueAdapter(ctx.env as { AGENT_DB?: unknown });
+      if (!catalogue) {
+        return Response.json({ error: "Price catalogue unavailable: AGENT_DB is not bound." }, { status: 503 });
+      }
+      try {
+        await ensurePriceCatalogueSchema(catalogue.db);
+      } catch (err: any) {
+        return Response.json({ error: `Price catalogue unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      const entry = await catalogue.setPrice({ family: body.family, priceUSD: body.priceUSD });
+      ctx.audit("commercial.price.set", "payments", { family: entry.family, priceUSD: entry.priceUSD });
+      return Response.json({ entry });
+    } catch (err: any) {
+      const message = err.message || "Failed to set price";
+      return Response.json({ error: message }, { status: /Invalid|must be/.test(message) ? 400 : 500 });
     }
   }
 

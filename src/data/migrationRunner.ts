@@ -437,6 +437,27 @@ CREATE INDEX IF NOT EXISTS agent_journal_entries_ref_idx ON agent_journal_entrie
 `,
 };
 
+/**
+ * Migration 0010 — externalized price catalogue (#2185, sub-issue
+ * of #2012). Portable subset (same rules as migrations
+ * 0001-0009): `?` params only where params exist (DDL has none),
+ * epoch-ms integers, no dialect date functions, no RETURNING.
+ * Seeding is data, not schema: the proposed seed rows are written
+ * by ensurePriceCatalogueSchema (INSERT OR IGNORE), not by DDL,
+ * so an operator-edited price survives re-ensure.
+ */
+export const MIGRATION_0010_PRICE_CATALOGUE: DataMigration = {
+  version: 10,
+  name: "0010_price_catalogue",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_price_catalogue (
+  family TEXT PRIMARY KEY,
+  price_usd REAL NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -447,6 +468,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0007_COMMERCIAL_STORE,
   MIGRATION_0008_SUBSCRIPTIONS,
   MIGRATION_0009_JOURNAL,
+  MIGRATION_0010_PRICE_CATALOGUE,
 ];
 
 function splitStatements(sqlText: string): string[] {
