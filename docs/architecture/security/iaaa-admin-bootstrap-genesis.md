@@ -142,6 +142,46 @@ this incident on its own: no current platform-admin exists to
 call it. It remains the right follow-up for later multi-admin
 needs (e.g. a second admin for a Google login).
 
+### #1756 — atomic genesis claim (F-10) and marker hygiene (F-59)
+
+The genesis race is closed: `runWiredPostLogin` claims the marker
+with `KvLike.putIfAbsent` before granting, backed in production by
+the SessionStore DO's atomic consume op (one serialized request
+performs the check and the set, the same op the x402 replay guard
+already uses). The claim winner grants platform-admin; the loser
+takes the genesis-closed tenant-admin path and never writes the
+marker. A claim won but followed by a failed grant releases the
+marker so a retry can win — safe only because the atomic claim
+has exactly one winner, so the release runs on the atomic path
+only. Backends without putIfAbsent keep the legacy create-then-put
+order and must serialize their first logins. No enforcement
+decision, grant, or role-assignment semantic changes: only which
+caller wins the one-shot window, and only once. Pinned by
+`tests/iaaa_genesis_atomic_claim.test.ts` (concurrency test written
+first, observed failing with both logins winning under the old
+code) and by `putIfAbsent` adapter tests in
+`tests/durable_session_store.test.ts`.
+
+Marker hygiene, verified on current main 2026-10-28 (no
+production read — production marker state is not observable from
+the repo, and no production probing was done): the F-59 repair
+landed in the #1208-first order. PR #1219 (#1208) merged
+2026-10-23T20:09:35Z (main `32a5074`); PR #1220 (#1210) merged
+2026-10-23T20:15:00Z (main `ab014f4`); `32a5074` is an ancestor of
+`ab014f4` on main; deploy order was #987 then #988; the owner
+login after #987 ran the reset + grant and the login after #988
+revoked the retired record. End state: marker `grantedTo` the
+derived id, retired record revoked — fully clean, no stale
+`grantedTo` retired id left by the landed order. A stale marker
+could only arise from a pre-#1208 deployment, and it stays inert:
+the already-admin check short-circuits before the marker is ever
+read for that user, and the #1208 reset (still present in
+`runWiredPostLogin` on current main, running before the claim)
+would delete it on a listed non-admin login and re-set it to the
+logging-in id. The #1210 repair
+(`repairStrandedPlatformAdmin`, still present in the login tail
+on current main) revokes any remaining active retired record.
+
 ## Diagnostics playbook (for the next admin issue)
 
 | Observation | What it proves |

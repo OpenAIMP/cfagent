@@ -259,6 +259,31 @@ export function createStoreKv(options: StoreKvOptions): KvLike {
       if (legacyStore) await legacyStore.put(key, value, putOptions);
     },
 
+    /**
+     * #1756 — atomic claim for KvLike.putIfAbsent, riding the DO's
+     * existing atomic `consume` op (the same serialized
+     * SELECT-then-INSERT the x402 replay guard uses): one DO request
+     * performs the check and the set, so two concurrent claimants
+     * cannot both win. No TTL: a genesis marker never expires, and
+     * an expired row counts as absent by the consume op's rule.
+     * Deliberately NO legacy fallback: legacy KV has no atomic op,
+     * so a fallback write would silently reintroduce the race the
+     * caller is trying to close. When the DO cannot be reached the
+     * reply is null and this returns false — "not claimed" — so the
+     * caller fails closed (genesis-closed path, no platform grant)
+     * instead of granting on an unknown store state.
+     */
+    async putIfAbsent(key: string, value: string): Promise<boolean> {
+      const reply = await send({
+        op: "consume",
+        ns: namespaceName,
+        key,
+        value,
+      });
+      if (!reply || typeof reply.consumed !== "boolean") return false;
+      return reply.consumed;
+    },
+
     async delete(key: string): Promise<void> {
       await send({ op: "delete", ns: namespaceName, key });
       if (legacyStore) await legacyStore.delete(key);
