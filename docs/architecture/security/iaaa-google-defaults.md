@@ -119,18 +119,23 @@ that decision lands.
   Full table, measurement rule, and residual gaps:
   [authz.md §9](authz.md) and `src/security/revocationTargets.ts`.
 
-## Known limitation (documented, not hidden)
+## Known limitation — RESOLVED by #1759
 
-- **The client-side DID string still renders with the `github:`
+- **The client-side DID string rendered with the `github:`
   prefix for Google sessions** (`did:user:github:<email>` in the
-  UI components that derive it from `user.login`). The prefix is
-  display text, not identity — authorization never keys off it —
-  but it is factually wrong for a Google session. The follow-up
-  is a provider-neutral login key + DID prefix (a session
-  generalization across the githubLogin-keyed sites), NOT a
-  silent relabelling here. Until that lands, a Google session's
-  authoritative identity is always its `internalUserId` and its
-  `(issuer, sub)` binding, never the displayed DID.
+  UI components that derived it from `user.login`). Resolved by
+  issue #1759 (slice doc:
+  `iaaa-login-key-cutover-1759.md`): the provider segment is
+  now resolved from the session's own `providerIssuer` via the
+  provider registry (`getSessionDid` server-side,
+  `getDisplayUserDid` client-side, fed by the server-injected
+  `window.__USER__.providerId`), so a Google session renders
+  `did:user:google:<key>`. The prefix was and is display text,
+  not identity — authorization never keyed off it — and a
+  Google session's authoritative identity remains its
+  `internalUserId` and its `(issuer, sub)` binding, never the
+  displayed DID. Legacy sessions (no `providerIssuer`) still
+  render `github:`, which is historically accurate for them.
 
 ## Credential setup (owner steps — no secret is invented here)
 

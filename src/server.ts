@@ -114,6 +114,7 @@ import type { SeedCanonicalReportsResult } from "./data/auditReportProjection";
 import type { GovernedHaltState } from "./data/governedHalt";
 import { buildOpenApiSpec, SWAGGER_UI_HTML } from "./security/openapiSpec";
 import { resolveIaaaTenant } from "./security/iaaaGithubEndToEnd";
+import { resolveDoNameForUser } from "./security/iaaaMigration";
 import { evaluateRoutePep } from "./security/pepGateway";
 import {
   bearerKeyFromRequest,
@@ -1731,10 +1732,31 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         let enrichmentQuality: import("./enrichment/enrichmentPorts").EnrichmentQualitySummary | null = null;
         if (session?.githubLogin) {
           try {
-            const id = env.SEARCH_AGENT.idFromName(session.githubLogin);
+            // Issue #1759 (alias-forever cutover, executed): the
+            // SearchAgent instance lives under the login the user
+            // had when its state was created. A renamed wired user
+            // resolves through the alias to that login; everyone
+            // else resolves to their current login (unchanged).
+            // Any alias-store failure falls back to the current
+            // login — enrichment is best-effort and must never fail
+            // the summary. The header carries the resolved login so
+            // the instance and the identity it scopes by agree.
+            let doLogin = session.githubLogin;
+            if (session.internalUserId) {
+              try {
+                const resolved = await resolveDoNameForUser(sessionStore(env), {
+                  currentLogin: session.githubLogin,
+                  internalUserId: session.internalUserId,
+                });
+                doLogin = resolved.login;
+              } catch {
+                doLogin = session.githubLogin;
+              }
+            }
+            const id = env.SEARCH_AGENT.idFromName(doLogin);
             const targetUrl = new URL("/enrichment/status", "https://agent.internal");
             const freq = new Request(targetUrl, {
-              headers: { "x-user-login": session.githubLogin },
+              headers: { "x-user-login": doLogin },
               signal: AbortSignal.timeout(3000),
             });
             const fres = await env.SEARCH_AGENT.get(id).fetch(freq);
@@ -3648,10 +3670,20 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const asset = await env.ASSETS.fetch(request);
       if (asset.ok) {
         const html = await asset.text();
+        // Issue #1759: the client renders the user DID from the
+        // session's provider (getDisplayUserDid), so the injected
+        // user carries the provider id — from the same registry
+        // source as /api/me, never from user input. Legacy
+        // sessions (no internalUserId) carry no providerId and the
+        // client falls back to the legacy GitHub derivation.
+        const bootProvider = session.internalUserId
+          ? getProviderByIssuer(session.providerIssuer)
+          : null;
         const safeUser = JSON.stringify({
           login: session.githubLogin,
           name: session.githubName,
           avatar: session.githubAvatar,
+          ...(bootProvider ? { providerId: bootProvider.providerId } : {}),
         }).replace(/</g, "\\u003c");
 
         // Issue #1806: Inject evaluated feature flags for zero-latency client boot

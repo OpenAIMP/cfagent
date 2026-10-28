@@ -100,11 +100,14 @@ a member does not hold `integration:connect` and is denied.
   PROPOSED defaults from Slice 2 (the module defaults), NOT settled
   CISO thresholds. They are recorded here as the values actually
   enforced, and they remain open for CISO confirmation.
-- **DO-naming cutover default: the alias path.** Login-derived DO
-  names and token keys are kept and reached through the alias
-  (`iaaa-alias:` records). No copy, no rename, no key deletion.
-  The copy-cutover and dual-write options remain documented in
-  `iaaaMigration.ts` and undecided.
+- **DO-naming cutover: DECIDED (#1759).** Alias-forever for DO
+  names + dual-read for tokens (internal-id key first, login key
+  second). Login-derived DO names and token keys are kept and
+  reached through the alias (`iaaa-alias:` records). No copy, no
+  rename, no key deletion. Copy-cutover was rejected (see
+  `iaaaMigration.ts` header and
+  `iaaa-login-key-cutover-1759.md`); dual-write alone was
+  rejected as insufficient for DO names.
 - **Revocation propagation: numeric targets (#1750).** Membership
   revocation 0 ms (next PDP check), API-key deletion 0 ms (next
   verification), admin removal 0 ms (next admin-gate check),
@@ -155,5 +158,4 @@ flag defaults OFF.
   blocking set — including whether a failed audit write should
   BLOCK a wired login (this slice does NOT block on audit failure;
   that CISO decision remains open and is recorded as such).
-- The DO-naming cutover beyond the alias default (copy / dual-write).
 - The §15 completion report and the owner decision to close #945.

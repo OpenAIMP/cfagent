@@ -137,6 +137,58 @@ redeploy. No code change.** Sessions already created keep
 working; recorded memberships and aliases are not deleted by
 rollback.
 
+## 7. Known limitations: file the follow-up before enablement (issue #1759)
+
+A new provider MUST NOT land as "done" while its known
+limitations are undocumented. Before the enablement step (§6),
+the provider's `<provider>-defaults.md` MUST carry a "Known
+limitations" section naming, for each limitation that applies to
+that provider, the limitation, its user-visible effect, and its
+follow-up issue (or the decision that closes it). The checklist
+items below are obligations, not suggestions — an enablement PR
+whose defaults doc omits one of them is incomplete:
+
+- **Login-keyed state cutover.** State keyed by login string
+  (DO names, token keys) follows the #1759 decision:
+  alias-forever for DO names (`resolveDoNameForUser` in
+  `iaaaMigration.ts`) + dual-read for tokens (internal-id key
+  first, alias-login key second in `etradeOAuth.ts`). The new
+  provider's defaults doc MUST state whether its login key is
+  covered by the alias recorded at wired login (it is, via the
+  generic wired tail) and MUST name any dispatch site that still
+  addresses raw login for that provider (see the adoption list
+  in `iaaa-login-key-cutover-1759.md`) as a follow-up.
+- **Provider-neutral DID prefix.** No session of the new
+  provider may render another provider's prefix in UI. The
+  defaults doc MUST confirm the provider's sessions render
+  `did:user:<providerId>:<key>` via `getSessionDid` /
+  `getDisplayUserDid` (server + client), and MUST name the UI
+  sites verified. A hardcoded `github:` (or any other
+  provider's) prefix in a rendering path for the new provider
+  is a defect, not a cosmetic issue.
+- **No silent identity merge.** The same login key (e.g. the
+  same email) on two providers MUST NOT become one identity
+  unless account linking is explicitly designed and separately
+  approved. The defaults doc MUST state that the provider's
+  bindings are `(issuer, subject)`-keyed and independent, and
+  MUST NOT claim cross-provider linking.
+- **Idle / PDP behaviour for the new provider.** The defaults
+  doc MUST state the step-up freshness, idle timeout, and PDP
+  behaviour that apply to the new provider's wired sessions
+  (shared values or provider-specific ones, with the reason),
+  and MUST name any legacy-session-style exemption that still
+  applies, with its bound.
+- **Follow-up ownership.** Each named limitation MUST carry
+  either a follow-up issue number or a recorded decision
+  closing it. "Known limitation, TBD" with no issue and no
+  decision does not satisfy this section.
+
+This section exists because Google's onboarding shipped with
+its `github:`-prefixed DID and its cutover question documented
+as known limitations with follow-ups owed — and the follow-ups
+arrived as #1759. The next provider's limitations get their
+issues at onboarding time, not discovered later.
+
 ## Flexibility notes (what the architecture deliberately allows)
 
 - **Composition:** providers compose, they do not replace each
