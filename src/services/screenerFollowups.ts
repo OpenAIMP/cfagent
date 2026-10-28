@@ -19,6 +19,11 @@
 
 import type { AsyncJobChannel, AsyncJobSubmission, StageChainConfig } from "../types";
 import type { OptionsPartialQualification } from "../trading";
+import {
+  absoluteReportUrl,
+  optionsReportUrl,
+  screenerReportUrl,
+} from "./screenerReportUrl";
 
 /** Consolidation C4 (#1329): discovery + goal runs join the bridge, so
  *  the outcome kind covers them too. kindLabel (below) names each. */
@@ -566,6 +571,7 @@ export function formatFollowupDeliveryText(outcome: ScreenerRunOutcome): string 
  */
 export function screenerOutcomeFromEvent(
   event: import("../events/screenerEvents").ScreenerEvent,
+  appBaseUrl?: string,
 ): ScreenerRunOutcome {
   const trigger = event.trigger === "manual" ? "manual" : "scheduled";
   switch (event.type) {
@@ -583,7 +589,7 @@ export function screenerOutcomeFromEvent(
         csvKey: event.csvKey,
         csvStatus: event.csvStatus,
         csvError: event.csvError,
-        reportUrl: event.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(event.pdfKey)}` : undefined,
+        reportUrl: event.pdfKey ? screenerReportUrl(appBaseUrl, event.pdfKey) : undefined,
         matchedCount: event.matchedCount,
         totalScanned: event.totalScanned,
         universe: event.universe,
@@ -621,7 +627,9 @@ export function screenerOutcomeFromEvent(
         pdfKeys: event.pdfKey ? [event.pdfKey] : [],
         pdfStatus: event.pdfStatus,
         pdfError: event.pdfError,
-        reportUrl: event.reportUrl,
+        reportUrl: event.reportUrl
+          ? absoluteReportUrl(appBaseUrl, event.reportUrl)
+          : undefined,
         totalScanned: event.totalScanned,
         thesis: event.thesis,
         summary: event.summary,
@@ -652,14 +660,15 @@ export function screenerOutcomeFromEvent(
 export function screenerOutcomeFromRunResult(
   kind: ScreenerKind,
   result: Record<string, unknown>,
+  appBaseUrl?: string,
 ): ScreenerRunOutcome {
   const pdfKey = typeof result.pdfKey === "string" ? result.pdfKey : undefined;
   const reportUrl = typeof result.reportUrl === "string"
-    ? result.reportUrl
+    ? absoluteReportUrl(appBaseUrl, result.reportUrl)
     : pdfKey
       ? kind === "stock"
-        ? `/api/screener/report.pdf?key=${encodeURIComponent(pdfKey)}`
-        : `/api/options/report.pdf?key=${encodeURIComponent(pdfKey)}`
+        ? screenerReportUrl(appBaseUrl, pdfKey)
+        : optionsReportUrl(appBaseUrl, pdfKey)
       : undefined;
   return {
     kind,
