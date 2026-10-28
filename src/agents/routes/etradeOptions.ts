@@ -54,6 +54,8 @@ import type { AgentContext } from "agents";
 import { ETradeService } from "../../services/etrade";
 import {
   DynamicOptionsScreener,
+  buildStrategyReportInput,
+  strategyReportArtifactLinks,
   createOptionsScreeningProvider,
   OPTIONS_SCREENING_PROVIDER_ID,
   recommendOptionStrategies,
@@ -725,7 +727,23 @@ export async function handleEtradeOptionsRoutes(
           snapshotError: result.snapshot.validationError,
         };
         const isBestTrade = path.endsWith("/best-trade");
+        const strategyReportInput = buildStrategyReportInput({
+          action: isBestTrade ? "best-trade" : "strategies",
+          request: parsedDiscovery.value.request as unknown as Record<string, any>,
+          data: {
+            ranked: result.ranked,
+            bestTrade: result.bestTrade,
+            screenedOut: result.screenedOut,
+            symbol: result.snapshot.contracts?.[0]?.symbol,
+          },
+          symbol: result.snapshot.contracts?.[0]?.symbol,
+          summary: `${result.ranked.length} ranked strateg${result.ranked.length === 1 ? "y" : "ies"} for ${parsedDiscovery.value.request.symbol}.`,
+          generatedAt: new Date().toISOString(),
+        });
+        const strategyArtifacts = await ctx.getScreenerAgent(userLogin).generateAndStoreStrategyReport(strategyReportInput);
+        const artifactLinks = strategyReportArtifactLinks(strategyArtifacts);
         recordStrategyScreenRun(ctx.getOrm(), {
+          ...strategyArtifacts,
           userLogin,
           symbol: parsedDiscovery.value.request.symbol,
           trigger: "manual",
@@ -740,7 +758,7 @@ export async function handleEtradeOptionsRoutes(
           asyncJobId: ctx.asyncJobId,
         });
         if (isBestTrade) {
-          return Response.json({ bestTrade: result.bestTrade, evaluations: result.legacy?.evaluations, nameLedger: result.legacy?.nameLedger, ...common });
+          return Response.json({ bestTrade: result.bestTrade, evaluations: result.legacy?.evaluations, nameLedger: result.legacy?.nameLedger, ...common, ...artifactLinks });
         }
         return Response.json({
           status: result.ranked.length > 0 ? "ranked_candidates" : "no_candidates",
@@ -749,6 +767,7 @@ export async function handleEtradeOptionsRoutes(
           screenedOut: result.screenedOut.slice(0, 50),
           excluded: result.legacy?.excluded,
           ...common,
+          ...artifactLinks,
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Options strategy pipeline failed" }, { status: 400 });
