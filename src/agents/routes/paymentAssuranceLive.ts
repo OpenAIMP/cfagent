@@ -31,8 +31,8 @@
  * - Checkout mode additionally requires MONETIZATION_ENABLED=true
  *   and a configured cfpay key in the deployed env; otherwise it
  *   returns 409 naming the missing piece instead of silently
- *   running the free path. The gate's testnet-only network guard
- *   still applies inside the workflow.
+ *   running the free path. The gate's network allowlist (testnets
+ *   plus Base mainnet) still applies inside the workflow.
  *
  * Handler shape follows the other route modules (payments.ts):
  * returns a Response when a path matches, null otherwise, and is
