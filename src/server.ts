@@ -94,12 +94,8 @@ import {
 import type { SeedCanonicalReportsResult } from "./data/auditReportProjection";
 import type { GovernedHaltState } from "./data/governedHalt";
 import { buildOpenApiSpec, SWAGGER_UI_HTML } from "./security/openapiSpec";
-import {
-  checkRoutePermission,
-  isLegacyPdpGraceExpired,
-  resolveIaaaTenant,
-  shouldEnforcePdp,
-} from "./security/iaaaGithubEndToEnd";
+import { resolveIaaaTenant } from "./security/iaaaGithubEndToEnd";
+import { evaluateRoutePep } from "./security/pepGateway";
 import {
   bearerKeyFromRequest,
   listApiKeys,
@@ -540,20 +536,21 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       // requires integration:connect in the resolved tenant.
       // Flag OFF or a legacy session inside its #1749 PDP grace bound takes the pre-change path;
       // a grace-expired legacy session is PDP-enforced and denied with legacy_pdp_grace_expired (see authz.md §8).
-      if (shouldEnforcePdp(env, session, Date.now())) {
-        const allowed = await checkRoutePermission(
-          createKvMembershipStore(sessionStore(env)),
-          session,
-          resolveIaaaTenant(env),
-          "integration:connect",
-          Date.now(),
-        );
-        if (!allowed) {
-          if (isLegacyPdpGraceExpired(env, session, Date.now())) {
-            return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
-          }
-          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+      // #1755: the four integration:connect gates share one PEP helper
+      // (evaluateRoutePep) — same enforcement, same two 403 responses.
+      const pep = await evaluateRoutePep({
+        env,
+        session,
+        tenantId: resolveIaaaTenant(env),
+        permission: "integration:connect",
+        membershipStore: createKvMembershipStore(sessionStore(env)),
+        nowMs: Date.now(),
+      });
+      if (pep.enforced && !pep.allowed) {
+        if (pep.graceExpired) {
+          return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
         }
+        return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
       }
       const callbackParam = url.searchParams.get("callback");
       const callbackUrl = callbackParam || "oob";
@@ -646,20 +643,21 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       // #945 GitHub end-to-end PDP gate: completing the integration
       // connection (verifier exchange, which stores broker tokens)
       // requires integration:connect, same rule as the start route, including the #1749 legacy grace bound.
-      if (shouldEnforcePdp(env, session, Date.now())) {
-        const allowed = await checkRoutePermission(
-          createKvMembershipStore(sessionStore(env)),
-          session,
-          resolveIaaaTenant(env),
-          "integration:connect",
-          Date.now(),
-        );
-        if (!allowed) {
-          if (isLegacyPdpGraceExpired(env, session, Date.now())) {
-            return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
-          }
-          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+      // #1755: the four integration:connect gates share one PEP helper
+      // (evaluateRoutePep) — same enforcement, same two 403 responses.
+      const pep = await evaluateRoutePep({
+        env,
+        session,
+        tenantId: resolveIaaaTenant(env),
+        permission: "integration:connect",
+        membershipStore: createKvMembershipStore(sessionStore(env)),
+        nowMs: Date.now(),
+      });
+      if (pep.enforced && !pep.allowed) {
+        if (pep.graceExpired) {
+          return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
         }
+        return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
       }
       const body = (await request.json().catch(() => ({}))) as any;
       const verifier = (body.verifier || "").trim();
@@ -703,20 +701,21 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
       // Same #945 PDP gate as the E*TRADE start route, including the #1749 legacy grace bound.
-      if (shouldEnforcePdp(env, session, Date.now())) {
-        const allowed = await checkRoutePermission(
-          createKvMembershipStore(sessionStore(env)),
-          session,
-          resolveIaaaTenant(env),
-          "integration:connect",
-          Date.now(),
-        );
-        if (!allowed) {
-          if (isLegacyPdpGraceExpired(env, session, Date.now())) {
-            return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
-          }
-          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+      // #1755: the four integration:connect gates share one PEP helper
+      // (evaluateRoutePep) — same enforcement, same two 403 responses.
+      const pep = await evaluateRoutePep({
+        env,
+        session,
+        tenantId: resolveIaaaTenant(env),
+        permission: "integration:connect",
+        membershipStore: createKvMembershipStore(sessionStore(env)),
+        nowMs: Date.now(),
+      });
+      if (pep.enforced && !pep.allowed) {
+        if (pep.graceExpired) {
+          return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
         }
+        return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
       }
       try {
         const origin = new URL(request.url).origin;
@@ -771,20 +770,21 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       if (!session) return new Response("Unauthorized", { status: 401 });
       // Same #945 PDP gate as the E*TRADE verifier route (this stores
       // a broker credential), including the #1749 legacy grace bound.
-      if (shouldEnforcePdp(env, session, Date.now())) {
-        const allowed = await checkRoutePermission(
-          createKvMembershipStore(sessionStore(env)),
-          session,
-          resolveIaaaTenant(env),
-          "integration:connect",
-          Date.now(),
-        );
-        if (!allowed) {
-          if (isLegacyPdpGraceExpired(env, session, Date.now())) {
-            return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
-          }
-          return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
+      // #1755: the four integration:connect gates share one PEP helper
+      // (evaluateRoutePep) — same enforcement, same two 403 responses.
+      const pep = await evaluateRoutePep({
+        env,
+        session,
+        tenantId: resolveIaaaTenant(env),
+        permission: "integration:connect",
+        membershipStore: createKvMembershipStore(sessionStore(env)),
+        nowMs: Date.now(),
+      });
+      if (pep.enforced && !pep.allowed) {
+        if (pep.graceExpired) {
+          return Response.json({ error: "Legacy session PDP grace expired: re-login through wiring to restore gated actions.", code: "legacy_pdp_grace_expired" }, { status: 403 });
         }
+        return Response.json({ error: "Authorization denied: integration:connect permission required." }, { status: 403 });
       }
       const body = (await request.json().catch(() => null)) as { token?: string } | null;
       const token = (body?.token || "").trim();

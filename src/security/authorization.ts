@@ -257,6 +257,58 @@ export async function createMembership(
 }
 
 // ---------------------------------------------------------------------------
+// Policy snapshot + attribute provider (#1755, parent #1717)
+//
+// The compiled ROLE_GRANTS table stays the authoritative policy.
+// The snapshot is its portable form: the same grants as JSON data
+// (exportable, inspectable, loadable through a PolicyProvider) —
+// not a second policy language and not an editor. The attribute
+// provider is the PIP port: the PDP reads memberships only through
+// it, never through a store directly. authorize() below stays as
+// the back-compatible entry point: compiled policy + a store
+// adapted to a provider, so every existing caller keeps the exact
+// decisions it had.
+// ---------------------------------------------------------------------------
+
+/** Portable form of the role-grant policy. Plain JSON data. */
+export interface PolicySnapshot {
+  version: string;
+  permissions: readonly Permission[];
+  roleGrants: Record<Role, readonly Permission[]>;
+}
+
+/** A copy of the compiled tables, so no caller can mutate live policy. */
+export function getCompiledPolicySnapshot(): PolicySnapshot {
+  const roleGrants = {} as Record<Role, readonly Permission[]>;
+  for (const role of ROLES) roleGrants[role] = [...ROLE_GRANTS[role]];
+  return {
+    version: AUTHORIZATION_POLICY_VERSION,
+    permissions: [...PERMISSIONS],
+    roleGrants,
+  };
+}
+
+/**
+ * PIP port: supplies the attributes the PDP evaluates. Today the
+ * only attribute set is memberships; federation, transformation,
+ * or caching land here later, behind this interface — never by
+ * giving the PDP another store to read directly.
+ */
+export interface AttributeProvider {
+  getMembershipsByUser(internalUserId: string): Promise<Membership[]>;
+}
+
+/** Adapt any MembershipStore to the PIP port (the store is not the PDP). */
+export function membershipStoreToAttributeProvider(
+  store: MembershipStore,
+): AttributeProvider {
+  return {
+    getMembershipsByUser: (internalUserId: string) =>
+      store.getMembershipsByUser(internalUserId),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Policy decision point
 // ---------------------------------------------------------------------------
 
@@ -308,6 +360,7 @@ export const AUTHORIZATION_POLICY_VERSION = "iaaa-authorization-1";
 function deny(
   request: AuthorizationRequest,
   reason: DecisionReason,
+  policyVersion: string = AUTHORIZATION_POLICY_VERSION,
 ): AuthorizationDecision {
   return {
     decision: "deny",
@@ -315,18 +368,21 @@ function deny(
     principalId: request.actorInternalUserId,
     tenantId: request.tenantId,
     permission: String(request.permission),
-    policyVersion: AUTHORIZATION_POLICY_VERSION,
+    policyVersion,
   };
 }
 
-function allow(request: AuthorizationRequest): AuthorizationDecision {
+function allow(
+  request: AuthorizationRequest,
+  policyVersion: string = AUTHORIZATION_POLICY_VERSION,
+): AuthorizationDecision {
   return {
     decision: "allow",
     reason: "ALLOW",
     principalId: request.actorInternalUserId,
     tenantId: request.tenantId,
     permission: String(request.permission),
-    policyVersion: AUTHORIZATION_POLICY_VERSION,
+    policyVersion,
   };
 }
 
@@ -339,20 +395,26 @@ function bindingIsActive(binding: RoleBinding, nowMs: number): boolean {
  * requested tenant (or platform scope), carries an active role
  * binding that grants the permission and passes every applicable
  * scope and resource check. Everything else denies.
+ *
+ * #1755: the decision logic lives here, parameterized by policy
+ * snapshot + attribute provider. The PDP reads no store: every
+ * membership read goes through `attributes` (the PIP port).
  */
-export async function authorize(
-  store: MembershipStore,
+export async function authorizeWithPolicy(
+  policy: PolicySnapshot,
+  attributes: AttributeProvider,
   request: AuthorizationRequest,
 ): Promise<AuthorizationDecision> {
+  const version = policy.version;
   if (!(PERMISSIONS as readonly string[]).includes(String(request.permission))) {
-    return deny(request, "UNKNOWN_PERMISSION");
+    return deny(request, "UNKNOWN_PERMISSION", version);
   }
   if (!isValidField(request.actorInternalUserId)) {
-    return deny(request, "INVALID_ACTOR");
+    return deny(request, "INVALID_ACTOR", version);
   }
   const scope = request.scope ?? "tenant";
   const actor = normalize(request.actorInternalUserId);
-  const all = await store.getMembershipsByUser(actor);
+  const all = await attributes.getMembershipsByUser(actor);
 
   // Platform scope: only a platform-admin binding grants, and only
   // platform permissions. Any other actor is denied at this hard
@@ -367,33 +429,33 @@ export async function authorize(
       ({ membership, binding }) =>
         membership.revokedAtMs === undefined && bindingIsActive(binding, request.nowMs),
     );
-    if (active.length === 0) return deny(request, "PLATFORM_SCOPE_DENIED");
-    if (!ROLE_GRANTS["platform-admin"].includes(request.permission)) {
-      return deny(request, "NO_GRANT");
+    if (active.length === 0) return deny(request, "PLATFORM_SCOPE_DENIED", version);
+    if (!(policy.roleGrants["platform-admin"] ?? []).includes(request.permission)) {
+      return deny(request, "NO_GRANT", version);
     }
-    return allow(request);
+    return allow(request, version);
   }
 
   if (!isValidField(request.tenantId)) {
-    return deny(request, "INVALID_TENANT_ID");
+    return deny(request, "INVALID_TENANT_ID", version);
   }
   const tenantId = normalize(request.tenantId!);
   const inTenant = all.filter((m) => m.tenantId === tenantId);
   if (inTenant.length === 0) {
     // The actor holds memberships, but none in this tenant: the
     // request is cross-tenant, not merely unprivileged.
-    return deny(request, all.length > 0 ? "CROSS_TENANT" : "NO_MEMBERSHIP");
+    return deny(request, all.length > 0 ? "CROSS_TENANT" : "NO_MEMBERSHIP", version);
   }
   const activeMemberships = inTenant.filter((m) => m.revokedAtMs === undefined);
   if (activeMemberships.length === 0) {
-    return deny(request, "MEMBERSHIP_REVOKED");
+    return deny(request, "MEMBERSHIP_REVOKED", version);
   }
 
   let blockingReason: DecisionReason | null = null;
   for (const membership of activeMemberships) {
     for (const binding of membership.roleBindings) {
       if (!bindingIsActive(binding, request.nowMs)) continue;
-      if (!ROLE_GRANTS[binding.role].includes(request.permission)) continue;
+      if (!(policy.roleGrants[binding.role] ?? []).includes(request.permission)) continue;
       // Scope compatibility: a platform binding never grants tenant
       // permissions; a tenant binding grants tenant-wide; a
       // workspace/resource binding grants within its workspace or
@@ -448,10 +510,27 @@ export async function authorize(
           continue;
         }
       }
-      return allow(request);
+      return allow(request, version);
     }
   }
-  return deny(request, blockingReason ?? "NO_GRANT");
+  return deny(request, blockingReason ?? "NO_GRANT", version);
+}
+
+/**
+ * Back-compatible PDP entry point: the compiled policy, with the
+ * caller's store adapted to the PIP port. Decisions are identical
+ * to authorizeWithPolicy() with the compiled snapshot — this is a
+ * delegation, not a second implementation.
+ */
+export async function authorize(
+  store: MembershipStore,
+  request: AuthorizationRequest,
+): Promise<AuthorizationDecision> {
+  return authorizeWithPolicy(
+    getCompiledPolicySnapshot(),
+    membershipStoreToAttributeProvider(store),
+    request,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -483,27 +562,31 @@ export async function canGrantRole(
     permission: "role:assign",
     nowMs: request.nowMs,
   };
+  // #1755: same decisions as before, routed through the PIP port —
+  // the store is adapted once, and every read below is a PIP read.
+  const policy = getCompiledPolicySnapshot();
+  const attributes = membershipStoreToAttributeProvider(store);
   if (!ROLES.includes(request.targetRole)) {
     return deny(base, "UNKNOWN_PERMISSION");
   }
   if (request.targetRole === "platform-admin" || request.targetScope === "platform") {
-    const platform = await authorize(store, {
+    const platform = await authorizeWithPolicy(policy, attributes, {
       ...base,
       tenantId: undefined,
       scope: "platform",
     });
-    // authorize() already denies non-platform-admins with
+    // authorizeWithPolicy() already denies non-platform-admins with
     // PLATFORM_SCOPE_DENIED; surface that hard boundary directly.
     return platform.decision === "allow" ? platform : deny(base, "PLATFORM_SCOPE_DENIED");
   }
-  const tenantGrant = await authorize(store, base);
+  const tenantGrant = await authorizeWithPolicy(policy, attributes, base);
   if (tenantGrant.decision === "deny") return tenantGrant;
   // The grant's scope must match the granter's scope: a tenant-wide
   // grant requires a tenant-admin, and a workspace grant requires a
   // tenant-admin or the matching workspace-admin binding. A
   // workspace-admin must not become a tenant-wide granter through
   // the PDP's workspace-resource candidate rule.
-  const memberships = await store.getMembershipsByUser(
+  const memberships = await attributes.getMembershipsByUser(
     normalize(request.granterInternalUserId),
   );
   const inTenant = memberships.filter(
