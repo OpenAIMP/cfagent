@@ -339,7 +339,8 @@ export function WorkflowRunsPanel() {
   const failedSources = Object.entries(storeErrors);
 
   return (
-    <PageShell
+    <div className="workflow-runs-page">
+      <PageShell
       title="Workflow Runs"
       scopeNote="Every run the workflow engine recorded — job chains (feed → generate → serve → deliver) and standalone screener, goal, and discovery outcomes. Each run shows its stages, inputs, outputs, failures, artifacts, and how it was triggered. Trade approvals and payments stay in their own ledgers (Approvals, Billing)."
       loading={loading && runs.length === 0}
@@ -449,7 +450,8 @@ export function WorkflowRunsPanel() {
           </div>
         </PageSection>
       )}
-    </PageShell>
+      </PageShell>
+    </div>
   );
 }
 
