@@ -292,10 +292,9 @@ export async function handleEtradeBrokerRoutes(
       if (!parsedScreen.ok) {
         return Response.json({ error: parsedScreen.error }, { status: 400 });
       }
-      const universe = parsedScreen.value.universe;
-      const validatedFilters = parsedScreen.value.filters;
+      const { universe, filters: validatedFilters, emailTo } = parsedScreen.value;
       const agent = ctx.getScreenerAgent(userLogin);
-      return await executeEtradeScreen({ ctx, sessionId, requestedEnv, userLogin, agent, universe, validatedFilters, asyncRequested });
+      return await executeEtradeScreen({ ctx, sessionId, requestedEnv, userLogin, agent, universe, validatedFilters, asyncRequested, emailTo });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to screen equities" }, { status: 500 });
     }

@@ -27,6 +27,7 @@ import {
   type AsyncJobsContext,
 } from "../src/agents/orchestrator/asyncJobs";
 import { createFollowupDeliveryPort } from "../src/services/screenerFollowupDelivery";
+import { parseStockScreenRequest } from "../src/trading/screeningSchemas";
 import type { ScreenerEvent } from "../src/events/screenerEvents";
 
 const outcome: ScreenerRunOutcome = {
@@ -391,5 +392,235 @@ describe("delivery port: email carries text + PDF + XLSX", () => {
     expect(res.detail).toContain("x1");
     expect(mime).toContain("screen.pdf");
     expect(mime).not.toContain("screen.xlsx");
+  });
+
+  it("issue #1941: returns ok:false (and spawns no delivered receipt) when neither cfpay nor env.EMAIL binding is present", async () => {
+    const env = {
+      SCREENER_EMAIL_TO: "ops@example.com",
+      SLACK_WEBHOOK_URL: "https://hooks.slack.com/x",
+    };
+    const agent = {
+      getPdfByKey: async () => ({ bytes: new TextEncoder().encode("PDFBYTES"), fileName: "screen.pdf" }),
+      getXlsxByKey: async () => null,
+      getOptionsPdfByKey: async () => null,
+    };
+    const port = createFollowupDeliveryPort({
+      env: env as never,
+      getOrm: () => ({}) as never,
+      getScreenerAgent: () => agent as never,
+    });
+    const res = await port.deliver({
+      channel: "email",
+      userLogin: "alice",
+      outcome,
+      artifacts: [{ key: "k1", fileName: "screen.pdf", kind: "pdf" }],
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBeTruthy();
+
+    const notifyRes = await port.notify({
+      channel: "email",
+      userLogin: "alice",
+      text: "Screen completed",
+    });
+    expect(notifyRes.ok).toBe(false);
+    expect(notifyRes.error).toBeTruthy();
+
+    // End-to-end executor proof: a failed email deliver job records status 'failed'
+    // and never schedules a 'delivered' lifecycle notification receipt.
+    const sql = new StatefulAsyncSql();
+    const { ctx } = makeCtx(sql, env);
+    (ctx as unknown as { followupDeliveryPort: () => ReturnType<typeof createFollowupDeliveryPort> }).followupDeliveryPort = () => port;
+    const job = await submitAsyncJob(ctx, {
+      capability: "followup.deliver",
+      payload: {
+        outcome,
+        userLogin: "alice",
+        channel: "email",
+        artifacts: [{ key: "k1", fileName: "screen.pdf", kind: "pdf" }],
+      },
+      parentJobId: "main-1941",
+    });
+    await executeAsyncJob(ctx, { jobId: job.jobId });
+    const failedJob = getAsyncJob(ctx, job.jobId);
+    expect(failedJob?.status).toBe("failed");
+    expect(failedJob?.error).toContain("[DELIVER_002]");
+    const deliveredReceipts = sql.rows.filter((r) => {
+      if (r.capability !== "followup.notify") return false;
+      const p = JSON.parse(String(r.payload_json)) as { event?: string };
+      return p.event === "delivered";
+    });
+    expect(deliveredReceipts).toHaveLength(0);
+  });
+
+  it("issue #1941: returns ok:false when env.EMAIL.send throws (provider failure)", async () => {
+    const env = {
+      SCREENER_EMAIL_TO: "ops@example.com",
+      EMAIL: {
+        send: async () => {
+          throw new Error("SMTP upstream rejected message");
+        },
+      },
+    };
+    const agent = {
+      getPdfByKey: async () => ({ bytes: new TextEncoder().encode("PDFBYTES"), fileName: "screen.pdf" }),
+      getXlsxByKey: async () => null,
+      getOptionsPdfByKey: async () => null,
+    };
+    const port = createFollowupDeliveryPort({
+      env: env as never,
+      getOrm: () => ({}) as never,
+      getScreenerAgent: () => agent as never,
+    });
+    const res = await port.deliver({
+      channel: "email",
+      userLogin: "alice",
+      outcome,
+      artifacts: [{ key: "k1", fileName: "screen.pdf", kind: "pdf" }],
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBeTruthy();
+  });
+
+  it("issue #1941: delivers email + attachments via cfpay A2A when CFPAY_A2A_TOKEN is configured (even without env.EMAIL)", async () => {
+    const fetchCalls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalls.push({
+        url: String(input),
+        body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+      });
+      return new Response(
+        JSON.stringify({
+          result: {
+            artifacts: [{ parts: [{ kind: "data", data: { ok: true, messageId: "a2a-msg-1" } }] }],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+    try {
+      const env = {
+        SCREENER_EMAIL_TO: "ops@example.com",
+        CFPAY_A2A_TOKEN: "test-a2a-token",
+        CFPAY_URL: "https://pay.openaimp.com",
+      };
+      const agent = {
+        getPdfByKey: async () => ({ bytes: new TextEncoder().encode("PDFBYTES"), fileName: "screen.pdf" }),
+        getXlsxByKey: async () => ({ bytes: new TextEncoder().encode("XLSXBYTES"), fileName: "screen.xlsx" }),
+        getOptionsPdfByKey: async () => null,
+      };
+      const port = createFollowupDeliveryPort({
+        env: env as never,
+        getOrm: () => ({}) as never,
+        getScreenerAgent: () => agent as never,
+      });
+      const res = await port.deliver({
+        channel: "email",
+        userLogin: "alice",
+        outcome,
+        artifacts: [
+          { key: "k1", fileName: "screen.pdf", kind: "pdf" },
+          { key: "x1", fileName: "screen.xlsx", kind: "xlsx" },
+        ],
+      });
+      expect(res.ok).toBe(true);
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0].url).toBe("https://pay.openaimp.com/a2a/email");
+      const dataPart = ((fetchCalls[0].body.params as any).message.parts[0].data) as {
+        operation: string;
+        to: string;
+        attachments: Array<{ filename: string; contentType: string }>;
+      };
+      expect(dataPart.operation).toBe("email.sendWithAttachments");
+      expect(dataPart.to).toBe("ops@example.com");
+      expect(dataPart.attachments.map((a) => a.filename)).toEqual(["screen.pdf", "screen.xlsx"]);
+
+      const notifyRes = await port.notify({
+        channel: "email",
+        userLogin: "alice",
+        text: "Screen completed",
+      });
+      expect(notifyRes.ok).toBe(true);
+      expect(fetchCalls).toHaveLength(2);
+      const notifyData = ((fetchCalls[1].body.params as any).message.parts[0].data) as {
+        operation: string;
+        to: string;
+      };
+      expect(notifyData.operation).toBe("email.send");
+      expect(notifyData.to).toBe("ops@example.com");
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("issue #1941: falls back to env.EMAIL when cfpay A2A returns ok:false, and resolves OPTIONS_EMAIL_TO fallback", async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          result: {
+            artifacts: [{ parts: [{ kind: "data", data: { ok: false, error: "cfpay unavailable" } }] }],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      let mime = "";
+      const env = {
+        OPTIONS_EMAIL_TO: "fallback@example.com",
+        CFPAY_A2A_TOKEN: "test-a2a-token",
+        EMAIL: {
+          send: async (body: ReadableStream) => {
+            mime = await new Response(body).text();
+          },
+        },
+      };
+      const cfg = resolveScreenerFollowupConfig(env);
+      expect(cfg.channels.email.configured).toBe(true);
+      expect(cfg.channels.email.to).toBe("fallback@example.com");
+
+      const agent = {
+        getPdfByKey: async () => ({ bytes: new TextEncoder().encode("PDFBYTES"), fileName: "screen.pdf" }),
+        getXlsxByKey: async () => null,
+        getOptionsPdfByKey: async () => null,
+      };
+      const port = createFollowupDeliveryPort({
+        env: env as never,
+        getOrm: () => ({}) as never,
+        getScreenerAgent: () => agent as never,
+      });
+      const res = await port.deliver({
+        channel: "email",
+        userLogin: "alice",
+        outcome,
+        artifacts: [{ key: "k1", fileName: "screen.pdf", kind: "pdf" }],
+      });
+      expect(res.ok).toBe(true);
+      expect(mime).toContain("To: <fallback@example.com>");
+      expect(mime).toContain("screen.pdf");
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("issue #1941: parseStockScreenRequest separates emailTo from filters and screenerOutcomeFromRunResult preserves emailTo", () => {
+    const parsed = parseStockScreenRequest({
+      universe: "NASDAQ100",
+      minPrice: 20,
+      emailTo: "override@example.com",
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.emailTo).toBe("override@example.com");
+    expect("emailTo" in parsed.value.filters).toBe(false);
+
+    const runOutcome = screenerOutcomeFromRunResult("stock", {
+      success: true,
+      totalScanned: 5,
+      matchedCount: 0,
+      emailTo: parsed.value.emailTo,
+    });
+    expect(runOutcome.emailTo).toBe("override@example.com");
   });
 });
