@@ -15,6 +15,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
 import { WorkflowRunsPanel } from "../src/client/WorkflowRunsPanel";
 import type { WorkflowRun } from "../src/services/workflowRuns";
 
@@ -138,6 +139,16 @@ afterEach(async () => {
 });
 
 describe("WorkflowRunsPanel", () => {
+  it("owns a scroll container so long run lists and details stay reachable", async () => {
+    payload = { count: 0, runs: [] };
+    await renderPanel();
+    expect(container.querySelector(".workflow-runs-page")).not.toBeNull();
+    const css = readFileSync("src/client/workflowRuns.css", "utf8");
+    const pageRule = css.match(/\.workflow-runs-page\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(pageRule).toContain("flex: 1 0 auto");
+    expect(pageRule).toContain("overflow: auto");
+  });
+
   it("renders a row per run with trigger, status, and stage progress", async () => {
     payload = { count: 1, runs: [run()] };
     await renderPanel();
