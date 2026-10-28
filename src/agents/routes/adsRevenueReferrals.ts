@@ -7,7 +7,8 @@
  *   - the inventory group (/categories, /revenue, /external-ads,
  *     /external-ads/impression, /external-ads/click) sits between the
  *     /schema/query block and the /audit block;
- *   - the community group (/referrals, /referrals/click, /ads, /ads/click)
+ *   - the community group (/referrals, /referrals/click, /ads,
+ *     /ads/banner-config, /ads/click)
  *     sits between the /memory block and the payments block.
  * This module therefore exports TWO handlers, each invoked from
  * routeRequest at the EXACT position its original blocks occupied in the
@@ -24,6 +25,7 @@
 import type { AgentName, CategoryRecord, ExternalAdRecord } from "../../types";
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import { runRestTool } from "./restToolBridge";
+import { resolveAdsTier, resolveServerAdsConfig } from "../../services/adsTier";
 import {
   ADS_REVENUE_SWITCHES,
   adsRevenueConfigErrorEvent,
@@ -56,6 +58,15 @@ export interface AdsRevenueReferralsRouteContext {
     agent: AgentName | "judge" | "nlq" | "orchestrator",
     payload: Record<string, unknown>
   ): void;
+  /**
+   * Issue #2022: the caller's VERIFIED tier attribute, when the
+   * account store (#2020/#2015) populates it. Absent today — every
+   * caller resolves to Free and serving is unchanged. NEVER read
+   * from a header: tier is a user attribute, not a header claim
+   * (#1076 enforcement sketch). Only the exact value "Subscribed"
+   * suppresses ads; anything else serves.
+   */
+  viewerTier?: string;
   /**
    * #1721: global-env fallback for the three switches (passed from the
    * orchestrator's Worker env). Optional so existing test literals
@@ -226,6 +237,12 @@ export async function handleAdsRevenueReferralsRoutes(
     const orm = ctx.getOrm();
 
     if (request.method === "GET") {
+      // Issue #2022: a Subscribed caller is served nothing — the
+      // list is the enforcement boundary, so no read and no count
+      // happens for that caller. Free callers are unaffected.
+      if (resolveAdsTier(ctx.viewerTier) === "Subscribed") {
+        return Response.json({ count: 0, ads: [] });
+      }
       try {
         const mode = resolveRouteMode(ctx, "externalAds", runModeOf(null, url));
         const ads = orm.externalAds.findMany(externalAdListOptions(mode));
@@ -283,6 +300,11 @@ export async function handleAdsRevenueReferralsRoutes(
   }
 
   if (path.endsWith("/external-ads/impression") && request.method === "POST") {
+    // Issue #2022: no impression is ever recorded for a Subscribed
+    // caller — nothing was served to them, so nothing counts.
+    if (resolveAdsTier(ctx.viewerTier) === "Subscribed") {
+      return Response.json({ success: false });
+    }
     try {
       const body = (await request.json().catch(() => ({}))) as { id?: string; mode?: unknown };
       const mode = resolveRouteMode(ctx, "externalAds", runModeOf(body, url));
@@ -313,6 +335,10 @@ export async function handleAdsRevenueReferralsRoutes(
   }
 
   if (path.endsWith("/external-ads/click") && request.method === "POST") {
+    // Issue #2022: no click is ever recorded for a Subscribed caller.
+    if (resolveAdsTier(ctx.viewerTier) === "Subscribed") {
+      return Response.json({ success: false });
+    }
     try {
       const body = (await request.json().catch(() => ({}))) as { id?: string; mode?: unknown };
       const mode = resolveRouteMode(ctx, "externalAds", runModeOf(body, url));
@@ -548,8 +574,22 @@ export async function handleReferralsAdsRoutes(
     }
   }
 
+  // Issue #2022: server-resolved ad config for the client display
+  // override. Free allows everything (local preference governs);
+  // Subscribed allows nothing. The client ANDs this with local
+  // preference; the server lists remain the enforcement boundary.
+  if (path.endsWith("/ads/banner-config") && request.method === "GET") {
+    return Response.json(resolveServerAdsConfig(ctx.viewerTier));
+  }
+
   if (path.endsWith("/ads")) {
     if (request.method === "GET") {
+      // Issue #2022: a Subscribed caller is served nothing — before
+      // seeding and before the fetch impression increment, so no
+      // write and no count happens for that caller.
+      if (resolveAdsTier(ctx.viewerTier) === "Subscribed") {
+        return Response.json({ count: 0, ads: [] });
+      }
       try {
         ensureAdsSeeded(sql);
         // Increment impressions on fetch
@@ -625,6 +665,10 @@ export async function handleReferralsAdsRoutes(
   }
 
   if (path.endsWith("/ads/click") && request.method === "POST") {
+    // Issue #2022: no click is ever recorded for a Subscribed caller.
+    if (resolveAdsTier(ctx.viewerTier) === "Subscribed") {
+      return Response.json({ success: false });
+    }
     try {
       const body = (await request.json().catch(() => ({}))) as { id?: string };
       if (body.id) {

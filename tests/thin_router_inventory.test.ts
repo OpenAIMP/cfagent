@@ -140,6 +140,11 @@
  * bringing the pinned array to 243 entries; the delegation sequence
  * is unchanged (same handler, same position).
  *
+ * Issue #2022 added one — GET /ads/banner-config (in
+ * handleReferralsAdsRoutes, before the /ads block) — bringing the
+ * pinned array to 247 entries on the post-#2089 main; the
+ * delegation sequence is unchanged (same handler, same position).
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -263,6 +268,7 @@ const EXPECTED_INVENTORY = [
   "handleMemoryResetRoutes :: endsWith(\"/reset\")",
   "handleReferralsAdsRoutes :: endsWith(\"/referrals\")",
   "handleReferralsAdsRoutes :: endsWith(\"/referrals/click\")",
+  "handleReferralsAdsRoutes :: endsWith(\"/ads/banner-config\")",
   "handleReferralsAdsRoutes :: endsWith(\"/ads\")",
   "handleReferralsAdsRoutes :: endsWith(\"/ads/click\")",
   "handlePaymentsRoutes :: endsWith(\"/payments/gateways\")",
