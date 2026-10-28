@@ -198,6 +198,13 @@
     // "1" or "true" = ON. All other features default to closed (OFF).
     // Rollback is removing this var (or setting to "0") and redeploying,
     // or toggling off in Cloudflare Flagship without redeploying.
-    "FEATURE_SCREENER": "1"
+    "FEATURE_SCREENER": "1",
+    // Issue #2054: PaymentWorkflow assurance page ON by default
+    // (owner direction). Covers runtimes without the FLAGS binding;
+    // in PROD the FLAGS binding takes precedence, so the adapter
+    // default in cfFlagshipAdapter.ts is what turns it on there.
+    // Rollback is setting this var to "0" and redeploying (explicit
+    // disable wins over the default in every adapter).
+    "FEATURE_PAYMENT_ASSURANCE": "1"
   }
 }

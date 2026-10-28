@@ -18,9 +18,10 @@ export class InMemoryFeatureFlagAdapter implements FeatureFlagPort {
   private readonly flags = new Map<FeatureFlag, boolean>();
 
   constructor(initialFlags?: Partial<Record<FeatureFlag, boolean>>) {
-    // Default-closed for all known flags
+    // Default-closed for all known flags, except payment_assurance
+    // (issue #2054: default ON, overridable via initialFlags).
     for (const flag of ALL_FEATURE_FLAGS) {
-      this.flags.set(flag, false);
+      this.flags.set(flag, flag === "payment_assurance");
     }
 
     if (initialFlags) {

@@ -27,9 +27,10 @@ export type FeatureFlag =
   // Issue #1997: goal-screen workflow path. Default off (fail-closed).
   | "goal_workflow"
   | "enrichment_alpaca"
-  // Issue #2049: PaymentWorkflow assurance page. Default off
-  // (fail-closed). Provider key "payment_assurance": OFF = page
-  // hidden, ON = assurance page visible (test-only, fake seams).
+  // Issue #2049: PaymentWorkflow assurance page. Provider key
+  // "payment_assurance": default ON since issue #2054 (OFF only on
+  // explicit disable); ON = assurance page visible (test-only, fake
+  // seams).
   | "payment_assurance";
 
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
@@ -52,8 +53,9 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   // Issue #1997: goal-screen workflow path. Default off (fail-closed);
   // flag OFF = the direct engine, flag ON = the staged goal flow.
   "goal_workflow",
-  // Issue #2049: PaymentWorkflow assurance page. Default off
-  // (fail-closed); flag OFF = page hidden, flag ON = page visible.
+  // Issue #2049: PaymentWorkflow assurance page, registered here.
+  // Default is ON since issue #2054 (adapters); an explicit
+  // disable still wins everywhere.
   "payment_assurance",
 ] as const;
 
