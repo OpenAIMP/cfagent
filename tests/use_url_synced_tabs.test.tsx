@@ -71,6 +71,24 @@ describe("useUrlSyncedTabs", () => {
     expect(seen?.active).toBe("summary");
   });
 
+  it("lets a valid initialTab prop win at mount and adopts prop changes", () => {
+    window.history.replaceState(null, "", "/screeners?view=summary");
+    render({ initialTab: "options" });
+    expect(seen?.active).toBe("options");
+    act(() => {
+      seen?.change("summary");
+    });
+    expect(seen?.active).toBe("summary");
+    render({ initialTab: "stocks" });
+    expect(seen?.active).toBe("stocks");
+  });
+
+  it("falls back to a bare hash tab", () => {
+    window.history.replaceState(null, "", "/screeners#options");
+    render({});
+    expect(seen?.active).toBe("options");
+  });
+
   it("ignores an alias param it was not given and uses the default", () => {
     window.history.replaceState(null, "", "/screeners?screenerTab=summary");
     render({});
