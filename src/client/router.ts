@@ -33,6 +33,28 @@ export function readTabFromLocation(): RouteId {
 }
 
 /**
+ * Inner view id carried by a query string (#1804 S2, issue #2027): the
+ * view lives in `?view=<id>`, alongside the page's `?tab=<id>`. Validation
+ * is the caller's job (each page owns its view ids); unknown or missing
+ * views are null and the caller falls back to its default.
+ */
+export function parseViewFromSearch(
+  search: string,
+  isValid: (value: unknown) => boolean,
+): string | null {
+  const view = new URLSearchParams(search).get("view");
+  return view !== null && isValid(view) ? view : null;
+}
+
+/** Query string with `view` set, every other param preserved. */
+export function buildSearchWithView(currentSearch: string, view: string): string {
+  const params = new URLSearchParams(currentSearch);
+  params.set("view", view);
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : "";
+}
+
+/**
  * Navigate to a tab: resolve (unknown ids fall back), skip when already
  * there (no duplicate history entries for re-clicking the active item),
  * otherwise pushState and notify subscribers synchronously.
