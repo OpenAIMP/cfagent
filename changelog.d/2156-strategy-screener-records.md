@@ -15,3 +15,9 @@ strategy screen never appeared on the Reports tab or in Workflow Runs.
 
 Strategy screens produce no PDF/XLSX/CSV today; the record is the canonical
 body and the artifact list is honestly empty.
+
+- The same record covers the strategy/AI actions on `/trading/options/unified`
+  (`strategies`, `best_trade`, `compare`, `llm_ideas`, `llm_evaluate`): both
+  fit directions ("names that fit my strategy", "strategies that fit my name")
+  and the AI strategy evaluation now leave a canonical run + outcome, so they
+  appear on the Reports tab and in Workflow Runs with their mode and result.
