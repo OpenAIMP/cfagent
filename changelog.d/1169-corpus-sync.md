@@ -1,0 +1,3 @@
+### Added
+
+- Weekly corpus sync (#1169 S4-4): the integrity check (seed manifest vs DO records vs R2 `knowledge/` listing, reporting missing/mismatched/extra) plus the S4-1 index backfill now run on the existing `*/30` tick — no new cron trigger — guarded by a durable `corpus_sync_last_run` marker in `mas_settings` (weekly cadence, marker written only on a completed run). A session-gated `GET /knowledge/integrity` route runs the integrity leg live and returns its native JSON shape (not flag-gated: integrity is an audit read). Every Search hub tab gains a Download button exporting its current results as JSON in the tab's native shape (disabled until a search succeeds; JSON only).

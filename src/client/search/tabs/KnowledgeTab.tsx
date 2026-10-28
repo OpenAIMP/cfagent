@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../../apiFetch";
 import { Button, Select, TextInput } from "../../components/ui";
+import { buildJson, downloadTextFile } from "../../runExport";
 import type { SearchTabProps } from "../searchTabTypes";
 
 // Category filter options DERIVED from src/services/platformKnowledge.ts
@@ -41,6 +42,9 @@ export function KnowledgeTab({ pendingQuery, onHealth, onSearch }: SearchTabProp
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
   const [results, setResults] = useState<KnowledgeResult[]>([]);
+  // Issue #1169 S4-4: the last successful raw response, retained
+  // verbatim for the Download button (native shape, no envelope).
+  const [lastResult, setLastResult] = useState<unknown>(null);
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -62,6 +66,7 @@ export function KnowledgeTab({ pendingQuery, onHealth, onSearch }: SearchTabProp
       const data = (await res.json()) as any;
       if (!res.ok) throw new Error(data.error || "Knowledge search failed.");
       setResults(data.results || []);
+      setLastResult(data);
       setSearched(true);
       const ms = Date.now() - started;
       setLatencyMs(ms);
@@ -110,6 +115,9 @@ export function KnowledgeTab({ pendingQuery, onHealth, onSearch }: SearchTabProp
           {loading ? "Searching…" : "Search"}
         </Button>
       </form>
+      <Button type="button" onClick={() => downloadTextFile("knowledge-results.json", buildJson(lastResult), "application/json")} disabled={!lastResult} title="Download current results as JSON">
+        Download results (JSON)
+      </Button>
       {error && <p role="alert">{error}</p>}
       {searched && (
         <div>

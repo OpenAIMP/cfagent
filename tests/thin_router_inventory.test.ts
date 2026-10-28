@@ -105,6 +105,13 @@
  * KNOWLEDGE_SERVING_ENABLED is off) — bringing the pinned array
  * to 217 entries; the delegation sequence is unchanged (same
  * handler, same position).
+ * Issue #1169 (S4-4) added two more — GET /knowledge/integrity
+ * (in handleKnowledgeCorpusRoutes, after GET /knowledge/file in
+ * source order, audit read, NOT flag-gated) and POST
+ * /knowledge/corpus-sync (in handleKnowledgeCorpusRoutes, after
+ * POST /knowledge/corpus) — bringing the pinned array to 268
+ * entries; the delegation sequence is unchanged (same handler,
+ * same position).
  * Issue #1888 added six — GET /enrichment/status, GET
  * /enrichment/runs, POST /enrichment/run, POST
  * /enrichment/killswitch, GET /enrichment/calibration (in
@@ -292,7 +299,9 @@ const EXPECTED_INVENTORY = [
   "handleWorkflowRunsRoutes :: === \"/workflow-runs\"",
   "handleWorkflowRunsRoutes :: === \"/api/workflow-runs\"",
   "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/file\")",
+  "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/integrity\")",
   "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/corpus\")",
+  "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/corpus-sync\")",
   "handleSearchHubRoutes :: endsWith(\"/search/agent\")",
   "handleSearchHubRoutes :: endsWith(\"/search/knowledge\")",
   "handleSearchHubRoutes :: endsWith(\"/search/mas\")",

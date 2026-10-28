@@ -22,7 +22,7 @@ import {
   canonicalResearchEmailBody,
   canonicalResearchWebhookBody,
 } from "../../services/scheduledReports";
-import { indexCanonicalReport } from "../../services/reportSemanticIndex";
+import { runCanonicalIndexBackfillPage } from "../../services/reportSemanticIndex";
 import { unauthenticatedResponse } from "./routeIdentity";
 
 /** The subset of OrchestratorAgent surface the reports/HITL handlers need. */
@@ -577,34 +577,16 @@ export async function handleReportsRoutes(
     const limit = Math.min(500, Math.max(1, Math.floor(Number(body.limit) || 100)));
     const offset = Math.max(0, Math.floor(Number(body.offset) || 0));
     try {
-      const sql = ctx.ensureTables();
-      const rows = Array.from(
-        sql.exec(
-          `SELECT id, title, source, summary, body, body_r2_key FROM mas_reports ORDER BY created_at ASC LIMIT ? OFFSET ?`,
-          limit,
-          offset
-        )
-      ) as Array<Record<string, unknown>>;
-      let upserted = 0;
-      let skippedRetention = 0;
-      for (const row of rows) {
-        const ok = await indexCanonicalReport(ctx.env, {
-          reportId: typeof row.id === "string" ? row.id : "",
-          title: typeof row.title === "string" ? row.title : "",
-          source: typeof row.source === "string" ? row.source : "",
-          summary: typeof row.summary === "string" ? row.summary : "",
-          body: typeof row.body === "string" ? row.body : "",
-          bodyR2Key: typeof row.body_r2_key === "string" ? row.body_r2_key : null,
-        });
-        if (row.source === "retention") skippedRetention += 1;
-        else if (ok) upserted += 1;
-      }
-      return Response.json({
-        upserted,
-        skippedRetention,
-        rows: rows.length,
-        nextOffset: rows.length < limit ? null : offset + rows.length,
-      });
+      // Issue #1169 S4-4: the page logic lives in
+      // runCanonicalIndexBackfillPage (reportSemanticIndex.ts),
+      // shared with the corpus sync — this handler only parses
+      // limit/offset and returns the page result as-is.
+      const page = await runCanonicalIndexBackfillPage(
+        ctx.env,
+        ctx.ensureTables(),
+        { limit, offset }
+      );
+      return Response.json(page);
     } catch (err) {
       return Response.json(
         { error: `Index backfill failed: ${err instanceof Error ? err.message : String(err)}` },
