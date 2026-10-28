@@ -65,6 +65,10 @@ export interface StoreReply {
   consumed?: boolean;
   error?: string;
   entries?: Array<{ key: string; value: string }>;
+  /** #1760: the chained event returned by the audit-append op. */
+  event?: unknown;
+  /** #1760: the audit-append op refused the event: the store is at its total cap. */
+  storeFull?: boolean;
   /** Platform-measured rows for this op (#1819); absent from older replies. */
   rowsRead?: number;
   rowsWritten?: number;
@@ -95,11 +99,31 @@ function classifyStoreOutcome(op: string, reply: StoreReply): StoreOpOutcome {
       return reply.ok === true ? "ok" : "failed";
     case "consume":
       return typeof reply.consumed === "boolean" ? "ok" : "failed";
+    case "audit-append":
+      // #1760: a storeFull refusal is a failed append, not a success
+      // — counting it "ok" would hide cap exhaustion in the metrics.
+      return reply.storeFull === true || reply.ok !== true ? "failed" : "ok";
     case "list":
       return Array.isArray(reply.entries) ? "ok" : "failed";
     default:
       return "ok";
   }
+}
+
+/**
+ * #1760 — the raw DO-request sender, exported so the atomic audit
+ * backend (iaaaAuditStore.ts) can speak the same store protocol
+ * (same URL, timeout, metrics, and reply classification) without
+ * going through the KvLike get/put surface, which cannot express
+ * an atomic append. createStoreKv stays the KvLike adapter.
+ */
+export function createStoreSender(
+  namespace: DoNamespaceLike | null | undefined,
+  namespaceName: string,
+  instanceName: string,
+  resource?: { attribution?: ResourceAttribution; resourceSink?: ResourceUsagePort }
+): (payload: Record<string, unknown>) => Promise<StoreReply | null> {
+  return createStoreClient(namespace, namespaceName, instanceName, resource);
 }
 
 function createStoreClient(
