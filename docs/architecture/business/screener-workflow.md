@@ -626,6 +626,41 @@ side: a selective count (neither 6594 nor 0), rows carrying actual candidate str
 (not `—` everywhere), backtest working on stock hits. Unknown stays as-is. The remaining
 seven theses follow once the leg pattern is proven.
 
+**Phase 3 implementation shape (#1998):** the goal leg does NOT reroute to
+the delegated screen — `screeningRuntime.ts` binds the goal stock leg to the
+live listing-feed engine deliberately (a discovery screen, not the DO
+pipeline's per-run PDF/lock/record path), and rerouting would change
+artifact semantics. Instead `screenLive` takes an OPTIONAL `enrichment`
+hook on its seam (`NasdaqUniverseSeam.enrichment`, interface in
+`screener.ts` so the trading layer never imports a service module).
+The ScreenerAgent attaches it only when it resolves `goal_workflow` ON
+from its own env (direct + workflow-child goal runs alike; Yahoo-fallback
+runs keep their Yahoo engine; flag OFF or any binding failure = no hook
+= refusal exactly as before). The hook (`services/goalGather.ts`) runs
+batch live quotes (E*TRADE-primary + Yahoo gap-fill via the platform
+quote seam) for week52High/averageVolume plus `fetchPlatformTechnicalsBatch`
+over the run's history deps for real RSI, persists one
+`mas_data_captures` row per served, attributable symbol (capability
+`"quotes"` — no vocabulary extension, no new store, no `gather.ts`
+schema; `runId` = the caller run id per D2, the idempotency key), then
+reads the rows BACK (digest-verified, latest-write dedup, a corrupt
+latest row fails closed to missing) and returns those as the evaluation
+input. Screen-side, a stored row lacking a field the filter needs is
+excluded and ledger-rejected with the honest missing-data reason
+(a missing 52-week high is not "not breaking out"); nothing evaluable
+at all is a failed leg (the #1963 contract), never an empty success.
+Per-field coverage is the honest shape: Yahoo-filled symbols carry RSI
+but not week52High/averageVolume. Provenance: the canonical report body
+gains `idempotencyKey` on both paths (direct body; workflow envelope +
+door body), so a staged run's record alone resolves to its captures;
+the route "version" is the content hash of the quotes + historicalBars
+route rows at run time (no version column exists); rows carry per-symbol
+provider + gap-fill marks; the result carries a `gather` summary
+(stored/missing/excluded/gapFilled/routeVersionHash); the #1743 sink
+gets a `goal.gather.stored` event. Structures reading: the proof run's
+OPTIONS rows carry structures; stock rows are selective names (no
+stock-hit construction change, per the #1963 RC3 rule).
+
 ### Phase 4 — Stage contracts for legs
 
 Every leg failure has a stage to fail in, with a coded stage failure, a persisted stage
