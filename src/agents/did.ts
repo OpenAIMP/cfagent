@@ -81,9 +81,61 @@ export function resolveAgentDidDocument(did: string): AgentDidDocument {
   };
 }
 
+/** Shared login-key cleaning for every user DID derivation (issue #1759). */
+export function cleanLoginKey(value: string): string {
+  return (value || "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
+}
+
+/**
+ * Shared provider-id cleaning for user DID derivations (issue #1759).
+ * An empty or unusable id becomes "unknown" — never another
+ * provider's id, and never a guessed one.
+ */
+export function cleanProviderId(value: string): string {
+  const cleaned = (value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  return cleaned === "" ? "unknown" : cleaned;
+}
+
 export function getUserDid(githubLogin: string): string {
-  const cleanLogin = (githubLogin || "anonymous").toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  const cleanLogin = cleanLoginKey(githubLogin) || "anonymous";
   return `did:user:github:${cleanLogin}`;
+}
+
+/**
+ * Issue #1759 — provider-neutral user DID. The provider segment
+ * comes from the session's own provider (see getSessionDid in
+ * src/security/iaaaLoginKey.ts), never from a hardcoded default:
+ * a Google session renders `did:user:google:<key>`, a GitHub
+ * session `did:user:github:<key>`. The legacy getUserDid above is
+ * kept unchanged for existing attestation call sites; new
+ * display derivations use this function (or getDisplayUserDid).
+ * Distinct providers never merge: the provider segment is part
+ * of the DID, so the same login key on two providers yields two
+ * different DIDs. An empty login key renders "anonymous", mirroring
+ * the legacy derivation.
+ */
+export function getLoginDid(providerId: string, loginKey: string): string {
+  const cleanLogin = cleanLoginKey(loginKey) || "anonymous";
+  return `did:user:${cleanProviderId(providerId)}:${cleanLogin}`;
+}
+
+/**
+ * Issue #1759 — display DID for a client user object. When the
+ * provider is known (wired sessions carry it from the server),
+ * the provider-neutral derivation applies; when it is absent
+ * (legacy sessions, which predate multi-provider login and are
+ * historically GitHub-only), the legacy derivation applies — that
+ * is historically accurate, not a cross-provider render. Callers
+ * must not pass a hardcoded provider here.
+ */
+export function getDisplayUserDid(
+  loginKey: string,
+  providerId?: string | null,
+): string {
+  if (providerId && providerId.trim() !== "") {
+    return getLoginDid(providerId, loginKey);
+  }
+  return getUserDid(loginKey);
 }
 
 function getAgentCapabilities(role: string): string[] {
