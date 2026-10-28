@@ -50,7 +50,7 @@
  *
  * Params carry ids only — never credentials, never secrets, never a
  * payment card, never a cfpay key. Identity is the verified userLogin +
- * email + tenantId; missing identity fails closed (no default_trader).
+ * email + tenantId; missing identity fails closed (no fallback identity).
  */
 
 import {
