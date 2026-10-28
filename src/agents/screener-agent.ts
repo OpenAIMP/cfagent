@@ -466,6 +466,29 @@ export class ScreenerAgent extends PortThink {
   }
 
   /**
+   * Issue #1993: synchronous-SQL adapter for the run lock, plus the
+   * submission-gate probe the sharded path calls on this instance's
+   * stub. The probe takes an explicit login: a fresh stub has no
+   * recorded owner yet, and the gate knows the run's owner already.
+   * These live before runScreen on purpose: the #624 heartbeat pin
+   * slices runScreen's source up to the next async method, so no
+   * async method may sit between runScreen and runScreenInner.
+   */
+  private lockSql(): ScreenRunLockSql {
+    const sql = (this.ctx.storage as any).sql;
+    return (statement: string, params: unknown[]) =>
+      [...sql.exec(statement, ...(params ?? []))] as Array<Record<string, unknown>>;
+  }
+
+  async isScreenRunning(
+    universe: string,
+    userLogin?: string,
+  ): Promise<{ running: boolean; startedAt: number | null }> {
+    const login = userLogin ?? (await this.userLogin());
+    return isScreenRunningLock(this.lockSql(), login, universe || "nasdaq100");
+  }
+
+  /**
    * Run a screen through the one pipeline. Market data comes from the
    * run's provider (E*TRADE by default, or the Yahoo adapter) — a
    * provider failure surfaces honestly (no fallback substitution).
@@ -503,26 +526,6 @@ export class ScreenerAgent extends PortThink {
       // Always release the lock, even on failure.
       releaseScreenRunLock(this.lockSql(), lockLogin, lockUniverse, lock.token);
     }
-  }
-
-  /**
-   * Issue #1993: synchronous-SQL adapter for the run lock, plus the
-   * submission-gate probe the sharded path calls on this instance's
-   * stub. The probe takes an explicit login: a fresh stub has no
-   * recorded owner yet, and the gate knows the run's owner already.
-   */
-  private lockSql(): ScreenRunLockSql {
-    const sql = (this.ctx.storage as any).sql;
-    return (statement: string, params: unknown[]) =>
-      [...sql.exec(statement, ...(params ?? []))] as Array<Record<string, unknown>>;
-  }
-
-  async isScreenRunning(
-    universe: string,
-    userLogin?: string,
-  ): Promise<{ running: boolean; startedAt: number | null }> {
-    const login = userLogin ?? (await this.userLogin());
-    return isScreenRunningLock(this.lockSql(), login, universe || "nasdaq100");
   }
 
   private async runScreenInner(req: ScreenerRunRequest, timestamp: string, cfg: typeof DEFAULT_SCREENER_CONFIG): Promise<ScreenerRunResult> {

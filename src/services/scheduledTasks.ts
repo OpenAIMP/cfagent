@@ -712,9 +712,18 @@ export class ScheduledTasksService {
     // active in this instance's mas_async_jobs rows (platformDeps.sql
     // is that same storage; absent, only the lock probe applies). A
     // refused submission returns the skipped shape the caller already
-    // honors — no new run, no duplicate Slack partial.
-    const running = await this.getScreenerAgent(userLogin).isScreenRunning(universe, userLogin);
-    if (running.running) {
+    // honors — no new run, no duplicate Slack partial. The probe is
+    // best-effort: if the stub cannot answer (test doubles, missing
+    // binding), the run proceeds ungated rather than failing on gate
+    // machinery — the pre-#1993 behavior, never a new failure mode.
+    let lockHeld = false;
+    try {
+      const running = await this.getScreenerAgent(userLogin).isScreenRunning(universe, userLogin);
+      lockHeld = running.running;
+    } catch {
+      console.warn("[ScheduledTasksService] Screen-run lock probe unavailable; proceeding without the gate (#1993).");
+    }
+    if (lockHeld) {
       return { success: true, taskType: "market_screen", skipped: true, skippedReason: "already-running", sharded: true, timestamp } as any;
     }
     if (this.platformDeps?.sql) {

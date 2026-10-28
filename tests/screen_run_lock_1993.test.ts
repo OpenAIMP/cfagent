@@ -5,7 +5,7 @@
  * is pinned by source inspection (the DO/runtime paths cannot run
  * under vitest).
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   acquireScreenRunLock,
@@ -51,6 +51,48 @@ describe("atomic lock semantics (#1993)", () => {
     expect(acquireScreenRunLock(exec, "u2", "TECH").acquired).toBe(true);
     expect(acquireScreenRunLock(exec, "u1", "NASDAQ100").acquired).toBe(true);
     expect(acquireScreenRunLock(exec, "u1", "TECH").acquired).toBe(false);
+  });
+});
+
+describe("sharded submission gate behavior (#1993)", () => {
+  // Mirrors the #1412 test's construction: mock env + ORM, stubbed
+  // auth guard, stubbed agent probe. The gate itself runs against
+  // the real autonomousMarketScreenSharded path.
+  async function gatedService(running: boolean) {
+    const { ScheduledTasksService } = await import("../src/services/scheduledTasks");
+    const { DatabaseORM } = await import("../src/orm");
+    const mockEnv = {
+      ETRADE_ENVIRONMENT: "sandbox",
+      ETRADE_SANDBOX_BASE_URL: "https://apisb.etrade.com",
+    } as any;
+    const service = new ScheduledTasksService(mockEnv, new DatabaseORM({ exec: () => [] } as any), "test_trader");
+    (service as any).publishScreenerEvent = vi.fn(async () => {});
+    (service as any).guardScheduledAuth = async () => ({ blocked: false });
+    (service as any).getScreenerAgent = () => ({
+      isScreenRunning: async () => ({ running, startedAt: running ? Date.now() : null }),
+    });
+    const shardSubmit = vi.fn(async () => ({
+      jobId: "test-chain",
+      status: "queued" as const,
+      statusUrl: "https://example.test/jobs/test-chain",
+    }));
+    (service as any).shardSubmit = shardSubmit;
+    return { service, shardSubmit };
+  }
+
+  it("refuses submission while a monolithic run holds the lock", async () => {
+    const { service, shardSubmit } = await gatedService(true);
+    const result = await service.autonomousMarketScreen({ sharded: true });
+    expect(shardSubmit).not.toHaveBeenCalled();
+    expect((result as any).skipped).toBe(true);
+    expect((result as any).skippedReason).toBe("already-running");
+  });
+
+  it("submits when no run holds the lock", async () => {
+    const { service, shardSubmit } = await gatedService(false);
+    const result = await service.autonomousMarketScreen({ sharded: true });
+    expect(shardSubmit).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
   });
 });
 
