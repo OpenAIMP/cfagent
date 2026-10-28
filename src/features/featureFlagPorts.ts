@@ -19,6 +19,10 @@ export type FeatureFlag =
   | "social_publishing"
   | "nlq"
   | "payments"
+  // Issue #2043: cfpay monetization gate. Default off (fail-closed).
+  // Provider key "monetization": OFF = free path, ON = payment
+  // workflow gate (per run-request, testnet only until gates pass).
+  | "monetization"
   | "schedules"
   // Issue #1997: goal-screen workflow path. Default off (fail-closed).
   | "goal_workflow"
@@ -38,6 +42,9 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   "social_publishing",
   "nlq",
   "payments",
+  // Issue #2043: cfpay monetization gate. Default off (fail-closed);
+  // flag OFF = free path, flag ON = payment workflow gate.
+  "monetization",
   "schedules",
   // Issue #1888: Alpaca enrichment selector. Default off (fail-closed)
   // means Yahoo enrichment is active; flipping this flag on selects
