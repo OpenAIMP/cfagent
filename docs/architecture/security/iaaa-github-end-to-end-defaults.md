@@ -88,11 +88,11 @@ a member does not hold `integration:connect` and is denied.
   grant tenant-admin only. Genesis grants carry
   `createdBy`/`grantedBy` `system:bootstrap-genesis`; ordinary
   bootstrap grants carry `system:bootstrap`. The marker is
-  check-then-set, not transactional — two concurrent genesis logins
-  could both observe an absent marker (same family as the audit and
-  membership read-modify-write races). Bootstrap logins are rare
-  and operator-driven, so the window is small, but a deployment
-  that needs a hard guarantee must serialize its first logins.
+  claimed atomically (#1756, `KvLike.putIfAbsent`, backed in
+  production by the SessionStore DO's atomic consume op): exactly
+  one first-login wins and the loser grants tenant-admin only.
+  Backends without putIfAbsent keep the legacy check-then-set
+  order and must serialize their first logins.
   This replaces the Phase 2b-part2 open question ("no path creates
   a platform-admin") with a narrow, auditable one: the FIRST
   `platform:` login wins, and only once.

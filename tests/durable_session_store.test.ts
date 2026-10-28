@@ -238,6 +238,55 @@ describe("Durable Object backed store (#329)", () => {
     ).toBe("unavailable");
   });
 
+  it("putIfAbsent claims a key exactly once via the atomic consume op (#1756)", async () => {
+    const store = makeStore();
+    const kv = createStoreKv({ namespace: store.namespace, namespaceName: "sessions" });
+
+    expect(await kv.putIfAbsent?.("genesis:primary", "winner")).toBe(true);
+    expect(await kv.putIfAbsent?.("genesis:primary", "loser")).toBe(false);
+    expect(await kv.get("genesis:primary")).toBe("winner");
+  });
+
+  it("putIfAbsent fails closed when the store is unavailable (#1756)", async () => {
+    const store = makeStore({ fail: true });
+    const kv = createStoreKv({ namespace: store.namespace, namespaceName: "sessions" });
+
+    // Not a throw, not a claim: false means "not claimed by this
+    // caller", so the genesis path takes the closed branch instead
+    // of granting on an unknown store state.
+    expect(await kv.putIfAbsent?.("genesis:primary", "winner")).toBe(false);
+  });
+
+  it("the resilient wrapper forwards putIfAbsent and keeps it absent when the backend lacks it (#1756)", async () => {
+    const map = new Map<string, string>();
+    const backing = {
+      get: async (key: string) => map.get(key) ?? null,
+      put: async (key: string, value: string) => {
+        map.set(key, value);
+      },
+      delete: async (key: string) => {
+        map.delete(key);
+      },
+    };
+    const withClaim = createResilientKv(
+      {
+        ...backing,
+        putIfAbsent: async (key: string, value: string) => {
+          if (map.has(key)) return false;
+          map.set(key, value);
+          return true;
+        },
+      },
+      "claim-test",
+    );
+    expect(await withClaim.putIfAbsent?.("k", "v")).toBe(true);
+    expect(await withClaim.putIfAbsent?.("k", "v2")).toBe(false);
+    expect(map.get("k")).toBe("v");
+
+    const withoutClaim = createResilientKv(backing, "noclaim-test");
+    expect(withoutClaim.putIfAbsent).toBeUndefined();
+  });
+
   it("does not throw when both backends fail", async () => {
     const store = makeStore({ fail: true });
     const legacy = createResilientKv(
