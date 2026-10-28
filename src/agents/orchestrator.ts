@@ -2262,9 +2262,15 @@ export class OrchestratorAgent extends PortThink {
     // Issue #2120 (slice 1): Search hub routes (POST /search/agent,
     // POST /search/knowledge). Mounted adjacent to the knowledgeCorpus
     // mount; the new paths collide with no existing suffix.
+    // Issue #1169 (S4-2): POST /search/mas rides the same mount; it
+    // additionally receives the report store (the MAS tool's sql) and
+    // the orchestrator audit (its type accepts the MAS "search"
+    // agent value), mirroring the autopilot mount's audit pattern.
     const searchHubResponse = await handleSearchHubRoutes(request, url, path, sessionId, {
       env: this.env,
       userLogin: request.headers.get("x-user-login") || "",
+      sql: this.ctx.storage.sql,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
     });
     if (searchHubResponse) return searchHubResponse;
 
