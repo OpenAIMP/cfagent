@@ -140,12 +140,17 @@ describe("corpus integrity (S4-4)", () => {
       recordStore: stubStore({ [`knowledge:options_disclosure:${h}`]: { contentHash: h } }),
       bucket: stubBucket([[{ key: `knowledge/options_disclosure/${h}`, bytes }]]),
     });
+    // #1169 knowledge UI (disclosed §7 pin update): the report
+    // gains the additive `entries` array; all old fields unchanged.
     expect(report).toEqual({
       ok: true,
       missing: [],
       mismatched: [],
       extra: [],
       checkedAt: report.checkedAt,
+      entries: [
+        { title: "doc", category: "options_disclosure", bucketKey: `knowledge/options_disclosure/${h}`, status: "present" },
+      ],
     });
   });
 
