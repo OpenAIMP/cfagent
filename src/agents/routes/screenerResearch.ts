@@ -1366,9 +1366,17 @@ export async function handleScreenerResearchRoutes(
           }),
         );
         if (handle) return workflowAcceptedResponse(handle);
+        // Issue #2065: name the failing dependency (or the rejected start)
+        // in the coded response, so the failure is diagnosable without
+        // worker-log access. The detail stays generic on purpose.
+        const { workflowPortsUnavailableReason } = await import(
+          "../../workflows/createWorkflowPorts"
+        );
+        const reason = workflowPortsUnavailableReason(ctx.env) ?? "start_failed";
         return Response.json(
           {
             error: "goal_workflow_start_failed",
+            reason,
             detail: "Goal workflow could not be started in this environment.",
             jobId: idempotencyKey,
           },
