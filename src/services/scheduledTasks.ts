@@ -705,6 +705,40 @@ export class ScheduledTasksService {
       // unsharded under a sharded label.
       throw new Error("Sharded runs require the async-job submission port; run unsharded or configure the host.");
     }
+    // Issue #1993: sharded chains bypass runScreen, so they never
+    // acquire the run lock. Refuse submission while a monolithic run
+    // holds it (probed on the same per-owner ScreenerAgent stub) or
+    // while another chain for the same user + universe is still
+    // active in this instance's mas_async_jobs rows (platformDeps.sql
+    // is that same storage; absent, only the lock probe applies). A
+    // refused submission returns the skipped shape the caller already
+    // honors — no new run, no duplicate Slack partial.
+    const running = await this.getScreenerAgent(userLogin).isScreenRunning(universe, userLogin);
+    if (running.running) {
+      return { success: true, taskType: "market_screen", skipped: true, skippedReason: "already-running", sharded: true, timestamp } as any;
+    }
+    if (this.platformDeps?.sql) {
+      let activeChain = false;
+      try {
+        const rows = [...(this.platformDeps.sql as any).exec(
+          `SELECT payload_json FROM mas_async_jobs WHERE status NOT IN ('completed', 'failed')`,
+        )] as Array<Record<string, unknown>>;
+        activeChain = rows.some((row) => {
+          try {
+            const chain = (JSON.parse(String(row.payload_json)) as any)?.chain;
+            return chain?.userLogin === userLogin && chain?.universe === universe;
+          } catch {
+            return false;
+          }
+        });
+      } catch {
+        // A gate read failure must not wedge submissions: proceed, and
+        // the lock probe above remains the primary guard.
+      }
+      if (activeChain) {
+        return { success: true, taskType: "market_screen", skipped: true, skippedReason: "already-running", sharded: true, timestamp } as any;
+      }
+    }
     try {
       const { planFeedStart } = await import("./shardJobs");
       const channels = [
