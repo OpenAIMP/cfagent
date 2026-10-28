@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
 import { BRAND } from "./branding";
 import { apiFetch as fetch } from "./apiFetch";
-import { didProofSignatureDisplay } from "./didProofCard";
 import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub } from "./ETradeTradingHub";
@@ -12,7 +11,6 @@ import { MarketDataResearchHub } from "./MarketDataResearchHub";
 import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
 import { WorkflowRunsPanel } from "./WorkflowRunsPanel";
-import { AgenticWalletPanel } from "./AgenticWalletPanel";
 import { AdBannerConfig, applyServerAdsConfig, getStoredAdBannerConfig, saveStoredAdBannerConfig, type ServerAdsConfig } from "./adBannerConfig";
 import { PartnerDealsModal } from "./components/PartnerDealsModal";
 import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons, DEFAULT_VISIBLE_NAV_TABS } from "./components/NavigationMenu";
@@ -30,8 +28,8 @@ import { renderInlineFormatted } from "./chat/renderInlineFormatted";
 import { ReasoningView } from "./chat/ReasoningView";
 import { ToolResultView } from "./chat/ToolResultView";
 import { AgentChatTabContent } from "./chat/AgentChatTabContent";
-import { isTradingTab, mapTabToTradingSubTab } from "./chat/types";
-import type { User, AuditLogEvent, MemoryItem, ReferralItem, AdItem, TransactionItem, GatewayInfo, CategoryItem, ExternalAdItem, RevenueSummaryData, TableMetadataItem } from "./chat/types";
+import { isTradingTab, mapTabToTradingSubTab, SHELL_RETAINED_PAGES } from "./chat/types";
+import type { User, AuditLogEvent, MemoryItem, ReferralItem, AdItem, CategoryItem, ExternalAdItem, RevenueSummaryData, TableMetadataItem } from "./chat/types";
 import { ReferralsTab } from "./chat/tabs/ReferralsTab";
 import { AdsTab } from "./chat/tabs/AdsTab";
 import { RevenueTab } from "./chat/tabs/RevenueTab";
@@ -40,6 +38,7 @@ import { ApprovalsPanel } from "./ApprovalsPanel";
 import { DocsAndReportsPanel } from "./DocsAndReportsPanel";
 import { PaymentWorkflowAssurance } from "./PaymentWorkflowAssurance";
 import { SocialPostingPanel } from "./SocialPostingPanel";
+import { PaymentsPage } from "./PaymentsPage";
 import { SearchHub } from "./search/SearchHub";
 import {
   isTabFeatureEnabled,
@@ -453,28 +452,6 @@ export function Chat({ user }: { user: User }) {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
-  // Payments & DID Management state
-  const [transactions, setTransactions] = useState<TransactionItem[]>([]);
-  const [gateways, setGateways] = useState<GatewayInfo[]>([]);
-  const [paymentSummary, setPaymentSummary] = useState({
-    totalVolume: 0,
-    completedCount: 0,
-    pendingCount: 0,
-    verifiedDidCount: 0,
-  });
-  const [paymentsLoading, setPaymentsLoading] = useState(false);
-  const [selectedProofTx, setSelectedProofTx] = useState<TransactionItem | null>(null);
-
-  // New Payment Form state
-  const [newPayAmount, setNewPayAmount] = useState("25.00");
-  const [newPayCurrency, setNewPayCurrency] = useState("USD");
-  const [newPayCustomer, setNewPayCustomer] = useState(user.name || "Client");
-  const [newPayGateway, setNewPayGateway] = useState<"stripe" | "paypal" | "lemonsqueezy">("stripe");
-  const [newPayDesc, setNewPayDesc] = useState("");
-  const [creatingPayment, setCreatingPayment] = useState(false);
-  const [paySuccessMsg, setPaySuccessMsg] = useState("");
-  const [payErrorMsg, setPayErrorMsg] = useState("");
-
   // Referrals state
   const [referrals, setReferrals] = useState<ReferralItem[]>([]);
   const [referralsLoading, setReferralsLoading] = useState(false);
@@ -545,8 +522,6 @@ export function Chat({ user }: { user: User }) {
   useEffect(() => {
     if (tab === "audit") {
       fetchAuditData();
-    } else if (tab === "payments") {
-      fetchPaymentsData();
     } else if (tab === "referrals") {
       fetchReferrals();
       fetchCategories();
@@ -573,90 +548,6 @@ export function Chat({ user }: { user: User }) {
       setMemories(memResp.memories || []);
     } finally {
       setAuditLoading(false);
-    }
-  };
-
-  const fetchPaymentsData = async () => {
-    setPaymentsLoading(true);
-    try {
-      const [txResp, gwResp] = await Promise.all([
-        fetch("/api/payments/transactions").then((r) => r.json() as Promise<{ transactions?: TransactionItem[]; summary?: any }>).catch(() => ({ transactions: [], summary: {} })),
-        fetch("/api/payments/gateways").then((r) => r.json() as Promise<{ gateways?: GatewayInfo[] }>).catch(() => ({ gateways: [] })),
-      ]);
-      setTransactions(txResp.transactions || []);
-      if (txResp.summary) {
-        setPaymentSummary({
-          totalVolume: Number(txResp.summary.totalVolume || 0),
-          completedCount: Number(txResp.summary.completedCount || 0),
-          pendingCount: Number(txResp.summary.pendingCount || 0),
-          verifiedDidCount: Number(txResp.summary.verifiedDidCount || 0),
-        });
-      }
-      setGateways(gwResp.gateways || []);
-    } finally {
-      setPaymentsLoading(false);
-    }
-  };
-
-  const handleCreatePayment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPayErrorMsg("");
-    setPaySuccessMsg("");
-    const amt = parseFloat(newPayAmount);
-    if (isNaN(amt) || amt <= 0) {
-      setPayErrorMsg("Please enter a valid payment amount");
-      return;
-    }
-    setCreatingPayment(true);
-    try {
-      const res = await fetch("/api/payments/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: amt,
-          currency: newPayCurrency,
-          customer: newPayCustomer.trim(),
-          gateway: newPayGateway,
-          description: newPayDesc.trim(),
-        }),
-      });
-      const data = await res.json() as { transaction?: TransactionItem; error?: string };
-      if (data.transaction) {
-        setTransactions((prev) => [data.transaction!, ...prev]);
-        setPaymentSummary((prev) => ({
-          ...prev,
-          totalVolume: prev.totalVolume + amt,
-          completedCount: prev.completedCount + 1,
-          verifiedDidCount: prev.verifiedDidCount + 1,
-        }));
-        setPaySuccessMsg(`🎉 Payment initialized on ${newPayGateway.toUpperCase()} with Agent DID attestation!`);
-        setTimeout(() => setPaySuccessMsg(""), 5000);
-      } else {
-        setPayErrorMsg(data.error || "Failed to create payment");
-      }
-    } catch (err: any) {
-      setPayErrorMsg(err.message || "Failed to create payment");
-    } finally {
-      setCreatingPayment(false);
-    }
-  };
-
-  const handleAuthorizeDraft = async (draftId: string, decision: "approved" | "rejected") => {
-    try {
-      const res = await fetch("/api/payments/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ draftId, decision }),
-      });
-      const data = await res.json() as { success?: boolean; status?: string; checkoutUrl?: string };
-      if (data.success) {
-        setTransactions((prev) =>
-          prev.map((t) => (t.id === draftId ? { ...t, status: (decision === "approved" ? "completed" : "rejected") as any, checkoutUrl: data.checkoutUrl || t.checkoutUrl } : t))
-        );
-        fetchPaymentsData();
-      }
-    } catch {
-      // Ignore
     }
   };
 
@@ -1474,322 +1365,6 @@ export function Chat({ user }: { user: User }) {
     "payment-assurance": (
           <PaymentWorkflowAssurance userLogin={user.login} />
     ),
-    payments: (
-          <div className="payments-view">
-            <PageShell
-              title="Payments & Decentralized Identifiers (DID)"
-              scopeNote="Enterprise payment execution across Stripe, PayPal, and Lemon Squeezy with verifiable W3C Agent DIDs, cryptographic attestation, and human-in-the-loop authorization."
-            >
-            <div>
-                <div className="agent-dids-ribbon">
-                  <span className="did-pill">
-                    <span className="did-icon">🤖</span>
-                    <code>did:agent:openaimp:payments</code>
-                    <span className="did-role-tag">Signer</span>
-                  </span>
-                  <span className="did-pill">
-                    <span className="did-icon">⚖️</span>
-                    <code>did:agent:openaimp:judge</code>
-                    <span className="did-role-tag">Evaluator</span>
-                  </span>
-                  <span className="did-pill">
-                    <span className="did-icon">👤</span>
-                    <code>did:user:github:{user.login}</code>
-                    <span className="did-role-tag authorizer">Authorizer</span>
-                  </span>
-                </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={fetchPaymentsData}
-                disabled={paymentsLoading}
-              >
-                {paymentsLoading ? "Refreshing…" : "🔄 Refresh"}
-              </Button>
-            </div>
-
-            {/* Gateway Status Cards Grid */}
-            <PageSection>
-            <div className="gateway-cards-grid">
-              {gateways.map((gw) => (
-                <Card padding="none" key={gw.id} className={`gateway-card ${gw.id}`}>
-                  <div className="gw-card-header">
-                    <div className="gw-name-group">
-                      <span className="gw-icon">
-                        {gw.id === "stripe" ? "💳" : gw.id === "paypal" ? "🅿️" : "🍋"}
-                      </span>
-                      <h5>{gw.name}</h5>
-                    </div>
-                    <span className={`gw-mode-badge ${gw.mode}`}>
-                      {gw.mode.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="gw-caps">
-                    {gw.capabilities.map((c, i) => (
-                      <span key={i} className="gw-cap-tag">{c}</span>
-                    ))}
-                  </div>
-                  <div className="gw-webhook-info">
-                    <code>Webhook: /api/payments/webhook?provider={gw.id}</code>
-                  </div>
-                </Card>
-              ))}
-            </div>
-            </PageSection>
-
-            {/* Financial Analytics Ribbon */}
-            <PageSection>
-            <div className="referral-stats-ribbon">
-              <Card padding="none" className="stat-card highlight">
-                <span className="stat-icon">💰</span>
-                <div className="stat-meta">
-                  <span className="stat-num">${paymentSummary.totalVolume.toFixed(2)}</span>
-                  <span className="stat-label">Total Settled Volume</span>
-                </div>
-              </Card>
-              <Card padding="none" className="stat-card">
-                <span className="stat-icon">⚡</span>
-                <div className="stat-meta">
-                  <span className="stat-num">{paymentSummary.completedCount}</span>
-                  <span className="stat-label">Settled Transactions</span>
-                </div>
-              </Card>
-              <Card padding="none" className="stat-card">
-                <span className="stat-icon">🛡️</span>
-                <div className="stat-meta">
-                  <span className="stat-num">{paymentSummary.pendingCount}</span>
-                  <span className="stat-label">Pending Authorizations</span>
-                </div>
-              </Card>
-              <Card padding="none" className="stat-card">
-                <span className="stat-icon">🔐</span>
-                <div className="stat-meta">
-                  <span className="stat-num">{paymentSummary.verifiedDidCount}</span>
-                  <span className="stat-label">Verifiable DID Signatures</span>
-                </div>
-              </Card>
-            </div>
-
-            {/* Agentic Wallet (x402 / MPP) — issue #139: the wallet's first UI surface */}
-            <ErrorBoundary label="Agentic Wallet panel">
-              <AgenticWalletPanel />
-            </ErrorBoundary>
-
-            {/* 2-Column Grid: Create Payment / Intent Form + Transaction Ledger */}
-            <div className="referral-columns-grid">
-              {/* Left Column: Create Payment / Checkout Link Form */}
-              <div className="referral-form-card">
-                <div className="card-header">
-                  <h4>➕ Initialize Payment / Checkout Link</h4>
-                  <p>Issue a new payment intent across Stripe, PayPal, or Lemon Squeezy with cryptographic Agent DID attestation.</p>
-                </div>
-
-                <form onSubmit={handleCreatePayment} className="referral-form">
-                  {paySuccessMsg && <Notice tone="success" className="form-alert success">{paySuccessMsg}</Notice>}
-                  {payErrorMsg && <Notice tone="danger" className="form-alert error">{payErrorMsg}</Notice>}
-
-                  <div className="form-group">
-                    <label>Payment Gateway Provider *</label>
-                    <Select
-                      value={newPayGateway}
-                      onChange={(e) => setNewPayGateway(e.target.value as any)}
-                    >
-                      <option value="stripe">Stripe (Card, Elements, Checkout)</option>
-                      <option value="paypal">PayPal (Digital Wallet & Pay Later)</option>
-                      <option value="lemonsqueezy">Lemon Squeezy (Merchant of Record)</option>
-                    </Select>
-                  </div>
-
-                  <div className="form-row-2">
-                    <div className="form-group">
-                      <label>Amount *</label>
-                      <TextInput
-                        type="number"
-                        step="0.01"
-                        min="1"
-                        placeholder="25.00"
-                        value={newPayAmount}
-                        onChange={(e) => setNewPayAmount(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Currency</label>
-                      <Select
-                        value={newPayCurrency}
-                        onChange={(e) => setNewPayCurrency(e.target.value)}
-                      >
-                        <option value="USD">USD ($)</option>
-                        <option value="EUR">EUR (€)</option>
-                        <option value="GBP">GBP (£)</option>
-                        <option value="CAD">CAD ($)</option>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Customer Name or Account ID *</label>
-                    <TextInput
-                      type="text"
-                      placeholder="e.g. Acme Logistics or user@example.com"
-                      value={newPayCustomer}
-                      onChange={(e) => setNewPayCustomer(e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Purpose / Description</label>
-                    <TextInput
-                      type="text"
-                      placeholder="Describe what this payment is for"
-                      value={newPayDesc}
-                      onChange={(e) => setNewPayDesc(e.target.value)}
-                    />
-                  </div>
-
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    className="submit-action-btn"
-                    disabled={creatingPayment || !newPayAmount || !newPayCustomer.trim()}
-                  >
-                    {creatingPayment ? "Signing & Initializing…" : `🚀 Create ${newPayGateway.toUpperCase()} Checkout Link`}
-                  </Button>
-                </form>
-              </div>
-
-              {/* Right Column: Transaction Ledger & Human Authorization Queue */}
-              <div className="referral-list-card">
-                <div className="card-header">
-                  <h4>📋 Transaction Ledger & DID Provenance ({transactions.length})</h4>
-                  <p>Stateful record of all payment operations, drafts, and cryptographic audit proofs.</p>
-                </div>
-
-                <div className="referral-items-list">
-                  {transactions.length === 0 ? (
-                    <div className="empty-referrals-box">
-                      <span className="empty-icon">💳</span>
-                      <p>No transactions recorded yet.</p>
-                      <span className="empty-sub">
-                        Ask the AI assistant to draft a payment or use the form on the left.
-                      </span>
-                    </div>
-                  ) : (
-                    transactions.map((tx) => (
-                      <Card padding="none" key={tx.id} className="referral-card-item transaction-card">
-                        <div className="ref-top">
-                          <span className={`gateway-pill ${tx.gateway}`}>{tx.gateway.toUpperCase()}</span>
-                          <span className={`tx-status-pill ${tx.status}`}>{tx.status.replace("_", " ").toUpperCase()}</span>
-                        </div>
-
-                        <div className="tx-main-row">
-                          <h5 className="ref-title">
-                            {tx.action.toUpperCase()}: ${tx.amount.toFixed(2)} {tx.currency}
-                          </h5>
-                          <span className="tx-customer">for {tx.customer}</span>
-                        </div>
-
-                        {tx.note && <p className="ref-reward">📝 {tx.note}</p>}
-
-                        {/* DID Attestation Bar */}
-                        <div className="tx-did-bar">
-                          <span className="did-proof-tag">DID SIGNED:</span>
-                          <code>{tx.proposerDid}</code>
-                        </div>
-
-                        {/* Interactive Human Authorization for pending drafts */}
-                        {tx.status === "awaiting_confirmation" && (
-                          <div className="tx-hitl-box">
-                            <div className="tx-hitl-notice">
-                              🛡️ Human Authorization Required before gateway settlement.
-                            </div>
-                            <div className="tx-hitl-btns">
-                              <Button
-                                variant="primary"
-                                tone="subtle"
-                                onClick={() => handleAuthorizeDraft(tx.id, "approved")}
-                              >
-                                ✅ Authorize & Settle
-                              </Button>
-                              <Button
-                                variant="danger"
-                                tone="subtle"
-                                onClick={() => handleAuthorizeDraft(tx.id, "rejected")}
-                              >
-                                ❌ Reject
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="ref-footer">
-                          {tx.checkoutUrl ? (
-                            <a
-                              href={tx.checkoutUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="visit-ref-btn"
-                            >
-                              Checkout Link ↗
-                            </a>
-                          ) : (
-                            <span className="tx-date">{new Date(tx.createdAt).toLocaleTimeString()}</span>
-                          )}
-
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setSelectedProofTx(tx)}
-                            title="Inspect Cryptographic DID Proof"
-                          >
-                            🔐 Inspect DID Proof
-                          </Button>
-                        </div>
-                      </Card>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-            </PageSection>
-
-            {/* Cryptographic DID Proof Modal */}
-            {selectedProofTx && (
-              <Modal open size="none" panelClassName="did-modal-card" title="🔐 W3C Agent Decentralized Identifier (DID) Proof" onClose={() => setSelectedProofTx(null)}>
-                    <div className="proof-field">
-                      <label>Transaction Draft ID</label>
-                      <code>{selectedProofTx.id}</code>
-                    </div>
-                    <div className="proof-field">
-                      <label>Proposer Agent DID</label>
-                      <code>{selectedProofTx.proposerDid}</code>
-                    </div>
-                    <div className="proof-field">
-                      <label>Human Authorizer DID</label>
-                      <code>{selectedProofTx.authorizerDid || `did:user:github:${user.login}`}</code>
-                    </div>
-                    <div className="proof-field">
-                      <label>Executor Agent DID</label>
-                      <code>did:agent:openaimp:orchestrator</code>
-                    </div>
-                    <div className="proof-field">
-                      <label>Settlement Gateway</label>
-                      <code>{selectedProofTx.gateway.toUpperCase()}</code>
-                    </div>
-                    <div className="proof-field">
-                      <label>Cryptographic Proof Signature (SHA-256 HMAC)</label>
-                      <pre className="sig-code">{didProofSignatureDisplay(selectedProofTx.proofSignature)}</pre>
-                    </div>
-                    <div className="proof-field">
-                      <label>Timestamp</label>
-                      <code>{selectedProofTx.createdAt}</code>
-                    </div>
-              </Modal>
-            )}
-            </PageShell>
-          </div>
-    ),
     referrals: (
           <ReferralsTab
             activeShareRefId={activeShareRefId}
@@ -1907,9 +1482,6 @@ export function Chat({ user }: { user: User }) {
         <SearchHub />
       </ErrorBoundary>
     ),
-    social: (
-          <SocialPostingPanel />
-    ),
     "workflow-runs": (
           <WorkflowRunsPanel />
     ),
@@ -1927,6 +1499,15 @@ export function Chat({ user }: { user: User }) {
             />
           </div>
     ),
+
+  };
+
+  // Shell-retained pages (#2149): standalone pages rendered mounted-hidden
+  // when inactive (the trading hub's retained-render precedent, outside
+  // the hub). TAB_CONTENT holds only the non-retained ids now.
+  const SHELL_CONTENT: Record<string, ReactNode> = {
+    payments: <PaymentsPage active={tab === "payments"} user={user} />,
+    social: <SocialPostingPanel active={tab === "social"} />,
   };
 
   return (
@@ -2181,6 +1762,14 @@ export function Chat({ user }: { user: User }) {
                   wiring gap, not an empty tab.
                 </Notice>
               ))}
+
+        {/* Shell-retained pages (#2149): always mounted, hidden unless
+            active, so in-flight work and state survive tab switches. */}
+        {[...SHELL_RETAINED_PAGES].map((pageId) => (
+          <div key={pageId} hidden={tab !== pageId}>
+            {SHELL_CONTENT[pageId]}
+          </div>
+        ))}
 
         {/* E*TRADE Agentic Trading Hub */}
         {/* Kept mounted (hidden) so in-flight and finished requests survive tab switches */}

@@ -128,9 +128,10 @@ describe("#151 — source pins", () => {
   });
 
   it("the DID Proof modal renders via didProofSignatureDisplay, with no signature fallback", () => {
-    const chat = src("client/Chat.tsx");
-    expect(chat).toContain("didProofSignatureDisplay(selectedProofTx.proofSignature)");
-    expect(chat).not.toMatch(/proofSignature\s*\|\|/);
+    // #2149: the modal moved with the payments page out of Chat.tsx.
+    const page = src("client/PaymentsPage.tsx");
+    expect(page).toContain("didProofSignatureDisplay(selectedProofTx.proofSignature)");
+    expect(page).not.toMatch(/proofSignature\s*\|\|/);
   });
 
   it("the order-preview pill derives via orderPreviewCardPresentation, not the executed-or-pending binary", () => {
