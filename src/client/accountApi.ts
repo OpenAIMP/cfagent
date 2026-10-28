@@ -85,6 +85,27 @@ export function fetchWatchlistDetails(env: string, id: string | number): Promise
   return getJson(`/api/etrade/watchlist/details?id=${encodeURIComponent(String(id))}`, env);
 }
 
+// Positions ------------------------------------------------------------------
+
+/**
+ * Issue #2116: symbols held in the portfolio, for the tape's holdings set.
+ * Option contracts are excluded — their broker symbols are not
+ * feed-servable tape symbols. Returns [] when the account is unconnected.
+ */
+export async function fetchPositionSymbols(env: string): Promise<string[]> {
+  const data = await getJson<{ positions?: { symbol?: unknown; optionType?: unknown }[] }>(
+    "/api/etrade/positions",
+    env,
+  );
+  const positions = Array.isArray(data?.positions) ? data.positions : [];
+  const symbols: string[] = [];
+  for (const p of positions) {
+    if (p?.optionType) continue;
+    if (typeof p?.symbol === "string" && p.symbol.trim()) symbols.push(p.symbol);
+  }
+  return parseSymbolList(symbols.join(","));
+}
+
 export function createWatchlist(env: string, name: string, symbols: string[]): Promise<unknown> {
   return sendJson("/api/etrade/watchlist/create", env, "POST", { name, symbols });
 }
