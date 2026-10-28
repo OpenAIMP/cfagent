@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../../apiFetch";
 import { Button, TextInput } from "../../components/ui";
+import { buildJson, downloadTextFile } from "../../runExport";
 import type { SearchTabProps } from "../searchTabTypes";
 
 interface MasChunk {
@@ -36,6 +37,11 @@ interface MasChunk {
 export function SearchMasTab({ pendingQuery, onHealth, onSearch }: SearchTabProps) {
   const [query, setQuery] = useState("");
   const [chunks, setChunks] = useState<MasChunk[]>([]);
+  // Issue #1169 S4-4: the last successful raw tool response,
+  // retained verbatim for the Download button (native shape, no
+  // envelope). Cleared on the error-shape path because this tab
+  // hides prior results when the tool errors (searched && !error).
+  const [lastResult, setLastResult] = useState<unknown>(null);
   const [message, setMessage] = useState("");
   const [source, setSource] = useState("");
   const [reportCount, setReportCount] = useState(0);
@@ -62,12 +68,14 @@ export function SearchMasTab({ pendingQuery, onHealth, onSearch }: SearchTabProp
       if (!res.ok) throw new Error(data.error || "MAS search failed.");
       if (data.error) {
         setError(data.error);
+        setLastResult(null);
         setSearched(true);
         onHealth?.({ status: "error", hits: 0, latencyMs: Date.now() - started });
         return;
       }
       const list: MasChunk[] = data.chunks || [];
       setChunks(list);
+      setLastResult(data);
       setMessage(data.message || "");
       setSource(data.source || "");
       setReportCount(typeof data.reportCount === "number" ? data.reportCount : 0);
@@ -112,6 +120,9 @@ export function SearchMasTab({ pendingQuery, onHealth, onSearch }: SearchTabProp
           {loading ? "Searching…" : "Search"}
         </Button>
       </form>
+      <Button type="button" onClick={() => downloadTextFile("mas-search-results.json", buildJson(lastResult), "application/json")} disabled={!lastResult} title="Download current results as JSON">
+        Download results (JSON)
+      </Button>
       {error && <p role="alert">{error}</p>}
       {searched && !error && (
         <div>
