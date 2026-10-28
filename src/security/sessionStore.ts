@@ -86,8 +86,21 @@ export class SessionStore extends DurableObject<Env> {
 
     try {
       if (op === "list") {
-        if (ns !== "etrade" || !key.startsWith("etrade:token:")) {
-          return Response.json({ error: "list is restricted to E*TRADE token entries" }, { status: 400 });
+        // #1758: the sessions namespace joins the E*TRADE token
+        // namespace as listable. Listing sessions is what makes
+        // bulk revocation possible: without it, an offboarding can
+        // only revoke the session ids its caller already knows
+        // (scan F-16). The DO itself performs no authorization —
+        // it is reachable only through the Worker's internal stub
+        // fetch, never from a client — so every list caller is a
+        // server code path whose route gates the read (the IAAA
+        // lifecycle routes are admin- or self-gated; the values
+        // returned are full session records, so no new list caller
+        // may be added without a route-level gate review).
+        const sessionsListAllowed = ns === "sessions";
+        const etradeListAllowed = ns === "etrade" && key.startsWith("etrade:token:");
+        if (!sessionsListAllowed && !etradeListAllowed) {
+          return Response.json({ error: "list is restricted to session entries and E*TRADE token entries" }, { status: 400 });
         }
         const measured = this.execCounted<{ key: string; value: string }>(
           STMT_LIST,
