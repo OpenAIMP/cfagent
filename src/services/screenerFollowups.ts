@@ -178,7 +178,7 @@ function envStr(env: Record<string, unknown>, name: string): string | undefined 
 export function resolveScreenerFollowupConfig(
   env: Record<string, unknown>,
 ): ScreenerFollowupConfig {
-  const emailTo = envStr(env, "SCREENER_EMAIL_TO");
+  const emailTo = envStr(env, "SCREENER_EMAIL_TO") ?? envStr(env, "OPTIONS_EMAIL_TO");
   const allowlistRaw = envStr(env, "SCREENER_EMAIL_ALLOWLIST");
   const emailAllowlist = allowlistRaw
     ? allowlistRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
@@ -690,6 +690,7 @@ export function screenerOutcomeFromRunResult(
     summary: typeof result.summary === "string" ? result.summary : undefined,
     opportunities: asOpportunities(result.opportunities),
     providerFallback: asProviderFallback(result.providerFallback),
+    ...(typeof result.emailTo === "string" && result.emailTo.trim() !== "" ? { emailTo: result.emailTo.trim() } : {}),
     error: typeof result.error === "string" ? result.error : undefined,
     partial: asPartialQualification(result.partial),
   };
