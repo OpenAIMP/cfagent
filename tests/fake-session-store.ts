@@ -51,6 +51,25 @@ export function makeFakeSessionStore(): FakeSessionStore {
           claims.delete(k);
           return Response.json({ ok: true });
         }
+        if (body.op === "list") {
+          // Mirrors the real SessionStore DO rule (#1758): list is
+          // allowed for the sessions namespace (any prefix) and
+          // for E*TRADE token entries only — nothing else.
+          const sessionsAllowed = body.ns === "sessions";
+          const etradeAllowed = body.ns === "etrade" && body.key.startsWith("etrade:token:");
+          if (!sessionsAllowed && !etradeAllowed) {
+            return Response.json({ error: "list is restricted" }, { status: 400 });
+          }
+          const entries: Array<{ key: string; value: string }> = [];
+          for (const [k, v] of store) {
+            if (!k.startsWith(`${body.ns}:`)) continue;
+            const keyPart = k.slice(body.ns.length + 1);
+            if (!keyPart.startsWith(body.key)) continue;
+            entries.push({ key: keyPart, value: v });
+          }
+          entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+          return Response.json({ entries });
+        }
         if (body.op === "consume") {
           const heldUntil = claims.get(k);
           if (heldUntil !== undefined && heldUntil > Date.now()) {
