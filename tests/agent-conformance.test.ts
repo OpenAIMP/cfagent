@@ -125,6 +125,7 @@ describe("Agent conformance (issue #1738)", () => {
     );
     expect(workflowFiles.map((f) => path.relative(ROOT, f)).sort()).toEqual([
       "src/agents/trading-trade-workflow.ts",
+      "src/workflows/paymentWorkflow.ts",
       "src/workflows/screenerWorkflow.ts",
     ]);
   });
