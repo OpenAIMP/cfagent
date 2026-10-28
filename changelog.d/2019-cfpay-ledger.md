@@ -1,0 +1,3 @@
+### Added
+
+- **Durable cfpay ledger (#2019)**: `src/services/cfpayLedger.ts` builds `mas_transactions` rows for confirmed cfpay payments (gateway stripe, action charge, session `screener-payment:<runId>`) and one-time replacement-run credits (action credit, never a cash refund), via new orchestrator endpoints `POST /payments/agentic/ledger/record-cfpay` (deduped per run+kind) and `GET /payments/agentic/ledger/cfpay` (reconciliation reads); the payment workflow adapter writes the charge row on `payment.confirmed` (fail loud, dedupe-safe) and appends `mas_events` audit rows for checkout, payment, skip, and credit with the same run id. Redemption of stored credits belongs to the account store (#2015).
