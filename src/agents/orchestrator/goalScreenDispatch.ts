@@ -20,7 +20,6 @@
  */
 import type { DatabaseORM } from "../../orm";
 import type { GoalDrivenScreenResult } from "../../services/goalDrivenScreen";
-import { recordGoalRunOutcome } from "../../services/goalScreenReports";
 import { recordScreeningActivity } from "../../services/screeningActivity";
 import {
   createScreeningDeliverySenders,
@@ -124,33 +123,15 @@ export async function persistWorkflowGoalScreenReport(
       ...(result.csvError ? { csvError: result.csvError } : {}),
     },
     createdAt: result.completedAt,
-    userLogin,
-  });
+  },
+  // Issue #1169 S4-1: thread the dispatch env so the seam indexes this
+  // goal_screen row at write time (ctx.env is unknown-typed here).
+  ctx.env as { AI?: any; VECTOR_MEMORY?: any });
   if (!stored) {
     throw new Error(
       `Goal screen report could not be stored for run goal-screen:${envelope.taskId} (canonical store returned null).`,
     );
   }
-  recordGoalRunOutcome(
-    typeof (orm as { getSql?: () => unknown }).getSql === "function"
-      ? ((orm as { getSql: () => unknown }).getSql() as any)
-      : undefined,
-    {
-      id: `goal-screen:${envelope.taskId}`,
-      trigger: envelope.trigger,
-      status: result.status === "failed" ? "failed" : result.status === "partial" ? "partial" : "completed",
-      scanned: result.counts.stocksScanned + result.counts.optionsUnderlyingsScanned,
-      matched: result.counts.hits,
-      pdfKey: result.pdfKey,
-      xlsxKey: result.xlsxKey,
-      csvKey: result.csvKey,
-      reportUrl: result.pdfKey
-        ? `/api/screening/goal-screen/report.pdf?key=${encodeURIComponent(result.pdfKey)}`
-        : undefined,
-      origin: "goal-screen-workflow",
-      createdAt: result.completedAt,
-    },
-  );
   recordScreeningActivity(orm as any, {
     userLogin,
     kind: "screen_run",
