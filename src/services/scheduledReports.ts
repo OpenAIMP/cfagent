@@ -64,8 +64,14 @@ export interface ScheduledReportInput {
    * content hash.
    */
   generationId?: string;
-  /** Owning user login (#584 EP-003 tenant scoping). Defaults to "default". */
-  userLogin?: string;
+  /**
+   * Owning tenant login (#584 EP-003 / multi-tenant SaaS). REQUIRED:
+   * every mas_reports row belongs to exactly one user. There is no
+   * "default" bucket — a write without an owner is refused (the store
+   * returns null and logs why) instead of being filed under a fake
+   * tenant that every scoped read would either hide or, worse, expose.
+   */
+  userLogin: string;
   /** Human title, e.g. "Autonomous market screen — Technology". */
   title: string;
   /** Producer label: "screener" | "iv_collection" | "retention" | ... */
@@ -123,9 +129,11 @@ export function ensureScheduledReportsTable(sql: SqlStorage): void {
   ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "created_at", "TEXT");
   // Additive migration for tables created before issue #308.
   ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "generation_id", "TEXT");
-  // #584 (EP-003): tenant scoping. Legacy rows predate the column; they were
-  // all produced by the single-user deployment, so they backfill to "default"
-  // — the same default the routes use when no login is present.
+  // #584 (EP-003): tenant scoping. Legacy rows predate the column.
+  // They are NOT backfilled to a synthetic owner: an unknown owner is
+  // not a tenant, and assigning it one would misattribute the row in a
+  // multi-tenant store. Unscoped (legacy, no-identity) reads still see
+  // them; every owner-scoped read correctly excludes them.
   ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "user_login", "TEXT");
   // Issue #338 (design accepted 2026-10-23): R2-vs-DO storage split for
   // report bodies. body_r2_key is the pointer to the canonical body in R2
@@ -133,20 +141,7 @@ export function ensureScheduledReportsTable(sql: SqlStorage): void {
   // body still lives inline in the body column (pre-migration rows and,
   // until the S2 write-path slice lands, every new row too).
   ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "body_r2_key", "TEXT");
-  try {
-    sql.exec(
-      `UPDATE ${SCHEDULED_REPORTS_TABLE} SET user_login = ? WHERE user_login IS NULL`,
-      "default"
-    );
-  } catch (err) {
-    // Fails closed: a partial backfill is retried on the next call. Issue
-    // #876: logged, not silent — a persistently failing backfill is a
-    // symptom of the same store trouble the persist seam reports.
-    console.error(
-      `[scheduledReports] ensureScheduledReportsTable: user_login backfill failed (retried on next call): ${err instanceof Error ? err.message : String(err)}`,
-      err
-    );
-  }
+
   sql.exec(
     `CREATE INDEX IF NOT EXISTS idx_mas_reports_created ON ${SCHEDULED_REPORTS_TABLE} (created_at DESC)`
   );
@@ -213,15 +208,22 @@ export interface CanonicalStoreResult {
  * Never throws: returns null on bad input or SQL errors so generation
  * and delivery are never broken by the store.
  */
-/** The mas_reports row id already stored for a generation id, or "". */
+/**
+ * The mas_reports row id already stored for a (generation, owner) pair,
+ * or "". Tenant-scoped: two tenants may legitimately produce the same
+ * timestamped generation id; each owns its own row, and one tenant can
+ * never be handed another's report id.
+ */
 function existingReportIdForGeneration(
   sql: SqlStorage,
-  generationId: string
+  generationId: string,
+  owner: string
 ): string {
   const existing = Array.from(
     sql.exec(
-      `SELECT id FROM ${SCHEDULED_REPORTS_TABLE} WHERE generation_id = ? LIMIT 1`,
-      generationId
+      `SELECT id FROM ${SCHEDULED_REPORTS_TABLE} WHERE generation_id = ? AND user_login = ? LIMIT 1`,
+      generationId,
+      owner
     )
   ) as Array<{ id?: unknown }>;
   return existing[0] ? String(existing[0].id ?? "") : "";
@@ -271,9 +273,13 @@ function generationIdOf(input: ScheduledReportInput): string | null {
 }
 
 function reportOwnerOf(input: ScheduledReportInput): string {
-  return typeof input.userLogin === "string" && input.userLogin
-    ? input.userLogin
-    : "default";
+  const owner = typeof input.userLogin === "string" ? input.userLogin.trim() : "";
+  if (!owner) {
+    throw new Error(
+      "mas_reports requires an owning user_login — a report without a tenant cannot be stored (no \"default\" owner).",
+    );
+  }
+  return owner;
 }
 
 /**
@@ -319,10 +325,11 @@ export function storeReportAtGeneration(
 ): CanonicalStoreResult | null {
   try {
     if (!input || typeof input.runId !== "string" || !input.runId) return null;
+    const owner = reportOwnerOf(input);
     ensureScheduledReportsTable(sql);
     const generationId = generationIdOf(input);
     if (generationId) {
-      const id = existingReportIdForGeneration(sql, generationId);
+      const id = existingReportIdForGeneration(sql, generationId, owner);
       if (id) {
         const row = existingReportRowForId(sql, id);
         if (row) {
@@ -339,7 +346,7 @@ export function storeReportAtGeneration(
       }
     }
     const rec = toScheduledReportRecord(input);
-    insertScheduledReportRow(sql, rec, generationId, reportOwnerOf(input), null);
+    insertScheduledReportRow(sql, rec, generationId, owner, null);
     void indexCanonicalReport(env, {
       reportId: rec.id,
       title: rec.title,
@@ -377,10 +384,11 @@ export async function storeReportAtGenerationWithR2(
 ): Promise<CanonicalStoreResult | null> {
   try {
     if (!input || typeof input.runId !== "string" || !input.runId) return null;
+    const owner = reportOwnerOf(input);
     ensureScheduledReportsTable(sql);
     const generationId = generationIdOf(input);
     if (generationId) {
-      const id = existingReportIdForGeneration(sql, generationId);
+      const id = existingReportIdForGeneration(sql, generationId, owner);
       if (id) {
         const row = existingReportRowForId(sql, id);
         if (row) {
@@ -413,7 +421,7 @@ export async function storeReportAtGenerationWithR2(
         );
       }
     }
-    insertScheduledReportRow(sql, rec, generationId, reportOwnerOf(input), bodyR2Key);
+    insertScheduledReportRow(sql, rec, generationId, owner, bodyR2Key);
     void indexCanonicalReport(env, {
       reportId: rec.id,
       title: rec.title,
@@ -653,6 +661,9 @@ export function persistScheduledReportSql(
   input: ScheduledReportInput
 ): string | null {
   try {
+    // Multi-tenant SaaS: a canonical row without a tenant is refused,
+    // never filed under a synthetic owner (throws inside this try).
+    const owner = reportOwnerOf(input);
     ensureScheduledReportsTable(sql);
     const rec = toScheduledReportRecord(input);
     // Issue #901: INSERT must include generation_id and user_login.
@@ -668,7 +679,7 @@ export function persistScheduledReportSql(
       rec.body,
       rec.createdAt,
       rec.generationId ?? null,
-      input.userLogin ?? "default"
+      owner
     );
     return rec.id;
   } catch (err) {
