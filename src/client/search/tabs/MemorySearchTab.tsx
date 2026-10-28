@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button, TextInput } from "../../components/ui";
+import { buildJson, downloadTextFile } from "../../runExport";
 import { searchMemory, type MemoryChunk } from "../../memoryApi";
 import type { SearchTabProps } from "../searchTabTypes";
 
@@ -7,6 +8,9 @@ import type { SearchTabProps } from "../searchTabTypes";
 export function MemorySearchTab({ pendingQuery, onHealth, onSearch }: SearchTabProps) {
   const [query, setQuery] = useState("");
   const [chunks, setChunks] = useState<MemoryChunk[]>([]);
+  // Issue #1169 S4-4: the last successful raw memoryApi result,
+  // retained verbatim for the Download button (native shape).
+  const [lastResult, setLastResult] = useState<unknown>(null);
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -20,8 +24,10 @@ export function MemorySearchTab({ pendingQuery, onHealth, onSearch }: SearchTabP
     setLoading(true);
     setError("");
     try {
-      const { chunks: found } = await searchMemory(trimmed, { topK: 10 });
+      const memResult = await searchMemory(trimmed, { topK: 10 });
+      const found = memResult.chunks;
       setChunks(found);
+      setLastResult(memResult);
       setSearched(true);
       const ms = Date.now() - started;
       setLatencyMs(ms);
@@ -58,6 +64,9 @@ export function MemorySearchTab({ pendingQuery, onHealth, onSearch }: SearchTabP
           {loading ? "Searching…" : "Search"}
         </Button>
       </form>
+      <Button type="button" onClick={() => downloadTextFile("memory-search-results.json", buildJson(lastResult), "application/json")} disabled={!lastResult} title="Download current results as JSON">
+        Download results (JSON)
+      </Button>
       {error && <p role="alert">{error}</p>}
       {searched && (
         <div>
