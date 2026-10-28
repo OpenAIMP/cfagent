@@ -699,7 +699,7 @@ describe("schedule schema + RunSummary surfacing (issues #1355, #1346)", () => {
     expect(marketScreenScheduleCriteriaSchema.safeParse({ sharded: true, bogus: 1 }).success).toBe(false);
   });
 
-  it("report rows surface csvUrl per source (screener, options, goal-screen)", () => {
+  it("report rows surface csvUrl per source (screener, options, goal-screen, discovery)", () => {
     const hit = (source: string, body: Record<string, unknown>) => ({
       id: "r1", source, createdAt: "2026-10-24T12:00:00.000Z",
       title: "t", summary: "s", body,
@@ -713,7 +713,10 @@ describe("schedule schema + RunSummary surfacing (issues #1355, #1346)", () => {
     expect(runSummaryFromReport(hit("goal_screen", { csvKey: "goal_screen:csv:abc" })).csvUrl).toBe(
       "/api/screening/goal-screen/report.csv?key=goal_screen%3Acsv%3Aabc"
     );
-    expect(runSummaryFromReport(hit("discovery", { csvKey: "screener:csv:abc" })).csvUrl).toBeNull();
+    // Issue #2180: discovery runs now serve their own CSV.
+    expect(runSummaryFromReport(hit("discovery", { csvKey: "discovery:csv:abc" })).csvUrl).toBe(
+      "/api/discovery/report.csv?key=discovery%3Acsv%3Aabc"
+    );
     expect(runSummaryFromReport(hit("screener", {})).csvUrl).toBeNull();
   });
 
