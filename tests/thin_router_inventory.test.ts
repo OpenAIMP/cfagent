@@ -416,6 +416,10 @@ const EXPECTED_INVENTORY = [
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/expire-dates\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/scans\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/scans/diff\")",
+  // Issue #2180: the discovery run-report downloads.
+  "handleEtradeOptionsRoutes :: endsWith(\"/discovery/report.pdf\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/discovery/report.xlsx\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/discovery/report.csv\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/discovery-runs\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/iv-history\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/profiles\")",

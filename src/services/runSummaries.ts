@@ -185,6 +185,9 @@ function xlsxUrlForSource(source: string, key: string): string | null {
   // Issue #2167: options research workbooks are served by the research route.
   if (source === "options_research")
     return `/api/research/report.xlsx?key=${encodeURIComponent(key)}`;
+  // Issue #2180: discovery run workbooks are served by the discovery route.
+  if (source === "discovery")
+    return `/api/discovery/report.xlsx?key=${encodeURIComponent(key)}`;
   if (source === "goal_screen")
     return `/api/screening/goal-screen/report.xlsx?key=${encodeURIComponent(key)}`;
   return null;
@@ -199,6 +202,9 @@ function csvUrlForSource(source: string, key: string): string | null {
   // Issue #2167: options research CSVs are served by the research route.
   if (source === "options_research")
     return `/api/research/report.csv?key=${encodeURIComponent(key)}`;
+  // Issue #2180: discovery run CSVs are served by the discovery route.
+  if (source === "discovery")
+    return `/api/discovery/report.csv?key=${encodeURIComponent(key)}`;
   if (source === "goal_screen")
     return `/api/screening/goal-screen/report.csv?key=${encodeURIComponent(key)}`;
   return null;
