@@ -7,6 +7,11 @@ export interface CardProps {
   highlight?: boolean;
   padding?: "none" | "sm" | "md" | "lg";
   className?: string;
+  /**
+   * Data-driven inline style (issue 2161: per-ad accent colors from the
+   * ad record, not design values — layout still comes from tokens).
+   */
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }
 
@@ -16,9 +21,9 @@ export interface CardProps {
  * radius, card shadow — the values the app's incumbent section cards
  * already use, formalized. Styles: ./primitives.css.
  */
-export function Card({ elevated = false, highlight = false, padding = "md", className = "", children }: CardProps) {
+export function Card({ elevated = false, highlight = false, padding = "md", className = "", style, children }: CardProps) {
   return (
-    <div className={`ui-card ${elevated ? "elevated" : ""} ${highlight ? "highlight" : ""} pad-${padding} ${className}`}>
+    <div className={`ui-card ${elevated ? "elevated" : ""} ${highlight ? "highlight" : ""} pad-${padding} ${className}`} style={style}>
       {children}
     </div>
   );

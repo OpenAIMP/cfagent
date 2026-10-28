@@ -9,12 +9,15 @@ import type { RevenueSummaryData } from "../types";
 import type { TableMetadataItem } from "../types";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
-import { PageShell, PageSection } from "../../components/ui/PageShell";
+import { PageShell } from "../../components/ui/PageShell";
 import { Card } from "../../components/ui/Card";
 import { Notice } from "../../components/ui/Notice";
 import { Select } from "../../components/ui/Select";
 import { Table } from "../../components/ui/Table";
 import { TextInput } from "../../components/ui/TextInput";
+import { FieldShell } from "../../components/ui/Field";
+import { Tabs, TabPanel } from "../../components/ui/Tabs";
+import { useUrlSyncedTabs } from "../../useUrlSyncedTabs";
 
 export interface RevenueTabProps {
   adBannerConfig: AdBannerConfig;
@@ -75,392 +78,425 @@ export interface RevenueTabProps {
   tables: TableMetadataItem[];
 }
 
+type RevenueTabId = "metrics" | "placements" | "categories" | "schemas" | "ads";
+const REVENUE_TABS: Array<{ id: RevenueTabId; label: string }> = [
+  { id: "metrics", label: "Metrics" },
+  { id: "placements", label: "Placements" },
+  { id: "categories", label: "Categories" },
+  { id: "schemas", label: "Schemas" },
+  { id: "ads", label: "Google Ads" },
+];
+const isRevenueTab = (v: unknown): v is RevenueTabId =>
+  v === "metrics" || v === "placements" || v === "categories" || v === "schemas" || v === "ads";
+
+/**
+ * Revenue & Monetization Management as a shell page (issue #2161,
+ * epic #2150 slice 2): URL-synced inner tabs (?view=) with visited
+ * panels retained mounted-hidden. All metrics, tables, and forms move
+ * to primitives and utilities; copy and handlers are unchanged.
+ */
 export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSuccessMsg, categories, extAdErrorMsg, extAdSuccessMsg, externalAds, fetchCategories, fetchExternalAds, fetchRevenueSummary, fetchTables, googleAdFormat, googleAdsEnabled, googlePublisherId, googleSlotId, handleCreateCategory, handleCreateExternalAd, handleDeleteCategory, handleExternalAdClick, newCatDesc, newCatIcon, newCatName, newCatOrder, newExtCpc, newExtCpm, newExtCta, newExtNetwork, newExtPlacement, newExtTagline, newExtTitle, newExtUrl, revenueLoading, revenueSummary, savingCat, savingExtAd, setGoogleAdFormat, setGoogleAdsEnabled, setGooglePublisherId, setGoogleSlotId, setNewCatDesc, setNewCatIcon, setNewCatName, setNewCatOrder, setNewExtCpc, setNewExtCpm, setNewExtCta, setNewExtNetwork, setNewExtPlacement, setNewExtTagline, setNewExtTitle, setNewExtUrl, setSelectedBrowseTable, setTab, tables}: RevenueTabProps) {
+  const { activeTab, visitedTabs, handleTabChange } = useUrlSyncedTabs<RevenueTabId>({
+    param: "view",
+    isValid: isRevenueTab,
+    defaultTab: "metrics",
+  });
   return (
-          <div className="revenue-view">
-            <PageShell
-              title="Revenue & Monetization Management"
-              scopeNote="Platform revenue accounting across external ad networks (CPM/CPC), sponsored marketplace placements, agent payment processing fees, and referral partner payouts with transactional double-entry ledger persistence."
-            >
-            <div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  fetchRevenueSummary();
-                  fetchExternalAds();
-                  fetchCategories();
-                  fetchTables();
-                }}
-                disabled={revenueLoading}
-              >
-                {revenueLoading ? "Refreshing…" : "🔄 Refresh Financials"}
-              </Button>
-            </div>
+    <div>
+      <PageShell
+        title="Revenue & Monetization Management"
+        scopeNote="Platform revenue accounting across external ad networks (CPM/CPC), sponsored marketplace placements, agent payment processing fees, and referral partner payouts with transactional double-entry ledger persistence."
+      >
+        <div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              fetchRevenueSummary();
+              fetchExternalAds();
+              fetchCategories();
+              fetchTables();
+            }}
+            disabled={revenueLoading}
+          >
+            {revenueLoading ? "Refreshing…" : "🔄 Refresh Financials"}
+          </Button>
+        </div>
 
-            {/* Comprehensive Revenue Metrics Grid */}
-            <PageSection>
-            <div className="revenue-grid">
-              <Card padding="none" className="rev-card highlight-rev">
-                <span className="rev-icon">💵</span>
-                <div className="rev-meta">
-                  <span className="rev-val">${revenueSummary?.grossRevenue?.toFixed(2) || "0.00"}</span>
-                  <span className="rev-label">Total Gross Platform Revenue</span>
+        <Tabs
+          tabs={REVENUE_TABS}
+          value={activeTab}
+          onChange={handleTabChange}
+          ariaLabel="Revenue sections"
+          idBase="revenue"
+        />
+        <TabPanel idBase="revenue" tabId="metrics" active={activeTab === "metrics"} retain={visitedTabs.has("metrics")}>
+          <div className="ui-stat-grid">
+            <Card padding="none" highlight>
+              <div className="ui-row">
+                <span>💵</span>
+                <div className="ui-stack">
+                  <strong>${revenueSummary?.grossRevenue?.toFixed(2) || "0.00"}</strong>
+                  <span className="ui-meta-sm">Total Gross Platform Revenue</span>
                 </div>
-              </Card>
+              </div>
+            </Card>
 
-              <Card padding="none" className="rev-card">
-                <span className="rev-icon">🌐</span>
-                <div className="rev-meta">
-                  <span className="rev-val">${revenueSummary?.adNetworkRevenue?.toFixed(2) || "0.00"}</span>
-                  <span className="rev-label">External Ad Networks (CPM + CPC)</span>
+            <Card padding="none">
+              <div className="ui-row">
+                <span>🌐</span>
+                <div className="ui-stack">
+                  <strong>${revenueSummary?.adNetworkRevenue?.toFixed(2) || "0.00"}</strong>
+                  <span className="ui-meta-sm">External Ad Networks (CPM + CPC)</span>
                 </div>
-              </Card>
+              </div>
+            </Card>
 
-              <Card padding="none" className="rev-card">
-                <span className="rev-icon">🚀</span>
-                <div className="rev-meta">
-                  <span className="rev-val">${revenueSummary?.marketplaceRevenue?.toFixed(2) || "0.00"}</span>
-                  <span className="rev-label">Direct Sponsored Marketplace</span>
+            <Card padding="none">
+              <div className="ui-row">
+                <span>🚀</span>
+                <div className="ui-stack">
+                  <strong>${revenueSummary?.marketplaceRevenue?.toFixed(2) || "0.00"}</strong>
+                  <span className="ui-meta-sm">Direct Sponsored Marketplace</span>
                 </div>
-              </Card>
+              </div>
+            </Card>
 
-              <Card padding="none" className="rev-card">
-                <span className="rev-icon">💳</span>
-                <div className="rev-meta">
-                  <span className="rev-val">${revenueSummary?.paymentPlatformFees?.toFixed(2) || "0.00"}</span>
-                  <span className="rev-label">Payment Processing Fees (2.5%)</span>
+            <Card padding="none">
+              <div className="ui-row">
+                <span>💳</span>
+                <div className="ui-stack">
+                  <strong>${revenueSummary?.paymentPlatformFees?.toFixed(2) || "0.00"}</strong>
+                  <span className="ui-meta-sm">Payment Processing Fees (2.5%)</span>
                 </div>
-              </Card>
+              </div>
+            </Card>
 
-              <Card padding="none" className="rev-card expense-card">
-                <span className="rev-icon">🎁</span>
-                <div className="rev-meta">
-                  <span className="rev-val">-${revenueSummary?.referralPayouts?.toFixed(2) || "0.00"}</span>
-                  <span className="rev-label">Referral Partner Payouts</span>
+            <Card padding="none">
+              <div className="ui-row">
+                <span>🎁</span>
+                <div className="ui-stack">
+                  <strong>-${revenueSummary?.referralPayouts?.toFixed(2) || "0.00"}</strong>
+                  <span className="ui-meta-sm">Referral Partner Payouts</span>
                 </div>
-              </Card>
+              </div>
+            </Card>
 
-              <Card padding="none" className="rev-card net-profit-card">
-                <span className="rev-icon">💎</span>
-                <div className="rev-meta">
-                  <span className="rev-val">${revenueSummary?.netRevenue?.toFixed(2) || "0.00"}</span>
-                  <span className="rev-label">Net Platform Margin</span>
+            <Card padding="none" highlight>
+              <div className="ui-row">
+                <span>💎</span>
+                <div className="ui-stack">
+                  <strong>${revenueSummary?.netRevenue?.toFixed(2) || "0.00"}</strong>
+                  <span className="ui-meta-sm">Net Platform Margin</span>
                 </div>
-              </Card>
+              </div>
+            </Card>
 
-              <Card padding="none" className="rev-card">
-                <span className="rev-icon">👁️</span>
-                <div className="rev-meta">
-                  <span className="rev-val">
+            <Card padding="none">
+              <div className="ui-row">
+                <span>👁️</span>
+                <div className="ui-stack">
+                  <strong>
                     {revenueSummary?.totalImpressions || 0} / {revenueSummary?.totalAdClicks || 0}
-                  </span>
-                  <span className="rev-label">Ad Views / Link Clicks</span>
+                  </strong>
+                  <span className="ui-meta-sm">Ad Views / Link Clicks</span>
                 </div>
-              </Card>
+              </div>
+            </Card>
 
-              <Card padding="none" className="rev-card">
-                <span className="rev-icon">📈</span>
-                <div className="rev-meta">
-                  <span className="rev-val">${revenueSummary?.averageRPM?.toFixed(2) || "18.50"}</span>
-                  <span className="rev-label">Average Ad Network RPM</span>
+            <Card padding="none">
+              <div className="ui-row">
+                <span>📈</span>
+                <div className="ui-stack">
+                  <strong>${revenueSummary?.averageRPM?.toFixed(2) || "18.50"}</strong>
+                  <span className="ui-meta-sm">Average Ad Network RPM</span>
                 </div>
-              </Card>
-            </div>
-            </PageSection>
-
-            {/* External Ad Network Inventory Manager */}
-            <PageSection>
-            <Card padding="none" className="revenue-section-card">
-              <div className="card-header">
+              </div>
+            </Card>
+          </div>
+        </TabPanel>
+        <TabPanel idBase="revenue" tabId="placements" active={activeTab === "placements"} retain={visitedTabs.has("placements")}>
+          <Card>
+            <div className="ui-stack">
+              <div>
                 <h4>📡 External Ad Network Placements ({externalAds.length})</h4>
-                <p>
+                <p className="ui-meta">
                   Manage active network units (EthicalAds, Carbon Ads, Google AdSense, Direct) generating revenue per 1,000 views (CPM) and per click (CPC).
                 </p>
               </div>
 
-              <div className="results-table-container">
+              <div>
                 <Table
-                    columns={[
-                      { key: "title", header: "Placement Unit", render: (ad) => (<><strong>{ad.title}</strong><div className="table-subtext">{ad.tagline}</div></>) },
-                      { key: "network", header: "Network", render: (ad) => (<span className={`ad-net-tag ${ad.network}`}>{ad.network === "ethicalads" ? "EthicalAds" : ad.network === "carbon" ? "Carbon" : ad.network === "adsense" ? "AdSense" : "Direct"}</span>) },
-                      { key: "slot", header: "Slot", render: (ad) => <code>{ad.placement}</code> },
-                      { key: "cpm", header: "CPM Rate", render: (ad) => <>${ad.cpmRate.toFixed(2)}</> },
-                      { key: "cpc", header: "CPC Rate", render: (ad) => <>${ad.cpcRate.toFixed(2)}</> },
-                      { key: "views", header: "Views", render: (ad) => <>{ad.impressions}</> },
-                      { key: "clicks", header: "Clicks", render: (ad) => <>{ad.clicks}</> },
-                      { key: "earned", header: "Total Earned", render: (ad) => <strong className="earned-text">${ad.earnings.toFixed(2)}</strong> },
-                      { key: "status", header: "Status", render: (ad) => <Badge size="xs" uppercase tone={ad.isActive ? "success" : "neutral"}>{ad.isActive ? "ACTIVE" : "PAUSED"}</Badge> },
-                      { key: "preview", header: "Live Preview", render: (ad) => <Button variant="accent" tone="subtle" size="sm" onClick={() => handleExternalAdClick(ad)}>{ad.ctaText}</Button> },
-                    ]}
-                    rows={externalAds}
-                    rowKey={(ad) => ad.id}
-                  />
+                  columns={[
+                    { key: "title", header: "Placement Unit", render: (ad) => (<><strong>{ad.title}</strong><div className="ui-meta-sm">{ad.tagline}</div></>) },
+                    { key: "network", header: "Network", render: (ad) => (<Badge size="xs" tone="neutral">{ad.network === "ethicalads" ? "EthicalAds" : ad.network === "carbon" ? "Carbon" : ad.network === "adsense" ? "AdSense" : "Direct"}</Badge>) },
+                    { key: "slot", header: "Slot", render: (ad) => <code>{ad.placement}</code> },
+                    { key: "cpm", header: "CPM Rate", render: (ad) => <>${ad.cpmRate.toFixed(2)}</> },
+                    { key: "cpc", header: "CPC Rate", render: (ad) => <>${ad.cpcRate.toFixed(2)}</> },
+                    { key: "views", header: "Views", render: (ad) => <>{ad.impressions}</> },
+                    { key: "clicks", header: "Clicks", render: (ad) => <>{ad.clicks}</> },
+                    { key: "earned", header: "Total Earned", render: (ad) => <strong>${ad.earnings.toFixed(2)}</strong> },
+                    { key: "status", header: "Status", render: (ad) => <Badge size="xs" uppercase tone={ad.isActive ? "success" : "neutral"}>{ad.isActive ? "ACTIVE" : "PAUSED"}</Badge> },
+                    { key: "preview", header: "Live Preview", render: (ad) => <Button variant="accent" tone="subtle" size="sm" onClick={() => handleExternalAdClick(ad)}>{ad.ctaText}</Button> },
+                  ]}
+                  rows={externalAds}
+                  rowKey={(ad) => ad.id}
+                />
               </div>
 
-              {/* Form to Register New Ad Unit */}
-              <Card padding="none" className="create-subcard">
-                <h5>➕ Register New External Ad Network Placement</h5>
-                {extAdSuccessMsg && <Notice tone="success" className="form-alert success">{extAdSuccessMsg}</Notice>}
-                {extAdErrorMsg && <Notice tone="danger" className="form-alert error">{extAdErrorMsg}</Notice>}
+              <Card padding="none">
+                <div className="ui-stack">
+                  <h5>➕ Register New External Ad Network Placement</h5>
+                  {extAdSuccessMsg && <Notice tone="success">{extAdSuccessMsg}</Notice>}
+                  {extAdErrorMsg && <Notice tone="danger">{extAdErrorMsg}</Notice>}
 
-                <form onSubmit={handleCreateExternalAd} className="compact-form">
-                  <div className="form-row-3">
-                    <div className="form-group">
-                      <label>Ad Campaign Title *</label>
+                  <form onSubmit={handleCreateExternalAd} className="ui-stack">
+                    <div className="ui-form-row-3">
+                      <FieldShell id="ext-title" label="Ad Campaign Title *">
+                        <TextInput
+                          type="text"
+                          placeholder="e.g. DeepSeek R1 Global Inference"
+                          value={newExtTitle}
+                          onChange={(e) => setNewExtTitle(e.target.value)}
+                          required
+                        />
+                      </FieldShell>
+                      <FieldShell id="ext-network" label="Ad Network Provider">
+                        <Select
+                          value={newExtNetwork}
+                          onChange={(e) => setNewExtNetwork(e.target.value as any)}
+                        >
+                          <option value="ethicalads">🛡️ EthicalAds Developer Network</option>
+                          <option value="carbon">⚡ Carbon Ads</option>
+                          <option value="adsense">🌐 Google AdSense</option>
+                          <option value="direct">⭐ Direct Sponsor</option>
+                        </Select>
+                      </FieldShell>
+                      <FieldShell id="ext-placement" label="Placement Slot">
+                        <Select
+                          value={newExtPlacement}
+                          onChange={(e) => setNewExtPlacement(e.target.value as any)}
+                        >
+                          <option value="header_leaderboard">Header Leaderboard (Top)</option>
+                          <option value="in_stream">In-Stream Banner (Chat)</option>
+                          <option value="footer_deck">Footer Deck</option>
+                          <option value="sidebar">Sidebar Rail</option>
+                        </Select>
+                      </FieldShell>
+                    </div>
+
+                    <FieldShell id="ext-tagline" label="Tagline / Promo Copy">
                       <TextInput
                         type="text"
-                        placeholder="e.g. DeepSeek R1 Global Inference"
-                        value={newExtTitle}
-                        onChange={(e) => setNewExtTitle(e.target.value)}
-                        required
+                        placeholder="e.g. Serverless GPUs running 70B reasoning models with sub-second latency."
+                        value={newExtTagline}
+                        onChange={(e) => setNewExtTagline(e.target.value)}
                       />
+                    </FieldShell>
+
+                    <div className="ui-form-row-4">
+                      <FieldShell id="ext-url" label="Target URL *">
+                        <TextInput
+                          type="url"
+                          placeholder="https://..."
+                          value={newExtUrl}
+                          onChange={(e) => setNewExtUrl(e.target.value)}
+                          required
+                        />
+                      </FieldShell>
+                      <FieldShell id="ext-cta" label="CTA Label">
+                        <TextInput
+                          type="text"
+                          placeholder="Claim Offer →"
+                          value={newExtCta}
+                          onChange={(e) => setNewExtCta(e.target.value)}
+                        />
+                      </FieldShell>
+                      <FieldShell id="ext-cpm" label="CPM Rate ($/1,000 views)">
+                        <TextInput
+                          type="number"
+                          step="0.5"
+                          placeholder="18.50"
+                          value={newExtCpm}
+                          onChange={(e) => setNewExtCpm(e.target.value)}
+                        />
+                      </FieldShell>
+                      <FieldShell id="ext-cpc" label="CPC Rate ($/click)">
+                        <TextInput
+                          type="number"
+                          step="0.1"
+                          placeholder="1.50"
+                          value={newExtCpc}
+                          onChange={(e) => setNewExtCpc(e.target.value)}
+                        />
+                      </FieldShell>
                     </div>
-                    <div className="form-group">
-                      <label>Ad Network Provider</label>
-                      <Select
-                        value={newExtNetwork}
-                        onChange={(e) => setNewExtNetwork(e.target.value as any)}
+
+                    <div>
+                      <Button
+                        type="submit"
+                        variant="primary"
+                        disabled={savingExtAd || !newExtTitle.trim() || !newExtUrl.trim()}
                       >
-                        <option value="ethicalads">🛡️ EthicalAds Developer Network</option>
-                        <option value="carbon">⚡ Carbon Ads</option>
-                        <option value="adsense">🌐 Google AdSense</option>
-                        <option value="direct">⭐ Direct Sponsor</option>
-                      </Select>
+                        {savingExtAd ? "Activating Placement…" : "🚀 Activate Ad Network Unit"}
+                      </Button>
                     </div>
-                    <div className="form-group">
-                      <label>Placement Slot</label>
-                      <Select
-                        value={newExtPlacement}
-                        onChange={(e) => setNewExtPlacement(e.target.value as any)}
-                      >
-                        <option value="header_leaderboard">Header Leaderboard (Top)</option>
-                        <option value="in_stream">In-Stream Banner (Chat)</option>
-                        <option value="footer_deck">Footer Deck</option>
-                        <option value="sidebar">Sidebar Rail</option>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Tagline / Promo Copy</label>
-                    <TextInput
-                      type="text"
-                      placeholder="e.g. Serverless GPUs running 70B reasoning models with sub-second latency."
-                      value={newExtTagline}
-                      onChange={(e) => setNewExtTagline(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="form-row-4">
-                    <div className="form-group">
-                      <label>Target URL *</label>
-                      <TextInput
-                        type="url"
-                        placeholder="https://..."
-                        value={newExtUrl}
-                        onChange={(e) => setNewExtUrl(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>CTA Label</label>
-                      <TextInput
-                        type="text"
-                        placeholder="Claim Offer →"
-                        value={newExtCta}
-                        onChange={(e) => setNewExtCta(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>CPM Rate ($/1,000 views)</label>
-                      <TextInput
-                        type="number"
-                        step="0.5"
-                        placeholder="18.50"
-                        value={newExtCpm}
-                        onChange={(e) => setNewExtCpm(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>CPC Rate ($/click)</label>
-                      <TextInput
-                        type="number"
-                        step="0.1"
-                        placeholder="1.50"
-                        value={newExtCpc}
-                        onChange={(e) => setNewExtCpc(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    className="submit-action-btn"
-                    disabled={savingExtAd || !newExtTitle.trim() || !newExtUrl.trim()}
-                  >
-                    {savingExtAd ? "Activating Placement…" : "🚀 Activate Ad Network Unit"}
-                  </Button>
-                </form>
+                  </form>
+                </div>
               </Card>
-            </Card>
-            </PageSection>
-
-            {/* Referral Categories Taxonomy Manager (ORM) */}
-            <PageSection>
-            <Card padding="none" className="revenue-section-card">
-              <div className="card-header">
+            </div>
+          </Card>
+        </TabPanel>
+        <TabPanel idBase="revenue" tabId="categories" active={activeTab === "categories"} retain={visitedTabs.has("categories")}>
+          <Card>
+            <div className="ui-stack">
+              <div>
                 <h4>🏷️ Referral Categories &amp; Taxonomy Manager</h4>
-                <p>
+                <p className="ui-meta">
                   Configure and maintain the categorization taxonomy used by partners to list developer tools, affiliate links, and monetization campaigns.
                 </p>
               </div>
 
-              <div className="results-table-container">
+              <div>
                 <Table
-                    columns={[
-                      { key: "icon", header: "Icon", align: "center", render: (cat) => <span style={{ fontSize: "1.25rem", textAlign: "center" }}>{cat.icon}</span> },
-                      { key: "name", header: "Category Name", render: (cat) => <strong>{cat.name}</strong> },
-                      { key: "slug", header: "Slug", render: (cat) => <code>{cat.slug}</code> },
-                      { key: "desc", header: "Description", render: (cat) => <>{cat.description}</> },
-                      { key: "order", header: "Sort Order", render: (cat) => <>{cat.sortOrder}</> },
-                      { key: "status", header: "Status", render: (cat) => <Badge size="xs" uppercase tone={cat.isActive ? "success" : "neutral"}>{cat.isActive ? "ACTIVE" : "INACTIVE"}</Badge> },
-                      { key: "actions", header: "Actions", render: (cat) => <Button variant="danger" tone="subtle" size="sm" onClick={() => handleDeleteCategory(cat.id)} title="Delete category">🗑️ Delete</Button> },
-                    ]}
-                    rows={categories}
-                    rowKey={(cat) => cat.id}
-                  />
+                  columns={[
+                    { key: "icon", header: "Icon", align: "center", render: (cat) => <span className="ui-icon-lg">{cat.icon}</span> },
+                    { key: "name", header: "Category Name", render: (cat) => <strong>{cat.name}</strong> },
+                    { key: "slug", header: "Slug", render: (cat) => <code>{cat.slug}</code> },
+                    { key: "desc", header: "Description", render: (cat) => <>{cat.description}</> },
+                    { key: "order", header: "Sort Order", render: (cat) => <>{cat.sortOrder}</> },
+                    { key: "status", header: "Status", render: (cat) => <Badge size="xs" uppercase tone={cat.isActive ? "success" : "neutral"}>{cat.isActive ? "ACTIVE" : "INACTIVE"}</Badge> },
+                    { key: "actions", header: "Actions", render: (cat) => <Button variant="danger" tone="subtle" size="sm" onClick={() => handleDeleteCategory(cat.id)} title="Delete category">🗑️ Delete</Button> },
+                  ]}
+                  rows={categories}
+                  rowKey={(cat) => cat.id}
+                />
               </div>
 
-              {/* Form to Add New Category */}
-              <Card padding="none" className="create-subcard">
-                <h5>➕ Add New Referral Category</h5>
-                {catSuccessMsg && <Notice tone="success" className="form-alert success">{catSuccessMsg}</Notice>}
-                {catErrorMsg && <Notice tone="danger" className="form-alert error">{catErrorMsg}</Notice>}
+              <Card padding="none">
+                <div className="ui-stack">
+                  <h5>➕ Add New Referral Category</h5>
+                  {catSuccessMsg && <Notice tone="success">{catSuccessMsg}</Notice>}
+                  {catErrorMsg && <Notice tone="danger">{catErrorMsg}</Notice>}
 
-                <form onSubmit={handleCreateCategory} className="compact-form">
-                  <div className="form-row-3">
-                    <div className="form-group">
-                      <label>Category Name *</label>
+                  <form onSubmit={handleCreateCategory} className="ui-stack">
+                    <div className="ui-form-row-3">
+                      <FieldShell id="cat-name" label="Category Name *">
+                        <TextInput
+                          type="text"
+                          placeholder="e.g. Web3 & Crypto, DevOps & CI/CD"
+                          value={newCatName}
+                          onChange={(e) => setNewCatName(e.target.value)}
+                          required
+                        />
+                      </FieldShell>
+                      <FieldShell id="cat-icon" label="Emoji Icon">
+                        <TextInput
+                          type="text"
+                          placeholder="⚡"
+                          value={newCatIcon}
+                          onChange={(e) => setNewCatIcon(e.target.value)}
+                        />
+                      </FieldShell>
+                      <FieldShell id="cat-order" label="Sort Priority (Order)">
+                        <TextInput
+                          type="number"
+                          placeholder="10"
+                          value={newCatOrder}
+                          onChange={(e) => setNewCatOrder(e.target.value)}
+                        />
+                      </FieldShell>
+                    </div>
+
+                    <FieldShell id="cat-desc" label="Description">
                       <TextInput
                         type="text"
-                        placeholder="e.g. Web3 & Crypto, DevOps & CI/CD"
-                        value={newCatName}
-                        onChange={(e) => setNewCatName(e.target.value)}
-                        required
+                        placeholder="e.g. Decentralized infrastructure, smart contracts, and wallet tooling."
+                        value={newCatDesc}
+                        onChange={(e) => setNewCatDesc(e.target.value)}
                       />
-                    </div>
-                    <div className="form-group">
-                      <label>Emoji Icon</label>
-                      <TextInput
-                        type="text"
-                        placeholder="⚡"
-                        value={newCatIcon}
-                        onChange={(e) => setNewCatIcon(e.target.value)}
-                        style={{ width: "80px", textAlign: "center" }}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Sort Priority (Order)</label>
-                      <TextInput
-                        type="number"
-                        placeholder="10"
-                        value={newCatOrder}
-                        onChange={(e) => setNewCatOrder(e.target.value)}
-                        style={{ width: "100px" }}
-                      />
-                    </div>
-                  </div>
+                    </FieldShell>
 
-                  <div className="form-group">
-                    <label>Description</label>
-                    <TextInput
-                      type="text"
-                      placeholder="e.g. Decentralized infrastructure, smart contracts, and wallet tooling."
-                      value={newCatDesc}
-                      onChange={(e) => setNewCatDesc(e.target.value)}
-                    />
-                  </div>
-
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    className="submit-action-btn"
-                    disabled={savingCat || !newCatName.trim()}
-                  >
-                    {savingCat ? "Saving Category…" : "🏷️ Save Category"}
-                  </Button>
-                </form>
+                    <div>
+                      <Button
+                        type="submit"
+                        variant="primary"
+                        disabled={savingCat || !newCatName.trim()}
+                      >
+                        {savingCat ? "Saving Category…" : "🏷️ Save Category"}
+                      </Button>
+                    </div>
+                  </form>
+                </div>
               </Card>
-            </Card>
-            </PageSection>
-
-            {/* SQLite ORM Database Tables Schema Inspection */}
-            <PageSection>
-            <Card padding="none" className="revenue-section-card">
-              <div className="card-header">
+            </div>
+          </Card>
+        </TabPanel>
+        <TabPanel idBase="revenue" tabId="schemas" active={activeTab === "schemas"} retain={visitedTabs.has("schemas")}>
+          <Card>
+            <div className="ui-stack">
+              <div>
                 <h4>🗄️ Institutional Data Schemas &amp; Record Counts</h4>
-                <p>
+                <p className="ui-meta">
                   Direct view into institutional records, transaction schemas, and enterprise data repositories.
                 </p>
               </div>
 
-              <div className="tables-meta-grid">
+              <div className="ui-stat-grid">
                 {tables.map((tbl) => (
-                  <Card padding="none" key={tbl.name} className="table-card">
-                    <div className="table-card-header">
-                      <h5><code>{tbl.name}</code></h5>
-                      <Badge size="xs" tone="neutral">{tbl.rowCount} rows</Badge>
-                    </div>
-                    <p className="table-desc">{tbl.description}</p>
-                    <div className="table-cols">
-                      <span className="col-count">{tbl.columns.length} columns:</span>
-                      <div className="col-tags">
-                        {tbl.columns.map((c) => (
-                          <Badge key={c.name} size="xs" tone={c.isPrimary ? "purple" : "neutral"}>
-                            {c.name} {c.isPrimary ? "(PK)" : ""}
-                          </Badge>
-                        ))}
+                  <Card padding="none" key={tbl.name}>
+                    <div className="ui-stack">
+                      <div className="ui-row">
+                        <h5><code>{tbl.name}</code></h5>
+                        <Badge size="xs" tone="neutral">{tbl.rowCount} rows</Badge>
                       </div>
-                    </div>
-                    <div className="table-action">
-                      <Button
-                        className="browse-data-btn"
-                        variant="primary"
-                        tone="subtle"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedBrowseTable(tbl.name);
-                          browseTable(tbl.name);
-                          setTab("nlq");
-                        }}
-                      >
-                        🔍 Browse Table Records →
-                      </Button>
+                      <p className="ui-meta-sm">{tbl.description}</p>
+                      <div className="ui-stack">
+                        <span className="ui-meta-sm">{tbl.columns.length} columns:</span>
+                        <div className="ui-row">
+                          {tbl.columns.map((c) => (
+                            <Badge key={c.name} size="xs" tone={c.isPrimary ? "purple" : "neutral"}>
+                              {c.name} {c.isPrimary ? "(PK)" : ""}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <Button
+                          variant="primary"
+                          tone="subtle"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedBrowseTable(tbl.name);
+                            browseTable(tbl.name);
+                            setTab("nlq");
+                          }}
+                        >
+                          🔍 Browse Table Records →
+                        </Button>
+                      </div>
                     </div>
                   </Card>
                 ))}
               </div>
-            </Card>
-            </PageSection>
-
-            {/* Google Ads & Multi-Network Monetization Control Center */}
-            <PageSection>
-            <Card padding="none" className="revenue-section-card">
-              <div className="card-header">
+            </div>
+          </Card>
+        </TabPanel>
+        <TabPanel idBase="revenue" tabId="ads" active={activeTab === "ads"} retain={visitedTabs.has("ads")}>
+          <Card>
+            <div className="ui-stack">
+              <div>
                 <h4>🌐 Google Ads & Multi-Network Display Engine</h4>
-                <p>
+                <p className="ui-meta">
                   Configure official Google AdSense and network display banners, test live formats, and track impressions/clicks across the platform.
                 </p>
               </div>
 
-              <div className="google-ads-config-grid">
-                <Card padding="none" className="config-form-card">
-                  <h5>⚙️ Google Ads Configuration</h5>
-                  <div className="form-group">
-                    <label>Google Ads Display Status</label>
-                    <div className="toggle-switch-row">
+              <div className="ui-form-row">
+                <Card padding="none">
+                  <div className="ui-stack">
+                    <h5>⚙️ Google Ads Configuration</h5>
+                    <FieldShell id="google-status" label="Google Ads Display Status">
                       <Button
                         variant={googleAdsEnabled ? "primary" : "secondary"}
                         tone="subtle"
@@ -468,59 +504,59 @@ export function RevenueTab({adBannerConfig, ads, browseTable, catErrorMsg, catSu
                       >
                         {googleAdsEnabled ? "🟢 Google Ads Active" : "⚪ Google Ads Paused"}
                       </Button>
-                    </div>
-                  </div>
+                    </FieldShell>
 
-                  <div className="form-group">
-                    <label>Google AdSense Publisher Client ID</label>
-                    <TextInput
-                      type="text"
-                      placeholder="ca-pub-9842109842109842"
-                      value={googlePublisherId}
-                      onChange={(e) => setGooglePublisherId(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="form-row-2">
-                    <div className="form-group">
-                      <label>Default Ad Slot ID</label>
+                    <FieldShell id="google-publisher" label="Google AdSense Publisher Client ID">
                       <TextInput
                         type="text"
-                        placeholder="7812903456"
-                        value={googleSlotId}
-                        onChange={(e) => setGoogleSlotId(e.target.value)}
+                        placeholder="ca-pub-9842109842109842"
+                        value={googlePublisherId}
+                        onChange={(e) => setGooglePublisherId(e.target.value)}
                       />
-                    </div>
-                    <div className="form-group">
-                      <label>Display Format</label>
-                      <Select
-                        value={googleAdFormat}
-                        onChange={(e) => setGoogleAdFormat(e.target.value as any)}
-                      >
-                        <option value="responsive">Responsive Banner</option>
-                        <option value="leaderboard">728x90 Leaderboard</option>
-                        <option value="rectangle">300x250 Medium Rectangle</option>
-                      </Select>
+                    </FieldShell>
+
+                    <div className="ui-form-row">
+                      <FieldShell id="google-slot" label="Default Ad Slot ID">
+                        <TextInput
+                          type="text"
+                          placeholder="7812903456"
+                          value={googleSlotId}
+                          onChange={(e) => setGoogleSlotId(e.target.value)}
+                        />
+                      </FieldShell>
+                      <FieldShell id="google-format" label="Display Format">
+                        <Select
+                          value={googleAdFormat}
+                          onChange={(e) => setGoogleAdFormat(e.target.value as any)}
+                        >
+                          <option value="responsive">Responsive Banner</option>
+                          <option value="leaderboard">728x90 Leaderboard</option>
+                          <option value="rectangle">300x250 Medium Rectangle</option>
+                        </Select>
+                      </FieldShell>
                     </div>
                   </div>
                 </Card>
 
                 {adBannerConfig.enabled && adBannerConfig.showGoogleAdUnits && Boolean(adBannerConfig.tabVisibility.ads) && googleAdsEnabled && (
-                  <Card padding="none" className="live-ad-preview-card">
-                    <h5>Live Google Ads Preview</h5>
-                    <GoogleAdUnit
-                      format={googleAdFormat}
-                      publisherId={googlePublisherId}
-                      slot={googleSlotId}
-                      ad={externalAds.find((a) => a.network === "google" || a.network === "adsense") || externalAds[0]}
-                      onTrackClick={handleExternalAdClick}
-                    />
+                  <Card padding="none">
+                    <div className="ui-stack">
+                      <h5>Live Google Ads Preview</h5>
+                      <GoogleAdUnit
+                        format={googleAdFormat}
+                        publisherId={googlePublisherId}
+                        slot={googleSlotId}
+                        ad={externalAds.find((a) => a.network === "google" || a.network === "adsense") || externalAds[0]}
+                        onTrackClick={handleExternalAdClick}
+                      />
+                    </div>
                   </Card>
                 )}
               </div>
-            </Card>
-            </PageSection>
-            </PageShell>
-          </div>
+            </div>
+          </Card>
+        </TabPanel>
+      </PageShell>
+    </div>
   );
 }

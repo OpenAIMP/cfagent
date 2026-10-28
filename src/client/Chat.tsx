@@ -920,30 +920,6 @@ export function Chat({ user }: { user: User }) {
   // flags, see routes.ts). docs previously rendered blank; its existing
   // panel is wired here (no props).
   const TAB_CONTENT: Record<string, ReactNode> = {
-    ads: (
-          <AdsTab
-            adFormError={adFormError}
-            adFormSuccess={adFormSuccess}
-            ads={ads}
-            adsLoading={adsLoading}
-            fetchAds={fetchAds}
-            handleAdClick={handleAdClick}
-            handleCreateAd={handleCreateAd}
-            newAdColor={newAdColor}
-            newAdCta={newAdCta}
-            newAdSponsor={newAdSponsor}
-            newAdTagline={newAdTagline}
-            newAdTitle={newAdTitle}
-            newAdUrl={newAdUrl}
-            savingAd={savingAd}
-            setNewAdColor={setNewAdColor}
-            setNewAdCta={setNewAdCta}
-            setNewAdSponsor={setNewAdSponsor}
-            setNewAdTagline={setNewAdTagline}
-            setNewAdTitle={setNewAdTitle}
-            setNewAdUrl={setNewAdUrl}
-          />
-    ),
     approvals: (
           <ApprovalsPanel />
     ),
@@ -1365,6 +1341,75 @@ export function Chat({ user }: { user: User }) {
     "payment-assurance": (
           <PaymentWorkflowAssurance userLogin={user.login} />
     ),
+    research: (
+          <div className="research-view">
+            <MarketDataResearchHub
+              user={user}
+              onSendPrompt={(prompt, sourceTab) => {
+                setPendingPrompt({ prompt, sourceTab: sourceTab || "Yahoo Finance Research" });
+                handleSelectTab("chat");
+              }}
+              onTradeSymbol={(symbol) => {
+                handleSelectTab("order");
+              }}
+            />
+          </div>
+    ),
+    search: (
+      <ErrorBoundary label="Search">
+        <SearchHub />
+      </ErrorBoundary>
+    ),
+    "workflow-runs": (
+          <WorkflowRunsPanel />
+    ),
+    workflows: (
+          <div className="workflows-view" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <WorkflowsHub
+              onNavigateTab={(targetTab) => {
+                handleSelectTab(targetTab as any);
+                setTbdMenuOpen(false);
+              }}
+              onSendPrompt={(prompt, sourceTab) => {
+                setPendingPrompt({ prompt, sourceTab: sourceTab || "Platform Workflows" });
+                handleSelectTab("chat");
+              }}
+            />
+          </div>
+    ),
+
+  };
+
+  // Shell-retained pages (#2149, #2161): standalone pages rendered mounted-hidden
+  // when inactive (the trading hub's retained-render precedent, outside
+  // the hub). TAB_CONTENT holds only the non-retained ids now.
+  const SHELL_CONTENT: Record<string, ReactNode> = {
+    payments: <PaymentsPage active={tab === "payments"} user={user} />,
+    social: <SocialPostingPanel active={tab === "social"} />,
+    ads: (
+          <AdsTab
+            adFormError={adFormError}
+            adFormSuccess={adFormSuccess}
+            ads={ads}
+            adsLoading={adsLoading}
+            fetchAds={fetchAds}
+            handleAdClick={handleAdClick}
+            handleCreateAd={handleCreateAd}
+            newAdColor={newAdColor}
+            newAdCta={newAdCta}
+            newAdSponsor={newAdSponsor}
+            newAdTagline={newAdTagline}
+            newAdTitle={newAdTitle}
+            newAdUrl={newAdUrl}
+            savingAd={savingAd}
+            setNewAdColor={setNewAdColor}
+            setNewAdCta={setNewAdCta}
+            setNewAdSponsor={setNewAdSponsor}
+            setNewAdTagline={setNewAdTagline}
+            setNewAdTitle={setNewAdTitle}
+            setNewAdUrl={setNewAdUrl}
+          />
+    ),
     referrals: (
           <ReferralsTab
             activeShareRefId={activeShareRefId}
@@ -1402,20 +1447,6 @@ export function Chat({ user }: { user: User }) {
             setNewRefUrl={setNewRefUrl}
             user={user}
           />
-    ),
-    research: (
-          <div className="research-view">
-            <MarketDataResearchHub
-              user={user}
-              onSendPrompt={(prompt, sourceTab) => {
-                setPendingPrompt({ prompt, sourceTab: sourceTab || "Yahoo Finance Research" });
-                handleSelectTab("chat");
-              }}
-              onTradeSymbol={(symbol) => {
-                handleSelectTab("order");
-              }}
-            />
-          </div>
     ),
     revenue: (
           <RevenueTab
@@ -1477,37 +1508,6 @@ export function Chat({ user }: { user: User }) {
             tables={tables}
           />
     ),
-    search: (
-      <ErrorBoundary label="Search">
-        <SearchHub />
-      </ErrorBoundary>
-    ),
-    "workflow-runs": (
-          <WorkflowRunsPanel />
-    ),
-    workflows: (
-          <div className="workflows-view" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <WorkflowsHub
-              onNavigateTab={(targetTab) => {
-                handleSelectTab(targetTab as any);
-                setTbdMenuOpen(false);
-              }}
-              onSendPrompt={(prompt, sourceTab) => {
-                setPendingPrompt({ prompt, sourceTab: sourceTab || "Platform Workflows" });
-                handleSelectTab("chat");
-              }}
-            />
-          </div>
-    ),
-
-  };
-
-  // Shell-retained pages (#2149): standalone pages rendered mounted-hidden
-  // when inactive (the trading hub's retained-render precedent, outside
-  // the hub). TAB_CONTENT holds only the non-retained ids now.
-  const SHELL_CONTENT: Record<string, ReactNode> = {
-    payments: <PaymentsPage active={tab === "payments"} user={user} />,
-    social: <SocialPostingPanel active={tab === "social"} />,
   };
 
   return (

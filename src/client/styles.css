@@ -894,9 +894,6 @@ body {
    ========================================================================== */
 .nlq-view,
 .audit-view,
-.referrals-view,
-.ads-view,
-.revenue-view,
 .endpoints-view,
 .trading-view,
 .research-view {
@@ -1606,27 +1603,7 @@ body {
   font-size: 0.82rem;
 }
 
-/* Referrals & Sponsored Deals (Layout & Hero Header inherit universal content tab styles) */
-
-/* ==========================================================================
-   Referral Share Box
-   ========================================================================== */
-.referral-share-card {
-  display: grid;
-  grid-template-columns: 1.5fr 1fr;
-  gap: 2rem;
-  background: var(--gradient-surface);
-  border: 1px solid var(--color-primary-border);
-  border-radius: 18px;
-  padding: 1.75rem 2rem;
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(16px);
-}
-
 @media (max-width: 860px) {
-  .referral-share-card {
-    grid-template-columns: 1fr;
-  }
 }
 
 .share-tag {
@@ -1639,41 +1616,6 @@ body {
   padding: 0.25rem 0.6rem;
   border-radius: 6px;
   margin-bottom: 0.65rem;
-}
-
-.referral-share-left h4 {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--color-text-primary);
-  margin-bottom: 0.5rem;
-}
-
-.referral-share-left p {
-  font-size: 0.86rem;
-  color: var(--color-text-muted);
-  line-height: 1.5;
-  margin-bottom: 1.25rem;
-}
-
-.referral-link-input-group {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  background: var(--color-input);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 12px;
-  padding: 0.35rem 0.45rem 0.35rem 0.85rem;
-  box-shadow: var(--shadow-inner);
-}
-
-.referral-url-field {
-  flex: 1;
-  background: transparent;
-  border: 0;
-  color: var(--color-accent);
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  outline: none;
 }
 
 .copy-link-btn {
@@ -1696,25 +1638,6 @@ body {
 
 .copy-link-btn.copied {
   background: var(--color-success);
-}
-
-.referral-share-right {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  background: var(--color-surface-sunken);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 14px;
-  padding: 1.25rem 1.5rem;
-}
-
-.social-label {
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-dim);
-  margin-bottom: 0.75rem;
 }
 
 .social-buttons {
@@ -1766,19 +1689,7 @@ body {
   background: var(--brand-telegram-strong);
 }
 
-/* ==========================================================================
-   Referral Stats Ribbon
-   ========================================================================== */
-.referral-stats-ribbon {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1.25rem;
-}
-
 @media (max-width: 860px) {
-  .referral-stats-ribbon {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
 .stat-card {
@@ -1802,15 +1713,6 @@ body {
   border-color: var(--color-primary-border);
 }
 
-.stat-icon {
-  font-size: 1.6rem;
-}
-
-.stat-meta {
-  display: flex;
-  flex-direction: column;
-}
-
 .stat-num {
   font-size: 1.45rem;
   font-weight: 800;
@@ -1826,31 +1728,7 @@ body {
   letter-spacing: 0.04em;
 }
 
-/* ==========================================================================
-   Referral Two-Column Grid: Form & List
-   ========================================================================== */
-.referral-columns-grid {
-  display: grid;
-  grid-template-columns: 1.15fr 1fr;
-  gap: 1.75rem;
-  align-items: flex-start;
-}
-
 @media (max-width: 900px) {
-  .referral-columns-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.referral-form-card,
-.referral-list-card,
-.sponsor-submission-card {
-  background: var(--color-card, var(--color-card));
-  color: var(--color-card-foreground, var(--color-text-primary));
-  border: 1px solid var(--color-card-border, var(--color-border-subtle));
-  border-radius: 14px;
-  padding: 1.5rem;
-  box-shadow: var(--shadow-card));
 }
 
 .card-header {
@@ -1910,37 +1788,13 @@ body {
   gap: 0.85rem;
 }
 
-.form-row-3 {
-  display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr;
-  gap: 0.85rem;
-}
-
 @media (max-width: 640px) {
-  .form-row-2,
-  .form-row-3 {
+  .form-row-2 {
     grid-template-columns: 1fr;
   }
 }
 
-.form-alert {
-  padding: 0.65rem 0.95rem;
-  border-radius: 8px;
-  font-size: 0.82rem;
-  margin-bottom: 1rem;
-}
 
-.form-alert.success {
-  background: var(--color-success-subtle);
-  border: 1px solid var(--color-success-border);
-  color: var(--color-success-text);
-}
-
-.form-alert.error {
-  background: var(--color-sentiment-very-bearish-subtle);
-  border: 1px solid var(--color-danger-border);
-  color: var(--color-danger-text);
-}
 
 .submit-action-btn {
   width: 100%;
@@ -1966,39 +1820,6 @@ body {
   cursor: not-allowed;
 }
 
-/* Placed Referral Items List */
-.referral-items-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  max-height: 480px;
-  overflow-y: auto;
-}
-
-
-
-
-
-.referral-card-item {
-  background: var(--color-surface-sunken);
-  border: 1px solid var(--color-card-border, var(--color-border-subtle));
-  border-radius: 14px;
-  padding: 1rem 1.15rem;
-  transition: all 0.15s ease;
-}
-
-.referral-card-item:hover {
-  border-color: var(--color-border-medium);
-  transform: translateY(-1px);
-}
-
-.ref-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.45rem;
-}
-
 .ref-cat-pill {
   font-size: 0.68rem;
   font-weight: 700;
@@ -2014,42 +1835,6 @@ body {
   color: var(--color-text-dim, var(--color-text-dim));
 }
 
-.ref-title {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--color-card-foreground);
-  margin-bottom: 0.3rem;
-}
-
-.ref-reward {
-  font-size: 0.82rem;
-  color: var(--color-success);
-  margin-bottom: 0.55rem;
-}
-
-.ref-url-preview {
-  background: var(--color-surface-sunken);
-  border-radius: 8px;
-  padding: 0.4rem 0.6rem;
-  font-size: 0.74rem;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 0.75rem;
-  border: 1px solid var(--color-border-subtle, transparent);
-}
-
-.ref-url-preview code {
-  font-family: var(--font-mono);
-}
-
-.ref-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 
 
 .delete-ref-btn {
@@ -2063,93 +1848,6 @@ body {
 
 .delete-ref-btn:hover {
   color: var(--color-danger);
-}
-
-/* ==========================================================================
-   Sponsored Marketplace & Ads Grid
-   ========================================================================== */
-.ads-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.5rem;
-}
-
-.ad-spotlight-card {
-  display: flex;
-  flex-direction: column;
-  background: var(--color-card);
-  color: var(--color-card-foreground);
-  border: 1px solid var(--color-card-border, var(--color-border-subtle));
-  border-radius: 14px;
-  padding: 1.5rem;
-  transition: all 0.25s ease;
-  backdrop-filter: blur(12px);
-  position: relative;
-  overflow: hidden;
-}
-
-.ad-spotlight-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--color-border-medium);
-  box-shadow: var(--shadow-md);
-}
-
-.ad-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.85rem;
-}
-
-.ad-badge-tag {
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  padding: 0.25rem 0.6rem;
-  border-radius: 8px;
-  text-transform: uppercase;
-}
-
-.ad-sponsor-label {
-  font-size: 0.72rem;
-  color: var(--color-text-dim);
-  font-weight: 500;
-}
-
-.ad-card-title {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--color-card-foreground);
-  margin-bottom: 0.45rem;
-  line-height: 1.3;
-}
-
-.ad-card-tagline {
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-  line-height: 1.5;
-  flex: 1;
-  margin-bottom: 1.25rem;
-}
-
-.ad-stats-row {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  margin-bottom: 1rem;
-}
-
-.ad-stat-pill {
-  font-size: 0.72rem;
-  color: var(--color-text-secondary, var(--color-text-dim));
-  background: var(--color-surface-sunken);
-  padding: 0.25rem 0.65rem;
-  border-radius: 9999px;
-  border: 1px solid var(--color-border-subtle, var(--color-border-subtle));
-}
-
-.ad-card-action {
-  margin-top: auto;
 }
 
 .ad-cta-button {
@@ -2620,134 +2318,11 @@ body {
   color: var(--color-on-gradient);
 }
 
-/* ========================================================
-   Revenue & Monetization Management Tab
-   ======================================================== */
-/* Revenue View inherits universal content tab layout & hero styles */
 
-.revenue-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 1rem;
-}
 
-.rev-card {
-  background: var(--color-card);
-  border: 1px solid var(--color-card-border, var(--color-border-subtle));
-  border-radius: 14px;
-  padding: 1.25rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  box-shadow: var(--shadow-card));
-  backdrop-filter: blur(12px);
-  transition: all 0.2s ease;
-}
 
-.rev-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--color-border-medium);
-}
 
-.rev-card.highlight-rev {
-  background: var(--color-success-subtle);
-  border: 1px solid var(--color-success-border);
-}
 
-.rev-card.expense-card {
-  background: var(--color-danger-subtle);
-  border: 1px solid var(--color-danger-border);
-}
-
-.rev-card.net-profit-card {
-  background: var(--color-primary-alpha);
-  border: 1px solid var(--color-primary-border);
-}
-
-.rev-icon {
-  font-size: 2rem;
-  line-height: 1;
-}
-
-.rev-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.rev-val {
-  font-size: 1.45rem;
-  font-weight: 800;
-  color: var(--color-card-foreground);
-  font-family: var(--font-mono);
-}
-
-.rev-label {
-  font-size: 0.76rem;
-  color: var(--color-text-muted, var(--color-text-muted));
-  line-height: 1.3;
-}
-
-.revenue-section-card {
-  background: var(--color-card);
-  border: 1px solid var(--color-card-border, var(--color-border-subtle));
-  border-radius: 14px;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  box-shadow: var(--shadow-card));
-  backdrop-filter: blur(14px);
-}
-
-.revenue-section-card .card-header h4 {
-  font-size: 1.15rem;
-  color: var(--color-card-foreground);
-  margin: 0 0 0.25rem 0;
-}
-
-.revenue-section-card .card-header p {
-  font-size: 0.84rem;
-  color: var(--color-text-muted, var(--color-text-muted));
-  margin: 0;
-}
-
-.ad-net-tag {
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 0.2rem 0.55rem;
-  border-radius: 9999px;
-  text-transform: uppercase;
-}
-
-.ad-net-tag.ethicalads {
-  background: var(--color-accent-subtle);
-  color: var(--color-accent);
-  border: 1px solid var(--color-accent-border);
-}
-
-.ad-net-tag.carbon {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning);
-  border: 1px solid var(--color-warning-border);
-}
-
-.ad-net-tag.adsense {
-  background: var(--color-success-subtle);
-  color: var(--color-success);
-  border: 1px solid var(--color-success-border);
-}
-
-.ad-net-tag.direct {
-  background: var(--color-purple-subtle);
-  color: var(--color-purple);
-  border: 1px solid var(--color-purple-border);
-}
-
-.earned-text {
-  color: var(--color-success);
-  font-family: var(--font-mono);
-}
 
 .test-ad-btn {
   background: var(--color-accent-subtle);
@@ -2782,35 +2357,7 @@ body {
   color: var(--color-danger-foreground);
 }
 
-.create-subcard {
-  background: var(--color-surface-sunken);
-  border: 1px solid var(--color-card-border);
-  border-radius: 14px;
-  padding: 1.25rem;
-}
-
-.create-subcard h5 {
-  font-size: 0.95rem;
-  color: var(--color-card-foreground);
-  margin: 0 0 1rem 0;
-}
-
-.compact-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.form-row-4 {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr;
-  gap: 1rem;
-}
-
 @media (max-width: 768px) {
-  .form-row-4 {
-    grid-template-columns: 1fr;
-  }
 }
 
 .tables-meta-grid {
@@ -2835,47 +2382,6 @@ body {
   transform: translateY(-2px);
 }
 
-.table-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.table-card-header h5 {
-  margin: 0;
-  font-size: 0.92rem;
-}
-
-.table-card-header h5 code {
-  color: var(--color-accent);
-}
-
-.table-desc {
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  line-height: 1.4;
-  margin: 0;
-}
-
-.table-cols {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.col-count {
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: var(--color-text-dim);
-  text-transform: uppercase;
-}
-
-.col-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-
 .col-pill {
   font-size: 0.7rem;
   font-family: var(--font-mono);
@@ -2894,16 +2400,6 @@ body {
 .table-action {
   margin-top: auto;
   padding-top: 0.4rem;
-}
-
-/* ========================================================
-   All Social Media Platforms & Sharing Grids
-   ======================================================== */
-.social-buttons-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin-top: 0.4rem;
 }
 
 .social-btn {
@@ -2958,25 +2454,6 @@ body {
   border-color: var(--color-primary-border);
 }
 
-.card-social-share-row {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-  padding: 0.6rem;
-  background: var(--color-surface-sunken);
-  border-radius: 8px;
-  border: 1px solid var(--color-border-subtle);
-  margin-top: 0.5rem;
-}
-
-.card-share-lbl {
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--color-text-dim);
-  text-transform: uppercase;
-}
-
 .mini-social-btn {
   display: inline-flex;
   align-items: center;
@@ -3005,81 +2482,6 @@ body {
 .mini-social-btn.threads { background: var(--brand-threads); }
 .mini-social-btn.bluesky { background: var(--brand-bluesky); }
 .mini-social-btn.discord { background: var(--brand-discord); cursor: pointer; }
-
-/* ========================================================
-   Developer Social Platforms & Community Hub Card
-   ======================================================== */
-.referral-social-hub-card {
-  background: var(--color-card);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 14px;
-  padding: 1.5rem;
-  margin-top: 1.75rem;
-  box-shadow: var(--shadow-card));
-}
-
-.social-platform-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 1rem;
-  margin-top: 1.25rem;
-}
-
-.platform-card {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  background: var(--color-card);
-  border: 1px solid var(--color-card-border);
-  border-radius: 14px;
-  padding: 0.9rem 1rem;
-  text-decoration: none;
-  color: inherit;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-.platform-card:hover {
-  border-color: var(--color-border-medium);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md));
-  background: var(--color-card-hover);
-}
-
-.platform-icon {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-}
-
-.platform-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  flex: 1;
-}
-
-.platform-info strong {
-  font-size: 0.9rem;
-  color: var(--color-card-foreground);
-}
-
-.platform-info span {
-  font-size: 0.75rem;
-  color: var(--color-text-muted, var(--color-text-muted));
-}
-
-.join-arrow {
-  color: var(--color-text-dim);
-  font-weight: 700;
-  font-size: 0.95rem;
-  transition: transform 0.2s ease;
-}
-
-.platform-card:hover .join-arrow {
-  transform: translateX(3px) translateY(-3px);
-  color: var(--color-accent);
-}
 
 /* ========================================================
    Google Ads & Multi-Network Display Unit Component
@@ -3250,55 +2652,7 @@ body {
   max-width: 360px;
 }
 
-.referral-ad-slot {
-  margin: 1.5rem 0;
-}
-
-/* ========================================================
-   Google Ads & Multi-Network Control Grid (Revenue Tab)
-   ======================================================== */
-.google-ads-config-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-  margin-top: 1.25rem;
-}
-
 @media (max-width: 900px) {
-  .google-ads-config-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.config-form-card {
-  background: var(--color-card);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 12px;
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.config-form-card h5, .live-ad-preview-card h5 {
-  margin: 0;
-  font-size: 0.95rem;
-  color: var(--color-text-primary);
-}
-
-.live-ad-preview-card {
-  background: var(--color-card);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 12px;
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.toggle-switch-row {
-  display: flex;
-  align-items: center;
 }
 
 .toggle-btn {

@@ -125,17 +125,21 @@ describe("#2120 slice 1 nav registration (source pins)", () => {
 
   it("pre-hub TAB_CONTENT keys are all still present (superset)", () => {
     const chat = src("client/Chat.tsx");
-    // #2149: payments/social left TAB_CONTENT for SHELL_CONTENT — the
-    // superset holds for the remaining keys; the shell keys pin below.
-    for (const key of ["audit:", "chat:", "docs:", "endpoints:", "nlq:", "referrals:", "research:", "revenue:", "workflows:"]) {
+    // #2149: payments/social left TAB_CONTENT for SHELL_CONTENT, and
+    // #2161: ads/referrals/revenue followed — the superset holds for
+    // the remaining keys; the shell keys pin below.
+    for (const key of ["audit:", "chat:", "docs:", "endpoints:", "nlq:", "research:", "workflows:"]) {
       expect(chat).toContain(`    ${key} (`);
     }
   });
 
-  it("pre-hub shell pages are still present (SHELL_CONTENT, #2149)", () => {
+  it("pre-hub shell pages are still present (SHELL_CONTENT, #2149, #2161)", () => {
     const chat = src("client/Chat.tsx");
     expect(chat).toContain("    payments: <PaymentsPage");
     expect(chat).toContain("    social: <SocialPostingPanel");
+    expect(chat).toContain("    ads: (");
+    expect(chat).toContain("    referrals: (");
+    expect(chat).toContain("    revenue: (");
   });
 
   it("Chat NLQ view is unchanged (still pending-prompt submit)", () => {

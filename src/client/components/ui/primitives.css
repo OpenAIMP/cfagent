@@ -657,6 +657,22 @@ div.ui-modal-title { font-size: inherit; font-weight: inherit; }
   gap: var(--space-2);
 }
 
+.ui-form-row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.ui-form-row-4 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.ui-icon-lg {
+  font-size: 1.25rem;
+}
+
 .ui-mt-1 {
   margin-top: var(--space-1);
 }
@@ -688,6 +704,11 @@ div.ui-modal-title { font-size: inherit; font-weight: inherit; }
 .ui-link {
   color: var(--color-primary);
   text-decoration: underline;
+}
+
+.ui-plain-link {
+  text-decoration: none;
+  color: inherit;
 }
 
 .ui-card.highlight {
