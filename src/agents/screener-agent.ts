@@ -1460,6 +1460,9 @@ export class ScreenerAgent extends PortThink {
       console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
     }
 
+    // Issue #2062: every stock run records its full document set.
+    await this.generateRunCsv(result);
+
     await this.ctx.storage.put(LATEST_KEY, result);
     const history =
       (await this.ctx.storage.get<ScreenerRunResult[]>(HISTORY_KEY)) ?? [];
@@ -1474,6 +1477,38 @@ export class ScreenerAgent extends PortThink {
     // store every report surface reads — Reports tab, routes, AI Search);
     // this method keeps only the delivery cache above (latest/history in
     // DO storage + the per-run PDFs).
+  }
+
+  /**
+   * Issue #2062: generate + store the per-run CSV artifact.
+   *
+   * Every stock run records a full document set (PDF + XLSX + CSV); the
+   * CSV is the machine-readable companion the Docs and Reports page links
+   * beside the workbook. Same contract as the XLSX leg: retried under the
+   * R1 report policy, and a real failure is recorded on the run
+   * (`csvStatus` / `csvError`) instead of failing the screen.
+   */
+  private async generateRunCsv(result: ScreenerRunResult): Promise<void> {
+    try {
+      const { putReportPdf } = await import("../services/reportBlobStore");
+      const { withRetry } = await import("../services/resilience");
+      const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+      const { generateScreenerCsv, screenerCsvFileName, SCREENER_CSV_KEY_PREFIX } = await import("../trading");
+      const reportRetry = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+      const csvKey = `${SCREENER_CSV_KEY_PREFIX}${crypto.randomUUID().slice(0, 8)}`;
+      await withRetry(async () => {
+        const csvBytes = new TextEncoder().encode(generateScreenerCsv(result));
+        const csvFileName = screenerCsvFileName(result);
+        await putReportPdf(this.env, this.ctx.storage as any, csvKey, csvFileName, csvBytes, "text/csv");
+        await putReportPdf(this.env, this.ctx.storage as any, CSV_LATEST_KEY, csvFileName, csvBytes, "text/csv");
+        result.csvKey = csvKey;
+        result.csvStatus = "generated";
+      }, reportRetry, { label: "screener-csv" });
+    } catch (csvErr) {
+      result.csvStatus = "failed";
+      result.csvError = csvErr instanceof Error ? csvErr.message : String(csvErr);
+      console.error("[ScreenerAgent] CSV generation failed:", result.csvError);
+    }
   }
 
   /**

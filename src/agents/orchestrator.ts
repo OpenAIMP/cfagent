@@ -1462,6 +1462,11 @@ export class OrchestratorAgent extends PortThink {
     opportunities: unknown[];
     allStocks: unknown[];
     pdfKey?: string;
+    xlsxKey?: string;
+    xlsxStatus?: unknown;
+    csvKey?: string;
+    csvStatus?: unknown;
+    runSource?: unknown;
     error?: string;
     trigger?: unknown;
     userLogin?: string;
@@ -1487,6 +1492,11 @@ export class OrchestratorAgent extends PortThink {
     opportunities: unknown[];
     allStocks: unknown[];
     pdfKey?: string;
+    xlsxKey?: string;
+    xlsxStatus?: unknown;
+    csvKey?: string;
+    csvStatus?: unknown;
+    runSource?: unknown;
     error?: string;
     trigger?: unknown;
     userLogin?: string;

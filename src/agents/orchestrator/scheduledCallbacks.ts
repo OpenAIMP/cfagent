@@ -175,6 +175,9 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
       const existing = ((await ctx.agentCtx.storage.get(key)) as any[]) || [];
       const run = {
         timestamp: res.timestamp,
+        // Issue #2062: the scheduled callback records its own trigger so
+        // the run's type is data, not a guess from its provenance.
+        trigger: "scheduled",
         sector: res.data?.sector || payload?.sector || "ALL",
         universe: res.data?.universe || payload?.universe || "NASDAQ100",
         // Issue #1007: provider provenance rides into the stored run
@@ -223,6 +226,7 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
         body: {
           ...run,
           pdfKey: run.pdfKey,
+          runSource: "stock",
           reportUrl: run.pdfKey
             ? `${ctx.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf?key=${encodeURIComponent(String(run.pdfKey))}`
             : undefined,
