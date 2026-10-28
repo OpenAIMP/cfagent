@@ -70,6 +70,21 @@ export class EnvFeatureFlagAdapter implements FeatureFlagPort {
       }
     }
 
+    // Issue #2043: legacy monetization env var, for environments
+    // that set it before the Flagship flag existed. Flagship (when
+    // the FLAGS binding is present) is the source of truth and never
+    // reads this var; this fallback only applies to the env adapter.
+    if (flag === "monetization") {
+      const legacyMonetization = this.env.MONETIZATION_ENABLED;
+      if (typeof legacyMonetization === "string") {
+        const trimmed = legacyMonetization.trim().toLowerCase();
+        if (trimmed === "1" || trimmed === "true" || trimmed === "on") return true;
+        if (trimmed === "0" || trimmed === "false" || trimmed === "off") return false;
+      } else if (typeof legacyMonetization === "boolean") {
+        return legacyMonetization;
+      }
+    }
+
     // 4. Screener is ALWAYS default-closed (OFF)
     if (flag === "screener") {
       return false;
@@ -84,6 +99,16 @@ export class EnvFeatureFlagAdapter implements FeatureFlagPort {
     // Explicit enablement only: FEATURE_FLAGS bulk JSON or
     // FEATURE_GOAL_WORKFLOW above.
     if (flag === "goal_workflow") {
+      return false;
+    }
+
+    // Issue #2043: monetization is ALWAYS default-closed (OFF),
+    // like screener and goal_workflow. It gates charging: the
+    // bare-env default-TRUE below would otherwise silently enable
+    // payment in any environment with zero feature configuration.
+    // Explicit enablement only: FEATURE_FLAGS bulk JSON,
+    // FEATURE_MONETIZATION, or the legacy var above.
+    if (flag === "monetization") {
       return false;
     }
 

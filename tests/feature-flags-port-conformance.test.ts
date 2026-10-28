@@ -124,6 +124,42 @@ describe("FeatureFlagPort Conformance Suite (Issue #1815)", () => {
       });
       expect(await enabled.isEnabled("goal_workflow")).toBe(true);
     });
+
+    it("keeps monetization strictly closed in a bare env, Flagship ON/OFF controls it (issue #2043)", async () => {
+      // Same rule as goal_workflow, for charging: a bare env must
+      // never silently enable payment. Explicit enablement only:
+      // FEATURE_FLAGS bulk JSON, FEATURE_MONETIZATION, or the
+      // legacy MONETIZATION_ENABLED var (env adapter only).
+      const bare = new EnvFeatureFlagAdapter({});
+      expect(await bare.isEnabled("monetization")).toBe(false);
+      const bulk = new EnvFeatureFlagAdapter({
+        FEATURE_FLAGS: JSON.stringify({ monetization: true }),
+      });
+      expect(await bulk.isEnabled("monetization")).toBe(true);
+      const direct = new EnvFeatureFlagAdapter({ FEATURE_MONETIZATION: "1" });
+      expect(await direct.isEnabled("monetization")).toBe(true);
+      const legacy = new EnvFeatureFlagAdapter({ MONETIZATION_ENABLED: "true" });
+      expect(await legacy.isEnabled("monetization")).toBe(true);
+      const legacyOff = new EnvFeatureFlagAdapter({ MONETIZATION_ENABLED: "false" });
+      expect(await legacyOff.isEnabled("monetization")).toBe(false);
+      // Flagship is the source of truth when the FLAGS binding is
+      // present: ON in Flagship = ON, OFF = OFF, error = OFF.
+      const on = new CfFlagshipAdapter({
+        getBooleanValue: vi.fn().mockResolvedValue(true),
+      });
+      expect(await on.isEnabled("monetization")).toBe(true);
+      const off = new CfFlagshipAdapter({
+        getBooleanValue: vi.fn().mockResolvedValue(false),
+      });
+      expect(await off.isEnabled("monetization")).toBe(false);
+      const broken = new CfFlagshipAdapter({
+        getBooleanValue: vi.fn().mockRejectedValue(new Error("Flagship down")),
+      });
+      expect(await broken.isEnabled("monetization")).toBe(false);
+      // Composition root: FLAGS present = Flagship, absent = env.
+      expect(createFeatureFlagPort({ FLAGS: { getBooleanValue: vi.fn().mockResolvedValue(true) } })).toBeInstanceOf(CfFlagshipAdapter);
+      expect(createFeatureFlagPort({ FEATURE_MONETIZATION: "1" })).toBeInstanceOf(EnvFeatureFlagAdapter);
+    });
   });
 
   describe("CfFlagshipAdapter", () => {
