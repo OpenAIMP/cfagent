@@ -227,24 +227,29 @@ describe("validateAndTouchWiredSession", () => {
 });
 
 describe("logoutAuditTenant (no invented default tenant)", () => {
-  it("returns null when wiring is off, even with user and tenant", () => {
+  it("returns null when wiring is off, even with tenant", () => {
     expect(
       logoutAuditTenant({
         wiringEnabled: false,
-        internalUserId: "user-1",
         tenantId: "tenant-1",
       }),
     ).toBeNull();
   });
 
-  it("returns null when the session has no internalUserId", () => {
+  // #1760 pin update (was: null without internalUserId): the gate
+  // no longer depends on the session's internal id, because the
+  // caller must be able to record a logout_audit_skipped event
+  // for a legacy session. The tenant still comes from the
+  // server-resolved tenant, never from the session, so resolving
+  // it fabricates no identity; the caller (handleLogout) still
+  // emits the full logout event only for wired sessions.
+  it("returns the tenant when wiring is on and tenant is set, regardless of session binding", () => {
     expect(
       logoutAuditTenant({
         wiringEnabled: true,
-        internalUserId: undefined,
         tenantId: "tenant-1",
       }),
-    ).toBeNull();
+    ).toBe("tenant-1");
   });
 
   it("returns null when tenant is unset, blank, or whitespace-only", () => {
@@ -252,18 +257,16 @@ describe("logoutAuditTenant (no invented default tenant)", () => {
       expect(
         logoutAuditTenant({
           wiringEnabled: true,
-          internalUserId: "user-1",
           tenantId,
         }),
       ).toBeNull();
     }
   });
 
-  it("returns the trimmed tenant when wiring is on, user bound, tenant set", () => {
+  it("returns the trimmed tenant when wiring is on and tenant set", () => {
     expect(
       logoutAuditTenant({
         wiringEnabled: true,
-        internalUserId: "user-1",
         tenantId: "  tenant-1 ",
       }),
     ).toBe("tenant-1");
