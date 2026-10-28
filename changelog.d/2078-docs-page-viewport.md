@@ -1,0 +1,3 @@
+### Fixed
+
+- **Docs and Reports is pinned against silent removal (#2078):** the page's Chat render branch was dropped by commit `a0add1a4` while resolving #2059, leaving the nav entry pointing at nothing — the blank viewport reported on `?tab=docs&view=stocks`. The route-table-derived content switch (#2077) restores the page; this change wraps it in the app error boundary, hardens its flex sizing so it can never be sized to zero, and adds a shell-integration test that mounts the real `Chat` at `?tab=docs&view=stocks` and asserts the heading, table columns and a row — the pin that would have caught the drop.
