@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Shared URL-synced-tabs behavior (#1804 S2, issue #2027): one behavior
@@ -22,7 +22,9 @@ export interface UseUrlSyncedTabsOptions<T extends string> {
   aliases?: string[];
   isValid: (value: unknown) => value is T;
   defaultTab: T;
-  /** Prop override (e.g. a parent driving the tab); adopted when valid. */
+  /** Prop override (e.g. a parent driving the tab): takes precedence at
+   *  mount and is adopted whenever it changes — mirroring the hub's
+   *  original mount effect, so a parent redirect always wins. */
   initialTab?: T | null;
   onTabChange?: (tab: T) => void;
 }
@@ -76,9 +78,9 @@ export function useUrlSyncedTabs<T extends string>(
   }, [param, aliasKey]);
 
   const initialResolvedTab = useMemo<T>(() => {
+    if (initialTab && isValid(initialTab)) return initialTab;
     const fromUrl = readFromLocation();
     if (fromUrl) return fromUrl;
-    if (initialTab && isValid(initialTab)) return initialTab;
     return defaultTab;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readFromLocation]);
@@ -88,12 +90,21 @@ export function useUrlSyncedTabs<T extends string>(
     () => new Set([initialResolvedTab]),
   );
 
+  // Adopt the prop only when it CHANGES — never on tab clicks. (An effect
+  // keyed on activeTab would fight every user tab change by resetting to
+  // the prop; the original hub effect was keyed on the prop alone.)
+  const prevInitialTabRef = useRef<T | null>(initialTab);
   useEffect(() => {
-    if (initialTab && isValid(initialTab) && initialTab !== activeTab) {
+    if (
+      initialTab &&
+      isValid(initialTab) &&
+      initialTab !== prevInitialTabRef.current
+    ) {
+      prevInitialTabRef.current = initialTab;
       setActiveTab(initialTab);
       setVisitedTabs((prev) => new Set(prev).add(initialTab));
     }
-  }, [initialTab, activeTab, isValid]);
+  }, [initialTab, isValid]);
 
   const handleTabChange = useCallback(
     (newTabId: string) => {
