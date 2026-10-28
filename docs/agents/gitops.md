@@ -1154,6 +1154,7 @@ If the post-merge run on your merge is red:
 - A failure may be classified **flaky** only with evidence: the same suite passes standalone on the same tree, and — for merge-time failures — the failure set has been compared against the merge's first parent or a run on unmodified `main`. Without that evidence the failure is unclassified and blocks like any other.
 - A CI rerun is a diagnostic, performed once, with the outcome recorded. Rerunning until chance produces a pass is prohibited (§10).
 - Suites known to be load-flaky are tracked by name in the issue tracker, each with an owner. The list is a remediation backlog — fix, or quarantine with a tracked issue — never a permanent exemption, and a new flake signature is classified and filed rather than absorbed into the list by habit.
+- The quarantine registry is `tests/flaky-quarantine.json` (pinned by `tests/flaky_quarantine.test.ts`); quarantined suites run for signal via `npm run test:quarantine`. Excluding them from the required check is a workflow change and stays in the workflow owner's lane.
 
 ### 18.4 Stub honesty
 
