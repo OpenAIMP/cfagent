@@ -294,7 +294,10 @@ export async function executeOptionsScreen(args: {
     // Options run-record fix: owner-scope the row — an ownerless write is invisible
     // to the owner-scoped Reports read.
     userLogin,
-  });
+  },
+  // Issue #1169 S4-1: thread ctx.env so the seam indexes this
+  // options_scanner row at write time.
+  ctx.env);
 
   // Issue #1333: the inline manual-options outcome — recorded here
   // ONLY when the bridge did not take the run (bridged runs record
@@ -506,7 +509,10 @@ export async function executeUnifiedOptions(args: {
       // Options run-record fix: owner-scope the row (ownerless rows are invisible to
       // the owner-scoped Reports read).
       userLogin,
-    });
+    },
+    // Issue #1169 S4-1: thread ctx.env so the seam indexes this
+    // options_scanner row at write time.
+    ctx.env);
     // Options run-record fix: this path has no follow-up bridge, so it owns its run
     // record. Without it the run never appears in Workflow Runs and its
     // artifacts (PDF/XLSX/CSV) have nothing to attach to.
