@@ -36,9 +36,9 @@
  *   proving tests assert equality, so a TTL change fails loudly
  *   until this target and authz.md §9 are updated with it);
  *   7 days IS SESSION_TTL; 30 minutes IS the enforced idle
- *   default. Where a reused value is itself an unsettled CISO
- *   decision (idle, step-up — see #1757), this module says so
- *   instead of presenting it as settled.
+ *   default. Where a reused value is itself a settled CISO value
+ *   (idle, step-up — settled by #1757, values unchanged), this
+ *   module says so instead of presenting it as unsettled.
  *
  * Scope limits (full list in authz.md §9; summarized here so no
  * reader mistakes a target for universal coverage):
@@ -163,9 +163,9 @@ const tokenExpiry: RevocationTarget = Object.freeze({
     "by up to 60 s (touch precision), so the bound is exact " +
     "against the recorded deadline, not wall-clock inactivity. " +
     "OIDC claims: a claim with exp at or before now denies on " +
-    "presentation. The idle and step-up windows themselves remain " +
-    "unsettled CISO values (#1757); this target reuses the " +
-    "enforced defaults without settling them. Legacy sessions " +
+    "presentation. The idle and step-up windows are settled CISO " +
+    "values (#1757); this target reuses the enforced defaults. " +
+    "Legacy sessions " +
     "without recorded activity are idle-exempt (absolute deadline " +
     "only) — a pinned residual, not part of this target.",
 });
