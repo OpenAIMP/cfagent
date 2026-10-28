@@ -1,0 +1,3 @@
+### 2186 — Orchestrator integration for paid screens (#2186)
+
+- Paid screens now go gate → payment workflow → screener workflow at the orchestrator's goal-screen entries: the manual goal-screen route routes through PaymentWorkflow when the `monetization` flag is ON (and answers 402 rather than running free when the workflow path is inactive), and the scheduled goal screen pre-checks store coverage — covered runs go through PaymentWorkflow, uncovered recurring/unstated runs are skipped, audited, and explained, never charged unattended. Flag OFF behavior is unchanged; no pricing, flag-default, or network-rule changes; no activation.
