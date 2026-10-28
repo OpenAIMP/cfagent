@@ -129,10 +129,24 @@ describe("shouldEnforcePdp with the #1749 bound", () => {
 describe("server.ts gate wiring (#1749)", () => {
   it("passes an explicit clock to every shouldEnforcePdp gate and names the grace-expired denial at each gated route", () => {
     const server = readFileSync("src/server.ts", "utf8");
-    const gates = server.match(/shouldEnforcePdp\(env, session, Date\.now\(\)\)/g) ?? [];
-    // Four gated routes: E*TRADE start, E*TRADE verifier, Public start, Public connect.
+    // #1755: the four gated routes (E*TRADE start, E*TRADE verifier,
+    // Public start, Public connect) now call the shared gateway
+    // helper instead of shouldEnforcePdp directly — the gate logic
+    // moved into src/security/pepGateway.ts, it was not removed.
+    // The pin's intent is preserved in the new shape: an explicit
+    // clock at every gated route, and the grace-expired denial
+    // named at every gated route.
+    const gates = server.match(/evaluateRoutePep\(\{/g) ?? [];
     expect(gates.length).toBe(4);
+    // Each of the four gateway calls carries its own explicit clock.
+    const clocked = server.match(
+      /evaluateRoutePep\(\{\s*env,\s*session,\s*tenantId: resolveIaaaTenant\(env\),\s*permission: "integration:connect",\s*membershipStore: createKvMembershipStore\(sessionStore\(env\)\),\s*nowMs: Date\.now\(\),/g,
+    ) ?? [];
+    expect(clocked.length).toBe(4);
     const denials = server.match(/legacy_pdp_grace_expired/g) ?? [];
     expect(denials.length).toBeGreaterThanOrEqual(4);
+    const gateway = readFileSync("src/security/pepGateway.ts", "utf8");
+    expect(gateway).toContain("shouldEnforcePdp");
+    expect(gateway).toContain("isLegacyPdpGraceExpired");
   });
 });

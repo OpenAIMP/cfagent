@@ -312,10 +312,10 @@ separate them, this section says so.
 
 | XACML concept | cfagent equivalent (verified on main) |
 | --- | --- |
-| PAP — Policy Administration Point: authors and manages policy | Three places, in decreasing order of permanence. (1) The policy itself, as code: the `ROLE_GRANTS` table in `src/security/authorization.ts` (with `PERMISSIONS` and `AUTHORIZATION_POLICY_VERSION = "iaaa-authorization-1"`). Changing a grant means changing this table and shipping it — there is no policy store or policy editor. (2) Bootstrap provisioning: `IAAA_BOOTSTRAP_ADMINS` parsing in `src/security/iaaaBootstrap.ts`, which seeds the first grants (§3). (3) Runtime grants: the IAAA admin panel (`src/client/IaaaAdminPanel.tsx`, "Access requests" section) driving `POST /api/iaaa/access-request/decision`, which calls `grantMembership` (`src/security/iaaaMembershipStore.ts`) under `canGrantRole` enforcement (`src/security/authorization.ts`). |
-| PDP — Policy Decision Point: evaluates a request against policy | `authorize()` in `src/security/authorization.ts`, reached through the seam `checkPermission()` in `src/security/iaaaPdpSeam.ts`. The PDP is a pure function of stored memberships: given a subject, a permission, and a scope, it answers allow or deny. It performs no enforcement and no side effects. |
-| PEP — Policy Enforcement Point: enforces the PDP's answer at the boundary | Several, one per surface — there is no single gateway. (1) `requireAuth()` in `src/server.ts`: the session gate, which rejects unauthenticated callers before any permission is evaluated. (2) `checkRoutePermission()` in `src/security/iaaaGithubEndToEnd.ts`, called from the E*TRADE start, E*TRADE verifier, Public start, and Public connect routes in `src/server.ts` for `integration:connect` (403 on deny; see §6). The callers first check `shouldEnforcePdp`, which enforces for wired sessions and for legacy sessions past their §8 grace bound, and exempts only legacy sessions inside the bound; a grace-expired legacy denial carries code `legacy_pdp_grace_expired`. (3) The `canGrantRole` checks on the access-request decision route in `src/server.ts`. (4) The `requireAuth` gate at the top of the `/api/schedule/` block in `src/server.ts` (401 before the ScheduledAgent stub is reached). A PEP that cannot reach the PDP denies: a missing session, a legacy session past its grace bound (no internal id to evaluate), or an unresolvable tenant all fail closed. The one documented exception is a legacy session inside its grace bound (§8), which takes the pre-change path at the `integration:connect` gates. |
-| PIP — Policy Information Point: supplies the attributes the PDP reads | The SessionStore Durable Object, read directly — there is no separate attribute service. Memberships under `iaaa-membership:` keys (`src/security/iaaaMembershipStore.ts`), identity bindings under `iaaa-binding:` keys (`src/security/iaaaLogin.ts`), migration aliases under `iaaa-alias:` keys (`src/security/iaaaMigration.ts`), and sessions via `sessionStore(env)`. The tenant attribute defaults to `"primary"` (`IAAA_DEFAULT_TENANT_ID` in `src/security/iaaaGithubEndToEnd.ts`; see §4). |
+| PAP — Policy Administration Point: authors and manages policy | Three places, in decreasing order of permanence. (1) The policy itself, as code: the `ROLE_GRANTS` table in `src/security/authorization.ts` (with `PERMISSIONS` and `AUTHORIZATION_POLICY_VERSION = "iaaa-authorization-1"`). Changing a grant means changing this table and shipping it — there is no policy editor. Its portable form is the `PolicySnapshot` (`src/security/pdpPorts.ts`: `exportPolicySnapshot()` / validated `parsePolicySnapshot()`), served through the `PolicyProvider` port; the compiled tables are the default provider, and the only alternative source is a platform-configured snapshot (`IAAA_PDP_POLICY_SOURCE` = `snapshot` + `IAAA_PDP_POLICY_SNAPSHOT_JSON`, platform-only, invalid fails closed to compiled — see `docs/architecture/security/iaaa-pdp-architecture-1755.md`). (2) Bootstrap provisioning: `IAAA_BOOTSTRAP_ADMINS` parsing in `src/security/iaaaBootstrap.ts`, which seeds the first grants (§3). (3) Runtime grants: the IAAA admin panel (`src/client/IaaaAdminPanel.tsx`, "Access requests" section) driving `POST /api/iaaa/access-request/decision`, which calls `grantMembership` (`src/security/iaaaMembershipStore.ts`) under `canGrantRole` enforcement (`src/security/authorization.ts`). |
+| PDP — Policy Decision Point: evaluates a request against policy | The PDP core is `authorizeWithPolicy()` in `src/security/authorization.ts`: policy from a `PolicyProvider`, attributes only through the PIP port, answering allow or deny for a subject, permission, and scope. `authorize()` is its back-compatible entry point (compiled policy + store adapted to the PIP), reached through the seam `checkPermission()` in `src/security/iaaaPdpSeam.ts`. The port is `PolicyDecisionPoint` in `src/security/pdpPorts.ts`, with a JSON-serializable request/response contract; the only live adapter is the in-process one. The PDP performs no enforcement and no side effects. |
+| PEP — Policy Enforcement Point: enforces the PDP's answer at the boundary | Several, one per surface — there is no single runtime gateway, by decision (#1755). (1) `requireAuth()` in `src/server.ts`: the session gate, which rejects unauthenticated callers before any permission is evaluated. (2) The four `integration:connect` gates (E*TRADE start, E*TRADE verifier, Public start, Public connect routes in `src/server.ts`) share one gateway pattern: `evaluateRoutePep()` in `src/security/pepGateway.ts`, which centralizes the `shouldEnforcePdp` check, the PDP decision through the port, and the grace mapping (403 on deny; see §6). It enforces for wired sessions and for legacy sessions past their §8 grace bound, and exempts only legacy sessions inside the bound; a grace-expired legacy denial carries code `legacy_pdp_grace_expired`. (3) The `canGrantRole` checks on the access-request decision route in `src/server.ts`. (4) The `requireAuth` gate at the top of the `/api/schedule/` block in `src/server.ts` (401 before the ScheduledAgent stub is reached). A PEP that cannot reach the PDP denies: a missing session, a legacy session past its grace bound (no internal id to evaluate), or an unresolvable tenant all fail closed. The one documented exception is a legacy session inside its grace bound (§8), which takes the pre-change path at the `integration:connect` gates. |
+| PIP — Policy Information Point: supplies the attributes the PDP reads | The `AttributeProvider` port in `src/security/authorization.ts` (`getMembershipsByUser`): the PDP reads attributes only through it, never through a store directly. The live attribute source is the SessionStore Durable Object, adapted to the port (`membershipStoreToAttributeProvider`): memberships under `iaaa-membership:` keys (`src/security/iaaaMembershipStore.ts`), identity bindings under `iaaa-binding:` keys (`src/security/iaaaLogin.ts`), migration aliases under `iaaa-alias:` keys (`src/security/iaaaMigration.ts`), and sessions via `sessionStore(env)`. The tenant attribute defaults to `"primary"` (`IAAA_DEFAULT_TENANT_ID` in `src/security/iaaaGithubEndToEnd.ts`; see §4). No federation, transformation, or caching layer exists yet — the port is where one lands. |
 | Context Handler — assembles the request the PDP evaluates | The `CheckPermissionInput` in `src/security/iaaaPdpSeam.ts`: subject = `internalUserId` (the derived `v1:` identity, never a login handle or email), resource = `tenantId` plus `scope` / `resourceScope`, action = `permission`, environment = `nowMs` plus caller-side facts the PDP does not itself fetch — session validity (established by `requireAuth` before the call), step-up freshness (`DEFAULT_STEP_UP_FRESHNESS_MS` in `src/security/sessionPolicy.ts`), and the `IAAA_PDP_ENABLED` flag (callers check `shouldEnforcePdp` before calling; the PDP seam itself does not read flags). |
 | Obligations / Advice — things that must or should happen alongside the decision | Built (#1751): obligations and advice attach to policy in the frozen `OBLIGATION_POLICY` table (`src/security/obligations.ts`) and are enforced by the PEP-side evaluator `evaluateWithObligations()`, which wraps the PDP seam. Step-up-as-obligation and audit-before-allow (audit as a condition, not a record) are demonstrated for `role:assign`, `membership:revoke`, and `audit:export`; policy advice accompanies allow and deny alike and never changes a decision. Everything fails closed: a missing/stale authentication, a missing audit writer, a failed or throwing audit write, or an unknown obligation kind all deny. The pre-#1751 equivalents remain as the record below (audit-on-decision; ad-hoc per-gate step-up at API-key mint) until CTO-lane #945 route wiring adopts the evaluator route by route — see the residual list under §10 below. |
 
@@ -333,17 +333,37 @@ hardcoded, not policy.
 
 ### Honest gaps — what this mapping is not
 
-- **Policy is TypeScript tables, not portable XACML.** `ROLE_GRANTS`
-  cannot be exported, imported, or evaluated by any other XACML
-  implementation. Policy versioning is a single string constant
-  (`iaaa-authorization-1`), not a policy set with versioning semantics.
-- **The PDP is an in-process library, not a service.** There is no
-  network boundary between PEP and PDP, no PDP endpoint, and no
-  independent PDP deployment. A bug in the PDP ships with the Worker.
-- **There is no attribute service.** The PDP reads stores directly
-  through the membership store. Attributes cannot be federated,
-  transformed, or cached by a PIP layer; what the store holds is what
-  the decision sees.
+- **Policy is TypeScript tables, not portable XACML — partially
+  closed (#1755).** The tables stay authoritative and are not
+  XACML, and policy versioning is still the single string constant
+  (`iaaa-authorization-1`), carried on the snapshot — not a policy
+  set with versioning semantics. What changed: the tables now have
+  a portable JSON form (`PolicySnapshot`: version + permissions +
+  role grants) with a validated parse and a `PolicyProvider` store
+  interface, so policy can be exported, inspected, and loaded
+  through the port. What is still not true: there is no policy
+  editor, and no XACML implementation can evaluate the snapshot.
+- **The PDP is an in-process library, not a service — stands, by
+  decision (#1755).** There is still no network boundary between
+  PEP and PDP, no PDP endpoint, and no independent PDP deployment;
+  a bug in the PDP ships with the Worker. What changed: the PDP now
+  has a logical service boundary — the `PolicyDecisionPoint` port
+  with a JSON-serializable request/response contract — so a future
+  network PDP is a new adapter behind the same port, not a rewrite.
+- **There is no attribute service — closed at the seam (#1755).**
+  The `AttributeProvider` (PIP) port is real: the PDP core reads
+  memberships only through it, and `authorize()` / `canGrantRole()`
+  are thin adapters over it, so no PDP code path reads a store
+  directly anymore. What is still not true: the only live attribute
+  source is the SessionStore membership store — attributes are not
+  yet federated, transformed, or cached by a PIP layer; what the
+  store holds is still what the decision sees.
+- **There is no single runtime gateway — stands, by decision
+  (#1755).** Surfaces keep their own PEPs (session gate, schedule
+  gate, access-request gate unchanged); the consolidation is the
+  shared `evaluateRoutePep()` pattern at the four
+  `integration:connect` sites, not one gateway all surfaces funnel
+  through.
 - **Obligations/advice are policy-declared but not yet route-wired
   (#1751).** The channel exists and is enforced by its evaluator
   (`src/security/obligations.ts`, proving tests
