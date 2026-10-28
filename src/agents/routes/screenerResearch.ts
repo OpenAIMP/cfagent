@@ -1451,6 +1451,25 @@ export async function handleScreenerResearchRoutes(
             }),
             createObservabilitySink(ctx.env),
           );
+          // Issue #1999 (D7): manual (route) submissions leave a
+          // session-principal audit row, symmetric with the
+          // scheduled path's system-principal rows. A lost row
+          // warns and never fails the 202: the audit store is the
+          // record, not the run.
+          try {
+            orm.events.create({
+              id: crypto.randomUUID(),
+              sessionId: userLogin,
+              type: "goal_screen.workflow_submitted",
+              agent: "orchestrator",
+              payload: { principalKind: "session", jobId: idempotencyKey, trigger: "manual" },
+              createdAt: new Date().toISOString(),
+            });
+          } catch (auditErr) {
+            console.warn(
+              `[goal-screen-workflow] Audit insertion failed (type=goal_screen.workflow_submitted, login=${userLogin}): ${auditErr instanceof Error ? auditErr.message : String(auditErr)}`,
+            );
+          }
           return workflowAcceptedResponse(handle);
         } catch (err) {
           // Issue #2065 (remainder): the typed failure replaces the
@@ -1466,6 +1485,30 @@ export async function handleScreenerResearchRoutes(
           console.warn(
             `[goal-screen-workflow] Async start failed (${code}) for job ${idempotencyKey}: ${err instanceof Error ? err.message : String(err)}`,
           );
+          // Issue #1999 (D7): the start failure leaves a
+          // session-principal audit row, like the scheduled path's
+          // run_failed rows. A lost row warns and never changes
+          // the coded 500 below.
+          try {
+            orm.events.create({
+              id: crypto.randomUUID(),
+              sessionId: userLogin,
+              type: "goal_screen.run_failed",
+              agent: "orchestrator",
+              payload: {
+                principalKind: "session",
+                jobId: idempotencyKey,
+                code,
+                reason,
+                error: err instanceof Error ? err.message : String(err),
+              },
+              createdAt: new Date().toISOString(),
+            });
+          } catch (auditErr) {
+            console.warn(
+              `[goal-screen-workflow] Audit insertion failed (type=goal_screen.run_failed, login=${userLogin}): ${auditErr instanceof Error ? auditErr.message : String(auditErr)}`,
+            );
+          }
           return Response.json(
             {
               error: "goal_workflow_start_failed",
