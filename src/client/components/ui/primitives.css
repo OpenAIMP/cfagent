@@ -647,6 +647,37 @@ div.ui-modal-title { font-size: inherit; font-weight: inherit; }
   color: var(--color-text-secondary);
 }
 
+/* Footnote: muted caption-size text at the bottom of a card or section
+ * (disclaimers, notes, assumptions). Margin is zero because spacing comes
+ * from the surrounding stack; consecutive footnotes get a small gap. */
+.ui-footnote {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.ui-footnote + .ui-footnote {
+  margin-top: var(--space-2);
+}
+
+/* Footer bar: the single bottom-bar pattern for cards and panels
+ * (action rows, sync badges, hints). Same border, same separation
+ * everywhere; inside a stack the stack gap replaces the top margin. */
+.ui-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-3);
+}
+
+.ui-stack > .ui-footer-bar,
+.ui-stack-lg > .ui-footer-bar {
+  margin-top: 0;
+}
+
 .ui-narrow {
   max-width: 40rem;
 }
@@ -695,6 +726,10 @@ div.ui-modal-title { font-size: inherit; font-weight: inherit; }
 
 .ui-danger {
   color: var(--color-danger);
+}
+
+.ui-warning {
+  color: var(--color-warning);
 }
 
 .ui-success {
