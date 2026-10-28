@@ -19,18 +19,14 @@ export type FeatureFlag =
   | "social_publishing"
   | "nlq"
   | "payments"
-  | "schedules"
-  // Issue #1997: goal-screen workflow path. Default off (fail-closed).
-  | "goal_workflow"
-  | "enrichment_alpaca"
-  // Issue #2049: PaymentWorkflow assurance page. Default off
-  // (fail-closed). Provider key "payment_assurance": OFF = page
-  // hidden, ON = assurance page visible (test-only, fake seams).
-  | "payment_assurance"
   // Issue #2043: cfpay monetization gate. Default off (fail-closed).
   // Provider key "monetization": OFF = free path, ON = payment
   // workflow gate (per run-request, testnet only until gates pass).
-  | "monetization";
+  | "monetization"
+  | "schedules"
+  // Issue #1997: goal-screen workflow path. Default off (fail-closed).
+  | "goal_workflow"
+  | "enrichment_alpaca";
 
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   "screener",
@@ -41,6 +37,9 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   "social_publishing",
   "nlq",
   "payments",
+  // Issue #2043: cfpay monetization gate. Default off (fail-closed);
+  // flag OFF = free path, flag ON = payment workflow gate.
+  "monetization",
   "schedules",
   // Issue #1888: Alpaca enrichment selector. Default off (fail-closed)
   // means Yahoo enrichment is active; flipping this flag on selects
@@ -49,12 +48,6 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   // Issue #1997: goal-screen workflow path. Default off (fail-closed);
   // flag OFF = the direct engine, flag ON = the staged goal flow.
   "goal_workflow",
-  // Issue #2049: PaymentWorkflow assurance page. Default off
-  // (fail-closed); flag OFF = page hidden, flag ON = page visible.
-  "payment_assurance",
-  // Issue #2043: cfpay monetization gate. Default off (fail-closed);
-  // flag OFF = free path, flag ON = payment workflow gate.
-  "monetization",
 ] as const;
 
 const KNOWN_FLAGS = new Set<string>(ALL_FEATURE_FLAGS);
