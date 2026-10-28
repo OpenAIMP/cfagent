@@ -147,6 +147,25 @@ describe("WorkflowRunsPanel", () => {
     const pageRule = css.match(/\.workflow-runs-page\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(pageRule).toContain("flex: 1 0 auto");
     expect(pageRule).toContain("overflow: auto");
+    expect(css).toMatch(/\.workflow-runs-table-container\s*\{[^}]*max-height:\s*52vh/);
+  });
+
+  it("scrolls the selected run detail into view", async () => {
+    const scrollSpy = vi.fn();
+    const original = (Element.prototype as any).scrollIntoView;
+    (Element.prototype as any).scrollIntoView = scrollSpy;
+    try {
+      payload = { count: 1, runs: [run()] };
+      await renderPanel();
+      await act(async () => {
+        buttonByText("Details").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(scrollSpy).toHaveBeenCalled();
+      expect(container.querySelector("#workflow-run-detail")).not.toBeNull();
+    } finally {
+      if (original) (Element.prototype as any).scrollIntoView = original;
+      else delete (Element.prototype as any).scrollIntoView;
+    }
   });
 
   it("renders a row per run with trigger, status, and stage progress", async () => {
