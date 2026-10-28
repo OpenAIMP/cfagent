@@ -120,7 +120,7 @@ describe("startWorkflowInstance repair (#2065)", () => {
 
     expect(out.existing).toBe(false);
     expect(out.adoptedFallbackId).toBe(true);
-    expect(out.workflowId).toMatch(/^screen-[0-9a-f-]{36}$/);
+    expect(out.workflowId).toMatch(/^screen-[0-9a-f]{40}$/);
     expect(created).toHaveLength(1);
     expect((created[0].params as WorkflowJobCommand).jobId).toBe(COMMAND.jobId);
     expect(warn).toHaveBeenCalledTimes(1);
@@ -139,7 +139,7 @@ describe("startWorkflowInstance repair (#2065)", () => {
     const out = await startWorkflowInstance(binding, longCommand);
 
     expect(out.adoptedFallbackId).toBe(true);
-    expect(out.workflowId).toMatch(/^screen-[0-9a-f-]{36}$/);
+    expect(out.workflowId).toMatch(/^screen-[0-9a-f]{40}$/);
   });
 
   it("preserves the provider error when every attempt fails", async () => {

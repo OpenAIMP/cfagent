@@ -58,6 +58,21 @@ export function mapInstanceStatus(raw: string): WorkflowInstanceStatus {
   }
 }
 
+/**
+ * Deterministic short instance id for a job whose derived id the
+ * provider would reject (Issue #2065: a 122-char goal job id).
+ *
+ * Hashing keeps retries idempotent: the same job id always maps to the
+ * same fallback instance, so a retried start adopts instead of creating
+ * a second run. 40 hex chars + the prefix stay far under the provider's
+ * 100-character ceiling.
+ */
+async function fallbackWorkflowId(jobId: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(jobId));
+  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  return `screen-${hex.slice(0, 40)}`;
+}
+
 /** Provider error text, safe to log (never returned to a client). */
 function errorText(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err);
@@ -100,7 +115,7 @@ export async function startWorkflowInstance(
       // No adoptable instance: fall through to the fallback-id retry.
     }
   }
-  const fallbackId = `screen-${crypto.randomUUID()}`;
+  const fallbackId = await fallbackWorkflowId(command.jobId);
   try {
     const instance = await binding.create({ id: fallbackId, params: command });
     console.warn(
