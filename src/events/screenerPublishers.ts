@@ -26,6 +26,10 @@ import { getServiceUserLogin } from "../security/serviceIdentity";
 import { ETradeSlackTradingService } from "../trading";
 import { ETradeEmailTradingService } from "../trading";
 import { ETradeWebhookService } from "../services/tradingWebhooks";
+import {
+  absoluteReportUrl,
+  screenerReportUrl,
+} from "../services/screenerReportUrl";
 import { requireGatewayPorts } from "../gateway/createGatewayPorts";
 import { chainModels } from "../models/router";
 import type { ScreenerAgent } from "../agents/screener-agent";
@@ -101,7 +105,9 @@ async function deliverPdfToSlack(
 ): Promise<void> {
   const botToken = deps.env.SLACK_BOT_TOKEN;
   const channel = (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
-  const reportUrl = `${deps.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf${event.pdfKey ? `?key=${encodeURIComponent(event.pdfKey)}` : ""}`;
+  const reportUrl = event.pdfKey
+    ? screenerReportUrl(deps.env.APP_BASE_URL, event.pdfKey)
+    : absoluteReportUrl(deps.env.APP_BASE_URL, "/api/screener/report.pdf");
 
   if (!botToken) {
     // No bot token: link the downloadable report in the channel message.
@@ -343,7 +349,9 @@ async function publishCompleted(
   const cfpay = getCfpayConfig(deps.env);
   const slackChannel = event.slackChannel || (deps.env as any).SCREENER_SLACK_CHANNEL || (deps.env as any).SLACK_CHANNEL;
   const pdf = await fetchScreenerPdf(deps, event.pdfKey, event.pdfStatus, event.pdfError);
-  const reportUrl = `${deps.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf${event.pdfKey ? `?key=${encodeURIComponent(event.pdfKey)}` : ""}`;
+  const reportUrl = event.pdfKey
+    ? screenerReportUrl(deps.env.APP_BASE_URL, event.pdfKey)
+    : absoluteReportUrl(deps.env.APP_BASE_URL, "/api/screener/report.pdf");
   const plainTextWithDigest = digest ? `💡 ${digest}\n\n${plainText}` : plainText;
   const slackBody = pdf || cfpay
     ? plainTextWithDigest

@@ -81,7 +81,8 @@ describe("screenerOutcomeFromEvent", () => {
       thesis: "volatility",
       totalScanned: 30,
       summary: "4 setups",
-      reportUrl: "/api/options/report.pdf?key=ok1",
+      // Issue #1943: a relative carried reportUrl is absolutized by the bridge.
+      reportUrl: "https://agent.openaimp.com/api/options/report.pdf?key=ok1",
     });
   });
 });

@@ -797,7 +797,7 @@ export async function handleEtradeOptionsRoutes(
             // Issue #1123 S5a: the failure joins the tracked pipeline
             // (failed main-job record + failed notifications).
             await ctx.scheduleScreenerFollowups(
-              screenerOutcomeFromRunResult("options", { success: false, error, thesis: filter.universe }),
+              screenerOutcomeFromRunResult("options", { success: false, error, thesis: filter.universe }, ctx.env.APP_BASE_URL),
               request.headers.get("x-user-login") as string,
             );
           } else {

@@ -39,7 +39,8 @@ describe("screenerOutcomeFromRunResult", () => {
       universe: "NASDAQ100",
     });
     expect(outcome.opportunities).toHaveLength(1);
-    expect(outcome.reportUrl).toBe("/api/screener/report.pdf?key=k1");
+    // Issue #1943: the bridge now builds absolute report URLs.
+    expect(outcome.reportUrl).toBe("https://agent.openaimp.com/api/screener/report.pdf?key=k1");
   });
 
   it("maps failures and options results", () => {
@@ -54,7 +55,8 @@ describe("screenerOutcomeFromRunResult", () => {
       pdfKey: "ok1",
     });
     expect(options.kind).toBe("options");
-    expect(options.reportUrl).toBe("/api/options/report.pdf?key=ok1");
+    // Issue #1943: the bridge now builds absolute report URLs.
+    expect(options.reportUrl).toBe("https://agent.openaimp.com/api/options/report.pdf?key=ok1");
   });
 });
 
