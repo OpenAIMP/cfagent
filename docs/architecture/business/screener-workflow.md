@@ -132,7 +132,7 @@ the *screen engine* layer.
 | Sharded async-job chains (`src/services/shardJobs.ts`, `src/services/shardExecutors.ts`) | **The scheduled path's actual "workflow".** Chain: feed → generate (assemble → pdf/xlsx/csv) → store → serve → deliver, advanced hook-by-hook on completion. A failed shard stops its chain. Separate from Cloudflare Workflows — two staged systems, same stage names. |
 | `stageChain` mechanism (`src/agents/orchestrator/asyncJobs.ts`, `orchestrator.ts`) | **The per-stage record system the stage model rides on (COO correction — v1 mentioned it once in passing).** Per-record chaining, per-stage status, per-stage retry (`retryAsyncJob`: failed-only, `retryOf` + original stage/chain identity carried, double-retry refused). Market-screen bridge (C3 #1277/#1316); extended to options/discovery/goal + generic http.request (C4 #1329/#1359); goal deliver chaining (#1549). |
 | Feed seam (`mas_feed_snapshots`, `feed.snapshot` job, `snapshotInput` consumer) | **The feed persistence seam (COO correction — v1 cited only `SqlFeedSnapshotStore`, discovery only).** Two snapshot mechanisms exist; the journey must pick one deliberately, not invent a third. `#1236` / PR #1691. |
-| Flag rollout idiom (`FeatureFlagPort` + Cloudflare Flagship `FLAGS` binding) | **The rollout vehicle (COO correction — v1 had no flag idiom).** Precedent: C5 adaptation routes behind a default-OFF flag. The goal flow rolls out behind a default-OFF flag, goal flow only (see §7). |
+| Flag rollout idiom (`FeatureFlagPort` + Cloudflare Flagship `FLAGS` binding) | **The rollout vehicle (COO correction — v1 had no flag idiom).** Precedent: C5 adaptation routes behind a default-OFF flag. The goal flow rolled out behind a default-OFF flag, goal flow only (see §7) — default-ON since #2051. |
 | `mas_async_jobs` job table (Orchestrator DO SQLite) | `submitAsyncJob` (`asyncJobs.ts:206`); capabilities include `followup.report`, `followup.deliver`, `followup.notify`, `shard.execute`, `feed.snapshot`. Platform alarm re-arms once at most (`maxAttempts:1`); job-level retry is manual (`retryAsyncJob`). Queued rows re-arm after restart (cap 100/batch). |
 | Follow-up chain, shard reconcile, sweep, retention, token renewal | Chain bridge (`asyncJobs.ts:444,552`); hook-driven reconcile (`shardJobReconcile.ts:51`); stale-ledger sweep; nightly retention; nightly token renewal with deduplicated Slack alert on failure (no morning refresh exists). |
 
@@ -574,15 +574,11 @@ slices touching ScreenerAgent sequence around the PortThink migration (fleet sli
 one "goal" shard on the existing parent machinery (parent poll + collate + project unchanged), executed by the
 child's `runGoalScreen` and stored/delivered through the goal doors (`goalScreenDispatch.ts`), with the run
 request carried as `command.goalScreen`. Phase 2 does NOT add a second flow: it adds the rollout control and
-the read-back #1996 deferred. Flag: `goal_workflow`, strictly default-closed in the env adapter (the bare-env
-default-TRUE rule would otherwise silently enable a new execution path in any environment with zero feature
-configuration). Flag OFF → manual and scheduled goal runs go direct, exactly as before #1996's opt-in (the
-#1996 scheduled workflow-first default is gated, so scheduled runs return to direct until the flag is enabled;
-reversible by enabling the flag). Flag ON → the workflow is REQUIRED on both entries: a start failure answers a
+the read-back #1996 deferred. Flag: `goal_workflow`, default-OPEN since #2051 (opt-out; #1997's strictly-closed default is superseded). Flag OFF → manual and scheduled goal runs go direct, exactly as before #1996's opt-in (explicit opt-out only since #2051; the default is workflow-first, reversible by disabling the flag). Flag ON → the workflow is REQUIRED on both entries: a start failure answers a
 coded 500 on the route (`goal_workflow_start_failed` + stable code + reason naming the missing dependency) and throws on the scheduled tick (failure result +
 `run_failed` audit carrying the code) — a flagged run fails loudly at its stage, never by silent fallback to direct. Since #2065 the start attempt is wrapped in the `withObservability` aspect (one sink event per attempt, code + binding facts, never the raw message), and long job ids derive a bounded hash-form instance id instead of refusing (short ids keep their readable form; this complements the adapter-level fallback-id retry that landed first on the same issue, which cannot preserve duplicate-start adoption for long ids). Chain-mode
 scheduled runs stay direct (they need the completed result for the chain bridge, as #1996 established), and
-Yahoo-fallback scheduled runs ride the workflow with their provider markers when the flag is ON (the #1996
+Yahoo-fallback scheduled runs ride the workflow with their provider markers when the flag is ON (the default since #2051; the #1996
 command carries provider/providerFallback through). Report-id surfacing: the goal door returns the canonical
 report id (throwing when the store returns null, making #1996's "store failure throws" docstring true), the
 flow surfaces it on the shard row result, and the panel fetches the stored run by that id. Panel: the UX rules
@@ -634,7 +630,7 @@ artifact semantics. Instead `screenLive` takes an OPTIONAL `enrichment`
 hook on its seam (`NasdaqUniverseSeam.enrichment`, interface in
 `screener.ts` so the trading layer never imports a service module).
 The ScreenerAgent attaches it only when it resolves `goal_workflow` ON
-from its own env (direct + workflow-child goal runs alike; Yahoo-fallback
+from its own env (ON by default since #2051; direct + workflow-child goal runs alike; Yahoo-fallback
 runs keep their Yahoo engine; flag OFF or any binding failure = no hook
 = refusal exactly as before). The hook (`services/goalGather.ts`) runs
 batch live quotes (E*TRADE-primary + Yahoo gap-fill via the platform
@@ -745,7 +741,7 @@ seeds that have not run (`agent_reports` starts empty).
 
 **Decided by lane feedback (v2):** record rule (§5); slice-8 deliberately unwired,
 schema not reused (gap 4); flag rollout default-OFF + revert-PR rollback + fail-loud
-(Phase 2); two-thesis proof scope (Phase 3); sync-looking UX with live stage progress,
+(Phase 2 — default superseded by #2051: default-ON, opt-out; fail-loud + revert-PR rollback unchanged); two-thesis proof scope (Phase 3); sync-looking UX with live stage progress,
 kept previous result, way back on 408 (Phase 2); no metering/paywall change
 (non-goals); stage events into #1743 as new `type` values (Phase 5); #1819 resource
 type confirmed with conditions (Phase 5); Q1 deferred to Phase 5; serve-retry gap

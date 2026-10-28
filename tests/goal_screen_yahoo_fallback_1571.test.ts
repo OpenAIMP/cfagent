@@ -73,7 +73,13 @@ function goalService(opts: {
   agentResult: () => GoalDrivenScreenResult;
   followupScheduler?: any;
 }) {
-  const mockEnv = { ETRADE_ENVIRONMENT: "sandbox" } as unknown as Env;
+  const mockEnv = {
+    ETRADE_ENVIRONMENT: "sandbox",
+    // #2051: goal_workflow is default-ON; these tests pin the
+    // DIRECT fallback path, so they force the flag OFF rather
+    // than follow the new default into the workflow path.
+    FEATURE_FLAGS: JSON.stringify({ goal_workflow: false }),
+  } as unknown as Env;
   const mockOrm = new DatabaseORM(new MockSqlStorage() as any);
   const service = new ScheduledTasksService(mockEnv, mockOrm, "test_trader");
   const audit = vi.fn(() => {});

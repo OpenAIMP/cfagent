@@ -86,7 +86,7 @@ export class EnvFeatureFlagAdapter implements FeatureFlagPort {
     }
 
     // Issue #2043: monetization is ALWAYS default-closed (OFF),
-    // like screener and goal_workflow. It gates charging: the
+    // like screener. It gates charging: the
     // bare-env default-TRUE below would otherwise silently enable
     // payment in any environment with zero feature configuration.
     // Explicit enablement only: FEATURE_FLAGS bulk JSON,
@@ -100,19 +100,18 @@ export class EnvFeatureFlagAdapter implements FeatureFlagPort {
       return false;
     }
 
-    // Issue #1997: goal_workflow is ALWAYS default-closed (OFF),
-    // like screener. It gates a new execution path (staged goal
-    // runs on the workflow); the bare-env default-TRUE below
-    // ("baseline routes do not fail closed prematurely") would
-    // otherwise silently enable it in any environment with zero
-    // feature configuration — violating its default-OFF rollout.
-    // Explicit enablement only: FEATURE_FLAGS bulk JSON or
-    // FEATURE_GOAL_WORKFLOW above.
+    // Issue #2051: goal_workflow defaults OPEN (opt-out). It gates
+    // a shipped execution path (staged goal runs + the #1998 gather),
+    // not a new rollout — an unconfigured flag resolves ON, and
+    // explicit OFF (bulk false or direct "0"/"false"/"off" above)
+    // still wins. This reverses #1997's strictly-closed default.
     if (flag === "goal_workflow") {
-      return false;
+      return true;
     }
 
     // Issue #2054: payment_assurance is default-ON (owner direction).
+    // (The #2049 always-closed block that sat here is removed: it
+    // shadowed this return and made the #2054 default unreachable.)
     // Bulk JSON and the direct var above already returned for an
     // explicit enable or disable, so reaching here means no explicit
     // setting: the page is visible. Rollback is an explicit disable

@@ -53,6 +53,12 @@ const FLAG_ON_ENV = {
   FEATURE_FLAGS: JSON.stringify({ goal_workflow: true }),
 } as unknown as Env;
 
+// Issue #2051: "flag OFF" now means EXPLICIT off (bulk false), not
+// a bare env — a bare env resolves goal_workflow ON by default.
+const FLAG_OFF_ENV = {
+  FEATURE_FLAGS: JSON.stringify({ goal_workflow: false }),
+} as unknown as Env;
+
 function fakeGoalResult(overrides: Partial<GoalDrivenScreenResult> = {}): GoalDrivenScreenResult {
   return {
     goalKind: "income",
@@ -216,7 +222,7 @@ describe("POST /screening/goal-screen flag gate (#1997)", () => {
   it("flag OFF + async:true → direct runs, workflow never attempted", async () => {
     mockedStart.mockResolvedValue(HANDLE as never);
     const agent = directAgent();
-    const { ctx } = routeCtx(agent, {});
+    const { ctx } = routeCtx(agent, FLAG_OFF_ENV as unknown as Record<string, unknown>);
     const res = await handleScreenerResearchRoutes(
       req("POST", "/screening/goal-screen", { goalKind: "income", async: true }, { "x-user-login": "alice" }),
       urlOf("/screening/goal-screen"),
@@ -270,7 +276,7 @@ describe("autonomousGoalScreen flag gate (#1997)", () => {
 
   it("flag OFF + start would succeed → direct runs, workflow never attempted", async () => {
     mockedStart.mockResolvedValue(HANDLE as never);
-    const { service, runGoalScreen } = goalService({});
+    const { service, runGoalScreen } = goalService(FLAG_OFF_ENV as unknown as Record<string, unknown>);
     const result = await service.autonomousGoalScreen({ goalKind: "income" });
     expect(result.success).toBe(true);
     expect((result as { data: Record<string, unknown> }).data.status).toBe("complete");

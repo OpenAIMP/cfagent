@@ -131,13 +131,17 @@ describe("FeatureFlagPort Conformance Suite (Issue #1815)", () => {
       expect(await directDisabled.isEnabled("payment_assurance")).toBe(false);
     });
 
-    it("keeps goal_workflow strictly closed in a bare env (issue #1997)", async () => {
-      // The bare-env default-TRUE rule ("baseline routes do not
-      // fail closed prematurely") must never silently enable a
-      // new execution path: goal_workflow is default-OFF and
-      // needs explicit enablement (bulk JSON or direct var).
+    it("defaults goal_workflow OPEN in a bare env, explicit OFF wins (issue #2051)", async () => {
+      // #2051 reverses #1997: goal_workflow gates a shipped path, so an
+      // unconfigured flag resolves ON; explicit OFF still wins.
       const bare = new EnvFeatureFlagAdapter({});
-      expect(await bare.isEnabled("goal_workflow")).toBe(false);
+      expect(await bare.isEnabled("goal_workflow")).toBe(true);
+      const bulkOff = new EnvFeatureFlagAdapter({
+        FEATURE_FLAGS: JSON.stringify({ goal_workflow: false }),
+      });
+      expect(await bulkOff.isEnabled("goal_workflow")).toBe(false);
+      const directOff = new EnvFeatureFlagAdapter({ FEATURE_GOAL_WORKFLOW: "0" });
+      expect(await directOff.isEnabled("goal_workflow")).toBe(false);
       const enabled = new EnvFeatureFlagAdapter({
         FEATURE_FLAGS: JSON.stringify({ goal_workflow: true }),
       });
@@ -209,6 +213,15 @@ describe("FeatureFlagPort Conformance Suite (Issue #1815)", () => {
       expect(await port.isEnabled("payment_assurance")).toBe(true);
       expect(await port.isEnabled("screener")).toBe(false);
       expect(getBooleanValue).toHaveBeenCalledWith("payment_assurance", true, undefined);
+    });
+
+    it("passes goal_workflow default true to Flagship, other flags false (issue #2051)", async () => {
+      const getBooleanValue = vi.fn().mockImplementation((flag: string, defaultVal: boolean) => Promise.resolve(defaultVal));
+      const binding: FlagshipBindingLike = { getBooleanValue };
+      const port: FeatureFlagPort = new CfFlagshipAdapter(binding);
+      expect(await port.isEnabled("goal_workflow")).toBe(true);
+      expect(await port.isEnabled("screener")).toBe(false);
+      expect(getBooleanValue).toHaveBeenCalledWith("goal_workflow", true, undefined);
     });
 
     it("fails closed when Flagship throws an error", async () => {
