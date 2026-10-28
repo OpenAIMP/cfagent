@@ -527,8 +527,10 @@ async function storeFormat(
       : `Sharded screen: ${chain.universe}, ${format} report, ${provenance.length} shards.`,
     body: { format, key, fileName, universe: chain.universe, thesis: chain.options?.thesis, chainId: chain.chainId, shardIds: provenance },
     createdAt: chain.timestamp,
-    userLogin: chain.userLogin,
-  });
+  },
+  // Issue #1169 S4-1: thread deps.env so the seam indexes this
+  // screener/options_scanner row at write time.
+  deps.env);
   return { format, key, reportId: row?.reportId ?? `screener:${chain.chainId}:${format}` };
 }
 
