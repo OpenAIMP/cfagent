@@ -1132,7 +1132,9 @@ export function Chat({ user }: { user: User }) {
           />
     ),
     docs: (
-      <DocsAndReportsPanel />
+      <ErrorBoundary label="Docs and Reports">
+        <DocsAndReportsPanel />
+      </ErrorBoundary>
     ),
     endpoints: (
           <EndpointsTab
