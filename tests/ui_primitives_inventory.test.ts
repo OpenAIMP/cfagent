@@ -33,6 +33,9 @@ const INVENTORY: Record<string, string[]> = {
   "Tabs.tsx": ["Tabs", "TabPanel"],
   "TextInput.tsx": ["TextInput"],
   "Select.tsx": ["Select"],
+  // #1169 knowledge UI (disclosed inventory update): the file
+  // picker joins as a primitive so no tab renders a raw control.
+  "FileInput.tsx": ["FileInput"],
   "Checkbox.tsx": ["Checkbox"],
   "Modal.tsx": ["Modal"],
   "Table.tsx": ["Table"],

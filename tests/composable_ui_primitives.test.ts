@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, Modal, Table, Skeleton, Checkbox, PageShell, PageSection } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, FileInput, Modal, Table, Skeleton, Checkbox, PageShell, PageSection } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -274,6 +274,17 @@ describe("TextInput + Select (#492)", () => {
     );
     expect(element.props.label).toBe("Accent Color");
     expect(element.props.value).toBe("#6366f1");
+  });
+
+  it("FileInput carries a wired label and forces type file (#1169 knowledge UI)", () => {
+    const element = React.createElement(FileInput, {
+      label: "File",
+      onChange: () => {},
+    });
+    expect(element.props.label).toBe("File");
+    // The primitive hardcodes type="file" (it is omitted from the
+    // accepted props), so no caller can turn it into a text field.
+    expect("type" in element.props).toBe(false);
   });
 });
 
