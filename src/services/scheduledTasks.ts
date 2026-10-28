@@ -1306,17 +1306,19 @@ export class ScheduledTasksService {
       // flag-gated. Flag OFF → the block is skipped and the
       // run goes direct (scheduled runs return to direct by
       // default until the flag is enabled). Flag ON → the
-      // workflow is REQUIRED: a null start throws, so the
+      // workflow is REQUIRED: a failed start throws, so the
       // tick records a failure (run_failed audit) instead of
       // silently running direct.
       const goalWorkflowOn = await (
         await import("../features/createFeatureFlagPort")
       ).createFeatureFlagPort(this.env).isEnabled("goal_workflow");
       if (!chainMode && goalWorkflowOn) {
-        const { buildGoalScreenCommand, tryStartGoalScreenWorkflow } =
+        const { buildGoalScreenCommand, startGoalScreenWorkflow } =
           await import("./goalScreenWorkflowSubmission");
+        const { createObservabilitySink } =
+          await import("../observability/createObservabilityPorts");
         const { resolveIaaaTenant } = await import("../security/iaaaGithubEndToEnd");
-        const handle = await tryStartGoalScreenWorkflow(
+        const handle = await startGoalScreenWorkflow(
           this.env,
           buildGoalScreenCommand({
             jobId: idempotencyKey,
@@ -1333,6 +1335,7 @@ export class ScheduledTasksService {
             ...(options.environment ? { environment: options.environment } : {}),
             ...(providerFallback ? { provider: "yahoo" as const, providerFallback } : {}),
           }),
+          createObservabilitySink(this.env),
         );
         if (handle) {
           this.audit("goal_screen.workflow_submitted", {
@@ -1353,13 +1356,6 @@ export class ScheduledTasksService {
               ...(providerFallback ? { providerFallback } : {}),
             },
           };
-        }
-        if (!handle) {
-          const { workflowPortsUnavailableReason } = await import("../workflows/createWorkflowPorts");
-          const reason = workflowPortsUnavailableReason(this.env) ?? "start_failed";
-          throw new Error(
-            `goal_workflow_start_failed (${reason}): goal workflow could not be started in this environment.`,
-          );
         }
       }
       const out = await runtime.executeGoalScreenRun({
@@ -1450,6 +1446,9 @@ export class ScheduledTasksService {
         goalKind: options.goalKind,
         scenarioId: options.scenarioId,
         error: err.message,
+        // Issue #2065 (remainder): the typed failure code rides the
+        // audit, so a failed start is diagnosable without log access.
+        ...(typeof err?.code === "string" ? { errorCode: err.code } : {}),
         ...(providerFallback ? { providerFallback } : {}),
       });
       if (this.orm?.messages) {
