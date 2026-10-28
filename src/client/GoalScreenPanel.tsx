@@ -31,6 +31,12 @@ import { Button, Checkbox, Select, Table, TextInput } from "./components/ui";
  * guidance is the way back. Flag OFF → the POST returns
  * the direct result as before.
  *
+ * Issue #2129: the tracking handle persists in sessionStorage
+ * (per-tab) and resumes on mount with its original deadline;
+ * with no handle, the newest stored goal run loads as the
+ * previous result — a reload never shows a bare form for a run
+ * that already exists.
+ *
  * The goal-kind list below is presentational: the server validates
  * goalKind against the canonical GOAL_KINDS and 400s anything else.
  */
@@ -109,6 +115,59 @@ interface GoalScreenPanelProps {
   userLogin?: string;
 }
 
+/** Issue #2129: the staged tracking handle, persisted per-tab so
+ * a reload resumes the same run instead of showing a bare form.
+ * sessionStorage (not localStorage): a handle must die with its
+ * tab, never resurrect a stale run in a later session. All three
+ * helpers are best-effort — storage failures never break tracking. */
+export const GOAL_TRACKING_KEY = "goal-screen:tracking";
+
+export interface GoalTrackingHandle {
+  jobId: string;
+  statusUrl: string;
+  startedAtMs: number;
+}
+
+export function loadGoalTracking(): GoalTrackingHandle | null {
+  try {
+    const raw = sessionStorage.getItem(GOAL_TRACKING_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<GoalTrackingHandle>;
+    if (
+      typeof parsed.jobId !== "string" ||
+      typeof parsed.statusUrl !== "string" ||
+      typeof parsed.startedAtMs !== "number"
+    ) {
+      return null;
+    }
+    return { jobId: parsed.jobId, statusUrl: parsed.statusUrl, startedAtMs: parsed.startedAtMs };
+  } catch {
+    return null;
+  }
+}
+
+export function persistGoalTracking(handle: GoalTrackingHandle): void {
+  try {
+    sessionStorage.setItem(GOAL_TRACKING_KEY, JSON.stringify(handle));
+  } catch {
+    // Best-effort; in-memory tracking still works.
+  }
+}
+
+/** Clear only this run's handle — a superseded loop must never
+ * wipe a newer run's handle (see the gen guard in trackStagedRun). */
+export function clearGoalTracking(jobId?: string): void {
+  try {
+    if (jobId !== undefined) {
+      const current = loadGoalTracking();
+      if (current && current.jobId !== jobId) return;
+    }
+    sessionStorage.removeItem(GOAL_TRACKING_KEY);
+  } catch {
+    // Best-effort.
+  }
+}
+
 const fieldStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -126,6 +185,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<GoalScreenResult | null>(null);
+  const [previousResult, setPreviousResult] = useState(false);
   const [backtest, setBacktest] = useState<BacktestResult | null>(null);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState("");
@@ -148,9 +208,13 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
     [result]
   );
 
-  const trackStagedRun = async (jobId: string, statusUrl: string) => {
+  const trackStagedRun = async (jobId: string, statusUrl: string, startedAtMs: number = Date.now()) => {
     const gen = trackGen.current;
-    const deadline = Date.now() + 10 * 60 * 1000;
+    // Issue #2129: persist at track start so a reload resumes
+    // this run; the deadline stays absolute from the ORIGINAL
+    // submit (a resumed loop does not get a fresh 10 minutes).
+    persistGoalTracking({ jobId, statusUrl, startedAtMs });
+    const deadline = startedAtMs + 10 * 60 * 1000;
     while (Date.now() < deadline) {
       if (trackGen.current !== gen) return;
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -168,6 +232,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
             `Could not track the staged run (HTTP ${res.status}). Your previous result is kept — find the run in Screening → Reports once it lands.`,
           );
           setTracking(null);
+          clearGoalTracking(jobId);
           return;
         }
         history = (await res.json()) as typeof history;
@@ -176,6 +241,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
           "Could not track the staged run. Your previous result is kept — find the run in Screening → Reports once it lands.",
         );
         setTracking(null);
+        clearGoalTracking(jobId);
         return;
       }
       const stages: StageRow[] = (history.jobs ?? [])
@@ -211,6 +277,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
             `Staged run failed at the analysis stage: ${shardRow.detail ?? "screen failed"}. Your previous result is kept.`,
           );
           setTracking(null);
+          clearGoalTracking(jobId);
           return;
         }
         let inner: { stored?: boolean; reportId?: string; storeError?: string } = {};
@@ -227,6 +294,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
             `Staged run could not be stored: ${inner.storeError ?? "store failed"}. Your previous result is kept.`,
           );
           setTracking(null);
+          clearGoalTracking(jobId);
           return;
         }
         const reportId = inner.reportId;
@@ -235,6 +303,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
             "Run stored but the report could not be located — find it in Screening → Reports.",
           );
           setTracking(null);
+          clearGoalTracking(jobId);
           return;
         }
         try {
@@ -249,9 +318,11 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
           if (!data.body?.result) throw new Error("Stored run has no result.");
           if (trackGen.current !== gen) return;
           setResult(data.body.result);
+          setPreviousResult(false);
           setBacktest(null);
           setBacktestError("");
           setTracking(null);
+          clearGoalTracking(jobId);
           const deliverRow = (history.jobs ?? []).find((row) => row.stage === "deliver");
           if (deliverRow && deliverRow.status === "failed") {
             setError(`Run complete and stored, but delivery failed: ${deliverRow.detail ?? "deliver failed"}`);
@@ -262,6 +333,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
             err instanceof Error ? err.message : "Stored run could not be loaded.",
           );
           setTracking(null);
+          clearGoalTracking(jobId);
         }
         return;
       }
@@ -271,7 +343,55 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
     setError(
       "The staged run is still processing. Your previous result is kept — track it via the job link below, or find the run in Screening → Reports once it lands.",
     );
+    clearGoalTracking(jobId);
   };
+
+  // Issue #2129: best-effort read-back of the newest stored goal
+  // run (the proven Reports read path: /api/runs newest-first,
+  // then /api/reports/:id). Failures are silent — a missing
+  // previous result is not an error state, and the Reports tab
+  // remains the full history.
+  const loadLatestGoalResult = async () => {
+    try {
+      const res = await fetch(`/api/runs?kind=all&limit=100`);
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        runs?: Array<{ id?: unknown; reportId?: unknown; source?: unknown }>;
+      };
+      const newest = (data.runs ?? []).find((r) => r.source === "goal_screen");
+      if (!newest) return;
+      const reportId = newest.reportId ?? newest.id;
+      if (typeof reportId !== "string" || !reportId) return;
+      const reportRes = await globalThis.fetch(`/api/reports/${encodeURIComponent(reportId)}`, {
+        headers: {
+          Accept: "application/json",
+          ...(userLogin ? { "x-user-login": userLogin } : {}),
+        },
+      });
+      if (!reportRes.ok) return;
+      const reportData = (await reportRes.json()) as { body?: { result?: GoalScreenResult } };
+      if (!reportData.body?.result) return;
+      setResult(reportData.body.result);
+      setPreviousResult(true);
+    } catch {
+      // Silent: no previous result to show.
+    }
+  };
+
+  // Issue #2129: a reload must never show a bare form for a run
+  // that already exists. Resume a persisted staged run (with its
+  // ORIGINAL submit deadline), or show the newest stored goal
+  // run as the previous result.
+  useEffect(() => {
+    const handle = loadGoalTracking();
+    if (handle) {
+      setTracking({ jobId: handle.jobId, statusUrl: handle.statusUrl, stages: [], timedOut: false });
+      void trackStagedRun(handle.jobId, handle.statusUrl, handle.startedAtMs);
+    } else {
+      void loadLatestGoalResult();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runScreen = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -295,6 +415,9 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
     // clears only when the new result arrives.
     setTracking(null);
     trackGen.current += 1;
+    // Issue #2129: a new submit supersedes any stored handle; the
+    // staged path re-persists its own, the direct path leaves none.
+    clearGoalTracking();
     try {
       const res = await fetch("/api/screening/goal-screen", {
         method: "POST",
@@ -341,6 +464,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
       // a plain error.
       if (data.result) {
         setResult(data.result);
+        setPreviousResult(false);
         setBacktest(null);
         setBacktestError("");
         if (!res.ok) setError(data.error || "The goal screen failed on every requested asset class.");
@@ -463,6 +587,11 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
 
       {result && (
         <div style={{ marginTop: "1rem" }}>
+          {previousResult && (
+            <p style={{ color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
+              Previous stored run — submit a new goal screen to refresh.
+            </p>
+          )}
           <div
             role="status"
             style={{ ...statusStyle, padding: "var(--space-2) var(--space-3)", borderRadius: "6px", fontWeight: 600 }}
