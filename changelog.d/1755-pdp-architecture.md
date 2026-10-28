@@ -1,0 +1,3 @@
+### Added
+
+- **IAAA PDP architecture (#1755):** portable `PolicySnapshot` form of the compiled role-grant tables (export + validated parse) behind a `PolicyProvider` port, a `PolicyDecisionPoint` port with a JSON-serializable request/response contract (in-process adapter only; no network endpoint), a real `AttributeProvider` (PIP) port so the PDP reads memberships only through the provider, and one shared `evaluateRoutePep()` gateway pattern adopted at the four `integration:connect` sites. No enforcement decision changes; compiled policy stays the default and the platform-only snapshot switch (`IAAA_PDP_POLICY_SOURCE`) fails closed to compiled when unset or invalid.

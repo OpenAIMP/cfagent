@@ -24,7 +24,9 @@
  */
 
 import {
-  authorize,
+  authorizeWithPolicy,
+  getCompiledPolicySnapshot,
+  membershipStoreToAttributeProvider,
   type AuthorizationDecision,
   type AuthorizationRequest,
   type MembershipStore,
@@ -39,17 +41,27 @@ export interface CheckPermissionInput {
   nowMs: number;
 }
 
-/** PDP decision for one permission check. Allow iff Slice 3 allows. */
+/**
+ * PDP decision for one permission check. Allow iff Slice 3 allows.
+ * #1755: signature unchanged; internally the check now routes
+ * through the PIP port (store adapted to a provider) and the
+ * compiled policy snapshot, so the seam consumes the same PDP core
+ * as the port-based callers. Decisions are identical.
+ */
 export async function checkPermission(
   store: MembershipStore,
   input: CheckPermissionInput,
 ): Promise<AuthorizationDecision> {
-  return authorize(store, {
-    actorInternalUserId: input.internalUserId,
-    tenantId: input.tenantId,
-    permission: input.permission,
-    scope: input.scope,
-    resourceScope: input.resourceScope,
-    nowMs: input.nowMs,
-  });
+  return authorizeWithPolicy(
+    getCompiledPolicySnapshot(),
+    membershipStoreToAttributeProvider(store),
+    {
+      actorInternalUserId: input.internalUserId,
+      tenantId: input.tenantId,
+      permission: input.permission,
+      scope: input.scope,
+      resourceScope: input.resourceScope,
+      nowMs: input.nowMs,
+    },
+  );
 }
