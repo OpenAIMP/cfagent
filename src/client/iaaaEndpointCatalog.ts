@@ -904,6 +904,16 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: GET /api/market-data/quotes",
   },
   {
+    id: "quotes-source",
+    method: "GET|POST",
+    path: "/api/market/quotes/source",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "requireAuth; 503 when AGENT_DB is unbound; 400 on an invalid source value.",
+    source: "src/server.ts branch: GET/POST /api/market/quotes/source",
+  },
+  {
     id: "browser-snapshot",
     method: "POST",
     path: "/api/browser/snapshot",
