@@ -168,6 +168,11 @@
  * delegation sequence is unchanged (same handler, same
  * position).
  *
+ * Issue #1169 (S4-1) added one more — POST /trading/reports/index-backfill (in
+ * handleReportsRoutes, after the trading/reports webhook handler and before
+ * /reports/research/browse) — bringing the pinned array to 263 entries; the
+ * delegation sequence is unchanged (same handler, same position).
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -248,6 +253,7 @@ const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: endsWith(\"/trading/reports/confirm\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/email\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/webhook\")",
+  "handleReportsRoutes :: endsWith(\"/trading/reports/index-backfill\")",
   "handleReportsRoutes :: endsWith(\"/reports/research/browse\")",
   "handleReportsRoutes :: endsWith(\"/runs\")",
   "handleReportsRoutes :: endsWith(\"/reports\")",
