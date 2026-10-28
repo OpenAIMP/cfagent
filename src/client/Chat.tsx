@@ -13,7 +13,7 @@ import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
 import { WorkflowRunsPanel } from "./WorkflowRunsPanel";
 import { AgenticWalletPanel } from "./AgenticWalletPanel";
-import { AdBannerConfig, getStoredAdBannerConfig, saveStoredAdBannerConfig } from "./adBannerConfig";
+import { AdBannerConfig, applyServerAdsConfig, getStoredAdBannerConfig, saveStoredAdBannerConfig, type ServerAdsConfig } from "./adBannerConfig";
 import { PartnerDealsModal } from "./components/PartnerDealsModal";
 import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons, DEFAULT_VISIBLE_NAV_TABS } from "./components/NavigationMenu";
 import { navigateToTab, readTabFromLocation, subscribeToRouteChanges } from "./router";
@@ -26,7 +26,6 @@ import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./them
 import { adAccentPalette } from "./designTokens";
 import { Button, TextInput, Badge, Select, Table, Card, Notice, Modal, PageShell, PageSection, EmptyState } from "./components/ui";
 import { MarkdownContent } from "./chat/MarkdownContent";
-import { getDisplayUserDid } from "../agents/did";
 import { renderInlineFormatted } from "./chat/renderInlineFormatted";
 import { ReasoningView } from "./chat/ReasoningView";
 import { ToolResultView } from "./chat/ToolResultView";
@@ -326,6 +325,28 @@ export function Chat({ user }: { user: User }) {
     setAdBannerConfig(newConfig);
     saveStoredAdBannerConfig(newConfig);
   };
+
+  // Issue #2022: server-resolved ad allowance. The server ad lists
+  // are the enforcement boundary; this display override ANDs the
+  // server allowance with local preference so a Subscribed caller
+  // sees no ad surface even where rendering does not come from a
+  // fetched list (Google units in tabs). A failed fetch leaves local
+  // preference untouched — fail-open to current behavior, never hide
+  // a Free user's ads on a transient failure.
+  const [serverAdsConfig, setServerAdsConfig] = useState<ServerAdsConfig | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/ads/banner-config")
+      .then((resp) => (resp.ok ? resp.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data === "object") setServerAdsConfig(data as ServerAdsConfig);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const effectiveAdBannerConfig = applyServerAdsConfig(adBannerConfig, serverAdsConfig);
 
   useEffect(() => {
     const handleOpenDeals = () => setShowPartnerDealsModal(true);
@@ -1114,7 +1135,7 @@ export function Chat({ user }: { user: User }) {
             key={chatNonce}
             user={user}
             ads={ads}
-            showSponsorSpotlight={adBannerConfig.enabled && adBannerConfig.showSponsorSpotlight && Boolean(adBannerConfig.tabVisibility.chat)}
+            showSponsorSpotlight={effectiveAdBannerConfig.enabled && effectiveAdBannerConfig.showSponsorSpotlight && Boolean(effectiveAdBannerConfig.tabVisibility.chat)}
             onAdClick={handleAdClick}
             onOpenAdsTab={() => {
               handleSelectTab("ads");
@@ -1472,7 +1493,7 @@ export function Chat({ user }: { user: User }) {
                   </span>
                   <span className="did-pill">
                     <span className="did-icon">👤</span>
-                    <code>{getDisplayUserDid(user.login, user.providerId)}</code>
+                    <code>did:user:github:{user.login}</code>
                     <span className="did-role-tag authorizer">Authorizer</span>
                   </span>
                 </div>
@@ -1745,7 +1766,7 @@ export function Chat({ user }: { user: User }) {
                     </div>
                     <div className="proof-field">
                       <label>Human Authorizer DID</label>
-                      <code>{selectedProofTx.authorizerDid || getDisplayUserDid(user.login, user.providerId)}</code>
+                      <code>{selectedProofTx.authorizerDid || `did:user:github:${user.login}`}</code>
                     </div>
                     <div className="proof-field">
                       <label>Executor Agent DID</label>
@@ -1771,7 +1792,7 @@ export function Chat({ user }: { user: User }) {
     referrals: (
           <ReferralsTab
             activeShareRefId={activeShareRefId}
-            adBannerConfig={adBannerConfig}
+            adBannerConfig={effectiveAdBannerConfig}
             categories={categories}
             copiedReferral={copiedReferral}
             copiedShareRefId={copiedShareRefId}
@@ -1822,7 +1843,7 @@ export function Chat({ user }: { user: User }) {
     ),
     revenue: (
           <RevenueTab
-            adBannerConfig={adBannerConfig}
+            adBannerConfig={effectiveAdBannerConfig}
             ads={ads}
             browseTable={browseTable}
             catErrorMsg={catErrorMsg}
@@ -2004,7 +2025,7 @@ export function Chat({ user }: { user: User }) {
                 pendingReportConfirmations={pendingReportConfirmations}
                 onRefreshReportConfirmations={refreshPendingReportConfirmations}
                 onDecideReportConfirmation={handleDecideReportConfirmation}
-                adBannerConfig={adBannerConfig}
+                adBannerConfig={effectiveAdBannerConfig}
                 onUpdateAdBannerConfig={handleUpdateAdBannerConfig}
                 onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
                 {...(brokerProps || {})}
@@ -2064,7 +2085,7 @@ export function Chat({ user }: { user: User }) {
                 pendingReportConfirmations={pendingReportConfirmations}
                 onRefreshReportConfirmations={refreshPendingReportConfirmations}
                 onDecideReportConfirmation={handleDecideReportConfirmation}
-                  adBannerConfig={adBannerConfig}
+                  adBannerConfig={effectiveAdBannerConfig}
                   onUpdateAdBannerConfig={handleUpdateAdBannerConfig}
                   onOpenPartnerDeals={() => setShowPartnerDealsModal(true)}
                   {...(brokerProps || {})}
@@ -2090,7 +2111,7 @@ export function Chat({ user }: { user: User }) {
       />
 
       {/* External Ad Network Monetization Strip (Configurable via Settings) */}
-      {adBannerConfig.enabled && adBannerConfig.showAdNetworkStrip && Boolean(adBannerConfig.tabVisibility[tab]) && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
+      {effectiveAdBannerConfig.enabled && effectiveAdBannerConfig.showAdNetworkStrip && Boolean(effectiveAdBannerConfig.tabVisibility[tab]) && externalAds.length > 0 && externalAds[activeExtAdIndex] && (
         <div className="external-ad-banner-strip">
           <div className="ext-ad-badge-group">
             <span className="ext-network-badge">
