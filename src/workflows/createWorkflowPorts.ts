@@ -48,6 +48,21 @@ function asWorkflowBinding(value: unknown): WorkflowBindingLike | null {
  * create/get) also yields null, with a warning — callers
  * fall back to legacy behavior rather than crashing.
  */
+/**
+ * Issue #2065: why the port cannot be built, as a stable code the
+ * callers put in their failure responses — so an operator can tell a
+ * missing binding from a rejected start without reading worker logs.
+ */
+export type WorkflowPortsUnavailableReason = "workflow_binding_unavailable" | "projection_store_unavailable";
+
+export function workflowPortsUnavailableReason(
+  env: WorkflowEnv,
+): WorkflowPortsUnavailableReason | null {
+  if (!asWorkflowBinding(env.SCREENER_WORKFLOW)) return "workflow_binding_unavailable";
+  if (!env.AGENT_DB) return "projection_store_unavailable";
+  return null;
+}
+
 export function createWorkflowPorts(env: WorkflowEnv): WorkflowPort | null {
   const binding = asWorkflowBinding(env.SCREENER_WORKFLOW);
   if (!binding) {

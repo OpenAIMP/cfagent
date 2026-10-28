@@ -1,0 +1,3 @@
+### Fixed
+
+- **Goal workflow start repaired and diagnosed (#2065):** a rejected derived instance id (over the provider's 100-character ceiling or rejected characters) no longer fails the run — the start retries once with a short provider-safe id while the job id stays in params for tracing; an existing instance is still adopted. When every attempt fails, the original provider error is preserved instead of being replaced by "start_failed". The coded 500 now carries a `reason` (`workflow_binding_unavailable` / `projection_store_unavailable` / `start_failed`) so the failing dependency is visible without worker-log access.
