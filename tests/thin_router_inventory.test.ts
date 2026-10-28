@@ -155,10 +155,11 @@
  * across instances, the adapter and submit route call the port
  * directly, so no hop-only endpoint needs to exist.
  *
- * Issue #2120 (slice 1) added two — POST /search/agent and POST
- * /search/knowledge (in handleSearchHubRoutes, after the
- * knowledgeCorpus handler) — bringing the pinned array to 256
- * entries and the delegation sequence to 28 calls.
+ * Issue #2137 added three — the checkout UI support routes
+ * (pricing, submission check-payment, goal-command, in
+ * handleAgenticPaymentsRoutes, after the submission-status
+ * endpoint) — bringing the pinned array to 257 entries; the
+ * delegation sequence is unchanged (same handler, same position).
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -180,7 +181,6 @@ const HANDLER_FILE: Record<string, string> = {
   "handleEnrichmentRoutes": "enrichment.ts",
   "handleWorkflowRunsRoutes": "workflowRuns.ts",
   "handleKnowledgeCorpusRoutes": "knowledgeCorpus.ts",
-  "handleSearchHubRoutes": "searchHub.ts",
   "handleAutopilotRoutes": "autopilot.ts",
   "handleMemoryResetRoutes": "memoryReset.ts",
   "handlePaymentsRoutes": "payments.ts",
@@ -211,7 +211,6 @@ const EXPECTED_DELEGATIONS = [
   "handleEnrichmentRoutes",
   "handleWorkflowRunsRoutes",
   "handleKnowledgeCorpusRoutes",
-  "handleSearchHubRoutes",
   "handleAutopilotRoutes",
   "handleMemoryResetRoutes",
   "handleReferralsAdsRoutes",
@@ -274,8 +273,6 @@ const EXPECTED_INVENTORY = [
   "handleWorkflowRunsRoutes :: === \"/api/workflow-runs\"",
   "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/file\")",
   "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/corpus\")",
-  "handleSearchHubRoutes :: endsWith(\"/search/agent\")",
-  "handleSearchHubRoutes :: endsWith(\"/search/knowledge\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/jobs\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/state\")",
@@ -315,6 +312,9 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/tenant-settings\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submit\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submission-status\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/pricing\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submission/check-payment\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/goal-command\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/budget-state\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/payments\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/auto-approve-limit\")",

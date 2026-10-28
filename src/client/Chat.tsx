@@ -39,8 +39,8 @@ import { EndpointsTab } from "./chat/tabs/EndpointsTab";
 import { ApprovalsPanel } from "./ApprovalsPanel";
 import { DocsAndReportsPanel } from "./DocsAndReportsPanel";
 import { PaymentWorkflowAssurance } from "./PaymentWorkflowAssurance";
+import { CheckoutPanel } from "./CheckoutPanel";
 import { SocialPostingPanel } from "./SocialPostingPanel";
-import { SearchHub } from "./search/SearchHub";
 import {
   isTabFeatureEnabled,
   TAB_TO_FEATURE_MAP,
@@ -1474,6 +1474,9 @@ export function Chat({ user }: { user: User }) {
     "payment-assurance": (
           <PaymentWorkflowAssurance userLogin={user.login} />
     ),
+    "checkout": (
+          <CheckoutPanel userLogin={user.login} />
+    ),
     payments: (
           <div className="payments-view">
             <PageShell
@@ -1901,11 +1904,6 @@ export function Chat({ user }: { user: User }) {
             setTab={handleSelectTab}
             tables={tables}
           />
-    ),
-    search: (
-      <ErrorBoundary label="Search">
-        <SearchHub />
-      </ErrorBoundary>
     ),
     social: (
           <SocialPostingPanel />

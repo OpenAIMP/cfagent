@@ -130,6 +130,22 @@ export const ROUTES = [
     },
   },
   {
+    id: "checkout",
+    navGroup: "payments",
+    crumb: "Checkout",
+    category: "Platform",
+    icon: "Payments",
+    description:
+      "Pay for a screener run or manage a subscription: per-run checkout with the failure policy disclosed before payment, and plan purchase, status, and cancel-at-period-end",
+    navEntry: {
+      label: "Checkout",
+      shortLabel: "Checkout",
+      navOrder: 23,
+      defaultVisible: true,
+      badge: "Testnet",
+    },
+  },
+  {
     id: "docs",
     navGroup: "docs",
     crumb: "Docs & Reports",
@@ -382,21 +398,6 @@ export const ROUTES = [
       defaultVisible: true,
       badge: "Multi",
       badgeType: "pro",
-    },
-  },
-  {
-    id: "search",
-    navGroup: "search",
-    crumb: "Search",
-    category: "Intelligence",
-    icon: "Research",
-    description:
-      "One search hub: NLQ records, AI search agent, semantic report search, agent memory, platform knowledge, and tool catalog",
-    navEntry: {
-      label: "Search",
-      shortLabel: "Search",
-      navOrder: 23,
-      defaultVisible: true,
     },
   },
   {

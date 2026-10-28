@@ -36,6 +36,14 @@ export const FAMILY_PRICES: Record<ScreenerFamily, number> = {
   strategy: 0.1,
 };
 
+/**
+ * The failure policy, disclosed BEFORE any payment (gate + pricing
+ * route share this one string so the UI can never drift from the
+ * gate). Prices above are PROPOSED, not owner-approved.
+ */
+export const PAYMENT_DISCLOSURE =
+  "One charge per run-request. Shards, stages, retries and re-serves are free. Automated refunds are not available in v1; a paid run that fails gets a one-time replacement-run credit. Test-network build: no mainnet payment is accepted.";
+
 export const ALLOWED_TEST_NETWORKS = ["base-sepolia", "ethereum-sepolia"] as const;
 
 export interface CfPayCheckoutClient {
@@ -137,7 +145,7 @@ export class CfPayMonetizationGate {
     this.byRun.set(run.id, { runRequestId: run.id, userId: account.userId, tenantId: run.tenantId ?? account.tenantId, family: run.family, trigger: run.trigger, priceUSD, status: "payment_required" });
     return {
       allowed: false, status: "payment_required", httpStatus: 402, runRequestId: run.id, priceUSD, family: run.family, checkout,
-      disclosure: "One charge per run-request. Shards, stages, retries and re-serves are free. Automated refunds are not available in v1; a paid run that fails gets a one-time replacement-run credit. Test-network build: no mainnet payment is accepted.",
+      disclosure: PAYMENT_DISCLOSURE,
     };
   }
 

@@ -1,10 +1,8 @@
 /**
  * Route table contract (#1804 S1, issue #1808): the table is the single
- * source of truth for navigation, so its shape is pinned — 30 entries
- * (24 nav entries + 6 alias ids), sorted ids, complete metadata, alias
+ * source of truth for navigation, so its shape is pinned — 29 entries
+ * (23 nav entries + 6 alias ids), sorted ids, complete metadata, alias
  * groups resolving to real nav entries, and derived defaults.
- * (#2120 slice 1 added the Search route id; pin updated in the same
- * PR per the §7 pin rule.)
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -23,6 +21,7 @@ const EXPECTED_IDS = [
   "audit",
   "autopilot",
   "chat",
+  "checkout",
   "docs",
   "endpoints",
   "ledger",
@@ -42,7 +41,6 @@ const EXPECTED_IDS = [
   "scanner",
   "schedules",
   "screeners",
-  "search",
   "social",
   "trading",
   "voice",
@@ -98,7 +96,7 @@ describe("route table", () => {
     }
   });
 
-  it("derives visibility defaults: the 23 nav entries, all visible", () => {
+  it("derives visibility defaults: the 24 nav entries, all visible", () => {
     const navIds = ROUTES.filter(hasNavEntry).map((r) => r.id).sort();
     expect(Object.keys(DEFAULT_VISIBLE_NAV_TABS).sort()).toEqual(navIds);
     expect(Object.values(DEFAULT_VISIBLE_NAV_TABS).every((v) => v === true)).toBe(true);
