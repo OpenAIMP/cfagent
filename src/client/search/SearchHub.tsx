@@ -7,6 +7,7 @@ import { Button, TextInput } from "../components/ui";
 import type { PendingQuery, TabHealth } from "./searchTabTypes";
 import { NlqSearchTab } from "./tabs/NlqSearchTab";
 import { SearchAgentTab } from "./tabs/SearchAgentTab";
+import { SearchMasTab } from "./tabs/SearchMasTab";
 import { SemanticSearchTab } from "./tabs/SemanticSearchTab";
 import { MemorySearchTab } from "./tabs/MemorySearchTab";
 import { KnowledgeTab } from "./tabs/KnowledgeTab";
@@ -20,7 +21,10 @@ import { ToolSearchTab } from "./tabs/ToolSearchTab";
  * the DOM, hidden when inactive) + per-tab ErrorBoundary.
  *
  * Each tab is its own result list — NEVER merged across tabs: result
- * shapes and provenance differ per system. The hub adds only chrome:
+ * shapes and provenance differ per system. The one deliberate
+ * exception is the mas-search tab (#1169 S4-2): its value IS the
+ * merge (scheduled reports + AI Search chunks in one list), and each
+ * chunk is source-labeled so the merge stays visible. The hub adds only chrome:
  * a shared query ("Search all tabs" runs the query on every tab and
  * reports each tab's hit count in the health strip — the cross-tab
  * comparison of §5d-6), a health strip from already-returned error
@@ -35,6 +39,7 @@ export const SEARCH_HUB_TABS = [
   "memory",
   "knowledge",
   "tools",
+  "mas-search",
 ] as const;
 
 export type SearchHubTab = (typeof SEARCH_HUB_TABS)[number];
@@ -50,6 +55,7 @@ const TAB_META: Array<{ id: SearchHubTab; label: string; tooltip: string }> = [
   { id: "memory", label: "Memory", tooltip: "Agent memory (plans, outcomes)" },
   { id: "knowledge", label: "Knowledge", tooltip: "Platform capability catalog" },
   { id: "tools", label: "Tools", tooltip: "MCP tool + endpoint catalog" },
+  { id: "mas-search", label: "MAS Search", tooltip: "Merged scheduled reports + AI Search results" },
 ];
 
 const RECENT_KEY = "searchhub.recent";
@@ -119,6 +125,8 @@ export function SearchHub() {
         return <KnowledgeTab {...props} />;
       case "tools":
         return <ToolSearchTab {...props} />;
+      case "mas-search":
+        return <SearchMasTab {...props} />;
     }
   }
 
