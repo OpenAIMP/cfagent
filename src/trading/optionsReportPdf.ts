@@ -12,6 +12,7 @@
 import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import type { OptionScreenResult, ScreenedOptionContractItem } from "../types";
 import type { OptionsPartialQualification } from "./options/opportunityScanner";
+import { buildNamesByStrategyRows, buildStrategiesByNameRows } from "./optionsReportMatrix";
 
 
 /** Print palette (#473): named print mirrors of the semantic text roles —
@@ -206,6 +207,62 @@ export async function generateOptionsPdf(result: OptionScreenResult | any): Prom
   } else {
     text(ctx, "No matching contracts or opportunities found.", { size: 10, color: PRINT_MUTED });
     rule(ctx);
+  }
+
+  // Issue #2091 matrix sections: the two directions of the chain-vs-
+  // strategies evaluation. Rendered ONLY when the run carries a matrix
+  // (scheduled scans and adapted scans do; manual runs without a scan
+  // and legacy rows do not — they keep the previous shape).
+  if (Array.isArray(result.matrix) && result.matrix.length > 0) {
+    const byName = buildStrategiesByNameRows(result.matrix);
+    const byStrategy = buildNamesByStrategyRows(Array.isArray(result.typeRollup) ? result.typeRollup : []);
+    text(ctx, "Strategies fit my name", { size: 12, bold: true });
+    ctx.y -= 4;
+    for (const row of byName.slice(0, 50)) {
+      ensureSpace(ctx, 28);
+      text(ctx, `${row.symbol} — ${row.passedCount} of ${row.evaluatedCount} evaluated strategies fit`, { size: 9, bold: true });
+      for (const passing of row.passing.slice(0, 5)) {
+        const composite = passing.bestComposite !== null ? `composite ${passing.bestComposite}` : "no composite";
+        const expiry = passing.bestExpirationDate ? `, exp ${passing.bestExpirationDate}` : "";
+        text(ctx, `  ${passing.strategyType} — ${passing.label} (${composite}${expiry})`, { size: 8, color: PRINT_MUTED });
+      }
+      if (row.passing.length > 5) {
+        text(ctx, `  ... and ${row.passing.length - 5} more fit`, { size: 8, color: PRINT_FAINT });
+      }
+      ctx.y -= 2;
+    }
+    if (byName.length > 50) {
+      text(ctx, `... and ${byName.length - 50} more names`, { size: 9, color: PRINT_FAINT });
+    }
+    rule(ctx);
+    if (byStrategy.length > 0) {
+      text(ctx, "Names fit my strategy", { size: 12, bold: true });
+      ctx.y -= 4;
+      for (const row of byStrategy.slice(0, 25)) {
+        ensureSpace(ctx, 28);
+        const best = row.bestSymbol ? `, best ${row.bestSymbol}${row.bestComposite !== null ? ` (composite ${row.bestComposite})` : ""}` : "";
+        text(ctx, `${row.strategyType} — ${row.label}: ${row.symbolsPassed} of ${row.symbolsEvaluated} symbols passed${best}`, { size: 9, bold: true });
+      }
+      if (byStrategy.length > 25) {
+        text(ctx, `... and ${byStrategy.length - 25} more strategies`, { size: 9, color: PRINT_FAINT });
+      }
+      rule(ctx);
+    }
+    const coverage = result.strategyCoverage as
+      | { scope?: string; evaluatedStrategyIds?: string[]; notEvaluated?: Array<{ id: string; reason: string }> }
+      | undefined;
+    if (coverage) {
+      const evaluatedCount = coverage.evaluatedStrategyIds?.length ?? 0;
+      const notEvaluated = coverage.notEvaluated ?? [];
+      text(ctx, `Coverage (${coverage.scope === "all" ? "all wanted strategies" : "thesis strategies"}): ${evaluatedCount} evaluated`, { size: 9, bold: true });
+      for (const entry of notEvaluated.slice(0, 10)) {
+        text(ctx, `  Not evaluated: ${entry.id} — ${entry.reason}`, { size: 8, color: PRINT_MUTED });
+      }
+      if (notEvaluated.length > 10) {
+        text(ctx, `  ... and ${notEvaluated.length - 10} more not evaluated`, { size: 8, color: PRINT_FAINT });
+      }
+      rule(ctx);
+    }
   }
 
   // Methodology footer

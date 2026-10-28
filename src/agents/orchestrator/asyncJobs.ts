@@ -837,6 +837,17 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
               : "missing",
         };
         result = { status: "ready", artifacts, missingKeys: missing, perFormat, ...(xlsxNote ? { xlsxNote } : {}), ...(csvNote ? { csvNote } : {}) };
+        // Issue #2091: sharded options runs produced blobs but no
+        // record — the serve stage now writes the canonical row +
+        // history row so Docs and Reports can list the run. Record
+        // failures warn inside the helper and never fail the job.
+        if (outcome.kind === "options" && outcome.timestamp) {
+          const { recordOptionsServeReport } = await import("../../services/optionsServeRecord");
+          await recordOptionsServeReport(
+            { orm: ctx.getOrm() as never, storage: ctx.agentCtx.storage },
+            { ...outcome, userLogin },
+          );
+        }
       }
     } else if (job.capability === "followup.deliver") {
       // Issue #1123 S3: deliver the shared report artifact on one

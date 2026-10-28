@@ -11,6 +11,7 @@ import type { EventCalendarInfo, StrategyCandidate, StrategyRequest } from "./st
 import { DEFAULT_MAX_DTE, MAX_EXPIRATIONS_PER_SYMBOL, MAX_SCAN_SYMBOLS as DEFAULT_MAX_SCAN_SYMBOLS, type DynamicOptionsScreener } from "../optionsScreener";
 import { getOpportunityScannerConfig, type EtapiFitGateConfig } from "../../config/etapiConfig";
 import { defaultRegistry } from "./strategies/catalog";
+import { buildStrategyCoverage } from "../optionsReportMatrix";
 import { applyProfileFields, profileDisclosure, toProfileRef, type ProfileRef, type StrategyProfile } from "./strategyProfile";
 import type { ScreenedOptionContractItem } from "../../types";
 import { RiskProfileComposite, type KernelCandidate } from "../../services/recommendationKernel";
@@ -375,6 +376,8 @@ export interface ScanRequestSnapshot {
     maxPlannedLoss: number;
     minRewardRisk: number;
     allowedStrategies: StrategyRequest["allowedStrategies"];
+    /** Issue #2091: the scan's strategy scope, stamped by scan(). */
+    evaluateAllStrategies?: boolean;
     statedTarget?: { price: number; symbol?: string };
     perSymbol?: Record<string, ScanSymbolOverride>;
   };
@@ -474,6 +477,17 @@ export interface OpportunityScanResult {
   /** Coverage accounting (issue #27): how much of the requested
    *  universe was actually judged. */
   coverage: ScanCoverage;
+  /** Issue #2091: the chain horizon this scan actually fetched (the
+   *  dataMaxDte used for the snapshot load), and which wanted strategies
+   *  the fetched chain evaluated vs not — with each not-evaluated
+   *  strategy's reason named. Collation recomputes it from the merged
+   *  matrix; the monolithic scan stamps it directly. */
+  fetchedMaxDte?: number;
+  strategyCoverage?: {
+    scope: "all" | "thesis";
+    evaluatedStrategyIds: string[];
+    notEvaluated: Array<{ id: string; label: string; reason: string }>;
+  };
   /** Issue #1290 (#1173 R6): set when coverage is partial — the run
    *  publishes as a *qualified partial* (the options mirror of the
    *  stock #462 doctrine): never presented as a complete scan, and
@@ -620,6 +634,15 @@ export function collateOpportunityScanShards(
       targetEmMultiples: { ...baseOppConfig.targetEmMultiples },
     },
     coverage,
+    // Issue #2091: recomputed from the merged matrix, not inherited from
+    // a single shard — a shard's coverage names only its own symbols.
+    fetchedMaxDte: first?.fetchedMaxDte,
+    strategyCoverage: buildStrategyCoverage(
+      matrix,
+      first?.requestSnapshot.template.allowedStrategies,
+      first?.fetchedMaxDte,
+      first?.strategyCoverage?.scope ?? (first?.requestSnapshot.template.evaluateAllStrategies === true ? "all" : "thesis"),
+    ),
   };
   result.partial = optionsPartialQualification(coverage, skipped);
   return result;
@@ -1323,6 +1346,7 @@ export class OpportunityScanner {
           maxPlannedLoss: effectiveTemplate.maxPlannedLoss,
           minRewardRisk: effectiveTemplate.minRewardRisk,
           allowedStrategies: effectiveTemplate.allowedStrategies,
+          evaluateAllStrategies: effectiveTemplate.evaluateAllStrategies,
           statedTarget: effectiveTemplate.statedTarget,
           perSymbol: effectiveTemplate.perSymbol,
         },
@@ -1338,6 +1362,16 @@ export class OpportunityScanner {
       },
       coverage,
       ...(partial ? { partial } : {}),
+      // Issue #2091: the fetched horizon + which wanted strategies the
+      // fetched chain evaluated, so reports can name not-evaluated
+      // strategies with their reason instead of dropping them silently.
+      fetchedMaxDte: dataMaxDte,
+      strategyCoverage: buildStrategyCoverage(
+        matrix,
+        requestTemplate.allowedStrategies,
+        dataMaxDte,
+        requestTemplate.evaluateAllStrategies === true ? "all" : "thesis",
+      ),
     };
   }
 }
