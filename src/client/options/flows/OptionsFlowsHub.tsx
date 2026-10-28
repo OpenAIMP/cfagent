@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
+import { useUrlSyncedTabs } from "../../useUrlSyncedTabs";
 import { Button, Table, PageShell, type TableColumn } from "../../components/ui";
 import "./optionsFlows.css";
 import {
@@ -33,6 +34,15 @@ import type { RiskSubject } from "../riskManagementEngine";
 import { CapabilityNavBar, CopilotTriggerButton } from "../../components/CapabilityNavBar";
 
 export type FlowSubTab = "summary" | "live" | "historical" | "news" | "congress" | "insider";
+
+export function isValidFlowSubTab(tab: unknown): tab is FlowSubTab {
+  return (
+    typeof tab === "string" &&
+    (["summary", "live", "historical", "news", "congress", "insider"] as readonly string[]).includes(
+      tab,
+    )
+  );
+}
 
 interface OptionsFlowsHubProps {
   user?: { name: string; login: string };
@@ -74,7 +84,6 @@ export function OptionsFlowsHub({
   onSendPrompt,
   onTradeSymbol,
 }: OptionsFlowsHubProps) {
-  const [subTab, setSubTab] = useState<FlowSubTab>("live");
   const [filterConfig, setFilterConfig] = useState<FlowFilterConfig>(DEFAULT_FILTER_CONFIG);
   const [activePreset, setActivePreset] = useState<SavedFilterPreset | null>(DEFAULT_SAVED_PRESETS[0]);
   const [savedPresets, setSavedPresets] = useState<SavedFilterPreset[]>(DEFAULT_SAVED_PRESETS);
@@ -218,22 +227,30 @@ export function OptionsFlowsHub({
     return calculateFlowSummary(filteredMarket);
   }, [marketFlowItems, liveItems, filterConfig]);
 
-  const handleSwitchSubTab = (tab: FlowSubTab) => {
-    setSubTab(tab);
-    if (tab === "summary") {
-      // When returning to Summary, clear single ticker drilldown so full dynamic market list is displayed
-      if (filterConfig.tickers.length > 0) {
-        const nextCfg: FlowFilterConfig = {
-          ...filterConfig,
-          tickers: [],
-        };
-        setFilterConfig(nextCfg);
-        fetchLiveFlows(nextCfg);
-      } else if (marketFlowItems.length === 0) {
-        fetchLiveFlows(filterConfig);
+  // Tabbed browsing via the shared hook (S2, #2027): the flows inner tabs
+  // live in `?view=` (no legacy param — flows never had one). Panels stay
+  // conditional (no retention change: hidden panels must not keep polling).
+  // The Summary side effects run on every tab change, including back/forward.
+  const { activeTab: subTab, handleTabChange } = useUrlSyncedTabs<FlowSubTab>({
+    param: "view",
+    isValid: isValidFlowSubTab,
+    defaultTab: "live",
+    onTabChange: (tab) => {
+      if (tab === "summary") {
+        // When returning to Summary, clear single ticker drilldown so full dynamic market list is displayed
+        if (filterConfig.tickers.length > 0) {
+          const nextCfg: FlowFilterConfig = {
+            ...filterConfig,
+            tickers: [],
+          };
+          setFilterConfig(nextCfg);
+          fetchLiveFlows(nextCfg);
+        } else if (marketFlowItems.length === 0) {
+          fetchLiveFlows(filterConfig);
+        }
       }
-    }
-  };
+    },
+  });
 
   const handleClearTickerDrilldown = () => {
     const nextCfg: FlowFilterConfig = {
@@ -287,7 +304,7 @@ export function OptionsFlowsHub({
       tickers: [symbol],
     };
     setFilterConfig(nextCfg);
-    setSubTab("live");
+    handleTabChange("live");
     fetchLiveFlows(nextCfg);
   };
 
@@ -528,7 +545,7 @@ export function OptionsFlowsHub({
       <CapabilityNavBar
         ariaLabel="Institutional Options Flows"
         activeTabId={subTab}
-        onTabChange={(id) => handleSwitchSubTab(id as FlowSubTab)}
+        onTabChange={handleTabChange}
         className="flows-capability-nav"
         tabs={[
           {
@@ -609,7 +626,7 @@ export function OptionsFlowsHub({
             </Button>
             <div
               className="flows-gauge-badge-wrap"
-              onClick={() => handleSwitchSubTab("summary")}
+              onClick={() => handleTabChange("summary")}
               title="Overall Options Market Flow Sentiment Dial"
             >
               <svg className="flows-gauge-svg" viewBox="0 0 40 20">
@@ -711,7 +728,7 @@ export function OptionsFlowsHub({
                   <div className="flow-drilldown-actions">
                     <Button
                       className="flow-drilldown-back-btn"
-                      onClick={() => handleSwitchSubTab("summary")}
+                      onClick={() => handleTabChange("summary")}
                     >
                       ← Return to Market Summary
                     </Button>
