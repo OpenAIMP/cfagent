@@ -19,18 +19,25 @@ import type { SessionData } from "../types";
 
 /**
  * Logout-audit gate. Returns the tenant to attribute to, or null
- * when nothing must be recorded. Null whenever wiring is off, the
- * session has no internalUserId, or the tenant id is unset/blank.
- * A caller that gets null records nothing — it must NOT fall back
- * to a default tenant, because that would fabricate attribution.
+ * when nothing must be recorded. Null whenever wiring is off or
+ * the tenant id is unset/blank. A caller that gets null records
+ * nothing — it must NOT fall back to a default tenant, because
+ * that would fabricate attribution.
+ *
+ * #1760 — the session's internalUserId is deliberately NOT a gate
+ * input anymore: the caller distinguishes a wired logout event
+ * (internalUserId present) from a logout_audit_skipped event
+ * (legacy session, actor "unknown"). Gating the tenant on the
+ * internal id was what made the skip silent: with no tenant, the
+ * hook could record nothing at all. The tenant here comes from
+ * the server-resolved tenant, never from the session, so
+ * resolving it for a legacy session fabricates no identity.
  */
 export function logoutAuditTenant(input: {
   wiringEnabled: boolean;
-  internalUserId?: string;
   tenantId?: string;
 }): string | null {
   if (!input.wiringEnabled) return null;
-  if (!input.internalUserId) return null;
   const tenant = input.tenantId?.trim();
   return tenant ? tenant : null;
 }
