@@ -15,6 +15,7 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
+import type { ScreenerPdfOptions } from "../trading";
 import type { Env } from "../types";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { putReportPdf } from "../services/reportBlobStore";
@@ -31,6 +32,8 @@ export interface AssetRequest {
   fileName?: string;
   /** User scope for the storage namespace. */
   userLogin?: string;
+  /** Issue #2088: PDF options, threaded to the screener generator. */
+  pdfOptions?: ScreenerPdfOptions;
 }
 
 export interface AssetResult {
@@ -66,7 +69,7 @@ export class ReportAssetAgent extends PortThink {
     try {
       const { type, data } = request;
       const { generateReportPdf, getReportFileName } = await import("../services/unifiedReportPipeline");
-      const bytes = await generateReportPdf(type, data);
+      const bytes = await generateReportPdf(type, data, request.pdfOptions);
       const fileName = request.fileName ?? (await getReportFileName(type, data));
 
       const key =
@@ -126,7 +129,8 @@ export async function generatePdfAsset(
   env: { REPORT_ASSET_AGENT?: any },
   userLogin: string,
   type: AssetType,
-  data: unknown
+  data: unknown,
+  pdfOptions?: ScreenerPdfOptions
 ): Promise<AssetResult | null> {
   try {
     const ns = (env as any).REPORT_ASSET_AGENT;
@@ -136,7 +140,7 @@ export async function generatePdfAsset(
       return null;
     }
     const agent = ns.get(ns.idFromName(reportAssetAgentName(userLogin, getServiceUserLogin(env as Env)))) as unknown as ReportAssetAgent;
-    return await agent.generateAsset({ type, data, userLogin });
+    return await agent.generateAsset({ type, data, userLogin, pdfOptions });
   } catch (err) {
     console.warn(`[ReportAssetAgent] generatePdfAsset(${type}) failed:`, err);
     return null;
@@ -151,9 +155,10 @@ export async function generatePdfAssetWithBytes(
   env: { REPORT_ASSET_AGENT?: any },
   userLogin: string,
   type: AssetType,
-  data: unknown
+  data: unknown,
+  pdfOptions?: ScreenerPdfOptions
 ): Promise<{ key: string; fileName: string; bytes: Uint8Array } | null> {
-  const asset = await generatePdfAsset(env, userLogin, type, data);
+  const asset = await generatePdfAsset(env, userLogin, type, data, pdfOptions);
   if (!asset) return null;
   try {
     const ns = (env as any).REPORT_ASSET_AGENT;

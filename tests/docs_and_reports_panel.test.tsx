@@ -227,6 +227,37 @@ describe("DocsAndReportsPanel", () => {
     expect(second.textContent).toContain("—");
   });
 
+  it("renders a recorded leg failure as failed, not a bare dash (#2088)", async () => {
+    payload = {
+      count: 1,
+      runs: [
+        run({
+          xlsxKey: null,
+          xlsxUrl: null,
+          xlsxStatus: "failed",
+          xlsxError: "blob store unavailable",
+          csvKey: null,
+          csvUrl: null,
+          csvStatus: null,
+          csvError: null,
+        }),
+      ],
+    };
+    await renderPanel();
+
+    const rows = container.querySelectorAll("tbody tr");
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    // XLSX failed: a failure badge, not a link and not a bare dash.
+    expect(row.textContent).toContain("failed");
+    const failed = row.querySelector(".docs-artifact-failed");
+    expect(failed).not.toBeNull();
+    expect(failed!.getAttribute("title")).toBe("blob store unavailable");
+    // CSV simply unrecorded: still an honest dash, and only the PDF links.
+    expect([...row.querySelectorAll("a")]).toHaveLength(1);
+    expect(row.textContent).toContain("—");
+  });
+
   it("states an empty index instead of fabricating rows", async () => {
     payload = { count: 0, runs: [] };
     await renderPanel();

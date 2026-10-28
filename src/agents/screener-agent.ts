@@ -1558,6 +1558,12 @@ export class ScreenerAgent extends PortThink {
   private async generateRunPdf(result: ScreenerRunResult): Promise<void> {
     const { runReportPipeline } = await import("../services/unifiedReportPipeline");
     const { putReportPdf, getReportPdf } = await import("../services/reportBlobStore");
+    // Issue #2088: section config — code defaults plus env overrides —
+    // threaded through the pipeline to the screener generator.
+    const { resolveScreenerPdfSectionConfig } = await import("../trading");
+    const pdfOptions = {
+      sections: resolveScreenerPdfSectionConfig(this.env as unknown as Record<string, string | undefined>),
+    };
     const pipelineResult = await runReportPipeline(
       this.env,
       this.ctx.storage as any,
@@ -1571,6 +1577,7 @@ export class ScreenerAgent extends PortThink {
           ? `Scanned ${result.totalScanned} symbols, ${result.matchedCount} matched.`
           : `Screen failed: ${(result as any).error ?? "unknown error"}.`,
         timestamp: result.timestamp,
+        pdfOptions,
       }
     );
     if (pipelineResult.pdfStatus === "generated") {
