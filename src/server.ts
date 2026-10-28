@@ -213,6 +213,7 @@ export { ResearchAgent } from "./agents/research-agent";
 export { TradingAgent } from "./agents/trading-agent";
 export { TradingTradeWorkflow } from "./agents/trading-trade-workflow";
 export { ScreenerScreenWorkflow } from "./workflows/screenerWorkflow";
+export { PaymentWorkflow } from "./workflows/paymentWorkflow";
 export { ReportAssetAgent } from "./agents/report-asset-agent";
 export { SessionStore } from "./security/sessionStore";
 
