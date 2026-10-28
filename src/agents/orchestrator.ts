@@ -105,6 +105,7 @@ import { handleKnowledgeCorpusRoutes } from "./routes/knowledgeCorpus";
 import { handleAutopilotRoutes } from "./routes/autopilot";
 import { handleMemoryResetRoutes } from "./routes/memoryReset";
 import { handlePaymentsRoutes } from "./routes/payments";
+import { handlePaymentAssuranceLiveRoutes } from "./routes/paymentAssuranceLive";
 import { handleAgenticPaymentsRoutes } from "./routes/agenticPayments";
 // Issue #359-08: premium routes live in src/agents/routes/premium.ts;
 // routeRequest delegates to handlePremiumRoutes at the original position.
@@ -2325,6 +2326,19 @@ export class OrchestratorAgent extends PortThink {
       scopedPaymentsFlowModes: this.scopedPaymentsFlowModes,
     });
     if (paymentsResponse) return paymentsResponse;
+
+    // Issue #2059: live PaymentWorkflow assurance routes (test the
+    // live deployed workflow end-to-end with test inputs; no fake
+    // seams). Invoked at this exact position in the sequential
+    // path.endsWith matching sequence (between the payments
+    // handler and the Cloudflare Agentic Payments block); a
+    // non-null return matched. The handler itself enforces the
+    // payment_assurance flag, caller identity, and the
+    // PAYMENT_ASSURANCE_LIVE_LOGINS allowlist.
+    const paymentAssuranceLiveResponse = await handlePaymentAssuranceLiveRoutes(request, url, path, sessionId, {
+      env: this.env,
+    });
+    if (paymentAssuranceLiveResponse) return paymentAssuranceLiveResponse;
 
     // Issue #359-17: Cloudflare Agentic Payments routes (x402 & MPP:
     // GET /payments/agentic/wallet, GET|POST
