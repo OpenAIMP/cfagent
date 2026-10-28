@@ -1316,6 +1316,11 @@ export async function handleScreenerResearchRoutes(
         deliver?: string[];
         emailTo?: string;
         async?: unknown;
+        // Issue #2186 (slice 10): checkout contact for the paid path
+        // only — caller-supplied like the submit route (no verified
+        // email exists in the session). Required when monetization
+        // is ON; ignored when it is OFF.
+        email?: string;
       } | null;
       if (!body || typeof body !== "object") {
         return Response.json({ error: "A JSON body with goalKind or scenarioId is required." }, { status: 400 });
@@ -1416,6 +1421,24 @@ export async function handleScreenerResearchRoutes(
         (await (
           await import("../../features/createFeatureFlagPort")
         ).createFeatureFlagPort(ctx.env).isEnabled("goal_workflow"));
+      // Issue #2186 (slice 10): monetization ON never runs a free
+      // screen. The workflow path below routes through PaymentWorkflow;
+      // the synchronous direct path cannot carry a payment workflow, so
+      // when the workflow path is inactive the run is refused with 402
+      // instead of silently running free. Flag OFF → unchanged.
+      const monetizationOn = await (
+        await import("../../features/createFeatureFlagPort")
+      ).createFeatureFlagPort(ctx.env).isEnabled("monetization");
+      if (monetizationOn && !goalWorkflowOn) {
+        return Response.json(
+          {
+            error: "monetization_enabled_workflow_required",
+            detail:
+              "Monetization is on: goal screens must go through the payment workflow via async workflow submission (async: true with the goal_workflow flag) or the paid submission route.",
+          },
+          { status: 402 },
+        );
+      }
       if (goalWorkflowOn) {
         const { buildGoalScreenCommand, startGoalScreenWorkflow } =
           await import("../../services/goalScreenWorkflowSubmission");
@@ -1426,6 +1449,115 @@ export async function handleScreenerResearchRoutes(
         const { WorkflowError } =
           await import("../../workflows/workflowPorts");
         const idempotencyKey = `goal-screen:manual:${userLogin}:${scenario.goalKind}:${new Date().toISOString()}`;
+        // Issue #2186 (slice 10): monetization ON routes the workflow
+        // submission through PaymentWorkflow instead of starting the
+        // screener workflow directly. The payment workflow gate-checks
+        // (coverage first), consumes coverage, and starts the screener
+        // itself when covered or paid — this branch never starts a
+        // screener, and a payment-workflow start failure answers 503
+        // with no run started. CROSS-LANE (CTO review): this branch
+        // sits inside the CTO-owned goal-workflow submission path
+        // (#1997); it adds a branch only and does not change the
+        // free-path start, audit, or failure mapping below.
+        if (monetizationOn) {
+          const checkoutEmail = typeof body.email === "string" ? body.email.trim() : "";
+          if (!checkoutEmail) {
+            return Response.json(
+              { error: "email (checkout contact) is required when monetization is on." },
+              { status: 400 },
+            );
+          }
+          try {
+            const { createCommercialAdapter, ensureCommercialSchema } =
+              await import("../../data/createCommercialPorts");
+            const { createSubscriptionAdapter, ensureSubscriptionSchema } =
+              await import("../../data/createSubscriptionPorts");
+            const { resolvePaidScreenAccount, buildPaidScreenSubmission } =
+              await import("../../services/paidScreenSubmission");
+            const { startPaymentWorkflowViaBinding } =
+              await import("../../services/paymentWorkflowSubmission");
+            const commercial = createCommercialAdapter(ctx.env as { AGENT_DB?: unknown });
+            const subscriptions = createSubscriptionAdapter(ctx.env as { AGENT_DB?: unknown });
+            if (!commercial || !subscriptions) {
+              return Response.json(
+                { error: "Commercial account store is unavailable; no run started." },
+                { status: 503 },
+              );
+            }
+            await ensureCommercialSchema(commercial.db);
+            await ensureSubscriptionSchema(subscriptions.db);
+            const { account } = await resolvePaidScreenAccount(
+              { commercial, subscriptions },
+              { userId: userLogin, email: checkoutEmail, tenantId: workflowTenantId(ctx.env), nowMs: Date.now() },
+            );
+            const paidCommand = buildGoalScreenCommand({
+              jobId: idempotencyKey,
+              source: "manual",
+              trigger: "manual",
+              userLogin,
+              tenantId: workflowTenantId(ctx.env),
+              scenario,
+              scenarioSource,
+              ...(body.assetClasses
+                ? { assetClasses: body.assetClasses as ("stocks" | "options")[] }
+                : {}),
+              ...(body.symbols ? { symbols: body.symbols } : {}),
+              ...(body.deliver
+                ? { deliverChannels: body.deliver as ("slack" | "email" | "webhook" | "voice")[] }
+                : {}),
+              ...(body.emailTo ? { emailTo: body.emailTo } : {}),
+              ...(body.environment === "TEST" || body.environment === "PROD"
+                ? { environment: body.environment }
+                : {}),
+            });
+            const params = buildPaidScreenSubmission({
+              runRequestId: idempotencyKey,
+              family: "goal",
+              trigger: "manual",
+              tenantId: workflowTenantId(ctx.env),
+              userId: userLogin,
+              email: checkoutEmail,
+              account,
+              screenerCommand: paidCommand,
+            });
+            const started = await startPaymentWorkflowViaBinding(
+              ctx.env.PAYMENT_WORKFLOW as unknown as
+                | import("../../services/paymentWorkflowSubmission").PaymentWorkflowBinding
+                | undefined,
+              params,
+            );
+            try {
+              orm.events.create({
+                id: crypto.randomUUID(),
+                sessionId: userLogin,
+                type: "goal_screen.payment_started",
+                agent: "orchestrator",
+                payload: { principalKind: "session", jobId: idempotencyKey, trigger: "manual", workflowId: started.workflowId },
+                createdAt: new Date().toISOString(),
+              });
+            } catch (auditErr) {
+              console.warn(
+                `[goal-screen-workflow] Audit insertion failed (type=goal_screen.payment_started, login=${userLogin}): ${auditErr instanceof Error ? auditErr.message : String(auditErr)}`,
+              );
+            }
+            return Response.json(
+              { runRequestId: idempotencyKey, workflowId: started.workflowId, status: "payment_started" },
+              { status: 202 },
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            if (/Tenant mismatch/.test(message)) {
+              return Response.json({ error: message }, { status: 403 });
+            }
+            console.warn(
+              `[goal-screen-workflow] Paid start failed for job ${idempotencyKey}: ${message}`,
+            );
+            return Response.json(
+              { error: "Payment workflow could not start; no screener started.", jobId: idempotencyKey },
+              { status: 503 },
+            );
+          }
+        }
         try {
           const handle = await startGoalScreenWorkflow(
             ctx.env,

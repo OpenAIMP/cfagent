@@ -1189,6 +1189,12 @@ export class ScheduledTasksService {
     environment?: "TEST" | "PROD";
     trigger?: "manual" | "scheduled";
     emailTo?: string;
+    /** Issue #2186: schedule kind for paid routing — absent fails
+     *  closed to recurring (coverage-only). No caller sets this yet. */
+    scheduleKind?: "one_off" | "recurring";
+    /** Issue #2186: human authorization at submission for a one-off
+     *  run. No caller sets this yet. */
+    authorizedAtSubmission?: boolean;
     slackChannel?: string;
     pushToSlack?: boolean;
     /** Consolidation C4 (#1329): per-record stage-chain config — a
@@ -1327,6 +1333,144 @@ export class ScheduledTasksService {
       // workflow is REQUIRED: a failed start throws, so the
       // tick records a failure (run_failed audit) instead of
       // silently running direct.
+      // Issue #2186 (slice 10): monetization ON gates scheduled goal
+      // screens before any workflow or direct start. Covered runs go
+      // through PaymentWorkflow (re-check + consume + start); uncovered
+      // recurring/unstated runs are skipped, audited, and explained —
+      // never an unattended charge, never a free run. Chain mode has
+      // no paid path (a queued run has no result to bridge), so it
+      // skips the same way. An account/store failure THROWS into the
+      // tick's run_failed path below — coverage unknown is not a skip.
+      // CROSS-LANE (CTO review): this block sits ahead of the
+      // CTO-owned workflow-first block (#1997) and returns/throws
+      // before it; it does not change the free-path workflow start,
+      // audit, or direct fall-through below.
+      const monetizationOn = await (
+        await import("../features/createFeatureFlagPort")
+      ).createFeatureFlagPort(this.env).isEnabled("monetization");
+      if (monetizationOn) {
+        const { resolveIaaaTenant } = await import("../security/iaaaGithubEndToEnd");
+        const tenantId = resolveIaaaTenant(this.env);
+        const { createCommercialAdapter, ensureCommercialSchema } =
+          await import("../data/createCommercialPorts");
+        const { createSubscriptionAdapter, ensureSubscriptionSchema } =
+          await import("../data/createSubscriptionPorts");
+        const {
+          coverageForAccount,
+          resolvePaidScreenAction,
+          resolvePaidScreenAccount,
+          buildPaidScreenSubmission,
+          GOAL_SCREEN_PRICE_USD,
+        } = await import("./paidScreenSubmission");
+        const { buildGoalScreenCommand } = await import("./goalScreenWorkflowSubmission");
+        const { startPaymentWorkflowViaBinding } =
+          await import("./paymentWorkflowSubmission");
+        const skipPaid = (status: string, reason: string) => {
+          this.audit("goal_screen.skipped_uncovered", {
+            goalKind: scenario.goalKind,
+            jobId: idempotencyKey,
+            trigger,
+            status,
+            reason,
+            priceUSD: GOAL_SCREEN_PRICE_USD,
+          });
+          return {
+            success: true,
+            taskType: "goal_screen",
+            skipped: true,
+            timestamp,
+            data: { taskId: idempotencyKey, status, reason, priceUSD: GOAL_SCREEN_PRICE_USD, goalKind: scenario.goalKind },
+          } as any;
+        };
+        if (chainMode) {
+          return skipPaid(
+            "skipped_chain_mode",
+            "Chain-mode scheduled runs cannot ride the payment workflow (a queued run has no result to bridge); skipped while monetization is on.",
+          );
+        }
+        const commercial = createCommercialAdapter(this.env as { AGENT_DB?: unknown });
+        const subscriptions = createSubscriptionAdapter(this.env as { AGENT_DB?: unknown });
+        if (!commercial || !subscriptions) {
+          throw new Error(
+            "Commercial account store is unavailable; refusing to route a paid scheduled screen without verified coverage.",
+          );
+        }
+        await ensureCommercialSchema(commercial.db);
+        await ensureSubscriptionSchema(subscriptions.db);
+        const { account } = await resolvePaidScreenAccount(
+          { commercial, subscriptions },
+          { userId: userLogin, email: options.emailTo ?? "", tenantId, nowMs: Date.now() },
+        );
+        const coverage = coverageForAccount(account, GOAL_SCREEN_PRICE_USD);
+        const action = resolvePaidScreenAction({
+          monetizationOn: true,
+          trigger: "scheduled",
+          scheduleKind: options.scheduleKind,
+          authorizedAtSubmission: options.authorizedAtSubmission,
+          coverage,
+          priceUSD: GOAL_SCREEN_PRICE_USD,
+        });
+        if (action.action === "skip") {
+          return skipPaid("skipped_uncovered", action.reason);
+        }
+        if (!options.emailTo) {
+          return skipPaid(
+            "skipped_no_checkout_contact",
+            "Scheduled goal run has no checkout contact (emailTo); refusing to start a payment workflow with an invented address.",
+          );
+        }
+        const paidCommand = buildGoalScreenCommand({
+          jobId: idempotencyKey,
+          source: "scheduled-tasks",
+          trigger,
+          userLogin,
+          tenantId,
+          scenario,
+          scenarioSource,
+          ...(options.assetClasses ? { assetClasses: options.assetClasses } : {}),
+          ...(options.symbols ? { symbols: options.symbols } : {}),
+          ...(directChannels.length > 0 ? { deliverChannels: directChannels } : {}),
+          ...(options.emailTo ? { emailTo: options.emailTo } : {}),
+          ...(options.environment ? { environment: options.environment } : {}),
+          ...(providerFallback ? { provider: "yahoo" as const, providerFallback } : {}),
+        });
+        const params = buildPaidScreenSubmission({
+          runRequestId: idempotencyKey,
+          family: "goal",
+          trigger: "scheduled",
+          scheduleKind: options.scheduleKind,
+          authorizedAtSubmission: options.authorizedAtSubmission,
+          tenantId,
+          userId: userLogin,
+          email: options.emailTo,
+          account,
+          screenerCommand: paidCommand,
+        });
+        const started = await startPaymentWorkflowViaBinding(
+          this.env.PAYMENT_WORKFLOW as unknown as
+            | import("./paymentWorkflowSubmission").PaymentWorkflowBinding
+            | undefined,
+          params,
+        );
+        this.audit("goal_screen.payment_started", {
+          goalKind: scenario.goalKind,
+          jobId: idempotencyKey,
+          workflowId: started.workflowId,
+          trigger,
+        });
+        return {
+          success: true,
+          taskType: "goal_screen",
+          timestamp,
+          data: {
+            taskId: idempotencyKey,
+            status: "payment_started",
+            workflowId: started.workflowId,
+            goalKind: scenario.goalKind,
+            ...(providerFallback ? { providerFallback } : {}),
+          },
+        };
+      }
       const goalWorkflowOn = await (
         await import("../features/createFeatureFlagPort")
       ).createFeatureFlagPort(this.env).isEnabled("goal_workflow");
