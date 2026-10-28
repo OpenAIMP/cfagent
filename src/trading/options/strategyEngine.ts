@@ -63,6 +63,17 @@ export interface StrategyRequest {
       maxStrikesPerSide?: number; // User-visible option-screen thresholds
       maxIronCondors?: number; // User-visible option-screen thresholds
   allowedStrategies: OptionStrategyType[];
+  /**
+   * Issue #2091: evaluate every wanted strategy against the chain instead
+   * of only the thesis-matching ones. Default false (existing callers
+   * unchanged). When true, the request thesis still orients the
+   * thesisAlignment score component — it no longer excludes strategies.
+   * Strategies whose required expiries are absent from the chain are
+   * ledger-skipped ("no contracts inside the DTE window"), never silently
+   * dropped. Fetch bands are unaffected: this flag judges the chain that
+   * was fetched, it does not widen what is fetched.
+   */
+  evaluateAllStrategies?: boolean;
   eventPolicy?: "warn" | "exclude";
   eventCalendar?: EventCalendarInfo;
   riskFreeRate?: number;
@@ -973,7 +984,7 @@ export function recommendOptionStrategies(
   const registry = defaultRegistry;
   const ledger = new EvaluationLedger(registry.list());
   const wanted = new Set(registry.resolveMany(request.allowedStrategies).ids);
-  const selectedDefs = registry.list().filter((def) => wanted.has(def.id) && def.theses.includes(request.thesis));
+  const selectedDefs = registry.list().filter((def) => wanted.has(def.id) && (request.evaluateAllStrategies === true || def.theses.includes(request.thesis)));
   const finish = (partial: Omit<StrategyRecommendationResult, "evaluations" | "nameLedger">): StrategyRecommendationResult => {
     const evaluations = ledger.report();
     return { ...partial, evaluations, nameLedger: buildNameLedger(evaluations) };
@@ -1029,7 +1040,7 @@ export function recommendOptionStrategies(
       ledger.onSkipped(def, "Skipped: not selected in this request.");
       continue;
     }
-    if (!def.theses.includes(request.thesis)) {
+    if (request.evaluateAllStrategies !== true && !def.theses.includes(request.thesis)) {
       const reason = `${def.label} conflicts with the selected ${request.thesis.replaceAll("_", " ")} thesis`;
       ledger.onSkipped(def, `Skipped: ${reason}.`);
       addRejected(rejected, reason);
