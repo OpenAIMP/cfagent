@@ -27,6 +27,16 @@ export interface OptionsRunRecord {
   summary: string;
   opportunities: unknown[];
   error?: string;
+  /**
+   * Issue #2091: the run's artifact keys, stamped by the serve
+   * recorder when the artifacts exist. Optional deliberately: rows
+   * recorded before #2091 lack them; readers treat absent as null.
+   * /api/options/latest returns rows verbatim, so these surface there.
+   */
+  pdfKey?: string | null;
+  xlsxKey?: string | null;
+  csvKey?: string | null;
+  reportUrl?: string;
 }
 
 /** The subset of Durable Object storage this module needs (keeps tests cheap). */

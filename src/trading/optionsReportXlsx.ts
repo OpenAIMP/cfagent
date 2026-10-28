@@ -18,6 +18,7 @@ import type { OptionScreenResult, ScreenedOptionContractItem } from "../types";
 // shape, so importing the scanner module here costs nothing at runtime.
 import type { OpportunityScanResult } from "./options/opportunityScanner";
 import type { StrategyCandidate } from "./options/strategyEngine";
+import { buildNamesByStrategyRows } from "./optionsReportMatrix";
 
 function num(value: number | undefined, digits = 2): number | null {
   return typeof value === "number" && Number.isFinite(value)
@@ -122,6 +123,80 @@ export function generateOptionsXlsx(result: OptionScreenResult): Uint8Array {
   const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
   wsSummary["!cols"] = [{ wch: 30 }, { wch: 110 }];
   XLSX.utils.book_append_sheet(wb, wsSummary, "Run Summary & Methodology");
+
+  // Issue #2091 matrix tabs: the two directions of the chain-vs-
+  // strategies evaluation, as full rows (no caps — a workbook is not
+  // a page). Rendered only when the run carries a matrix; manual runs
+  // without a scan and legacy rows keep the two-tab shape. Read
+  // through the scan type (this module is inside src/trading, so the
+  // #290 boundary allows it) — the fields ride the result object
+  // via the adapter's cast, not via OptionScreenResult.
+  const scan = result as unknown as Partial<OpportunityScanResult>;
+  if (Array.isArray(scan.matrix) && scan.matrix.length > 0) {
+    const byNameRows = scan.matrix.flatMap((row) =>
+      row.cells.map((cell) => ({
+        "Symbol": row.symbol,
+        "Strategy Type": cell.strategyType,
+        "Evaluated": cell.evaluatedCount,
+        "Passed": cell.passedCount,
+        "Rejected": cell.rejectedCount,
+        "Best Label": cell.best?.label ?? "",
+        "Best Composite": cell.best?.compositeScore ?? null,
+        "Best Score": cell.best?.score ?? null,
+        "Best Expiry": cell.best?.expirationDate ?? "",
+        "Rejection Reasons": Object.entries(cell.rejectionReasons ?? {})
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .map(([reason, count]) => (count > 1 ? `${reason} (×${count})` : reason))
+          .join("; "),
+      })),
+    );
+    const wsByName = XLSX.utils.json_to_sheet(
+      byNameRows.length > 0 ? byNameRows : [{ "Symbol": "(no strategy cells)" }],
+    );
+    wsByName["!cols"] = [
+      { wch: 11 }, { wch: 20 }, { wch: 10 }, { wch: 8 }, { wch: 9 },
+      { wch: 30 }, { wch: 13 }, { wch: 11 }, { wch: 12 }, { wch: 60 },
+    ];
+    XLSX.utils.book_append_sheet(wb, wsByName, "Strategies by Name");
+    if (Array.isArray(scan.typeRollup) && scan.typeRollup.length > 0) {
+      const byStrategyRows = buildNamesByStrategyRows(scan.typeRollup).map((row) => ({
+        "Strategy Type": row.strategyType,
+        "Label": row.label,
+        "Symbols Evaluated": row.symbolsEvaluated,
+        "Symbols Passed": row.symbolsPassed,
+        "Evaluated": row.evaluatedCount,
+        "Passed": row.passedCount,
+        "Rejected": row.rejectedCount,
+        "Best Symbol": row.bestSymbol ?? "",
+        "Best Label": row.bestLabel ?? "",
+        "Best Composite": row.bestComposite ?? null,
+      }));
+      const wsByStrategy = XLSX.utils.json_to_sheet(byStrategyRows);
+      wsByStrategy["!cols"] = [
+        { wch: 20 }, { wch: 30 }, { wch: 17 }, { wch: 14 }, { wch: 10 },
+        { wch: 8 }, { wch: 9 }, { wch: 12 }, { wch: 30 }, { wch: 13 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsByStrategy, "Names by Strategy");
+    }
+    const coverage = scan.strategyCoverage as
+      | { scope?: string; evaluatedStrategyIds?: string[]; notEvaluated?: Array<{ id: string; label: string; reason: string }> }
+      | undefined;
+    if (coverage) {
+      const coverageRows: Array<{ Field: string; Value: string }> = [
+        {
+          Field: "Strategy coverage",
+          Value: `${coverage.scope === "all" ? "All wanted strategies" : "Thesis strategies"}: ${(coverage.evaluatedStrategyIds ?? []).length} evaluated, ${(coverage.notEvaluated ?? []).length} not evaluated.`,
+        },
+        ...((coverage.notEvaluated ?? []).map((entry) => ({
+          Field: "Not evaluated strategy",
+          Value: `${entry.id} (${entry.label}) — ${entry.reason}`,
+        }))),
+      ];
+      const wsCoverage = XLSX.utils.json_to_sheet(coverageRows);
+      wsCoverage["!cols"] = [{ wch: 30 }, { wch: 110 }];
+      XLSX.utils.book_append_sheet(wb, wsCoverage, "Strategy Coverage");
+    }
+  }
 
   const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
   return new Uint8Array(buffer);
@@ -257,6 +332,18 @@ export function adaptOpportunityScanToOptionScreenResult(
   if (input.partial !== undefined) {
     (adapted as unknown as { partial: unknown }).partial = input.partial;
   }
+  // Issue #2091: carry the scan's matrix views through — the report
+  // builders render them when present and render nothing when absent
+  // (manual runs without a scan, legacy rows). Attached via cast:
+  // OptionScreenResult deliberately does NOT declare these fields —
+  // the #290 trading boundary forbids src/types.ts from importing
+  // trading-internal paths, and the builders (inside src/trading)
+  // read them through the OpportunityScanResult type instead.
+  const attached = adapted as unknown as Partial<OpportunityScanResult>;
+  if (Array.isArray(input.matrix)) attached.matrix = input.matrix as OpportunityScanResult["matrix"];
+  if (Array.isArray(input.typeRollup)) attached.typeRollup = input.typeRollup as OpportunityScanResult["typeRollup"];
+  if (input.strategyCoverage !== undefined) attached.strategyCoverage = input.strategyCoverage as OpportunityScanResult["strategyCoverage"];
+  if (typeof input.fetchedMaxDte === "number") attached.fetchedMaxDte = input.fetchedMaxDte;
   return adapted;
 }
 

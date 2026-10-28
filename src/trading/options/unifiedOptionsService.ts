@@ -95,6 +95,15 @@ export interface UnifiedOptionsRequest {
   allowedStrategies?: OptionStrategyType[];
   maxPlannedLoss?: number;
   minRewardRisk?: number;
+  /**
+   * Issue #2091: evaluate every wanted strategy against the chain
+   * (thesis orients scoring, no longer excludes). Scheduled runs pass
+   * true; manual runs omit it and keep the thesis default. Forwarded
+   * into the scan template by the opportunities action, and segmented
+   * in the cache key — a thesis-scope cached scan must never serve an
+   * all-scope request.
+   */
+  evaluateAllStrategies?: boolean;
   /** Optimization bias (0 = max return, 100 = max chance); converted to
    *  score weights server-side (issue #29). */
   optimizationBias?: number;
@@ -452,7 +461,7 @@ export class UnifiedOptionsService {
       req.action === "discovery"
         ? `${[...(req.symbols ?? (req.symbol ? [req.symbol] : []))].map((s) => s.toUpperCase().trim()).sort().join("+")}:${this.discoverySql ? "disc-wired" : "disc-unwired"}`
         : "";
-    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}:${req.limit ?? ""}:${statedTargetSegment}:${req.minDte ?? ""}:${req.maxDte ?? ""}:${req.offset ?? ""}:${this.userLogin}:${envSegment}:${filterSegment}:${req.maxSymbols ?? ""}:${effectiveTargetDate}:${req.expectedIvDirection || ""}:${allowedSegment}:${req.maxPlannedLoss ?? ""}:${req.minRewardRisk ?? ""}:${req.optimizationBias ?? ""}:${calendarSegment}:${req.question ?? ""}:${this.scanRunStore ? "store" : "nostore"}:${discoverySegment}`;
+    return `${req.action}:${sym}:${req.thesis || ""}:${req.riskProfile || ""}:${req.targetPrice || ""}:${req.mode || ""}:${perSymbol}:${profileSegment}:${req.limit ?? ""}:${statedTargetSegment}:${req.minDte ?? ""}:${req.maxDte ?? ""}:${req.offset ?? ""}:${this.userLogin}:${envSegment}:${filterSegment}:${req.maxSymbols ?? ""}:${effectiveTargetDate}:${req.expectedIvDirection || ""}:${allowedSegment}:${req.maxPlannedLoss ?? ""}:${req.minRewardRisk ?? ""}:${req.optimizationBias ?? ""}:${calendarSegment}:${req.question ?? ""}:${this.scanRunStore ? "store" : "nostore"}:${discoverySegment}:${req.evaluateAllStrategies === true ? "allstrat" : ""}`;
   }
 
   async execute(req: UnifiedOptionsRequest): Promise<FormattedOmnichannelResponse> {
@@ -706,6 +715,7 @@ export class UnifiedOptionsService {
             ...(req.statedTarget ? { statedTarget: req.statedTarget } : {}),
             ...(req.minDte !== undefined ? { minDte: req.minDte } : {}),
             ...(req.maxDte !== undefined ? { maxDte: req.maxDte } : {}),
+            ...(req.evaluateAllStrategies === true ? { evaluateAllStrategies: true } : {}),
           }, {
             riskProfile: req.riskProfile || "balanced",
             ...(req.mode ? { mode: req.mode } : {}),
