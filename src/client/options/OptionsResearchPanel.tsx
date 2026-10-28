@@ -338,7 +338,7 @@ function BestTradeCard({
           </div>
         </details>
       )}
-      <p className="options-assumptions">{pick.disclaimer}</p>
+      <p className="ui-footnote">{pick.disclaimer}</p>
     </section>
   );
 }
