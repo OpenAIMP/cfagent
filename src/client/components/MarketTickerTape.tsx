@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
-import { apiFetch as fetch } from "../apiFetch";
+import { useMarketQuotes } from "../quotes/useMarketQuotes";
+import { TAPE_SYMBOLS, type QuoteSymbolMeta } from "../quotes/symbolSets";
 import type { NavTabId } from "./NavigationMenu";
 import { Button } from "./ui";
 
@@ -21,177 +21,37 @@ export interface MarketTickerTapeProps {
   className?: string;
 }
 
-const DEFAULT_TICKERS: TickerTapeQuote[] = [
-  { symbol: "SPY", price: "—", change: "—", isPositive: true, type: "etf" },
-  { symbol: "QQQ", price: "—", change: "—", isPositive: true, type: "etf" },
-  { symbol: "DIA", price: "—", change: "—", isPositive: true, type: "etf" },
-  { symbol: "NVDA", price: "—", change: "—", isPositive: true, type: "stock" },
-  { symbol: "AAPL", price: "—", change: "—", isPositive: true, type: "stock" },
-  { symbol: "MSFT", price: "—", change: "—", isPositive: true, type: "stock" },
-  { symbol: "TSLA", price: "—", change: "—", isPositive: true, type: "stock" },
-  { symbol: "BTC/USD", price: "—", change: "—", isPositive: true, type: "crypto" },
-  { symbol: "ETH/USD", price: "—", change: "—", isPositive: true, type: "crypto" },
-  { symbol: "SOL/USD", price: "—", change: "—", isPositive: true, type: "crypto" },
-];
-
 export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }: MarketTickerTapeProps) {
-  const [quotes, setQuotes] = useState<Record<string, TickerTapeQuote>>(() => {
-    const init: Record<string, TickerTapeQuote> = {};
-    for (const t of DEFAULT_TICKERS) {
-      init[t.symbol] = t;
-    }
-    return init;
-  });
+  // Issue #2100: the feed lifecycle (socket, fallback, flash) lives in
+  // the quotes service; the tape only renders what the hook returns.
+  const {
+    quotes: liveQuotes,
+    transport,
+    flash: flashStates,
+  } = useMarketQuotes(TAPE_SYMBOLS.map((t) => t.symbol));
 
-  const [flashStates, setFlashStates] = useState<Record<string, "up" | "down">>({});
-  const [transport, setTransport] = useState<"connecting" | "websocket" | "polling" | "offline">("connecting");
-  const rawPricesRef = useRef<Record<string, number>>({});
-  const flashTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-
-  const handleUpdate = (q: {
-    symbol: string;
-    price: number;
-    formattedPrice: string;
-    formattedChange: string;
-    changePercent: number;
-    isPositive: boolean;
-    type?: "stock" | "crypto" | "etf";
-    source?: "Alpaca" | "Yahoo Finance" | "Reference";
-    timestamp?: number;
-  }) => {
-    const sym = q.symbol;
-    const prev = rawPricesRef.current[sym];
-    let flash: "up" | "down" | null = null;
-    if (prev !== undefined && prev !== q.price) {
-      flash = q.price > prev ? "up" : "down";
-    }
-    rawPricesRef.current[sym] = q.price;
-
-    if (flash) {
-      setFlashStates((f) => ({ ...f, [sym]: flash! }));
-      if (flashTimersRef.current[sym]) clearTimeout(flashTimersRef.current[sym]);
-      flashTimersRef.current[sym] = setTimeout(() => {
-        setFlashStates((f) => {
-          const next = { ...f };
-          delete next[sym];
-          return next;
-        });
-      }, 800);
-    }
-
-    setQuotes((prevMap) => ({
-      ...prevMap,
-      [sym]: {
-        symbol: sym,
-        price: q.formattedPrice,
-        change: q.formattedChange,
-        isPositive: q.isPositive,
-        type: q.type,
-        rawPrice: q.price,
-        source: q.source,
-        timestamp: q.timestamp,
-      },
-    }));
-  };
-
-  useEffect(() => {
-    let ws: WebSocket | null = null;
-    let pollInterval: ReturnType<typeof setInterval> | null = null;
-    let isSubscribed = true;
-
-    const fetchLiveQuotes = async () => {
-      if (!isSubscribed) return;
-      try {
-        const syms = DEFAULT_TICKERS.map((t) => t.symbol).join(",");
-        const res = await fetch(`/api/market/quotes?symbols=${encodeURIComponent(syms)}`);
-        if (res.ok) {
-          const data = (await res.json()) as any;
-          if (Array.isArray(data?.quotes)) {
-            for (const item of data.quotes) {
-              if (item && item.symbol) {
-                handleUpdate(item);
-              }
-            }
-            if (ws?.readyState !== WebSocket.OPEN) {
-              setTransport("polling");
-              if (!pollInterval) pollInterval = setInterval(fetchLiveQuotes, 12000);
-            }
-          }
+  const quotes: Record<string, TickerTapeQuote> = {};
+  for (const base of TAPE_SYMBOLS) {
+    const live = liveQuotes[base.symbol];
+    quotes[base.symbol] = live
+      ? {
+          symbol: base.symbol,
+          price: live.formattedPrice,
+          change: live.formattedChange,
+          isPositive: live.isPositive,
+          type: live.type ?? base.type,
+          rawPrice: live.price,
+          source: live.source as TickerTapeQuote["source"],
+          timestamp: live.timestamp,
         }
-      } catch {
-        if (ws?.readyState !== WebSocket.OPEN) setTransport("offline");
-      }
-    };
-
-    // Immediate initial sync
-    fetchLiveQuotes();
-
-    const startPolling = () => {
-      if (pollInterval) return;
-      setTransport("polling");
-      pollInterval = setInterval(fetchLiveQuotes, 12000);
-    };
-
-    try {
-      const isHttps = typeof window !== "undefined" && window.location.protocol === "https:";
-      const host = typeof window !== "undefined" && window.location.host ? window.location.host : "localhost";
-      const wsUrl = `${isHttps ? "wss:" : "ws:"}//${host}/api/market/quotes/ws`;
-
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        if (!isSubscribed) return;
-        if (pollInterval) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-        }
-        setTransport("websocket");
-        const symbols = DEFAULT_TICKERS.map((t) => t.symbol);
-        ws?.send(JSON.stringify({ type: "subscribe", symbols }));
-      };
-
-      ws.onmessage = (evt) => {
-        if (!isSubscribed) return;
-        try {
-          const data = JSON.parse(evt.data);
-          if (data.type === "snapshot" && Array.isArray(data.quotes)) {
-            for (const q of data.quotes) {
-              handleUpdate(q);
-            }
-          } else if (data.type === "tick" && data.tick) {
-            handleUpdate(data.tick);
-          } else if (data.type === "ticks" && Array.isArray(data.ticks)) {
-            for (const tick of data.ticks) handleUpdate(tick);
-          }
-        } catch {
-          // Ignore
-        }
-      };
-
-      ws.onerror = () => {
-        startPolling();
-      };
-
-      ws.onclose = () => {
-        if (isSubscribed) {
-          startPolling();
-        }
-      };
-    } catch {
-      startPolling();
-    }
-
-    return () => {
-      isSubscribed = false;
-      if (ws) {
-        try {
-          ws.close();
-        } catch {}
-      }
-      if (pollInterval) clearInterval(pollInterval);
-      Object.values(flashTimersRef.current).forEach((t) => clearTimeout(t));
-    };
-  }, []);
+      : {
+          symbol: base.symbol,
+          price: base.price ?? "—",
+          change: base.change ?? "—",
+          isPositive: base.isPositive ?? true,
+          type: base.type,
+        };
+  }
 
   const handleClickItem = (sym: string) => {
     if (onSelectSymbol) {
@@ -214,8 +74,13 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
   const liveSourceAvailable = providerSources.length > 0;
   const feedStatus = liveSourceAvailable ? "live" : transport === "offline" ? "offline" : "syncing";
 
-  const renderTicker = (base: TickerTapeQuote, copy: "primary" | "duplicate") => {
-    const live = quotes[base.symbol] || base;
+  const renderTicker = (base: QuoteSymbolMeta, copy: "primary" | "duplicate") => {
+    const live = quotes[base.symbol] ?? {
+      symbol: base.symbol,
+      price: "—",
+      change: "—",
+      isPositive: true,
+    };
     const flash = flashStates[base.symbol];
     return (
       <Button
@@ -251,10 +116,10 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
       <div className="ticker-tape-chips-viewport" aria-label="Live market quotes" aria-live="off">
         <div className="ticker-tape-marquee">
           <div className="ticker-tape-sequence">
-            {DEFAULT_TICKERS.map((base) => renderTicker(base, "primary"))}
+            {TAPE_SYMBOLS.map((base) => renderTicker(base, "primary"))}
           </div>
           <div className="ticker-tape-sequence" aria-hidden="true">
-            {DEFAULT_TICKERS.map((base) => renderTicker(base, "duplicate"))}
+            {TAPE_SYMBOLS.map((base) => renderTicker(base, "duplicate"))}
           </div>
         </div>
       </div>
