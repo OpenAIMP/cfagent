@@ -161,7 +161,7 @@ export function ResearchReportActions({ title, query, sheets, userLogin }: Resea
       </div>
       {status && <p className="research-report-status" role="status">{status}</p>}
       {error && <p className="research-report-error" role="alert">{error}</p>}
-      <p className="research-report-disclaimer">Research only. These channels do not place trades; report values reflect the data currently loaded in this view.</p>
+      <p className="ui-footnote">Research only. These channels do not place trades; report values reflect the data currently loaded in this view.</p>
     </section>
   );
 }

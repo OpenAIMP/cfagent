@@ -971,7 +971,7 @@ export function AutopilotControlCenter({
             </div>
           </div>
 
-          <div className="limits-card-footer">
+          <div className="ui-footer-bar">
             <span className="limits-sync-badge">
               ✓ Enforced at runtime by <strong>RiskPolicyEngine</strong> &amp; <strong>W3C Agent DID</strong>
             </span>

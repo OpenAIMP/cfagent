@@ -171,7 +171,7 @@ export function PartnerDealsModal({
                 <h4 className="deal-title">{deal.title}</h4>
                 <p className="deal-tagline">{deal.tagline}</p>
 
-                <div className="deal-footer">
+                <div className="ui-footer-bar">
                   <Button
                     className="deal-cta-btn"
                     style={{ background: color }}
