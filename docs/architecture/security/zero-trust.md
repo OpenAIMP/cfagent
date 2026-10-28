@@ -91,9 +91,18 @@ A zero-trust claim that omits its gaps is marketing. These are the gaps:
    read-modify-write: concurrent appends can lose events or fork the
    chain. Verification detects this; it does not repair it. The store is
    also unbounded until a retention decision is made.
-4. **Login-keyed state can orphan.** Token and DO state keyed by login
-   string (not internal id) can detach on rename; the alias layer
-   mitigates, the cutover is open.
+4. **Login-keyed state can orphan — cutover DECIDED (#1759).**
+   Token and DO state keyed by login string (not internal id)
+   can detach on rename. The #1759 decision is alias-forever
+   for DO names (`resolveDoNameForUser`) + dual-read for tokens
+   (internal-id key first, alias-login key second); copy-cutover
+   was rejected because `idFromName` cannot rename a DO and a
+   copy can orphan in-flight state. Residual, bounded: DO
+   dispatch sites that have not yet adopted the resolver, and
+   the login-keyed `getValidTokens` hot path, still address raw
+   login — the old DO and old token keys are never deleted, so
+   the state is unreachable-by-new-login there until adoption,
+   not lost (see `iaaa-login-key-cutover-1759.md`).
 5. **Revocation propagation has numeric targets (#1750).** Per
    trigger, at the gate: membership revocation 0 ms (next PDP
    check), API-key deletion 0 ms (next verification), admin

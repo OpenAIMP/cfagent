@@ -18,6 +18,8 @@ import {
 } from "./etradeTokenCache";
 import { consumeStoreKey, createStoreKv, listStoreEntries, type DoNamespaceLike } from "./durableKv";
 import { type KvLike } from "./kvResilience";
+import { lookupLoginByUserId } from "./iaaaMigration";
+import { sessionStore } from "./session";
 import { generateOAuth1Header, rfc3986 } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
 import { ETradeError, ETradeErrorCode } from "../aspects/errorCodes";
@@ -55,6 +57,82 @@ const KV_ACCESS_TOKEN_KEY = (userLogin: string, envName?: string) =>
   envName ? `etrade:token:${envName.toUpperCase()}:${userLogin}` : `etrade:token:${userLogin}`;
 const KV_REQUEST_TOKEN_KEY = (userLogin: string, envName?: string) =>
   envName ? `etrade:req_token:${envName.toUpperCase()}:${userLogin}` : `etrade:req_token:${userLogin}`;
+
+/**
+ * Issue #1759 — identity-aware token reads (the token half of the
+ * alias-forever + dual-read cutover decision). Callers that know
+ * the session's internalUserId pass it; callers that do not behave
+ * exactly as before. The identity is NEVER user-supplied at the
+ * route layer: it must come from the verified session, or the
+ * lookup is a cross-principal read. A caller passing another
+ * user's internal id would read that user's token — the same
+ * trust rule as passing another user's login today.
+ */
+export interface ETradeTokenIdentity {
+  internalUserId?: string;
+}
+
+/**
+ * The alias login for an internal user, best-effort: the alias
+ * lives in the sessions namespace while tokens live in the etrade
+ * namespace (same DO, different ns). Any store failure yields null
+ * and the caller falls back to login-only keys — an alias-store
+ * blip must never break token reads.
+ */
+async function resolveAliasLogin(
+  env: Env,
+  internalUserId?: string,
+): Promise<string | null> {
+  if (!internalUserId) return null;
+  try {
+    return await lookupLoginByUserId(sessionStore(env), internalUserId);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ordered candidate keys for one token read. Internal-id scoped
+ * first (the primary for identity-aware writes), then the alias
+ * login (the pre-rename key — this is what makes a rename
+ * reachable), then the current login, then the unscoped variants
+ * in the same order. The pre-#1759 order (scoped login, then
+ * unscoped login) is preserved as a subsequence for
+ * identity-less callers. A corrupt candidate never blocks a
+ * healthy fallback: callers skip unparseable values.
+ */
+function tokenCandidateKeys(
+  keyFn: (login: string, envName?: string) => string,
+  userLogin: string,
+  envName: string | undefined,
+  identity: ETradeTokenIdentity | undefined,
+  aliasLogin: string | null,
+): string[] {
+  const keys: string[] = [];
+  const push = (key: string) => {
+    if (!keys.includes(key)) keys.push(key);
+  };
+  if (identity?.internalUserId) push(keyFn(identity.internalUserId, envName));
+  if (aliasLogin) push(keyFn(aliasLogin, envName));
+  push(keyFn(userLogin, envName));
+  if (aliasLogin) push(keyFn(aliasLogin));
+  push(keyFn(userLogin));
+  return keys;
+}
+
+async function readFirstParsable<T>(
+  kv: KvLike,
+  keys: readonly string[],
+  parse: (raw: string) => T | null,
+): Promise<T | null> {
+  for (const key of keys) {
+    const raw = await kv.get(key);
+    if (!raw) continue;
+    const parsed = parse(raw);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
 
 /**
  * Token storage, moved off KV (issue #329).
@@ -123,7 +201,8 @@ export async function storeAccessTokens(
   userLogin: string,
   accessToken: string,
   accessTokenSecret: string,
-  overrideEnv?: string
+  overrideEnv?: string,
+  identity?: ETradeTokenIdentity
 ): Promise<void> {
   const kv = getKv(env);
   const envConfig = resolveEnvironmentConfig(env, overrideEnv);
@@ -141,8 +220,22 @@ export async function storeAccessTokens(
   await kv.put(KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name), JSON.stringify(payload), {
     expirationTtl: 86400,
   });
+  // Issue #1759: when the caller's internal id is known, the same
+  // token also lands under the internal-id scoped key — the
+  // primary key for identity-aware reads. This is dual-read's
+  // primary, not a replacement for the alias fallback: tokens
+  // stored BEFORE any identity was known are still reachable only
+  // via the alias login (see getStoredTokens).
+  if (identity?.internalUserId) {
+    await kv.put(
+      KV_ACCESS_TOKEN_KEY(identity.internalUserId, envConfig.name),
+      JSON.stringify(payload),
+      { expirationTtl: 86400 },
+    );
+  }
   // Issue #329 follow-up: a fresh token must never be shadowed by a cached copy.
   invalidateTokenCacheFor(userLogin);
+  if (identity?.internalUserId) invalidateTokenCacheFor(identity.internalUserId);
 }
 
 /**
@@ -170,19 +263,33 @@ export async function storeRequestTokenSecret(
 export async function getRequestTokenSecret(
   env: Env,
   userLogin: string,
-  overrideEnv?: string
+  overrideEnv?: string,
+  identity?: ETradeTokenIdentity
 ): Promise<{ requestToken: string; requestTokenSecret: string } | null> {
   const kv = getKv(env);
   const envConfig = resolveEnvironmentConfig(env, overrideEnv);
-  const raw =
-    (await kv.get(KV_REQUEST_TOKEN_KEY(userLogin, envConfig.name))) ||
-    (await kv.get(KV_REQUEST_TOKEN_KEY(userLogin)));
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  // Issue #1759: dual-read. Request secrets are 15-minute handshake
+  // state, so they are NOT dual-written (no long-lived key to
+  // migrate); the alias fallback is what makes a secret issued
+  // under a pre-rename login reachable at all.
+  const aliasLogin = await resolveAliasLogin(env, identity?.internalUserId);
+  return readFirstParsable(
+    kv,
+    tokenCandidateKeys(
+      KV_REQUEST_TOKEN_KEY,
+      userLogin,
+      envConfig.name,
+      identity,
+      aliasLogin,
+    ),
+    (raw) => {
+      try {
+        return JSON.parse(raw) as { requestToken: string; requestTokenSecret: string };
+      } catch {
+        return null;
+      }
+    },
+  );
 }
 
 /**
@@ -191,29 +298,54 @@ export async function getRequestTokenSecret(
 export async function getStoredTokens(
   env: Env,
   userLogin: string,
-  overrideEnv?: string
+  overrideEnv?: string,
+  identity?: ETradeTokenIdentity
 ): Promise<ETradeTokenSet | null> {
   const kv = getKv(env);
   const envConfig = resolveEnvironmentConfig(env, overrideEnv);
-  const raw =
-    (await kv.get(KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name))) ||
-    (await kv.get(KV_ACCESS_TOKEN_KEY(userLogin)));
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as ETradeTokenSet;
-  } catch {
-    return null;
-  }
+  // Issue #1759: dual-read. Without an identity this is exactly
+  // the pre-#1759 read (scoped login, then unscoped login). With
+  // one, the internal-id key is primary and the alias login is
+  // the fallback that keeps pre-rename tokens reachable.
+  const aliasLogin = await resolveAliasLogin(env, identity?.internalUserId);
+  return readFirstParsable(
+    kv,
+    tokenCandidateKeys(
+      KV_ACCESS_TOKEN_KEY,
+      userLogin,
+      envConfig.name,
+      identity,
+      aliasLogin,
+    ),
+    (raw) => {
+      try {
+        return JSON.parse(raw) as ETradeTokenSet;
+      } catch {
+        return null;
+      }
+    },
+  );
 }
 
 /**
  * Revokes and deletes stored tokens from the SessionStore DO across all environments
  */
-export async function revokeStoredTokens(env: Env, userLogin: string, overrideEnv?: string): Promise<void> {
+export async function revokeStoredTokens(env: Env, userLogin: string, overrideEnv?: string, identity?: ETradeTokenIdentity): Promise<void> {
   const kv = getKv(env);
   const logins = Array.from(new Set([userLogin, userLogin.toLowerCase(), userLogin.toUpperCase()]));
+  // Issue #1759: with an identity, the internal-id key and the
+  // alias-login key are revoked too — otherwise a revoke would
+  // leave a live token reachable through the dual-read fallback.
+  // (overrideEnv is accepted for signature compatibility and, as
+  // before, does not narrow the delete set: revocation spans
+  // environments by design.)
+  const aliasLogin = await resolveAliasLogin(env, identity?.internalUserId);
+  const extraLogins = [
+    ...(identity?.internalUserId ? [identity.internalUserId] : []),
+    ...(aliasLogin ? [aliasLogin] : []),
+  ];
   const deletes: Promise<any>[] = [];
-  for (const login of logins) {
+  for (const login of [...logins, ...extraLogins]) {
     deletes.push(
       kv.delete(KV_ACCESS_TOKEN_KEY(login, "PROD")),
       kv.delete(KV_ACCESS_TOKEN_KEY(login, "TEST")),
@@ -226,6 +358,7 @@ export async function revokeStoredTokens(env: Env, userLogin: string, overrideEn
   await Promise.all(deletes);
   // Issue #329 follow-up: revoked tokens must not survive in any isolate cache.
   invalidateTokenCacheFor(userLogin);
+  for (const login of extraLogins) invalidateTokenCacheFor(login);
 }
 
 /**

@@ -4,6 +4,13 @@ export interface User {
   login: string;
   name: string;
   avatar: string;
+  /**
+   * Issue #1759: the login provider id for this session (from the
+   * server-injected window.__USER__, same source as /api/me).
+   * Absent for legacy sessions; the DID display then falls back
+   * to the legacy GitHub derivation (see getDisplayUserDid).
+   */
+  providerId?: string;
 }
 
 export const TRADING_TABS = new Set<string>(

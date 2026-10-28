@@ -26,6 +26,7 @@ import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./them
 import { adAccentPalette } from "./designTokens";
 import { Button, TextInput, Badge, Select, Table, Card, Notice, Modal, PageShell, PageSection, EmptyState } from "./components/ui";
 import { MarkdownContent } from "./chat/MarkdownContent";
+import { getDisplayUserDid } from "../agents/did";
 import { renderInlineFormatted } from "./chat/renderInlineFormatted";
 import { ReasoningView } from "./chat/ReasoningView";
 import { ToolResultView } from "./chat/ToolResultView";
@@ -1471,7 +1472,7 @@ export function Chat({ user }: { user: User }) {
                   </span>
                   <span className="did-pill">
                     <span className="did-icon">👤</span>
-                    <code>did:user:github:{user.login}</code>
+                    <code>{getDisplayUserDid(user.login, user.providerId)}</code>
                     <span className="did-role-tag authorizer">Authorizer</span>
                   </span>
                 </div>
@@ -1744,7 +1745,7 @@ export function Chat({ user }: { user: User }) {
                     </div>
                     <div className="proof-field">
                       <label>Human Authorizer DID</label>
-                      <code>{selectedProofTx.authorizerDid || `did:user:github:${user.login}`}</code>
+                      <code>{selectedProofTx.authorizerDid || getDisplayUserDid(user.login, user.providerId)}</code>
                     </div>
                     <div className="proof-field">
                       <label>Executor Agent DID</label>

@@ -37,24 +37,34 @@
  *   orphan the user's existing agent state; that is a cutover
  *   decision, not a fallback.
  *
- * Cutover options (OWNER decision — this module implements the
- * alias path only and performs no cutover):
- * - (a) Alias naming (recommended as the safe default): keep
- *   login-derived DO names and token keys, reached through the
- *   alias. Cost: login remains a naming input, which weakens the
- *   "login is not identity" claim for naming (though not for
- *   authorization — the PDP never consults a login). Benefit: no
- *   state is copied, nothing can be orphaned, rollback is trivial.
- * - (b) Copy cutover: copy token/DO state to internal-id-derived
- *   keys/DOs, dual-read during a verification window, then retire
- *   old keys. Benefit: login fully leaves the data model. Risks:
- *   idFromName cannot rename an existing DO, so DO state must be
- *   copied (in-flight agent state can be orphaned mid-copy);
- *   token copies must preserve env-prefixed variants; old
- *   login-derived DIDs break unless an alias record is kept for
- *   them (this module provides exactly that record).
- * - (c) Dual-write going forward: new writes go to both keys.
- *   Halves the (b) risks for tokens only; does not help DO names.
+ * Cutover decision (DECIDED issue #1759, 2026-10-28, recorded on
+ * the issue before the build): (a) ALIAS-FOREVER for DO names +
+ * DUAL-READ for tokens (internal-id key first, login key second
+ * via the alias). Copy-cutover (b) is REJECTED as the naming
+ * decision; dual-write alone (c) is REJECTED as insufficient.
+ * - (a) Alias naming (ADOPTED): keep login-derived DO names and
+ *   token keys, reached through the alias. Cost: login remains a
+ *   naming input, which weakens the "login is not identity" claim
+ *   for naming (though not for authorization — the PDP never
+ *   consults a login). Benefit: no state is copied, nothing can
+ *   be orphaned, rollback is trivial. Executed by
+ *   resolveDoNameForUser below and by the identity-aware token
+ *   reads in etradeOAuth.ts.
+ * - (b) Copy cutover (REJECTED): copy token/DO state to
+ *   internal-id-derived keys/DOs, dual-read during a verification
+ *   window, then retire old keys. Benefit: login fully leaves the
+ *   data model. Risks: idFromName cannot rename an existing DO, so
+ *   DO state must be copied (in-flight agent state can be orphaned
+ *   mid-copy); token copies must preserve env-prefixed variants;
+ *   old login-derived DIDs break unless an alias record is kept
+ *   for them. The copy risk is the reason for rejection: a rename
+ *   must never orphan live state, and a copy can.
+ * - (c) Dual-write going forward (REJECTED as the sole mechanism):
+ *   new writes go to both keys. Halves the (b) risks for tokens
+ *   only; does not help DO names. Note: new access-token writes
+ *   DO also land under the internal-id key (see etradeOAuth.ts),
+ *   but that is dual-read's primary key, not a replacement for
+ *   the alias fallback that keeps OLD tokens reachable.
  *
  * Key construction here MIRRORS etradeOAuth.ts (whose key builders
  * are private): etrade:token:<login>, etrade:req_token:<login>, and
@@ -387,6 +397,45 @@ export function resolveDoNameInput(
 ): DoNameInput {
   if (login === null || login.trim() === "") return { kind: "unresolved" };
   return { kind: "legacy-login", login };
+}
+
+export type DoNameForUser =
+  | { kind: "alias-login"; login: string }
+  | { kind: "current-login"; login: string };
+
+/**
+ * Issue #1759 — the cutover decision, executed (see the header
+ * note and docs/architecture/security/iaaa-login-key-cutover-1759.md):
+ * ALIAS-FOREVER for DO names. A DO name is resolved for a user,
+ * not for a login string:
+ * - A wired user WITH an alias resolves to the alias login — the
+ *   name their DO state already lives under. After a rename this
+ *   is the OLD login, so the renamed session reaches its existing
+ *   state instead of addressing a fresh empty DO.
+ * - A user WITHOUT an alias (never wired-logged-in, or legacy)
+ *   resolves to their current login: behavior identical to today.
+ * This function never invents a name, never follows a conflicted
+ * alias (recordLoginAlias preserves the original on conflict, so a
+ * recycled login can never hand one user's DO to another), and
+ * never deletes or renames anything: the old DO name stays live
+ * until every dispatch site adopts this resolver. Callers that
+ * cannot reach the alias store must fall back to the current
+ * login — a lookup failure must never deny the request.
+ */
+export async function resolveDoNameForUser(
+  kv: KvLike,
+  input: {
+    currentLogin: string;
+    internalUserId?: string;
+  },
+): Promise<DoNameForUser> {
+  if (input.internalUserId) {
+    const aliasLogin = await lookupLoginByUserId(kv, input.internalUserId);
+    if (aliasLogin !== null) {
+      return { kind: "alias-login", login: aliasLogin };
+    }
+  }
+  return { kind: "current-login", login: input.currentLogin };
 }
 
 /**

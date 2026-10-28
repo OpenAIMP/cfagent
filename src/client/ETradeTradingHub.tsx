@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
+import { getDisplayUserDid } from "../agents/did";
 import { Card, Badge, TextInput, Button, EmptyState, Select, Table, Modal, PageShell } from "./components/ui";
 import { getRoute } from "./routes";
 import {
@@ -40,6 +41,8 @@ export interface User {
   login: string;
   name?: string;
   avatar?: string;
+  /** Issue #1759: login provider id for this session; absent for legacy sessions. */
+  providerId?: string;
 }
 
 export type TradingSubTab =
@@ -1258,7 +1261,10 @@ export function ETradeTradingHub({
   };
 
   const tradingAgentDid = "did:agent:openaimp:trading";
-  const userDid = user?.login ? `did:user:github:${user.login}` : "did:user:github:authorized_trader";
+  // Issue #1759: provider-neutral display DID; no-login fallback is
+  // unknown (not another provider's prefix), legacy no-provider
+  // sessions fall back to the GitHub derivation inside the helper.
+  const userDid = user?.login ? getDisplayUserDid(user.login, user.providerId) : "did:user:unknown:authorized_trader";
 
   const getRsiBadgeClass = (rsi?: number) => {
     if (rsi === undefined) return "rsi-neutral";
