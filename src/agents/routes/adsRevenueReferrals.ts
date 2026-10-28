@@ -27,6 +27,8 @@ import type { DatabaseORM, SqlStorage } from "../../orm";
 import { runRestTool } from "./restToolBridge";
 import { resolveAdsTier, resolveServerAdsConfig } from "../../services/adsTier";
 import { createCommercialAdapter } from "../../data/createCommercialPorts";
+import { createSubscriptionAdapter } from "../../data/createSubscriptionPorts";
+import { resolveEffectiveTier } from "../../data/subscriptionPorts";
 import {
   ADS_REVENUE_SWITCHES,
   adsRevenueConfigErrorEvent,
@@ -148,6 +150,16 @@ function runModeOf(body: unknown, url: URL): unknown {
  * Subscribed ctx tier still suppresses on store failure, since
  * that claim comes from trusted server code, not the caller.
  * Ads reads never ensure the schema.
+ *
+ * Subscription overlay (#2020/#2127): the tier above is the
+ * EFFECTIVE tier, not the stored baseline. An unexpired
+ * subscription confers Subscribed even when the stored tier says
+ * otherwise, and a lapsed subscription stops conferring it
+ * (see resolveEffectiveTier). A subscription-read failure
+ * degrades to the stored tier via the helper — which yields
+ * Free for a subscription-granted tier with no live rows, so a
+ * blip never revives a lapsed grant and never blanks a Free
+ * user's ads.
  */
 async function resolveAdsViewer(
   request: Request,
@@ -170,7 +182,17 @@ async function resolveAdsViewer(
   }
   try {
     const account = await adapter.getAccount(login);
-    const tier = account ? resolveAdsTier(account.tier) : ctxTier;
+    let subscriptions: Array<{ periodEndMs: number }> = [];
+    const subsAdapter = createSubscriptionAdapter(env);
+    if (subsAdapter) {
+      try {
+        subscriptions = await subsAdapter.listSubscriptions(login);
+      } catch {
+        subscriptions = [];
+      }
+    }
+    const effective = resolveEffectiveTier(account, subscriptions, Date.now());
+    const tier = account || subscriptions.length > 0 ? resolveAdsTier(effective) : ctxTier;
     const tenantAdsEnabled = account?.tenantId
       ? await adapter.getTenantAdsEnabled(account.tenantId)
       : true;

@@ -67,6 +67,7 @@ function toAccount(raw: typeof agentCommercialAccounts.$inferSelect): Commercial
     id: raw.id,
     tenantId: raw.tenantId,
     tier: assertStoreTier(raw.tier),
+    tierSource: raw.tierSource === "operator" || raw.tierSource === "subscription" ? raw.tierSource : null,
     creditsUSD: raw.creditsUSD,
     includedRuns: raw.includedRuns,
     updatedAtMs: raw.updatedAtMs,
@@ -90,16 +91,28 @@ export class D1CommercialAdapter implements CommercialStore {
     userId: string;
     tenantId: string;
     tier: unknown;
+    tierSource?: unknown;
     creditsUSD?: unknown;
     includedRuns?: unknown;
   }): Promise<CommercialAccountRecord> {
     if (!input.userId || !input.tenantId) {
       throw new Error("userId and tenantId are required.");
     }
+    // tierSource omitted = preserve the existing grant, or
+    // "operator" for a new row (every pre-subscription row was
+    // operator-set). Callers that change the grant pass it
+    // explicitly: the operator route passes "operator", purchase
+    // activation passes "subscription".
+    const existing = await this.getAccount(input.userId);
+    const tierSource =
+      input.tierSource === "operator" || input.tierSource === "subscription"
+        ? input.tierSource
+        : (existing?.tierSource ?? "operator");
     const record: CommercialAccountRecord = {
       id: input.userId,
       tenantId: input.tenantId,
       tier: assertStoreTier(input.tier),
+      tierSource,
       creditsUSD: input.creditsUSD === undefined ? 0 : assertNonNegativeCredits(input.creditsUSD),
       includedRuns: input.includedRuns === undefined ? 0 : assertIncludedRuns(input.includedRuns),
       updatedAtMs: Date.now(),
@@ -110,6 +123,7 @@ export class D1CommercialAdapter implements CommercialStore {
         id: record.id,
         tenantId: record.tenantId,
         tier: record.tier,
+        tierSource: record.tierSource ?? null,
         creditsUSD: record.creditsUSD,
         includedRuns: record.includedRuns,
         updatedAtMs: record.updatedAtMs,
@@ -119,6 +133,7 @@ export class D1CommercialAdapter implements CommercialStore {
         set: {
           tenantId: record.tenantId,
           tier: record.tier,
+          tierSource: record.tierSource ?? null,
           creditsUSD: record.creditsUSD,
           includedRuns: record.includedRuns,
           updatedAtMs: record.updatedAtMs,

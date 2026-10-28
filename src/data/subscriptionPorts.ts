@@ -1,0 +1,162 @@
+/**
+ * Issues #2020/#2127 — subscription store port.
+ *
+ * A subscription is a paid-through period, not a provider-managed
+ * recurring billing object: cfpay is one-time-only and no provider
+ * subscription API exists in-repo, so renewal is repurchase before
+ * expiry (a repurchase stacks from the latest periodEnd, so no
+ * paid time is lost). Provider-managed auto-renewal is NOT claimed
+ * here and is a separate future slice.
+ *
+ * Tier model: the stored account tier is the operator-managed
+ * BASELINE (Free / PayPerUse / operator-granted Subscribed). A
+ * subscription is an overlay: while any subscription row is
+ * unexpired, the effective tier is Subscribed regardless of the
+ * stored tier. When the overlay lapses, the effective tier falls
+ * back to the stored baseline — except a stored Subscribed tier
+ * that was itself granted by a subscription (tierSource
+ * "subscription") falls back to Free, because there is no
+ * operator grant behind it. tierSource is what makes an
+ * operator grant survive a lapsed subscription, and what makes a
+ * lapsed subscription stop conferring Subscribed. There is no
+ * background sweeper and no cron: every read computes the
+ * effective tier from the rows and the clock.
+ *
+ * Money rules shared by both adapters live in the pure helpers
+ * below so the two implementations cannot drift.
+ */
+import type { StoreTier, TierSource } from "./commercialPorts";
+export type { TierSource };
+
+export type SubscriptionStatus = "active" | "canceled";
+
+export interface SubscriptionPlanRecord {
+  id: string;
+  name: string;
+  priceUSD: number;
+  periodDays: number;
+  includedRuns: number;
+  active: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface SubscriptionRecord {
+  id: string;
+  userId: string;
+  tenantId: string;
+  planId: string;
+  provider: string;
+  providerPaymentRef: string;
+  status: SubscriptionStatus;
+  periodStartMs: number;
+  periodEndMs: number;
+  canceledAtMs: number | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+/** One day in epoch-ms; subscription periods are whole days. */
+export const MS_PER_DAY = 86_400_000;
+
+/** Round money to the cent; anything finer is a caller bug. */
+export function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+export function assertPlan(input: {
+  id?: unknown;
+  name?: unknown;
+  priceUSD?: unknown;
+  periodDays?: unknown;
+  includedRuns?: unknown;
+}): {
+  id: string;
+  name: string;
+  priceUSD: number;
+  periodDays: number;
+  includedRuns: number;
+} {
+  const id = typeof input.id === "string" && input.id.trim() ? input.id.trim() : "";
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  const priceUSD = Number(input.priceUSD);
+  const periodDays = Number(input.periodDays);
+  const includedRuns = Number(input.includedRuns);
+  if (!name) throw new Error("Plan name is required.");
+  if (!Number.isFinite(priceUSD) || priceUSD <= 0) {
+    throw new Error("priceUSD must be a finite positive number.");
+  }
+  if (!Number.isFinite(periodDays) || periodDays < 1 || Math.floor(periodDays) !== periodDays) {
+    throw new Error("periodDays must be a positive integer.");
+  }
+  if (!Number.isFinite(includedRuns) || includedRuns < 0 || Math.floor(includedRuns) !== includedRuns) {
+    throw new Error("includedRuns must be a non-negative integer.");
+  }
+  return { id, name, priceUSD: round2(priceUSD), periodDays, includedRuns };
+}
+
+export function assertSubscriptionStatus(status: unknown): SubscriptionStatus {
+  if (status !== "active" && status !== "canceled") {
+    throw new Error(`Invalid subscription status: ${String(status)} (must be active or canceled).`);
+  }
+  return status;
+}
+
+/**
+ * The effective tier at read time. An unexpired row confers
+ * Subscribed even when the stored tier says otherwise (the user
+ * paid through periodEnd; the operator's lever is cancellation,
+ * not the tier flag). A stored Subscribed tier granted by a
+ * subscription confers nothing once every row has expired — the
+ * stored tier is NOT restored to a pre-subscription value by
+ * magic; it falls back to Free unless an operator granted it
+ * (tierSource "operator") or the stored tier is PayPerUse, which
+ * survives untouched because activation never overwrites it.
+ */
+export function resolveEffectiveTier(
+  account: { tier: StoreTier; tierSource?: TierSource | null } | null,
+  subscriptions: Array<{ periodEndMs: number }>,
+  nowMs: number,
+): StoreTier {
+  if (subscriptions.some((s) => s.periodEndMs > nowMs)) return "Subscribed";
+  if (!account) return "Free";
+  if (account.tier === "Subscribed" && (account.tierSource ?? "operator") !== "operator") {
+    return "Free";
+  }
+  return account.tier;
+}
+
+/** Repurchase stacking: a new period starts at the latest paid-through instant, never earlier. */
+export function nextPeriodStartMs(existingPeriodEndsMs: number[], nowMs: number): number {
+  return Math.max(nowMs, ...existingPeriodEndsMs);
+}
+
+export interface SubscriptionStore {
+  createPlan(input: {
+    id?: unknown;
+    name?: unknown;
+    priceUSD?: unknown;
+    periodDays?: unknown;
+    includedRuns?: unknown;
+  }): Promise<SubscriptionPlanRecord>;
+  getPlan(planId: string): Promise<SubscriptionPlanRecord | null>;
+  listPlans(activeOnly: boolean): Promise<SubscriptionPlanRecord[]>;
+  deactivatePlan(planId: string): Promise<SubscriptionPlanRecord>;
+  createSubscription(input: {
+    id: string;
+    userId: string;
+    tenantId: string;
+    planId: string;
+    provider: string;
+    providerPaymentRef: string;
+    periodStartMs: number;
+    periodEndMs: number;
+  }): Promise<SubscriptionRecord>;
+  getSubscription(subscriptionId: string): Promise<SubscriptionRecord | null>;
+  /** All rows for the user, oldest first. */
+  listSubscriptions(userId: string): Promise<SubscriptionRecord[]>;
+  /** The subscription activated by this payment reference, if any — the replay guard. */
+  findByPaymentRef(providerPaymentRef: string): Promise<SubscriptionRecord | null>;
+  /** Cancel every unexpired row for the user (cancel-at-period-end: access continues to periodEnd). */
+  cancelUnexpiredSubscriptions(userId: string, nowMs: number): Promise<SubscriptionRecord[]>;
+}

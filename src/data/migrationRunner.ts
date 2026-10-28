@@ -358,6 +358,50 @@ CREATE TABLE IF NOT EXISTS agent_credit_redemptions (
 `,
 };
 
+/**
+ * Migration 0008 — subscriptions (#2020/#2127). Portable subset
+ * (same rules as migrations 0001-0007): `?` params only where
+ * params exist (DDL has none), epoch-ms integers, no dialect
+ * date functions, no RETURNING. The tier_source column on the
+ * accounts table records WHO granted a stored Subscribed tier:
+ * pre-0008 rows have NULL, which the effective-tier helper reads
+ * as "operator" (every pre-subscription row was operator-set).
+ * The UNIQUE index on provider_payment_ref is the replay guard
+ * for purchase: one verified checkout, one subscription.
+ */
+export const MIGRATION_0008_SUBSCRIPTIONS: DataMigration = {
+  version: 8,
+  name: "0008_subscriptions",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  provider_payment_ref TEXT NOT NULL,
+  status TEXT NOT NULL,
+  period_start_ms INTEGER NOT NULL,
+  period_end_ms INTEGER NOT NULL,
+  canceled_at_ms INTEGER,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_subscriptions_payment_ref_idx ON agent_subscriptions (provider_payment_ref);
+CREATE INDEX IF NOT EXISTS agent_subscriptions_user_created_idx ON agent_subscriptions (user_id, created_at_ms);
+CREATE TABLE IF NOT EXISTS agent_subscription_plans (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  price_usd REAL NOT NULL,
+  period_days INTEGER NOT NULL,
+  included_runs INTEGER NOT NULL,
+  active INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+ALTER TABLE agent_commercial_accounts ADD COLUMN tier_source TEXT;
+`,
+};
 
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
@@ -367,6 +411,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0005_AGENT_MARKET_GRAPH,
   MIGRATION_0006_AGENT_TELEMETRY_CALIBRATION,
   MIGRATION_0007_COMMERCIAL_STORE,
+  MIGRATION_0008_SUBSCRIPTIONS,
 ];
 
 function splitStatements(sqlText: string): string[] {
