@@ -206,6 +206,8 @@ describe("POST /screening/goal-screen flag gate (#1997)", () => {
     const body = (await res!.json()) as Record<string, unknown>;
     expect(body.error).toBe("goal_workflow_start_failed");
     expect(typeof body.jobId).toBe("string");
+    // Issue #2065: the coded failure names the missing dependency.
+    expect(body.reason).toBe("workflow_binding_unavailable");
     expect(agent.runGoalScreen).not.toHaveBeenCalled();
   });
 
