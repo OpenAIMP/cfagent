@@ -391,6 +391,16 @@ function capSummaryJson(value: unknown): string {
   }
 }
 
+/** Issue #2129: a projection failure never fails the run, but it
+ * must leave a worker-log trace naming the chain, the stage, and
+ * the cause — the silent no-op is what made vanished runs
+ * untraceable from the panel's empty history. */
+function warnUnprojected(chainId: string, stage: string, result: { projected: boolean; error?: string }): void {
+  if (!result.projected) {
+    console.warn(`[screener-workflow] projection failed for chain ${chainId} stage ${stage}: ${result.error ?? "unknown"}`);
+  }
+}
+
 /** Project legs best-effort (a projection failure never fails the run). */
 async function projectBestEffort(
   deps: ScreenerWorkflowDeps,
@@ -399,7 +409,10 @@ async function projectBestEffort(
   legs: LegOutcome[],
   nowMs: number,
 ): Promise<{ projected: boolean; error?: string }> {
-  if (!deps.shardStore || !tenantId) return { projected: false };
+  // Issue #2129: name the no-op cause — a bare { projected: false }
+  // left vanished runs traceless (empty history, no log line).
+  if (!deps.shardStore) return { projected: false, error: "shard store unavailable" };
+  if (!tenantId) return { projected: false, error: "tenantId missing" };
   try {
     const result = await projectLegOutcomes({
       store: deps.shardStore,
@@ -618,7 +631,10 @@ export async function runShardFlow(
     ...(deliverError ? { deliverError } : {}),
   };
   await step.do("project-shard", async () => {
-    await projectBestEffort(deps, command.tenantId, command.parentJobId ?? command.jobId, [
+    warnUnprojected(
+      command.parentJobId ?? command.jobId,
+      "analysis",
+      await projectBestEffort(deps, command.tenantId, command.parentJobId ?? command.jobId, [
       {
         stepId: shardId,
         capabilityId: SCREENER_WORKFLOW_CAPABILITY,
@@ -629,7 +645,8 @@ export async function runShardFlow(
           : `Shard ${shardId} failed: ${result.error ?? "screen failed"}`,
         result: { shardJobIds: [`shard:${shardId}`], result: rowResult },
       },
-    ], deps.nowMs());
+      ], deps.nowMs()),
+    );
   });
   // Strip `full`: the parent collects summaries + flags only.
   const { full: _dropped, ...output } = result;
@@ -677,16 +694,20 @@ export async function runParentFlow(
   // both resolve to the parent job id, so announce and
   // final are versions of ONE row, not two rows.
   await step.do("announce", async () => {
-    await projectBestEffort(deps, command.tenantId, command.jobId, [
-      {
-        stepId: "parent",
-        capabilityId: SCREENER_WORKFLOW_CAPABILITY,
-        stage: "feed",
-        status: "submitted",
-        detail: `Workflow started: ${command.shards.length} shard(s), trigger ${command.trigger}.`,
-        result: { jobId: command.jobId },
-      },
-    ], nowMs());
+    warnUnprojected(
+      command.jobId,
+      "feed",
+      await projectBestEffort(deps, command.tenantId, command.jobId, [
+        {
+          stepId: "parent",
+          capabilityId: SCREENER_WORKFLOW_CAPABILITY,
+          stage: "feed",
+          status: "submitted",
+          detail: `Workflow started: ${command.shards.length} shard(s), trigger ${command.trigger}.`,
+          result: { jobId: command.jobId },
+        },
+      ], nowMs()),
+    );
   });
 
   // Fan out in batches of maxParallelShards.
@@ -834,7 +855,7 @@ export async function runParentFlow(
         },
       });
     }
-    await projectBestEffort(deps, command.tenantId, command.jobId, legs, nowMs());
+    warnUnprojected(command.jobId, "deliver", await projectBestEffort(deps, command.tenantId, command.jobId, legs, nowMs()));
   });
 
   return collation;
