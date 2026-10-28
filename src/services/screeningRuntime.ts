@@ -73,6 +73,7 @@ import type {
   ScenarioRecord,
 } from "./goalScenarioStore";
 import type { ScenarioConfigSnapshot } from "./goalScenarioEngine";
+import { recordGoalRunOutcome } from "./goalScreenReports";
 import {
   backtestScreenCandidates,
   type BacktestResult,
@@ -370,6 +371,22 @@ export async function executeGoalScreenRun(input: {
       ...(result.csvStatus ? { csvStatus: result.csvStatus } : {}),
       ...(result.csvError ? { csvError: result.csvError } : {}),
     },
+    createdAt: result.completedAt,
+    userLogin: input.userLogin,
+  });
+  recordGoalRunOutcome(input.orm.getSql(), {
+    id: `goal-screen:${run.task.id}`,
+    trigger: input.trigger,
+    status: result.status === "failed" ? "failed" : result.status === "partial" ? "partial" : "completed",
+    scanned: result.counts.stocksScanned + result.counts.optionsUnderlyingsScanned,
+    matched: result.counts.hits,
+    pdfKey: result.pdfKey,
+    xlsxKey: result.xlsxKey,
+    csvKey: result.csvKey,
+    reportUrl: result.pdfKey
+      ? `/api/screening/goal-screen/report.pdf?key=${encodeURIComponent(result.pdfKey)}`
+      : undefined,
+    origin: "goal-screen-direct",
     createdAt: result.completedAt,
   });
   recordScreeningActivity(input.orm as any, {

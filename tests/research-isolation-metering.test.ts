@@ -22,6 +22,7 @@ const baseInput = (over: Partial<ScheduledReportInput>): ScheduledReportInput =>
   source: "research",
   summary: "bullish ideas",
   body: "full report body",
+  userLogin: "alice",
   ...over,
 });
 
@@ -64,13 +65,15 @@ describe("#584 report isolation (EP-003)", () => {
     expect(hits[0].summary).toContain("bearish");
   });
 
-  it("backfills legacy rows without a user to the default login", () => {
+  it("refuses to backfill an ownerless report into a synthetic tenant", () => {
     const sql = new MockSqlStorage();
-    storeReportAtGeneration(sql, baseInput({}));
+    // Multi-tenant SaaS: no login means no tenant. The write is refused
+    // rather than filed under "default".
+    expect(storeReportAtGeneration(sql, baseInput({ userLogin: "" }))).toBeNull();
     const rows = Array.from(
       sql.exec("SELECT user_login FROM mas_reports")
     ) as Array<{ user_login?: string }>;
-    expect(rows[0]?.user_login).toBe("default");
+    expect(rows).toHaveLength(0);
   });
 
   it("without a user, list and search keep legacy unfiltered behavior", () => {

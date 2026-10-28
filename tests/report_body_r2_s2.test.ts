@@ -96,6 +96,7 @@ const input = {
   source: "research_report",
   summary: "Probe summary",
   body: { title: "Probe", fileName: "probe.xlsx", attachmentBase64: "QUJD" },
+  userLogin: "tenant@example.com",
 };
 const bodyJson = JSON.stringify(input.body);
 
@@ -232,6 +233,7 @@ describe("#338 S2 research dispatch path", () => {
     const stored = await storeResearchReportCanonicalAsync(ctx, bodyJson, {
       title: "Weekly scan",
       summary: "s",
+      userLogin: "venus",
     });
     objects.clear();
     const outcome = await deliverStoredReportEmail(ctx, stored!.reportId, "a@b.com", "venus");

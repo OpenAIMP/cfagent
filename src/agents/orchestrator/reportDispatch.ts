@@ -144,6 +144,10 @@ export async function storeResearchReportCanonicalAsync(ctx: ReportDispatchConte
   bodyJson: string,
   meta: { title: string; summary: string; userLogin?: string }
 ): Promise<{ reportId: string; generationId: string } | null> {
+  if (!meta.userLogin) {
+    console.error(`[reportDispatch] Research report store refused: no owning userLogin (title: ${meta.title}).`);
+    return null;
+  }
   const generationId = await sha256Hex(bodyJson);
   // Issue #338 S2: the canonical body goes to R2 (pointer in the row)
   // when REPORTS_BUCKET is bound; the store falls back to the legacy
@@ -269,6 +273,10 @@ export async function persistScreenerReportCanonical(ctx: ReportDispatchContext,
   trigger?: unknown;
   userLogin?: string;
 }): Promise<void> {
+  if (!result.userLogin) {
+    console.error(`[reportDispatch] Screen report store refused: no owning userLogin (run: ${result.timestamp}).`);
+    return;
+  }
   try {
     const generationId = `screener:${result.timestamp}`;
     // Issue #338 S2b: store through the R2 seam (pointer row when

@@ -89,6 +89,7 @@ function scheduledScreenerInput(timestamp: string) {
       pdfKey: `screener-reports/screen-${timestamp}.pdf`,
     },
     createdAt: timestamp,
+    userLogin: "tenant@example.com",
   } as const;
 }
 

@@ -148,11 +148,14 @@ describe("goal/scenario/outcome store (issue #1098)", () => {
     ).toBeNull();
   });
 
-  it("default tenant is 'default' when no userLogin is supplied", () => {
+  it("refuses to create a goal without a tenant (no 'default' owner)", () => {
     const sql = freshSql();
-    const goal = createGoal(sql, { kind: "directional", title: "Default-tenant goal" });
-    expect(goal.userLogin).toBe("default");
-    expect(getGoal(sql, "default", goal.id)?.id).toBe(goal.id);
-    expect(getGoal(sql, "alice", goal.id)).toBeNull();
+    expect(() => createGoal(sql, { kind: "directional", title: "Ownerless goal" } as any)).toThrow(
+      /owning userLogin/,
+    );
+    const goal = createGoal(sql, { kind: "directional", title: "Alice goal", userLogin: "alice" });
+    expect(goal.userLogin).toBe("alice");
+    expect(getGoal(sql, "alice", goal.id)?.id).toBe(goal.id);
+    expect(getGoal(sql, "default", goal.id)).toBeNull();
   });
 });

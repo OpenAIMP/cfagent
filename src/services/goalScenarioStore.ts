@@ -173,6 +173,19 @@ function outcomeFromRow(r: any): OutcomeRecord {
   };
 }
 
+/**
+ * Multi-tenant SaaS: every goal/scenario/outcome row belongs to exactly
+ * one tenant. There is no shared "default" owner — a write without a
+ * login is refused instead of collapsing tenants into one bucket.
+ */
+function requireOwner(userLogin: unknown): string {
+  const owner = typeof userLogin === "string" ? userLogin.trim() : "";
+  if (!owner) {
+    throw new Error("goal scenario store requires an owning userLogin (no default identity).");
+  }
+  return owner;
+}
+
 export function createGoal(
   sql: any,
   input: {
@@ -188,7 +201,7 @@ export function createGoal(
   const now = new Date().toISOString();
   const goal: GoalRecord = {
     id: newId("goal"),
-    userLogin: input.userLogin || "default",
+    userLogin: requireOwner(input.userLogin),
     kind: input.kind,
     title: input.title,
     status: input.status || "proposed",

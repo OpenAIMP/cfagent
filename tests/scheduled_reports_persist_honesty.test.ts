@@ -212,6 +212,7 @@ function input(over: Partial<ScheduledReportInput> = {}): ScheduledReportInput {
     summary: "Scanned 100 symbols, 4 matched.",
     body: { opportunities: [{ symbol: "NVDA" }] },
     createdAt: "2026-10-21T03:30:00.000Z",
+    userLogin: "tenant@example.com",
     ...over,
   };
 }

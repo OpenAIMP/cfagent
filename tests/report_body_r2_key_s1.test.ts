@@ -112,6 +112,7 @@ const input = {
   source: "screener",
   summary: "Probe summary",
   body: { ideas: [{ symbol: "ACME" }] },
+  userLogin: "tenant@example.com",
 };
 
 describe("#338 S1 body_r2_key plumbing", () => {
