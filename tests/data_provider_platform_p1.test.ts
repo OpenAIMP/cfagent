@@ -410,14 +410,15 @@ describe("provider-config store (issue #1118)", () => {
     const routes = listCapabilityRoutes(sql);
     const byCapability = new Map(routes.map((r) => [r.capability, r]));
     // The stock screener composes: Nasdaq listings + Yahoo bars +
-    // Yahoo quote gap-fill + E*TRADE quotes/chains (owner correction,
-    // comment 6358714200 on #1116).
+    // E*TRADE quotes/chains (owner correction, comment 6358714200 on
+    // #1116). No Yahoo quote gap-fill: live quote rows are never
+    // gap-filled (owner ruling, issue #2144).
     expect(byCapability.get("screenUniverse")?.primaryProviderId).toBe("nasdaq");
     expect(byCapability.get("screenUniverse")?.gapFillProviderId).toBeNull();
     expect(byCapability.get("historicalBars")?.primaryProviderId).toBe("yahoo");
     expect(byCapability.get("historicalBars")?.gapFillProviderId).toBeNull();
     expect(byCapability.get("quotes")?.primaryProviderId).toBe("etrade");
-    expect(byCapability.get("quotes")?.gapFillProviderId).toBe("yahoo");
+    expect(byCapability.get("quotes")?.gapFillProviderId).toBeNull();
     expect(byCapability.get("optionsChains")?.primaryProviderId).toBe("etrade");
     expect(byCapability.get("optionsChains")?.gapFillProviderId).toBeNull();
     expect(byCapability.get("fundamentals")?.primaryProviderId).toBe("yahoo");
@@ -597,7 +598,9 @@ describe("capability routing resolution (issue #1118, owner correction)", () => 
     const quotes = registry.resolveRoute("quotes", configs, routes);
     expect(quotes.capability).toBe("quotes");
     expect(quotes.primary.id).toBe("etrade");
-    expect(quotes.gapFill?.id).toBe("yahoo");
+    // Issue #2144: quotes never gap-fill, even when a stored route
+    // declares one.
+    expect(quotes.gapFill).toBeUndefined();
 
     const universe = registry.resolveRoute("screenUniverse", configs, routes);
     expect(universe.primary.id).toBe("nasdaq");
@@ -616,16 +619,33 @@ describe("capability routing resolution (issue #1118, owner correction)", () => 
     expect(fundamentals.gapFill).toBeUndefined();
   });
 
-  it("gap-fill appears ONLY where declared in config — never invented from precedence", () => {
+  it("gap-fill appears ONLY where declared — and never for quotes (issue #2144)", () => {
     const sql = seededStore();
     const registry = registryWithRealAdapters();
-    const { configs, routes } = enableAll(sql);
-    // alpaca also serves quotes and is enabled, but no route declares it
-    // as quotes gap-fill (yahoo is) — and fundamentals has no gap-fill
-    // declared at all despite multiple enabled providers existing.
-    expect(registry.resolveRoute("quotes", configs, routes).gapFill?.id).toBe("yahoo");
+    const { configs } = enableAll(sql);
+    // Quotes: a stored route DOES declare yahoo as gap-fill, but the
+    // owner ruling suppresses it — live quote rows are never
+    // gap-filled. The policy is quotes-scoped: fundamentals keeps its
+    // declared alpaca gap-fill, and historicalBars still has no
+    // gap-fill declared at all despite multiple enabled providers
+    // existing.
+    upsertCapabilityRoute(sql, {
+      capability: "quotes",
+      primaryProviderId: "etrade",
+      gapFillProviderId: "yahoo",
+    });
+    upsertCapabilityRoute(sql, {
+      capability: "fundamentals",
+      primaryProviderId: "yahoo",
+      gapFillProviderId: "alpaca",
+    });
+    const routes = listCapabilityRoutes(sql);
+    expect(registry.resolveRoute("quotes", configs, routes).gapFill).toBeUndefined();
     expect(
-      registry.resolveRoute("fundamentals", configs, routes).gapFill
+      registry.resolveRoute("fundamentals", configs, routes).gapFill?.id
+    ).toBe("alpaca");
+    expect(
+      registry.resolveRoute("historicalBars", configs, routes).gapFill
     ).toBeUndefined();
   });
 
@@ -653,14 +673,21 @@ describe("capability routing resolution (issue #1118, owner correction)", () => 
   it("an unservable gap-fill is omitted from the assignment, visibly — not fatal, not substituted", () => {
     const sql = seededStore();
     const registry = registryWithRealAdapters();
-    enableProvider(sql, "etrade");
-    // yahoo (the declared quotes gap-fill) stays "configured" — not enabled.
+    enableProvider(sql, "yahoo");
+    // alpaca (the declared fundamentals gap-fill) stays "configured" —
+    // not enabled. (Quotes no longer exercises this path: its gap-fill
+    // is suppressed by policy, issue #2144, whether servable or not.)
+    upsertCapabilityRoute(sql, {
+      capability: "fundamentals",
+      primaryProviderId: "yahoo",
+      gapFillProviderId: "alpaca",
+    });
     const assignment = registry.resolveRoute(
-      "quotes",
+      "fundamentals",
       listProviderConfigs(sql),
       listCapabilityRoutes(sql)
     );
-    expect(assignment.primary.id).toBe("etrade");
+    expect(assignment.primary.id).toBe("yahoo");
     expect(assignment.gapFill).toBeUndefined();
   });
 
