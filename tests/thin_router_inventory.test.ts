@@ -168,6 +168,11 @@
  * delegation sequence is unchanged (same handler, same
  * position).
  *
+ * Issue #1169 (S4-2) added one — POST /search/mas (in
+ * handleSearchHubRoutes, after /search/knowledge) — bringing the
+ * pinned array to 264 entries; the delegation sequence is
+ * unchanged (same handler, same position).
+ *
  * Issue #1169 (S4-1) added one more — POST /trading/reports/index-backfill (in
  * handleReportsRoutes, after the trading/reports webhook handler and before
  * /reports/research/browse) — bringing the pinned array to 263 entries; the
@@ -290,6 +295,7 @@ const EXPECTED_INVENTORY = [
   "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/corpus\")",
   "handleSearchHubRoutes :: endsWith(\"/search/agent\")",
   "handleSearchHubRoutes :: endsWith(\"/search/knowledge\")",
+  "handleSearchHubRoutes :: endsWith(\"/search/mas\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/jobs\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/state\")",
