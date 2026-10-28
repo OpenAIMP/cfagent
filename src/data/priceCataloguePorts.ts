@@ -49,7 +49,7 @@ export function assertPriceUSD(priceUSD: unknown): number {
 
 /**
  * PROPOSED seed prices, NOT owner-approved and NOT an activation.
- * Seeded into the store at ensure time (migration 0010) so a
+ * Seeded into the store at ensure time (migration 0011) so a
  * fresh store has prices to read; the gate never reads this
  * constant. An owner-approved price replaces these rows in
  * operator data, not in code. Values: stock $0.02, goal $0.10,

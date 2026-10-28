@@ -1117,7 +1117,7 @@ export async function handleAgenticPaymentsRoutes(
   // code deploy, because the gate reads the catalogue, not code.
   // Operator gating follows the commercial pattern above
   // (COMMERCIAL_STORE_OPERATORS, empty = deny all). A money write
-  // path, so the schema is ensured first (migration 0010 seeds
+  // path, so the schema is ensured first (migration 0011 seeds
   // the proposed defaults on a fresh store; the upsert then
   // overwrites exactly the family named). Invalid family or price
   // is 400; an unbound store is 503, never a silent no-op.

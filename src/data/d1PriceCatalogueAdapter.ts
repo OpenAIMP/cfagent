@@ -17,7 +17,7 @@ import { asc, eq } from "drizzle-orm";
 import { agentPriceCatalogue } from "./drizzleSchema";
 import {
   applyMigrations,
-  MIGRATION_0010_PRICE_CATALOGUE,
+  MIGRATION_0011_PRICE_CATALOGUE,
   type MigrationDb,
 } from "./migrationRunner";
 import {
@@ -43,14 +43,14 @@ export function createD1PriceCatalogueDb(d1: D1Database): PriceCatalogueDb {
 }
 
 /**
- * Idempotent schema-ensure: applies migration 0010 if unapplied,
+ * Idempotent schema-ensure: applies migration 0011 if unapplied,
  * then seeds the proposed prices (INSERT OR IGNORE — re-seeding
  * is a no-op, so an operator-edited price is never overwritten
  * by a later ensure). The seeds are PROPOSED defaults pending
  * owner approval, not an activation.
  */
 export async function ensurePriceCatalogueSchema(db: PriceCatalogueDb): Promise<number[]> {
-  const applied = await applyMigrations(db as unknown as MigrationDb, [MIGRATION_0010_PRICE_CATALOGUE]);
+  const applied = await applyMigrations(db as unknown as MigrationDb, [MIGRATION_0011_PRICE_CATALOGUE]);
   const now = Date.now();
   for (const [family, priceUSD] of Object.entries(PROPOSED_SEED_PRICES)) {
     await db

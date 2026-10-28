@@ -20,7 +20,7 @@
  *  - An operator price change is honored by the gate with no code
  *    deploy, and survives a re-ensure (INSERT OR IGNORE seeding).
  *  - Gate tenant checks still hold; flag-OFF free path unchanged.
- *  - Migration 0010 owns the catalogue DDL; the Drizzle schema
+ *  - Migration 0011 owns the catalogue DDL; the Drizzle schema
  *    maps it (column parity pinned here).
  *  - Port modules never import a store client; the gate module
  *    never imports a store client and holds no price table
@@ -42,7 +42,7 @@ import {
 import { InMemoryPriceCatalogueAdapter } from "../src/data/inMemoryPriceCatalogueAdapter";
 import { createPriceCatalogueAdapter } from "../src/data/createPriceCataloguePorts";
 import {
-  MIGRATION_0010_PRICE_CATALOGUE,
+  MIGRATION_0011_PRICE_CATALOGUE,
   applyMigrations,
   type MigrationDb,
 } from "../src/data/migrationRunner";
@@ -110,7 +110,7 @@ async function emptyAdapters(): Promise<Array<{ name: string; catalogue: PriceCa
   const mock = new MockD1Database();
   const db = createD1PriceCatalogueDb(mock as unknown as D1Database);
   // Migration only, no ensure seeding: the table exists but holds no rows.
-  await applyMigrations(db as unknown as MigrationDb, [MIGRATION_0010_PRICE_CATALOGUE]);
+  await applyMigrations(db as unknown as MigrationDb, [MIGRATION_0011_PRICE_CATALOGUE]);
   return [
     { name: "in-memory", catalogue: new InMemoryPriceCatalogueAdapter({}) },
     { name: "drizzle", catalogue: new D1PriceCatalogueAdapter(db) },
@@ -436,7 +436,7 @@ describe("price catalogue structural pins (#2185, ADR 0002 R1)", () => {
     const schemaColumns = Array.isArray(rawColumns)
       ? rawColumns.map((c: any) => c.name as string)
       : Object.keys(rawColumns).map((s) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`));
-    const block = MIGRATION_0010_PRICE_CATALOGUE.sql.split(
+    const block = MIGRATION_0011_PRICE_CATALOGUE.sql.split(
       "CREATE TABLE IF NOT EXISTS agent_price_catalogue (",
     )[1].split(");")[0];
     const ddlColumns = [...block.matchAll(/^\s{2}(\w+) /gm)].map((m) => m[1]);
