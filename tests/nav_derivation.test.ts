@@ -33,10 +33,11 @@ const EXPECTED_ORDER = [
   "revenue",
   "social",
   "payment-assurance",
+  "docs",
 ];
 
 describe("nav derivation", () => {
-  it("derives the 21 nav items in display order", () => {
+  it("derives the 22 nav items in display order", () => {
     expect(NAVIGATION_ITEMS.map((i) => i.id)).toEqual(EXPECTED_ORDER);
   });
 
@@ -57,6 +58,7 @@ describe("nav derivation", () => {
     expect(byId.get("screeners")!.label).toBe("Screening");
     expect(byId.get("social")!.label).toBe("Social Posting");
     expect(byId.get("approvals")!.label).toBe("Approvals");
+    expect(byId.get("docs")!.label).toBe("Docs and Reports");
   });
 
   it("active states follow nav groups, not hand-coded cases", () => {
