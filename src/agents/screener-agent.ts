@@ -1384,6 +1384,15 @@ export class ScreenerAgent extends PortThink {
   }
 
   /**
+   * Issue #2180: serve a stored discovery run report (PDF/XLSX/CSV) by key.
+   * The artifacts live in the same blob store the report routes read.
+   */
+  async getDiscoveryReportByKey(key: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, key);
+  }
+
+  /**
    * Get a specific options run's PDF by its storage key (issue #361).
    */
   async getOptionsPdfByKey(pdfKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {

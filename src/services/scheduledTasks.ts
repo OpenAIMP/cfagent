@@ -61,6 +61,11 @@ import type {
   StrategyProfileStore,
 } from "../trading";
 import {
+  buildDiscoveryCanonicalBody,
+  generateAndStoreDiscoveryReport,
+} from "./discoveryReportPublish";
+import type { DiscoveryReportInput } from "../trading";
+import {
   resolveFeedSnapshotForSymbol,
   pickFeedLoadParams,
   type FeedSnapshotInput,
@@ -2725,29 +2730,53 @@ export class ScheduledTasksService {
   }): Promise<string | undefined> {
     let reportId: string | undefined;
     if (this.orm) {
+      // Issue #2180: the run report's document set, generated BEFORE the
+      // canonical write so the row carries the keys — the store is
+      // insert-only per generation id, so a later write could never attach
+      // them.
+      const reportInput: DiscoveryReportInput = {
+        runId: args.run.id,
+        createdAt: args.timestamp,
+        trigger: args.options.trigger || "scheduled",
+        inputModel: args.run.inputModel,
+        status: args.run.status,
+        summary: args.summary,
+        symbols: args.symbols,
+        matchedCount: args.matchedCount,
+        totalScanned: args.totalScanned,
+        outcomes: args.outcomes,
+      };
+      const artifacts = await generateAndStoreDiscoveryReport({
+        env: this.env,
+        storage: (this.platformDeps as { blobStorage?: unknown } | undefined)?.blobStorage as any,
+        input: reportInput,
+      });
       const stored = await storeReportStage(this.orm, {
         runId: `discovery:${args.run.id}`,
         generationId: `discovery:${args.run.id}`,
         title: `Strategy discovery — ${args.run.inputModel}`,
         source: "discovery",
         summary: args.summary,
-        body: {
-          discoveryRunId: args.run.id,
-          status: args.run.status,
-          inputModel: args.run.inputModel,
-          symbols: args.symbols,
-          trigger: args.options.trigger || "scheduled",
-          // Consolidation #1236 (feed seam): surface the feed inputs
-          // through serve — which artifact fed each symbol, its
-          // asOf, and whether it was stale. Only in snapshot mode.
-          ...(args.outcomes.some((o) => o.snapshotInput)
-            ? {
-                snapshotInputs: args.outcomes
-                  .filter((o) => o.snapshotInput)
-                  .map((o) => ({ symbol: o.symbol, ...o.snapshotInput })),
-              }
-            : {}),
-        },
+        body: buildDiscoveryCanonicalBody(
+          {
+            discoveryRunId: args.run.id,
+            status: args.run.status,
+            inputModel: args.run.inputModel,
+            symbols: args.symbols,
+            trigger: args.options.trigger || "scheduled",
+            // Consolidation #1236 (feed seam): surface the feed inputs
+            // through serve — which artifact fed each symbol, its
+            // asOf, and whether it was stale. Only in snapshot mode.
+            ...(args.outcomes.some((o) => o.snapshotInput)
+              ? {
+                  snapshotInputs: args.outcomes
+                    .filter((o) => o.snapshotInput)
+                    .map((o) => ({ symbol: o.symbol, ...o.snapshotInput })),
+                }
+              : {}),
+          },
+          artifacts,
+        ),
         createdAt: args.timestamp,
         userLogin: this.userLogin,
       },

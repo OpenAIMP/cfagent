@@ -72,6 +72,11 @@ const PINNED_STAR_REEXPORTS = [
   "./researchReportData",
   "./researchReportXlsx",
   "./researchReportCsv",
+  // Issue #2180: the discovery run-report renderers join the trading surface.
+  "./discoveryReportData",
+  "./discoveryReportPdf",
+  "./discoveryReportXlsx",
+  "./discoveryReportCsv",
   "./options",
   "./options/flows",
   "./options/flows/types",
