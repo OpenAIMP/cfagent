@@ -1346,8 +1346,10 @@ export class ScheduledTasksService {
           };
         }
         if (!handle) {
+          const { workflowPortsUnavailableReason } = await import("../workflows/createWorkflowPorts");
+          const reason = workflowPortsUnavailableReason(this.env) ?? "start_failed";
           throw new Error(
-            "goal_workflow_start_failed: goal workflow could not be started in this environment.",
+            `goal_workflow_start_failed (${reason}): goal workflow could not be started in this environment.`,
           );
         }
       }
