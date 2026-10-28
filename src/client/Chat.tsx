@@ -35,6 +35,7 @@ import { AdsTab } from "./chat/tabs/AdsTab";
 import { RevenueTab } from "./chat/tabs/RevenueTab";
 import { EndpointsTab } from "./chat/tabs/EndpointsTab";
 import { ApprovalsPanel } from "./ApprovalsPanel";
+import { PaymentWorkflowAssurance } from "./PaymentWorkflowAssurance";
 import { SocialPostingPanel } from "./SocialPostingPanel";
 import {
   isTabFeatureEnabled,
@@ -2152,6 +2153,10 @@ export function Chat({ user }: { user: User }) {
 
         {tab === "approvals" && (
           <ApprovalsPanel />
+        )}
+
+        {tab === "payment-assurance" && (
+          <PaymentWorkflowAssurance />
         )}
 
           </>
