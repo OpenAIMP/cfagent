@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { ScreenersHub, parseScreenerTabFromUrl, SCREENER_HUB_TABS } from "../src/client/ScreenersHub";
+import { ScreenersHub, SCREENER_HUB_TABS } from "../src/client/ScreenersHub";
 import { CapabilityNavBar } from "../src/client/components/CapabilityNavBar";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -45,12 +45,32 @@ describe("ScreenersHub Tabbed Browsing Reference Implementation", () => {
     expect(SCREENER_HUB_TABS).toContain("track-record");
   });
 
-  it("parseScreenerTabFromUrl extracts valid tab from ?screenerTab, ?tab, or hash", () => {
-    expect(parseScreenerTabFromUrl("https://example.com/screeners?screenerTab=scanner")).toBe("scanner");
-    expect(parseScreenerTabFromUrl("https://example.com/screeners?tab=options")).toBe("options");
-    expect(parseScreenerTabFromUrl("https://example.com/screeners#goal-screen")).toBe("goal-screen");
-    expect(parseScreenerTabFromUrl("https://example.com/screeners#tab=reports")).toBe("reports");
-    expect(parseScreenerTabFromUrl("https://example.com/screeners?screenerTab=invalid")).toBeNull();
+  it("deep-links directly into the tab specified by the canonical ?view param", async () => {
+    window.history.replaceState(null, "", "/screeners?view=scanner");
+
+    await act(async () => {
+      root?.render(<ScreenersHub activeEnv="TEST" />);
+    });
+
+    const activeTab = container?.querySelector('.capability-tab-btn[aria-selected="true"]');
+    expect(activeTab).not.toBeNull();
+    expect(activeTab?.textContent).toContain("Scanner");
+
+    const scannerPanel = container?.querySelector('#screener-tabpanel-scanner');
+    expect(scannerPanel).not.toBeNull();
+    expect(scannerPanel?.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("still deep-links via a hash tab", async () => {
+    window.history.replaceState(null, "", "/screeners#goal-screen");
+
+    await act(async () => {
+      root?.render(<ScreenersHub activeEnv="TEST" />);
+    });
+
+    const activeTab = container?.querySelector('.capability-tab-btn[aria-selected="true"]');
+    expect(activeTab).not.toBeNull();
+    expect(activeTab?.textContent).toContain("Goal");
   });
 
   it("deep-links directly into the tab specified by URL query param ?screenerTab", async () => {
@@ -88,7 +108,7 @@ describe("ScreenersHub Tabbed Browsing Reference Implementation", () => {
 
     expect(pushStateSpy).toHaveBeenCalled();
     const lastCallUrl = String(pushStateSpy.mock.calls[pushStateSpy.mock.calls.length - 1][2]);
-    expect(lastCallUrl).toContain("screenerTab=reports");
+    expect(lastCallUrl).toContain("view=reports");
 
     const reportsPanel = container?.querySelector('#screener-tabpanel-reports');
     expect(reportsPanel).not.toBeNull();

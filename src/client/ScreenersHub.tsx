@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePolling } from "./usePolling";
+import { useUrlSyncedTabs } from "./useUrlSyncedTabs";
 import { Skeleton, EmptyState, Button, Select, Table, TextInput } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import {
@@ -71,37 +72,6 @@ export const SCREENER_HUB_TABS: readonly ScreenersHubTab[] = [
 
 export function isValidScreenerTab(tab: unknown): tab is ScreenersHubTab {
   return typeof tab === "string" && (SCREENER_HUB_TABS as readonly string[]).includes(tab);
-}
-
-export function parseScreenerTabFromUrl(urlStr?: string): ScreenersHubTab | null {
-  try {
-    const targetUrl = urlStr
-      ? new URL(urlStr, "http://localhost")
-      : typeof window !== "undefined"
-      ? new URL(window.location.href)
-      : null;
-    if (!targetUrl) return null;
-
-    const param = targetUrl.searchParams.get("screenerTab") || targetUrl.searchParams.get("tab");
-    if (param && isValidScreenerTab(param)) {
-      return param;
-    }
-
-    const hash = targetUrl.hash.replace(/^#/, "");
-    if (hash) {
-      if (isValidScreenerTab(hash)) {
-        return hash;
-      }
-      const hashParams = new URLSearchParams(hash);
-      const hashTab = hashParams.get("screenerTab") || hashParams.get("tab");
-      if (hashTab && isValidScreenerTab(hashTab)) {
-        return hashTab;
-      }
-    }
-  } catch {
-    // Malformed URL, ignore
-  }
-  return null;
 }
 
 interface ScreenersHubProps {
@@ -222,63 +192,18 @@ export function ScreenersHub({
   initialTab,
   onTabChange,
 }: ScreenersHubProps) {
-  // Reference tabbed browsing: URL priority (query > hash > prop > fallback)
-  const initialResolvedTab = useMemo<ScreenersHubTab>(() => {
-    const fromUrl = parseScreenerTabFromUrl();
-    if (fromUrl) return fromUrl;
-    if (initialTab && isValidScreenerTab(initialTab)) return initialTab;
-    return "stocks";
-  }, [initialTab]);
-
-  const [hubTab, setHubTab] = useState<ScreenersHubTab>(initialResolvedTab);
-  const [visitedTabs, setVisitedTabs] = useState<Set<ScreenersHubTab>>(
-    () => new Set([initialResolvedTab]),
-  );
-
-  useEffect(() => {
-    if (initialTab && isValidScreenerTab(initialTab) && initialTab !== hubTab) {
-      setHubTab(initialTab);
-      setVisitedTabs((prev) => new Set(prev).add(initialTab));
-    }
-  }, [initialTab]);
-
-  const handleTabChange = useCallback(
-    (newTabId: string) => {
-      if (!isValidScreenerTab(newTabId)) return;
-      setHubTab(newTabId);
-      setVisitedTabs((prev) => new Set(prev).add(newTabId));
-      onTabChange?.(newTabId);
-
-      if (typeof window !== "undefined" && window.history) {
-        try {
-          const url = new URL(window.location.href);
-          if (url.searchParams.get("screenerTab") !== newTabId) {
-            url.searchParams.set("screenerTab", newTabId);
-            window.history.pushState({ screenerTab: newTabId }, "", url.toString());
-          }
-        } catch {
-          // Safe fallback for environments with restricted history
-        }
-      }
-    },
-    [onTabChange],
-  );
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handlePopState = () => {
-      const tabFromUrl = parseScreenerTabFromUrl();
-      if (tabFromUrl && tabFromUrl !== hubTab) {
-        setHubTab(tabFromUrl);
-        setVisitedTabs((prev) => new Set(prev).add(tabFromUrl));
-        onTabChange?.(tabFromUrl);
-      }
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [hubTab, onTabChange]);
+  // Tabbed browsing via the shared hook (S2, #2027): canonical param is
+  // `view`; `screenerTab` (and `tab`) stay as read-only legacy aliases so
+  // existing bookmarks and hash links keep resolving.
+  const { activeTab: hubTab, visitedTabs, handleTabChange } =
+    useUrlSyncedTabs<ScreenersHubTab>({
+      param: "view",
+      aliases: ["screenerTab", "tab"],
+      isValid: isValidScreenerTab,
+      defaultTab: "stocks",
+      initialTab: initialTab ?? null,
+      onTabChange,
+    });
 
   // The provider-adapter machinery below serves the asset classes;
   // the folded scanner / iv-history tabs have no adapter, so they
