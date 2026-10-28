@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { apiFetch as fetch } from "../apiFetch";
 import type { NavTabId } from "./NavigationMenu";
 import { Button } from "./ui";
 
