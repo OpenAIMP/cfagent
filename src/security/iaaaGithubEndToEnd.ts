@@ -87,6 +87,12 @@ import {
 } from "./iaaaBootstrap";
 import { recordLoginAlias } from "./iaaaMigration";
 import { checkPermission } from "./iaaaPdpSeam";
+import {
+  buildAliasRecordedAuditEventInput,
+  buildBootstrapGrantAuditEventInput,
+  recordWiredAuthAudit,
+} from "./iaaaAuthAudit";
+import type { AuditStore } from "./iaaaAudit";
 import { SESSION_TTL } from "./session";
 import type { KvLike } from "./kvResilience";
 
@@ -268,6 +274,14 @@ export interface WiredPostLoginDeps {
   kv: KvLike;
   bindingStore: IdentityBindingStore;
   membershipStore: MembershipStore;
+  /**
+   * #1760 — optional audit seam for the previously silent
+   * post-login occurrences (alias recording, bootstrap and
+   * genesis grants). Best-effort: a failed write is warned, never
+   * thrown, never changes the login outcome. Absent, post-login
+   * work runs exactly as before and emits nothing.
+   */
+  audit?: { store: AuditStore; correlationId: string };
 }
 
 export interface WiredPostLoginInput {
@@ -548,6 +562,59 @@ export async function runWiredPostLogin(
     }
   } catch {
     bootstrapStatus = "error";
+  }
+
+  // #1760 — emit audit events for the post-login occurrences that
+  // used to be silent. Only statuses that DID something emit:
+  // "recorded" (an alias row was written), "provisioned" (an
+  // ordinary bootstrap grant), "genesis" (platform-admin grant +
+  // marker set), "genesis-closed-tenant-admin" (tenant-admin grant
+  // via the genesis-closed path). "already-admin", "not-listed",
+  // "blank", "conflict-preserved", "invalid", and "error" wrote
+  // nothing, so they emit nothing — an event for a non-occurrence
+  // would be false evidence. Best-effort throughout: a failed
+  // write warns and never throws or changes the login outcome.
+  if (deps.audit) {
+    try {
+      if (aliasStatus === "recorded") {
+        const recorded = await recordWiredAuthAudit(
+          deps.audit.store,
+          buildAliasRecordedAuditEventInput({
+            internalUserId: input.internalUserId,
+            tenantId: input.tenantId,
+            timestamp: input.nowMs,
+            correlationId: deps.audit.correlationId,
+          }),
+        );
+        if (!recorded.ok) {
+          console.warn(`[post-login-audit] alias audit write failed (${recorded.code})`);
+        }
+      }
+      if (
+        bootstrapStatus === "provisioned" ||
+        bootstrapStatus === "genesis" ||
+        bootstrapStatus === "genesis-closed-tenant-admin"
+      ) {
+        const granted = await recordWiredAuthAudit(
+          deps.audit.store,
+          buildBootstrapGrantAuditEventInput({
+            internalUserId: input.internalUserId,
+            tenantId: input.tenantId,
+            timestamp: input.nowMs,
+            correlationId: deps.audit.correlationId,
+            genesis: bootstrapStatus === "genesis",
+          }),
+        );
+        if (!granted.ok) {
+          console.warn(`[post-login-audit] bootstrap audit write failed (${granted.code})`);
+        }
+      }
+    } catch {
+      // Post-login work never fails a login; an audit failure here
+      // is already fail-visible via the warn above when the store
+      // answered, and a throwing store is swallowed like every
+      // other post-login failure in this function.
+    }
   }
 
   return { alias: { status: aliasStatus }, bootstrap: { status: bootstrapStatus } };

@@ -678,6 +678,12 @@ export async function completeWiredLogin(
           kv,
           bindingStore: store,
           membershipStore: createKvMembershipStore(kv),
+          // #1760: post-login alias/bootstrap/genesis audit events
+          // use the same audit store as the login-success event
+          // below, when the caller supplied one.
+          audit: options?.auditStore
+            ? { store: options.auditStore, correlationId: sessionId }
+            : undefined,
         },
         {
           githubLogin: profile.loginKey,
