@@ -228,11 +228,15 @@ say so (see §10).
 
 ## 9. Open decisions (owner, not defaults)
 
-Settled thresholds are still open: the 15-minute step-up window and the
-idle window are proposed defaults, not settled CISO values. Audit
-retention, tamper response, and whether a failed audit write should
-block a wired login are undecided — today a failed audit write does
-**not** block login. See the #945 open list.
+Step-up/idle thresholds are settled as CISO values by #1757 (see the
+decision record, `iaaa-decisions-1757.md`): the 15-minute step-up window
+and the 30-minute idle window are the enforced platform defaults, adopted
+as CISO values with no change to enforcement. Audit retention and tamper
+response are undecided and carried (see the same record). A failed audit
+write does **not** block a wired login on the live path — recorded as
+deliberately non-blocking by #1757, with its risk stated in the record;
+the consequential-action blocking set itself is carried to #945 Slice 5
+adoption (Q7). See the #945 open list.
 
 ### Revocation-propagation targets (#1750)
 
@@ -258,7 +262,7 @@ must deny (0 ms past the deadline).
 | Session revocation | 0 ms same-isolate; ≤ 60,000 ms every isolate | Session gate (`requireAuth`). The logout path invalidates the isolate cache before deleting the record, so its own next read denies. Any other isolate serves its stale cached copy until the 60-second isolate-cache TTL lapses, then re-reads the store and denies. A wired session is denied immediately on every isolate: the wired validation path fresh-reads and denies on a missing record even when a cached copy exists, so the 60 s tier never applies to it. |
 | API-key deletion | 0 ms — next verification denies | API-key verification (`verifyApiKey`) at the MCP transport. Verification reads the key store fresh (hash lookup, then record read) with no cache layer. API keys carry no expiry; deletion is the only key-revocation trigger. |
 | Admin removal | 0 ms — next admin-gate check denies | Admin gates (GET `/api/iaaa/overview` gate, PDP, grant gate), all fresh membership reads. Admin removal IS membership revocation applied to an admin binding, so it shares the membership mechanism and bound. |
-| Token expiry | 0 ms past the deadline | Session gate (wired validation) and OIDC claim validation. Absolute session expiry: first wired gate check at or after `createdAt + SESSION_TTL` (7 days) denies. Idle expiry: first wired gate check at or after recorded last-activity + the enforced idle default (30 minutes) denies. OIDC claims: a claim with `exp` at or before now denies on presentation. The idle and step-up windows themselves remain unsettled CISO values (#1757); these targets reuse the enforced defaults without settling them. |
+| Token expiry | 0 ms past the deadline | Session gate (wired validation) and OIDC claim validation. Absolute session expiry: first wired gate check at or after `createdAt + SESSION_TTL` (7 days) denies. Idle expiry: first wired gate check at or after recorded last-activity + the enforced idle default (30 minutes) denies. OIDC claims: a claim with `exp` at or before now denies on presentation. The idle and step-up windows are settled CISO values (#1757); these targets reuse the enforced defaults. |
 
 Proving tests: `tests/iaaa_revocation_targets_1750.test.ts` (one
 group per trigger, revoke-then-gate at the bound) and
@@ -386,8 +390,8 @@ hardcoded, not policy.
   No env var, session value, run value, or user value can widen,
   narrow, or disable an obligation, because a caller-configurable
   obligation would let a caller disable their own enforcement. The
-  step-up window is the reused platform default (15 minutes, still
-  an open CISO value, #1757), not a settled threshold. Scope-
+  step-up window is the reused platform default (15 minutes, settled
+  as a CISO value by #1757, enforcement unchanged). Scope-
   qualified obligations (different obligations per scope for the
   same permission) are not in v1 and are not invented here.
 - **The PDP is not the only gate.** Legacy sessions inside their
