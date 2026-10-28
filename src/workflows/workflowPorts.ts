@@ -282,7 +282,13 @@ export interface WorkflowPort {
 }
 
 /** Neutral error codes. Provider error shapes never escape an adapter. */
-export type WorkflowErrorCode = "invalid_command" | "start_failed" | "unavailable";
+export type WorkflowErrorCode =
+  | "invalid_command"
+  | "start_failed"
+  | "unavailable"
+  | "workflow_binding_absent"
+  | "workflow_binding_malformed"
+  | "projection_store_unbound";
 
 export class WorkflowError extends Error {
   readonly code: WorkflowErrorCode;
@@ -297,20 +303,43 @@ export class WorkflowError extends Error {
  * Derive a deterministic instance id from a job id. Instance
  * ids accept at most 100 chars of [A-Za-z0-9_-] (first char
  * not '-'). Job ids in this codebase are slot/timestamp keys
- * over a fixed grammar (dates use '-', times use ':', never
- * interchangeable at one position), so sanitizing
- * non-alphanumerics to '-' is injective for them; the length
- * guard fails fast rather than truncating into a collision.
+ * Issue #2065: long job ids must NOT fail the start. A short
+ * job id keeps the readable `screen-<sanitized>` form (its
+ * instances already exist under that id — changing it would
+ * orphan in-flight runs and break duplicate-start adoption).
+ * A job id whose short form would exceed 100 chars gets a
+ * deterministic hash form instead: never truncated (truncation
+ * collides on shared prefixes), never refused. The hash is
+ * FNV-1a (two independent 64-bit seeds, 32 hex chars) —
+ * synchronous, dependency-free, and deterministic; it is an
+ * instance-id disambiguator, not a security boundary.
+ * (Complements ddd019a9's adapter-level fallback-id retry on the
+ * same issue: the hash keeps duplicate-start adoption for long
+ * ids, which a fresh random fallback id cannot.)
  */
 export function workflowIdForJob(jobId: string): string {
-  const id = `screen-${jobId.replace(/[^A-Za-z0-9_-]/g, "-")}`;
-  if (id.length > 100) {
-    throw new WorkflowError(
-      "invalid_command",
-      `Job id derives an instance id over 100 chars (${id.length}); refusing rather than truncating into a collision.`,
-    );
-  }
-  return id;
+  const sanitized = jobId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const short = `screen-${sanitized}`;
+  if (short.length <= 100) return short;
+  return `screen-h-${hashJobId(jobId)}`;
+}
+
+/** Two-seed FNV-1a over the raw job id → 32 hex chars. */
+function hashJobId(jobId: string): string {
+  const hash = (seed: bigint): string => {
+    let h = seed;
+    const prime = 1099511628211n;
+    const mask = (1n << 64n) - 1n;
+    for (let i = 0; i < jobId.length; i++) {
+      h ^= BigInt(jobId.charCodeAt(i));
+      h = (h * prime) & mask;
+    }
+    return h.toString(16).padStart(16, "0");
+  };
+  // Distinct seeds so the two halves are independent enough for
+  // disambiguation (a single 64-bit half would also suffice at
+  // this volume; 128 bits leaves no doubt).
+  return hash(14695981039346656037n) + hash(1099511628211n);
 }
 
 /** Validate a run-screen command (fail fast, before any start). Throws WorkflowError. */

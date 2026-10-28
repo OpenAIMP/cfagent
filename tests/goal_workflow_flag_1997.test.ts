@@ -18,8 +18,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   buildGoalScreenCommand,
-  tryStartGoalScreenWorkflow,
+  startGoalScreenWorkflow,
 } from "../src/services/goalScreenWorkflowSubmission";
+import { WorkflowError } from "../src/workflows/workflowPorts";
 import {
   handleScreenerResearchRoutes,
   type ScreenerResearchRouteContext,
@@ -34,11 +35,11 @@ import { persistWorkflowGoalScreenReport } from "../src/agents/orchestrator/goal
 
 vi.mock("../src/services/goalScreenWorkflowSubmission", () => ({
   buildGoalScreenCommand: vi.fn(() => ({ __cannedGoalCommand: true })),
-  tryStartGoalScreenWorkflow: vi.fn(),
+  startGoalScreenWorkflow: vi.fn(),
 }));
 
 const mockedBuild = vi.mocked(buildGoalScreenCommand);
-const mockedStart = vi.mocked(tryStartGoalScreenWorkflow);
+const mockedStart = vi.mocked(startGoalScreenWorkflow);
 
 const HANDLE = {
   workflowId: "screen-goal-screen-manual-alice-income-2026-10-27T12-00-00-000Z",
@@ -190,8 +191,8 @@ describe("POST /screening/goal-screen flag gate (#1997)", () => {
     expect(mockedStart).toHaveBeenCalledTimes(1);
   });
 
-  it("flag ON + start null → coded 500, screen never runs (no silent fallback)", async () => {
-    mockedStart.mockResolvedValue(null as never);
+  it("flag ON + start throws → coded 500 with code + reason, screen never runs (no silent fallback)", async () => {
+    mockedStart.mockRejectedValue(new WorkflowError("start_failed", "binding boom"));
     const agent = { runGoalScreen: vi.fn() };
     const { ctx } = routeCtx(agent, FLAG_ON_ENV as unknown as Record<string, unknown>);
     const res = await handleScreenerResearchRoutes(
@@ -205,6 +206,7 @@ describe("POST /screening/goal-screen flag gate (#1997)", () => {
     expect(res!.status).toBe(500);
     const body = (await res!.json()) as Record<string, unknown>;
     expect(body.error).toBe("goal_workflow_start_failed");
+    expect(body.code).toBe("start_failed");
     expect(typeof body.jobId).toBe("string");
     // Issue #2065: the coded failure names the missing dependency.
     expect(body.reason).toBe("workflow_binding_unavailable");
@@ -253,8 +255,8 @@ describe("autonomousGoalScreen flag gate (#1997)", () => {
     return { service, audit, runGoalScreen };
   }
 
-  it("flag ON + start null → failure result + run_failed audit, screen never runs", async () => {
-    mockedStart.mockResolvedValue(null as never);
+  it("flag ON + start failure → failure result + run_failed audit carrying the code, screen never runs", async () => {
+    mockedStart.mockRejectedValue(new WorkflowError("start_failed", "binding boom"));
     const { service, audit, runGoalScreen } = goalService(
       FLAG_ON_ENV as unknown as Record<string, unknown>,
     );
@@ -262,6 +264,8 @@ describe("autonomousGoalScreen flag gate (#1997)", () => {
     expect(result.success).toBe(false);
     expect(runGoalScreen).not.toHaveBeenCalled();
     expect(audit.mock.calls.find((c) => c[0] === "goal_screen.run_failed")).toBeDefined();
+    const failed = audit.mock.calls.find((c) => c[0] === "goal_screen.run_failed");
+    expect((failed[1] as Record<string, unknown>).errorCode).toBe("start_failed");
   });
 
   it("flag OFF + start would succeed → direct runs, workflow never attempted", async () => {

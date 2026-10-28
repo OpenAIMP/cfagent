@@ -1,0 +1,3 @@
+### Fixed
+
+- **Goal workflow start no longer fails on long job ids, and failures are diagnosable** ([#2065](https://github.com/OpenAIMP/cfagent/issues/2065)): a job id whose workflow instance id would exceed 100 chars now derives a deterministic hash form (`screen-h-<32 hex>`) instead of throwing — short ids keep their readable form, so in-flight instances and duplicate-start adoption are unaffected. Separately, the start attempt is wrapped in the `withObservability` aspect (one sink event per attempt, stable code + binding facts, never the raw message), the route answers a coded 500 (`goal_workflow_start_failed` + code), and the scheduled `run_failed` audit carries the code — replacing the old null + generic-detail swallow that hid the prod failure.

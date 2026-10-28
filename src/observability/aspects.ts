@@ -44,6 +44,12 @@ export interface ObservabilityAspectContext {
   sessionId?: string | null;
   trace?: TraceContext;
   nowMs?: () => number;
+  /**
+   * Issue #2065: extra structured facts merged into the event
+   * (e.g. binding presence at a start attempt). Codes and facts
+   * only — never a raw message.
+   */
+  fields?: Record<string, unknown>;
 }
 
 /** Catalog/business code when the error carries one, else "unknown". Never the message. */
@@ -96,7 +102,7 @@ export async function withObservability<T>(
       level: "info",
       timestampMs: end,
       durationMs: end - start,
-      fields: {},
+      fields: ctx.fields ?? {},
     });
     return result;
   } catch (err) {
@@ -108,7 +114,7 @@ export async function withObservability<T>(
       timestampMs: end,
       durationMs: end - start,
       errorCode: errorCodeOf(err),
-      fields: {},
+      fields: ctx.fields ?? {},
     });
     throw err;
   }

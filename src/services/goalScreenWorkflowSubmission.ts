@@ -4,23 +4,33 @@
  * the manual route and the scheduled service so both entries
  * build the identical command (no divergent second shape).
  *
- * Best-effort rule (mirrors the route-side
- * tryStartScreenerWorkflow): any failure — unbound workflow,
- * unbound projection store, invalid command, start error —
- * returns null and the caller falls back to the synchronous
- * direct path. An opt-in workflow submission must never 500
- * (route) or fail (schedule tick) a screen the direct path
- * can serve. Failures are console.warned so operators see a
- * degraded workflow path in logs.
+ * Issue #2065 contract (supersedes the #1996/#1997 null rule):
+ * a start failure THROWS a WorkflowError with a stable code —
+ * never null, never a generic message. The attempt is wrapped
+ * in the withObservability aspect, so exactly one sink event
+ * records the outcome (completion with duration, or error with
+ * the code plus binding-presence facts). Callers map the code
+ * to their surface: the route answers a coded 500, the
+ * scheduled service audits the code. The raw message stays in
+ * the server-log warn only — never in the client body or the
+ * event stream. `createWorkflowPorts` itself is untouched:
+ * market callers keep their null-fallback semantics; only the
+ * goal start classifies a null port into a thrown code.
  */
 import {
   createWorkflowPorts,
   type WorkflowEnv,
 } from "../workflows/createWorkflowPorts";
-import type {
-  WorkflowHandle,
-  WorkflowJobCommand,
+import {
+  WorkflowError,
+  type WorkflowErrorCode,
+  type WorkflowHandle,
+  type WorkflowJobCommand,
 } from "../workflows/workflowPorts";
+import {
+  withObservability,
+} from "../observability/aspects";
+import type { ObservabilitySink } from "../observability/observabilityPorts";
 import type { ScenarioDefinition } from "./goalScenarioEngine";
 
 /** Inputs to a goal-screen workflow submission (both entries build the same shape). */
@@ -87,20 +97,80 @@ export function buildGoalScreenCommand(
   };
 }
 
-/** Start a goal-screen workflow when the port is available; null → caller falls back to direct. */
-export async function tryStartGoalScreenWorkflow(
+/** Classify a null port into the thrown code + event facts. Mirrors the composition root's order: binding first, then projection store. */
+function classifyPortsFailure(env: WorkflowEnv): {
+  code: WorkflowErrorCode;
+  workflowBinding: "absent" | "malformed" | "present";
+  projectionStore: "bound" | "unbound";
+} {
+  const binding = env.SCREENER_WORKFLOW;
+  const projectionStore = env.AGENT_DB ? "bound" as const : "unbound" as const;
+  if (!binding) {
+    return { code: "workflow_binding_absent", workflowBinding: "absent", projectionStore };
+  }
+  const malformed =
+    typeof binding !== "object" ||
+    typeof (binding as { create?: unknown }).create !== "function" ||
+    typeof (binding as { get?: unknown }).get !== "function";
+  if (malformed) {
+    return { code: "workflow_binding_malformed", workflowBinding: "malformed", projectionStore };
+  }
+  return { code: "projection_store_unbound", workflowBinding: "present", projectionStore };
+}
+
+/**
+ * Start a goal-screen workflow. Throws WorkflowError with a
+ * stable code on any failure; the aspect records exactly one
+ * sink event per attempt. Callers map the code — they never
+ * see null and never leak the raw message to the client.
+ */
+export async function startGoalScreenWorkflow(
   env: WorkflowEnv,
   command: WorkflowJobCommand,
-): Promise<WorkflowHandle | null> {
+  sink: ObservabilitySink,
+): Promise<WorkflowHandle> {
+  const ports = createWorkflowPorts(env);
+  const failure = ports ? null : classifyPortsFailure(env);
+  const facts = failure ?? { workflowBinding: "present" as const, projectionStore: "bound" as const };
   try {
-    const ports = createWorkflowPorts(env);
-    if (!ports) return null;
-    return await ports.start(command);
+    return await withObservability(
+      {
+        sink,
+        operation: "goal.workflow.start",
+        tenantId: command.tenantId ?? null,
+        runId: command.jobId,
+        fields: facts,
+      },
+      async () => {
+        if (failure) {
+          throw new WorkflowError(
+            failure.code,
+            `Goal workflow start failed: ${failure.code}.`,
+          );
+        }
+        // ports is non-null here: failure is null exactly when
+        // the port built (the assertion documents the link).
+        try {
+          return await ports!.start(command);
+        } catch (err) {
+          if (err instanceof WorkflowError) throw err;
+          throw new WorkflowError(
+            "start_failed",
+            `Goal workflow start failed for job ${command.jobId}.`,
+          );
+        }
+      },
+    );
   } catch (err) {
+    // Operator surface only: the code + job id identify the
+    // failure in dashboard logs; the message stays out of the
+    // client body and the event stream.
     console.warn(
-      "[goal-screen-workflow] Async start failed, falling back to direct:",
+      "[goal-screen-workflow] Start failed:",
+      err instanceof WorkflowError ? err.code : "start_failed",
+      command.jobId,
       err instanceof Error ? err.message : String(err),
     );
-    return null;
+    throw err;
   }
 }
