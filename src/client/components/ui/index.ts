@@ -50,6 +50,7 @@ export { Notice, type NoticeProps, type NoticeTone } from "./Notice";
 export { Tabs, TabPanel, type TabsProps, type TabOption, type TabPanelProps } from "./Tabs";
 export { TextInput, type TextInputProps } from "./TextInput";
 export { Select, type SelectProps } from "./Select";
+export { FileInput, type FileInputProps } from "./FileInput";
 export { Checkbox, type CheckboxProps } from "./Checkbox";
 export { FieldShell, type FieldShellProps } from "./Field";
 export { Modal, type ModalProps } from "./Modal";
