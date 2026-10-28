@@ -1,9 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "../apiFetch";
 import { useMarketQuotes } from "../quotes/useMarketQuotes";
 import { TAPE_SYMBOLS, type QuoteSymbolMeta } from "../quotes/symbolSets";
+import {
+  loadTapeSelection,
+  resolveTapeSymbols,
+  saveTapeSelection,
+  synthesizeTapeMeta,
+  type TapeSetSelection,
+} from "../quotes/symbolSetResolver";
+import {
+  fetchPositionSymbols,
+  fetchWatchlistDetails,
+  fetchWatchlists,
+  type ETradeWatchlist,
+} from "../accountApi";
 import type { NavTabId } from "./NavigationMenu";
-import { Button, Select } from "./ui";
+import { Button, Select, TextInput } from "./ui";
 
 export interface TickerTapeQuote {
   symbol: string;
@@ -24,16 +37,125 @@ export interface MarketTickerTapeProps {
 }
 
 export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }: MarketTickerTapeProps) {
+  // Issue #2116: the tape renders one resolved set. The stored selection
+  // decides the source; a source that yields nothing falls back to the
+  // default set (never an empty tape). Watchlist/holdings fetches resolve
+  // through the same fallback on failure.
+  const [env] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("cfagent_env");
+      if (stored === "TEST" || stored === "PROD") return stored;
+    }
+    return "PROD";
+  });
+  const [selection, setSelection] = useState<TapeSetSelection>(() => loadTapeSelection() ?? { kind: "default" });
+  const [customDraft, setCustomDraft] = useState<string>(() =>
+    loadTapeSelection()?.kind === "custom" ? (loadTapeSelection() as { text: string }).text : "",
+  );
+  const [watchlists, setWatchlists] = useState<ETradeWatchlist[]>([]);
+  const [fetchedSymbols, setFetchedSymbols] = useState<string[]>([]);
+  const fetchToken = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchWatchlists(env)
+      .then((data) => {
+        if (!cancelled) setWatchlists(data.watchlists);
+      })
+      .catch(() => {
+        // No watchlist options; a stored watchlist selection falls back.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [env]);
+
+  const fetchForSelection = (sel: TapeSetSelection) => {
+    const token = ++fetchToken.current;
+    if (sel.kind === "watchlist") {
+      fetchWatchlistDetails(env, sel.id)
+        .then((data) => {
+          if (fetchToken.current === token) setFetchedSymbols(data.symbols ?? []);
+        })
+        .catch(() => {
+          if (fetchToken.current === token) setFetchedSymbols([]);
+        });
+    } else if (sel.kind === "holdings") {
+      fetchPositionSymbols(env)
+        .then((symbols) => {
+          if (fetchToken.current === token) setFetchedSymbols(symbols);
+        })
+        .catch(() => {
+          if (fetchToken.current === token) setFetchedSymbols([]);
+        });
+    } else {
+      setFetchedSymbols([]);
+    }
+  };
+
+  // Resolve the stored selection on mount (watchlist/holdings need a fetch).
+  useEffect(() => {
+    fetchForSelection(selection);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const changeSelection = (next: TapeSetSelection) => {
+    setSelection(next);
+    saveTapeSelection(next);
+    fetchForSelection(next);
+  };
+
+  const resolvedMetas: QuoteSymbolMeta[] = useMemo(() => {
+    const symbols = resolveTapeSymbols(selection, fetchedSymbols);
+    const baseBySymbol = new Map(TAPE_SYMBOLS.map((t) => [t.symbol, t]));
+    const synthesized = new Map(synthesizeTapeMeta(symbols).map((m) => [m.symbol, m]));
+    return symbols.map((symbol) => {
+      const base = baseBySymbol.get(symbol);
+      if (base) return base;
+      const synth = synthesized.get(symbol)!;
+      return { symbol: synth.symbol, type: synth.type, price: "—", change: "—", isPositive: true };
+    });
+  }, [selection, fetchedSymbols]);
+
+  const selectionValue =
+    selection.kind === "default"
+      ? "default"
+      : selection.kind === "preset"
+        ? `preset:${selection.preset}`
+        : selection.kind === "custom"
+          ? "custom"
+          : selection.kind === "watchlist"
+            ? `watchlist:${selection.id}`
+            : "holdings";
+
+  const handleSetChange = (value: string) => {
+    if (value === "default") return changeSelection({ kind: "default" });
+    if (value === "custom") return changeSelection({ kind: "custom", text: customDraft });
+    if (value === "holdings") return changeSelection({ kind: "holdings" });
+    if (value.startsWith("preset:")) {
+      const preset = value.slice("preset:".length);
+      if (preset === "indices" || preset === "mega-cap" || preset === "crypto") {
+        return changeSelection({ kind: "preset", preset });
+      }
+      return;
+    }
+    if (value.startsWith("watchlist:")) {
+      const id = value.slice("watchlist:".length);
+      const found = watchlists.find((w) => String(w.watchlistId) === id);
+      return changeSelection({ kind: "watchlist", id, name: found?.name });
+    }
+  };
+
   // Issue #2100: the feed lifecycle (socket, fallback, flash) lives in
   // the quotes service; the tape only renders what the hook returns.
   const {
     quotes: liveQuotes,
     transport,
     flash: flashStates,
-  } = useMarketQuotes(TAPE_SYMBOLS.map((t) => t.symbol));
+  } = useMarketQuotes(resolvedMetas.map((t) => t.symbol));
 
   const quotes: Record<string, TickerTapeQuote> = {};
-  for (const base of TAPE_SYMBOLS) {
+  for (const base of resolvedMetas) {
     const live = liveQuotes[base.symbol];
     quotes[base.symbol] = live
       ? {
@@ -168,16 +290,48 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
           <option value="alpaca">Alpaca</option>
           <option value="yahoo">Yahoo</option>
         </Select>
+        <Select
+          aria-label="Tape set"
+          size="sm"
+          value={selectionValue}
+          onChange={(e) => handleSetChange(e.target.value)}
+        >
+          <option value="default">Default</option>
+          <option value="preset:indices">Indices</option>
+          <option value="preset:mega-cap">Mega-cap</option>
+          <option value="preset:crypto">Crypto</option>
+          <option value="custom">Custom</option>
+          <option value="holdings">Holdings</option>
+          {watchlists.map((w) => (
+            <option key={w.watchlistId} value={`watchlist:${w.watchlistId}`}>
+              Watchlist: {w.name}
+            </option>
+          ))}
+        </Select>
+        {selection.kind === "custom" && (
+          <>
+            <TextInput
+              aria-label="Custom symbols"
+              size="sm"
+              value={customDraft}
+              onChange={(e) => setCustomDraft(e.target.value)}
+              placeholder="NVDA, AAPL"
+            />
+            <Button size="sm" onClick={() => changeSelection({ kind: "custom", text: customDraft })}>
+              Apply
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Scrolling / Chips Strip */}
       <div className="ticker-tape-chips-viewport" aria-label="Live market quotes" aria-live="off">
         <div className="ticker-tape-marquee">
           <div className="ticker-tape-sequence">
-            {TAPE_SYMBOLS.map((base) => renderTicker(base, "primary"))}
+            {resolvedMetas.map((base) => renderTicker(base, "primary"))}
           </div>
           <div className="ticker-tape-sequence" aria-hidden="true">
-            {TAPE_SYMBOLS.map((base) => renderTicker(base, "duplicate"))}
+            {resolvedMetas.map((base) => renderTicker(base, "duplicate"))}
           </div>
         </div>
       </div>
