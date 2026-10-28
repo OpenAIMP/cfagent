@@ -199,6 +199,10 @@
     // Rollback is removing this var (or setting to "0") and redeploying,
     // or toggling off in Cloudflare Flagship without redeploying.
     "FEATURE_SCREENER": "1",
+    // Issue #2051: goal_workflow ON by default (opt-out). The staged
+    // goal path + #1998 gather run unless explicitly disabled
+    // (Flagship toggle off, or this var to "0", + redeploy).
+    "FEATURE_GOAL_WORKFLOW": "1",
     // Issue #2054: PaymentWorkflow assurance page ON by default
     // (owner direction). Covers runtimes without the FLAGS binding;
     // in PROD the FLAGS binding takes precedence, so the adapter

@@ -189,6 +189,10 @@ describe("goal bridge deliver suppression (#1236)", () => {
       APP_ENV: "TEST",
       SESSION_STORE: sessionStoreNs,
       SCREENER_AGENT: { idFromName: (n: string) => n, get: () => ({}) },
+      // #2051: goal_workflow is default-ON; these tests pin the
+      // DIRECT deliver path, so they force the flag OFF rather
+      // than follow the new default into the workflow path.
+      FEATURE_FLAGS: JSON.stringify({ goal_workflow: false }),
     } as unknown as Env;
   });
 

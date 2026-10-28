@@ -37,7 +37,11 @@ export class CfFlagshipAdapter implements FeatureFlagPort {
     // flag explicitly turns it off. Every other flag keeps the
     // historic default (false). A provider error still fails closed
     // to false below, including for payment_assurance.
-    const defaultValue = flag === "payment_assurance";
+      // Issue #2051: goal_workflow defaults ON — the default covers
+      // the missing-flag case (the dashboard flag is still the
+      // authoritative control; an explicit Flagship value wins, and
+      // an evaluation failure still fails closed below).
+    const defaultValue = flag === "payment_assurance" || flag === "goal_workflow";
     try {
       const result = await this.flags.getBooleanValue(
         flag,
