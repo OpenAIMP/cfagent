@@ -158,11 +158,16 @@ describe("createOidcProvider handleCallback", () => {
     const userinfoCall = captured.find((c) => c.url.includes("/oauth/userinfo"));
     expect(userinfoCall).toBeDefined();
     expect(userinfoCall!.auth).toBe("Bearer fake-token");
-    // A login success audit event was recorded.
+    // #1760: post-login work runs before the login-success audit,
+    // so a fresh login now records TWO events in order: the alias
+    // recording, then the login success. The pin is the pair, not
+    // the login event alone — the alias event is new evidence, not
+    // a duplicate login event.
     const events = await auditStore.list();
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe("auth.login");
-    expect(events[0].tenantId).toBe("primary");
+    expect(events).toHaveLength(2);
+    expect(events[0].type).toBe("iaaa.alias.record");
+    expect(events[1].type).toBe("auth.login");
+    expect(events[1].tenantId).toBe("primary");
   });
 
   it("rejects a provider error parameter and a missing code/state", async () => {
