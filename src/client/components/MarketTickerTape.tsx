@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
+import { apiFetch } from "../apiFetch";
 import { useMarketQuotes } from "../quotes/useMarketQuotes";
 import { TAPE_SYMBOLS, type QuoteSymbolMeta } from "../quotes/symbolSets";
 import type { NavTabId } from "./NavigationMenu";
-import { Button } from "./ui";
+import { Button, Select } from "./ui";
 
 export interface TickerTapeQuote {
   symbol: string;
@@ -52,6 +54,52 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
           type: base.type,
         };
   }
+
+  // Issue #2108: deployment-wide quote source pick. The server decides
+  // the source; this control only reads and writes the setting, and the
+  // stream reflects the pick on next refresh.
+  const [quoteSource, setQuoteSource] = useState<"auto" | "alpaca" | "yahoo">("auto");
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/api/market/quotes/source")
+      .then((res) =>
+        res.ok ? (res.json() as Promise<{ source?: unknown }>) : Promise.reject(new Error("source read failed")),
+      )
+      .then((data) => {
+        if (!cancelled && (data?.source === "alpaca" || data?.source === "yahoo")) {
+          setQuoteSource(data.source);
+        }
+      })
+      .catch(() => {
+        // Unavailable setting surface: keep "auto" (legacy behavior).
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleQuoteSourceChange = (next: "auto" | "alpaca" | "yahoo") => {
+    const previous = quoteSource;
+    setQuoteSource(next);
+    apiFetch("/api/market/quotes/source", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: next }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("source write failed");
+        return res.json() as Promise<{ source?: unknown }>;
+      })
+      .then((data) => {
+        if (data?.source === "auto" || data?.source === "alpaca" || data?.source === "yahoo") {
+          setQuoteSource(data.source);
+        }
+      })
+      .catch(() => {
+        // Server-confirmed state only: revert on failure.
+        setQuoteSource(previous);
+      });
+  };
 
   const handleClickItem = (sym: string) => {
     if (onSelectSymbol) {
@@ -110,6 +158,16 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
       <div className={`ticker-tape-feed-badge ${feedStatus}`} title={`Feed: ${sourceLabel}`}>
         <span className={`ticker-live-dot ${feedStatus}`} />
         <span className="ticker-live-text">{liveSourceAvailable ? "LIVE" : transport === "offline" ? "OFFLINE" : "SYNCING"} · {sourceLabel}</span>
+        <Select
+          aria-label="Quote source"
+          size="sm"
+          value={quoteSource}
+          onChange={(e) => handleQuoteSourceChange(e.target.value as "auto" | "alpaca" | "yahoo")}
+        >
+          <option value="auto">Auto</option>
+          <option value="alpaca">Alpaca</option>
+          <option value="yahoo">Yahoo</option>
+        </Select>
       </div>
 
       {/* Scrolling / Chips Strip */}
