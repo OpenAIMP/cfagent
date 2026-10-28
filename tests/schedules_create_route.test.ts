@@ -345,4 +345,37 @@ describe("POST /api/schedules/create (#111)", () => {
     expect(source).not.toContain(".scheduler.list(");
     expect(source).not.toContain("schedulingUnavailable(");
   });
+
+  it("returns the existing schedule for a duplicate submit instead of arming a second (#2071)", async () => {
+    const first = makeAgent();
+    const body = {
+      scheduleType: "interval",
+      intervalSeconds: 3600,
+      callback: "autonomousOptionsAnalysis",
+      payload: { symbols: ["NVDA"], thesis: "bullish" },
+    };
+    const created = await postCreate(first, body);
+    expect(created.status).toBe(200);
+    expect(created.body.success).toBe(true);
+    const stampedPayload = scheduleEveryCalls[0][2];
+    const armed = scheduleEveryCalls.length;
+
+    const second = makeAgent();
+    second.listSchedules = async () => [
+      {
+        id: "existing-1",
+        callback: "autonomousOptionsAnalysis",
+        type: "interval",
+        intervalSeconds: 3600,
+        payload: stampedPayload,
+      },
+    ];
+    const duplicate = await postCreate(second, body);
+
+    expect(duplicate.status).toBe(200);
+    expect(duplicate.body.success).toBe(true);
+    expect(duplicate.body.duplicate).toBe(true);
+    expect(duplicate.body.schedule.id).toBe("existing-1");
+    expect(scheduleEveryCalls).toHaveLength(armed);
+  });
 });
