@@ -19,13 +19,16 @@
  * - `crumb` is the breadcrumb label, which differs from the nav label on
  *   13 entries (e.g. nav "Autopilot Control" vs crumb "Autopilot").
  *
- * Deliberately NOT in this table (S1 scope, see #1808): a component map
- * and a retention flag. Chat still owns inline tab sections plus
- * tab-triggered data fetching, so extracting pages into components is
- * per-page S3–S4 work; a half-derived content switch would be two
- * mechanisms. The table stays sorted alphabetically by id so concurrent
- * additions land at different positions instead of one prepend anchor
- * (the CHANGELOG lesson).
+ * The retention flag IS in this table since #2077: trading ids carry
+ * `retain: true` and chat/types.ts derives TRADING_TABS from it, so the
+ * hub's retained set cannot drift from the route table (see #388).
+ * The component map itself lives as TAB_CONTENT in Chat.tsx (#2077):
+ * the six stateful inline tabs still own Chat-local state, so their
+ * content definitions stay with that state until they are extracted
+ * into components; the switch over them is already one table-keyed
+ * lookup pinned against this table. The table stays sorted
+ * alphabetically by id so concurrent additions land at different
+ * positions instead of one prepend anchor (the CHANGELOG lesson).
  */
 export type RouteCategory = "Execution" | "Intelligence" | "Playbooks" | "Platform";
 
@@ -43,6 +46,12 @@ export interface NavEntryMeta {
 
 export interface RouteDef {
   id: string;
+  /**
+   * Retained in the always-mounted trading hub (hidden when inactive),
+   * instead of a TAB_CONTENT entry (#2077). The hub owns these ids'
+   * sub-tab mapping; the table is the single source of truth for the set.
+   */
+  retain?: boolean;
   /** Nav entry highlighted when this tab is active. */
   navGroup: string;
   /** Breadcrumb label. */
@@ -89,6 +98,7 @@ export const ROUTES = [
   },
   {
     id: "autopilot",
+    retain: true,
     navGroup: "autopilot",
     crumb: "Autopilot",
     category: "Execution",
@@ -152,6 +162,7 @@ export const ROUTES = [
   },
   {
     id: "ledger",
+    retain: true,
     navGroup: "ledger",
     crumb: "Ledger",
     category: "Execution",
@@ -183,6 +194,7 @@ export const ROUTES = [
   },
   {
     id: "omnichannel",
+    retain: true,
     navGroup: "omnichannel",
     crumb: "Email & Slack",
     category: "Intelligence",
@@ -199,6 +211,7 @@ export const ROUTES = [
   },
   {
     id: "options",
+    retain: true,
     navGroup: "screeners",
     crumb: "Options",
     category: "Intelligence",
@@ -223,6 +236,7 @@ export const ROUTES = [
   },
   {
     id: "order",
+    retain: true,
     navGroup: "order",
     crumb: "Order Ticket",
     category: "Execution",
@@ -239,6 +253,7 @@ export const ROUTES = [
   },
   {
     id: "orders",
+    retain: true,
     navGroup: "order",
     crumb: "Order Ticket",
     category: "Execution",
@@ -277,6 +292,7 @@ export const ROUTES = [
   },
   {
     id: "portfolio",
+    retain: true,
     navGroup: "portfolio",
     crumb: "Portfolio",
     category: "Execution",
@@ -302,6 +318,7 @@ export const ROUTES = [
   },
   {
     id: "reports",
+    retain: true,
     navGroup: "screeners",
     crumb: "Reports",
     category: "Intelligence",
@@ -334,6 +351,7 @@ export const ROUTES = [
   },
   {
     id: "scanner",
+    retain: true,
     navGroup: "screeners",
     crumb: "Strategy/Symbol Scanner",
     category: "Intelligence",
@@ -342,6 +360,7 @@ export const ROUTES = [
   },
   {
     id: "schedules",
+    retain: true,
     navGroup: "screeners",
     crumb: "Schedules",
     category: "Intelligence",
@@ -350,6 +369,7 @@ export const ROUTES = [
   },
   {
     id: "screeners",
+    retain: true,
     navGroup: "screeners",
     crumb: "Screeners",
     category: "Intelligence",
@@ -382,6 +402,7 @@ export const ROUTES = [
   },
   {
     id: "trading",
+    retain: true,
     navGroup: "autopilot",
     crumb: "Autopilot",
     category: "Execution",
@@ -390,6 +411,7 @@ export const ROUTES = [
   },
   {
     id: "voice",
+    retain: true,
     navGroup: "voice",
     crumb: "Voice Desk",
     category: "Intelligence",

@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { getRoute } from "../src/client/routes";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const chatTypesSrc = readFileSync(join(here, "..", "src", "client", "chat", "types.ts"), "utf8").replace(/\r\n/g, "\n");
@@ -21,19 +22,12 @@ const hubSrc = readFileSync(
   "utf8",
 );
 
-function tradingTabsBlock(src: string): string {
-  const start = src.indexOf("const TRADING_TABS");
-  const end = src.indexOf("]);", start);
-  expect(start).toBeGreaterThan(-1);
-  expect(end).toBeGreaterThan(start);
-  return src.slice(start, end);
-}
-
 describe("reports/schedules nav wiring (#388)", () => {
   it.each(["reports", "schedules"])(
     "%s is a trading tab (hub container not hidden)",
     (tab) => {
-      expect(tradingTabsBlock(chatTypesSrc)).toContain(`"${tab}"`);
+      // #2077: the retained set lives in the route table, not a hand list.
+      expect(getRoute(tab)).toMatchObject({ retain: true });
     },
   );
 
