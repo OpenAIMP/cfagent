@@ -150,7 +150,9 @@ describe("#2120 slice 1 nav registration (source pins)", () => {
 });
 
 describe("#2120 slice 1 hub chrome", () => {
-  it("tab registry has exactly the six designed tabs", () => {
+  it("tab registry has exactly the seven designed tabs", () => {
+    // #1169 S4-2 (disclosed §7 pin update): the MAS search tab joins
+    // the registry; the six prior tabs are unchanged and in order.
     expect([...SEARCH_HUB_TABS]).toEqual([
       "nlq",
       "search-agent",
@@ -158,15 +160,17 @@ describe("#2120 slice 1 hub chrome", () => {
       "memory",
       "knowledge",
       "tools",
+      "mas-search",
     ]);
     expect(isValidSearchHubTab("memory")).toBe(true);
     expect(isValidSearchHubTab("bogus")).toBe(false);
   });
 
-  it("renders all six tab labels and defaults to nlq", async () => {
+  it("renders all seven tab labels and defaults to nlq", async () => {
     window.history.pushState(null, "", "/?tab=search");
     await render(<SearchHub />);
-    for (const label of ["NLQ", "Search Agent", "Semantic Search", "Memory", "Knowledge", "Tools"]) {
+    // #1169 S4-2 (disclosed §7 pin update): "MAS Search" joins the labels.
+    for (const label of ["NLQ", "Search Agent", "Semantic Search", "Memory", "Knowledge", "Tools", "MAS Search"]) {
       expect(text()).toContain(label);
     }
     expect(text()).toContain("NLQ records search");
