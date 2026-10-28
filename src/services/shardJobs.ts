@@ -29,8 +29,10 @@
  *   - provenance: chain shard ids in pipeline order.
  *
  * Feed dependency order (data fact, not a concurrency limit):
- * etrade needs nasdaq's listings for symbols, and yahoo gap-fill
- * needs etrade's quoted set — so feed shards advance nasdaq →
+ * etrade needs nasdaq's listings for symbols, and yahoo needs
+ * nasdaq's listings for its technicals universe (issue #2144: the
+ * Yahoo shard no longer needs etrade's quoted set — it fills
+ * columns, never rows) — so feed shards advance nasdaq →
  * etrade → yahoo, each independently retryable (retryAsyncJob
  * reuses the recorded payload; a retried nasdaq does not
  * re-execute etrade). Generate/store shards within a stage are
