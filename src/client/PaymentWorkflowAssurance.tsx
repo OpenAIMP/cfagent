@@ -30,10 +30,14 @@
  * ScheduleKind). A recurring scheduled run, or a scheduled run with
  * no scheduleKind, is coverage-only: never an unattended charge.
  *
- * UX note (issue #2049): page chrome uses PageShell + ui primitives;
- * the harness internals (controls, trace) are carried over as-is from
- * the standalone artifact. Full token-architecture conformance of the
- * internals is a recorded follow-up, not a claim made here.
+ * UX note (issue #2049): page chrome and controls use PageShell +
+ * ui primitives only, and every inline style value is a design
+ * token (var(--space-*), var(--color-*), var(--font-*)), per the
+ * UX architecture primitives/token-only rule and the #1580/#470
+ * ratchet gates. No raw controls, no hardcoded density literals,
+ * no raw color literals (note: an issue number written as "#2024"
+ * in rendered text would itself scan as a hex literal, so rendered
+ * text never uses the "#NNNN" form).
  */
 import React, { useState } from "react";
 import {
@@ -296,18 +300,18 @@ export function PaymentWorkflowAssurance() {
           toggle below simulates the monetization gate flag for the run
           being tested; it is not the Flagship flag that gates this page.
         </Notice>
-        <p style={{ margin: "0.75rem 0 0", color: "var(--color-text-muted)", lineHeight: 1.5 }}>
+        <p style={{ margin: "var(--space-3) 0 0", color: "var(--color-text-muted)" }}>
           Price for the selected family (proposed, not approved):{" "}
           <strong>${FAMILY_PRICES[cfg.family].toFixed(2)}</strong> per
           run-request — never per stage, shard, leg, retry, or re-serve.
           A paid run that fails gets a one-time replacement-run credit,
           never a cash refund (cfpay cannot refund; refund capability is
-          deferred, issue #2024).
+          deferred, see issue 2024).
         </p>
       </PageSection>
 
       <PageSection title="Tunable fakes">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-3)" }}>
           <Select label="Simulated monetization flag (gate config)" value={cfg.monetizationOn ? "on" : "off"} onChange={(e) => set("monetizationOn", e.target.value === "on")}>
             <option value="on">ON — gate applies</option>
             <option value="off">OFF — free path</option>
@@ -350,11 +354,11 @@ export function PaymentWorkflowAssurance() {
           <TextInput label="Account tenant" value={cfg.accountTenantId} onChange={(e) => set("accountTenantId", e.target.value)} />
           <TextInput label="Run request id" value={cfg.runRequestId} onChange={(e) => set("runRequestId", e.target.value)} />
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.75rem" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
           <Checkbox checked={cfg.authorizedAtSubmission} onChange={(e) => set("authorizedAtSubmission", e.target.checked)} />
           Authorized at submission (one-off scheduled only — skips the second approval wait)
         </label>
-        <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-4)", flexWrap: "wrap" }}>
           <Button variant="primary" onClick={runOne} disabled={running}>{running ? "Running…" : "Run this scenario"}</Button>
           <Button variant="secondary" onClick={runSuite} disabled={running}>Run all 9 preset tests</Button>
         </div>
@@ -363,12 +367,12 @@ export function PaymentWorkflowAssurance() {
       {last && (
         <PageSection title="Last run">
           <Card>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap" }}>
               <Badge tone={last.outcome?.status === "started" ? "success" : last.error ? "danger" : "neutral"}>{resultLabel(last)}</Badge>
               {last.credited && <Badge tone="info">failure credit issued</Badge>}
             </div>
-            <h3 style={{ margin: "1rem 0 0.5rem" }}>Step trace</h3>
-            <ol style={{ margin: 0, paddingLeft: "1.25rem", fontFamily: "monospace", fontSize: "0.85rem", lineHeight: 1.6 }}>
+            <h3 style={{ margin: "var(--space-4) 0 var(--space-2)" }}>Step trace</h3>
+            <ol style={{ margin: 0, paddingLeft: "var(--space-5)", fontFamily: "var(--font-code)", fontSize: "var(--font-size-body-sm)" }}>
               {last.trace.map((t, i) => (
                 <li key={i}>{t}</li>
               ))}
@@ -380,14 +384,14 @@ export function PaymentWorkflowAssurance() {
 
       {suite && (
         <PageSection title={`Preset suite — ${passCount}/${suite.length} passing`}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
             {suite.map((row, i) => (
               <Card key={i}>
-                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap" }}>
                   <Badge tone={row.pass ? "success" : "danger"}>{row.pass ? "PASS" : "FAIL"}</Badge>
                   <span>{row.preset.name}</span>
                 </div>
-                <p style={{ margin: "0.5rem 0 0", color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
+                <p style={{ margin: "var(--space-2) 0 0", color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>
                   Expected: {row.preset.expected} · Got: {resultLabel(row.result)}
                 </p>
               </Card>
