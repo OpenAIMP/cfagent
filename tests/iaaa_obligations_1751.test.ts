@@ -39,7 +39,7 @@
  * an obligation (security guard for this program — a
  * caller-configurable obligation would let a caller disable their
  * own enforcement). The step-up window itself is the platform
- * default, reused not settled (still an open CISO value, #1757).
+ * default, settled as a CISO value by #1757 (values unchanged).
  *
  * Written FIRST (TDD Red): these tests fail on the pre-change tree,
  * which has no src/security/obligations.ts module at all. Live route
