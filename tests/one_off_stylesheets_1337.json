@@ -91,7 +91,7 @@
   },
   {
     "path": "src/client/workflowRuns.css",
-    "lines": 268,
+    "lines": 271,
     "reason": "Workflow Runs ledger layout (#2095) — page-specific grid/table layout, token values only"
   }
 ]
