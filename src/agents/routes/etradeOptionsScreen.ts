@@ -28,6 +28,7 @@ import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
 import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
 import { recordJobOutcome } from "../../services/jobOutcomes";
+import { recordOptionsRunOutcome, storeOptionsCanonicalReport } from "../../services/optionsServeRecord";
 import {
   cfpaySendEmail,
   cfpaySendEmailWithAttachments,
@@ -282,14 +283,17 @@ export async function executeOptionsScreen(args: {
 
   const generatedAt = new Date().toISOString();
   const generationId = `options_scanner:manual:${generatedAt}`;
-  ctx.getOrm().storeCanonicalReport({
+  storeOptionsCanonicalReport(ctx.getOrm(), {
     runId: generationId,
     generationId,
     title: `Options contract screen — ${(screenFilter.underlyingSymbols || []).join(", ") || screenUniverseLabel || "selected underlyings"}`,
     source: "options_scanner",
     summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
-    body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxUrl: optionsXlsxUrl, csvKey: optionsCsvKey, csvUrl: optionsCsvUrl },
+    body: { generatedAt, filter: screenFilter, result, pdfKey: optionsPdfKey, pdfStatus: optionsPdfKey ? "generated" : "failed", reportUrl: optionsReportUrl, xlsxKey: optionsXlsxKey, xlsxStatus: optionsXlsxStatus, xlsxError: optionsXlsxError, xlsxUrl: optionsXlsxUrl, csvKey: optionsCsvKey, csvStatus: optionsCsvStatus, csvError: optionsCsvError, csvUrl: optionsCsvUrl },
     createdAt: generatedAt,
+    // Options run-record fix: owner-scope the row — an ownerless write is invisible
+    // to the owner-scoped Reports read.
+    userLogin,
   });
 
   // Issue #1333: the inline manual-options outcome — recorded here
@@ -490,15 +494,42 @@ export async function executeUnifiedOptions(args: {
 
     const generatedAt = timestamp;
     const generationId = `options_scanner:${generatedAt}:${reqData.thesis || "mixed"}`;
-    ctx.getOrm().storeCanonicalReport({
+    const orm = ctx.getOrm();
+    storeOptionsCanonicalReport(orm, {
       runId: generationId,
       generationId,
       title: `Options scanner — ${reqData.thesis || "mixed"} (${generatedAt.slice(0, 10)})`,
       source: "options_scanner",
       summary: result.summary,
-      body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, reportUrl, xlsxKey: scannerXlsxKey, xlsxUrl: scannerXlsxUrl, csvKey: scannerCsvKey, csvUrl: scannerCsvUrl },
+      body: { generatedAt, request: reqData, report: result.toWebhook(), pdfKey, pdfStatus: pdfKey ? "generated" : "failed", reportUrl, xlsxKey: scannerXlsxKey, xlsxUrl: scannerXlsxUrl, csvKey: scannerCsvKey, csvUrl: scannerCsvUrl },
       createdAt: generatedAt,
+      // Options run-record fix: owner-scope the row (ownerless rows are invisible to
+      // the owner-scoped Reports read).
+      userLogin,
     });
+    // Options run-record fix: this path has no follow-up bridge, so it owns its run
+    // record. Without it the run never appears in Workflow Runs and its
+    // artifacts (PDF/XLSX/CSV) have nothing to attach to.
+    recordOptionsRunOutcome(
+      typeof (orm as { getSql?: () => unknown }).getSql === "function"
+        ? ((orm as { getSql: () => unknown }).getSql() as any)
+        : undefined,
+      {
+        id: `options-unified:${generationId}`,
+        trigger: "manual",
+        status: "completed",
+        scanned: typeof result.data?.scanned === "number" ? result.data.scanned : result.data?.totalScanned,
+        matched: typeof result.data?.matchedCount === "number"
+          ? result.data.matchedCount
+          : Array.isArray(result.data?.opportunities) ? result.data.opportunities.length : undefined,
+        reportUrl,
+        pdfKey,
+        xlsxKey: scannerXlsxKey,
+        csvKey: scannerCsvKey,
+        origin: "manual-options-unified",
+        createdAt: generatedAt,
+      },
+    );
   } else if (!result.success && reqData.pushToSlack !== false && reqData.pushToSlack !== "false") {
     const slackChannel = reqData.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
     const slackPayload = result.toSlack();

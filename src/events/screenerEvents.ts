@@ -143,6 +143,15 @@ export interface OptionsCompletedEvent {
   pdfKey?: string;
   pdfStatus?: "generated" | "failed" | "skipped";
   pdfError?: string;
+  /** Options run-record fix: the run's workbook + CSV, mirroring the stock event.
+   *  Without them the bridged job outcome (and therefore the Workflow
+   *  Runs artifact list) could name only the PDF a run produced. */
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed" | "skipped";
+  xlsxError?: string;
+  csvKey?: string;
+  csvStatus?: "generated" | "failed" | "skipped";
+  csvError?: string;
   /** Consolidation C4 (#1329): stage-chain config when the schedule
    *  opted in — the bridge chains (serve/deliver) instead of
    *  recording only. Absent = the direct path (the degenerate case). */
