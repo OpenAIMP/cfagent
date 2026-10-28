@@ -503,7 +503,9 @@ export interface Env {
 export interface TransactionRecord {
   id: string;
   sessionId: string;
-  action: "charge" | "refund" | "invoice" | "payout" | "micropayment" | "agentic_payment";
+  /** "credit" is a one-time replacement-run credit (#2019): value granted
+      for a failed paid run, never a cash refund. */
+  action: "charge" | "refund" | "invoice" | "payout" | "micropayment" | "agentic_payment" | "credit";
   amount: number;
   currency: string;
   customer: string;
