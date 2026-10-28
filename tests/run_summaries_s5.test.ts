@@ -371,3 +371,37 @@ describe("scan-row partial projection (issue #1850)", () => {
     expect(row.summary).not.toContain("Partial");
   });
 });
+describe("run documents and recorded run source (#2062)", () => {
+  it("reads XLSX/CSV keys and the recorded family from a canonical screener body", () => {
+    const summary = runSummaryFromReport(
+      reportHit({
+        body: JSON.stringify({
+          trigger: "scheduled",
+          success: true,
+          matchedCount: 5,
+          pdfKey: "screener:pdf:abc",
+          xlsxKey: "screener:xlsx:x1",
+          csvKey: "screener:csv:c1",
+          runSource: "stock",
+          timestamp: TS.screener,
+        }),
+      }),
+    );
+    expect(summary.xlsxKey).toBe("screener:xlsx:x1");
+    expect(summary.xlsxUrl).toBe("/api/screener/report.xlsx?key=screener%3Axlsx%3Ax1");
+    expect(summary.csvKey).toBe("screener:csv:c1");
+    expect(summary.csvUrl).toBe("/api/screener/report.csv?key=screener%3Acsv%3Ac1");
+    expect(summary.runSource).toBe("stock");
+  });
+
+  it("falls back to the kind's family when the body records no source", () => {
+    expect(runSummaryFromReport(reportHit()).runSource).toBe("stock");
+    expect(runSummaryFromScreenerRun(screenerRun()).runSource).toBe("stock");
+  });
+
+  it("keeps absent artifact keys null rather than inventing links", () => {
+    const summary = runSummaryFromReport(reportHit());
+    expect(summary.xlsxKey).toBeNull();
+    expect(summary.csvUrl).toBeNull();
+  });
+});

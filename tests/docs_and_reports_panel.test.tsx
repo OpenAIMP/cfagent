@@ -68,6 +68,11 @@ describe("document run source", () => {
     expect(documentRunSource({ kind: "report", source: "goal_screen" })).toBe("goal");
   });
 
+  it("prefers the family recorded on the run over the kind derivation (#2062)", () => {
+    expect(documentRunSource({ kind: "report", source: "research_report", runSource: "goal" })).toBe("goal");
+    expect(documentRunSource({ kind: "report", source: "research_report", runSource: "unknown" })).toBeNull();
+  });
+
   it("excludes non-screener products instead of relabeling them", () => {
     expect(documentRunSource({ kind: "report", source: "research_report" })).toBeNull();
     expect(documentRunSource({ kind: "report", source: "iv_collection" })).toBeNull();

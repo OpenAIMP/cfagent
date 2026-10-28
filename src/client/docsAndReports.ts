@@ -64,6 +64,19 @@ const SOURCE_BY_STORE_SOURCE: Record<string, DocumentRunSource> = {
   discovery: "strategy",
 };
 
+/** The explicit family a run records in its body (#2062). */
+const RECORDED_SOURCES: Record<string, DocumentRunSource> = {
+  stock: "stock",
+  options: "options",
+  goal: "goal",
+  strategy: "strategy",
+  screener: "stock",
+  options_scanner: "options",
+  options_screen: "options",
+  goal_screen: "goal",
+  discovery: "strategy",
+};
+
 export const DOCUMENT_SOURCE_LABELS: Record<DocumentRunSource, string> = {
   stock: "Stock",
   options: "Options",
@@ -73,8 +86,12 @@ export const DOCUMENT_SOURCE_LABELS: Record<DocumentRunSource, string> = {
 
 /** The document family a run belongs to, or null when it is not a screener-workflow run. */
 export function documentRunSource(
-  run: Pick<RunSummary, "kind" | "source">,
+  run: Pick<RunSummary, "kind" | "source" | "runSource">,
 ): DocumentRunSource | null {
+  // Issue #2062: the family recorded on the run wins; the kind/source
+  // derivation stays as the fallback for rows written before the field.
+  const recorded = typeof run.runSource === "string" ? RECORDED_SOURCES[run.runSource] : undefined;
+  if (recorded) return recorded;
   const byKind = SOURCE_BY_KIND[run.kind];
   if (byKind) return byKind;
   return SOURCE_BY_STORE_SOURCE[run.source] ?? null;
@@ -98,7 +115,7 @@ export function documentRunType(
 export function toDocumentRows(
   runs: Pick<
     RunSummary,
-    "id" | "runId" | "createdAt" | "trigger" | "kind" | "source" | "title" | "status" | "reportUrl" | "xlsxUrl" | "csvUrl"
+    "id" | "runId" | "createdAt" | "trigger" | "kind" | "source" | "runSource" | "title" | "status" | "reportUrl" | "xlsxUrl" | "csvUrl"
   >[],
 ): DocumentRow[] {
   const rows: DocumentRow[] = [];
