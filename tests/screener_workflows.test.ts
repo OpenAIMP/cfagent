@@ -9,7 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InMemoryShardJobAdapter } from "../src/data/inMemoryShardJobAdapter";
 import type { ShardJobStore } from "../src/data/shardJobPorts";
 import { CfWorkflowAdapter, type WorkflowBindingLike } from "../src/workflows/cfWorkflowAdapter";
@@ -505,6 +505,48 @@ describe("runParentFlow (collates child flags; never stores or delivers)", () =>
     const ops = makeChildOps(statuses, created);
     await runParentFlow(parentCommand({ shards, maxParallelShards: 1 }), b.clock.step, b.deps, ops);
     expect(created).toEqual(["A", "B", "C"]);
+  });
+
+  it("prod-shaped over-long jobId reaches announce (#2129)", async () => {
+    // The 07:56 goal run's jobId shape: 115 chars, over the 100-char
+    // provider ceiling. Before #2123 the parent flow threw computing
+    // its workflow id before the announce step, so no row ever
+    // landed. The flow must complete and project rows for it.
+    const longJobId = `goal-screen:manual:${"a".repeat(64)}:income:2026-10-28T11:56:42.466Z`;
+    expect(longJobId.length).toBe(115);
+    const b = makeDeps();
+    const ops = makeChildOps({
+      [childId(longJobId, "TECH")]: { status: "complete", output: { ...okResult({ universe: "TECH" }), stored: true, delivered: true } },
+      [childId(longJobId, "HEALTH")]: { status: "complete", output: { ...okResult({ universe: "HEALTH" }), stored: true, delivered: true } },
+    });
+    const c = await runParentFlow(parentCommand({ jobId: longJobId }), b.clock.step, b.deps, ops);
+    expect(c.lifecycle).toBe("ReportGenerated");
+    const rows = await b.store.listJobsForChain("tenant-1", longJobId);
+    expect(rows.map((r) => r.jobKey).sort()).toEqual(
+      [longJobId, "shard:HEALTH", "shard:TECH"].sort(),
+    );
+    const parentRow = await latestParentRow(b.store, longJobId);
+    expect(parentRow?.status).toBe("completed");
+  });
+
+  it("an unprojected announce warns with chain + stage but does not fail the flow (#2129)", async () => {
+    // projectBestEffort's silent no-op hid vanished runs: the
+    // panel polled an empty history with no worker-log trace.
+    const b = makeDeps();
+    const deps = { ...b.deps, shardStore: undefined as unknown as ShardJobStore };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const ops = makeChildOps({
+        [childId("job-1", "TECH")]: { status: "complete", output: { ...okResult({ universe: "TECH" }), stored: true, delivered: true } },
+        [childId("job-1", "HEALTH")]: { status: "complete", output: { ...okResult({ universe: "HEALTH" }), stored: true, delivered: true } },
+      });
+      const c = await runParentFlow(parentCommand(), b.clock.step, deps, ops);
+      expect(c.lifecycle).toBe("ReportGenerated");
+      const warned = warn.mock.calls.map((args) => String(args[0]));
+      expect(warned.some((m) => m.includes("job-1") && m.includes("feed"))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
