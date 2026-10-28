@@ -22,6 +22,22 @@ export interface KvLike {
   get(key: string): Promise<string | null>;
   put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
   delete(key: string): Promise<void>;
+  /**
+   * #1756 — atomic claim: set `key` to `value` only if it is absent,
+   * returning true iff this call created the key. The check and the
+   * set are one indivisible backend operation: two concurrent
+   * callers cannot both observe "absent" and both win (the race a
+   * get-then-put leaves open). A present-but-expired row counts as
+   * absent on backends with TTLs (the Durable Object consume op's
+   * rule). A false return means "not claimed by this caller" —
+   * either the key was already present or the store could not be
+   * reached — and callers must treat both the same way: fail
+   * closed, never assume the claim. Optional: backends that cannot
+   * offer atomicity (plain Workers KV has no compare-and-swap)
+   * omit it, and callers fall back to the documented legacy
+   * check-then-set path for those backends only.
+   */
+  putIfAbsent?(key: string, value: string): Promise<boolean>;
 }
 
 const DEFAULT_BLOCK_MS = 5 * 60_000;
@@ -126,5 +142,29 @@ export function createResilientKv(
         trip(error);
       }
     },
+
+    // #1756: forward the atomic claim when the wrapped backend offers
+    // it; backends without it keep the method absent, so callers see
+    // the same "no atomic claim" signal they would unwrapped. A
+    // failure reads as "not claimed" (fail closed — the caller must
+    // never grant on an unknown claim outcome), matching the
+    // wrapper's never-throws contract for reads and writes.
+    ...(typeof (kv as KvLike | null | undefined)?.putIfAbsent === "function"
+      ? {
+          putIfAbsent: async (key: string, value: string): Promise<boolean> => {
+            if (!kv) return false;
+            if (Date.now() < state.blockedUntil) {
+              state.suppressedReads += 1;
+              return false;
+            }
+            try {
+              return await (kv as KvLike).putIfAbsent!(key, value);
+            } catch (error) {
+              trip(error);
+              return false;
+            }
+          },
+        }
+      : {}),
   };
 }

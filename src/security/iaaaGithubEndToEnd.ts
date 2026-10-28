@@ -34,11 +34,16 @@
  * again. All other markers are untouched.
  * Genesis grants carry createdBy/grantedBy "system:bootstrap-genesis";
  * ordinary bootstrap grants carry "system:bootstrap". The marker is
- * check-then-set, not transactional — two concurrent genesis logins
- * could both observe an absent marker (same family as the audit and
- * membership read-modify-write races). Bootstrap logins are rare
- * and operator-driven, so the window is small, but a deployment
- * that needs a hard guarantee must serialize its first logins.
+ * claimed atomically (#1756): backends offering KvLike.putIfAbsent
+ * (production: the SessionStore DO, via its atomic consume op) claim
+ * the marker in one indivisible operation, so no two first-logins
+ * can both win — the loser falls through to the genesis-closed
+ * tenant-admin path. Backends without putIfAbsent keep the legacy
+ * check-then-set order, and a deployment on such a backend that
+ * needs a hard guarantee must still serialize its first logins.
+ * A claim won but followed by a failed grant releases the marker,
+ * so a retry can win; the release is safe only because the atomic
+ * claim has exactly one winner, so it runs on the atomic path only.
  *
  * Best-effort rule: runWiredPostLogin NEVER throws and NEVER fails
  * a login. Alias conflicts preserve the original alias; storage
@@ -328,6 +333,27 @@ function isStrandedOct22Marker(marker: string): boolean {
   }
 }
 
+/**
+ * #1756 — release a marker this caller just claimed, after the
+ * grant that was supposed to follow it failed. Best-effort: a
+ * delete failure leaves the window closed (safe — no double grant —
+ * but the window then needs operator repair, the same failure mode
+ * as a failed marker write before this change). Only ever called
+ * on the atomic path, where the claim has exactly one winner: on
+ * the legacy path a "win" is not exclusive, so releasing there
+ * could reopen the window under a grant that already landed.
+ */
+async function releaseGenesisMarker(
+  kv: KvLike,
+  markerKey: string,
+): Promise<void> {
+  try {
+    await kv.delete(markerKey);
+  } catch {
+    // Best-effort release; the outer error status still reports.
+  }
+}
+
 async function holdsPlatformAdmin(
   store: MembershipStore,
   internalUserId: string,
@@ -406,36 +432,11 @@ export async function runWiredPostLogin(
             await deps.kv.delete(markerKey);
             marker = null;
           }
-          if (marker === null) {
-            const created = await createMembership(deps.membershipStore, {
-              internalUserId: input.internalUserId,
-              tenantId: input.tenantId,
-              roleBindings: [
-                {
-                  role: "platform-admin",
-                  scope: "platform",
-                  grantedBy: "system:bootstrap-genesis",
-                },
-              ],
-              createdBy: "system:bootstrap-genesis",
-              nowMs: input.nowMs,
-            });
-            if (!created.ok) {
-              bootstrapStatus = "error";
-            } else {
-              await deps.kv.put(
-                markerKey,
-                JSON.stringify({
-                  grantedTo: input.internalUserId,
-                  tenantId: input.tenantId,
-                  atMs: input.nowMs,
-                }),
-              );
-              bootstrapStatus = "genesis";
-            }
-          } else {
-            // Genesis window closed: a platform: entry now grants
-            // tenant-admin only, through the ordinary bootstrap path.
+          // Genesis window closed (marker present, or claim lost):
+          // a platform: entry now grants tenant-admin only, through
+          // the ordinary bootstrap path. Shared by the marker-present
+          // branch and the lost-claim branch below.
+          const genesisClosed = async (): Promise<BootstrapRunStatus> => {
             const provisioned = await provisionBootstrapAdmins(
               deps.membershipStore,
               {
@@ -444,11 +445,89 @@ export async function runWiredPostLogin(
                 nowMs: input.nowMs,
               },
             );
-            bootstrapStatus = provisioned.ok
+            return provisioned.ok
               ? provisioned.skippedAlreadyAdmin.includes(input.internalUserId)
                 ? "already-admin"
                 : "genesis-closed-tenant-admin"
               : "error";
+          };
+          if (marker === null) {
+            const markerValue = JSON.stringify({
+              grantedTo: input.internalUserId,
+              tenantId: input.tenantId,
+              atMs: input.nowMs,
+            });
+            if (typeof deps.kv.putIfAbsent === "function") {
+              // #1756 atomic path: claim the marker BEFORE granting,
+              // in one indivisible backend operation. The loser
+              // takes the genesis-closed path and never writes the
+              // marker, so exactly one first-login can win. The
+              // grant follows the claim (never precedes it): a
+              // grant before the claim would let the loser hold
+              // platform-admin too. If the grant fails, release
+              // the claim so a retry can win.
+              const claimed = await deps.kv.putIfAbsent(markerKey, markerValue);
+              if (!claimed) {
+                bootstrapStatus = await genesisClosed();
+              } else {
+                let granted = false;
+                try {
+                  const created = await createMembership(deps.membershipStore, {
+                    internalUserId: input.internalUserId,
+                    tenantId: input.tenantId,
+                    roleBindings: [
+                      {
+                        role: "platform-admin",
+                        scope: "platform",
+                        grantedBy: "system:bootstrap-genesis",
+                      },
+                    ],
+                    createdBy: "system:bootstrap-genesis",
+                    nowMs: input.nowMs,
+                  });
+                  granted = created.ok;
+                } catch {
+                  granted = false;
+                }
+                if (!granted) {
+                  await releaseGenesisMarker(deps.kv, markerKey);
+                  bootstrapStatus = "error";
+                } else {
+                  bootstrapStatus = "genesis";
+                }
+              }
+            } else {
+              // Legacy path (backend without putIfAbsent): the
+              // pre-#1756 create-then-put order, unchanged. Two
+              // concurrent first-logins can still both win here;
+              // deployments on such a backend must serialize
+              // their first logins. The order is deliberately NOT
+              // changed to claim-then-grant: without an atomic
+              // claim a "win" is not exclusive, so releasing the
+              // marker on a failed grant could reopen the window
+              // under a grant that already landed.
+              const created = await createMembership(deps.membershipStore, {
+                internalUserId: input.internalUserId,
+                tenantId: input.tenantId,
+                roleBindings: [
+                  {
+                    role: "platform-admin",
+                    scope: "platform",
+                    grantedBy: "system:bootstrap-genesis",
+                  },
+                ],
+                createdBy: "system:bootstrap-genesis",
+                nowMs: input.nowMs,
+              });
+              if (!created.ok) {
+                bootstrapStatus = "error";
+              } else {
+                await deps.kv.put(markerKey, markerValue);
+                bootstrapStatus = "genesis";
+              }
+            }
+          } else {
+            bootstrapStatus = await genesisClosed();
           }
         }
       } else {

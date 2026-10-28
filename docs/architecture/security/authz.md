@@ -93,8 +93,12 @@ The genesis rule: entries prefixed `platform:` grant platform-admin
 **only while** the marker key
 `iaaa-bootstrap:platform-genesis:<tenantId>` is absent. Once the marker
 is set, later `platform:` entries grant tenant-admin only. Genesis grants
-use `system:bootstrap-genesis`. The marker is check-then-set, **not**
-transactional — a small, documented race. Bootstrap fires on wired login
+use `system:bootstrap-genesis`. The marker is claimed atomically
+(#1756): on backends offering `KvLike.putIfAbsent` (production:
+the SessionStore DO's atomic consume op) exactly one first-login
+wins and the loser grants tenant-admin only; backends without it
+keep the legacy check-then-set order and must serialize their
+first logins. Bootstrap fires on wired login
 when the caller is listed and holds no membership yet; a blank list means
 zero writes.
 
