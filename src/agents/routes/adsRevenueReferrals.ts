@@ -21,9 +21,13 @@
  * new globals and no back-references into the class.
  */
 
-import type { AgentName, CategoryRecord, ExternalAdRecord } from "../../types";
+import type { AgentName, CategoryRecord, Env, ExternalAdRecord } from "../../types";
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import { runRestTool } from "./restToolBridge";
+import {
+  fetchStoreAccount,
+  fetchStoreTenantAdsEnabled,
+} from "../../services/commercialAccounts";
 import {
   ADS_REVENUE_SWITCHES,
   adsRevenueConfigErrorEvent,
@@ -72,6 +76,15 @@ export interface AdsRevenueReferralsRouteContext {
    * the execution-context owner. Unset carriers fall through to env.
    */
   scopedModes?: AdsRevenueScopedModes;
+  /**
+   * Issue #2022: the caller's VERIFIED tier attribute, when the
+   * account store (#2020/#2015) populates it. Absent today — the
+   * handler resolves it from the store itself (see
+   * resolveAdsViewer). NEVER read from a header: tier is a user
+   * attribute, not a header claim (#1076 enforcement sketch).
+   * Only the exact value "Subscribed" suppresses ads.
+   */
+  viewerTier?: string;
 }
 
 /**
@@ -117,6 +130,56 @@ function runModeOf(body: unknown, url: URL): unknown {
  * Invoked from routeRequest at the position between the /schema/query block
  * and the /audit block.
  */
+/**
+ * Issue #2022: resolve the ads viewer from the account store.
+ *
+ * - tier: ctx.viewerTier when populated (#2020), otherwise the
+ *   store record for the verified login. The store wins on
+ *   disagreement (it is the record; ctx is a claim). Only the exact
+ *   value "Subscribed" suppresses.
+ * - tenantAdsEnabled: the tenant's system-wide ads flag (tenant off
+ *   beats tier — no ads for anyone in that tenant). Absent = true.
+ *
+ * Fail direction is SERVE: no verified login, no env, or any store
+ * failure returns Free + enabled (the server lists are the
+ * enforcement boundary, and a store blip must not blank ads for
+ * every Free user — nor invent a tier nobody holds). A populated
+ * Subscribed ctx tier still suppresses on store failure, since
+ * that claim comes from trusted server code, not the caller.
+ */
+async function resolveAdsViewer(
+  request: Request,
+  ctx: AdsRevenueReferralsRouteContext,
+): Promise<{ tier: "Free" | "Subscribed"; tenantAdsEnabled: boolean }> {
+  const ctxSubscribed = ctx.viewerTier === "Subscribed";
+  const serve = { tier: "Free" as const, tenantAdsEnabled: true };
+  const login = (request.headers.get("x-user-login") ?? "").trim() || null;
+  // The ctx env type is narrowed for #1721, but the orchestrator
+  // passes the full Worker env at runtime — the cast recovers it.
+  const env = ctx.env as unknown as Env | undefined;
+  if (!login || !env) {
+    return ctxSubscribed ? { tier: "Subscribed", tenantAdsEnabled: true } : serve;
+  }
+  try {
+    const account = await fetchStoreAccount(env, login);
+    const tier = account?.tier === "Subscribed" ? "Subscribed" : ctxSubscribed ? "Subscribed" : "Free";
+    const tenantAdsEnabled = account?.tenantId
+      ? await fetchStoreTenantAdsEnabled(env, account.tenantId)
+      : true;
+    return { tier, tenantAdsEnabled };
+  } catch {
+    return ctxSubscribed ? { tier: "Subscribed", tenantAdsEnabled: true } : serve;
+  }
+}
+
+async function isAdsSuppressed(
+  request: Request,
+  ctx: AdsRevenueReferralsRouteContext,
+): Promise<boolean> {
+  const viewer = await resolveAdsViewer(request, ctx);
+  return !viewer.tenantAdsEnabled || viewer.tier === "Subscribed";
+}
+
 export async function handleAdsRevenueReferralsRoutes(
   request: Request,
   url: URL,
@@ -226,6 +289,12 @@ export async function handleAdsRevenueReferralsRoutes(
     const orm = ctx.getOrm();
 
     if (request.method === "GET") {
+      // Issue #2022: a suppressed caller (Subscribed tier, or a
+      // tenant with ads off) is served nothing — the list is the
+      // enforcement boundary, so no read happens for that caller.
+      if (await isAdsSuppressed(request, ctx)) {
+        return Response.json({ count: 0, ads: [] });
+      }
       try {
         const mode = resolveRouteMode(ctx, "externalAds", runModeOf(null, url));
         const ads = orm.externalAds.findMany(externalAdListOptions(mode));
@@ -283,6 +352,10 @@ export async function handleAdsRevenueReferralsRoutes(
   }
 
   if (path.endsWith("/external-ads/impression") && request.method === "POST") {
+    // Issue #2022: no impression is ever recorded for a suppressed caller.
+    if (await isAdsSuppressed(request, ctx)) {
+      return Response.json({ success: false });
+    }
     try {
       const body = (await request.json().catch(() => ({}))) as { id?: string; mode?: unknown };
       const mode = resolveRouteMode(ctx, "externalAds", runModeOf(body, url));
@@ -313,6 +386,10 @@ export async function handleAdsRevenueReferralsRoutes(
   }
 
   if (path.endsWith("/external-ads/click") && request.method === "POST") {
+    // Issue #2022: no click is ever recorded for a suppressed caller.
+    if (await isAdsSuppressed(request, ctx)) {
+      return Response.json({ success: false });
+    }
     try {
       const body = (await request.json().catch(() => ({}))) as { id?: string; mode?: unknown };
       const mode = resolveRouteMode(ctx, "externalAds", runModeOf(body, url));
@@ -550,6 +627,12 @@ export async function handleReferralsAdsRoutes(
 
   if (path.endsWith("/ads")) {
     if (request.method === "GET") {
+      // Issue #2022: a suppressed caller is served nothing — before
+      // seeding and before the fetch impression increment, so no
+      // write and no count happens for that caller.
+      if (await isAdsSuppressed(request, ctx)) {
+        return Response.json({ count: 0, ads: [] });
+      }
       try {
         ensureAdsSeeded(sql);
         // Increment impressions on fetch
@@ -625,6 +708,10 @@ export async function handleReferralsAdsRoutes(
   }
 
   if (path.endsWith("/ads/click") && request.method === "POST") {
+    // Issue #2022: no click is ever recorded for a suppressed caller.
+    if (await isAdsSuppressed(request, ctx)) {
+      return Response.json({ success: false });
+    }
     try {
       const body = (await request.json().catch(() => ({}))) as { id?: string };
       if (body.id) {

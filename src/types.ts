@@ -520,6 +520,48 @@ export interface TransactionRecord {
   updatedAt: string;
 }
 
+/**
+ * Minimal commercial account record (#2015/#2020). One row per user
+ * (id = userId); v1 is one tenant per user — the tenant is the
+ * operator-recorded tenant, and a run whose tenant differs from it
+ * is refused. Subscription purchase flows, referral-credit rules,
+ * and multi-tenant memberships are later work (#1623, #1598), not
+ * silently implied by this row.
+ */
+export interface CommercialAccountRecord {
+  /** User login (userId). */
+  id: string;
+  tenantId: string;
+  tier: "Free" | "PayPerUse" | "Subscribed";
+  creditsUSD: number;
+  includedRuns: number;
+  updatedAt: string;
+}
+
+/**
+ * Per-tenant system setting (#2022, folded into the store decision).
+ * Absent = ads enabled (the tier rule governs). A tenant that turns
+ * ads off suppresses ads for every user in that tenant, regardless
+ * of tier.
+ */
+export interface TenantSettingsRecord {
+  tenantId: string;
+  adsEnabled: boolean;
+  updatedAt: string;
+}
+
+/**
+ * One-time redemption of a failure-credit row (#2019). creditRunId
+ * is the failed run whose credit row (session
+ * screener-payment:<creditRunId>, action credit) is consumed; the
+ * row's primary key makes a second redemption impossible.
+ */
+export interface CreditRedemptionRecord {
+  creditRunId: string;
+  redeemedByRunId: string;
+  redeemedAt: string;
+}
+
 export interface SessionData {
   githubLogin: string;
   githubAvatar: string;

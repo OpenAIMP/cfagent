@@ -109,6 +109,18 @@ export interface PaymentWorkflowDeps {
   startScreener: (params: PaymentWorkflowParams) => Promise<{ workflowId: string }>;
   recordEvent: (event: { runRequestId: string; tenantId: string; type: string }) => Promise<void>;
   issueFailureCredit: (runRequestId: string) => Promise<void>;
+  /**
+   * Issue #2015: consume the coverage a covered run used, in the
+   * account store (one included run, or priceUSD of credits).
+   * Optional so existing flow tests without a store keep passing.
+   * The adapter's implementation is best-effort with loud logging:
+   * a store blip must not deny a run the user already covered, so
+   * a failed consumption logs loudly and the run still starts (the
+   * leak is one run's balance, correctable by an operator
+   * adjustment). paidVia values that consume nothing
+   * (free_flag_off, already_paid) are no-ops.
+   */
+  consumeCoverage?: (use: { userId: string; paidVia: string; priceUSD: number }) => Promise<void>;
 }
 
 export type PaymentWorkflowOutcome =
@@ -221,6 +233,19 @@ export async function runPaymentWorkflowFlow(
   await step.do("record-payment", () =>
     deps.recordEvent({ runRequestId: params.runRequestId, tenantId: params.tenantId, type: "payment.covered" }),
   );
+  // Issue #2015: consume the coverage in the store, so an included
+  // run or a credit balance cannot be spent twice. Best-effort in
+  // the adapter (see the dep doc): a failed consumption never
+  // blocks this covered run.
+  if (deps.consumeCoverage) {
+    await step.do("consume-coverage", () =>
+      deps.consumeCoverage!({
+        userId: params.userId,
+        paidVia: gateDecision.paidVia ?? gateDecision.status,
+        priceUSD: gateDecision.priceUSD,
+      }),
+    );
+  }
   return startScreenerOrCredit(params, deps, step, gateDecision.paidVia ?? gateDecision.status);
 }
 

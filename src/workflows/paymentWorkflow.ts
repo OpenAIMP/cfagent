@@ -76,6 +76,7 @@ import {
 } from "./paymentWorkflowFlow";
 import { getCfpayConfig, cfpayA2AOperation } from "../services/cfpayA2A";
 import { createFeatureFlagPort } from "../features/createFeatureFlagPort";
+import { consumeStoreCoverage } from "../services/commercialAccounts";
 import { createWorkflowPorts, type WorkflowEnv } from "./createWorkflowPorts";
 import type { WorkflowJobCommand } from "./workflowPorts";
 
@@ -196,6 +197,24 @@ export class PaymentWorkflow extends ThinkWorkflow<
         // this throws, so a screener failure after payment is visible
         // instead of silently claiming a credit that was never issued.
         throw new Error(`Failure credit not yet implemented for run ${runRequestId} (Phase 4, #2019).`);
+      },
+      consumeCoverage: async (use: { userId: string; paidVia: string; priceUSD: number }) => {
+        // Issue #2015: consume the coverage in the account store.
+        // Best-effort with loud logging (see the flow dep doc): a
+        // store blip must not deny a run the user already covered.
+        // free_flag_off / already_paid consume nothing.
+        try {
+          if (use.paidVia === "subscription_included") {
+            await consumeStoreCoverage(this.env, use.userId, "included");
+          } else if (use.paidVia === "credits") {
+            await consumeStoreCoverage(this.env, use.userId, "credits", use.priceUSD);
+          }
+        } catch (err) {
+          console.error(
+            `[payment-workflow] coverage consumption failed for user ${use.userId} paidVia=${use.paidVia} — run proceeds, balance must be reconciled by an operator:`,
+            err,
+          );
+        }
       },
     };
 

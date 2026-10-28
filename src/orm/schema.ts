@@ -54,6 +54,9 @@ export const SHARED_MAS_TABLES = [
   "mas_ads",
   "mas_watchlists",
   "mas_transactions",
+  "mas_commercial_accounts",
+  "mas_tenant_settings",
+  "mas_credit_redemptions",
 ] as const;
 
 export type SharedMasTable = (typeof SHARED_MAS_TABLES)[number];
@@ -159,6 +162,41 @@ const MAS_TRANSACTIONS_DDL = `
       )
     `;
 
+// Issue #2015/#2020: minimal commercial account store — one row per
+// user (id = userId), operator-managed in v1. Plain TEXT/REAL like
+// the other shared tables; tier is validated in code, not by CHECK.
+const MAS_COMMERCIAL_ACCOUNTS_DDL = `
+      CREATE TABLE IF NOT EXISTS mas_commercial_accounts (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        tier TEXT NOT NULL,
+        credits_usd REAL NOT NULL DEFAULT 0,
+        included_runs INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      )
+    `;
+
+// Issue #2022 (folded into the store decision): per-tenant system
+// setting. Absent = ads enabled (the tier rule governs).
+const MAS_TENANT_SETTINGS_DDL = `
+      CREATE TABLE IF NOT EXISTS mas_tenant_settings (
+        tenant_id TEXT PRIMARY KEY,
+        ads_enabled INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL
+      )
+    `;
+
+// Issue #2019: one-time redemption of a failure-credit row. The
+// primary key makes a second redemption of the same credit
+// impossible; the insert is the atomic claim.
+const MAS_CREDIT_REDEMPTIONS_DDL = `
+      CREATE TABLE IF NOT EXISTS mas_credit_redemptions (
+        credit_run_id TEXT PRIMARY KEY,
+        redeemed_by_run_id TEXT NOT NULL,
+        redeemed_at TEXT NOT NULL
+      )
+    `;
+
 /** Canonical DDL per shared table, byte-identical to the former copies. */
 export const SHARED_TABLE_DDL: Readonly<Record<SharedMasTable, string>> = {
   mas_messages: MAS_MESSAGES_DDL,
@@ -168,6 +206,9 @@ export const SHARED_TABLE_DDL: Readonly<Record<SharedMasTable, string>> = {
   mas_ads: MAS_ADS_DDL,
   mas_watchlists: MAS_WATCHLISTS_DDL,
   mas_transactions: MAS_TRANSACTIONS_DDL,
+  mas_commercial_accounts: MAS_COMMERCIAL_ACCOUNTS_DDL,
+  mas_tenant_settings: MAS_TENANT_SETTINGS_DDL,
+  mas_credit_redemptions: MAS_CREDIT_REDEMPTIONS_DDL,
 };
 
 /** Create one shared table (IF NOT EXISTS) from the canonical DDL. */

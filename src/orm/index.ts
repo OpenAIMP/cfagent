@@ -9,6 +9,9 @@ import type {
   AdRecord,
   ExternalAdRecord,
   TransactionRecord,
+  CommercialAccountRecord,
+  TenantSettingsRecord,
+  CreditRedemptionRecord,
   MessageRecord,
   MemoryRecord,
   AuditEvent,
@@ -215,6 +218,12 @@ export class DatabaseORM {
   public ads: Repository<AdRecord>;
   public externalAds: Repository<ExternalAdRecord>;
   public transactions: Repository<TransactionRecord>;
+  /** Minimal commercial account store (#2015/#2020). */
+  public commercialAccounts: Repository<CommercialAccountRecord>;
+  /** Per-tenant system settings (#2022). */
+  public tenantSettings: Repository<TenantSettingsRecord>;
+  /** One-time failure-credit redemptions (#2019). */
+  public creditRedemptions: Repository<CreditRedemptionRecord>;
   public messages: Repository<MessageRecord>;
   public memory: Repository<MemoryRecord>;
   public events: Repository<AuditEvent>;
@@ -311,6 +320,27 @@ export class DatabaseORM {
       note: "note",
       createdAt: "created_at",
       updatedAt: "updated_at",
+    });
+
+    this.commercialAccounts = new Repository<CommercialAccountRecord>(sql, "mas_commercial_accounts", "id", {
+      id: "id",
+      tenantId: "tenant_id",
+      tier: "tier",
+      creditsUSD: "credits_usd",
+      includedRuns: "included_runs",
+      updatedAt: "updated_at",
+    });
+
+    this.tenantSettings = new Repository<TenantSettingsRecord>(sql, "mas_tenant_settings", "tenantId", {
+      tenantId: "tenant_id",
+      adsEnabled: "ads_enabled",
+      updatedAt: "updated_at",
+    });
+
+    this.creditRedemptions = new Repository<CreditRedemptionRecord>(sql, "mas_credit_redemptions", "creditRunId", {
+      creditRunId: "credit_run_id",
+      redeemedByRunId: "redeemed_by_run_id",
+      redeemedAt: "redeemed_at",
     });
 
     this.messages = new Repository<MessageRecord>(sql, "mas_messages", "id", {
@@ -454,6 +484,12 @@ export class DatabaseORM {
 
     // 5. Transactions Table
     ensureSharedTable(this.sql, "mas_transactions");
+
+    // 5b. Minimal commercial account store (#2015/#2020) + tenant
+    // settings (#2022) + credit redemptions (#2019).
+    ensureSharedTable(this.sql, "mas_commercial_accounts");
+    ensureSharedTable(this.sql, "mas_tenant_settings");
+    ensureSharedTable(this.sql, "mas_credit_redemptions");
 
     // 6. Messages Table
     ensureSharedTable(this.sql, "mas_messages");

@@ -18,6 +18,13 @@
  *                                                  state derived from the ledger)
  *   GET      /payments/agentic/ledger/payments    (issue #896: PaymentsAgent-
  *                                                  origin rows read back)
+ *   GET|POST /payments/agentic/commercial/*       (issues #2015/#2020/#2022:
+ *                                                  minimal commercial account
+ *                                                  store, tenant settings,
+ *                                                  credit redemption, and the
+ *                                                  dedicated paid-submission
+ *                                                  route — see the block
+ *                                                  below for the endpoints)
  *
  * Each route constructs the ETradeAgenticPaymentService per request,
  * exactly as the inline block did. The handler ends with an explicit
@@ -48,6 +55,31 @@ import {
   type PaymentsScopedModes,
   type PaymentsSurfaceMode,
 } from "../../config/agenticPaymentsModes";
+import {
+  buildPaymentWorkflowParams,
+  startPaymentWorkflowViaBinding,
+  type PaymentWorkflowBinding,
+} from "../../services/paymentWorkflowSubmission";
+import {
+  adjustCommercialCredits,
+  canAccessAccount,
+  consumeCredits,
+  consumeIncludedRun,
+  findUnredeemedCredit,
+  getTenantAdsEnabled,
+  isStoreOperator,
+  redeemCredit,
+  setTenantAdsEnabled,
+  toCommercialAccount,
+  upsertCommercialAccount,
+  fetchStoreAccount,
+  fetchStoreUnredeemedCredit,
+  redeemStoreCredit,
+} from "../../services/commercialAccounts";
+import { getServiceUserLogin } from "../../security/serviceIdentity";
+import { createWorkflowPorts, type WorkflowEnv } from "../../workflows/createWorkflowPorts";
+import { tryStartScreenerWorkflow } from "../../workflows/screenerWorkflowRoutes";
+import type { WorkflowJobCommand } from "../../workflows/workflowPorts";
 
 /** The subset of OrchestratorAgent surface the agentic-payments handlers need. */
 export interface AgenticPaymentsRouteContext {
@@ -204,6 +236,359 @@ export async function handleAgenticPaymentsRoutes(
       return Response.json({ duplicate: false, record: toPaymentRecord(tx) });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to record payment in ledger" }, { status: 500 });
+    }
+  }
+
+  // ================================================================
+  // Issue #2015/#2020: minimal commercial account store, tenant
+  // settings (#2022), credit redemption (#2019), and the dedicated
+  // paid-submission route (no CTO collision: this route never
+  // touches ScheduledTasksService or the #1997-2000 unified
+  // run-request path; CTO wires into it later).
+  //
+  // Trust model, stated once for the whole block:
+  // - x-user-login reaching this handler is session-verified
+  //   (server.ts sets it from the session for /api/*, 401 without
+  //   a session). Identity is that login; nothing here trusts a
+  //   body-supplied userId.
+  // - The store's source of truth is the canonical orchestrator
+  //   instance. Server-side callers (the submission route, the
+  //   payment workflow adapter, the ads handler) reach it through
+  //   the commercialAccounts client with the service identity, and
+  //   those calls are trusted. Direct user calls on any other
+  //   instance see that instance's store only and are NOT
+  //   authoritative — the endpoints below enforce self-or-operator
+  //   (or operator/service-only) so a direct call cannot touch
+  //   another user's account.
+  // - Operator writes require COMMERCIAL_STORE_OPERATORS (empty =
+  //   deny all). Service-identity calls require SERVICE_USER_LOGIN,
+  //   the same requirement as the ledger client.
+  // ================================================================
+  const commercialLogin = (): string | null => {
+    const login = request.headers.get("x-user-login");
+    return login && login.trim() ? login.trim() : null;
+  };
+  const isServiceCaller = (login: string | null): boolean =>
+    !!login && getServiceUserLogin(ctx.env) === login;
+
+  // GET /payments/agentic/commercial/account?userId=
+  if (path.endsWith("/payments/agentic/commercial/account") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      const userId = url.searchParams.get("userId") ?? "";
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      if (!userId) return Response.json({ error: "userId is required." }, { status: 400 });
+      if (!isServiceCaller(login) && !canAccessAccount(ctx.env, login, userId)) {
+        return Response.json({ error: "Forbidden: only the account owner or a store operator may read an account." }, { status: 403 });
+      }
+      const record = ctx.getOrm().commercialAccounts.findOne({ id: userId });
+      return Response.json({ record });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to read commercial account" }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/account (operator only)
+  if (path.endsWith("/payments/agentic/commercial/account") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login || !isStoreOperator(ctx.env, login)) {
+        return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => ({}))) as {
+        userId?: unknown; tenantId?: unknown; tier?: unknown; creditsUSD?: unknown; includedRuns?: unknown;
+      };
+      const record = upsertCommercialAccount(ctx.getOrm(), {
+        userId: typeof body.userId === "string" ? body.userId : "",
+        tenantId: typeof body.tenantId === "string" ? body.tenantId : "",
+        tier: body.tier,
+        creditsUSD: body.creditsUSD,
+        includedRuns: body.includedRuns,
+      });
+      ctx.audit("commercial.account.upserted", "payments", { userId: record.id, tenantId: record.tenantId, tier: record.tier });
+      return Response.json({ record });
+    } catch (err: any) {
+      const message = err.message || "Failed to upsert commercial account";
+      return Response.json({ error: message }, { status: /requires|Invalid|must be/.test(message) ? 400 : 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/account/credits (operator only)
+  if (path.endsWith("/payments/agentic/commercial/account/credits") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login || !isStoreOperator(ctx.env, login)) {
+        return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => ({}))) as { userId?: unknown; deltaUSD?: unknown };
+      const userId = typeof body.userId === "string" ? body.userId : "";
+      const deltaUSD = Number(body.deltaUSD);
+      if (!userId || !Number.isFinite(deltaUSD)) {
+        return Response.json({ error: "userId and a finite deltaUSD are required." }, { status: 400 });
+      }
+      const record = adjustCommercialCredits(ctx.getOrm(), userId, deltaUSD);
+      ctx.audit("commercial.account.credits_adjusted", "payments", { userId, deltaUSD });
+      return Response.json({ record });
+    } catch (err: any) {
+      const message = err.message || "Failed to adjust credits";
+      return Response.json({ error: message }, { status: /No commercial account|below zero/.test(message) ? 400 : 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/account/consume (service identity only:
+  // the payment workflow adapter consuming coverage — never a direct user call)
+  if (path.endsWith("/payments/agentic/commercial/account/consume") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!isServiceCaller(login)) {
+        return Response.json({ error: "Forbidden: service identity required." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => ({}))) as { userId?: unknown; kind?: unknown; amountUSD?: unknown };
+      const userId = typeof body.userId === "string" ? body.userId : "";
+      const kind = body.kind;
+      if (!userId || (kind !== "included" && kind !== "credits")) {
+        return Response.json({ error: "userId and kind (included or credits) are required." }, { status: 400 });
+      }
+      const record =
+        kind === "included"
+          ? consumeIncludedRun(ctx.getOrm(), userId)
+          : consumeCredits(ctx.getOrm(), userId, Number(body.amountUSD));
+      return Response.json({ record });
+    } catch (err: any) {
+      const message = err.message || "Failed to consume coverage";
+      return Response.json({ error: message }, { status: /No commercial account|No included runs|Insufficient credits/.test(message) ? 400 : 500 });
+    }
+  }
+
+  // GET /payments/agentic/commercial/tenant-settings?tenantId= (service or operator)
+  if (path.endsWith("/payments/agentic/commercial/tenant-settings") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      const tenantId = url.searchParams.get("tenantId") ?? "";
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      if (!tenantId) return Response.json({ error: "tenantId is required." }, { status: 400 });
+      if (!isServiceCaller(login) && !isStoreOperator(ctx.env, login)) {
+        return Response.json({ error: "Forbidden: only the service or a store operator may read tenant settings." }, { status: 403 });
+      }
+      return Response.json({ tenantId, adsEnabled: getTenantAdsEnabled(ctx.getOrm(), tenantId) });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to read tenant settings" }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/tenant-settings (operator only)
+  if (path.endsWith("/payments/agentic/commercial/tenant-settings") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login || !isStoreOperator(ctx.env, login)) {
+        return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => ({}))) as { tenantId?: unknown; adsEnabled?: unknown };
+      const tenantId = typeof body.tenantId === "string" ? body.tenantId : "";
+      if (!tenantId || typeof body.adsEnabled !== "boolean") {
+        return Response.json({ error: "tenantId and a boolean adsEnabled are required." }, { status: 400 });
+      }
+      const record = setTenantAdsEnabled(ctx.getOrm(), tenantId, body.adsEnabled);
+      ctx.audit("commercial.tenant_settings.set", "payments", { tenantId, adsEnabled: body.adsEnabled });
+      return Response.json({ record });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to set tenant settings" }, { status: 500 });
+    }
+  }
+
+  // GET /payments/agentic/commercial/unredeemed-credit?userId=&family=
+  if (path.endsWith("/payments/agentic/commercial/unredeemed-credit") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      const userId = url.searchParams.get("userId") ?? "";
+      const family = url.searchParams.get("family") ?? "";
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      if (!userId || !family) return Response.json({ error: "userId and family are required." }, { status: 400 });
+      if (!isServiceCaller(login) && !canAccessAccount(ctx.env, login, userId)) {
+        return Response.json({ error: "Forbidden: only the account owner or a store operator may read credits." }, { status: 403 });
+      }
+      const credit = findUnredeemedCredit(ctx.getOrm(), userId, family);
+      return Response.json({ credit });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to find unredeemed credit" }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/redeem-credit (service identity only:
+  // the submission route redeeming server-side — never a direct user call)
+  if (path.endsWith("/payments/agentic/commercial/redeem-credit") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!isServiceCaller(login)) {
+        return Response.json({ error: "Forbidden: service identity required." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => ({}))) as { creditRunId?: unknown; redeemedByRunId?: unknown };
+      const creditRunId = typeof body.creditRunId === "string" ? body.creditRunId : "";
+      const redeemedByRunId = typeof body.redeemedByRunId === "string" ? body.redeemedByRunId : "";
+      if (!creditRunId || !redeemedByRunId) {
+        return Response.json({ error: "creditRunId and redeemedByRunId are required." }, { status: 400 });
+      }
+      const redemption = redeemCredit(ctx.getOrm(), creditRunId, redeemedByRunId);
+      ctx.audit("commercial.credit.redeemed", "payments", { creditRunId, redeemedByRunId });
+      return Response.json({ redemption });
+    } catch (err: any) {
+      const message = err.message || "Failed to redeem credit";
+      return Response.json({ error: message }, { status: /already redeemed/.test(message) ? 409 : 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/submit — the dedicated
+  // paid-submission route. One-off runs only: scheduleKind
+  // "recurring" is refused (recurring schedules are created via
+  // the schedule service, not here — no CTO collision). The route
+  // never starts a screener for free: a new run goes through the
+  // payment workflow (which enforces the gate), and a redeemed run
+  // starts only after its credit row is atomically claimed.
+  // Email is the caller's checkout contact, supplied by the caller
+  // — it is NOT an identity proof. Identity is the verified
+  // x-user-login; no verified email exists in the session.
+  if (path.endsWith("/payments/agentic/commercial/submit") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as {
+        family?: unknown; trigger?: unknown; scheduleKind?: unknown; authorizedAtSubmission?: unknown;
+        tenantId?: unknown; screenerCommand?: unknown; email?: unknown;
+      };
+      const family = body.family;
+      const tenantId = typeof body.tenantId === "string" ? body.tenantId : "";
+      const email = typeof body.email === "string" ? body.email.trim() : "";
+      const trigger = body.trigger === undefined ? "manual" : body.trigger;
+      const screenerCommand = body.screenerCommand as { jobId?: unknown } | undefined;
+      if (family !== "stock" && family !== "goal" && family !== "options" && family !== "strategy") {
+        return Response.json({ error: "family must be stock, goal, options, or strategy." }, { status: 400 });
+      }
+      if (!tenantId) return Response.json({ error: "tenantId is required." }, { status: 400 });
+      if (!email) return Response.json({ error: "email (checkout contact) is required." }, { status: 400 });
+      if (trigger !== "manual" && trigger !== "scheduled") {
+        return Response.json({ error: "trigger must be manual or scheduled." }, { status: 400 });
+      }
+      if (body.scheduleKind === "recurring") {
+        return Response.json({ error: "Recurring schedules are created via the schedule service, not this route." }, { status: 400 });
+      }
+      if (body.scheduleKind !== undefined && body.scheduleKind !== "one_off") {
+        return Response.json({ error: "scheduleKind must be one_off when given." }, { status: 400 });
+      }
+      if (!screenerCommand || typeof screenerCommand.jobId !== "string") {
+        return Response.json({ error: "screenerCommand with a jobId is required." }, { status: 400 });
+      }
+      const runRequestId = `run-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+
+      // Store account from the canonical instance. A store failure
+      // fails closed: without the account, coverage cannot be
+      // verified, so no run starts.
+      let stored;
+      try {
+        stored = await fetchStoreAccount(ctx.env, login);
+      } catch (err: any) {
+        return Response.json({ error: `Commercial store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      if (stored && stored.tenantId !== tenantId) {
+        return Response.json({ error: "Tenant mismatch: run tenant must equal the verified account tenant." }, { status: 403 });
+      }
+      const account = toCommercialAccount(login, stored, email, tenantId);
+
+      // Failure-credit redemption, if one exists for this family.
+      // A store failure here also fails closed: proceeding to
+      // charge a user who holds a credit would double-charge them.
+      let credit = null;
+      try {
+        credit = await fetchStoreUnredeemedCredit(ctx.env, login, family);
+      } catch (err: any) {
+        return Response.json({ error: `Commercial store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      if (credit) {
+        // Pre-check the screener port before claiming: claiming
+        // first and then failing to start would burn the credit.
+        // The claim itself (primary-key insert) is the atomic guard
+        // against two concurrent submissions spending one credit;
+        // a lost race falls through to the payment path below.
+        if (!createWorkflowPorts(ctx.env as unknown as WorkflowEnv)) {
+          return Response.json({ error: "Screener workflow port unavailable; credit not redeemed, retry later." }, { status: 503 });
+        }
+        let redeemed = false;
+        try {
+          await redeemStoreCredit(ctx.env, credit.creditRunId, runRequestId);
+          redeemed = true;
+        } catch (err: any) {
+          if (!/already redeemed/.test(err.message || "")) {
+            return Response.json({ error: `Credit redemption failed: ${err.message || "unknown error"}` }, { status: 503 });
+          }
+        }
+        if (redeemed) {
+          const handle = await tryStartScreenerWorkflow(ctx.env, screenerCommand as WorkflowJobCommand);
+          if (!handle) {
+            // Residual gap, stated plainly: the credit is claimed
+            // but no run started. The audit row below is the
+            // operator's re-issue signal; there is no operator
+            // credit-issue route yet.
+            ctx.audit("commercial.redeem.start_failed", "payments", { runRequestId, creditRunId: credit.creditRunId, userId: login });
+            return Response.json({ error: "Credit redeemed but the screener could not start; an operator must re-issue.", runRequestId, creditRedeemed: true }, { status: 503 });
+          }
+          ctx.audit("commercial.credit.redeemed", "payments", { runRequestId, creditRunId: credit.creditRunId, family, userId: login });
+          return Response.json({ runRequestId, status: "redeemed_started", creditRunId: credit.creditRunId, workflowId: handle.workflowId });
+        }
+      }
+
+      const params = buildPaymentWorkflowParams({
+        runRequestId,
+        family,
+        trigger,
+        scheduleKind: body.scheduleKind as "one_off" | undefined,
+        authorizedAtSubmission: body.authorizedAtSubmission === true,
+        tenantId,
+        userId: login,
+        email,
+        account,
+        screenerCommand: screenerCommand as WorkflowJobCommand,
+      });
+      try {
+        const binding = ctx.env.PAYMENT_WORKFLOW as unknown as PaymentWorkflowBinding | undefined;
+        const started = await startPaymentWorkflowViaBinding(binding, params);
+        return Response.json({ runRequestId, workflowId: started.workflowId, status: "payment_started" });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Payment workflow could not start; no screener started." }, { status: 503 });
+      }
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to submit paid run" }, { status: 500 });
+    }
+  }
+
+  // GET /payments/agentic/commercial/submission-status?workflowId=
+  if (path.endsWith("/payments/agentic/commercial/submission-status") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const workflowId = url.searchParams.get("workflowId") ?? "";
+      if (!workflowId) return Response.json({ error: "workflowId is required." }, { status: 400 });
+      const binding = ctx.env.PAYMENT_WORKFLOW as unknown as { get(id: string): Promise<unknown> } | undefined;
+      if (!binding || typeof binding.get !== "function") {
+        return Response.json({ error: "Payment workflow binding is not configured." }, { status: 503 });
+      }
+      let status = "unknown";
+      try {
+        const instance = await binding.get(workflowId);
+        const statusFn = (instance as { status?: unknown }).status;
+        if (typeof statusFn === "function") {
+          const result = (await (statusFn as () => Promise<unknown>).call(instance)) as { status?: unknown } | string | null;
+          status =
+            typeof result === "string"
+              ? result
+              : result && typeof result === "object" && typeof result.status === "string"
+                ? result.status
+                : "unknown";
+        }
+      } catch {
+        status = "unknown";
+      }
+      return Response.json({ workflowId, status });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to read submission status" }, { status: 500 });
     }
   }
 

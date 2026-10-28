@@ -129,6 +129,13 @@
  * agentic-payments handlers) — bringing the pinned array to 240
  * entries and the delegation sequence to 27 calls.
  *
+ * Issues #2015/#2020/#2022 added ten — the commercial account,
+ * credits, consume, tenant-settings, unredeemed-credit,
+ * redeem-credit, submit, and submission-status endpoints (in
+ * handleAgenticPaymentsRoutes, after the #896 record endpoint) —
+ * bringing the pinned array to 250 entries; the delegation
+ * sequence is unchanged (same handler, same position).
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -265,6 +272,16 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/wallet\")",
   "handleAgenticPaymentsRoutes :: includes(\"/payments/agentic/wallet\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/record\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account/credits\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account/consume\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/tenant-settings\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/tenant-settings\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/unredeemed-credit\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/redeem-credit\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submit\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submission-status\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/budget-state\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/payments\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/auto-approve-limit\")",
