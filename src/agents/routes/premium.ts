@@ -319,6 +319,7 @@ export async function handlePremiumRoutes(
               : `Options scan completed for ${symbols || "the default universe"} (thesis: ${filter?.contractType || "BOTH"}).`,
             body: { filter, result, failed },
             createdAt: timestamp,
+            userLogin,
           },
           // Issue #1169 S4-1: thread ctx.env so the seam indexes this
           // options_scanner row at write time.
@@ -388,6 +389,9 @@ export async function handlePremiumRoutes(
       tier.priceUSD,
       tier.description,
       async (receipt) => {
+        // Multi-tenant owner for the canonical research row (#183 identity
+        // rule, same as the paid options scan above).
+        const userLogin = request.headers.get("x-user-login") || payerScopeId(receipt.payer);
         let symbol = "NVDA";
         if (request.method === "POST") {
           const body = (await request.json().catch(() => ({}))) as any;
@@ -413,6 +417,7 @@ export async function handlePremiumRoutes(
             summary: `Equity research report for ${symbol}.`,
             body: report ?? {},
             createdAt: timestamp,
+            userLogin,
           },
           // Issue #1169 S4-1: thread ctx.env so the seam indexes this
           // research_report row at write time.
