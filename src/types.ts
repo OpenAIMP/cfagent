@@ -494,6 +494,8 @@ export interface Env {
   TRADE_WORKFLOW?: Workflow;
   /** Screener screen workflow binding (#1737). */
   SCREENER_WORKFLOW?: Workflow;
+  /** Payment workflow binding (#2014). */
+  PAYMENT_WORKFLOW?: Workflow;
 }
 
 export interface TransactionRecord {
