@@ -75,6 +75,18 @@ export class EnvFeatureFlagAdapter implements FeatureFlagPort {
       return false;
     }
 
+    // Issue #1997: goal_workflow is ALWAYS default-closed (OFF),
+    // like screener. It gates a new execution path (staged goal
+    // runs on the workflow); the bare-env default-TRUE below
+    // ("baseline routes do not fail closed prematurely") would
+    // otherwise silently enable it in any environment with zero
+    // feature configuration — violating its default-OFF rollout.
+    // Explicit enablement only: FEATURE_FLAGS bulk JSON or
+    // FEATURE_GOAL_WORKFLOW above.
+    if (flag === "goal_workflow") {
+      return false;
+    }
+
     // 5. For other registered features:
     // When feature configuration is present in the environment (bulk flags set,
     // or direct FEATURE_<FLAG> configured), non-enabled features default to OFF (closed).

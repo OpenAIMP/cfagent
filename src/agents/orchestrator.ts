@@ -1519,7 +1519,7 @@ export class OrchestratorAgent extends PortThink {
   async recordWorkflowGoalScreenReport(
     envelope: WorkflowGoalScreenEnvelope,
     userLogin: string,
-  ): Promise<void> {
+  ): Promise<string> {
     return persistWorkflowGoalScreenReport(
       { env: this.env, getOrm: () => this.getOrm() },
       envelope,
