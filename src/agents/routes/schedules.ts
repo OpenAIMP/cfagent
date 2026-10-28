@@ -39,6 +39,8 @@
 import type { AgentContext, Schedule, ScheduleCriteria } from "agents";
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { getStoredTokens, isTokenExpiredEt } from "../../security/etradeOAuth";
+import { isLoginShaped } from "../../security/serviceIdentity";
+import { findDuplicateSchedule } from "../../services/scheduleDedupe";
 import { runStorageRetention } from "../../security/storageRetention";
 import {
   buildSchedulePayload,
@@ -476,7 +478,7 @@ export async function handleSchedulesRoutes(
         // payload.userLogin to select another account's E*TRADE credentials.
         const context = await ctx.getScreenerExecutionContext();
         const headerUserLogin = request.headers.get("x-user-login") || "";
-        const trustedUserLogin = context?.userLogin || (/^[A-Za-z0-9._-]{1,80}$/.test(headerUserLogin) ? headerUserLogin : "");
+        const trustedUserLogin = context?.userLogin || (isLoginShaped(headerUserLogin) ? headerUserLogin : "");
         const headerEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
         const trustedEnvironment = context?.environment ||
           (headerEnvironment === "TEST" || headerEnvironment === "PROD"
@@ -534,6 +536,31 @@ export async function handleSchedulesRoutes(
         // the Agent base class, so the old missing-method guard is
         // gone; if a typed call throws, the catch below returns the
         // same honest 503 {success:false} shape.
+        // Issue #2071: creation is idempotent. A duplicate submit (double
+        // click, retried request) returns the schedule that already exists
+        // instead of arming a second identical one — interval schedules are
+        // not idempotent at the SDK layer, which is how the page ended up
+        // showing the same schedule twice.
+        let duplicate: Schedule<unknown> | undefined;
+        try {
+          duplicate = findDuplicateSchedule(
+            (await ctx.listSchedules()) as unknown as Record<string, any>[],
+            callback,
+            screeningPayload,
+            { type: scheduleType, cron, intervalSeconds, delayInSeconds, date },
+          ) as unknown as Schedule<unknown> | undefined;
+        } catch {
+          duplicate = undefined;
+        }
+        if (duplicate) {
+          ctx.audit("schedule.duplicate_suppressed", "orchestrator", {
+            scheduleId: (duplicate as any).id,
+            callback,
+            scheduleType,
+          });
+          return Response.json({ success: true, schedule: duplicate, duplicate: true });
+        }
+
         let schedule: Schedule<unknown> | undefined;
         if (scheduleType === "interval" && intervalSeconds) {
           schedule = await ctx.scheduleEvery(Number(intervalSeconds), callback, screeningPayload);

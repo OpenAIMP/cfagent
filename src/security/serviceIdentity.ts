@@ -18,8 +18,20 @@
 import { resolveEnvironmentConfig } from "../config/environment";
 import type { Env } from "../types";
 
-/** Login shape the Orchestrator accepts on the `x-user-login` header. */
-const LOGIN_SHAPE = /^[A-Za-z0-9._-]{1,80}$/;
+/**
+ * Login shape the Orchestrator accepts on the `x-user-login` header.
+ *
+ * Issue #2071: the header carries the session identity verbatim. Google
+ * sign-in yields an email, and IAAA identities are `issuer:subject`
+ * shaped (`https://github.com:82253453`, `github:OpenAIMP`). The old
+ * `[A-Za-z0-9._-]` rule rejected every one of those, so a signed-in user
+ * fell through to "An authenticated E*TRADE account is required" on the
+ * schedules routes. The rule is about SHAPE safety, not authentication:
+ * no whitespace/control/quote characters, a leading alphanumeric, and a
+ * bounded length. The Worker strips client-supplied `x-user-login` and
+ * sets it from the verified session.
+ */
+const LOGIN_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._@:+/-]{0,119}$/;
 
 /** True when `value` is a string shaped like a login this system forwards. */
 export function isLoginShaped(value: unknown): value is string {
