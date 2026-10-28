@@ -11,6 +11,7 @@ import { SettingsMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { MarketDataResearchHub } from "./MarketDataResearchHub";
 import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
+import { WorkflowRunsPanel } from "./WorkflowRunsPanel";
 import { AgenticWalletPanel } from "./AgenticWalletPanel";
 import { AdBannerConfig, getStoredAdBannerConfig, saveStoredAdBannerConfig } from "./adBannerConfig";
 import { PartnerDealsModal } from "./components/PartnerDealsModal";
@@ -1880,6 +1881,9 @@ export function Chat({ user }: { user: User }) {
     ),
     social: (
           <SocialPostingPanel />
+    ),
+    "workflow-runs": (
+          <WorkflowRunsPanel />
     ),
     workflows: (
           <div className="workflows-view" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
