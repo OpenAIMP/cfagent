@@ -64,17 +64,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
               {/* Discovery input model (issues #126/#533/#534) */}
               {jobType === "strategyDiscovery" && (
                 <div className="sched-form-group">
-                  <label className="sched-form-label">
-                    Input Model
-                    <span className="hint">
-                      Saved views re-run complete strategy requests verbatim. Symbol set + profile
-                      stores no targets — each symbol&apos;s target is derived from its live chain
-                      at run time under a saved Strategy Profile and labelled DERIVED on the run.
-                      No-view stores constraints only — no thesis and no target exist in that mode,
-                      and structures are ranked by the target-free no-view-v1 score model.
-                    </span>
-                  </label>
-                  <Select
+                  <Select label="Input Model" hint={` Saved views re-run complete strategy requests verbatim. Symbol set + profile stores no targets — each symbol's target is derived from its live chain at run time under a saved Strategy Profile and labelled DERIVED on the run. No-view stores constraints only — no thesis and no target exist in that mode, and structures are ranked by the target-free no-view-v1 score model. `}
                     value={discoveryInputModel}
                     onChange={(e) => setDiscoveryInputModel(e.target.value as DiscoveryInputModel)}
                     aria-label="Discovery input model"
@@ -89,14 +79,14 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
               {/* Saved discovery views (issue #126) */}
               {jobType === "strategyDiscovery" && discoveryInputModel === "saved-request" && (
                 <div className="sched-form-group">
-                  <label className="sched-form-label">
+                  <div className="sched-form-label">
                     Saved Discovery Views
                     <span className="hint">
                       Each view is a complete strategy request, re-run verbatim when this schedule
                       fires — the same view the discovery panel runs interactively. Strategy ids are
                       validated by the server against the registry when you save.
                     </span>
-                  </label>
+                  </div>
                   {discoveryRequests.map((draft, idx) => (
                     <div className="discovery-request-card" key={idx}>
                       <div className="discovery-request-card-head">
@@ -118,8 +108,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                       </div>
                       <div className="discovery-request-grid">
                         <div className="sched-form-group">
-                          <label htmlFor={`sched-discovery-${idx}-symbol`} className="sched-form-label">Symbol</label>
-                          <TextInput id={`sched-discovery-${idx}-symbol`}
+                          <TextInput label="Symbol" id={`sched-discovery-${idx}-symbol`}
                             type="text"
                             value={draft.symbol}
                             onChange={(e) => updateDiscoveryRequest(idx, { symbol: e.target.value })}
@@ -129,8 +118,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                           />
                         </div>
                         <div className="sched-form-group">
-                          <label htmlFor={`sched-discovery-${idx}-thesis`} className="sched-form-label">Thesis</label>
-                          <Select id={`sched-discovery-${idx}-thesis`}
+                          <Select label="Thesis" id={`sched-discovery-${idx}-thesis`}
                             value={draft.thesis}
                             onChange={(e) =>
                               updateDiscoveryRequest(idx, { thesis: e.target.value as DiscoveryRequestDraft["thesis"] })
@@ -144,8 +132,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                           </Select>
                         </div>
                         <div className="sched-form-group">
-                          <label htmlFor={`sched-discovery-${idx}-target-price`} className="sched-form-label">Target Price ($)</label>
-                          <TextInput id={`sched-discovery-${idx}-target-price`}
+                          <TextInput label="Target Price ($)" id={`sched-discovery-${idx}-target-price`}
                             type="number"
                             min={0}
                             step="0.01"
@@ -157,8 +144,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                           />
                         </div>
                         <div className="sched-form-group">
-                          <label htmlFor={`sched-discovery-${idx}-target-date`} className="sched-form-label">Target Date</label>
-                          <TextInput id={`sched-discovery-${idx}-target-date`}
+                          <TextInput label="Target Date" id={`sched-discovery-${idx}-target-date`}
                             type="date"
                             value={draft.targetDate}
                             onChange={(e) => updateDiscoveryRequest(idx, { targetDate: e.target.value })}
@@ -167,8 +153,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                           />
                         </div>
                         <div className="sched-form-group">
-                          <label htmlFor={`sched-discovery-${idx}-expected-iv-direction`} className="sched-form-label">Expected IV Direction</label>
-                          <Select id={`sched-discovery-${idx}-expected-iv-direction`}
+                          <Select label="Expected IV Direction" id={`sched-discovery-${idx}-expected-iv-direction`}
                             value={draft.expectedIvDirection}
                             onChange={(e) =>
                               updateDiscoveryRequest(idx, {
@@ -183,8 +168,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                           </Select>
                         </div>
                         <div className="sched-form-group">
-                          <label htmlFor={`sched-discovery-${idx}-data-mode`} className="sched-form-label">Data Mode</label>
-                          <Select id={`sched-discovery-${idx}-data-mode`}
+                          <Select label="Data Mode" id={`sched-discovery-${idx}-data-mode`}
                             value={draft.dataMode}
                             onChange={(e) =>
                               updateDiscoveryRequest(idx, { dataMode: e.target.value as DiscoveryRequestDraft["dataMode"] })
@@ -196,8 +180,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                           </Select>
                         </div>
                         <div className="sched-form-group">
-                          <label htmlFor={`sched-discovery-${idx}-max-planned-loss`} className="sched-form-label">Max Planned Loss ($)</label>
-                          <TextInput id={`sched-discovery-${idx}-max-planned-loss`}
+                          <TextInput label="Max Planned Loss ($)" id={`sched-discovery-${idx}-max-planned-loss`}
                             type="number"
                             min={0}
                             step="1"
@@ -209,8 +192,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                           />
                         </div>
                         <div className="sched-form-group">
-                          <label htmlFor={`sched-discovery-${idx}-min-reward-risk`} className="sched-form-label">Min Reward / Risk</label>
-                          <TextInput id={`sched-discovery-${idx}-min-reward-risk`}
+                          <TextInput label="Min Reward / Risk" id={`sched-discovery-${idx}-min-reward-risk`}
                             type="number"
                             min={0}
                             step="0.1"
@@ -222,8 +204,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                           />
                         </div>
                         <div className="sched-form-group">
-                          <label htmlFor={`sched-discovery-${idx}-optimization-bias`} className="sched-form-label">Optimization Bias (0–100, optional)</label>
-                          <TextInput id={`sched-discovery-${idx}-optimization-bias`}
+                          <TextInput label="Optimization Bias (0–100, optional)" id={`sched-discovery-${idx}-optimization-bias`}
                             type="number"
                             min={0}
                             max={100}
@@ -235,8 +216,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                           />
                         </div>
                         <div className="sched-form-group">
-                          <label htmlFor={`sched-discovery-${idx}-max-dte`} className="sched-form-label">Max DTE (optional)</label>
-                          <TextInput id={`sched-discovery-${idx}-max-dte`}
+                          <TextInput label="Max DTE (optional)" id={`sched-discovery-${idx}-max-dte`}
                             type="number"
                             min={1}
                             step={1}
@@ -248,11 +228,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                         </div>
                       </div>
                       <div className="sched-form-group" style={{ marginTop: "0.7rem" }}>
-                        <label htmlFor={`sched-discovery-${idx}-allowed-strategies`} className="sched-form-label">
-                          Allowed Strategies
-                          <span className="hint">Comma-separated registry ids, or "all" for the full registry (the panel default)</span>
-                        </label>
-                        <TextInput id={`sched-discovery-${idx}-allowed-strategies`}
+                        <TextInput label="Allowed Strategies" hint={`Comma-separated registry ids, or "all" for the full registry (the panel default)`} id={`sched-discovery-${idx}-allowed-strategies`}
                           type="text"
                           value={draft.allowedStrategies}
                           onChange={(e) => updateDiscoveryRequest(idx, { allowedStrategies: e.target.value })}
@@ -279,7 +255,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
               {/* Profile-derived discovery (issue #533) */}
               {jobType === "strategyDiscovery" && discoveryInputModel === "profile-derived" && (
                 <div className="sched-form-group">
-                  <label className="sched-form-label">
+                  <div className="sched-form-label">
                     Symbol Set + Strategy Profile
                     <span className="hint">
                       No target is stored on this schedule. When it fires, each symbol&apos;s
@@ -287,10 +263,9 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                       profile&apos;s thesis — and recorded as DERIVED on the run. A symbol whose
                       target cannot be derived honestly abstains, with the reason recorded.
                     </span>
-                  </label>
+                  </div>
                   <div className="sched-form-group">
-                    <label className="sched-form-label">Symbol Source</label>
-                    <Select
+                    <Select label="Symbol Source"
                       value={derivedSource}
                       onChange={(e) => setDerivedSource(e.target.value as "symbols" | "watchlist")}
                       aria-label="Derived symbol source"
@@ -301,11 +276,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                   </div>
                   {derivedSource === "symbols" ? (
                     <div className="sched-form-group">
-                      <label className="sched-form-label">
-                        Symbols
-                        <span className="hint">Comma- or newline-separated tickers, up to {DISCOVERY_REQUEST_LIMIT}</span>
-                      </label>
-                      <TextInput
+                      <TextInput label="Symbols" hint={`Comma- or newline-separated tickers, up to ${DISCOVERY_REQUEST_LIMIT}`}
                         multiline
                         rows={3}
                         value={derivedSymbolsText}
@@ -316,11 +287,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                     </div>
                   ) : (
                     <div className="sched-form-group">
-                      <label className="sched-form-label">
-                        Watchlist Name
-                        <span className="hint">Resolved against your stored watchlists when the schedule fires</span>
-                      </label>
-                      <TextInput
+                      <TextInput label="Watchlist Name" hint={`Resolved against your stored watchlists when the schedule fires`}
                         type="text"
                         value={derivedWatchlistName}
                         onChange={(e) => setDerivedWatchlistName(e.target.value)}
@@ -330,8 +297,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                     </div>
                   )}
                   <div className="sched-form-group">
-                    <label className="sched-form-label">Strategy Profile</label>
-                    <Select
+                    <Select label="Strategy Profile"
                       value={derivedProfileId}
                       onChange={(e) => setDerivedProfileId(e.target.value)}
                       aria-label="Derived strategy profile"
@@ -370,7 +336,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
               {/* No-view discovery (issue #534) */}
               {jobType === "strategyDiscovery" && discoveryInputModel === "no-view" && (
                 <div className="sched-form-group">
-                  <label className="sched-form-label">
+                  <div className="sched-form-label">
                     No-View Constraint Sets
                     <span className="hint">
                       This mode sets NO thesis and NO target — targets are never set in this mode,
@@ -381,13 +347,9 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                       symbol where nothing qualifies abstains with its gate reasons recorded. The
                       IV assumption is fixed to &quot;unchanged&quot; and stamped on every run.
                     </span>
-                  </label>
+                  </div>
                   <div className="sched-form-group">
-                    <label htmlFor="sched-discovery-noview-symbols" className="sched-form-label">
-                      Symbols
-                      <span className="hint">Comma- or newline-separated tickers, up to {DISCOVERY_REQUEST_LIMIT} — one constraint set per symbol</span>
-                    </label>
-                    <TextInput id="sched-discovery-noview-symbols"
+                    <TextInput label="Symbols" hint={`Comma- or newline-separated tickers, up to ${DISCOVERY_REQUEST_LIMIT} — one constraint set per symbol`} id="sched-discovery-noview-symbols"
                       multiline
                       rows={3}
                       value={noViewDraft.symbolsText}
@@ -398,8 +360,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                   </div>
                   <div className="discovery-request-grid">
                     <div className="sched-form-group">
-                      <label htmlFor="sched-discovery-noview-max-planned-loss" className="sched-form-label">Max Planned Loss ($)</label>
-                      <TextInput id="sched-discovery-noview-max-planned-loss"
+                      <TextInput label="Max Planned Loss ($)" id="sched-discovery-noview-max-planned-loss"
                         type="number"
                         min={0}
                         step="1"
@@ -411,8 +372,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                       />
                     </div>
                     <div className="sched-form-group">
-                      <label htmlFor="sched-discovery-noview-min-reward-risk" className="sched-form-label">Min Structure Reward / Risk</label>
-                      <TextInput id="sched-discovery-noview-min-reward-risk"
+                      <TextInput label="Min Structure Reward / Risk" id="sched-discovery-noview-min-reward-risk"
                         type="number"
                         min={0}
                         step="0.1"
@@ -424,8 +384,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                       />
                     </div>
                     <div className="sched-form-group">
-                      <label htmlFor="sched-discovery-noview-min-pop" className="sched-form-label">Min Probability of Profit (0–1)</label>
-                      <TextInput id="sched-discovery-noview-min-pop"
+                      <TextInput label="Min Probability of Profit (0–1)" id="sched-discovery-noview-min-pop"
                         type="number"
                         min={0}
                         max={1}
@@ -437,8 +396,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                       />
                     </div>
                     <div className="sched-form-group">
-                      <label htmlFor="sched-discovery-noview-risk-profile" className="sched-form-label">Risk Profile</label>
-                      <Select id="sched-discovery-noview-risk-profile"
+                      <Select label="Risk Profile" id="sched-discovery-noview-risk-profile"
                         value={noViewDraft.riskProfile}
                         onChange={(e) =>
                           updateNoViewDraft({ riskProfile: e.target.value as NoViewConstraintsDraft["riskProfile"] })
@@ -451,8 +409,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                       </Select>
                     </div>
                     <div className="sched-form-group">
-                      <label htmlFor="sched-discovery-noview-min-dte" className="sched-form-label">Min DTE (optional)</label>
-                      <TextInput id="sched-discovery-noview-min-dte"
+                      <TextInput label="Min DTE (optional)" id="sched-discovery-noview-min-dte"
                         type="number"
                         min={1}
                         step={1}
@@ -463,8 +420,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                       />
                     </div>
                     <div className="sched-form-group">
-                      <label htmlFor="sched-discovery-noview-max-dte" className="sched-form-label">Max DTE (optional)</label>
-                      <TextInput id="sched-discovery-noview-max-dte"
+                      <TextInput label="Max DTE (optional)" id="sched-discovery-noview-max-dte"
                         type="number"
                         min={1}
                         step={1}
