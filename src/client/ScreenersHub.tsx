@@ -252,7 +252,8 @@ export function ScreenersHub({
     message?: string;
   } | null>(null);
   const [scannedAt, setScannedAt] = useState<string>("");
-  // Issue #212: latest autonomous screener runs (from the 5-min schedule).
+  // Issue #212: latest screener runs (retained history; each run carries
+  // its own trigger — manual runs are not scheduled runs).
   const [autoRuns, setAutoRuns] = useState<ScreenRun[]>([]);
   const [autoLoading, setAutoLoading] = useState(true);
   // Issue #125: which retained run the results view shows (null = latest).
@@ -680,12 +681,12 @@ export function ScreenersHub({
               onViewQueue={() => handleTabChange("reports")}
             />
           </div>
-          {/* Issue #212: autonomous screener panel — latest scheduled runs. */}
+          {/* Issue #212: autonomous screener panel — retained run history. */}
           <div className="screener-feed-callout" style={{ marginBottom: "1rem" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>🤖 Autonomous Screen</span>
               <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
-                Runs every 5 min via the scheduled job — latest results below (refreshes automatically).
+                Retained run history from the screener agent — newest first, up to 20 runs. Each run is labeled with its real trigger. Panel refreshes every 60 seconds.
               </span>
             </div>
             {autoLoading ? (
@@ -695,7 +696,7 @@ export function ScreenersHub({
               </div>
             ) : autoRuns.length === 0 ? (
               <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
-                No autonomous runs recorded yet. The next 5-minute tick will populate this panel.
+                No screener runs recorded yet. Runs appear here when a manual or scheduled screen completes.
               </div>
             ) : (
               <>
@@ -747,10 +748,10 @@ export function ScreenersHub({
                           {universe.toUpperCase()}
                         </div>
                         <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.25rem" }}>
-                          Every 5 min · {runs.length} run{runs.length !== 1 ? "s" : ""} retained
+                          {runs.length} run{runs.length !== 1 ? "s" : ""} retained (up to 20)
                         </div>
                         <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
-                          Last: {new Date(latest.timestamp).toLocaleTimeString()} · {latest.totalScanned || 0} scanned · {latest.matchedCount || 0} matched
+                          Last: {new Date(latest.timestamp).toLocaleTimeString()} · {latest.trigger === "manual" ? "Manual" : "Scheduled"} · {latest.totalScanned || 0} scanned · {latest.matchedCount || 0} matched
                         </div>
                         <div style={{
                           display: "inline-block",
@@ -771,6 +772,12 @@ export function ScreenersHub({
                     );
                   })}
                 </div>
+                {/* Issue #2075: what the counts mean — scanned is symbols
+                    evaluated, matched is passed the screen's filters,
+                    standout is flagged opportunities. */}
+                <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.75rem" }}>
+                  Scanned = symbols evaluated · Matched = passed the screen's filters · Standout = flagged opportunities
+                </div>
                 {/* Issue #125: per-run history — every retained run is
                     selectable (newest first), across universes. Selecting a
                     run swaps the results view + PDF + exports below to that
@@ -778,7 +785,7 @@ export function ScreenersHub({
                     to each universe's latest run; this list is the full
                     history. */}
                 <div
-                  aria-label="Autonomous run history"
+                  aria-label="Screener run history"
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -816,6 +823,8 @@ export function ScreenersHub({
                         {" · "}
                         {(run.universe || "nasdaq100").toUpperCase()}
                         {run.sector && run.sector !== "ALL" ? ` · ${run.sector} sector` : ""}
+                        {" · "}
+                        {run.trigger === "manual" ? "Manual" : "Scheduled"}
                         {" · "}
                         {run.totalScanned ?? 0} scanned · {run.matchedCount ?? 0} matched · {oppCount} standout
                         {" "}
