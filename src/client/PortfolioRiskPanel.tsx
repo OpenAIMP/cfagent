@@ -271,7 +271,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
           </div>
 
           {coverage && (
-            <div className="prp-note">
+            <div className="ui-footnote">
               Beta coverage: {coverage.covered}/{coverage.total} positions — {coverage.computedLive} computed live, {coverage.unavailable} unavailable (excluded from beta-weighted totals, never assumed)
             </div>
           )}
@@ -293,23 +293,23 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
           )}
 
           {report.excluded.length > 0 && (
-            <div className="prp-note prp-warn">Excluded from totals: {report.excluded.map((e) => `${e.symbol} (${e.reason})`).join("; ")}</div>
+            <div className="ui-footnote ui-warning">Excluded from totals: {report.excluded.map((e) => `${e.symbol} (${e.reason})`).join("; ")}</div>
           )}
           {report.partial.length > 0 && (
-            <div className="prp-note prp-warn">Partial coverage: {report.partial.map((e) => `${e.symbol} (${e.reason})`).join("; ")}</div>
+            <div className="ui-footnote ui-warning">Partial coverage: {report.partial.map((e) => `${e.symbol} (${e.reason})`).join("; ")}</div>
           )}
           {report.undefinedRiskPositions.length > 0 && (
-            <div className="prp-note prp-warn">Undefined-risk positions (excluded from defined max loss): {report.undefinedRiskPositions.join(", ")}</div>
+            <div className="ui-footnote ui-warning">Undefined-risk positions (excluded from defined max loss): {report.undefinedRiskPositions.join(", ")}</div>
           )}
         </>
       )}
 
       {/* Hedge drafts (#54) */}
       <div className="prp-subhead">Hedge Proposals <span className="prp-badge prp-badge-draft">DRAFT — HITL review only</span></div>
-      {hedge?.status === "within-tolerance" && <div className="prp-note">{hedge.reason}</div>}
-      {hedge?.status === "unavailable" && <div className="prp-note prp-warn">{hedge.reason}</div>}
+      {hedge?.status === "within-tolerance" && <div className="ui-footnote">{hedge.reason}</div>}
+      {hedge?.status === "unavailable" && <div className="ui-footnote ui-warning">{hedge.reason}</div>}
       {hedge && hedge.symbolsMissingBeta.length > 0 && (
-        <div className="prp-note prp-warn">Sized on covered exposure only — no beta for: {hedge.symbolsMissingBeta.join(", ")}</div>
+        <div className="ui-footnote ui-warning">Sized on covered exposure only — no beta for: {hedge.symbolsMissingBeta.join(", ")}</div>
       )}
       {hedge?.proposals.map((proposal, i) => (
         <div className="prp-hedge-card" key={`${proposal.instrument}-${i}`}>
@@ -338,10 +338,10 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
 
       {/* Repair drafts (#355) */}
       <div className="prp-subhead">Repair Proposals <span className="prp-badge prp-badge-draft">DRAFT — HITL review only</span></div>
-      {repair?.status === "not-underwater" && <div className="prp-note">{repair.reason}</div>}
-      {repair?.status === "unavailable" && <div className="prp-note prp-warn">{repair.reason}</div>}
+      {repair?.status === "not-underwater" && <div className="ui-footnote">{repair.reason}</div>}
+      {repair?.status === "unavailable" && <div className="ui-footnote ui-warning">{repair.reason}</div>}
       {repair && repair.symbolsUnavailable.length > 0 && (
-        <div className="prp-note prp-warn">No repair proposed for: {repair.symbolsUnavailable.map((s) => `${s} (${repair.unavailableReasons[s]})`).join("; ")}</div>
+        <div className="ui-footnote ui-warning">No repair proposed for: {repair.symbolsUnavailable.map((s) => `${s} (${repair.unavailableReasons[s]})`).join("; ")}</div>
       )}
       {repair?.proposals.map((proposal, i) => (
         <div className="prp-hedge-card" key={`${proposal.symbol}-${i}`}>
@@ -392,7 +392,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
           )}
           {concentration.candidateAssessment && (
             <div>
-              <div className="prp-note">
+              <div className="ui-footnote">
                 Candidate {concentration.candidateAssessment.symbol}: {concentration.candidateAssessment.flags.length === 0 ? "no concentration flags" : `${concentration.candidateAssessment.flags.length} flag(s)`}
                 {concentration.candidateAssessment.status === "partial-unknown" ? " · some correlations unknown (shown as unknown, never treated as zero)" : ""}
               </div>
@@ -440,7 +440,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       {sizeError && <div className="prp-error">{sizeError}</div>}
       {sizing && (
         <div className="prp-sizing-result">
-          <div className="prp-note"><strong>{sizing.recommendedContracts} contract(s)</strong> — bound by <strong>{sizing.bindingConstraint}</strong> · NAV band {fmtNumber(sizing.navBandPctApplied, 1)}% · delta basis: {sizing.deltaBudgetBasis}{sizing.correlationSurchargeApplied ? " · correlation surcharge applied" : ""}</div>
+          <div className="ui-footnote"><strong>{sizing.recommendedContracts} contract(s)</strong> — bound by <strong>{sizing.bindingConstraint}</strong> · NAV band {fmtNumber(sizing.navBandPctApplied, 1)}% · delta basis: {sizing.deltaBudgetBasis}{sizing.correlationSurchargeApplied ? " · correlation surcharge applied" : ""}</div>
           <p className="prp-rationale">{sizing.rationale}</p>
           <Table
             columns={[
@@ -451,7 +451,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
             rows={sizing.constraints.map((c) => ({ ...c, __rowKey: c.name }))}
             rowKey={(row) => row.__rowKey}
           />
-          <div className="prp-note">Post-trade: Δ {fmtSignedUsd(sizing.postTradeTotals.deltaDollars)} · β-weighted Δ {fmtSignedUsd(sizing.postTradeTotals.betaWeightedDeltaDollars)} · defined max loss {fmtUsd(sizing.postTradeTotals.definedMaxLoss)}</div>
+          <div className="ui-footnote">Post-trade: Δ {fmtSignedUsd(sizing.postTradeTotals.deltaDollars)} · β-weighted Δ {fmtSignedUsd(sizing.postTradeTotals.betaWeightedDeltaDollars)} · defined max loss {fmtUsd(sizing.postTradeTotals.definedMaxLoss)}</div>
           {lastSizingCandidate && (
             <Button className="prp-size-btn" onClick={() => setEvalForm(sizingToEvalForm(lastSizingCandidate, sizing))}>
             variant="secondary"
@@ -464,7 +464,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
 
       {/* Recommendation Bundle — Best Trade v2 (#1135, Phase 4 of #1096) */}
       <div className="prp-subhead">Recommendation Bundle (Best Trade v2)</div>
-      <div className="prp-note">Paste a strategy candidate (strategy-engine JSON) to build its full bundle against the live book: trade + falsification + post-trade risk + optimizer verdict + hedge/repair plans + alternatives including no-trade. Draft only — human approval is required for any order.</div>
+      <div className="ui-footnote">Paste a strategy candidate (strategy-engine JSON) to build its full bundle against the live book: trade + falsification + post-trade risk + optimizer verdict + hedge/repair plans + alternatives including no-trade. Draft only — human approval is required for any order.</div>
       <div className="prp-form-grid">
         <label>Symbol beta (blank = unknown)<TextInput value={bundleBeta} onChange={(e) => setBundleBeta(e.target.value)} placeholder="e.g. 1.1" inputMode="decimal" /></label>
       </div>
@@ -476,8 +476,8 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
         rows={5}
         style={{ width: "100%" }}
       />
-      {bundleStagedNote && <div className="prp-note">{bundleStagedNote}</div>}
-      {bundleTextState.status === "empty" && <div className="prp-note">{bundleTextState.message}</div>}
+      {bundleStagedNote && <div className="ui-footnote">{bundleStagedNote}</div>}
+      {bundleTextState.status === "empty" && <div className="ui-footnote">{bundleTextState.message}</div>}
       {bundleTextState.status === "invalid" && <div className="prp-error">{bundleTextState.message}</div>}
       <Button className="prp-size-btn" onClick={insertExampleBundleCandidate}>
       variant="secondary"
@@ -492,27 +492,27 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       {bundleError && <div className="prp-error">{bundleError}</div>}
       {bundle && (
         <div className="prp-sizing-result">
-          <div className="prp-note">
+          <div className="ui-footnote">
             <strong>{bundle.decision === "trade" ? bundle.trade?.label : "No trade"}</strong>
             {" "}· status {bundle.status} · qualification <strong>{bundle.qualification}</strong> · confidence {bundle.confidence}
             {" "}· optimizer verdict <strong>{bundle.optimizer.verdict}</strong> (score {fmtNumber(bundle.optimizer.score, 1)}, expected P/L {fmtSignedUsd(bundle.optimizer.expectedPnl)}, CVaR {fmtSignedUsd(bundle.optimizer.cvarPnl)})
           </div>
           <p className="prp-rationale">{bundle.rationale.join(" ")}</p>
-          {bundle.optimizer.evidence.map((e, i) => <div key={i} className="prp-note">{e}</div>)}
+          {bundle.optimizer.evidence.map((e, i) => <div key={i} className="ui-footnote">{e}</div>)}
           {bundle.optimizer.breaches.map((b, i) => <div key={i} className="prp-error">Breach: {b}</div>)}
-          <div className="prp-note">
+          <div className="ui-footnote">
             Hedging: {bundle.hedging.status}{bundle.hedging.options.length ? ` — top: ${bundle.hedging.options[0].label} (cost ${fmtUsd(bundle.hedging.options[0].estimatedCost)}, removes ${fmtUsd(bundle.hedging.options[0].riskRemovedDollars)} β-weighted Δ)` : ""}
             {" "}· Repairs: {bundle.repairs.status}{bundle.repairs.options.length ? ` — top: ${bundle.repairs.options[0].label}` : ""}
           </div>
-          <div className="prp-note">Alternatives: {bundle.alternatives.map((a) => `${a.label} (score ${fmtNumber(a.score, 1)})`).join("; ")}</div>
-          {bundle.limitations.map((l, i) => <div key={i} className="prp-note">Limitation: {l}</div>)}
-          <div className="prp-note">Human approval required. {bundle.disclaimer}</div>
+          <div className="ui-footnote">Alternatives: {bundle.alternatives.map((a) => `${a.label} (score ${fmtNumber(a.score, 1)})`).join("; ")}</div>
+          {bundle.limitations.map((l, i) => <div key={i} className="ui-footnote">Limitation: {l}</div>)}
+          <div className="ui-footnote">Human approval required. {bundle.disclaimer}</div>
         </div>
       )}
 
       {/* Post-trade evaluator (#34 endpoint, surfaced by #67) */}
       <div className="prp-subhead">Post-Trade Evaluator</div>
-      <div className="prp-note">Enter a candidate position's TOTAL Greek contribution (all contracts combined) to see current vs post-trade portfolio totals.</div>
+      <div className="ui-footnote">Enter a candidate position's TOTAL Greek contribution (all contracts combined) to see current vs post-trade portfolio totals.</div>
       <div className="prp-form-grid">
         {([
           ["deltaShares", "Δ shares"], ["deltaDollars", "Δ $"], ["betaWeightedDeltaDollars", "β-weighted Δ $ (blank = unknown)"],
@@ -543,7 +543,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
 
       {/* Think-harness guardrail check (#37, surfaced by #67) */}
       <div className="prp-subhead">Trade Guardrail Check</div>
-      <div className="prp-note">Runs the think harness on live account state. It fails closed — when price, balance, or spread cannot be resolved from the broker, the verdict is INPUTS_UNAVAILABLE and no draft is produced.</div>
+      <div className="ui-footnote">Runs the think harness on live account state. It fails closed — when price, balance, or spread cannot be resolved from the broker, the verdict is INPUTS_UNAVAILABLE and no draft is produced.</div>
       <div className="prp-form-grid">
         <label>Symbol<TextInput value={thinkSymbol} onChange={(e) => setThinkSymbol(e.target.value)} placeholder="ACME" /></label>
         <label>Action
@@ -567,12 +567,12 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       {thinkError && <div className="prp-error">{thinkError}</div>}
       {verdict && (
         <div className="prp-sizing-result">
-          <div className="prp-note">
+          <div className="ui-footnote">
             <span className={`prp-badge prp-badge-${verdict.recommendation === "PROCEED_TO_HITL" ? "measured" : verdict.recommendation === "REVISE_PARAMETERS" ? "proxy-sector" : "unknown"}`}>{verdict.recommendation}</span>
             {" "}approved: {verdict.approved ? "yes" : "no"} · confidence {fmtNumber(verdict.overallConfidence, 2)}
           </div>
           <p className="prp-rationale">{verdict.reason}</p>
-          <div className="prp-note">
+          <div className="ui-footnote">
             Inputs — price: <span className="prp-badge">{verdict.inputSources.price}</span> balance: <span className="prp-badge">{verdict.inputSources.accountBalance}</span> spread: <span className="prp-badge">{verdict.inputSources.spread}</span>
             {verdict.proposedDraft ? " · a draft was produced for HITL review in the order flow" : " · no draft produced"}
           </div>
