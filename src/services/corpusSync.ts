@@ -97,6 +97,24 @@ export function shouldFireCorpusSyncTick(
   return { fire: false, reason: "too-soon", lastFiredAt: lastFiredAtIso };
 }
 
+/** Per-manifest-entry status, derived from the same check that builds
+ * the three key lists (issue #1169, knowledge UI). `present` = record
+ * and object agree; `missing` = expected key absent (no record, or
+ * record with no object); `mismatched` = bytes or record hash fail
+ * the check — mismatched wins over missing when both apply (a record
+ * that disagrees with the manifest is wrong even if its object is
+ * also gone; re-ingest fixes both). `not-ingested` = the manifest
+ * row carries no recorded hash (e.g. a fetch-blocked entry), so it
+ * was never ingested and there is nothing to check; forcing it into
+ * `missing` would misstate the check. `bucketKey` is null exactly
+ * for `not-ingested` entries. */
+export interface CorpusManifestEntryStatus {
+  title: string;
+  category: string;
+  bucketKey: string | null;
+  status: "present" | "missing" | "mismatched" | "not-ingested";
+}
+
 export interface CorpusIntegrityReport {
   ok: boolean;
   /** Bucket keys (knowledge/<category>/<sha256>) with no record or no object. */
@@ -106,6 +124,10 @@ export interface CorpusIntegrityReport {
   /** Bucket keys under knowledge/ with no DO record. */
   extra: string[];
   checkedAt: string;
+  /** One status object per manifest entry, in manifest order.
+   * Additive (knowledge UI): old fields keep their exact meaning.
+   * Empty with the reason on paths where the check could not run. */
+  entries: CorpusManifestEntryStatus[];
   /** Present ONLY when the check could not run (inputs unavailable). */
   reason?: string;
 }
@@ -151,6 +173,7 @@ export async function runCorpusIntegrityCheck(
       mismatched: [],
       extra: [],
       checkedAt,
+      entries: [],
       reason:
         "REPORTS_BUCKET is not bound; corpus integrity cannot be verified without the screener bucket.",
     };
@@ -216,12 +239,26 @@ export async function runCorpusIntegrityCheck(
         mismatched.add(key);
       }
     }
+    // Per-entry status from the same sets, in manifest order.
+    const entries: CorpusManifestEntryStatus[] = deps.manifest.map((entry) => {
+      if (!entry.sha256) {
+        return { title: entry.title, category: entry.category, bucketKey: null, status: "not-ingested" };
+      }
+      const bucketKey = r2KeyForStorageKey(`knowledge:${entry.category}:${entry.sha256}`);
+      const status = mismatched.has(bucketKey)
+        ? "mismatched"
+        : missing.has(bucketKey)
+          ? "missing"
+          : "present";
+      return { title: entry.title, category: entry.category, bucketKey, status };
+    });
     const report: CorpusIntegrityReport = {
       ok: missing.size === 0 && mismatched.size === 0 && extra.size === 0,
       missing: [...missing],
       mismatched: [...mismatched],
       extra: [...extra],
       checkedAt,
+      entries,
     };
     if (!report.ok) {
       console.warn(
@@ -240,6 +277,7 @@ export async function runCorpusIntegrityCheck(
       mismatched: [],
       extra: [],
       checkedAt,
+      entries: [],
       reason: `Corpus integrity check failed: ${message}`,
     };
   }
