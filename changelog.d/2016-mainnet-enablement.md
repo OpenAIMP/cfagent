@@ -1,4 +1,4 @@
-# 2016 — Mainnet enablement for the cfpay gate
+### 2016 — Mainnet enablement for the cfpay gate
 
 - **Base mainnet admitted (#2016)**: the gate's network allowlist grows from Sepolia-only to `base-sepolia`, `ethereum-sepolia`, `base`, and `eip155:8453` (Base mainnet forms, per cfpay's chain map). Ethereum mainnet is NOT admitted — it is not in cfpay's chain map. Unknown networks are still refused fail-closed when monetization is enabled, and the guard still does not apply when the flag is OFF.
 - **Default unchanged**: the workflow adapter still defaults `MONETIZATION_NETWORK` to `base-sepolia` — mainnet requires an explicit opt-in value. The gate's network value is the operator-declared deployment network and an allowlist only; settlement chain follows the cfpay deployment's own configuration, so the two must be kept in agreement by the operator.
