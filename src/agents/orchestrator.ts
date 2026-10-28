@@ -61,6 +61,7 @@ import { autoRenewETradeTokens, autonomousGoalScreen, autonomousMarketScreen, au
 import { nlqSchedulingPort, nlqSocialBriefPort, nlqStockScreenPort, type NlqPortsContext } from "./orchestrator/nlqPorts";
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
 import type { DoNamespaceLike } from "../security/durableKv";
+import { isLoginShaped } from "../security/serviceIdentity";
 import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobGraphColumns, scheduleScreenerFollowups, retryAsyncJob, type AsyncJobsContext } from "./orchestrator/asyncJobs";
 import type { ScreenerRunOutcome } from "../services/screenerFollowups";
 import { marketDateKey, readAutopilotStateRaw, getAutopilotState, writeAutopilotState, incrementAutopilotOrdersToday, fetchBrokerBalanceSnapshot, openNotionalForSymbol, evaluateAndRecordAutopilotVerdict, type AutopilotContext } from "./orchestrator/autopilot";
@@ -1996,7 +1997,7 @@ export class OrchestratorAgent extends PortThink {
     const userLogin = request.headers.get("x-user-login") || "";
     const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
     const storage = this.ctx?.storage;
-    if (/^[A-Za-z0-9._-]{1,80}$/.test(userLogin) && storage && typeof storage.put === "function") {
+    if (isLoginShaped(userLogin) && storage && typeof storage.put === "function") {
       const previous = await this.getScreenerExecutionContext();
       const context: ScreenerExecutionContext = {
         userLogin,
