@@ -7,7 +7,7 @@
  * - Local filtering only against fields supplied by the listing feed.
  */
 
-import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote } from "../types";
+import type { StockScreenerFilter, StockScreenResult, ScreenedStockItem, ETradeQuote, StockScreenGatherSummary } from "../types";
 import type { IMarketScreener } from "./interfaces";
 import { type NasdaqStockListing } from "../services/nasdaqListings";
 import { acquireUniverse, type NasdaqUniverseSeam } from "./screenerPipeline";
@@ -63,6 +63,34 @@ export function calculateDynamicRsi(
     return explicitRsi;
   }
   return undefined;
+}
+
+/**
+ * Issue #1998 (Phase 3): the gather hook a listing-feed screen calls
+ * when its filter needs technical fields the feed cannot supply.
+ * The hook owns fetch + persist + read-back; the screen only
+ * evaluates what the hook read back from storage, never fresh
+ * compute inside the goal path (the dataset rule). The hook lives
+ * outside src/trading (services/goalGather.ts); this interface is
+ * the seam, so the trading layer never imports a service module.
+ */
+export interface ScreenLiveEnrichmentResult {
+  /** Caller run id the gather rows are keyed by. */
+  runId: string;
+  /** Enriched quotes read back from storage, in acquired order. */
+  enrichedQuotes: ETradeQuote[];
+  /** Acquired symbols with no valid stored gather row. */
+  missingSymbols: string[];
+  /** Missing field names per missing symbol (e.g. week52High, rsi). */
+  missingFields: Record<string, string[]>;
+  /** Stored rows served by the gap-fill provider. */
+  gapFilledCount: number;
+  /** Content hash of the capability-route snapshot at run time. */
+  routeVersionHash: string;
+}
+
+export interface ScreenLiveEnrichment {
+  enrich(quotes: ETradeQuote[]): Promise<ScreenLiveEnrichmentResult>;
 }
 
 export class DynamicMarketScreener implements IMarketScreener {
@@ -846,6 +874,111 @@ export class DynamicMarketScreener implements IMarketScreener {
       return {
         ...this.screenWithQuotes([], filter, false),
         discovery: toDiscovery(),
+      };
+    }
+
+    // Issue #1998 (Phase 3): when a gather hook is threaded on the
+    // seam and the filter's technical criteria are exactly the ones
+    // enrichment can supply (RSI, technical momentum), enrich first
+    // and evaluate the READ-BACK rows — never the in-memory join.
+    // Criteria enrichment cannot supply (sector, volume, P/E) still
+    // refuse below, exactly as before; without a hook, everything
+    // below is unchanged.
+    const enrichment = seam?.enrichment;
+    const enrichable =
+      enrichment !== undefined &&
+      hasTechnicalIndicators &&
+      unsupported.every((u) => u === "RSI" || u === "technical momentum");
+    if (enrichable && enrichment) {
+      const gathered = await enrichment.enrich(quotes);
+      // A stored row is not automatically evaluable: a symbol whose
+      // row lacks a field THIS filter needs is excluded from
+      // evaluation and ledger-rejected with the honest missing-data
+      // reason — it must not be evaluated as if the field were a
+      // real zero (a missing 52-week high is not "not breaking
+      // out"). bearish_pullback needs only change/open, which live
+      // quotes always carry, so it adds no field requirement.
+      const neededFields = new Set<string>();
+      if (filter.momentum === "bullish_breakout") neededFields.add("week52High");
+      if (filter.momentum === "high_relative_volume") neededFields.add("averageVolume");
+      if (
+        filter.minRsi !== undefined ||
+        filter.maxRsi !== undefined ||
+        (filter.rsiFilter !== undefined && filter.rsiFilter !== "any")
+      ) {
+        neededFields.add("rsi");
+      }
+      const missingFor = (symbol: string): string[] =>
+        (gathered.missingFields[symbol.toUpperCase()] ?? []).filter((f) => neededFields.has(f));
+      const evaluable = gathered.enrichedQuotes.filter((q) => missingFor(q.symbol).length === 0);
+      // Nothing evaluable means the filter was not evaluated at all:
+      // that is a failed leg (the #1963 contract), never a
+      // successful empty result.
+      if (evaluable.length === 0) {
+        const message =
+          gathered.enrichedQuotes.length === 0
+            ? "Goal gather produced no stored rows for this run; technical criteria were not applied."
+            : "Goal gather stored rows, but none carry the fields this filter needs; technical criteria were not applied.";
+        const scannedAt = new Date().toISOString();
+        return {
+          totalScanned: quotes.length,
+          totalScreened: quotes.length,
+          matchedCount: 0,
+          filterApplied: filter,
+          filterSummary: message,
+          stocks: [],
+          scannedAt,
+          status: "no_matches",
+          ledger: {
+            universeSymbols: quotes.map((quote) => quote.symbol),
+            totalEvaluated: quotes.length,
+            passedCount: 0,
+            rejectedCount: quotes.length,
+            rejections: quotes.map((quote) => ({ symbol: quote.symbol, reason: message })),
+          },
+          validationError: message,
+          discovery: toDiscovery(message),
+        };
+      }
+      const excludedQuotes = gathered.enrichedQuotes.filter((q) => missingFor(q.symbol).length > 0);
+      const enriched = this.screenWithQuotes(evaluable, filter, false);
+      // No-row symbols never flow through filter evaluation as if
+      // their fields were real zeros: they are ledger-rejected with
+      // the honest missing-data reason, and totals reconcile to the
+      // full acquired universe.
+      const excludedRejections = excludedQuotes.map((q) => ({
+        symbol: q.symbol,
+        reason: `No persisted gather value for ${missingFor(q.symbol).join(", ")} in this run; technical criteria were not evaluated for this symbol.`,
+      }));
+      const missingRejections = gathered.missingSymbols.map((symbol) => ({
+        symbol,
+        reason: `No persisted gather row for this symbol in this run (missing: ${(gathered.missingFields[symbol] ?? ["gather row"]).join(", ")}).`,
+      }));
+      const gatherSummary: StockScreenGatherSummary = {
+        runId: gathered.runId,
+        stored: gathered.enrichedQuotes.length,
+        missing: gathered.missingSymbols.length,
+        excluded: excludedQuotes.length,
+        gapFilled: gathered.gapFilledCount,
+        routeVersionHash: gathered.routeVersionHash,
+      };
+      return {
+        ...enriched,
+        totalScanned: quotes.length,
+        totalScreened: quotes.length,
+        filterSummary: `${enriched.filterSummary}; gather: ${gatherSummary.stored} stored / ${gatherSummary.missing} missing / ${gatherSummary.excluded} excluded (route ${gatherSummary.routeVersionHash.slice(0, 8)})`,
+        ledger: enriched.ledger
+          ? {
+              ...enriched.ledger,
+              universeSymbols: quotes.map((quote) => quote.symbol),
+              totalEvaluated: quotes.length,
+              rejectedCount:
+                enriched.ledger.rejectedCount + excludedRejections.length + missingRejections.length,
+              rejections: [...enriched.ledger.rejections, ...excludedRejections, ...missingRejections],
+            }
+          : undefined,
+        discovery: toDiscovery(),
+        gather: gatherSummary,
       };
     }
 

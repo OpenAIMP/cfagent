@@ -1098,6 +1098,84 @@ export class ScreenerAgent extends PortThink {
         `[screener-agent] universe deps unavailable for goal screen, discovery degrades to the missing-seam throw: ${err instanceof Error ? err.message : String(err)}`
       );
     }
+    // Issue #1998 (Phase 3): persisted gather for the goal stock
+    // leg. The agent resolves the flag itself from its env, so both
+    // direct and workflow-child goal runs gather when ON, and none
+    // do when OFF. Yahoo-fallback runs keep their Yahoo engine
+    // (gather is listings-leg only). Any binding failure degrades
+    // to no hook — the leg then refuses technical filters exactly
+    // as before, never a silent partial enrichment. The hook rides
+    // the same seam as the universe bundle; the run id is the
+    // caller run id (D2, the idempotency key), matching every
+    // other goal-run capture.
+    let gatherEnrichment: import("../trading").ScreenLiveEnrichment | undefined;
+    if (req.provider !== "yahoo") {
+      try {
+        const { createFeatureFlagPort } = await import("../features/createFeatureFlagPort");
+        if (await createFeatureFlagPort(this.env).isEnabled("goal_workflow")) {
+          const { createGoalGatherEnrichment } = await import("../services/goalGather");
+          const {
+            bootstrapDataProviders: gatherBootstrap,
+            DataProviderRegistry: GatherRegistry,
+            createETradeDataProvider: gatherEtradeAdapter,
+            createYahooDataProvider: gatherYahooAdapter,
+            listCapabilityRoutes: gatherListRoutes,
+            listProviderConfigs: gatherListConfigs,
+            quotesProvidersFromRoute: gatherQuotesFromRoute,
+            bindLiveQuotesQuoteDeps: gatherBindQuotes,
+            resolveYahooHistoryDeps: gatherResolveHistory,
+          } = await import("../trading");
+          const { createObservabilitySink } = await import("../observability/createObservabilityPorts");
+          gatherBootstrap(this.ctx.storage.sql);
+          const gatherRegistry = new GatherRegistry();
+          gatherRegistry.register(
+            gatherEtradeAdapter(etrade, {
+              capture: { sql: this.ctx.storage.sql, blobStorage: this.ctx.storage, env: this.env },
+            })
+          );
+          gatherRegistry.register(
+            gatherYahooAdapter(new YahooFinanceProvider(this.env), this.env, {
+              capture: { sql: this.ctx.storage.sql, blobStorage: this.ctx.storage, env: this.env },
+              breaker: defaultBreakerRegistry().breakerFor("yahoo"),
+            })
+          );
+          const { primary: gatherPrimary, gapFill: gatherGapFill } = gatherQuotesFromRoute(
+            gatherRegistry,
+            gatherListConfigs(this.ctx.storage.sql),
+            gatherListRoutes(this.ctx.storage.sql)
+          );
+          const gatherRunContext = {
+            runId: req.idempotencyKey,
+            tenantId: "default",
+            userLogin,
+          };
+          const gatherQuoteDeps = gatherBindQuotes(gatherPrimary, gatherGapFill, gatherRunContext);
+          const gatherHistoryDeps = await gatherResolveHistory({
+            sql: this.ctx.storage.sql,
+            env: this.env,
+            userLogin,
+            blobStorage: this.ctx.storage,
+            runId: req.idempotencyKey,
+          });
+          gatherEnrichment = createGoalGatherEnrichment({
+            sql: this.ctx.storage.sql,
+            blobStorage: this.ctx.storage,
+            blobEnv: this.env,
+            tenantId: "default",
+            userLogin,
+            runId: req.idempotencyKey,
+            quoteDeps: gatherQuoteDeps,
+            ...(gatherHistoryDeps ? { historyDeps: gatherHistoryDeps } : {}),
+            sink: createObservabilitySink(this.env),
+          });
+        }
+      } catch (err) {
+        console.warn(
+          `[screener-agent] goal gather unavailable, technical filters refuse as before: ${err instanceof Error ? err.message : String(err)}`
+        );
+        gatherEnrichment = undefined;
+      }
+    }
     // Issue #1686: non-Yahoo goal screens previously defaulted to a
     // no-seam listings screener, so the stock leg returned the
     // missing-seam error result. Reuse the storage-carrying goal
@@ -1107,7 +1185,10 @@ export class ScreenerAgent extends PortThink {
     // their Yahoo screener; a failed bundle keeps today's error
     // result (no regression — the default still applies).
     if (!stockScreener && goalBundle) {
-      stockScreener = createLiveStockScreener(new DynamicMarketScreener(), { universeRoute: goalBundle });
+      stockScreener = createLiveStockScreener(new DynamicMarketScreener(), {
+        universeRoute: goalBundle,
+        ...(gatherEnrichment ? { enrichment: gatherEnrichment } : {}),
+      });
     }
     const out = await runProductionGoalScreen({
       ledger: this.taskLedger(),
