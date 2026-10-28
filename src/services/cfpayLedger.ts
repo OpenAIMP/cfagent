@@ -281,6 +281,20 @@ export interface CfpayAuditEvent {
   checkoutId?: string;
   claimTxHash?: string;
   paymentIntentId?: string;
+  /**
+   * Screener family (stock | goal | options | strategy). Added by the
+   * adapter, which holds the run's family — the flow's events do not
+   * carry it. Present on every payment event so the revenue report
+   * (#2022) can attribute runs to families without parsing ledger
+   * note text.
+   */
+  family?: string;
+  /**
+   * How a covered run was covered (subscription_included | credits |
+   * free_flag_off | already_paid). Set by the flow on payment.covered
+   * events only; used for the per-coverage-type revenue view.
+   */
+  paidVia?: string;
 }
 
 /**
@@ -307,6 +321,8 @@ export async function recordCfpayAuditEvent(
           ...(event.checkoutId ? { checkoutId: event.checkoutId } : {}),
           ...(event.claimTxHash ? { claimTxHash: event.claimTxHash } : {}),
           ...(event.paymentIntentId ? { paymentIntentId: event.paymentIntentId } : {}),
+          ...(event.family ? { family: event.family } : {}),
+          ...(event.paidVia ? { paidVia: event.paidVia } : {}),
         },
       }),
     });
@@ -323,4 +339,129 @@ export async function recordCfpayAuditEvent(
     );
     return false;
   }
+}
+
+export interface CfpayRevenueByFamily {
+  charges: number;
+  chargeTotalUSD: number;
+  credits: number;
+  creditTotalUSD: number;
+}
+
+export interface CfpayRevenueReport {
+  charges: { count: number; totalUSD: number };
+  credits: { count: number; totalUSD: number };
+  /** Charge total minus credit total: net value retained. */
+  netUSD: number;
+  byFamily: Record<string, CfpayRevenueByFamily>;
+  coveredByPaidVia: Record<string, number>;
+  /** Charges with no matching payment.confirmed audit row (audit writes are best-effort). */
+  chargesWithoutFamily: number;
+  creditsWithoutFamily: number;
+  /** Covered runs with no paidVia on the audit row (pre-amendment rows). */
+  coveredWithoutPaidVia: number;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function runIdOfRow(row: TransactionRecord): string | null {
+  const sessionId = String(row.sessionId ?? "");
+  return sessionId.startsWith(CFPAY_LEDGER_SESSION_PREFIX)
+    ? sessionId.slice(CFPAY_LEDGER_SESSION_PREFIX.length)
+    : null;
+}
+
+function payloadFamily(payload: Record<string, unknown>): string | null {
+  return typeof payload["family"] === "string" && (payload["family"] as string)
+    ? (payload["family"] as string)
+    : null;
+}
+
+/**
+ * Pure revenue aggregation for #2022. Money is authoritative from
+ * the ledger rows; family and coverage attribution come from the
+ * audit payloads joined on run id, with explicit "unknown" buckets
+ * where an audit row is missing. Totals never depend on audit
+ * completeness — only the breakdown does.
+ */
+export function aggregateCfpayRevenue(
+  chargeRows: TransactionRecord[],
+  creditRows: TransactionRecord[],
+  confirmedPayloads: Array<Record<string, unknown>>,
+  coveredPayloads: Array<Record<string, unknown>>,
+  creditPayloads: Array<Record<string, unknown>>,
+): CfpayRevenueReport {
+  const confirmedFamily = new Map<string, string>();
+  for (const p of confirmedPayloads) {
+    const run = typeof p["runRequestId"] === "string" ? (p["runRequestId"] as string) : "";
+    const family = payloadFamily(p);
+    if (run && family) confirmedFamily.set(run, family);
+  }
+  const creditFamily = new Map<string, string>();
+  for (const p of creditPayloads) {
+    const run = typeof p["runRequestId"] === "string" ? (p["runRequestId"] as string) : "";
+    const family = payloadFamily(p);
+    if (run && family) creditFamily.set(run, family);
+  }
+
+  const byFamily: Record<string, CfpayRevenueByFamily> = {};
+  const bucket = (family: string): CfpayRevenueByFamily => {
+    let b = byFamily[family];
+    if (!b) {
+      b = { charges: 0, chargeTotalUSD: 0, credits: 0, creditTotalUSD: 0 };
+      byFamily[family] = b;
+    }
+    return b;
+  };
+
+  let chargeTotal = 0;
+  let chargesWithoutFamily = 0;
+  for (const row of chargeRows) {
+    const run = runIdOfRow(row);
+    const amount = Number(row.amount);
+    const value = Number.isFinite(amount) ? amount : 0;
+    chargeTotal += value;
+    const family = run ? (confirmedFamily.get(run) ?? null) : null;
+    if (!family) chargesWithoutFamily += 1;
+    const b = bucket(family ?? "unknown");
+    b.charges += 1;
+    b.chargeTotalUSD = round2(b.chargeTotalUSD + value);
+  }
+
+  let creditTotal = 0;
+  let creditsWithoutFamily = 0;
+  for (const row of creditRows) {
+    const run = runIdOfRow(row);
+    const amount = Number(row.amount);
+    const value = Number.isFinite(amount) ? amount : 0;
+    creditTotal += value;
+    const family = run ? (creditFamily.get(run) ?? null) : null;
+    if (!family) creditsWithoutFamily += 1;
+    const b = bucket(family ?? "unknown");
+    b.credits += 1;
+    b.creditTotalUSD = round2(b.creditTotalUSD + value);
+  }
+
+  const coveredByPaidVia: Record<string, number> = {};
+  let coveredWithoutPaidVia = 0;
+  for (const p of coveredPayloads) {
+    const paidVia = typeof p["paidVia"] === "string" && (p["paidVia"] as string)
+      ? (p["paidVia"] as string)
+      : "unknown";
+    if (paidVia === "unknown") coveredWithoutPaidVia += 1;
+    coveredByPaidVia[paidVia] = (coveredByPaidVia[paidVia] ?? 0) + 1;
+  }
+
+  return {
+    charges: { count: chargeRows.length, totalUSD: round2(chargeTotal) },
+    credits: { count: creditRows.length, totalUSD: round2(creditTotal) },
+    netUSD: round2(chargeTotal - creditTotal),
+    byFamily,
+    coveredByPaidVia,
+    chargesWithoutFamily,
+    creditsWithoutFamily,
+    coveredWithoutPaidVia,
+  };
 }

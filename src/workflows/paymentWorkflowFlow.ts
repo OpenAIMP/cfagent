@@ -117,6 +117,12 @@ export interface PaymentWorkflowEvent {
   checkoutId?: string;
   claimTxHash?: string;
   paymentIntentId?: string;
+  /**
+   * How a covered run was covered (subscription_included | credits |
+   * free_flag_off | already_paid). Set on payment.covered events for
+   * the per-coverage-type revenue view (#2022).
+   */
+  paidVia?: string;
 }
 
 /**
@@ -316,6 +322,7 @@ export async function runPaymentWorkflowFlow(
       tenantId: params.tenantId,
       type: "payment.covered",
       priceUSD: gateDecision.priceUSD,
+      paidVia: gateDecision.paidVia ?? gateDecision.status,
     }),
   );
   return startScreenerOrCredit(
