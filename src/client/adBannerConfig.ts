@@ -13,6 +13,46 @@ export interface AdBannerConfig {
   tabVisibility: Record<string, boolean>;
 }
 
+/**
+ * Server-resolved ad allowance (issue #2022). Mirrors the shape
+ * returned by GET /api/ads/banner-config, which resolves it from the
+ * caller's verified tier in src/services/adsTier.ts. The client ANDs
+ * each surface with the local preference: the server can suppress, it
+ * never forces ads on — a Free user who opted out locally stays
+ * opted out.
+ */
+export interface ServerAdsConfig {
+  tier: "Free" | "Subscribed";
+  adsAllowed: boolean;
+  googleUnitsAllowed: boolean;
+  sponsorSpotlightAllowed: boolean;
+  adNetworkStripAllowed: boolean;
+}
+
+/**
+ * Apply the server ad config to the local preference. A null server
+ * config (fetch pending or failed) leaves local preference untouched:
+ * the server ad LISTS are the enforcement boundary (a suppressed
+ * caller gets empty lists), and this display override must not hide
+ * a Free user's ads on a transient fetch failure.
+ */
+export function applyServerAdsConfig(
+  local: AdBannerConfig,
+  server: ServerAdsConfig | null,
+): AdBannerConfig {
+  if (!server) return local;
+  return {
+    ...local,
+    enabled: local.enabled && server.adsAllowed,
+    showSponsorSpotlight: local.showSponsorSpotlight && server.sponsorSpotlightAllowed,
+    showAdNetworkStrip: local.showAdNetworkStrip && server.adNetworkStripAllowed,
+    showGoogleAdUnits: local.showGoogleAdUnits && server.googleUnitsAllowed,
+    tabVisibility: Object.fromEntries(
+      Object.keys(local.tabVisibility).map((tab) => [tab, local.tabVisibility[tab] && server.adsAllowed]),
+    ),
+  };
+}
+
 export const DEFAULT_AD_BANNER_CONFIG: AdBannerConfig = {
   enabled: false,
   showSponsorSpotlight: false,
