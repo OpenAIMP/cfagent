@@ -13,6 +13,8 @@
  * degrades to lexical-only when the AI/Vectorize bindings are absent.
  */
 
+import type { SqlStorage } from "../orm";
+
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 async function embed(ai: any, text: string): Promise<number[] | null> {
@@ -233,6 +235,56 @@ export async function indexCanonicalReport(
     console.warn("[reportSemanticIndex] indexCanonicalReport failed:", err);
     return false;
   }
+}
+
+/**
+ * Issue #1169 S4-4: one page of the S4-1 canonical-index backfill,
+ * extracted VERBATIM from the reports route handler
+ * (POST /trading/reports/index-backfill) so the route and the
+ * corpus sync share one implementation. The route calls this with
+ * its parsed limit/offset and returns the result as-is — response
+ * shape and counting are identical to the inline version.
+ */
+export interface CanonicalIndexBackfillPage {
+  upserted: number;
+  skippedRetention: number;
+  rows: number;
+  nextOffset: number | null;
+}
+
+export async function runCanonicalIndexBackfillPage(
+  env: IndexEnv | undefined,
+  sql: SqlStorage,
+  opts: { limit: number; offset: number }
+): Promise<CanonicalIndexBackfillPage> {
+  const { limit, offset } = opts;
+  const rows = Array.from(
+    sql.exec(
+      `SELECT id, title, source, summary, body, body_r2_key FROM mas_reports ORDER BY created_at ASC LIMIT ? OFFSET ?`,
+      limit,
+      offset
+    )
+  ) as Array<Record<string, unknown>>;
+  let upserted = 0;
+  let skippedRetention = 0;
+  for (const row of rows) {
+    const ok = await indexCanonicalReport(env, {
+      reportId: typeof row.id === "string" ? row.id : "",
+      title: typeof row.title === "string" ? row.title : "",
+      source: typeof row.source === "string" ? row.source : "",
+      summary: typeof row.summary === "string" ? row.summary : "",
+      body: typeof row.body === "string" ? row.body : "",
+      bodyR2Key: typeof row.body_r2_key === "string" ? row.body_r2_key : null,
+    });
+    if (row.source === "retention") skippedRetention += 1;
+    else if (ok) upserted += 1;
+  }
+  return {
+    upserted,
+    skippedRetention,
+    rows: rows.length,
+    nextOffset: rows.length < limit ? null : offset + rows.length,
+  };
 }
 
 export interface SemanticHit {
