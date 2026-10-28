@@ -1,0 +1,299 @@
+/**
+ * Issues #2015/#2020 — commercial store endpoints + the dedicated
+ * paid-submission route, tested through handleAgenticPaymentsRoutes.
+ *
+ * D1 is shared, so there is no canonical-instance hop: the handler
+ * builds the store adapter straight from ctx.env.AGENT_DB. Tests
+ * supply a MockD1Database (node:sqlite, the slice0 pattern) with
+ * migration 0007 applied, so the real Drizzle adapter runs.
+ */
+import { DatabaseSync } from "node:sqlite";
+import { describe, expect, it, vi } from "vitest";
+import {
+  handleAgenticPaymentsRoutes,
+  type AgenticPaymentsRouteContext,
+} from "../src/agents/routes/agenticPayments";
+import {
+  createD1CommercialDb,
+  ensureCommercialSchema,
+} from "../src/data/d1CommercialAdapter";
+import type { DatabaseORM } from "../src/orm";
+
+/** Minimal D1Database stand-in over node:sqlite (test-only, mirrors slice0). */
+class MockD1Database {
+  readonly sqlite = new DatabaseSync(":memory:");
+  prepare(sql: string) {
+    const db = this.sqlite;
+    return {
+      bind(...params: unknown[]) {
+        return {
+          async run() {
+            const info = db.prepare(sql).run(...(params as any[]));
+            return {
+              success: true,
+              meta: { changes: info.changes, last_row_id: info.lastInsertRowid },
+              results: [],
+            };
+          },
+          async all() {
+            return { results: db.prepare(sql).all(...(params as any[])) };
+          },
+          async first() {
+            return db.prepare(sql).get(...(params as any[])) ?? null;
+          },
+          async raw() {
+            return db
+              .prepare(sql)
+              .all(...(params as any[]))
+              .map((row: any) => Object.values(row));
+          },
+        };
+      },
+    };
+  }
+}
+
+async function setup() {
+  const mock = new MockD1Database();
+  const db = createD1CommercialDb(mock as unknown as D1Database);
+  await ensureCommercialSchema(db);
+  const binding = {
+    create: vi.fn(async ({ id }: { id: string }) => ({ id })),
+    get: vi.fn(async () => ({ status: async () => ({ status: "completed" }) })),
+  };
+  const screenerBinding = {
+    create: vi.fn(async ({ id }: { id: string }) => ({ id })),
+    get: vi.fn(async () => {
+      throw new Error("not found");
+    }),
+  };
+  const env = {
+    AGENT_DB: mock,
+    COMMERCIAL_STORE_OPERATORS: "op1",
+    PAYMENT_WORKFLOW: binding,
+    SCREENER_WORKFLOW: screenerBinding,
+  };
+  const ctx = {
+    env,
+    getOrm: () => ({}) as DatabaseORM,
+    audit: vi.fn(),
+  } as unknown as AgenticPaymentsRouteContext;
+  return { ctx, env, binding, screenerBinding, db };
+}
+
+const req = (method: string, path: string, login: string | null, body?: unknown) =>
+  new Request(`https://agent.internal${path}`, {
+    method,
+    headers: {
+      ...(login ? { "x-user-login": login } : {}),
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+
+const call = (
+  ctx: AgenticPaymentsRouteContext,
+  method: string,
+  path: string,
+  login: string | null,
+  body?: unknown,
+) => {
+  const url = new URL(`https://agent.internal${path}`);
+  return handleAgenticPaymentsRoutes(req(method, path, login, body), url, url.pathname, "sess-1", ctx);
+};
+
+const screenerCommand = {
+  jobId: "job-1",
+  type: "run-screen",
+  source: "test",
+  trigger: "manual",
+  userLogin: "u1",
+  shards: [{ shardId: "goal" }],
+  role: "parent",
+};
+
+describe("commercial store endpoints (#2015)", () => {
+  it("operator upserts; self reads; others are refused; bad tiers are 400", async () => {
+    const { ctx } = await setup();
+    const created = await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", {
+      userId: "u1",
+      tenantId: "t1",
+      tier: "Subscribed",
+      creditsUSD: 5,
+      includedRuns: 2,
+    });
+    expect(created?.status).toBe(200);
+    expect(((await created?.json()) as { record: { tier: string } }).record.tier).toBe("Subscribed");
+    const forbidden = await call(ctx, "POST", "/payments/agentic/commercial/account", "u1", {
+      userId: "u1",
+      tenantId: "t1",
+      tier: "Free",
+    });
+    expect(forbidden?.status).toBe(403);
+    const badTier = await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", {
+      userId: "u1",
+      tenantId: "t1",
+      tier: "Premium",
+    });
+    expect(badTier?.status).toBe(400);
+    const self = await call(ctx, "GET", "/payments/agentic/commercial/account?userId=u1", "u1");
+    expect(self?.status).toBe(200);
+    const other = await call(ctx, "GET", "/payments/agentic/commercial/account?userId=u1", "u2");
+    expect(other?.status).toBe(403);
+    const anon = await call(ctx, "GET", "/payments/agentic/commercial/account?userId=u1", null);
+    expect(anon?.status).toBe(401);
+  });
+
+  it("credits adjust with a floor; tenant settings are operator-only", async () => {
+    const { ctx } = await setup();
+    await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", {
+      userId: "u1",
+      tenantId: "t1",
+      tier: "PayPerUse",
+      creditsUSD: 10,
+      includedRuns: 1,
+    });
+    const adjusted = await call(ctx, "POST", "/payments/agentic/commercial/account/credits", "op1", {
+      userId: "u1",
+      deltaUSD: -3,
+    });
+    expect(((await adjusted?.json()) as { record: { creditsUSD: number } }).record.creditsUSD).toBe(7);
+    const below = await call(ctx, "POST", "/payments/agentic/commercial/account/credits", "op1", {
+      userId: "u1",
+      deltaUSD: -100,
+    });
+    expect(below?.status).toBe(400);
+    const def = await call(ctx, "GET", "/payments/agentic/commercial/tenant-settings?tenantId=t1", "op1");
+    expect(((await def?.json()) as { adsEnabled: boolean }).adsEnabled).toBe(true);
+    const userRead = await call(ctx, "GET", "/payments/agentic/commercial/tenant-settings?tenantId=t1", "u1");
+    expect(userRead?.status).toBe(403);
+    const set = await call(ctx, "POST", "/payments/agentic/commercial/tenant-settings", "op1", {
+      tenantId: "t1",
+      adsEnabled: false,
+    });
+    expect(set?.status).toBe(200);
+  });
+
+  it("unbound AGENT_DB fails closed on money endpoints", async () => {
+    const { ctx } = await setup();
+    const noDbCtx = {
+      ...ctx,
+      env: { ...(ctx.env as Record<string, unknown>), AGENT_DB: undefined },
+    } as unknown as AgenticPaymentsRouteContext;
+    const res = await call(noDbCtx, "GET", "/payments/agentic/commercial/account?userId=u1", "u1");
+    expect(res?.status).toBe(503);
+  });
+});
+
+describe("dedicated paid-submission route (#2015)", () => {
+  const submitBody = {
+    family: "goal",
+    tenantId: "t1",
+    email: "u1@example.com",
+    screenerCommand,
+  };
+
+  it("rejects anonymous, invalid, recurring, and tenant-mismatched submissions", async () => {
+    const { ctx } = await setup();
+    const anon = await call(ctx, "POST", "/payments/agentic/commercial/submit", null, submitBody);
+    expect(anon?.status).toBe(401);
+    const badFamily = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", {
+      ...submitBody,
+      family: "crypto",
+    });
+    expect(badFamily?.status).toBe(400);
+    const recurring = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", {
+      ...submitBody,
+      scheduleKind: "recurring",
+    });
+    expect(recurring?.status).toBe(400);
+    const noJob = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", {
+      ...submitBody,
+      screenerCommand: { type: "run-screen" },
+    });
+    expect(noJob?.status).toBe(400);
+    await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", {
+      userId: "u1",
+      tenantId: "t2",
+      tier: "Free",
+    });
+    const mismatch = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", submitBody);
+    expect(mismatch?.status).toBe(403);
+  });
+
+  it("starts the payment workflow for a new run with the stored account", async () => {
+    const { ctx, binding } = await setup();
+    await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", {
+      userId: "u1",
+      tenantId: "t1",
+      tier: "Subscribed",
+      creditsUSD: 0,
+      includedRuns: 3,
+    });
+    const res = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", submitBody);
+    expect(res?.status).toBe(200);
+    const body = (await res?.json()) as { status: string; workflowId: string; runRequestId: string };
+    expect(body.status).toBe("payment_started");
+    expect(body.runRequestId.startsWith("run-")).toBe(true);
+    expect(binding.create).toHaveBeenCalledOnce();
+    const createArg = (binding.create as unknown as { mock: { calls: Array<Array<{ id: string; params: { account: { tier: string } } }>> } }).mock.calls[0][0];
+    expect(createArg.id).toBe(body.runRequestId);
+    expect(createArg.params.account.tier).toBe("Subscribed");
+  });
+
+  it("fails closed when the store or the binding is unavailable", async () => {
+    const { ctx } = await setup();
+    const noDbCtx = {
+      ...ctx,
+      env: { ...(ctx.env as Record<string, unknown>), AGENT_DB: undefined },
+    } as unknown as AgenticPaymentsRouteContext;
+    const noStore = await call(noDbCtx, "POST", "/payments/agentic/commercial/submit", "u1", submitBody);
+    expect(noStore?.status).toBe(503);
+    const noBindingCtx = {
+      ...ctx,
+      env: { ...(ctx.env as Record<string, unknown>), PAYMENT_WORKFLOW: undefined },
+    } as unknown as AgenticPaymentsRouteContext;
+    const noBinding = await call(noBindingCtx, "POST", "/payments/agentic/commercial/submit", "u1", submitBody);
+    expect(noBinding?.status).toBe(503);
+  });
+
+  it("redeems a credit and starts the screener directly", async () => {
+    const { ctx, db, screenerBinding } = await setup();
+    const { D1CommercialAdapter } = await import("../src/data/d1CommercialAdapter");
+    const store = new D1CommercialAdapter(db);
+    await store.recordCreditClaim({ creditRunId: "run-9", userId: "u1", family: "goal", amountUSD: 0.1 });
+    const res = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", submitBody);
+    expect(res?.status).toBe(200);
+    const body = (await res?.json()) as { status: string; creditRunId: string; workflowId: string };
+    expect(body.status).toBe("redeemed_started");
+    expect(body.creditRunId).toBe("run-9");
+    expect(screenerBinding.create).toHaveBeenCalledOnce();
+    // The claim is spent: a second submission pays normally.
+    const second = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", submitBody);
+    expect(((await second?.json()) as { status: string }).status).toBe("payment_started");
+    expect(await store.findUnredeemedCredit("u1", "goal")).toBeNull();
+  });
+
+  it("does not burn a credit when the screener port is unavailable", async () => {
+    const { ctx, db } = await setup();
+    const { D1CommercialAdapter } = await import("../src/data/d1CommercialAdapter");
+    const store = new D1CommercialAdapter(db);
+    await store.recordCreditClaim({ creditRunId: "run-9", userId: "u1", family: "goal", amountUSD: 0.1 });
+    const noPortCtx = {
+      ...ctx,
+      env: { ...(ctx.env as Record<string, unknown>), SCREENER_WORKFLOW: undefined },
+    } as unknown as AgenticPaymentsRouteContext;
+    const res = await call(noPortCtx, "POST", "/payments/agentic/commercial/submit", "u1", submitBody);
+    expect(res?.status).toBe(503);
+    expect(await store.findUnredeemedCredit("u1", "goal")).toEqual({ creditRunId: "run-9", amountUSD: 0.1 });
+  });
+
+  it("reports submission status through the binding", async () => {
+    const { ctx } = await setup();
+    const res = await call(ctx, "GET", "/payments/agentic/commercial/submission-status?workflowId=run-1", "u1");
+    expect(res?.status).toBe(200);
+    expect(((await res?.json()) as { status: string }).status).toBe("completed");
+    const anon = await call(ctx, "GET", "/payments/agentic/commercial/submission-status?workflowId=run-1", null);
+    expect(anon?.status).toBe(401);
+  });
+});

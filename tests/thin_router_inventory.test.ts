@@ -140,6 +140,16 @@
  * bringing the pinned array to 243 entries; the delegation sequence
  * is unchanged (same handler, same position).
  *
+ * Issues #2015/#2020/#2022 added seven — the commercial account,
+ * credits, tenant-settings, submit, and submission-status
+ * endpoints (in handleAgenticPaymentsRoutes, after the cfpay
+ * revenue endpoint) — bringing the pinned array to 250 entries;
+ * the delegation sequence is unchanged (same handler, same
+ * position). The D1 rework dropped the three hop-only endpoints
+ * (consume, redeem-credit, unredeemed-credit): with D1 shared
+ * across instances, the adapter and submit route call the port
+ * directly, so no hop-only endpoint needs to exist.
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -283,6 +293,13 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/record-cfpay\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/cfpay\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/cfpay-revenue\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account/credits\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/tenant-settings\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/tenant-settings\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submit\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submission-status\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/budget-state\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/payments\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/auto-approve-limit\")",
