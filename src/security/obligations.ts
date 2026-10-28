@@ -30,8 +30,8 @@
  *   rule (sessionPolicy.ts): authTimeMs must be finite, not in the
  *   future, and younger than the platform step-up freshness
  *   default. The window is DEFAULT_STEP_UP_FRESHNESS_MS (15
- *   minutes), REUSED not settled — it remains an open CISO value
- *   (#1757), exactly as #1750 reused the enforced defaults.
+ *   minutes), settled as a CISO value by #1757 (values unchanged),
+ *   exactly as #1750 reused the enforced defaults.
  * - "audit-before-allow": the injected audit writer must record
  *   the allow decision before allow is returned. This is audit as
  *   a CONDITION, not audit-on-decision: a missing writer, a false

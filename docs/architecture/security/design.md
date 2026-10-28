@@ -57,10 +57,14 @@ covers.
 
 ## 4. Open items that constrain these docs
 
-- **#945 open list:** provider choice, settled step-up/idle thresholds,
-  measurable revocation propagation, audit retention/tamper response,
-  whether a failed audit write blocks login, DO-naming cutover beyond
-  aliases, vars externalization, §15 completion report.
+- **#945 open list:** provider choice decided (APP-OWNED provider, FOSS
+  framework, APP-OWNED tenant — owner direction 2026-10-25), step-up/idle
+  thresholds settled as CISO values (#1757 decision record), measurable
+  revocation propagation partially settled (#1750 targets; remainder
+  carried — see the #1757 record), audit retention/tamper response and
+  the consequential-action blocking set carried to Slice 5 adoption (Q7),
+  DO-naming cutover beyond aliases, vars externalization, §15 completion
+  report.
 - **#1066:** remove the `default_trader` static-token exception via the
   explicit service identity (Phases A–C).
 - **#1024:** `DOCS_PUBLIC_SURFACES` decision (docs routes are
