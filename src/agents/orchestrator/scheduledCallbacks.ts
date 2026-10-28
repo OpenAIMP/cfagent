@@ -214,7 +214,7 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
       // Issue #308: through the single generate→store seam — one
       // canonical row per generation (generationId = run id).
       // Skipped for queued sharded chains (see above).
-      if (!res.data?.sharded) {
+      if (!res.data?.sharded && userLogin) {
       orm.storeCanonicalReport({
         runId: `screener:${res.timestamp}`,
         generationId: `screener:${res.timestamp}`,
@@ -232,6 +232,7 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
             : undefined,
         },
         createdAt: res.timestamp,
+        userLogin,
       },
       // Issue #1169 S4-1: thread ctx.env so the seam indexes this
       // screener row at write time.
