@@ -12,6 +12,10 @@
 import type { Env } from "../types";
 import { resolveMarketDataQuotes } from "./marketDataService";
 import {
+  getQuoteSource,
+  type QuoteSource,
+} from "./quoteSourceSetting";
+import {
   isAlpacaConfigured,
   levelsForQuoteSwitch,
   resolveQuoteAlpacaKeyMode,
@@ -128,11 +132,22 @@ export async function fetchRealMarketQuote(
     alpacaKeyMode?: unknown;
     fallbackMode?: unknown;
     scoped?: QuoteScopedModes;
+    /** Issue #2108: deployment-wide source pick. "auto" is the legacy behavior. */
+    provider?: QuoteSource;
   },
 ): Promise<MarketTickData | null> {
   const norm = symbol.toUpperCase().trim();
+  const provider = opts?.provider ?? "auto";
   const cached = liveMarketCache.get(norm);
-  if (cached && cached.expiresAt > Date.now()) {
+  // A cached tick from the other source does not satisfy a pick: the
+  // setting takes effect immediately, not after the 20–30s TTL.
+  const providerSource =
+    provider === "alpaca" ? "Alpaca" : provider === "yahoo" ? "Yahoo Finance" : undefined;
+  if (
+    cached &&
+    cached.expiresAt > Date.now() &&
+    (providerSource === undefined || cached.tick.source === providerSource)
+  ) {
     return cached.tick;
   }
   const retryAfter = failedQuoteRetryAfter.get(norm) || 0;
@@ -148,7 +163,7 @@ export async function fetchRealMarketQuote(
   else if (norm === "SOL/USD") upstreamSym = "SOL-USD";
   else if (norm.includes("/")) upstreamSym = norm.replace("/", "-");
 
-  // 1. Try Alpaca if configured in env
+  // 1. Try Alpaca if configured in env (skipped entirely on a yahoo pick)
   const keyMode = resolveQuoteAlpacaKeyMode(
     levelsForQuoteSwitch(opts?.scoped, opts?.alpacaKeyMode, env?.QUOTE_ALPACA_KEY_MODE),
     "either"
@@ -157,11 +172,15 @@ export async function fetchRealMarketQuote(
     levelsForQuoteSwitch(opts?.scoped, opts?.fallbackMode, env?.QUOTE_FALLBACK_MODE),
     "fallthrough"
   ).mode;
+  // Issue #2108: an alpaca pick behaves as no-substitution, and an
+  // unconfigured Alpaca under that pick is unavailable, never Yahoo.
+  const effectiveFallback = provider === "alpaca" ? "no-substitution" : fallbackMode;
   const alpacaConfigured = isAlpacaConfigured(env, keyMode);
+  if (provider === "alpaca" && !alpacaConfigured) return null;
   const apiKey = keyMode === "id-only" ? env?.ALPACA_API_KEY_ID : env?.ALPACA_API_KEY || env?.ALPACA_API_KEY_ID;
   const secretKey =
     keyMode === "id-only" ? env?.ALPACA_API_SECRET_KEY : env?.ALPACA_SECRET_KEY || env?.ALPACA_API_SECRET_KEY;
-  if (alpacaConfigured && apiKey && secretKey) {
+  if (provider !== "yahoo" && alpacaConfigured && apiKey && secretKey) {
     try {
       const dataUrl = env?.ALPACA_DATA_URL || "https://data.alpaca.markets";
       const alpacaUrl = isCrypto
@@ -227,8 +246,9 @@ export async function fetchRealMarketQuote(
   // reached here (Alpaca error, or no previous tick for change
   // derivation, or no usable price) is explicit unavailable — Yahoo
   // data is never substituted for the configured primary. An
-  // Alpaca-unconfigured fetch still reads Yahoo below.
-  if (fallbackMode === "no-substitution" && alpacaConfigured) {
+  // Alpaca-unconfigured fetch still reads Yahoo below. (#2108: an
+  // alpaca pick forces this branch via effectiveFallback.)
+  if (effectiveFallback === "no-substitution" && alpacaConfigured) {
     failedQuoteRetryAfter.set(norm, Date.now() + 30000);
     return null;
   }
@@ -291,13 +311,17 @@ export async function fetchRealMarketQuote(
 }
 
 /**
- * Triggers background refreshing of real-time quotes for symbols
+ * Triggers background refreshing of real-time quotes for symbols.
+ * Issue #2108: the refresh resolves the deployment-wide source setting
+ * (D1; absent store reads as "auto") and passes it as the provider pick,
+ * so both the WS stream and the HTTP fallback honor one setting.
  */
 export async function refreshQuotesInBackground(symbols: string[], env?: Env): Promise<void> {
+  const provider = await getQuoteSource(env?.AGENT_DB);
   await Promise.all(
     symbols.map(async (s) => {
       try {
-        await fetchRealMarketQuote(s, env);
+        await fetchRealMarketQuote(s, env, { provider });
       } catch {
         // Ignore background fetch error
       }

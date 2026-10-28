@@ -184,6 +184,12 @@ import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
 import { handleMarketQuotesWebSocket, handleMarketQuotesHttp } from "./services/marketStream";
 import {
+  getQuoteSource,
+  setQuoteSource,
+  normalizeQuoteSource,
+  type QuoteSourceStore,
+} from "./services/quoteSourceSetting";
+import {
   levelsForQuoteSwitch,
   resolveQuoteExpiryMode,
   resolveQuoteHttpProviderMode,
@@ -3108,6 +3114,25 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         httpProviderMode === "env" ? env : undefined,
         { expiryMode, envForModes: env }
       );
+    }
+
+    // --- Quote source setting (Issue #2108) ---
+    // Deployment-wide pick (the WS + HTTP surfaces share one
+    // Worker-level cache, so the setting is not per-user). Auth-gated
+    // both ways; unbound AgentDB fails closed with 503.
+    if (path === "/api/market/quotes/source" && (request.method === "GET" || request.method === "POST")) {
+      const session = await requireAuth(request, env);
+      if (!session) return new Response("Unauthorized", { status: 401 });
+      const db = (env as any).AGENT_DB as QuoteSourceStore | undefined;
+      if (!db) return new Response("Quote source store unavailable", { status: 503 });
+      if (request.method === "GET") {
+        return Response.json({ source: await getQuoteSource(db) });
+      }
+      const body = (await request.json().catch(() => ({}))) as { source?: unknown };
+      if (body.source !== "auto" && body.source !== "alpaca" && body.source !== "yahoo") {
+        return Response.json({ error: "invalid source" }, { status: 400 });
+      }
+      return Response.json({ source: await setQuoteSource(db, normalizeQuoteSource(body.source)) });
     }
 
     // --- Cloudflare Browser Agent: Webhook Snapshot API ---
