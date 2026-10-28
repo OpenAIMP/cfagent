@@ -114,15 +114,24 @@ policy it escapes from.
 
 ## 6. IAAA interaction and a known key fragility
 
-Token keys are still keyed by the **login string**, not by the stable
-internal user id. The IAAA migration layer (`src/security/iaaaMigration.ts`)
-dual-reads: the internal-id key first, the login key second, and records
-login↔internal-id aliases on wired login (a recycled login that already
-belongs to someone else is rejected, never overwritten). Until the DO-naming
-cutover beyond aliases is decided, a renamed login can orphan that user's
-stored token: the token still exists under the old login key, but nothing
-resolves the new login to it. This is a known open item, not a silent
-behavior — see #945's open list.
+Token keys are still keyed by the **login string** by default, not
+by the stable internal user id — but since #1759 they are no
+longer reachable by login string alone. The IAAA migration layer
+(`src/security/iaaaMigration.ts`) records login↔internal-id
+aliases on wired login (a recycled login that already belongs to
+someone else is rejected, never overwritten), and
+`src/security/etradeOAuth.ts` dual-reads: the internal-id key
+first, the alias-login key second (this is what keeps a
+pre-rename token reachable), then the current login key; new
+access-token writes with a known identity also land under the
+internal-id key. Revocation with an identity deletes all three.
+Residual, bounded: the `getValidTokens` hot path (trading
+client, login-keyed isolate cache) does not yet take an
+identity, so a renamed user's trading client misses the old
+token until re-connect or until that path is wired — the old
+key itself persists and remains reachable through the
+`getStoredTokens`-based paths (preflight, schedules). See
+`iaaa-login-key-cutover-1759.md`.
 
 ## 7. The legacy exception: `default_trader` and the process-wide static pair
 
