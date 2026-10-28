@@ -58,6 +58,8 @@ const PINNED_STAR_REEXPORTS = [
   "./screenerPipeline",
   "./screeningSchemas",
   "./screenerReportPdf",
+  // Issue #2088: the PDF template module joins the trading surface.
+  "./screenerReportTemplate",
   "./screenerReportXlsx",
   "./screenerReportCsv",
   "./optionsReportPdf",

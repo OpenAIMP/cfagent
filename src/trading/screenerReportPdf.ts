@@ -1,15 +1,32 @@
 /**
- * Screener PDF reports (issue #269).
+ * Screener PDF reports (issue #269; template + landscape #2088).
  *
  * Generates a screening report PDF with pdf-lib (pure JS, Workers-compatible —
  * no headless browser). Used by:
  *   - the scheduled tick → Slack file upload + email attachment
  *   - the manual run → downloadable via GET /api/screener/report.pdf
+ *
+ * Issue #2088: the whole document is Letter landscape (792 x 612,
+ * 720pt content width) — no mixed orientations. Every section is
+ * one table from the template module
+ * (src/trading/screenerReportTemplate.ts): the 16 XLSX/CSV columns,
+ * one sort (screenScore desc, symbol asc), sections as filter +
+ * limit. Cells wrap; they are never silently sliced.
  */
 
 import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import type { ScreenerRunResult } from "../agents/screener-agent";
-
+import {
+  SCREENER_PDF_COLUMNS,
+  buildScreenerPdfSections,
+  projectFormulaAppendixRows,
+  wrapCellText,
+  type ScreenerPdfColumn,
+  DEFAULT_SCREENER_PDF_SECTION_CONFIG,
+  type ScreenerPdfSection,
+  type ScreenerPdfSectionConfig,
+} from "./screenerReportTemplate";
+import { SCREENER_FORMULA_DOCUMENTATION } from "./screenerReportXlsx";
 
 /** Print palette (#473): PDFs render on white paper, so the report uses
  *  this named print scale — the print mirrors of the semantic text/status
@@ -24,9 +41,12 @@ const PRINT_DANGER: [number, number, number] = [0.8, 0.2, 0.2];
 const PRINT_WARNING: [number, number, number] = [0.75, 0.45, 0];
 
 const MARGIN = 36;
-const PAGE_W = 612; // Letter
-const PAGE_H = 792;
-const CONTENT_W = PAGE_W - MARGIN * 2;
+const PAGE_W = 792; // Letter landscape (#2088: entire document, no mixing)
+const PAGE_H = 612;
+
+export interface ScreenerPdfOptions {
+  sections?: ScreenerPdfSectionConfig;
+}
 
 interface Ctx {
   doc: PDFDocument;
@@ -108,41 +128,10 @@ function rule(ctx: Ctx): void {
   ctx.y -= 10;
 }
 
-function fmt(n: number | null | undefined, digits = 2, suffix = ""): string {
-  if (n == null || !Number.isFinite(n)) return "-";
-  return `${n.toFixed(digits)}${suffix}`;
-}
-
-function gapLabel(t: { gapPercent: number | null; gapDirection: string | null } | undefined | null): string {
-  if (!t || t.gapPercent == null) return "-";
-  const arrow = t.gapDirection === "up" ? "+" : t.gapDirection === "down" ? "-" : "";
-  return `${arrow}${Math.abs(t.gapPercent).toFixed(1)}%`;
-}
-
-interface ColDef {
-  header: string;
-  w: number;
-}
-
-const ALL_STOCKS_COLS: ColDef[] = [
-  { header: "Symbol", w: 50 },
-  { header: "Company", w: 85 },
-  { header: "Price", w: 45 },
-  { header: "Chg%", w: 40 },
-  { header: "Gap%", w: 42 },
-  { header: "Sentiment", w: 55 },
-  { header: "Quant", w: 58 },
-  { header: "Val", w: 24 },
-  { header: "Mom", w: 24 },
-  { header: "RSI", w: 38 },
-  { header: "MACD", w: 44 },
-  { header: "Score", w: 35 },
-];
-
-function renderAllStocksHeader(ctx: Ctx): void {
+function renderTableHeader(ctx: Ctx, cols: ScreenerPdfColumn[]): void {
   ensureSpace(ctx, 16);
   let x = MARGIN;
-  for (const col of ALL_STOCKS_COLS) {
+  for (const col of cols) {
     ctx.page.drawText(col.header, { x, y: ctx.y, size: 8, font: ctx.bold, color: rgb(...PRINT_LABEL) });
     x += col.w;
   }
@@ -154,6 +143,68 @@ function renderAllStocksHeader(ctx: Ctx): void {
     color: rgb(...PRINT_HAIRLINE),
   });
   ctx.y -= 6;
+}
+
+/**
+ * One section table: header repeats on every page break, cells wrap
+ * to their column width (never sliced). Section titles carry
+ * "showing X of Y" so a limit is visible, not silent (#2088).
+ */
+function renderSectionTable(
+  ctx: Ctx,
+  section: Pick<ScreenerPdfSection, "title" | "rows" | "shown" | "total">,
+  cols: ScreenerPdfColumn[]
+): void {
+  if (section.rows.length === 0) return;
+  text(ctx, `${section.title} (showing ${section.shown} of ${section.total})`, { size: 12, bold: true });
+  renderTableHeader(ctx, cols);
+  const measure = (t: string): number => ctx.font.widthOfTextAtSize(t, 8);
+  for (const row of section.rows) {
+    const wrapped = row.map((cell, i) => wrapCellText(cell, cols[i].w - 4, measure));
+    const lineCount = Math.max(...wrapped.map((w) => w.length));
+    const rowHeight = lineCount * 10 + 2;
+    const pageBefore = ctx.page;
+    ensureSpace(ctx, rowHeight);
+    if (ctx.page !== pageBefore) renderTableHeader(ctx, cols);
+    let x = MARGIN;
+    for (let i = 0; i < row.length; i++) {
+      for (let li = 0; li < wrapped[i].length; li++) {
+        ctx.page.drawText(cleanForPdf(wrapped[i][li]), {
+          x,
+          y: ctx.y - li * 10,
+          size: 8,
+          font: ctx.font,
+          color: rgb(...PRINT_INK),
+        });
+      }
+      x += cols[i].w;
+    }
+    ctx.y -= rowHeight;
+  }
+  rule(ctx);
+}
+
+/** Human timestamp (#2088): "Oct 28, 2026, 03:50 EDT (07:50 UTC)". Falls back to the raw ISO. */
+export function formatReportTimestamp(iso: string): string {
+  try {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZoneName: "short",
+    }).formatToParts(date);
+    const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? "";
+    const utc = `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
+    return `${get("month")} ${get("day")}, ${get("year")}, ${get("hour")}:${get("minute")} ${get("timeZoneName")} (${utc} UTC)`;
+  } catch {
+    return iso;
+  }
 }
 
 /**
@@ -211,7 +262,8 @@ export function screenerProvenanceLines(result: {
 }
 
 export async function generateScreenerPdf(
-  result: ScreenerRunResult
+  result: ScreenerRunResult,
+  options?: ScreenerPdfOptions
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -226,7 +278,7 @@ export async function generateScreenerPdf(
   text(ctx, `Stock Screener Report — ${universeLabel}`, { size: 16, bold: true });
   const sectorSegment = result.sector && result.sector !== "ALL" ? `  •  ${result.sector} sector` : "  •  All Sectors";
   text(ctx, `${triggerLabel}${sectorSegment}`, { size: 10, color: PRINT_MUTED });
-  text(ctx, `Generated (UTC): ${result.timestamp}`, { size: 9, color: PRINT_MUTED });
+  text(ctx, `Generated: ${formatReportTimestamp(result.timestamp)}`, { size: 9, color: PRINT_MUTED });
 
   // Active Screening Criteria
   ensureSpace(ctx, 16);
@@ -271,106 +323,49 @@ export async function generateScreenerPdf(
   }
   rule(ctx);
 
-  // Gaps summary
-  const gappers = (result.allStocks || [])
-    .filter((s) => s.technicals?.gapPercent != null)
-    .sort((a, b) => Math.abs(b.technicals!.gapPercent!) - Math.abs(a.technicals!.gapPercent!))
-    .slice(0, 8);
-  const gapUps = gappers.filter((s) => s.technicals?.gapDirection === "up");
-  const gapDowns = gappers.filter((s) => s.technicals?.gapDirection === "down");
-  if (gappers.length > 0) {
-    text(ctx, `Top gaps  (up: ${gapUps.length}   down: ${gapDowns.length})`, { size: 12, bold: true });
-    for (const s of gappers) {
-      text(ctx, `${s.symbol}  ${gapLabel(s.technicals)}  @ $${fmt(s.lastPrice)}`, { size: 9 });
-    }
-    rule(ctx);
-  }
+  // Sections (#2088): one template, one sort, filter + limit each.
+  const sections = buildScreenerPdfSections(
+    result as any,
+    options?.sections ?? DEFAULT_SCREENER_PDF_SECTION_CONFIG
+  );
+  const gapUp = sections.find((s) => s.key === "gapUp")!;
+  const gapDown = sections.find((s) => s.key === "gapDown")!;
+  const standouts = sections.find((s) => s.key === "standouts")!;
+  const allSymbols = sections.find((s) => s.key === "allSymbols")!;
 
-  // Opportunities
-  text(ctx, "Standout Opportunities", { size: 12, bold: true });
-  if (result.opportunities.length === 0) {
+  text(ctx, `${prov.quotesLine}  |  Technicals (RSI, MACD, Gap%): Yahoo Finance daily history`, { size: 8, color: PRINT_MUTED });
+  ctx.y -= 4;
+
+  renderSectionTable(ctx, gapUp, SCREENER_PDF_COLUMNS);
+  renderSectionTable(ctx, gapDown, SCREENER_PDF_COLUMNS);
+  if (standouts.rows.length === 0) {
+    text(ctx, "Standout Opportunities", { size: 12, bold: true });
     text(ctx, "No standout opportunities met all criteria in this run.", { size: 9, color: PRINT_MUTED });
     rule(ctx);
   } else {
-    // Header row
-    const cols: Array<[string, number]> = [
-      ["Symbol", 62], ["Quant", 78], ["Val", 34], ["Mom", 38],
-      ["Sentiment", 84], ["Price", 62], ["Chg%", 56], ["Gap%", 62], ["RSI", 44],
-    ];
-    ensureSpace(ctx, 16);
-    let x = MARGIN;
-    for (const [label, w] of cols) {
-      ctx.page.drawText(label, { x, y: ctx.y, size: 8, font: bold, color: rgb(...PRINT_LABEL) });
-      x += w;
-    }
-    ctx.y -= 12;
-    for (const o of result.opportunities) {
-      ensureSpace(ctx, 13);
-      x = MARGIN;
-      const t = o.technicals;
-      const cells: Array<[string, number]> = [
-        [o.symbol, 62],
-        [o.factorGrades?.quantRating ?? "-", 78],
-        [o.factorGrades?.value ?? "-", 34],
-        [o.factorGrades?.momentum ?? "-", 38],
-        [(o.indicators?.sentiment ?? "neutral").replace(/_/g, " "), 84],
-        [`$${fmt(o.lastPrice)}`, 62],
-        [`${o.changePercent >= 0 ? "+" : ""}${fmt(o.changePercent, 2, "%")}`, 56],
-        [gapLabel(t), 62],
-        [fmt(t?.rsi14, 1), 44],
-      ];
-      for (const [val, w] of cells) {
-        ctx.page.drawText(cleanForPdf(val).slice(0, 18), { x, y: ctx.y, size: 8, font, color: rgb(...PRINT_INK) });
-        x += w;
-      }
-      ctx.y -= 11;
-    }
-    rule(ctx);
+    renderSectionTable(ctx, standouts, SCREENER_PDF_COLUMNS);
   }
+  renderSectionTable(ctx, allSymbols, SCREENER_PDF_COLUMNS);
 
-  // Complete Screened Universe Table (allStocks)
-  if (result.allStocks && result.allStocks.length > 0) {
-    ensureSpace(ctx, 35);
-    text(ctx, `All Screened Symbols (${result.allStocks.length})`, { size: 12, bold: true });
-    text(ctx, `${prov.quotesLine}  |  Technicals (RSI, MACD, Gap%): Yahoo Finance daily history`, { size: 8, color: PRINT_MUTED });
-    ctx.y -= 4;
-    renderAllStocksHeader(ctx);
-
-    for (const s of result.allStocks) {
-      const pageBefore = ctx.page;
-      ensureSpace(ctx, 13);
-      if (ctx.page !== pageBefore) {
-        renderAllStocksHeader(ctx);
-      }
-      let x = MARGIN;
-      const t = s.technicals;
-      const rsiVal = t?.rsi14 ?? s.rsi14;
-      const macdVal = t?.macdHistogram != null
-        ? `${t.macdHistogram >= 0 ? "+" : ""}${t.macdHistogram.toFixed(1)}`
-        : "-";
-      const scoreVal = s.indicators?.screenScore != null ? String(s.indicators.screenScore) : "-";
-      const cells: Array<[string, number]> = [
-        [s.symbol, 50],
-        [cleanForPdf(s.companyName || "").slice(0, 15), 85],
-        [`$${fmt(s.lastPrice, 2)}`, 45],
-        [`${s.changePercent >= 0 ? "+" : ""}${fmt(s.changePercent, 1, "%")}`, 40],
-        [gapLabel(t), 42],
-        [cleanForPdf((s.indicators?.sentiment ?? "neutral").replace(/_/g, " ")).slice(0, 10), 55],
-        [cleanForPdf(s.factorGrades?.quantRating ?? "-").slice(0, 11), 58],
-        [s.factorGrades?.value ?? "-", 24],
-        [s.factorGrades?.momentum ?? "-", 24],
-        [rsiVal != null ? fmt(rsiVal, 1) : "-", 38],
-        [macdVal, 44],
-        [scoreVal, 35],
-      ];
-      for (const [val, w] of cells) {
-        ctx.page.drawText(cleanForPdf(val).slice(0, 16), { x, y: ctx.y, size: 8, font, color: rgb(...PRINT_INK) });
-        x += w;
-      }
-      ctx.y -= 11;
-    }
-    rule(ctx);
-  }
+  // Formulas & Methodology appendix (#2088): the XLSX tab-2 content,
+  // as-is (including the #1942 provenance defect until #1942 lands).
+  const appendixCols: ScreenerPdfColumn[] = [
+    { header: "Column Name", w: 110 },
+    { header: "Field Key", w: 110 },
+    { header: "Data Source / Provenance", w: 180 },
+    { header: "Calculation Formula", w: 180 },
+    { header: "Description & Interpretation", w: 140 },
+  ];
+  renderSectionTable(
+    ctx,
+    {
+      title: "Formulas & Methodology",
+      rows: projectFormulaAppendixRows(SCREENER_FORMULA_DOCUMENTATION as any),
+      shown: SCREENER_FORMULA_DOCUMENTATION.length,
+      total: SCREENER_FORMULA_DOCUMENTATION.length,
+    },
+    appendixCols
+  );
 
   // Methodology footer
   ensureSpace(ctx, 60);
@@ -381,6 +376,7 @@ export async function generateScreenerPdf(
     "RSI(14), MACD(12,26,9), gaps: Yahoo Finance daily history (complement).",
     "Factor grades (Value/Momentum A+..F): percentile-relative within this run's universe.",
     "Sentiment: day-action based (very bearish -> very bullish). Range zones are 52-week based, not RSI.",
+    "Score: composite 0-100 of day momentum, intraday position, 52-week position, and value zone (screenScore); it does not include RSI, MACD, gap, or factor grades.",
   ];
   for (const n of notes) text(ctx, `* ${n}`, { size: 7.5, color: PRINT_NOTE });
 
