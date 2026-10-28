@@ -63,6 +63,8 @@ const PINNED_STAR_REEXPORTS = [
   "./screenerReportXlsx",
   "./screenerReportCsv",
   "./optionsReportPdf",
+  // Issue #2162: the strategy report generator joins the trading surface.
+  "./strategyReport",
   "./optionsReportXlsx",
   "./setupCatalog",
   "./researchReportPdf",

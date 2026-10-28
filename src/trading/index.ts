@@ -51,6 +51,7 @@ export * from "./screenerReportTemplate";
 export * from "./screenerReportXlsx";
 export * from "./screenerReportCsv";
 export * from "./optionsReportPdf";
+export * from "./strategyReport";
 export * from "./optionsReportXlsx";
 export * from "./setupCatalog";
 export * from "./researchReportPdf";

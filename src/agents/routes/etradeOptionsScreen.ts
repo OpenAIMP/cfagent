@@ -23,6 +23,8 @@ import {
   createOptionsScreeningProvider,
   OPTIONS_SCREENING_PROVIDER_ID,
   parseOptionsScreenRequest,
+  buildStrategyReportInput,
+  strategyReportArtifactLinks,
 } from "../../trading";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
@@ -551,6 +553,24 @@ export async function executeUnifiedOptions(args: {
       ? data.ranked
       : Array.isArray(data?.quant?.ranked) ? data.quant.ranked : undefined;
     const matched = ranked?.length ?? (data?.bestTrade ? 1 : undefined);
+    const reportInput = buildStrategyReportInput({
+      action,
+      request: reqData,
+      data,
+      summary: result.summary,
+      generatedAt,
+      symbol,
+    });
+    const artifacts = await ctx.getScreenerAgent(userLogin).generateAndStoreStrategyReport(reportInput);
+    // Issue #2162: the response carries the same downloads the run records,
+    // so the panel can open the report it just generated. A failed leg has
+    // no key, so it contributes no link.
+    const artifactLinks = strategyReportArtifactLinks(artifacts);
+    reportUrl = artifactLinks.reportUrl;
+    scannerXlsxKey = artifactLinks.xlsxKey;
+    scannerXlsxUrl = artifactLinks.xlsxUrl;
+    scannerCsvKey = artifactLinks.csvKey;
+    scannerCsvUrl = artifactLinks.csvUrl;
     const orm = ctx.getOrm();
     storeOptionsCanonicalReport(orm, {
       runId: generationId,
@@ -566,6 +586,15 @@ export async function executeUnifiedOptions(args: {
         success: true,
         withTrades: matched,
         report: result.toWebhook(),
+        ...(artifacts.pdfKey ? { pdfKey: artifacts.pdfKey } : {}),
+        ...(artifacts.pdfStatus ? { pdfStatus: artifacts.pdfStatus } : {}),
+        ...(artifacts.pdfError ? { pdfError: artifacts.pdfError } : {}),
+        ...(artifacts.xlsxKey ? { xlsxKey: artifacts.xlsxKey } : {}),
+        ...(artifacts.xlsxStatus ? { xlsxStatus: artifacts.xlsxStatus } : {}),
+        ...(artifacts.xlsxError ? { xlsxError: artifacts.xlsxError } : {}),
+        ...(artifacts.csvKey ? { csvKey: artifacts.csvKey } : {}),
+        ...(artifacts.csvStatus ? { csvStatus: artifacts.csvStatus } : {}),
+        ...(artifacts.csvError ? { csvError: artifacts.csvError } : {}),
       },
       createdAt: generatedAt,
       userLogin,
@@ -579,6 +608,9 @@ export async function executeUnifiedOptions(args: {
         trigger: "manual",
         status: "completed",
         matched,
+        pdfKey: artifacts.pdfKey,
+        xlsxKey: artifacts.xlsxKey,
+        csvKey: artifacts.csvKey,
         origin: "options-strategy-ai",
         createdAt: generatedAt,
       },
