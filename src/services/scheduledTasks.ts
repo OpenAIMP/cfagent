@@ -1665,6 +1665,11 @@ export class ScheduledTasksService {
     reportUrl?: string;
     sharded?: boolean;
     chainId?: string;
+    /** Issue #2091: the service's artifact keys + canonical row id. */
+    pdfKey?: string;
+    xlsxKey?: string;
+    csvKey?: string;
+    canonicalReportId?: string | null;
   }>> {
     const timestamp = new Date().toISOString();
     let symbols: string[] = [];
@@ -1840,6 +1845,9 @@ export class ScheduledTasksService {
             targetDate: options.targetDate || new Date(Date.parse(timestamp) + 30 * 86400000).toISOString().slice(0, 10),
             riskProfile: options.riskProfile || "balanced",
             allowedStrategies: options.allowedStrategies,
+            // Issue #2091: scheduled runs judge the chain against every
+            // wanted strategy, not only the thesis-matching ones.
+            evaluateAllStrategies: true,
           },
         };
         // The per-symbol job owns its event-calendar request too; do not
@@ -1874,6 +1882,9 @@ export class ScheduledTasksService {
         targetDate: options.targetDate,
         riskProfile: options.riskProfile || "balanced",
         allowedStrategies: options.allowedStrategies,
+        // Issue #2091: scheduled runs judge the chain against every
+        // wanted strategy, not only the thesis-matching ones.
+        evaluateAllStrategies: true,
         channel: "ui",
         userLogin,
         overrideEnv: options.environment,
@@ -2283,6 +2294,13 @@ export class ScheduledTasksService {
           notifications,
           opportunities: response.data?.opportunities,
           reportUrl,
+          // Issue #2091: the service's own artifact keys + canonical
+          // row, so the orchestrator writer can carry them instead of
+          // writing a second keyless row.
+          pdfKey: optionsPdfKey,
+          xlsxKey: optionsXlsxKey,
+          csvKey: optionsCsvKey,
+          canonicalReportId: canonical?.reportId ?? null,
         },
         timestamp,
       };

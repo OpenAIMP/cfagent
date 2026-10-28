@@ -67,6 +67,14 @@ export interface ScanRunSummary {
    *  summaries persisted before #1239 lack the field at runtime;
    *  readers must treat absent as null. */
   pdfKey?: string | null;
+  /**
+   * Issue #2091: the workbook/CSV storage keys, mirroring pdfKey's
+   * pattern and comment. Optional deliberately: summaries persisted
+   * before #2091 lack the fields at runtime; readers treat absent
+   * as null. Producers stamp them when the artifacts exist.
+   */
+  xlsxKey?: string | null;
+  csvKey?: string | null;
   /** The run's partial-coverage qualification when the scan did not
    *  evaluate the full requested universe (issue #1850, R6's
    *  OptionsPartialQualification). Optional deliberately, same pattern

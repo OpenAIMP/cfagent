@@ -308,15 +308,21 @@ export function runSummaryFromScanRun(scan: ScanRunSummary): RunSummary {
     reportUrl: scan.pdfKey
       ? `/api/options/report.pdf?key=${encodeURIComponent(scan.pdfKey)}`
       : null,
-    xlsxKey: null,
-    xlsxUrl: null,
-    csvKey: null,
-    csvUrl: null,
+    // Issue #2091: workbook/CSV keys mirror the PDF key mapping —
+    // a scan row that carries them surfaces its downloads in Docs.
+    xlsxKey: scan.xlsxKey ?? null,
+    xlsxUrl: scan.xlsxKey
+      ? `/api/options/report.xlsx?key=${encodeURIComponent(scan.xlsxKey)}`
+      : null,
+    csvKey: scan.csvKey ?? null,
+    csvUrl: scan.csvKey
+      ? `/api/options/report.csv?key=${encodeURIComponent(scan.csvKey)}`
+      : null,
     pdfStatus: scan.pdfKey ? "generated" : null,
     pdfError: null,
-    xlsxStatus: null,
+    xlsxStatus: scan.xlsxKey ? "generated" : null,
     xlsxError: null,
-    csvStatus: null,
+    csvStatus: scan.csvKey ? "generated" : null,
     csvError: null,
     reportId: null,
     scanRunId: scan.id,

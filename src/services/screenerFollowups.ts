@@ -122,6 +122,14 @@ export interface ScreenerRunOutcome {
    *  published (discovery/goal runs, whose artifact is the canonical
    *  row rather than a PDF). The serve stage verifies this row. */
   canonicalReportId?: string;
+  /**
+   * Issue #2091: the chain's run timestamp + symbol list, carried so
+   * the serve stage can record the run (canonical row + history row)
+   * without re-deriving them. Absent on outcomes that predate #2091 —
+   * the recorder skips those.
+   */
+  timestamp?: string;
+  symbols?: string[];
   /** Consolidation C4 (#1329): false when the run's delivery stays on
    *  its direct path and the chain must NOT plan deliveries (discovery
    *  chains before #1236 notifications — the chain covered generate +
