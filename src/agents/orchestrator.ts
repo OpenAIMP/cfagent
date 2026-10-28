@@ -102,6 +102,7 @@ import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./rou
 import { handleAuditRoutes } from "./routes/audit";
 import { handleDataProviderRoutes } from "./routes/dataProviders";
 import { handleEnrichmentRoutes } from "./routes/enrichment";
+import { handleWorkflowRunsRoutes } from "./routes/workflowRuns";
 import { handleKnowledgeCorpusRoutes } from "./routes/knowledgeCorpus";
 import { handleAutopilotRoutes } from "./routes/autopilot";
 import { handleMemoryResetRoutes } from "./routes/memoryReset";
@@ -2078,7 +2079,7 @@ export class OrchestratorAgent extends PortThink {
     // The Worker strips the /api prefix when forwarding and marks queue-eligible requests.
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
     const isScheduleEndpoint = /(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path);
-    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat|chat-activity|screener|etrade\/options\/strategy|etrade|broker|trading|options)(?:\/|$)/i.test(path);
+    const isImmediateEndpoint = /(?:^|\/)(?:api\/)?(?:clear|reset|memory|audit|chat|chat-activity|screener|etrade\/options\/strategy|etrade|broker|trading|options|workflow-runs)(?:\/|$)/i.test(path);
     const isJobsEndpoint = /(?:^|\/api)\/jobs(?:\/|$)/.test(path);
     const isApiRequest = path.startsWith("/api/") || request.headers.get("x-async-eligible") === "1";
     // #1724: HTTP_DELIVERY_MODE over the queue decision (run =
@@ -2257,6 +2258,13 @@ export class OrchestratorAgent extends PortThink {
       recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
     });
     if (enrichmentResponse) return enrichmentResponse;
+
+    // Workflow Runs ledger (routes/workflowRuns.ts), after enrichment.
+    const workflowRunsResponse = await handleWorkflowRunsRoutes(request, url, path, sessionId, {
+      ensureTables: () => this.ensureTables(),
+      userLogin: request.headers.get("x-user-login") || "",
+    });
+    if (workflowRunsResponse) return workflowRunsResponse;
 
     // Issue #1169 (S1): knowledge-corpus admin upload routes (POST
     // /knowledge/corpus) are handled by

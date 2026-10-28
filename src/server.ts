@@ -3080,7 +3080,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
       const forwardReq = new Request(targetUrl, request);
       forwardReq.headers.set("x-user-login", session.githubLogin);
-      const isImmediateSync = /^\/(?:clear|reset|memory|audit|chat|etrade|broker|trading|screener|options)(?:\/|\?|$)/i.test(subPath);
+      const isImmediateSync = /^\/(?:clear|reset|memory|audit|chat|etrade|broker|trading|screener|options|workflow-runs)(?:\/|\?|$)/i.test(subPath);
       // #1724: the caller's `x-delivery-mode` header (copied through
       // by the Request construction above) adjusts eligibility ONLY:
       // "queued" grants x-async-eligible even to an immediate-prefix
