@@ -42,6 +42,13 @@ export interface DocumentRow {
   pdfUrl: string | null;
   xlsxUrl: string | null;
   csvUrl: string | null;
+  pdfStatus: string | null;
+  pdfError: string | null;
+  /** Issue #2088: recorded leg failure state, when the run records it. */
+  xlsxStatus: string | null;
+  xlsxError: string | null;
+  csvStatus: string | null;
+  csvError: string | null;
 }
 
 const SOURCE_BY_KIND: Record<string, DocumentRunSource> = {
@@ -115,7 +122,7 @@ export function documentRunType(
 export function toDocumentRows(
   runs: Pick<
     RunSummary,
-    "id" | "runId" | "createdAt" | "trigger" | "kind" | "source" | "runSource" | "title" | "status" | "reportUrl" | "xlsxUrl" | "csvUrl"
+    "id" | "runId" | "createdAt" | "trigger" | "kind" | "source" | "runSource" | "title" | "status" | "reportUrl" | "xlsxUrl" | "csvUrl" | "xlsxStatus" | "xlsxError" | "csvStatus" | "csvError" | "pdfStatus" | "pdfError"
   >[],
 ): DocumentRow[] {
   const rows: DocumentRow[] = [];
@@ -133,8 +140,14 @@ export function toDocumentRows(
       title: String(run.title ?? ""),
       status: run.status ?? null,
       pdfUrl: run.reportUrl ?? null,
+      pdfStatus: run.pdfStatus ?? null,
+      pdfError: run.pdfError ?? null,
       xlsxUrl: run.xlsxUrl ?? null,
       csvUrl: run.csvUrl ?? null,
+      xlsxStatus: run.xlsxStatus ?? null,
+      xlsxError: run.xlsxError ?? null,
+      csvStatus: run.csvStatus ?? null,
+      csvError: run.csvError ?? null,
     });
   }
   rows.sort((a, b) =>

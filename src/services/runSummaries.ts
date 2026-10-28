@@ -87,6 +87,14 @@ export interface RunSummary {
    *  unavailable instead of silently showing no link. */
   pdfStatus: string | null;
   pdfError: string | null;
+  /** Issue #2088: the run's recorded XLSX / CSV generation state
+   *  ("generated" / "failed" / …) and failure reasons, when the home
+   *  store records them — so the Docs list can show a failed leg
+   *  instead of a bare "—". Optional: older rows lack them. */
+  xlsxStatus?: string | null;
+  xlsxError?: string | null;
+  csvStatus?: string | null;
+  csvError?: string | null;
   /** The canonical mas_reports id when this run has a canonical row
    *  (the detail/download affordance key), else null. */
   reportId: string | null;
@@ -247,6 +255,22 @@ export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
       strOrNull(body?.pdfError) ??
       strOrNull(body?.report?.result?.pdfError) ??
       strOrNull(body?.result?.pdfError),
+    xlsxStatus:
+      strOrNull(body?.xlsxStatus) ??
+      strOrNull(body?.report?.result?.xlsxStatus) ??
+      strOrNull(body?.result?.xlsxStatus),
+    xlsxError:
+      strOrNull(body?.xlsxError) ??
+      strOrNull(body?.report?.result?.xlsxError) ??
+      strOrNull(body?.result?.xlsxError),
+    csvStatus:
+      strOrNull(body?.csvStatus) ??
+      strOrNull(body?.report?.result?.csvStatus) ??
+      strOrNull(body?.result?.csvStatus),
+    csvError:
+      strOrNull(body?.csvError) ??
+      strOrNull(body?.report?.result?.csvError) ??
+      strOrNull(body?.result?.csvError),
     reportId: hit.id,
     scanRunId: kind === "options_scanner" ? canonicalScanRunId(hit.body) : null,
     discoveryRunId: kind === "discovery" ? canonicalDiscoveryRunId(hit.body) : null,
@@ -290,6 +314,10 @@ export function runSummaryFromScanRun(scan: ScanRunSummary): RunSummary {
     csvUrl: null,
     pdfStatus: scan.pdfKey ? "generated" : null,
     pdfError: null,
+    xlsxStatus: null,
+    xlsxError: null,
+    csvStatus: null,
+    csvError: null,
     reportId: null,
     scanRunId: scan.id,
     source: "options_scanner",
@@ -318,6 +346,10 @@ export function runSummaryFromDiscoveryRun(run: DiscoveryRunSummary): RunSummary
     csvUrl: null,
     pdfStatus: null,
     pdfError: null,
+    xlsxStatus: null,
+    xlsxError: null,
+    csvStatus: null,
+    csvError: null,
     reportId: null,
     scanRunId: null,
     discoveryRunId: run.id,
@@ -354,6 +386,10 @@ export function runSummaryFromScreenerRun(run: ScreenerRunResult): RunSummary {
       : null,
     pdfStatus: run.pdfStatus ?? null,
     pdfError: run.pdfError ?? null,
+    xlsxStatus: run.xlsxStatus ?? null,
+    xlsxError: run.xlsxError ?? null,
+    csvStatus: run.csvStatus ?? null,
+    csvError: run.csvError ?? null,
     reportId: null,
     scanRunId: null,
     source: "screener",
@@ -424,12 +460,27 @@ export function mergeRunSummaries(lists: RunSummary[][], limit: number): RunSumm
           // pointing at a DIFFERENT artifact never rewrites the
           // winner's story.
           const sameArtifact = row.pdfKey === null || twin.pdfKey === row.pdfKey;
+          // Issue #2088: the same rule extends to the workbook
+          // artifacts — a canonical twin no longer hides the
+          // detail record's XLSX/CSV keys (the 03:50 mechanism),
+          // and a twin pointing at a DIFFERENT artifact never
+          // rewrites the winner's story for that kind.
+          const sameXlsx = row.xlsxKey === null || twin.xlsxKey === row.xlsxKey;
+          const sameCsv = row.csvKey === null || twin.csvKey === row.csvKey;
           merged.push({
             ...row,
             pdfKey: row.pdfKey ?? twin.pdfKey,
             reportUrl: row.reportUrl ?? twin.reportUrl,
             pdfStatus: row.pdfStatus ?? (sameArtifact ? twin.pdfStatus : null),
             pdfError: row.pdfError ?? (sameArtifact ? twin.pdfError : null),
+            xlsxKey: row.xlsxKey ?? twin.xlsxKey,
+            xlsxUrl: row.xlsxUrl ?? twin.xlsxUrl,
+            xlsxStatus: row.xlsxStatus ?? (sameXlsx ? (twin.xlsxStatus ?? null) : null),
+            xlsxError: row.xlsxError ?? (sameXlsx ? (twin.xlsxError ?? null) : null),
+            csvKey: row.csvKey ?? twin.csvKey,
+            csvUrl: row.csvUrl ?? twin.csvUrl,
+            csvStatus: row.csvStatus ?? (sameCsv ? (twin.csvStatus ?? null) : null),
+            csvError: row.csvError ?? (sameCsv ? (twin.csvError ?? null) : null),
           });
           continue;
         }
