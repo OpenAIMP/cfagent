@@ -55,14 +55,16 @@ describe("worker scheduled() social dispatch (Phase 5b slice 1)", () => {
     const ctx = { waitUntil: (p: Promise<unknown>) => void waited.push(p) };
     await worker.scheduled({ cron: "*/30 * * * *" }, env as never, ctx as never);
     await Promise.all(waited);
-    // The three established dispatches ride this tick: research,
-    // reflection, and strategy-weight adjustment — plus the
-    // ScheduledAgent onCron call (mocked here). Social posting adds
-    // no dispatch of its own since Phase 5b slice 1 retired the
-    // parallel social tick: posting is a ScheduledAgent goal
-    // evaluated inside onCron, not a server.ts block.
+    // The four established dispatches ride this tick: research,
+    // reflection, strategy-weight adjustment, and (issue #1169
+    // S4-4) the weekly corpus sync — plus the ScheduledAgent
+    // onCron call (mocked here). Social posting adds no dispatch
+    // of its own since Phase 5b slice 1 retired the parallel
+    // social tick: posting is a ScheduledAgent goal evaluated
+    // inside onCron, not a server.ts block.
     expect(agentFetchCalls.sort()).toEqual([
       "/adaptation/weights/run",
+      "/knowledge/corpus-sync",
       "/reflection/run",
       "/research/scheduled-tick",
     ]);
