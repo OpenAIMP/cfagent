@@ -338,8 +338,8 @@ describe("runShardFlow (child owns store + deliver)", () => {
     expect(output.delivered).toBe(true);
     // Claim-check: bulk data never leaves the child.
     expect("full" in output).toBe(false);
-    expect(b.stored).toEqual([{ marker: "full-result", universe: "TECH" }]);
-    expect(b.delivered).toEqual([{ marker: "full-result", universe: "TECH" }]);
+    expect(b.stored).toEqual([{ marker: "full-result", universe: "TECH", trigger: "manual" }]);
+    expect(b.delivered).toEqual([{ marker: "full-result", universe: "TECH", trigger: "manual" }]);
     const rows = await b.store.listJobsForChain("tenant-1", "job-1");
     expect(rows.map((r) => r.jobKey)).toContain("shard:TECH");
     expect(rows.find((r) => r.jobKey === "shard:TECH")?.status).toBe("completed");
@@ -625,5 +625,41 @@ describe("port purity (provider-neutral domain surface)", () => {
     ]) {
       noProviderConcepts(read(f));
     }
+  });
+});
+
+describe("shard artifact keys and trigger (#2080)", () => {
+  it("keeps xlsx/csv keys through the summary and the child-output validation", () => {
+    const result: ShardScreenResult = {
+      ...okResult(),
+      pdfKey: "screener:pdf:p",
+      xlsxKey: "screener:xlsx:x",
+      csvKey: "screener:csv:c",
+      trigger: "scheduled",
+    };
+    const summary = shardSummaryFromResult("TECH", result);
+    expect(summary.xlsxKey).toBe("screener:xlsx:x");
+    expect(summary.csvKey).toBe("screener:csv:c");
+    const parsed = asShardScreenResult(result);
+    expect(parsed?.xlsxKey).toBe("screener:xlsx:x");
+    expect(parsed?.csvKey).toBe("screener:csv:c");
+    expect(parsed?.trigger).toBe("scheduled");
+  });
+
+  it("stores the trigger and artifact keys on the canonical payload", async () => {
+    const command = shardCommand();
+    const b = makeDeps(async (req) => ({
+      ...okResult({ universe: req.universe }),
+      xlsxKey: "screener:xlsx:x",
+      csvKey: "screener:csv:c",
+      full: { marker: "full-result", universe: req.universe },
+    }));
+    await runShardFlow(command, b.clock.step, b.deps);
+    expect(b.stored[0]).toMatchObject({
+      trigger: command.trigger,
+      xlsxKey: "screener:xlsx:x",
+      csvKey: "screener:csv:c",
+      marker: "full-result",
+    });
   });
 });
