@@ -142,6 +142,19 @@ describe("payment workflow ledger audit events (#2019)", () => {
     const issued = events.find((e) => e.type === "payment.failure_credit_issued");
     expect(issued?.priceUSD).toBe(0.1);
   });
+
+  it("covered event carries how the run was covered (#2022)", async () => {
+    const { deps, events } = depsFor(gateFor(), {
+      ...baseAccount,
+      tier: "Subscribed",
+      includedRunsRemaining: 1,
+    });
+    const out = await runPaymentWorkflowFlow(baseParams, deps, fakeStep());
+    expect(out.status).toBe("started");
+    const covered = events.find((e) => e.type === "payment.covered");
+    expect(covered?.paidVia).toBe("subscription_included");
+    expect(covered?.priceUSD).toBe(0.1);
+  });
 });
 
 describe("extractCheckoutId (#2019)", () => {

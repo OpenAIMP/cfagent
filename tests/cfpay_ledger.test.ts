@@ -117,7 +117,7 @@ describe("cfpay reconciliation (#2019)", () => {
 });
 
 describe("cfpay ledger client (#2019)", () => {
-  function fakeEnv(seen: Map<string, TransactionRecord>): Env {
+  function fakeEnv(seen: Map<string, TransactionRecord>, auditBodies: Array<Record<string, unknown>> = []): Env {
     const stub = {
       fetch: async (req: Request) => {
         const url = new URL(req.url);
@@ -144,6 +144,7 @@ describe("cfpay ledger client (#2019)", () => {
           return Response.json({ runRequestId, count: rows.length, rows });
         }
         if (url.pathname.endsWith("/audit/event") && req.method === "POST") {
+          auditBodies.push(body as Record<string, unknown>);
           return Response.json({ id: "evt-1" }, { status: 201 });
         }
         return Response.json({ error: "not found" }, { status: 404 });
@@ -200,6 +201,25 @@ describe("cfpay ledger client (#2019)", () => {
       tenantId: "t1",
     });
     expect(noBinding).toBe(false);
+  });
+
+  it("audit payload carries family and paidVia for the revenue report (#2022)", async () => {
+    const seen = new Map<string, TransactionRecord>();
+    const auditBodies: Array<Record<string, unknown>> = [];
+    const env = fakeEnv(seen, auditBodies);
+    await recordCfpayAuditEvent(env, {
+      type: "payment.covered",
+      runRequestId: "run-1",
+      tenantId: "t1",
+      priceUSD: 0.1,
+      family: "goal",
+      paidVia: "subscription_included",
+    });
+    expect(auditBodies).toHaveLength(1);
+    const payload = auditBodies[0]["payload"] as Record<string, unknown>;
+    expect(payload["family"]).toBe("goal");
+    expect(payload["paidVia"]).toBe("subscription_included");
+    expect(payload["runRequestId"]).toBe("run-1");
   });
 
   it("ledger writes throw loud when the binding or identity is missing", async () => {

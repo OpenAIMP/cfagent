@@ -25,6 +25,11 @@
  *   GET      /payments/agentic/ledger/cfpay       (issue #2019: cfpay-origin
  *                                                  rows for one run, for
  *                                                  reconciliation)
+ *   GET      /payments/agentic/ledger/cfpay-revenue (issue #2022: cfpay
+ *                                                  revenue report — ledger
+ *                                                  totals, audit-joined
+ *                                                  family/coverage
+ *                                                  attribution)
  *
  * Each route constructs the ETradeAgenticPaymentService per request,
  * exactly as the inline block did. The handler ends with an explicit
@@ -39,9 +44,11 @@
 
 import { ETradeAgenticPaymentService } from "../../services/agenticPayments";
 import {
+  aggregateCfpayRevenue,
   buildCfpayChargeTransaction,
   buildCfpayCreditTransaction,
   cfpayLedgerSessionId,
+  isCfpayLedgerRow,
 } from "../../services/cfpayLedger";
 import {
   buildLedgerTransaction,
@@ -303,6 +310,42 @@ export async function handleAgenticPaymentsRoutes(
       return Response.json({ runRequestId, count: rows.length, rows });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to list cfpay ledger rows" }, { status: 500 });
+    }
+  }
+
+  // Issue #2022: cfpay revenue report. Money is authoritative from
+  // the mas_transactions charge/credit rows; family and coverage
+  // attribution come from the mas_events payment payloads joined on
+  // run id, with explicit "unknown" buckets where an audit row is
+  // missing (audit writes are best-effort, so attribution can lag
+  // the ledger — totals never do). Cost-per-run is NOT reported
+  // here: no per-run cost accounting exists yet to report against.
+  if (path.endsWith("/payments/agentic/ledger/cfpay-revenue") && request.method === "GET") {
+    try {
+      const orm = ctx.getOrm();
+      const cfpayRows = orm.transactions.findMany().filter(isCfpayLedgerRow);
+      const charges = cfpayRows.filter((t) => t.action === "charge");
+      const credits = cfpayRows.filter((t) => t.action === "credit");
+      const payloadsOf = (type: string): Array<Record<string, unknown>> =>
+        orm.events.findMany({ where: { type } }).map((e) => {
+          const raw = (e as { payload?: unknown }).payload;
+          if (raw && typeof raw === "object") return raw as Record<string, unknown>;
+          try {
+            return JSON.parse(String(raw ?? "{}")) as Record<string, unknown>;
+          } catch {
+            return {};
+          }
+        });
+      const report = aggregateCfpayRevenue(
+        charges,
+        credits,
+        payloadsOf("payment.confirmed"),
+        payloadsOf("payment.covered"),
+        payloadsOf("payment.failure_credit_issued"),
+      );
+      return Response.json(report);
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to build cfpay revenue report" }, { status: 500 });
     }
   }
 

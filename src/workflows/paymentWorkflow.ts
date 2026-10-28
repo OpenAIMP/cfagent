@@ -237,7 +237,7 @@ export class PaymentWorkflow extends ThinkWorkflow<
             );
           }
         }
-        await recordCfpayAuditEvent(this.env, e);
+        await recordCfpayAuditEvent(this.env, { ...e, family: p.family });
       },
       issueFailureCredit: async (runRequestId: string, priceUSD: number) => {
         // Issue #2019: issuance is real now — one durable credit row

@@ -135,6 +135,11 @@
  * bringing the pinned array to 242 entries; the delegation sequence
  * is unchanged (same handler, same position).
  *
+ * Issue #2022 added one — GET /payments/agentic/ledger/cfpay-revenue
+ * (in handleAgenticPaymentsRoutes, after the cfpay list endpoint) —
+ * bringing the pinned array to 243 entries; the delegation sequence
+ * is unchanged (same handler, same position).
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -277,6 +282,7 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/record\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/record-cfpay\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/cfpay\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/cfpay-revenue\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/budget-state\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/payments\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/auto-approve-limit\")",
