@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:ci": "vitest run --reporter=verbose",
+    "test:quarantine": "node scripts/run-quarantined.mjs",
     "test:watch": "vitest",
     "check": "node scripts/gen-design-tokens.mjs --check && npm run typecheck && npm run test:ci && npm run build",
     "tokens:gen": "node scripts/gen-design-tokens.mjs",
