@@ -176,6 +176,43 @@ describe("POST /screening/goal-screen async flag (#1996)", () => {
     expect(agent.runGoalScreen).not.toHaveBeenCalled();
   });
 
+  it("a manual async submit leaves a session-principal audit row (#1999)", async () => {
+    mockedStart.mockResolvedValue(HANDLE as never);
+    const agent = { runGoalScreen: vi.fn() };
+    const { ctx, orm } = routeCtx(agent);
+    const res = await handleScreenerResearchRoutes(
+      req("POST", "/screening/goal-screen", { goalKind: "income", async: true }, { "x-user-login": "alice" }),
+      urlOf("/screening/goal-screen"),
+      "/screening/goal-screen",
+      "s1",
+      ctx,
+    );
+    expect(res!.status).toBe(202);
+    const rows = orm.events.findMany({ where: { type: "goal_screen.workflow_submitted" } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sessionId).toBe("alice");
+    expect(rows[0].payload.principalKind).toBe("session");
+  });
+
+  it("a manual start failure leaves a session-principal run_failed audit row (#1999)", async () => {
+    mockedStart.mockRejectedValue(new WorkflowError("start_failed", "binding boom"));
+    const agent = { runGoalScreen: vi.fn() };
+    const { ctx, orm } = routeCtx(agent);
+    const res = await handleScreenerResearchRoutes(
+      req("POST", "/screening/goal-screen", { goalKind: "income", async: true }, { "x-user-login": "alice" }),
+      urlOf("/screening/goal-screen"),
+      "/screening/goal-screen",
+      "s1",
+      ctx,
+    );
+    expect(res!.status).toBe(500);
+    const rows = orm.events.findMany({ where: { type: "goal_screen.run_failed" } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sessionId).toBe("alice");
+    expect(rows[0].payload.principalKind).toBe("session");
+    expect(rows[0].payload.code).toBe("start_failed");
+  });
+
   it("without the async flag the direct path runs and no workflow start is attempted", async () => {
     const agent = {
       runGoalScreen: vi.fn(async () => ({

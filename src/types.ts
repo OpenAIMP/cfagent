@@ -849,6 +849,15 @@ export interface StockScreenGatherSummary {
   gapFilled: number;
   /** Content hash of the capability-route snapshot at run time. */
   routeVersionHash: string;
+  /**
+   * Issue #1999: first-class gather failure state. "ok" when the
+   * gather ran (even when nothing was evaluable); "failed" when the
+   * hook itself failed — distinct from missing fields, which stay
+   * honest missing-data rejections, never a gather failure.
+   */
+  status: "ok" | "failed";
+  /** Failure reason when status is "failed". */
+  error?: string;
 }
 
 export interface ScreenedStockItem extends ETradeQuote {
