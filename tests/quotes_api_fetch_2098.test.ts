@@ -1,13 +1,17 @@
 /**
- * Issue #2098 (as moved by #2100) — one quotes feed, through apiFetch.
+ * Issue #2098 (as moved by #2100, refined by #2108) — one quotes feed,
+ * through apiFetch.
  *
  * #2098 pinned the two quotes consumers to the apiFetch import. #2100
  * moved the feed lifecycle into src/client/quotes/quotesService.ts, so
  * the pin moves with it: the service is the only place that touches the
- * quotes endpoints, and it binds the REST fallback to apiFetch (rule
- * #71 — a 202 async-job stub must resolve, never reach the UI). The
- * consumers must contain no socket, no poller, and no fetch at all —
- * they render what useMarketQuotes returns.
+ * quotes feed endpoints, and it binds the REST fallback to apiFetch
+ * (rule #71 — a 202 async-job stub must resolve, never reach the UI).
+ * The consumers must contain no socket, no poller, and no feed fetch —
+ * they render what useMarketQuotes returns. #2108 adds one narrow
+ * exception: the tape may call the source-setting endpoint
+ * (/api/market/quotes/source) through apiFetch — a setting, never a
+ * feed fetch — so the pin forbids the feed URLs, not the endpoint.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -35,11 +39,17 @@ describe("single quotes feed through apiFetch (#2098, #2100)", () => {
     expect(src).toContain('useMarketQuotes } from "../quotes/useMarketQuotes"');
   });
 
-  it.each(consumers)("%s owns no socket, poller, or fetch", (file) => {
+  it.each(consumers)("%s owns no socket, poller, or feed fetch", (file) => {
     const src = readFileSync(join(here, "..", file), "utf8");
     expect(src).not.toContain("new WebSocket");
-    expect(src).not.toContain("/api/market/quotes");
+    expect(src).not.toContain("/api/market/quotes?");
+    expect(src).not.toContain("/api/market/quotes/ws");
     expect(src).not.toContain("setInterval");
-    expect(src).not.toContain("fetch(");
+  });
+
+  it("the tape's only quotes-endpoint call is the source setting (#2108)", () => {
+    const src = readFileSync(join(here, "..", "src/client/components/MarketTickerTape.tsx"), "utf8");
+    expect(src).toContain('"/api/market/quotes/source"');
+    expect(src).toContain('aria-label="Quote source"');
   });
 });
