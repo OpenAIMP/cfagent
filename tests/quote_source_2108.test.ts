@@ -113,7 +113,7 @@ describe("quote source setting (#2108)", () => {
 
   it("yahoo provider skips Alpaca entirely", async () => {
     const calls = mockFetch((url) => {
-      if (url.includes("query1.finance.yahoo.com")) return yahooPayload(50, 48);
+      if (url.startsWith("https://query1.finance.yahoo.com/")) return yahooPayload(50, 48);
       throw new Error(`unexpected fetch: ${url}`);
     });
     const tick = await fetchRealMarketQuote("YHOO1", {} as never, { provider: "yahoo" });
@@ -146,7 +146,7 @@ describe("quote source setting (#2108)", () => {
       expiresAt: Date.now() + 20000,
     });
     const calls = mockFetch((url) => {
-      if (url.includes("query1.finance.yahoo.com")) return yahooPayload(55, 50);
+      if (url.startsWith("https://query1.finance.yahoo.com/")) return yahooPayload(55, 50);
       throw new Error(`unexpected fetch: ${url}`);
     });
     const tick = await fetchRealMarketQuote("YHOO2", {} as never, { provider: "yahoo" });
@@ -166,7 +166,7 @@ describe("quote source setting (#2108)", () => {
 
   it("alpaca provider on Alpaca failure returns null without Yahoo substitution", async () => {
     const calls = mockFetch((url) => {
-      if (url.includes("alpaca.markets")) return { ok: false, json: async () => ({}) };
+      if (url.startsWith("https://data.alpaca.markets/")) return { ok: false, json: async () => ({}) };
       throw new Error(`unexpected fetch: ${url}`);
     });
     const env = { ALPACA_API_KEY: "k", ALPACA_SECRET_KEY: "s" };
@@ -199,7 +199,7 @@ describe("quote source setting (#2108)", () => {
       expiresAt: 0,
     });
     const calls = mockFetch((url) => {
-      if (url.includes("alpaca.markets")) {
+      if (url.startsWith("https://data.alpaca.markets/")) {
         return { ok: true, json: async () => ({ quote: { bp: 102, ap: 102 } }) };
       }
       throw new Error(`unexpected fetch: ${url}`);
@@ -215,12 +215,12 @@ describe("quote source setting (#2108)", () => {
     const db = new FakeD1();
     await setQuoteSource(db as never, "yahoo");
     const calls = mockFetch((url) => {
-      if (url.includes("query1.finance.yahoo.com")) return yahooPayload(70, 68);
+      if (url.startsWith("https://query1.finance.yahoo.com/")) return yahooPayload(70, 68);
       throw new Error(`unexpected fetch: ${url}`);
     });
     await refreshQuotesInBackground(["REF1"], { AGENT_DB: db } as never);
     expect(liveMarketCache.get("REF1")?.tick.source).toBe("Yahoo Finance");
-    expect(calls.every((u) => u.includes("query1.finance.yahoo.com"))).toBe(true);
+    expect(calls.every((u) => u.startsWith("https://query1.finance.yahoo.com/"))).toBe(true);
   });
 
   it("background refresh honors a stored alpaca setting without keys", async () => {
