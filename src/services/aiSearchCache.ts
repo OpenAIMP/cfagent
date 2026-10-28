@@ -4,9 +4,9 @@
  *
  * The AI_SEARCH_ENDPOINT (wrangler.jsonc) was fetched per query with
  * zero caching — every identical query paid a full network round trip.
- * This module is the single cache owner; both agent search surfaces
- * (src/agents/mas.ts `searchKnowledge`, src/agents/search.ts
- * SearchAgent) read through it.
+ * This module is the single cache owner; its reader is src/agents/mas.ts
+ * `searchKnowledge`, invoked by the SearchHub MAS Search tab via
+ * POST /search/mas (#1169 S4-2).
  *
  * Honesty note (same class as the rate limiter's per-isolate state):
  * the cache lives in isolate memory — it is NOT shared across isolates,
