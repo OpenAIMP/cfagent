@@ -1,5 +1,6 @@
 /**
- * Issue #478 (follow-up to #175): the New Payment form in Chat.tsx
+ * Issue #478 (follow-up to #175): the New Payment form (Chat.tsx until
+ * #2149 moved it to PaymentsPage.tsx)
  * pre-filled its Purpose / Description field with the product text of
  * the orchestrator seed transaction that #175 deleted
  * ("500,000 AI Inference Token Credits") — both as the field's initial
@@ -49,29 +50,32 @@ describe("#478 — new-payment description carries no seed product text", () => 
   });
 
   it("the description state initialises empty (no pre-filled value)", () => {
-    const chat = src("client/Chat.tsx");
-    expect(chat).toMatch(/const \[newPayDesc, setNewPayDesc\] = useState\(""\);/);
-    expect(chat).not.toMatch(/\[newPayDesc, setNewPayDesc\] = useState\("[^"]+"\)/);
+    // #2149: the New Payment form moved with the payments page out of Chat.tsx.
+    const page = src("client/PaymentsPage.tsx");
+    expect(page).toMatch(/const \[newPayDesc, setNewPayDesc\] = useState\(""\);/);
+    expect(page).not.toMatch(/\[newPayDesc, setNewPayDesc\] = useState\("[^"]+"\)/);
   });
 
   it("the description field still exists and stays bound to its state", () => {
-    const chat = src("client/Chat.tsx");
-    expect(chat).toContain("Purpose / Description");
-    expect(chat).toMatch(/value=\{newPayDesc\}/);
-    expect(chat).toMatch(/onChange=\{\(e\) => setNewPayDesc\(e\.target\.value\)\}/);
+    const page = src("client/PaymentsPage.tsx");
+    expect(page).toContain("Purpose / Description");
+    expect(page).toMatch(/value=\{newPayDesc\}/);
+    expect(page).toMatch(/onChange=\{\(e\) => setNewPayDesc\(e\.target\.value\)\}/);
     // The submitted payment still sends the (user-typed) description.
-    expect(chat).toMatch(/description: newPayDesc\.trim\(\)/);
+    expect(page).toMatch(/description: newPayDesc\.trim\(\)/);
   });
 
   it("the description placeholder is neutral copy, not a product claim", () => {
-    const chat = src("client/Chat.tsx");
+    const page = src("client/PaymentsPage.tsx");
     // #1576 (E2) converted the field from a raw <input> to the TextInput
-    // primitive; the pin asserts the placeholder property (present,
-    // neutral, bound to state), not the element type, so it accepts
-    // either form. The freeze test separately pins zero raw inputs in
-    // Chat.tsx, so the primitive form is what CI enforces.
-    const inputMatch = chat.match(
-      /<label>Purpose \/ Description<\/label>\s*<(?:input|TextInput)[^>]*placeholder="([^"]*)"[^>]*value=\{newPayDesc\}/,
+    // primitive; #2149 labels it via FieldShell, so the label is a prop
+    // on FieldShell rather than a literal <label> element — the pin
+    // asserts the label prop plus the placeholder property (present,
+    // neutral, bound to state). The freeze test separately pins zero raw
+    // inputs in PaymentsPage.tsx, so the primitive form is what CI enforces.
+    expect(page).toContain('label="Purpose / Description"');
+    const inputMatch = page.match(
+      /<TextInput[^>]*placeholder="([^"]*)"[^>]*value=\{newPayDesc\}/,
     );
     expect(inputMatch).not.toBeNull();
     const placeholder = inputMatch![1];

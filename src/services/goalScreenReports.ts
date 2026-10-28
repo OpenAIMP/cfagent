@@ -15,6 +15,8 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import * as XLSX from "@e965/xlsx";
 import type { GoalDrivenScreenResult } from "./goalDrivenScreen";
+import { recordJobOutcome } from "./jobOutcomes";
+import type { SqlStorage } from "../orm";
 
 export type GoalScreenArtifactFormat = "pdf" | "xlsx" | "csv";
 
@@ -140,6 +142,55 @@ export async function generateGoalScreenPdf(
     }
   }
   return doc.save();
+}
+
+/**
+ * Record one goal-screen run in the job-outcome sink (multi-tenant
+ * run ledger). Goal runs have no async-job tree, so without this row
+ * they never appear in Workflow Runs even though their artifacts and
+ * canonical report exist. Keyed by the run id, so a re-record (direct
+ * + workflow path on the same run) converges on one row.
+ * Never throws — a sink failure must not fail the run.
+ */
+export interface GoalRunOutcomeRecord {
+  id: string;
+  trigger: "manual" | "scheduled";
+  status: "completed" | "failed" | "partial";
+  scanned?: number;
+  matched?: number;
+  error?: string;
+  pdfKey?: string;
+  xlsxKey?: string;
+  csvKey?: string;
+  reportUrl?: string;
+  origin?: string;
+  createdAt?: string;
+}
+
+export function recordGoalRunOutcome(
+  sql: SqlStorage | null | undefined,
+  run: GoalRunOutcomeRecord,
+): void {
+  if (!sql) return;
+  try {
+    recordJobOutcome(sql, {
+      id: run.id,
+      kind: "goal",
+      trigger: run.trigger,
+      status: run.status,
+      scanned: run.scanned,
+      matched: run.matched,
+      codedError: run.error,
+      reportUrl: run.reportUrl,
+      pdfKey: run.pdfKey,
+      xlsxKey: run.xlsxKey,
+      csvKey: run.csvKey,
+      origin: run.origin ?? "goal-screen",
+      createdAt: run.createdAt,
+    });
+  } catch (err) {
+    console.warn(`[GoalScreenReports] outcome write failed for run ${run.id}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export interface GoalScreenArtifactOutcome {

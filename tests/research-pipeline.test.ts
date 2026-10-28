@@ -149,6 +149,7 @@ describe("runResearchPipeline", () => {
       source: "options_research",
       summary: report.summary,
       body: report as unknown as Record<string, unknown>,
+      userLogin: "tester",
     };
     const first = storeReportAtGeneration(sql, input);
     const second = storeReportAtGeneration(sql, input);

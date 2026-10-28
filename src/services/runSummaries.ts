@@ -151,6 +151,12 @@ const KIND_BY_REPORT_SOURCE: Record<string, RunKind> = {
   screener: "screener",
   options_scanner: "options_scanner",
   options_screen: "options_scanner",
+  // Issue #2167: options research runs are their own family; the Docs row
+  // renders from the canonical body's artifact keys.
+  options_research: "report",
+  // Strategy Discovery panel runs (source "options_strategy") are the
+  // same options-research family and belong under the options filter.
+  options_strategy: "options_scanner",
   // Consolidation C4 (#1329): discovery runs store canonical reports
   // now (source "discovery"), so their canonical rows map to kind
   // "discovery" instead of falling through to "report".
@@ -173,8 +179,15 @@ const RUN_SOURCE_BY_KIND: Record<string, string> = {
 
 function xlsxUrlForSource(source: string, key: string): string | null {
   if (source === "screener") return `/api/screener/report.xlsx?key=${encodeURIComponent(key)}`;
-  if (source === "options_scanner" || source === "options_screen")
+  // Issue #2162: strategy runs store their workbook in the options family.
+  if (source === "options_scanner" || source === "options_screen" || source === "options_strategy")
     return `/api/options/report.xlsx?key=${encodeURIComponent(key)}`;
+  // Issue #2167: options research workbooks are served by the research route.
+  if (source === "options_research")
+    return `/api/research/report.xlsx?key=${encodeURIComponent(key)}`;
+  // Issue #2180: discovery run workbooks are served by the discovery route.
+  if (source === "discovery")
+    return `/api/discovery/report.xlsx?key=${encodeURIComponent(key)}`;
   if (source === "goal_screen")
     return `/api/screening/goal-screen/report.xlsx?key=${encodeURIComponent(key)}`;
   return null;
@@ -183,8 +196,15 @@ function xlsxUrlForSource(source: string, key: string): string | null {
 /** Issue #1346: mirrors xlsxUrlForSource for the stored CSV artifact. */
 function csvUrlForSource(source: string, key: string): string | null {
   if (source === "screener") return `/api/screener/report.csv?key=${encodeURIComponent(key)}`;
-  if (source === "options_scanner" || source === "options_screen")
+  // Issue #2162: strategy runs store their CSV in the options family.
+  if (source === "options_scanner" || source === "options_screen" || source === "options_strategy")
     return `/api/options/report.csv?key=${encodeURIComponent(key)}`;
+  // Issue #2167: options research CSVs are served by the research route.
+  if (source === "options_research")
+    return `/api/research/report.csv?key=${encodeURIComponent(key)}`;
+  // Issue #2180: discovery run CSVs are served by the discovery route.
+  if (source === "discovery")
+    return `/api/discovery/report.csv?key=${encodeURIComponent(key)}`;
   if (source === "goal_screen")
     return `/api/screening/goal-screen/report.csv?key=${encodeURIComponent(key)}`;
   return null;

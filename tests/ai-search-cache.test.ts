@@ -4,6 +4,7 @@
  * cache under test never touches the network.
  */
 import { describe, it, expect, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   AiSearchCache,
   aiSearchCacheKey,
@@ -115,6 +116,17 @@ describe("AiSearchCache", () => {
     cache.set("k", "v2");
     now += 59_000;
     expect(cache.get("k")).toBe("v2");
+  });
+});
+
+describe("aiSearchCache header (S4-3)", () => {
+  it("names mas.ts searchKnowledge as the reader and never references the nonexistent src/agents/search.ts", () => {
+    const src = readFileSync(
+      new URL("../src/services/aiSearchCache.ts", import.meta.url),
+      "utf8"
+    );
+    expect(src).toContain("src/agents/mas.ts");
+    expect(src).not.toContain("src/agents/search.ts");
   });
 });
 

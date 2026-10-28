@@ -193,44 +193,28 @@ async function feedEtrade(
 async function feedYahoo(
   deps: ShardExecutorDeps,
   chain: ShardChainContext
-): Promise<{ gapFillQuotes: unknown; technicals: unknown }> {
+): Promise<{ technicals: unknown }> {
   const nasdaq = siblingResult(deps, chain.chainId, "feed", "nasdaq");
-  const etrade = siblingResult(deps, chain.chainId, "feed", "etrade");
   if (!nasdaq?.listings) {
     throw new Error("Feed shard yahoo blocked: nasdaq shard has no completed listings result.");
   }
-  if (!etrade?.quotes) {
-    throw new Error("Feed shard yahoo blocked: etrade shard has no completed quotes result.");
-  }
   const symbols = await symbolsForUniverse(chain, nasdaq.listings);
-  const quoted = new Set(
-    ((etrade.quotes as any[]) || []).map((q: any) => String(q.symbol).toUpperCase())
-  );
-  const missing = symbols.filter((s) => !quoted.has(s.toUpperCase()));
   const { YahooFinanceProvider } = await import("./marketDataResearch");
   const {
-    yahooQuoteToPipelineQuote,
     bootstrapDataProviders,
     createYahooDataProvider,
     bindYahooHistoryDeps,
     fetchPlatformTechnicalsBatch,
   } = await import("../trading");
-  const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
-  const provider = new YahooFinanceProvider(deps.env as any);
-  const gapFill = await withRetry(
-    async () =>
-      (missing.length ? await provider.getQuotes(missing) : [])
-        .map((q) => yahooQuoteToPipelineQuote(q))
-        .filter(Boolean),
-    policy,
-    { label: "shard.feed.yahoo.quotes" }
-  );
+  // Issue #2144 (owner ruling): the Yahoo shard fills COLUMNS only.
+  // It no longer fetches quotes for E*TRADE-missed symbols and no
+  // longer returns gapFillQuotes — E*TRADE-missed symbols go missing
+  // honestly, and assembly uses E*TRADE quotes only. The shard still
+  // runs (the feed gate requires it) and still returns technicals.
   // Issue #1331 (fix): binding failure degrades to a null-fetching
   // deps object, so the batch still runs and every symbol gets
   // honest null technicals — the shard never fails on history
   // binding alone, matching the old fetchTechnicalsBatch contract.
-  // The gap-fill quotes above stay direct: they are not yahooHistory
-  // and are out of this issue's scope (named residual).
   let historyDeps;
   try {
     bootstrapDataProviders(deps.sql as any);
@@ -249,7 +233,6 @@ async function feedYahoo(
   }
   const technicalsMap = await fetchPlatformTechnicalsBatch(historyDeps, symbols);
   return {
-    gapFillQuotes: gapFill,
     technicals: [...technicalsMap.entries()].map(([symbol, t]) => ({ ...t, symbol })),
   };
 }
@@ -271,8 +254,11 @@ async function generateAssemble(
   const etrade = siblingResult(deps, chain.chainId, "feed", "etrade");
   const yahoo = siblingResult(deps, chain.chainId, "feed", "yahoo");
   const etradeQuotes = ((etrade?.quotes ?? []) as any[]) || [];
-  const gapFill = ((yahoo?.gapFillQuotes ?? []) as any[]) || [];
-  const quotes = [...etradeQuotes, ...gapFill];
+  // Issue #2144 (owner ruling): assembly uses E*TRADE quotes only.
+  // A Yahoo sibling row carrying legacy gapFillQuotes (stored by a
+  // pre-fix chain) is ignored — Yahoo fills columns (technicals
+  // below), never rows.
+  const quotes = etradeQuotes;
   const technicalsMap = new Map(
     (((yahoo?.technicals ?? []) as any[]) || []).map((t: any) => [t.symbol, t])
   );
@@ -527,7 +513,11 @@ async function storeFormat(
       : `Sharded screen: ${chain.universe}, ${format} report, ${provenance.length} shards.`,
     body: { format, key, fileName, universe: chain.universe, thesis: chain.options?.thesis, chainId: chain.chainId, shardIds: provenance },
     createdAt: chain.timestamp,
-  });
+    userLogin: chain.userLogin,
+  },
+  // Issue #1169 S4-1: thread deps.env so the seam indexes this
+  // screener/options_scanner row at write time.
+  deps.env);
   return { format, key, reportId: row?.reportId ?? `screener:${chain.chainId}:${format}` };
 }
 

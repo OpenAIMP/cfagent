@@ -1137,12 +1137,15 @@ export class ScreenerAgent extends PortThink {
     // leg. The agent resolves the flag itself from its env, so both
     // direct and workflow-child goal runs gather when ON, and none
     // do when OFF. Yahoo-fallback runs keep their Yahoo engine
-    // (gather is listings-leg only). Any binding failure degrades
-    // to no hook — the leg then refuses technical filters exactly
-    // as before, never a silent partial enrichment. The hook rides
-    // the same seam as the universe bundle; the run id is the
-    // caller run id (D2, the idempotency key), matching every
-    // other goal-run capture.
+    // Issue #2056: the gather fetches live and Yahoo separately —
+    // rows come from the live side alone, Yahoo complements columns
+    // where present (never adds rows, never vetoes them). The
+    // combined gap-fill seam is NOT used here, because gap-fill
+    // alone cannot prove Yahoo membership for a live-served symbol.
+    // Without a Yahoo gap-fill provider the Yahoo side is absent
+    // and rows store with live columns only. Any binding failure
+    // degrades to no hook — the leg then refuses technical filters
+    // exactly as before, never a silent partial enrichment.
     let gatherEnrichment: import("../trading").ScreenLiveEnrichment | undefined;
     if (req.provider !== "yahoo") {
       try {
@@ -1157,7 +1160,8 @@ export class ScreenerAgent extends PortThink {
             listCapabilityRoutes: gatherListRoutes,
             listProviderConfigs: gatherListConfigs,
             quotesProvidersFromRoute: gatherQuotesFromRoute,
-            bindLiveQuotesQuoteDeps: gatherBindQuotes,
+            bindEtradeQuoteDeps: gatherBindLive,
+            bindYahooQuoteDeps: gatherBindYahoo,
             resolveYahooHistoryDeps: gatherResolveHistory,
           } = await import("../trading");
           const { createObservabilitySink } = await import("../observability/createObservabilityPorts");
@@ -1184,7 +1188,10 @@ export class ScreenerAgent extends PortThink {
             tenantId: "default",
             userLogin,
           };
-          const gatherQuoteDeps = gatherBindQuotes(gatherPrimary, gatherGapFill, gatherRunContext);
+          const gatherLiveQuoteDeps = gatherBindLive(gatherPrimary, gatherRunContext);
+          const gatherYahooQuoteDeps = gatherGapFill
+            ? gatherBindYahoo(gatherGapFill, gatherRunContext)
+            : undefined;
           const gatherHistoryDeps = await gatherResolveHistory({
             sql: this.ctx.storage.sql,
             env: this.env,
@@ -1199,16 +1206,27 @@ export class ScreenerAgent extends PortThink {
             tenantId: "default",
             userLogin,
             runId: req.idempotencyKey,
-            quoteDeps: gatherQuoteDeps,
+            liveQuoteDeps: gatherLiveQuoteDeps,
+            ...(gatherYahooQuoteDeps ? { yahooQuoteDeps: gatherYahooQuoteDeps } : {}),
             ...(gatherHistoryDeps ? { historyDeps: gatherHistoryDeps } : {}),
             sink: createObservabilitySink(this.env),
           });
         }
       } catch (err) {
+        const attachError = err instanceof Error ? err.message : String(err);
         console.warn(
-          `[screener-agent] goal gather unavailable, technical filters refuse as before: ${err instanceof Error ? err.message : String(err)}`
+          `[screener-agent] goal gather unavailable, technical filters refuse as before: ${attachError}`
         );
-        gatherEnrichment = undefined;
+        // Issue #1999: an attach failure is a gather failure, not
+        // a silent no-hook. The stub throws into screenLive's
+        // failed-gather path when a technical filter needs it;
+        // filters that need no enrichment never call it, so
+        // flag-OFF and Yahoo runs are unchanged.
+        gatherEnrichment = {
+          enrich: async () => {
+            throw new Error(attachError);
+          },
+        };
       }
     }
     // Issue #1686: non-Yahoo goal screens previously defaulted to a
@@ -1376,6 +1394,15 @@ export class ScreenerAgent extends PortThink {
   }
 
   /**
+   * Issue #2180: serve a stored discovery run report (PDF/XLSX/CSV) by key.
+   * The artifacts live in the same blob store the report routes read.
+   */
+  async getDiscoveryReportByKey(key: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+    const { getReportPdf } = await import("../services/reportBlobStore");
+    return await getReportPdf(this.env, this.ctx.storage, key);
+  }
+
+  /**
    * Get a specific options run's PDF by its storage key (issue #361).
    */
   async getOptionsPdfByKey(pdfKey: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
@@ -1462,6 +1489,99 @@ export class ScreenerAgent extends PortThink {
   async getLatestOptionsXlsx(): Promise<{ bytes: Uint8Array; fileName: string } | null> {
     const { getReportPdf } = await import("../services/reportBlobStore");
     return await getReportPdf(this.env, this.ctx.storage, OPTIONS_XLSX_LATEST_KEY);
+  }
+
+  /**
+   * Generate + store the strategy screener's PDF/XLSX/CSV for one run.
+   *
+   * Strategy screens (both fit directions and the AI actions) store
+   * these under the existing options key families, so the established
+   * /api/options/report.pdf|xlsx|csv endpoints serve them with no new
+   * route surface. Each format has its own failure domain and retry
+   * policy (#1278): a failed format is recorded, never fatal.
+   */
+  async generateAndStoreStrategyReport(
+    input: import("../trading").StrategyReportInput,
+  ): Promise<import("../trading").StrategyReportArtifactOutcome> {
+    const { withRetry } = await import("../services/resilience");
+    const { resolvePipelinePolicy } = await import("../services/pipelinePolicy");
+    const { putReportPdf } = await import("../services/reportBlobStore");
+    const {
+      generateStrategyReportPdf,
+      generateStrategyReportXlsx,
+      generateStrategyReportCsv,
+      strategyReportFileName,
+    } = await import("../trading");
+    const policy = resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report;
+    const id = crypto.randomUUID().slice(0, 8);
+    const outcome: import("../trading").StrategyReportArtifactOutcome = {
+      pdfStatus: "failed",
+      xlsxStatus: "failed",
+      csvStatus: "failed",
+    };
+
+    try {
+      const key = `options:pdf:strategy:${id}`;
+      const bytes = await generateStrategyReportPdf(input);
+      await withRetry(
+        () => putReportPdf(this.env, this.ctx.storage as any, key, strategyReportFileName(input, "pdf"), bytes),
+        policy,
+        { label: "strategy-pdf" },
+      );
+      outcome.pdfKey = key;
+      outcome.pdfStatus = "generated";
+    } catch (err) {
+      outcome.pdfError = err instanceof Error ? err.message : String(err);
+      console.error("[ScreenerAgent] Strategy PDF generation failed:", outcome.pdfError);
+    }
+
+    try {
+      const key = `options:xlsx:strategy:${id}`;
+      const bytes = generateStrategyReportXlsx(input);
+      await withRetry(
+        () =>
+          putReportPdf(
+            this.env,
+            this.ctx.storage as any,
+            key,
+            strategyReportFileName(input, "xlsx"),
+            bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          ),
+        policy,
+        { label: "strategy-xlsx" },
+      );
+      outcome.xlsxKey = key;
+      outcome.xlsxStatus = "generated";
+    } catch (err) {
+      outcome.xlsxError = err instanceof Error ? err.message : String(err);
+      console.error("[ScreenerAgent] Strategy XLSX generation failed:", outcome.xlsxError);
+    }
+
+    try {
+      const key = `options:csv:strategy:${id}`;
+      const bytes = new TextEncoder().encode(generateStrategyReportCsv(input));
+      await withRetry(
+        () =>
+          putReportPdf(
+            this.env,
+            this.ctx.storage as any,
+            key,
+            strategyReportFileName(input, "csv"),
+            bytes,
+            "text/csv",
+          ),
+        policy,
+        { label: "strategy-csv" },
+      );
+      outcome.csvKey = key;
+      outcome.csvStatus = "generated";
+    } catch (err) {
+      outcome.csvError = err instanceof Error ? err.message : String(err);
+      console.error("[ScreenerAgent] Strategy CSV generation failed:", outcome.csvError);
+    }
+
+    return outcome;
   }
 
   private async persistRun(result: ScreenerRunResult): Promise<void> {

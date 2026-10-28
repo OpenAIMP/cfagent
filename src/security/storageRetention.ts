@@ -228,6 +228,12 @@ export interface StorageRetentionOptions {
   maxPerRun?: number;
   /** Injectable clock (tests). */
   now?: () => number;
+  /**
+   * Owning tenant for the pass's canonical report row. Required for the
+   * row; without it the pass still prunes, but writes no mas_reports
+   * row (there is no "default" tenant to file it under).
+   */
+  userLogin?: string;
 }
 
 export interface StorageRetentionResult {
@@ -503,6 +509,9 @@ export function runStorageRetention(
   // Issue #308: through the single generate→store seam — one canonical
   // row per generation (generationId = run id).
   try {
+    if (!options.userLogin) {
+      console.warn("[storage-retention] No owning userLogin: pruning is recorded in mas_events, no report row written.");
+    } else {
     orm.storeCanonicalReport({
       runId: `retention:${cutoffIso}`,
       generationId: `retention:${cutoffIso}`,
@@ -511,7 +520,9 @@ export function runStorageRetention(
       summary: `Pruned ${pruned} mas_messages rows older than ${cutoffIso} (${windowDays}d window${capped ? ", capped at per-run max" : ""}).`,
       body: { pruned, cutoffIso, windowDays, batchSize, maxPerRun, capped },
       createdAt: new Date(nowMs).toISOString(),
+      userLogin: options.userLogin,
     });
+    }
   } catch {
     // Non-critical report persistence error
   }

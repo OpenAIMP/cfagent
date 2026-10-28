@@ -90,6 +90,7 @@ const input = {
   source: "research_report",
   summary: "Probe summary",
   body: { title: "Probe" },
+  userLogin: "tenant@example.com",
 };
 
 describe("#338 S3 coupled delete", () => {

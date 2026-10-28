@@ -19,6 +19,8 @@ import {
   guardScheduledETradeAuth,
   type AuthEpisodeStore,
 } from "./etradeAuthPreflight";
+import { withRetry } from "./resilience";
+import { resolvePipelinePolicy } from "./pipelinePolicy";
 import { DynamicMarketScreener } from "../trading";
 import {
   type ScannedStock,
@@ -60,6 +62,11 @@ import type {
   DiscoverySymbolOutcome,
   StrategyProfileStore,
 } from "../trading";
+import {
+  buildDiscoveryCanonicalBody,
+  generateAndStoreDiscoveryReport,
+} from "./discoveryReportPublish";
+import type { DiscoveryReportInput } from "../trading";
 import {
   resolveFeedSnapshotForSymbol,
   pickFeedLoadParams,
@@ -452,16 +459,26 @@ export class ScheduledTasksService {
   private audit(type: string, payload: Record<string, unknown>): void {
     if (!this.orm?.events) return;
     try {
+      // Issue #1999 (D7): this service runs system-path executions
+      // only (cron/bridge/scheduled), so every row it writes is a
+      // system-principal row for the run owner — never a session
+      // row, never a defaulted identity. G-AUD-3, applied.
       this.orm.events.create({
         id: crypto.randomUUID(),
         sessionId: this.userLogin,
         type,
         agent: "orchestrator",
-        payload,
+        payload: { ...payload, principalKind: "system" },
         createdAt: new Date().toISOString(),
       });
-    } catch {
-      // Non-critical audit insertion error
+    } catch (err) {
+      // Issue #1999: an audit insertion failure is fail-visible,
+      // never silent — the warn carries type + login on the
+      // worker-log channel. The run's outcome is unchanged: the
+      // audit store is the record, not the run.
+      console.warn(
+        `[ScheduledTasksService] Audit insertion failed (type=${type}, login=${this.userLogin}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -1398,33 +1415,48 @@ export class ScheduledTasksService {
       // bridge carries the per-task recipients + a delivery-channel
       // allowlist mirroring the direct path, so the chain delivers
       // exactly once and adds no env-configured channel the direct
-      // path never used. A bridge failure never fails the run.
+      // path never used. A bridge failure never fails the run's
+      // screen outcome — but Issue #1999: the submission retries
+      // under the report policy, and a final failure is audited
+      // (followup.schedule_failed) so no chain delivery is silently
+      // assumed from a kept canonical row.
       if (options.stageChain && this.followupScheduler) {
+        const scheduler = this.followupScheduler;
         try {
-          await this.followupScheduler(
-            {
-              kind: "goal",
-              trigger,
-              success: true,
-              thesis: `Goal screen — ${out.result?.goalKind ?? "goal"}`,
-              pdfKeys: [],
-              canonicalReportId: out.canonicalReportId,
-              deliverViaChain: true,
-              ...(options.emailTo ? { emailTo: options.emailTo } : {}),
-              ...(options.slackChannel ? { slackChannel: options.slackChannel } : {}),
-              deliveryChannels: directChannels,
-              matchedCount: out.result?.counts.hits,
-              totalScanned: (out.result?.counts.stocksScanned ?? 0)
-                + (out.result?.counts.optionsUnderlyingsScanned ?? 0),
-              stageChain: options.stageChain,
-              // Issue #1571: the bridge outcome names the fallback.
-              ...(providerFallback ? { providerFallback } : {}),
-            },
-            userLogin,
-            true,
+          await withRetry(
+            () =>
+              scheduler(
+                {
+                  kind: "goal",
+                  trigger,
+                  success: true,
+                  thesis: `Goal screen — ${out.result?.goalKind ?? "goal"}`,
+                  pdfKeys: [],
+                  canonicalReportId: out.canonicalReportId,
+                  deliverViaChain: true,
+                  ...(options.emailTo ? { emailTo: options.emailTo } : {}),
+                  ...(options.slackChannel ? { slackChannel: options.slackChannel } : {}),
+                  deliveryChannels: directChannels,
+                  matchedCount: out.result?.counts.hits,
+                  totalScanned: (out.result?.counts.stocksScanned ?? 0)
+                    + (out.result?.counts.optionsUnderlyingsScanned ?? 0),
+                  stageChain: options.stageChain,
+                  // Issue #1571: the bridge outcome names the fallback.
+                  ...(providerFallback ? { providerFallback } : {}),
+                },
+                userLogin,
+                true,
+              ),
+            resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report,
+            { label: "followup-bridge" },
           );
         } catch (bridgeErr) {
           console.warn("[ScheduledTasksService] Goal bridge failed (canonical row kept):", bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr));
+          this.audit("followup.schedule_failed", {
+            taskId: out.taskId,
+            trigger,
+            error: bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr),
+          });
         }
       }
       return {
@@ -2080,7 +2112,10 @@ export class ScheduledTasksService {
         // report is stored under `default` and the owner-scoped Reports
         // read cannot see the run it just produced.
         userLogin,
-      });
+      },
+      // Issue #1169 S4-1: thread this.env so the seam indexes this
+      // options_scanner row at write time.
+      this.env);
 
       // Consolidation C4 (#1329): chain mode suppresses the direct
       // Slack/email/webhook delivery below — the bridge's deliver jobs
@@ -2722,31 +2757,59 @@ export class ScheduledTasksService {
   }): Promise<string | undefined> {
     let reportId: string | undefined;
     if (this.orm) {
+      // Issue #2180: the run report's document set, generated BEFORE the
+      // canonical write so the row carries the keys — the store is
+      // insert-only per generation id, so a later write could never attach
+      // them.
+      const reportInput: DiscoveryReportInput = {
+        runId: args.run.id,
+        createdAt: args.timestamp,
+        trigger: args.options.trigger || "scheduled",
+        inputModel: args.run.inputModel,
+        status: args.run.status,
+        summary: args.summary,
+        symbols: args.symbols,
+        matchedCount: args.matchedCount,
+        totalScanned: args.totalScanned,
+        outcomes: args.outcomes,
+      };
+      const artifacts = await generateAndStoreDiscoveryReport({
+        env: this.env,
+        storage: (this.platformDeps as { blobStorage?: unknown } | undefined)?.blobStorage as any,
+        input: reportInput,
+      });
       const stored = await storeReportStage(this.orm, {
         runId: `discovery:${args.run.id}`,
         generationId: `discovery:${args.run.id}`,
         title: `Strategy discovery — ${args.run.inputModel}`,
         source: "discovery",
         summary: args.summary,
-        body: {
-          discoveryRunId: args.run.id,
-          status: args.run.status,
-          inputModel: args.run.inputModel,
-          symbols: args.symbols,
-          trigger: args.options.trigger || "scheduled",
-          // Consolidation #1236 (feed seam): surface the feed inputs
-          // through serve — which artifact fed each symbol, its
-          // asOf, and whether it was stale. Only in snapshot mode.
-          ...(args.outcomes.some((o) => o.snapshotInput)
-            ? {
-                snapshotInputs: args.outcomes
-                  .filter((o) => o.snapshotInput)
-                  .map((o) => ({ symbol: o.symbol, ...o.snapshotInput })),
-              }
-            : {}),
-        },
+        body: buildDiscoveryCanonicalBody(
+          {
+            discoveryRunId: args.run.id,
+            status: args.run.status,
+            inputModel: args.run.inputModel,
+            symbols: args.symbols,
+            trigger: args.options.trigger || "scheduled",
+            // Consolidation #1236 (feed seam): surface the feed inputs
+            // through serve — which artifact fed each symbol, its
+            // asOf, and whether it was stale. Only in snapshot mode.
+            ...(args.outcomes.some((o) => o.snapshotInput)
+              ? {
+                  snapshotInputs: args.outcomes
+                    .filter((o) => o.snapshotInput)
+                    .map((o) => ({ symbol: o.symbol, ...o.snapshotInput })),
+                }
+              : {}),
+          },
+          artifacts,
+        ),
         createdAt: args.timestamp,
-      });
+        userLogin: this.userLogin,
+      },
+      // Issue #1169 S4-1: thread this.env so the seam indexes this
+      // discovery row at write time.
+      this.env);
       reportId = stored?.reportId;
     }
     if (args.run.status !== "failed") {
@@ -2768,10 +2831,21 @@ export class ScheduledTasksService {
         webhookUrl: args.options.webhookUrl,
       });
       if (args.options.stageChain && this.followupScheduler) {
+        const scheduler = this.followupScheduler;
         try {
-          await this.followupScheduler(outcome, this.userLogin, true);
+          // Issue #1999: serve submission retries under the report
+          // policy; a final failure is audited, never silent.
+          await withRetry(
+            () => scheduler(outcome, this.userLogin, true),
+            resolvePipelinePolicy(this.env as unknown as Record<string, unknown>).retry.report,
+            { label: "followup-bridge" },
+          );
         } catch (bridgeErr) {
           console.warn("[ScheduledTasksService] Discovery bridge failed (canonical row kept):", bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr));
+          this.audit("followup.schedule_failed", {
+            bridge: "discovery",
+            error: bridgeErr instanceof Error ? bridgeErr.message : String(bridgeErr),
+          });
         }
       } else if (!args.options.stageChain) {
         await this.sendDiscoveryDirect(outcome);
@@ -3702,6 +3776,38 @@ export class ScheduledTasksService {
   }
 
   /**
+   * Issue #1999 (D2): persist one IV-collection run's report row.
+   * Returns false (and audits) when the store throws — the caller
+   * reports failure instead of success. Returns true when the row
+   * is stored, or when no store is configured (nothing to fail).
+   */
+  private persistIvCollectionReport(report: IvCollectionReport, timestamp: string): boolean {
+    if (!this.orm?.storeCanonicalReport) return true;
+    try {
+      this.orm.storeCanonicalReport({
+        runId: `iv_collection:${report.date}`,
+        generationId: `iv_collection:${report.date}`,
+        title: `Daily IV collection — ${report.date}`,
+        source: "iv_collection",
+        summary: `📈 Daily IV collection [${report.date}]: ${report.recorded} recorded, ${report.alreadyRecorded} already recorded, ${report.failed} failed across ${report.outcomes.length} tracked names.`,
+        body: { ...report, trackedCount: report.outcomes.length },
+        createdAt: timestamp,
+        userLogin: this.userLogin,
+      },
+      // Issue #1169 S4-1 (preserved through the #1999 splice): thread
+      // this.env so the seam indexes this iv_collection row at write time.
+      this.env);
+      return true;
+    } catch (storeErr) {
+      this.audit("options.iv_collection_persist_failed", {
+        date: report.date,
+        error: storeErr instanceof Error ? storeErr.message : String(storeErr),
+      });
+      return false;
+    }
+  }
+
+  /**
    * Daily ATM IV collection (issue #15): one IV-history record per
    * tracked name (curated universe ∪ all watchlist symbols), derived
    * from the live chain through the scanner's own data path
@@ -3788,24 +3894,13 @@ export class ScheduledTasksService {
       // (mas_reports) so the AI Search agent can surface it later.
       // Issue #308: through the single generate→store seam — one
       // canonical row per generation (generationId = run id).
-      if (this.orm?.storeCanonicalReport) {
-        try {
-          this.orm.storeCanonicalReport({
-            runId: `iv_collection:${report.date}`,
-            generationId: `iv_collection:${report.date}`,
-            title: `Daily IV collection — ${report.date}`,
-            source: "iv_collection",
-            summary: `📈 Daily IV collection [${report.date}]: ${report.recorded} recorded, ${report.alreadyRecorded} already recorded, ${report.failed} failed across ${report.outcomes.length} tracked names.`,
-            body: { ...report, trackedCount: report.outcomes.length },
-            createdAt: timestamp,
-          });
-        } catch {
-          // Non-critical report persistence error
-        }
-      }
+      // Issue #1999 (D2): the persisted row IS this run's record
+      // (#278: persist so the agent can surface it later). A lost
+      // store must not report success — the run failed its point.
+      const stored = this.persistIvCollectionReport(report, timestamp);
 
       return {
-        success: true,
+        success: stored,
         taskType: "options.iv_collection",
         data: { ...report, trackedCount: report.outcomes.length },
         timestamp,

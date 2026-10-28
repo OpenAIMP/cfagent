@@ -1,6 +1,7 @@
 import React from "react";
 import { adAccentPalette } from "../../designTokens";
-import { Select, Button, TextInput, PageShell, PageSection } from "../../components/ui";
+import { Badge, Card, Select, Button, TextInput, PageShell, FieldShell, Tabs, TabPanel, Notice } from "../../components/ui";
+import { useUrlSyncedTabs } from "../../useUrlSyncedTabs";
 import type { AdItem } from "../types";
 
 export interface AdsTabProps {
@@ -26,57 +27,80 @@ export interface AdsTabProps {
   setNewAdUrl: React.Dispatch<React.SetStateAction<string>>;
 }
 
-export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, handleAdClick, handleCreateAd, newAdColor, newAdCta, newAdSponsor, newAdTagline, newAdTitle, newAdUrl, savingAd, setNewAdColor, setNewAdCta, setNewAdSponsor, setNewAdTagline, setNewAdTitle, setNewAdUrl}: AdsTabProps) {
-  return (
-          <div className="ads-view">
-            <PageShell
-              title="Sponsored Offers & Partner Marketplace"
-              scopeNote="Discover verified developer promotions, cloud compute grants, and API discounts. All placements run with real-time impression and click tracking."
-            >
-            <div>
-              <Button
-                className="refresh-btn"
-                onClick={fetchAds}
-                disabled={adsLoading}
-              >
-                {adsLoading ? "Refreshing…" : "🔄 Refresh"}
-              </Button>
-            </div>
+type AdsTabId = "offers" | "submit";
+const ADS_TABS: Array<{ id: AdsTabId; label: string }> = [
+  { id: "offers", label: "Offers" },
+  { id: "submit", label: "Submit" },
+];
+const isAdsTab = (v: unknown): v is AdsTabId => v === "offers" || v === "submit";
 
-            {/* Sponsored Offers Grid */}
-            <PageSection>
-            <div className="ads-grid">
-              {ads.map((ad) => (
-                <div
-                  key={ad.id}
-                  className="ad-spotlight-card"
-                  style={{
-                    borderColor: `${ad.accentColor}50`,
-                    boxShadow: `0 8px 32px ${ad.accentColor}15`,
-                  }}
-                >
-                  <div className="ad-card-top">
-                    <span
-                      className="ad-badge-tag"
+/**
+ * Sponsored Offers & Partner Marketplace as a shell page (issue #2161,
+ * epic #2150 slice 2): URL-synced inner tabs (?view=) with visited
+ * panels retained mounted-hidden. Per-ad accent colors are record data
+ * and still flow through Card/Badge style props; all layout is tokens.
+ */
+export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, handleAdClick, handleCreateAd, newAdColor, newAdCta, newAdSponsor, newAdTagline, newAdTitle, newAdUrl, savingAd, setNewAdColor, setNewAdCta, setNewAdSponsor, setNewAdTagline, setNewAdTitle, setNewAdUrl}: AdsTabProps) {
+  const { activeTab, visitedTabs, handleTabChange } = useUrlSyncedTabs<AdsTabId>({
+    param: "view",
+    isValid: isAdsTab,
+    defaultTab: "offers",
+  });
+  return (
+    <div>
+      <PageShell
+        title="Sponsored Offers & Partner Marketplace"
+        scopeNote="Discover verified developer promotions, cloud compute grants, and API discounts. All placements run with real-time impression and click tracking."
+      >
+        <div>
+          <Button
+            onClick={fetchAds}
+            disabled={adsLoading}
+          >
+            {adsLoading ? "Refreshing…" : "🔄 Refresh"}
+          </Button>
+        </div>
+
+        <Tabs
+          tabs={ADS_TABS}
+          value={activeTab}
+          onChange={handleTabChange}
+          ariaLabel="Sponsored offers sections"
+          idBase="ads"
+        />
+        <TabPanel idBase="ads" tabId="offers" active={activeTab === "offers"} retain={visitedTabs.has("offers")}>
+          <div className="ui-stat-grid">
+            {ads.map((ad) => (
+              <Card
+                key={ad.id}
+                style={{
+                  borderColor: `${ad.accentColor}50`,
+                  boxShadow: `0 8px 32px ${ad.accentColor}15`,
+                }}
+              >
+                <div className="ui-stack">
+                  <div className="ui-row">
+                    <Badge
+                      size="xs"
+                      uppercase
                       style={{ background: `${ad.accentColor}25`, color: ad.accentColor }}
                     >
                       {ad.badge}
-                    </span>
-                    <span className="ad-sponsor-label">Sponsored by {ad.sponsor}</span>
+                    </Badge>
+                    <span className="ui-meta-sm">Sponsored by {ad.sponsor}</span>
                   </div>
 
-                  <h4 className="ad-card-title">{ad.title}</h4>
-                  <p className="ad-card-tagline">{ad.tagline}</p>
+                  <h4>{ad.title}</h4>
+                  <p className="ui-meta">{ad.tagline}</p>
 
-                  <div className="ad-stats-row">
-                    <span className="ad-stat-pill">👁️ {ad.impressions} impressions</span>
-                    <span className="ad-stat-pill">🖱️ {ad.clicks} clicks</span>
+                  <div className="ui-row">
+                    <Badge size="xs" tone="neutral">👁️ {ad.impressions} impressions</Badge>
+                    <Badge size="xs" tone="neutral">🖱️ {ad.clicks} clicks</Badge>
                   </div>
 
-                  <div className="ad-card-action">
+                  <div>
                     <Button
                       type="button"
-                      className="ad-cta-button"
                       style={{ background: ad.accentColor }}
                       onClick={() => handleAdClick(ad)}
                     >
@@ -84,25 +108,24 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                     </Button>
                   </div>
                 </div>
-              ))}
-            </div>
-            </PageSection>
-
-            {/* Self-serve Ad Submission Form */}
-            <PageSection>
-            <div className="sponsor-submission-card">
-              <div className="card-header">
+              </Card>
+            ))}
+          </div>
+        </TabPanel>
+        <TabPanel idBase="ads" tabId="submit" active={activeTab === "submit"} retain={visitedTabs.has("submit")}>
+          <Card>
+            <div className="ui-stack">
+              <div>
                 <h4>📢 Submit a Sponsored Placement</h4>
-                <p>Feature your tool, API, or infrastructure platform to autonomous agent developers across the network.</p>
+                <p className="ui-meta">Feature your tool, API, or infrastructure platform to autonomous agent developers across the network.</p>
               </div>
 
-              <form onSubmit={handleCreateAd} className="ad-submission-form">
-                {adFormSuccess && <div className="form-alert success">{adFormSuccess}</div>}
-                {adFormError && <div className="form-alert error">{adFormError}</div>}
+              <form onSubmit={handleCreateAd} className="ui-stack">
+                {adFormSuccess && <Notice tone="success">{adFormSuccess}</Notice>}
+                {adFormError && <Notice tone="danger">{adFormError}</Notice>}
 
-                <div className="form-row-2">
-                  <div className="form-group">
-                    <label>Campaign / Product Title *</label>
+                <div className="ui-form-row">
+                  <FieldShell id="ad-title" label="Campaign / Product Title *">
                     <TextInput
                       type="text"
                       placeholder="e.g. Quantitative Market Intelligence Pro"
@@ -110,21 +133,19 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                       onChange={(e) => setNewAdTitle(e.target.value)}
                       required
                     />
-                  </div>
+                  </FieldShell>
 
-                  <div className="form-group">
-                    <label>Sponsor / Brand Name *</label>
+                  <FieldShell id="ad-sponsor" label="Sponsor / Brand Name *">
                     <TextInput
                       type="text"
                       placeholder="e.g. Institutional Capital or Acme Corp"
                       value={newAdSponsor}
                       onChange={(e) => setNewAdSponsor(e.target.value)}
                     />
-                  </div>
+                  </FieldShell>
                 </div>
 
-                <div className="form-group">
-                  <label>Tagline / Offer Description *</label>
+                <FieldShell id="ad-tagline" label="Tagline / Offer Description *">
                   <TextInput
                     type="text"
                     placeholder="e.g. Accelerate multi-turn LLM reasoning with sub-millisecond vector lookups."
@@ -132,11 +153,10 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                     onChange={(e) => setNewAdTagline(e.target.value)}
                     required
                   />
-                </div>
+                </FieldShell>
 
-                <div className="form-row-3">
-                  <div className="form-group">
-                    <label>Destination Landing URL *</label>
+                <div className="ui-form-row-3">
+                  <FieldShell id="ad-url" label="Destination Landing URL *">
                     <TextInput
                       type="url"
                       placeholder="https://..."
@@ -144,21 +164,19 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                       onChange={(e) => setNewAdUrl(e.target.value)}
                       required
                     />
-                  </div>
+                  </FieldShell>
 
-                  <div className="form-group">
-                    <label>CTA Button Label</label>
+                  <FieldShell id="ad-cta" label="CTA Button Label">
                     <TextInput
                       type="text"
                       placeholder="e.g. Claim $50 Credit →"
                       value={newAdCta}
                       onChange={(e) => setNewAdCta(e.target.value)}
                     />
-                  </div>
+                  </FieldShell>
 
-                  <div className="form-group">
+                  <FieldShell id="ad-color" label="Accent Color">
                     <Select
-                      label="Accent Color"
                       value={newAdColor}
                       onChange={(e) => setNewAdColor(e.target.value)}
                     >
@@ -166,21 +184,23 @@ export function AdsTab({adFormError, adFormSuccess, ads, adsLoading, fetchAds, h
                         <option key={c.value} value={c.value}>{c.label} ({c.value})</option>
                       ))}
                     </Select>
-                  </div>
+                  </FieldShell>
                 </div>
 
-                <Button
-                  type="submit"
-                  variant="primary"
-                  className="submit-action-btn ad-btn"
-                  disabled={savingAd || !newAdTitle.trim() || !newAdUrl.trim()}
-                >
-                  {savingAd ? "Submitting Placement…" : "🚀 Launch Sponsored Placement"}
-                </Button>
+                <div>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={savingAd || !newAdTitle.trim() || !newAdUrl.trim()}
+                  >
+                    {savingAd ? "Submitting Placement…" : "🚀 Launch Sponsored Placement"}
+                  </Button>
+                </div>
               </form>
             </div>
-            </PageSection>
-            </PageShell>
-          </div>
+          </Card>
+        </TabPanel>
+      </PageShell>
+    </div>
   );
 }

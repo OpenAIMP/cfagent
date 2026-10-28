@@ -23,6 +23,8 @@ import {
   createOptionsScreeningProvider,
   OPTIONS_SCREENING_PROVIDER_ID,
   parseOptionsScreenRequest,
+  buildStrategyReportInput,
+  strategyReportArtifactLinks,
 } from "../../trading";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
@@ -294,7 +296,10 @@ export async function executeOptionsScreen(args: {
     // Options run-record fix: owner-scope the row — an ownerless write is invisible
     // to the owner-scoped Reports read.
     userLogin,
-  });
+  },
+  // Issue #1169 S4-1: thread ctx.env so the seam indexes this
+  // options_scanner row at write time.
+  ctx.env);
 
   // Issue #1333: the inline manual-options outcome — recorded here
   // ONLY when the bridge did not take the run (bridged runs record
@@ -506,7 +511,10 @@ export async function executeUnifiedOptions(args: {
       // Options run-record fix: owner-scope the row (ownerless rows are invisible to
       // the owner-scoped Reports read).
       userLogin,
-    });
+    },
+    // Issue #1169 S4-1: thread ctx.env so the seam indexes this
+    // options_scanner row at write time.
+    ctx.env);
     // Options run-record fix: this path has no follow-up bridge, so it owns its run
     // record. Without it the run never appears in Workflow Runs and its
     // artifacts (PDF/XLSX/CSV) have nothing to attach to.
@@ -527,6 +535,83 @@ export async function executeUnifiedOptions(args: {
         xlsxKey: scannerXlsxKey,
         csvKey: scannerCsvKey,
         origin: "manual-options-unified",
+        createdAt: generatedAt,
+      },
+    );
+  } else if (result.success) {
+    // Strategy screener / AI actions (strategies, best-trade, compare,
+    // llm_ideas, llm_evaluate) produce strategy-level results, not a
+    // contract screen. Record the run too — both fit directions ("names
+    // that fit my strategy", "strategies that fit my name") and the AI
+    // evaluation must appear on the Reports tab and in Workflow Runs.
+    const generatedAt = new Date().toISOString();
+    const action = String(reqData.action || "strategies");
+    const symbol = String(reqData.symbol || reqData.symbols?.[0] || "universe").toUpperCase();
+    const generationId = `options_strategy:${action}:${symbol}:${generatedAt}`;
+    const data = result.data as Record<string, any> | undefined;
+    const ranked = Array.isArray(data?.ranked)
+      ? data.ranked
+      : Array.isArray(data?.quant?.ranked) ? data.quant.ranked : undefined;
+    const matched = ranked?.length ?? (data?.bestTrade ? 1 : undefined);
+    const reportInput = buildStrategyReportInput({
+      action,
+      request: reqData,
+      data,
+      summary: result.summary,
+      generatedAt,
+      symbol,
+    });
+    const artifacts = await ctx.getScreenerAgent(userLogin).generateAndStoreStrategyReport(reportInput);
+    // Issue #2162: the response carries the same downloads the run records,
+    // so the panel can open the report it just generated. A failed leg has
+    // no key, so it contributes no link.
+    const artifactLinks = strategyReportArtifactLinks(artifacts);
+    reportUrl = artifactLinks.reportUrl;
+    scannerXlsxKey = artifactLinks.xlsxKey;
+    scannerXlsxUrl = artifactLinks.xlsxUrl;
+    scannerCsvKey = artifactLinks.csvKey;
+    scannerCsvUrl = artifactLinks.csvUrl;
+    const orm = ctx.getOrm();
+    storeOptionsCanonicalReport(orm, {
+      runId: generationId,
+      generationId,
+      title: `Options strategy ${action === "llm_ideas" || action === "llm_evaluate" ? "AI" : "screener"} — ${symbol} (${action})`,
+      source: "options_strategy",
+      summary: result.summary,
+      body: {
+        generatedAt,
+        action,
+        symbol,
+        request: reqData,
+        success: true,
+        withTrades: matched,
+        report: result.toWebhook(),
+        ...(artifacts.pdfKey ? { pdfKey: artifacts.pdfKey } : {}),
+        ...(artifacts.pdfStatus ? { pdfStatus: artifacts.pdfStatus } : {}),
+        ...(artifacts.pdfError ? { pdfError: artifacts.pdfError } : {}),
+        ...(artifacts.xlsxKey ? { xlsxKey: artifacts.xlsxKey } : {}),
+        ...(artifacts.xlsxStatus ? { xlsxStatus: artifacts.xlsxStatus } : {}),
+        ...(artifacts.xlsxError ? { xlsxError: artifacts.xlsxError } : {}),
+        ...(artifacts.csvKey ? { csvKey: artifacts.csvKey } : {}),
+        ...(artifacts.csvStatus ? { csvStatus: artifacts.csvStatus } : {}),
+        ...(artifacts.csvError ? { csvError: artifacts.csvError } : {}),
+      },
+      createdAt: generatedAt,
+      userLogin,
+    });
+    recordOptionsRunOutcome(
+      typeof (orm as { getSql?: () => unknown }).getSql === "function"
+        ? ((orm as { getSql: () => unknown }).getSql() as any)
+        : undefined,
+      {
+        id: ctx.asyncJobId ?? generationId,
+        trigger: "manual",
+        status: "completed",
+        matched,
+        pdfKey: artifacts.pdfKey,
+        xlsxKey: artifacts.xlsxKey,
+        csvKey: artifacts.csvKey,
+        origin: "options-strategy-ai",
         createdAt: generatedAt,
       },
     );

@@ -890,7 +890,48 @@ export class DynamicMarketScreener implements IMarketScreener {
       hasTechnicalIndicators &&
       unsupported.every((u) => u === "RSI" || u === "technical momentum");
     if (enrichable && enrichment) {
-      const gathered = await enrichment.enrich(quotes);
+      // Issue #1999: a throwing hook is a first-class gather
+      // failure, never a silent leg and never a thrown leg without
+      // a gather record. The failed summary rides the same
+      // nothing-evaluable shape below, so the leg still fails via
+      // the #1963 contract — now with the failure named.
+      let gathered: ScreenLiveEnrichmentResult;
+      try {
+        gathered = await enrichment.enrich(quotes);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        const message = `Goal gather failed for this run: ${error}; technical criteria were not applied.`;
+        const scannedAt = new Date().toISOString();
+        return {
+          totalScanned: quotes.length,
+          totalScreened: quotes.length,
+          matchedCount: 0,
+          filterApplied: filter,
+          filterSummary: message,
+          stocks: [],
+          scannedAt,
+          status: "no_matches",
+          ledger: {
+            universeSymbols: quotes.map((quote) => quote.symbol),
+            totalEvaluated: quotes.length,
+            passedCount: 0,
+            rejectedCount: quotes.length,
+            rejections: quotes.map((quote) => ({ symbol: quote.symbol, reason: message })),
+          },
+          validationError: message,
+          discovery: toDiscovery(message),
+          gather: {
+            runId: "",
+            stored: 0,
+            missing: quotes.length,
+            excluded: 0,
+            gapFilled: 0,
+            routeVersionHash: "",
+            status: "failed",
+            error,
+          },
+        };
+      }
       // A stored row is not automatically evaluable: a symbol whose
       // row lacks a field THIS filter needs is excluded from
       // evaluation and ledger-rejected with the honest missing-data
@@ -938,6 +979,18 @@ export class DynamicMarketScreener implements IMarketScreener {
           },
           validationError: message,
           discovery: toDiscovery(message),
+          // Issue #1999: the gather ran (it just yielded nothing
+          // evaluable) — status "ok", not "failed". A failed gather
+          // is only the throwing-hook shape above.
+          gather: {
+            runId: gathered.runId,
+            stored: gathered.enrichedQuotes.length,
+            missing: gathered.missingSymbols.length,
+            excluded: gathered.enrichedQuotes.length,
+            gapFilled: gathered.gapFilledCount,
+            routeVersionHash: gathered.routeVersionHash,
+            status: "ok",
+          },
         };
       }
       const excludedQuotes = gathered.enrichedQuotes.filter((q) => missingFor(q.symbol).length > 0);
@@ -961,6 +1014,7 @@ export class DynamicMarketScreener implements IMarketScreener {
         excluded: excludedQuotes.length,
         gapFilled: gathered.gapFilledCount,
         routeVersionHash: gathered.routeVersionHash,
+        status: "ok",
       };
       return {
         ...enriched,

@@ -241,8 +241,18 @@ describe("dedicated paid-submission route (#2015)", () => {
     expect(createArg.params.account.tier).toBe("Subscribed");
   });
 
-  it("fails closed when the store or the binding is unavailable", async () => {
-    const { ctx } = await setup();
+  it("stamps the screener command owner from the verified session, never a caller claim (#2137)", async () => {
+    const { ctx, binding } = await setup();
+    const res = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", {
+      ...submitBody,
+      screenerCommand: { ...screenerCommand, userLogin: "attacker" },
+    });
+    expect(res?.status).toBe(200);
+    const createArg = (binding.create as unknown as { mock: { calls: Array<Array<{ params: { screenerCommand: { userLogin: string } } }>> } }).mock.calls[0][0];
+    expect(createArg.params.screenerCommand.userLogin).toBe("u1");
+  });
+
+  it("fails closed when the store or the binding is unavailable", async () => {    const { ctx } = await setup();
     const noDbCtx = {
       ...ctx,
       env: { ...(ctx.env as Record<string, unknown>), AGENT_DB: undefined },

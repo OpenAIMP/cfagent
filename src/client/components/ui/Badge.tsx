@@ -19,6 +19,11 @@ export interface BadgeProps {
   uppercase?: boolean;
   title?: string;
   className?: string;
+  /**
+   * Data-driven inline style (issue 2161: per-ad accent colors from the
+   * ad record, not design values — shape still comes from the Badge).
+   */
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }
 
@@ -35,10 +40,11 @@ export function Badge({
   uppercase = false,
   title,
   className = "",
+  style,
   children,
 }: BadgeProps) {
   return (
-    <span className={`ui-badge tone-${tone} size-${size} ${uppercase ? "uppercase" : ""} ${className}`} title={title}>
+    <span className={`ui-badge tone-${tone} size-${size} ${uppercase ? "uppercase" : ""} ${className}`} title={title} style={style}>
       {dot && <span className="ui-badge-dot" aria-hidden="true" />}
       {children}
     </span>

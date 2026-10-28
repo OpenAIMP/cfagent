@@ -2252,19 +2252,29 @@ export class OrchestratorAgent extends PortThink {
     // matched. The verified login (set by src/server.ts from the
     // session) gates ingestion; the corpus itself is not partitioned
     // by login (see knowledgeCorpus.ts header).
+    // Issue #1169 (S4-4): the mount additionally passes the report
+    // store (sql) so the weekly corpus-sync branch can read/write
+    // its mas_settings marker and run the index backfill.
     const knowledgeCorpusResponse = await handleKnowledgeCorpusRoutes(request, url, path, sessionId, {
       env: this.env,
       storage: this.ctx.storage,
       userLogin: request.headers.get("x-user-login") || "",
+      sql: this.ctx.storage.sql,
     });
     if (knowledgeCorpusResponse) return knowledgeCorpusResponse;
 
     // Issue #2120 (slice 1): Search hub routes (POST /search/agent,
     // POST /search/knowledge). Mounted adjacent to the knowledgeCorpus
     // mount; the new paths collide with no existing suffix.
+    // Issue #1169 (S4-2): POST /search/mas rides the same mount; it
+    // additionally receives the report store (the MAS tool's sql) and
+    // the orchestrator audit (its type accepts the MAS "search"
+    // agent value), mirroring the autopilot mount's audit pattern.
     const searchHubResponse = await handleSearchHubRoutes(request, url, path, sessionId, {
       env: this.env,
       userLogin: request.headers.get("x-user-login") || "",
+      sql: this.ctx.storage.sql,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
     });
     if (searchHubResponse) return searchHubResponse;
 

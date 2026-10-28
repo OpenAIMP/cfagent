@@ -54,6 +54,8 @@ import type { AgentContext } from "agents";
 import { ETradeService } from "../../services/etrade";
 import {
   DynamicOptionsScreener,
+  buildStrategyReportInput,
+  strategyReportArtifactLinks,
   createOptionsScreeningProvider,
   OPTIONS_SCREENING_PROVIDER_ID,
   recommendOptionStrategies,
@@ -113,6 +115,7 @@ import {
   executeOptionsScreen,
   executeUnifiedOptions,
 } from "./etradeOptionsScreen";
+import { recordStrategyScreenRun } from "../../services/optionsServeRecord";
 
 /** The subset of OrchestratorAgent surface the E*TRADE options handlers need. */
 export interface EtradeOptionsRouteContext {
@@ -232,6 +235,51 @@ export async function handleOptionsStrategyRecommend(
  * unified / config). Returns a Response on match, null when no options path
  * matches (the orchestrator then continues its sequential matching).
  */
+/**
+ * Issue #2180: serve a discovery run report by its stored key.
+ * Owner-scoped exactly like every other discovery read (a key without the
+ * owner resolves to nothing), and 404 — never a guess — when the key is
+ * absent or unknown.
+ */
+async function serveDiscoveryReport(
+  request: Request,
+  ctx: EtradeOptionsRouteContext,
+  format: "pdf" | "xlsx" | "csv",
+): Promise<Response> {
+  const userLogin = request.headers.get("x-user-login");
+  if (!userLogin) return unauthenticatedResponse();
+  const url = new URL(request.url);
+  const key = url.searchParams.get("key");
+  const label = format.toUpperCase();
+  if (!key) {
+    return Response.json({ error: `No discovery report ${label} key supplied` }, { status: 400 });
+  }
+  try {
+    const file = await ctx.getScreenerAgent(userLogin).getDiscoveryReportByKey(key);
+    if (!file) {
+      return Response.json({ error: `No discovery report ${label} available yet` }, { status: 404 });
+    }
+    const contentType =
+      format === "pdf"
+        ? "application/pdf"
+        : format === "xlsx"
+          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          : "text/csv";
+    return new Response(file.bytes as unknown as BodyInit, {
+      headers: {
+        "Content-Type": contentType,
+        "Content-Disposition": `attachment; filename="${file.fileName}"`,
+        "Content-Length": String(file.bytes.length),
+      },
+    });
+  } catch (err) {
+    return Response.json(
+      { error: err instanceof Error ? err.message : `Failed to load discovery report ${label}` },
+      { status: 500 },
+    );
+  }
+}
+
 export async function handleEtradeOptionsRoutes(
   request: Request,
   url: URL,
@@ -347,6 +395,18 @@ export async function handleEtradeOptionsRoutes(
     const scanRunIdMatch = path.match(/\/etrade\/options\/scans\/([^/]+)$/);
     if (scanRunIdMatch && request.method === "GET") {
       return handleOptionsScanRunById(request, sessionId, sql, scanRunIdMatch);
+    }
+
+    // Issue #2180: discovery run report downloads (keys recorded on the
+    // canonical row by the publish seam).
+    if (path.endsWith("/discovery/report.pdf") && request.method === "GET") {
+      return serveDiscoveryReport(request, ctx, "pdf");
+    }
+    if (path.endsWith("/discovery/report.xlsx") && request.method === "GET") {
+      return serveDiscoveryReport(request, ctx, "xlsx");
+    }
+    if (path.endsWith("/discovery/report.csv") && request.method === "GET") {
+      return serveDiscoveryReport(request, ctx, "csv");
     }
 
     // Persisted scheduled-discovery runs (issue #126, PR-E): executions
@@ -723,8 +783,39 @@ export async function handleEtradeOptionsRoutes(
           dataSource: result.snapshot.dataSource,
           snapshotError: result.snapshot.validationError,
         };
-        if (path.endsWith("/best-trade")) {
-          return Response.json({ bestTrade: result.bestTrade, evaluations: result.legacy?.evaluations, nameLedger: result.legacy?.nameLedger, ...common });
+        const isBestTrade = path.endsWith("/best-trade");
+        const strategyReportInput = buildStrategyReportInput({
+          action: isBestTrade ? "best-trade" : "strategies",
+          request: parsedDiscovery.value.request as unknown as Record<string, any>,
+          data: {
+            ranked: result.ranked,
+            bestTrade: result.bestTrade,
+            screenedOut: result.screenedOut,
+            symbol: result.snapshot.contracts?.[0]?.symbol,
+          },
+          symbol: result.snapshot.contracts?.[0]?.symbol,
+          summary: `${result.ranked.length} ranked strateg${result.ranked.length === 1 ? "y" : "ies"} for ${parsedDiscovery.value.request.symbol}.`,
+          generatedAt: new Date().toISOString(),
+        });
+        const strategyArtifacts = await ctx.getScreenerAgent(userLogin).generateAndStoreStrategyReport(strategyReportInput);
+        const artifactLinks = strategyReportArtifactLinks(strategyArtifacts);
+        recordStrategyScreenRun(ctx.getOrm(), {
+          ...strategyArtifacts,
+          userLogin,
+          symbol: parsedDiscovery.value.request.symbol,
+          trigger: "manual",
+          mode: isBestTrade ? "best-trade" : "strategies",
+          ranked: result.ranked,
+          bestTrade: result.bestTrade,
+          riskReports: result.riskReports,
+          screenedOut: result.screenedOut,
+          screen: result.snapshot.screen,
+          contracts: result.snapshot.contracts,
+          dataSource: result.snapshot.dataSource,
+          asyncJobId: ctx.asyncJobId,
+        });
+        if (isBestTrade) {
+          return Response.json({ bestTrade: result.bestTrade, evaluations: result.legacy?.evaluations, nameLedger: result.legacy?.nameLedger, ...common, ...artifactLinks });
         }
         return Response.json({
           status: result.ranked.length > 0 ? "ranked_candidates" : "no_candidates",
@@ -733,6 +824,7 @@ export async function handleEtradeOptionsRoutes(
           screenedOut: result.screenedOut.slice(0, 50),
           excluded: result.legacy?.excluded,
           ...common,
+          ...artifactLinks,
         });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Options strategy pipeline failed" }, { status: 400 });

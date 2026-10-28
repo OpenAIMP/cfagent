@@ -207,6 +207,7 @@ function marketDataResult(overrides: Record<string, unknown> = {}) {
     ],
     discoveryMessage: "Yahoo Finance live quotes; 2 of 2 symbols quoted.",
     filterSummary: "mocked",
+    userLogin: "octocat-s3",
     ...overrides,
   };
 }

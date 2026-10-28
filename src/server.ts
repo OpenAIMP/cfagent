@@ -3806,6 +3806,20 @@ export default {
       );
       if (ctx?.waitUntil) ctx.waitUntil(weightsPromise);
       else await weightsPromise;
+      // Issue #1169 (S4-4) — the weekly corpus sync rides this tick
+      // (same Workers Free ceiling constraint as #354/#705/#754).
+      // Fire/no-fire is decided inside the route (weekly guard +
+      // durable marker in mas_settings), so this dispatch is
+      // unconditional; skips are cheap and explicit in the route
+      // result.
+      const corpusSyncPromise = agent.fetch(
+        new Request("https://agent.internal/knowledge/corpus-sync", {
+          method: "POST",
+          headers: { "x-user-login": userLogin },
+        })
+      );
+      if (ctx?.waitUntil) ctx.waitUntil(corpusSyncPromise);
+      else await corpusSyncPromise;
       // Issue #1077 Phase 5b slice 1: the parallel social tick is gone.
       // Social posting is now a ScheduledAgent goal ("daily-social-post",
       // disabled by default) evaluated by the onCron call at the top of

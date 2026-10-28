@@ -106,6 +106,8 @@ describe("worker scheduled() (#1185)", () => {
       "/research/scheduled-tick",
       "/reflection/run",
       "/adaptation/weights/run",
+      // Issue #1169 (S4-4): the weekly corpus sync rides this tick.
+      "/knowledge/corpus-sync",
     ]);
     for (const req of search.requests) {
       expect(req.headers.get("x-user-login")).toBe(SERVICE_LOGIN);

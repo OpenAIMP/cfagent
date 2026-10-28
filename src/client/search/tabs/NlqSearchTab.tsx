@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../../apiFetch";
 import { Button, TextInput } from "../../components/ui";
+import { buildJson, downloadTextFile } from "../../runExport";
 import type { SearchTabProps, TabHealth } from "../searchTabTypes";
 
 interface NlqResult {
@@ -74,6 +75,11 @@ export function NlqSearchTab({ pendingQuery, onHealth, onSearch }: SearchTabProp
           {loading ? "Searching…" : "Search"}
         </Button>
       </form>
+      {/* Issue #1169 S4-4: this tab already retains the full native
+          NLQ result in `result`, so it is downloaded verbatim. */}
+      <Button type="button" onClick={() => downloadTextFile("nlq-results.json", buildJson(result), "application/json")} disabled={!result} title="Download current results as JSON">
+        Download results (JSON)
+      </Button>
       {error && <p role="alert">{error}</p>}
       {result && (
         <div>

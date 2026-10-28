@@ -77,6 +77,7 @@ describe("screenLive gather hook (#1998)", () => {
       excluded: 1,
       gapFilled: 0,
       routeVersionHash: "abc123",
+      status: "ok",
     });
     expect(result.totalScanned).toBe(3);
     expect(result.ledger?.totalEvaluated).toBe(3);

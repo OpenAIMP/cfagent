@@ -105,6 +105,13 @@
  * KNOWLEDGE_SERVING_ENABLED is off) — bringing the pinned array
  * to 217 entries; the delegation sequence is unchanged (same
  * handler, same position).
+ * Issue #1169 (S4-4) added two more — GET /knowledge/integrity
+ * (in handleKnowledgeCorpusRoutes, after GET /knowledge/file in
+ * source order, audit read, NOT flag-gated) and POST
+ * /knowledge/corpus-sync (in handleKnowledgeCorpusRoutes, after
+ * POST /knowledge/corpus) — bringing the pinned array to 268
+ * entries; the delegation sequence is unchanged (same handler,
+ * same position).
  * Issue #1888 added six — GET /enrichment/status, GET
  * /enrichment/runs, POST /enrichment/run, POST
  * /enrichment/killswitch, GET /enrichment/calibration (in
@@ -155,10 +162,11 @@
  * across instances, the adapter and submit route call the port
  * directly, so no hop-only endpoint needs to exist.
  *
- * Issue #2120 (slice 1) added two — POST /search/agent and POST
- * /search/knowledge (in handleSearchHubRoutes, after the
- * knowledgeCorpus handler) — bringing the pinned array to 256
- * entries and the delegation sequence to 28 calls.
+ * Issue #2137 added three — the checkout UI support routes
+ * (pricing, submission check-payment, goal-command, in
+ * handleAgenticPaymentsRoutes, after the submission-status
+ * endpoint) — bringing the pinned array to 257 entries; the
+ * delegation sequence is unchanged (same handler, same position).
  *
  * Issues #2020/#2127 added seven — the subscription plans list,
  * create, and deactivate endpoints plus the subscription
@@ -167,6 +175,24 @@
  * endpoint) — bringing the pinned array to 263 entries; the
  * delegation sequence is unchanged (same handler, same
  * position).
+ *
+ * Issue #1169 (S4-2) added one — POST /search/mas (in
+ * handleSearchHubRoutes, after /search/knowledge) — bringing the
+ * pinned array to 264 entries; the delegation sequence is
+ * unchanged (same handler, same position).
+ * Rebuild of #2137 onto current main (superseding #2163)
+ * re-applies the same three checkout UI routes (pricing,
+ * submission check-payment, goal-command, in
+ * handleAgenticPaymentsRoutes, after the subscription
+ * endpoints) — bringing the pinned array to 267 entries; the
+ * delegation sequence is unchanged. The rebuild also restores
+ * the two search-hub entries and the search nav entry the old
+ * branch had dropped at navOrder 23.
+ *
+ * Issue #1169 (S4-1) added one more — POST /trading/reports/index-backfill (in
+ * handleReportsRoutes, after the trading/reports webhook handler and before
+ * /reports/research/browse) — bringing the pinned array to 263 entries; the
+ * delegation sequence is unchanged (same handler, same position).
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -248,6 +274,7 @@ const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: endsWith(\"/trading/reports/confirm\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/email\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/webhook\")",
+  "handleReportsRoutes :: endsWith(\"/trading/reports/index-backfill\")",
   "handleReportsRoutes :: endsWith(\"/reports/research/browse\")",
   "handleReportsRoutes :: endsWith(\"/runs\")",
   "handleReportsRoutes :: endsWith(\"/reports\")",
@@ -281,9 +308,12 @@ const EXPECTED_INVENTORY = [
   "handleWorkflowRunsRoutes :: === \"/workflow-runs\"",
   "handleWorkflowRunsRoutes :: === \"/api/workflow-runs\"",
   "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/file\")",
+  "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/integrity\")",
   "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/corpus\")",
+  "handleKnowledgeCorpusRoutes :: endsWith(\"/knowledge/corpus-sync\")",
   "handleSearchHubRoutes :: endsWith(\"/search/agent\")",
   "handleSearchHubRoutes :: endsWith(\"/search/knowledge\")",
+  "handleSearchHubRoutes :: endsWith(\"/search/mas\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/jobs\")",
   "handleAutopilotRoutes :: endsWith(\"/autopilot/state\")",
@@ -330,6 +360,9 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription/purchase\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription/cancel\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/pricing\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submission/check-payment\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/goal-command\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/budget-state\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/payments\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/auto-approve-limit\")",
@@ -383,6 +416,10 @@ const EXPECTED_INVENTORY = [
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/expire-dates\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/scans\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/scans/diff\")",
+  // Issue #2180: the discovery run-report downloads.
+  "handleEtradeOptionsRoutes :: endsWith(\"/discovery/report.pdf\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/discovery/report.xlsx\")",
+  "handleEtradeOptionsRoutes :: endsWith(\"/discovery/report.csv\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/discovery-runs\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/iv-history\")",
   "handleEtradeOptionsRoutes :: endsWith(\"/etrade/options/profiles\")",
@@ -448,6 +485,9 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.csv\")",
   "handleScreenerResearchRoutes :: endsWith(\"/options/report.pdf\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/report.pdf\")",
+  // Issue #2167: the research workbook and CSV download routes.
+  "handleScreenerResearchRoutes :: endsWith(\"/research/report.xlsx\")",
+  "handleScreenerResearchRoutes :: endsWith(\"/research/report.csv\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/run\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/scheduled-tick\")",
   "handleScreenerResearchRoutes :: endsWith(\"/research/latest\")",

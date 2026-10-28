@@ -612,3 +612,112 @@ div.ui-modal-title { font-size: inherit; font-weight: inherit; }
   color: var(--color-text-muted);
   margin: 0;
 }
+
+/* Layout utilities (#2149) — token values only, so pages never need
+ * inline-style layout or bespoke page classes. White-label safe: every
+ * value resolves through the token layer, never a literal brand value. */
+.ui-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ui-stack {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ui-stack-lg {
+  display: grid;
+  gap: var(--space-2-5);
+}
+
+.ui-push {
+  margin-left: auto;
+}
+
+.ui-meta {
+  font-size: var(--font-size-body-sm);
+  color: var(--color-text-secondary);
+}
+
+.ui-meta-sm {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+}
+
+.ui-narrow {
+  max-width: 40rem;
+}
+
+.ui-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.ui-form-row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.ui-form-row-4 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.ui-icon-lg {
+  font-size: 1.25rem;
+}
+
+.ui-mt-1 {
+  margin-top: var(--space-1);
+}
+
+.ui-mt-2 {
+  margin-top: var(--space-2);
+}
+
+.ui-mb-1 {
+  margin-bottom: var(--space-1);
+}
+
+.ui-mb-1-5 {
+  margin-bottom: var(--space-1-5);
+}
+
+.ui-ml-3 {
+  margin-left: var(--space-3);
+}
+
+.ui-danger {
+  color: var(--color-danger);
+}
+
+.ui-success {
+  color: var(--color-success);
+}
+
+.ui-link {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.ui-plain-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.ui-card.highlight {
+  background: var(--color-primary-alpha);
+  border-color: var(--color-primary-border);
+}
+
+.ui-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-2);
+}

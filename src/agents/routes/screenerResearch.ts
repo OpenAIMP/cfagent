@@ -382,6 +382,86 @@ export async function handleScreenerResearchRoutes(
       }
     }
 
+    // Issue #2167: research-run workbook and CSV downloads (mirror the PDF
+    // route). Keys carry the report:xlsx:research: / report:csv:research:
+    // families the run records; there is no "latest" pointer for these, so a
+    // missing key is an explicit 404 rather than a guess.
+    if (path.endsWith("/research/report.xlsx") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const userLogin =
+          request.headers.get("x-user-login") ||
+          (await ctx.getScreenerExecutionContext())?.userLogin;
+        if (!userLogin) return unauthenticatedResponse();
+        const agent = ctx.getResearchAgent(userLogin);
+        if (!agent) {
+          return Response.json(
+            { error: "ResearchAgent binding not configured." },
+            { status: 503 }
+          );
+        }
+        const xlsx = key ? await agent.getResearchXlsxByKey(key) : null;
+        if (!xlsx) {
+          return Response.json(
+            { error: "No research report XLSX available yet" },
+            { status: 404 }
+          );
+        }
+        return new Response(xlsx.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename="${xlsx.fileName}"`,
+            "Content-Length": String(xlsx.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json(
+          { error: err.message || "Failed to load research report XLSX" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Issue #2167: research-run CSV download (same contract as the workbook).
+    if (path.endsWith("/research/report.csv") && request.method === "GET") {
+      try {
+        const url = new URL(request.url);
+        const key = url.searchParams.get("key");
+        const userLogin =
+          request.headers.get("x-user-login") ||
+          (await ctx.getScreenerExecutionContext())?.userLogin;
+        if (!userLogin) return unauthenticatedResponse();
+        const agent = ctx.getResearchAgent(userLogin);
+        if (!agent) {
+          return Response.json(
+            { error: "ResearchAgent binding not configured." },
+            { status: 503 }
+          );
+        }
+        const csv = key ? await agent.getResearchCsvByKey(key) : null;
+        if (!csv) {
+          return Response.json(
+            { error: "No research report CSV available yet" },
+            { status: 404 }
+          );
+        }
+        return new Response(csv.bytes as unknown as BodyInit, {
+          headers: {
+            "Content-Type": "text/csv",
+            "Content-Disposition": `attachment; filename="${csv.fileName}"`,
+            "Content-Length": String(csv.bytes.length),
+          },
+        });
+      } catch (err: any) {
+        return Response.json(
+          { error: err.message || "Failed to load research report CSV" },
+          { status: 500 }
+        );
+      }
+    }
+
     // ==========================================    // Issue #319: autonomous options research.
     // The manual route and the scheduled tick are thin triggers over the
     // single runResearchAndPublish entry (amendment 2) — only the trigger
@@ -1371,6 +1451,25 @@ export async function handleScreenerResearchRoutes(
             }),
             createObservabilitySink(ctx.env),
           );
+          // Issue #1999 (D7): manual (route) submissions leave a
+          // session-principal audit row, symmetric with the
+          // scheduled path's system-principal rows. A lost row
+          // warns and never fails the 202: the audit store is the
+          // record, not the run.
+          try {
+            orm.events.create({
+              id: crypto.randomUUID(),
+              sessionId: userLogin,
+              type: "goal_screen.workflow_submitted",
+              agent: "orchestrator",
+              payload: { principalKind: "session", jobId: idempotencyKey, trigger: "manual" },
+              createdAt: new Date().toISOString(),
+            });
+          } catch (auditErr) {
+            console.warn(
+              `[goal-screen-workflow] Audit insertion failed (type=goal_screen.workflow_submitted, login=${userLogin}): ${auditErr instanceof Error ? auditErr.message : String(auditErr)}`,
+            );
+          }
           return workflowAcceptedResponse(handle);
         } catch (err) {
           // Issue #2065 (remainder): the typed failure replaces the
@@ -1386,6 +1485,30 @@ export async function handleScreenerResearchRoutes(
           console.warn(
             `[goal-screen-workflow] Async start failed (${code}) for job ${idempotencyKey}: ${err instanceof Error ? err.message : String(err)}`,
           );
+          // Issue #1999 (D7): the start failure leaves a
+          // session-principal audit row, like the scheduled path's
+          // run_failed rows. A lost row warns and never changes
+          // the coded 500 below.
+          try {
+            orm.events.create({
+              id: crypto.randomUUID(),
+              sessionId: userLogin,
+              type: "goal_screen.run_failed",
+              agent: "orchestrator",
+              payload: {
+                principalKind: "session",
+                jobId: idempotencyKey,
+                code,
+                reason,
+                error: err instanceof Error ? err.message : String(err),
+              },
+              createdAt: new Date().toISOString(),
+            });
+          } catch (auditErr) {
+            console.warn(
+              `[goal-screen-workflow] Audit insertion failed (type=goal_screen.run_failed, login=${userLogin}): ${auditErr instanceof Error ? auditErr.message : String(auditErr)}`,
+            );
+          }
           return Response.json(
             {
               error: "goal_workflow_start_failed",

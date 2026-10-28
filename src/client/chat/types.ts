@@ -21,6 +21,19 @@ export function isTradingTab(targetTab: string): boolean {
   return TRADING_TABS.has(targetTab);
 }
 
+/**
+ * Shell-retained pages (#2149): standalone pages rendered mounted-hidden
+ * when inactive, like the trading hub but outside it. Derived from the
+ * `shellRetain` route field, never from `retain` (that set is the hub's).
+ */
+export const SHELL_RETAINED_PAGES = new Set<string>(
+  ROUTES.filter((r) => "shellRetain" in r && r.shellRetain).map((r) => r.id),
+);
+
+export function isShellRetainedTab(targetTab: string): boolean {
+  return SHELL_RETAINED_PAGES.has(targetTab);
+}
+
 export function mapTabToTradingSubTab(targetTab: string): TradingSubTab {
   switch (targetTab) {
     case "order":

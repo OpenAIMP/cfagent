@@ -52,6 +52,14 @@ export interface RouteDef {
    * sub-tab mapping; the table is the single source of truth for the set.
    */
   retain?: boolean;
+  /**
+   * Retained shell page (#2149): rendered from SHELL_CONTENT mounted-hidden
+   * when inactive, instead of a TAB_CONTENT entry. Deliberately NOT `retain`:
+   * TRADING_TABS derives from `retain`, so a `retain` flag here would route
+   * the page to the trading hub. Shell retention is the same mounted-hidden
+   * idea, applied to standalone pages.
+   */
+  shellRetain?: boolean;
   /** Nav entry highlighted when this tab is active. */
   navGroup: string;
   /** Breadcrumb label. */
@@ -70,6 +78,7 @@ const SCREENERS_DESC =
 export const ROUTES = [
   {
     id: "ads",
+    shellRetain: true,
     navGroup: "ads",
     crumb: "Marketplace",
     category: "Platform",
@@ -127,6 +136,22 @@ export const ROUTES = [
       defaultVisible: true,
       badge: "AI",
       badgeType: "ai",
+    },
+  },
+  {
+    id: "checkout",
+    navGroup: "payments",
+    crumb: "Checkout",
+    category: "Platform",
+    icon: "Payments",
+    description:
+      "Pay for a screener run or manage a subscription: per-run checkout with the failure policy disclosed before payment, and plan purchase, status, and cancel-at-period-end",
+    navEntry: {
+      label: "Checkout",
+      shortLabel: "Checkout",
+      navOrder: 24,
+      defaultVisible: true,
+      badge: "Testnet",
     },
   },
   {
@@ -277,6 +302,7 @@ export const ROUTES = [
   },
   {
     id: "payments",
+    shellRetain: true,
     navGroup: "payments",
     crumb: "Payments",
     category: "Platform",
@@ -309,6 +335,7 @@ export const ROUTES = [
   },
   {
     id: "referrals",
+    shellRetain: true,
     navGroup: "referrals",
     crumb: "Referrals",
     category: "Platform",
@@ -342,6 +369,7 @@ export const ROUTES = [
   },
   {
     id: "revenue",
+    shellRetain: true,
     navGroup: "revenue",
     crumb: "Revenue",
     category: "Platform",
@@ -401,6 +429,7 @@ export const ROUTES = [
   },
   {
     id: "social",
+    shellRetain: true,
     navGroup: "social",
     crumb: "Social",
     category: "Platform",

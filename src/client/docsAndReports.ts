@@ -67,6 +67,9 @@ const SOURCE_BY_STORE_SOURCE: Record<string, DocumentRunSource> = {
   screener: "stock",
   options_scanner: "options",
   options_screen: "options",
+  // Issue #2167: options research runs belong to the options family, so their
+  // rows (and artifact links) reach the Docs table.
+  options_research: "options",
   goal_screen: "goal",
   discovery: "strategy",
 };

@@ -40,7 +40,12 @@ export interface OptionsServeRecordDeps {
 export interface OptionsCanonicalStore {
   // `any` keeps DatabaseORM's stricter ScheduledReportInput signature
   // assignable while the helper still spreads a plain record into it.
-  storeCanonicalReport: (input: any) => { reportId: string; created: boolean } | null;
+  // Issue #1169 S4-1: the optional env threads the AI/Vectorize
+  // bindings to the index hook.
+  storeCanonicalReport: (
+    input: any,
+    env?: { AI?: any; VECTOR_MEMORY?: any }
+  ) => { reportId: string; created: boolean } | null;
 }
 
 /**
@@ -59,14 +64,18 @@ export interface OptionsCanonicalStore {
 export function storeOptionsCanonicalReport(
   orm: OptionsCanonicalStore | null | undefined,
   input: Record<string, unknown>,
+  env?: { AI?: any; VECTOR_MEMORY?: any },
 ): { reportId: string; created: boolean } | null {
   if (!orm || typeof orm.storeCanonicalReport !== "function") return null;
   const { userLogin, ...rest } = input as Record<string, unknown> & { userLogin?: unknown };
   try {
-    return orm.storeCanonicalReport({
-      ...rest,
-      ...(typeof userLogin === "string" && userLogin ? { userLogin } : {}),
-    });
+    return orm.storeCanonicalReport(
+      {
+        ...rest,
+        ...(typeof userLogin === "string" && userLogin ? { userLogin } : {}),
+      },
+      env
+    );
   } catch (err) {
     console.warn(
       `[optionsServeRecord] canonical write failed for run ${String((input as { runId?: unknown }).runId ?? "?")}: ${err instanceof Error ? err.message : String(err)}`,
@@ -124,6 +133,104 @@ export function recordOptionsRunOutcome(
   } catch (err) {
     console.warn(`[optionsServeRecord] outcome write failed for run ${run.id}: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/**
+ * One strategy-screener run (the Strategy Discovery panel route,
+ * `POST /trading/options/strategies` and `/best-trade`). The route
+ * returned ranked strategies but recorded nothing: no canonical row,
+ * no outcome, so the run was invisible on the Reports tab and in
+ * Workflow Runs. It produces no PDF/XLSX/CSV (its unit is a ranked
+ * strategy, not a contract), so the canonical body is the record and
+ * the artifact list is honestly empty.
+ */
+export interface StrategyScreenRecordInput {
+  userLogin: string;
+  symbol: string;
+  trigger: "manual" | "scheduled";
+  mode: "strategies" | "best-trade";
+  ranked: unknown[];
+  bestTrade?: unknown;
+  riskReports?: unknown[];
+  screenedOut?: unknown[];
+  screen?: unknown;
+  contracts?: unknown[];
+  dataSource?: string;
+  asyncJobId?: string;
+  createdAt?: string;
+  /** Strategy report artifacts (pdf/xlsx/csv), when generated. */
+  pdfKey?: string;
+  pdfStatus?: "generated" | "failed";
+  pdfError?: string;
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed";
+  xlsxError?: string;
+  csvKey?: string;
+  csvStatus?: "generated" | "failed";
+  csvError?: string;
+}
+
+export function recordStrategyScreenRun(
+  orm: (OptionsCanonicalStore & { getSql?: () => unknown }) | null | undefined,
+  input: StrategyScreenRecordInput,
+): { reportId: string; created: boolean } | null {
+  const createdAt = input.createdAt ?? new Date().toISOString();
+  const generationId = `options_strategy:${input.mode}:${input.symbol}:${createdAt}`;
+  const matched = input.mode === "best-trade" ? (input.bestTrade ? 1 : 0) : input.ranked.length;
+  const summary =
+    input.mode === "best-trade"
+      ? `Best-trade pick for ${input.symbol}: ${input.bestTrade ? "one selected strategy" : "no qualifying strategy"}.`
+      : `Strategy screen for ${input.symbol}: ${matched} ranked strateg${matched === 1 ? "y" : "ies"}.`;
+  const stored = storeOptionsCanonicalReport(orm, {
+    runId: generationId,
+    generationId,
+    title: `${input.mode === "best-trade" ? "Best trade" : "Strategy screen"} — ${input.symbol} (${input.trigger})`,
+    source: "options_strategy",
+    summary,
+    body: {
+      timestamp: createdAt,
+      trigger: input.trigger,
+      symbol: input.symbol,
+      mode: input.mode,
+      dataSource: input.dataSource,
+      // Shape parity with the other canonical run bodies: success +
+      // the match count the Runs read model renders.
+      success: true,
+      withTrades: matched,
+      ranked: input.ranked,
+      ...(input.bestTrade !== undefined ? { bestTrade: input.bestTrade } : {}),
+      riskReports: input.riskReports ?? [],
+      screenedOut: input.screenedOut ?? [],
+      screen: input.screen,
+      ...(input.pdfKey ? { pdfKey: input.pdfKey } : {}),
+      ...(input.pdfStatus ? { pdfStatus: input.pdfStatus } : {}),
+      ...(input.pdfError ? { pdfError: input.pdfError } : {}),
+      ...(input.xlsxKey ? { xlsxKey: input.xlsxKey } : {}),
+      ...(input.xlsxStatus ? { xlsxStatus: input.xlsxStatus } : {}),
+      ...(input.xlsxError ? { xlsxError: input.xlsxError } : {}),
+      ...(input.csvKey ? { csvKey: input.csvKey } : {}),
+      ...(input.csvStatus ? { csvStatus: input.csvStatus } : {}),
+      ...(input.csvError ? { csvError: input.csvError } : {}),
+    },
+    createdAt,
+    userLogin: input.userLogin,
+  });
+  const sql = orm && typeof orm.getSql === "function" ? (orm.getSql() as any) : undefined;
+  recordOptionsRunOutcome(sql, {
+    // When the route runs as an async job, the outcome twins that job
+    // so the ledger attaches it instead of inventing a second run.
+    id: input.asyncJobId ?? generationId,
+    trigger: input.trigger,
+    status: "completed",
+    scanned: input.contracts?.length,
+    matched,
+    pdfKey: input.pdfKey,
+    xlsxKey: input.xlsxKey,
+    csvKey: input.csvKey,
+    origin: "options-strategy-screener",
+    createdAt,
+  });
+  return stored;
 }
 
 export async function recordOptionsServeReport(

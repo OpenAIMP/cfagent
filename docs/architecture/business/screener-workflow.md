@@ -157,7 +157,7 @@ current state.
 | Stage | Persistence | On failure |
 |---|---|---|
 | 0 Trigger | DO schedule store (`schedule.created` audit). | Create throw → API error, nothing created. Callback itself never throws (platform retry deliberately not used; dedup instead). |
-| 1 Guard | Audit only: `mas_events` row `etrade.auth_blocked`. Episode-dedup flag in DO blob storage. Guard is read-only — no token row written. | Blocked → typed `AUTH_003` + one alert per episode; rest of day quiet (dedup, by design). Stock/goal-stock → Yahoo fallback; options → hard fail. Audit-insert failure is **swallowed** (`catch {}`) — a blocked run with a failed audit write leaves no record. **Trust correction (CISO): a guard decision with no audit record is unverifiable — Phase 4 must make this fail-visible, not just list it.** When a blocked goal-stock run falls back to Yahoo, the audit record must carry which basis ran (E*TRADE vs Yahoo fallback), or the thesis result is not auditable back to its indicators. |
+| 1 Guard | Audit only: `mas_events` row `etrade.auth_blocked`. Episode-dedup flag in DO blob storage. Guard is read-only — no token row written. | Blocked → typed `AUTH_003` + one alert per episode; rest of day quiet (dedup, by design). Stock/goal-stock → Yahoo fallback; options → hard fail. Audit-insert failure **warns** with type + login + error on the worker-log channel (#1999 D1) — a blocked run with a failed audit write leaves a diagnosable trace, never a silent gap. (Pre-#1999 it was swallowed by `catch {}`.) When a blocked goal-stock run falls back to Yahoo, the audit record must carry which basis ran (E*TRADE vs Yahoo fallback), or the thesis result is not auditable back to its indicators. |
 | 2 Feed | **Correction (CDO): for every platform-routed leg, feed persistence is real — every platform fetch writes a `mas_data_captures` row (raw + normalized, run-linked, immutable history) plus a fetch-outcome row** (`captureStore.ts`, #1133; fetch-outcome recording #1248; capture coverage on ALL stock-screen legs including goal screens, #1686). In the monolithic path, quotes additionally live in invocation memory until stage 6. Sharded path: feed shard rows in `mas_async_jobs` + feed snapshots (see §2.2 feed seam). | Per-fetch `withRetry` (acquisition policy, 3 attempts). A *mid-run* feed failure is not retried as a whole run; it surfaces as partial/failed. |
 | 3 Gather (pipeline) | **None** — technicals attached in memory, persisted only as part of the stage-6 run row. | Missing history → honest nulls; gates fail closed on absence. No retry, no separate failure state — a gather miss is invisible except as missing fields. **In-memory-only stage.** |
 | 3′ Gather (`gather.ts`) | **Would-be:** one JSON blob per run `gather/<runId>.json` (R2 when bound, else DO base64). | N/A — never runs in production (§5). |
@@ -167,11 +167,12 @@ current state.
 | 7 Serve | Reads stage-6 artifacts; `followup.report` job row in `mas_async_jobs`. | Serve failure → job `failed`, manually retryable only; no `withRetry`. A failed serve blocks deliver (chain stop-point). |
 | 8 Deliver | Delivery job rows (`followup.deliver`/`followup.notify`); channel calls synchronous inside the job; queue path Q2. | Delivery policy 3 attempts with backoff; terminal failure → job `failed` + `DELIVER_002`. Broadcast (websocket) failures are `catch {}`-swallowed. Email false-delivered defect class is #1941 (open; binding + result-propagation fix). |
 
-**Swallowed-failure inventory:** audit insert (stage 1), market-wrapper persistence (stage 6),
-event publish (Q3), websocket broadcast, goal-bridge failure ("canonical row kept"), ledger
-heartbeat ("a missed heartbeat never breaks a screen"). **Phase 4 must drive this inventory
-to zero or to explicit, owner-accepted exceptions — and for the goal path the stage-1 and
-stage-6 items must become fail-visible, not merely listed (CISO).**
+**Swallowed-failure inventory, dispositioned in #1999:** audit insert (stage 1) now
+warns; goal-bridge failure now retries + audits; IV-collection store failure now
+reports failure; the remaining `Non-critical` sites (message-record writes, websocket
+broadcast, idempotent migration, retention-report copy) are accepted with named
+reasons on #1999, and one trading-path swallow is tracked as follow-up #2165. For
+the goal path the stage-1 and stage-6 items are fail-visible, not merely listed.
 
 ### 2.5 Retries, backoff, circuit breaker, observability
 
@@ -632,11 +633,16 @@ hook on its seam (`NasdaqUniverseSeam.enrichment`, interface in
 The ScreenerAgent attaches it only when it resolves `goal_workflow` ON
 from its own env (ON by default since #2051; direct + workflow-child goal runs alike; Yahoo-fallback
 runs keep their Yahoo engine; flag OFF or any binding failure = no hook
-= refusal exactly as before). The hook (`services/goalGather.ts`) runs
-batch live quotes (E*TRADE-primary + Yahoo gap-fill via the platform
-quote seam) for week52High/averageVolume plus `fetchPlatformTechnicalsBatch`
+= refusal exactly as before). #2056 dataset rule (refined): rows come from the live source
+alone; Yahoo complements columns on those rows (live wins on shared
+columns) and never adds or vetoes rows — gap-fill membership is
+retired; a Yahoo-only symbol is never stored, and a live-only symbol
+is stored with live columns and reported honestly, never zero-filled. The hook (`services/goalGather.ts`) runs
+separate live and Yahoo quote fetches — rows come from the live side
+alone, Yahoo complements columns where present (never adds rows,
+never vetoes them) — plus `fetchPlatformTechnicalsBatch`
 over the run's history deps for real RSI, persists one
-`mas_data_captures` row per served, attributable symbol (capability
+`mas_data_captures` row per live symbol (capability
 `"quotes"` — no vocabulary extension, no new store, no `gather.ts`
 schema; `runId` = the caller run id per D2, the idempotency key), then
 reads the rows BACK (digest-verified, latest-write dedup, a corrupt
@@ -645,8 +651,8 @@ input. Screen-side, a stored row lacking a field the filter needs is
 excluded and ledger-rejected with the honest missing-data reason
 (a missing 52-week high is not "not breaking out"); nothing evaluable
 at all is a failed leg (the #1963 contract), never an empty success.
-Per-field coverage is the honest shape: Yahoo-filled symbols carry RSI
-but not week52High/averageVolume. Provenance: the canonical report body
+Per-field coverage is the honest shape: a stored row's columns are the
+live ∪ Yahoo union, so a field either source carries is present. Provenance: the canonical report body
 gains `idempotencyKey` on both paths (direct body; workflow envelope +
 door body), so a staged run's record alone resolves to its captures;
 the route "version" is the content hash of the quotes + historicalBars
@@ -661,21 +667,29 @@ stock-hit construction change, per the #1963 RC3 rule).
 
 Every leg failure has a stage to fail in, with a coded stage failure, a persisted stage
 record, and a retrievable audit event — the §2.4 table becomes the contract, not a
-description. Concretely: gather gets a first-class failure state (not just missing
-fields); serve gets a retry (monolithic path — chained runs already retry per stage);
-the swallowed-failure inventory (§2.4) is driven to zero or to explicit, documented,
-owner-accepted exceptions — and for the goal path the stage-1 and stage-6 items become
-**fail-visible**, not merely listed; and the audit read path (#1968) is fixed so a
-future incident's record answers "which code, what happened, for which login" from the
-record alone (the #1969 usable-captures principle). **Gate (CISO): #1968 is a
-precondition — sequence before or with this phase.** Stage-1 guard completeness: the
-guard must authorize the run through the PDP seam (not just preflight the token) and
-carry the #1749 legacy bound; revocation mid-run (#1750) must cancel/fail the run within
-its target; attribution G-AUD-2/3 must be closed or explicitly accepted; Q7 must be
-decided (gap 14). Stage audit records belong in `mas_events`, **not** the #1743
-Analytics Engine dataset (telemetry has no retention/tamper contract; building stage
-audit there would create a second audit system). Stage contracts use the #1743 stream
-only for operational visibility (new `type` values, counts+ids — see Phase 5).
+description. Shipped in #1999: gather gets a first-class failure state (`status:
+"failed"` + error on `StockScreenGatherSummary`, surfaced through the partial
+contract — not just missing fields); the chain-bridge submission (the monolithic
+serve path) gets report-policy retry plus a `followup.schedule_failed` audit on final
+failure; the goal-path audit insert warns instead of vanishing (stage 1); goal audit
+rows carry `principalKind` (system on scheduled rows, session on route rows); and the
+swallowed-failure inventory (§2.4) is dispositioned — 31 sites: 3 fixed in the slice,
+1 tracked as follow-up #2165, the rest accepted with named reasons. The audit read
+path (#1968) is fixed alongside this phase (own PR) so a future incident's record
+answers "which code, what happened, for which login" from the record alone (the #1969
+usable-captures principle). **Corrections to the pre-slice spec, recorded on #1999:**
+the guard does NOT authorize through the PDP seam in this slice — the seam's own
+header forbids route/job wiring before migration + provisioning (epic §8), and the
+goal path carries logins while the PDP takes internal user ids, with no resolver on
+this path; revocation mid-run is entry-gate only (route requests re-validate the
+session; scheduled runs and workflow doors carry no session token to re-validate);
+Q7 is proposed as a decision record for CISO+CDO sign-off, not decided by this lane.
+**"As audited" status is withheld until #1968 merges and Q7 is signed off** — the
+code ships, the gate does not claim otherwise. Stage audit records belong in
+`mas_events`, **not** the #1743 Analytics Engine dataset (telemetry has no
+retention/tamper contract; building stage audit there would create a second audit
+system). Stage contracts use the #1743 stream only for operational visibility (new
+`type` values, counts+ids — see Phase 5).
 
 ### Phase 5 — Harden the shared path
 
