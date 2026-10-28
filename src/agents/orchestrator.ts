@@ -103,6 +103,7 @@ import { handleDataProviderRoutes } from "./routes/dataProviders";
 import { handleEnrichmentRoutes } from "./routes/enrichment";
 import { handleWorkflowRunsRoutes } from "./routes/workflowRuns";
 import { handleKnowledgeCorpusRoutes } from "./routes/knowledgeCorpus";
+import { handleSearchHubRoutes } from "./routes/searchHub";
 import { handleAutopilotRoutes } from "./routes/autopilot";
 import { handleMemoryResetRoutes } from "./routes/memoryReset";
 import { handlePaymentsRoutes } from "./routes/payments";
@@ -2257,6 +2258,15 @@ export class OrchestratorAgent extends PortThink {
       userLogin: request.headers.get("x-user-login") || "",
     });
     if (knowledgeCorpusResponse) return knowledgeCorpusResponse;
+
+    // Issue #2120 (slice 1): Search hub routes (POST /search/agent,
+    // POST /search/knowledge). Mounted adjacent to the knowledgeCorpus
+    // mount; the new paths collide with no existing suffix.
+    const searchHubResponse = await handleSearchHubRoutes(request, url, path, sessionId, {
+      env: this.env,
+      userLogin: request.headers.get("x-user-login") || "",
+    });
+    if (searchHubResponse) return searchHubResponse;
 
     // Issue #359-05: autopilot control center routes (GET /autopilot,
     // POST /autopilot/state, POST /autopilot/kill-switch,
