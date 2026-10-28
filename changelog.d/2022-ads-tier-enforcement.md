@@ -1,0 +1,3 @@
+### Added
+
+- **Ads tier enforcement, server-side (#2022)**: ad-free follows active Subscribed status only. `src/services/adsTier.ts` resolves tier (only the exact value "Subscribed" suppresses; Free, pay-per-use, and unknown all serve) and the server ad config; the sponsored `/ads` and external `/external-ads` serving endpoints return empty lists with no impression/click writes for Subscribed callers, and a new `GET /ads/banner-config` endpoint lets the client AND server allowance with local preference (spotlight, network strip, Google units, per-tab visibility). The tier source is a verified context attribute the account store (#2020/#2015) will populate — today no tier attribute exists, so every caller resolves to Free and serving is unchanged.
