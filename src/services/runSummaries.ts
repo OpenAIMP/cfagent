@@ -151,6 +151,9 @@ const KIND_BY_REPORT_SOURCE: Record<string, RunKind> = {
   screener: "screener",
   options_scanner: "options_scanner",
   options_screen: "options_scanner",
+  // Strategy Discovery panel runs (source "options_strategy") are the
+  // same options-research family and belong under the options filter.
+  options_strategy: "options_scanner",
   // Consolidation C4 (#1329): discovery runs store canonical reports
   // now (source "discovery"), so their canonical rows map to kind
   // "discovery" instead of falling through to "report".
