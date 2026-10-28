@@ -335,21 +335,22 @@ describe("lifecycle + routes: yahoo verifies, enables, and serves with health", 
     expect(yahoo.health).toBeDefined();
     expect(typeof yahoo.health.status).toBe("string");
     const quotesRoute = body.routes.find((r: any) => r.capability === "quotes");
-    expect(quotesRoute.gapFillProviderId).toBe("yahoo");
+    // Issue #2144: the seed names no quotes gap-fill.
+    expect(quotesRoute.gapFillProviderId).toBeNull();
   });
 
-  it("the seeded quotes route names yahoo as gap-fill", () => {
+  it("the seeded quotes route names NO gap-fill (issue #2144)", () => {
     const sql = new MockSqlStorage();
     seedProviderConfigs(sql as never);
     const routes = listCapabilityRoutes(sql as never);
-    expect(routes.find((r) => r.capability === "quotes")?.gapFillProviderId).toBe("yahoo");
+    expect(routes.find((r) => r.capability === "quotes")?.gapFillProviderId).toBeNull();
     expect(routes.find((r) => r.capability === "historicalBars")?.primaryProviderId).toBe("yahoo");
     expect(routes.find((r) => r.capability === "fundamentals")?.primaryProviderId).toBe("yahoo");
   });
 });
 
 describe("route-table selection: yahoo mode resolves from the quotes route", () => {
-  it("returns the registered yahoo adapter when the route names it and its config is enabled", async () => {
+  it("returns the registered yahoo adapter when yahoo is enabled (route gap-fill no longer required, issue #2144)", async () => {
     const sql = new MockSqlStorage();
     seedProviderConfigs(sql as never);
     await transitionProvider(sql as never, "yahoo", "verify", "tester", {
@@ -368,14 +369,27 @@ describe("route-table selection: yahoo mode resolves from the quotes route", () 
     expect(resolved).toBe(adapter);
   });
 
-  it("throws when yahoo is not enabled or the route does not name it", () => {
+  it("throws when yahoo is not enabled or no quotes-capable adapter is registered", async () => {
     const sql = new MockSqlStorage();
     seedProviderConfigs(sql as never);
     const registry = new DataProviderRegistry();
     registry.register(createYahooDataProvider(fixtureMarketData()));
+    // Yahoo registered but not enabled.
     expect(() =>
       yahooQuoteProviderFromRoute(
         registry,
+        listProviderConfigs(sql as never),
+        listCapabilityRoutes(sql as never)
+      )
+    ).toThrow();
+    // Yahoo enabled but no adapter registered.
+    await transitionProvider(sql as never, "yahoo", "verify", "tester", {
+      verifier: (async () => ({ ok: true, summary: "fixture ok" })) as never,
+    });
+    await transitionProvider(sql as never, "yahoo", "enable", "tester", {});
+    expect(() =>
+      yahooQuoteProviderFromRoute(
+        new DataProviderRegistry(),
         listProviderConfigs(sql as never),
         listCapabilityRoutes(sql as never)
       )

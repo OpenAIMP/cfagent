@@ -97,7 +97,9 @@ function makeFakeRunner() {
         (r) => r.stage === "feed" && r.shardKey === "etrade" && r.status === "completed",
       );
       if (!nasdaq || !etrade) throw new Error("yahoo shard saw incomplete feed siblings");
-      return { gapFillQuotes: [], technicals: [] };
+      // Issue #2144: the Yahoo shard returns technicals only — no
+      // gap-fill rows, even in the mock.
+      return { technicals: [] };
     }
     if (stage === "feed") return { listings: [{ symbol: "AAPL" }] };
     if (stage === "generate" && key === "assemble") {
