@@ -121,6 +121,14 @@
  * entries (225 + 11 alias entries); the delegation sequence is
  * unchanged at 26 calls.
  *
+ * Issue #2059 added four — POST /api/assurance/payment-workflow/start,
+ * POST /api/assurance/payment-workflow/event, GET
+ * /api/assurance/payment-workflow/status, POST
+ * /api/assurance/payment-workflow/check-payment (in
+ * handlePaymentAssuranceLiveRoutes, between the payments and
+ * agentic-payments handlers) — bringing the pinned array to 240
+ * entries and the delegation sequence to 27 calls.
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -143,6 +151,7 @@ const HANDLER_FILE: Record<string, string> = {
   "handleAutopilotRoutes": "autopilot.ts",
   "handleMemoryResetRoutes": "memoryReset.ts",
   "handlePaymentsRoutes": "payments.ts",
+  "handlePaymentAssuranceLiveRoutes": "paymentAssuranceLive.ts",
   "handleAgenticPaymentsRoutes": "agenticPayments.ts",
   "handlePremiumRoutes": "premium.ts",
   "handleEtradeBrokerRoutes": "etradeBroker.ts",
@@ -172,6 +181,7 @@ const EXPECTED_DELEGATIONS = [
   "handleMemoryResetRoutes",
   "handleReferralsAdsRoutes",
   "handlePaymentsRoutes",
+  "handlePaymentAssuranceLiveRoutes",
   "handleAgenticPaymentsRoutes",
   "handlePremiumRoutes",
   "handleEtradeBrokerRoutes",
@@ -248,6 +258,10 @@ const EXPECTED_INVENTORY = [
   "handlePaymentsRoutes :: endsWith(\"/payments/confirm\")",
   "handlePaymentsRoutes :: endsWith(\"/payments/capture\")",
   "handlePaymentsRoutes :: endsWith(\"/payments/webhook\")",
+  "handlePaymentAssuranceLiveRoutes :: endsWith(\"/api/assurance/payment-workflow/start\")",
+  "handlePaymentAssuranceLiveRoutes :: endsWith(\"/api/assurance/payment-workflow/event\")",
+  "handlePaymentAssuranceLiveRoutes :: endsWith(\"/api/assurance/payment-workflow/status\")",
+  "handlePaymentAssuranceLiveRoutes :: endsWith(\"/api/assurance/payment-workflow/check-payment\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/wallet\")",
   "handleAgenticPaymentsRoutes :: includes(\"/payments/agentic/wallet\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/record\")",
