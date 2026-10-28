@@ -160,6 +160,14 @@
  * knowledgeCorpus handler) — bringing the pinned array to 256
  * entries and the delegation sequence to 28 calls.
  *
+ * Issues #2020/#2127 added seven — the subscription plans list,
+ * create, and deactivate endpoints plus the subscription
+ * checkout, purchase, cancel, and status endpoints (in
+ * handleAgenticPaymentsRoutes, after the submission-status
+ * endpoint) — bringing the pinned array to 263 entries; the
+ * delegation sequence is unchanged (same handler, same
+ * position).
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -315,6 +323,13 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/tenant-settings\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submit\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submission-status\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/plans\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/plans\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/plans/deactivate\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription/checkout\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription/purchase\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription/cancel\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/budget-state\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/payments\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/auto-approve-limit\")",

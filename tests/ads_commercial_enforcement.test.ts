@@ -20,6 +20,11 @@ import {
   D1CommercialAdapter,
   ensureCommercialSchema,
 } from "../src/data/d1CommercialAdapter";
+import {
+  createD1SubscriptionDb,
+  D1SubscriptionAdapter,
+  ensureSubscriptionSchema,
+} from "../src/data/d1SubscriptionAdapter";
 
 /** Minimal D1Database stand-in over node:sqlite (test-only, mirrors slice0). */
 class MockD1Database {
@@ -69,14 +74,41 @@ const seedRow = {
   created_at: "2026-10-28T00:00:00Z",
 };
 
-async function setup(tier: "Free" | "Subscribed" | null, tenantAdsEnabled: boolean | null) {
+async function setup(
+  tier: "Free" | "Subscribed" | null,
+  tenantAdsEnabled: boolean | null,
+  subsSeed?: Array<{ periodStartMs: number; periodEndMs: number }>,
+  tierSource?: "operator" | "subscription",
+) {
   const mock = new MockD1Database();
   const db = createD1CommercialDb(mock as unknown as D1Database);
   await ensureCommercialSchema(db);
+  // Migration 0008 alters the accounts table (tier_source), so
+  // the commercial mapping requires 0008 applied after 0007 —
+  // the same order the money routes ensure at runtime.
+  const subsDb0 = createD1SubscriptionDb(mock as unknown as D1Database);
+  await ensureSubscriptionSchema(subsDb0);
   const store = new D1CommercialAdapter(db);
   if (tier !== null) {
-    await store.upsertAccount({ userId: "u1", tenantId: "t1", tier, creditsUSD: 0, includedRuns: 0 });
+    await store.upsertAccount({ userId: "u1", tenantId: "t1", tier, tierSource, creditsUSD: 0, includedRuns: 0 });
     if (tenantAdsEnabled !== null) await store.setTenantAdsEnabled("t1", tenantAdsEnabled);
+  }
+  if (subsSeed) {
+    const subsDb = createD1SubscriptionDb(mock as unknown as D1Database);
+    await ensureSubscriptionSchema(subsDb);
+    const subs = new D1SubscriptionAdapter(subsDb);
+    for (let i = 0; i < subsSeed.length; i++) {
+      await subs.createSubscription({
+        id: `s-seed-${i}`,
+        userId: "u1",
+        tenantId: "t1",
+        planId: "pro",
+        provider: "cfpay",
+        providerPaymentRef: `sub-seed-${i}`,
+        periodStartMs: subsSeed[i].periodStartMs,
+        periodEndMs: subsSeed[i].periodEndMs,
+      });
+    }
   }
   const adsSql = {
     exec: vi.fn((query: string) => {
@@ -187,5 +219,42 @@ describe("ads suppression from the store (#2022)", () => {
     const ctx = { ...adsCtx, viewerTier: "Subscribed" } as AdsRevenueReferralsRouteContext;
     const res = await callB(ctx, "GET", "/ads", "u1");
     expect(await res?.json()).toEqual({ count: 0, ads: [] });
+  });
+});
+
+describe("ads effective tier from subscriptions (#2020/#2127)", () => {
+  const NOW = Date.now();
+  it("an unexpired subscription suppresses ads even when the stored tier is Free", async () => {
+    const { adsCtx, adsSql } = await setup("Free", true, [{ periodStartMs: NOW - 1000, periodEndMs: NOW + 30 * 86_400_000 }]);
+    const res = await callB(adsCtx, "GET", "/ads", "u1");
+    expect(await res?.json()).toEqual({ count: 0, ads: [] });
+    expect(adsSql.exec).not.toHaveBeenCalled();
+    const cfg = (await (await callB(adsCtx, "GET", "/ads/banner-config", "u1"))?.json()) as Record<string, unknown>;
+    expect(cfg.tier).toBe("Subscribed");
+    expect(cfg.adsAllowed).toBe(false);
+  });
+
+  it("an expired subscription stops suppressing ads for a subscription-granted tier", async () => {
+    const { adsCtx, adsSql } = await setup("Subscribed", true, [{ periodStartMs: NOW - 60 * 86_400_000, periodEndMs: NOW - 1000 }], "subscription");
+    const res = await callB(adsCtx, "GET", "/ads", "u1");
+    expect(((await res?.json()) as { count: number }).count).toBe(1);
+    expect(adsSql.exec.mock.calls.some(([q]: [string]) => q.startsWith("UPDATE mas_ads SET impressions"))).toBe(true);
+    const cfg = (await (await callB(adsCtx, "GET", "/ads/banner-config", "u1"))?.json()) as Record<string, unknown>;
+    expect(cfg.tier).toBe("Free");
+    expect(cfg.adsAllowed).toBe(true);
+  });
+
+  it("an operator grant survives an expired subscription", async () => {
+    const { adsCtx, adsSql } = await setup("Subscribed", true, [{ periodStartMs: NOW - 60 * 86_400_000, periodEndMs: NOW - 1000 }], "operator");
+    const res = await callB(adsCtx, "GET", "/ads", "u1");
+    expect(await res?.json()).toEqual({ count: 0, ads: [] });
+    expect(adsSql.exec).not.toHaveBeenCalled();
+  });
+
+  it("a subscription without any account row still suppresses while unexpired", async () => {
+    const { adsCtx, adsSql } = await setup(null, null, [{ periodStartMs: NOW - 1000, periodEndMs: NOW + 30 * 86_400_000 }]);
+    const res = await callB(adsCtx, "GET", "/ads", "u1");
+    expect(await res?.json()).toEqual({ count: 0, ads: [] });
+    expect(adsSql.exec).not.toHaveBeenCalled();
   });
 });
