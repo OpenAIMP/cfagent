@@ -437,6 +437,47 @@ CREATE INDEX IF NOT EXISTS agent_journal_entries_ref_idx ON agent_journal_entrie
 `,
 };
 
+/**
+ * Migration 0010 — Q7 audit-policy mechanism (#2183, sub-issue
+ * of #2012; proposal slice for CISO+CDO review under #945).
+ * DDL authority for the audit-policy tables lives here; the
+ * Drizzle mapping in drizzleSchema.ts must agree (pinned by
+ * test). The policy rows are OPERATOR DATA, not code: the
+ * blocking set, the enforcement mode, and the retention period
+ * below are PROPOSED seeds (INSERT OR IGNORE semantics in the
+ * ensure path — re-seeding never overwrites an operator edit),
+ * pending CISO+CDO sign-off. Enforcement seeds to audit-only;
+ * nothing in this migration enables blocking.
+ */
+export const MIGRATION_0010_AUDIT_POLICY: DataMigration = {
+  version: 10,
+  name: "0010_audit_policy",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_audit_policy_actions (
+  action TEXT PRIMARY KEY,
+  block_on_audit_failure INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_audit_policy_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_audit_chain (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  prev_hash TEXT NOT NULL,
+  entry_hash TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_audit_chain_tenant_seq_idx ON agent_audit_chain (tenant_id, sequence);
+CREATE INDEX IF NOT EXISTS agent_audit_chain_tenant_created_idx ON agent_audit_chain (tenant_id, created_at_ms);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -447,6 +488,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0007_COMMERCIAL_STORE,
   MIGRATION_0008_SUBSCRIPTIONS,
   MIGRATION_0009_JOURNAL,
+  MIGRATION_0010_AUDIT_POLICY,
 ];
 
 function splitStatements(sqlText: string): string[] {
