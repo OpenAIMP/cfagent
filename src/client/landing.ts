@@ -1702,6 +1702,84 @@ ${hcTokens}
         });
       });
     })();
+    // Issue #2130: the landing tape goes live on the same feed as the
+    // in-app tape. WS-first with a REST polling fallback; both surfaces
+    // are unauthenticated by design. Every matching .ticker-item (the
+    // marquee duplicates included) updates by symbol; a symbol with no
+    // live quote keeps its static baseline, never a blank.
+    (function() {
+      var MAP = {
+        'S&P 500': 'SPY',
+        'NASDAQ 100': 'QQQ',
+        'DOW JONES': 'DIA',
+        'RUSSELL 2000': 'IWM',
+        'CBOE VIX': '^VIX',
+        'US 10Y YIELD': '^TNX',
+        'BTC / USD': 'BTC/USD',
+        'ETH / USD': 'ETH/USD'
+      };
+      var SYMBOLS = Object.keys(MAP).map(function(k) { return MAP[k]; });
+      var itemsBySymbol = {};
+      document.querySelectorAll('.ticker-item').forEach(function(item) {
+        var symEl = item.querySelector('.ticker-sym');
+        var label = symEl ? symEl.textContent.trim() : '';
+        var symbol = MAP[label];
+        if (!symbol) return;
+        (itemsBySymbol[symbol] = itemsBySymbol[symbol] || []).push({
+          val: item.querySelector('.ticker-val'),
+          chg: item.querySelector('.ticker-chg')
+        });
+      });
+      if (Object.keys(itemsBySymbol).length === 0) return;
+      function applyQuote(q) {
+        var targets = itemsBySymbol[q.symbol];
+        if (!targets || !q.formattedPrice) return;
+        targets.forEach(function(t) {
+          if (t.val) {
+            var keepPct = t.val.textContent.trim().endsWith('%');
+            t.val.textContent = q.formattedPrice + (keepPct ? '%' : '');
+          }
+          if (t.chg && q.formattedChange) {
+            t.chg.textContent = q.formattedChange;
+            t.chg.classList.remove('gain', 'loss');
+            t.chg.classList.add(q.isPositive ? 'gain' : 'loss');
+          }
+        });
+      }
+      function applyQuotes(list) { (list || []).forEach(applyQuote); }
+      var pollTimer = null;
+      function fetchRest() {
+        fetch('/api/market/quotes?symbols=' + encodeURIComponent(SYMBOLS.join(',')))
+          .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('quotes fetch failed')); })
+          .then(function(data) { applyQuotes(data && data.quotes); })
+          .catch(function() { /* keep the static baseline */ });
+      }
+      function startPolling() {
+        if (pollTimer) return;
+        fetchRest();
+        pollTimer = setInterval(fetchRest, 12000);
+      }
+      function connect() {
+        if (typeof WebSocket === 'undefined') { startPolling(); return; }
+        var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var ws;
+        try {
+          ws = new WebSocket(proto + '//' + window.location.host + '/api/market/quotes/ws');
+        } catch (e) { startPolling(); return; }
+        ws.onopen = function() { ws.send(JSON.stringify({ type: 'subscribe', symbols: SYMBOLS })); };
+        ws.onmessage = function(evt) {
+          try {
+            var data = JSON.parse(evt.data);
+            if (data.type === 'snapshot' && Array.isArray(data.quotes)) applyQuotes(data.quotes);
+            else if (data.type === 'tick' && data.tick) applyQuote(data.tick);
+            else if (data.type === 'ticks' && Array.isArray(data.ticks)) applyQuotes(data.ticks);
+          } catch (e) { /* ignore a malformed message */ }
+        };
+        ws.onclose = function() { startPolling(); };
+        ws.onerror = function() { try { ws.close(); } catch (e) {} };
+      }
+      connect();
+    })();
   </script>
 </body>
 </html>`;
