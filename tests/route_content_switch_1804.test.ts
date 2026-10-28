@@ -5,16 +5,18 @@
  * `{tab === "x" && (...)}` conditionals, a second mechanism beside the
  * always-mounted trading hub. The switch is now one table-keyed lookup
  * (TAB_CONTENT[tab]) and these pins keep it that way:
- * - every ROUTES id resolves to a TAB_CONTENT key or a retained (hub) id;
+ * - every ROUTES id resolves to a TAB_CONTENT key, a retained (hub) id,
+ *   or a shell-retained page id (#2149);
  * - no per-tab conditional remains in the main region;
- * - the retained set is exactly the historical trading set (see #388).
+ * - the retained set is exactly the historical trading set (see #388);
+ * - the shell-retained set is exactly the `shellRetain` route ids.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { ROUTES } from "../src/client/routes";
-import { TRADING_TABS } from "../src/client/chat/types";
+import { TRADING_TABS, SHELL_RETAINED_PAGES } from "../src/client/chat/types";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const chatSrc = readFileSync(join(here, "..", "src", "client", "Chat.tsx"), "utf8").replace(/\r\n/g, "\n");
@@ -27,6 +29,16 @@ function tabContentKeys(src: string): string[] {
   expect(end).toBeGreaterThan(start);
   const slice = src.slice(start, end);
   return [...slice.matchAll(/^    "?([a-z0-9-]+)"?: \(/gm)].map((m) => m[1]);
+}
+
+/** Keys of the SHELL_CONTENT record, sliced out of Chat.tsx source. */
+function shellContentKeys(src: string): string[] {
+  const start = src.indexOf("const SHELL_CONTENT");
+  expect(start).toBeGreaterThan(-1);
+  const end = src.indexOf("\n  };", start);
+  expect(end).toBeGreaterThan(start);
+  const slice = src.slice(start, end);
+  return [...slice.matchAll(/^    ([a-z0-9-]+): /gm)].map((m) => m[1]);
 }
 
 const HISTORICAL_TRADING_IDS = [
@@ -46,22 +58,31 @@ const HISTORICAL_TRADING_IDS = [
 ];
 
 describe("route-table-derived content switch (#2077)", () => {
-  it("every route id resolves to content or to the retained hub", () => {
+  it("every route id resolves to content, to the retained hub, or to a shell page", () => {
     const keys = new Set(tabContentKeys(chatSrc));
     for (const route of ROUTES) {
       expect(
-        keys.has(route.id) || TRADING_TABS.has(route.id),
-        `route "${route.id}" has neither TAB_CONTENT entry nor retained hub`,
+        keys.has(route.id) || TRADING_TABS.has(route.id) || SHELL_RETAINED_PAGES.has(route.id),
+        `route "${route.id}" has neither TAB_CONTENT entry, retained hub, nor shell page`,
       ).toBe(true);
     }
   });
 
-  it("the content keys are exactly the non-trading route ids", () => {
+  it("the content keys are exactly the non-trading, non-shell route ids", () => {
     const keys = tabContentKeys(chatSrc).sort();
-    const expected = ROUTES.filter((r) => !TRADING_TABS.has(r.id))
+    const expected = ROUTES.filter((r) => !TRADING_TABS.has(r.id) && !SHELL_RETAINED_PAGES.has(r.id))
       .map((r) => r.id)
       .sort();
     expect(keys).toEqual(expected);
+  });
+
+  it("the shell content keys are exactly the shellRetain route ids (#2149)", () => {
+    const keys = shellContentKeys(chatSrc).sort();
+    const expected = ROUTES.filter((r) => (r as any).shellRetain)
+      .map((r) => r.id)
+      .sort();
+    expect(keys).toEqual(expected);
+    expect([...SHELL_RETAINED_PAGES].sort()).toEqual(expected);
   });
 
   it("no per-tab conditional remains in the main region", () => {

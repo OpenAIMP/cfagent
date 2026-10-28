@@ -1,6 +1,11 @@
 /**
  * Issue #1382: Social posting panel — brief editor, manual trigger, status readout.
  *
+ * Issue #2149: tabbed shell page — the five sections are URL-synced tabs
+ * (?view=) with visited tabs retained mounted-hidden, instead of one long
+ * stacked scroll. Layout comes from primitives + token utilities only;
+ * no inline-style layout, no bespoke page classes.
+ *
  * Deliberately NO enable/disable control: the goal's enabled state is a
  * read-only readout, and a manual trigger runs the goal once without
  * enabling the daily schedule. The brief editor stores only what the user
@@ -8,7 +13,9 @@
  * All reads/writes go through the existing session-gated routes.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Badge, Button, Card, Notice, PageSection, PageShell, TextInput } from "./components/ui";
+import { Badge, Button, Card, Notice, PageShell, Tabs, TabPanel, TextInput } from "./components/ui";
+import type { TabOption } from "./components/ui";
+import { useUrlSyncedTabs } from "./useUrlSyncedTabs";
 import {
   listGoals,
   triggerGoal,
@@ -38,7 +45,27 @@ const CHANNEL_LABELS: Record<string, string> = {
   linkedin: "LinkedIn",
 };
 
-export function SocialPostingPanel() {
+type SocialTab = "brief" | "goal" | "approvals" | "posts" | "tokens";
+
+const SOCIAL_TABS: TabOption<SocialTab>[] = [
+  { id: "brief", label: "Brief" },
+  { id: "goal", label: "Goals" },
+  { id: "approvals", label: "Approvals" },
+  { id: "posts", label: "Posts" },
+  { id: "tokens", label: "Token health" },
+];
+
+function isSocialTab(value: unknown): value is SocialTab {
+  return (
+    value === "brief" ||
+    value === "goal" ||
+    value === "approvals" ||
+    value === "posts" ||
+    value === "tokens"
+  );
+}
+
+export function SocialPostingPanel({ active = true }: { active?: boolean }) {
   const [date] = useState(() => todayInNewYork());
   const [briefText, setBriefText] = useState("");
   const [savedNote, setSavedNote] = useState("");
@@ -51,6 +78,13 @@ export function SocialPostingPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const fetchedRef = React.useRef(false);
+
+  const { activeTab, visitedTabs, handleTabChange } = useUrlSyncedTabs<SocialTab>({
+    param: "view",
+    isValid: isSocialTab,
+    defaultTab: "brief",
+  });
 
   const refresh = useCallback(async () => {
     try {
@@ -86,9 +120,14 @@ export function SocialPostingPanel() {
     }
   }, [date]);
 
+  // Shell-retained pages mount once and stay mounted: fetch on first
+  // activation (the old tab-render fetch), then only via refresh paths.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (active && !fetchedRef.current) {
+      fetchedRef.current = true;
+      void refresh();
+    }
+  }, [active, refresh]);
 
   const overCap = briefText.length > SOCIAL_BRIEF_MAX_CHARS;
   const canSave = briefText.trim().length > 0 && !overCap && !busy;
@@ -131,176 +170,185 @@ export function SocialPostingPanel() {
       {error && <Notice tone="danger">{error}</Notice>}
       {!loading && (
         <>
-          <PageSection title="Today's brief">
-          <div style={{ display: "grid", gap: "var(--space-2)", maxWidth: 640 }}>
-            <TextInput
-              multiline
-              rows={6}
-              placeholder="Write today's post here…"
-              value={briefText}
-              onChange={(e) => {
-                setBriefText(e.target.value);
-                setSavedNote("");
-              }}
-            />
-            <div style={{ fontSize: 13, opacity: 0.8 }}>
-              {briefText.length} / {SOCIAL_BRIEF_MAX_CHARS} characters
-              {overCap && (
-                <span style={{ color: "var(--color-danger)", marginLeft: "var(--space-2)" }}>
-                  Over the {SOCIAL_BRIEF_MAX_CHARS}-character cap — shorten the text to save.
-                </span>
-              )}
-            </div>
-            <div>
-              <Button variant="primary" disabled={!canSave} onClick={() => void handleSave()}>
-                {busy === "save" ? "Saving…" : "Save brief"}
-              </Button>
-              {savedNote && (
-                <span style={{ color: "var(--color-success)", marginLeft: "var(--space-3)", fontSize: 13 }}>
-                  {savedNote}
-                </span>
-              )}
-            </div>
-          </div>
-
-          </PageSection>
-          <PageSection title="Daily social post goal">
-          {goalMissing && (
-            <div style={{ opacity: 0.7 }}>
-              The {DAILY_SOCIAL_POST_GOAL_ID} goal is not in the store yet.
-            </div>
-          )}
-          {goal && (
-            <div style={{ maxWidth: 640 }}>
-              <Card>
-              <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
-                <strong>{goal.name}</strong>
-                <code style={{ fontSize: 12 }}>{goal.id}</code>
-                <span style={{ fontSize: 12, opacity: 0.7 }}>{goal.cron}</span>
-                <span style={{ marginLeft: "auto" }}>
-                  <Badge tone={goal.enabled ? "success" : "neutral"} size="sm">
-                    {goal.enabled ? "ENABLED" : "DISABLED"}
-                  </Badge>
-                </span>
-              </div>
-              <div style={{ fontSize: 13, opacity: 0.8, marginTop: "var(--space-1)" }}>
-                operation <code>{goal.operation}</code> · budget ${(goal.budgetCents / 100).toFixed(2)} · last
-                run {goal.lastRun ? new Date(goal.lastRun).toLocaleString() : "never"}
-              </div>
-              <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
-                <Button variant="primary" disabled={!!busy} onClick={() => void handleTrigger()}>
-                  Run now
-                </Button>
-              </div>
-              {lastTick && (
-                <div style={{ fontSize: 13, marginTop: "var(--space-2)" }}>
-                  Last manual run: {new Date(lastTick.timestamp).toLocaleString()} — evaluated{" "}
-                  {lastTick.goalsEvaluated}, created {lastTick.jobsCreated}, skipped {lastTick.jobsSkipped}
-                  {lastTick.errors.length > 0 && (
-                    <div style={{ color: "var(--color-danger)", marginTop: "var(--space-1)" }}>
-                      {lastTick.errors.map((e, i) => (
-                        <div key={i}>{e}</div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              </Card>
-            </div>
-          )}
-
-          </PageSection>
-          <PageSection title="Pending approvals">
-          {approvals.length === 0 && (
-            <div style={{ opacity: 0.7 }}>No pending approvals for {date}.</div>
-          )}
-          <div style={{ display: "grid", gap: "var(--space-2-5)", maxWidth: 640 }}>
-          {approvals.map((a) => (
-            <Card key={a.draftId}>
-              <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
-                <strong>{CHANNEL_LABELS[a.channel] ?? a.channel}</strong>
-                <span style={{ fontSize: 12, opacity: 0.7 }}>{a.status}</span>
-                <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.7 }}>
-                  {new Date(a.requestedAtMs).toLocaleString()}
-                </span>
-              </div>
-              <div style={{ fontSize: 13, marginTop: "var(--space-1)" }}>{a.text}</div>
-            </Card>
-          ))}
-          </div>
-
-          </PageSection>
-          <PageSection title="Submitted posts">
-          {posts.length === 0 && (
-            <div style={{ opacity: 0.7 }}>No submitted posts or drafts for {date}.</div>
-          )}
-          <div style={{ display: "grid", gap: "var(--space-2-5)", maxWidth: 640 }}>
-          {posts.map((p) => {
-            const label = CHANNEL_LABELS[p.channel] ?? p.channel;
-            const isPosted = p.status === "posted";
-            const isDryRun = p.status === "dry-run-posted";
-            return (
-              <Card key={p.draftId}>
-                <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: "var(--space-1-5)" }}>
-                  <strong>{label}</strong>
-                  <Badge tone={isPosted ? "success" : isDryRun ? "accent" : "neutral"} size="sm">
-                    {p.status.toUpperCase()}
-                  </Badge>
-                  {p.platformPostId && (
-                    <code style={{ fontSize: 12, opacity: 0.8 }}>ID: {p.platformPostId}</code>
-                  )}
-                  <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.7 }}>
-                    {new Date(p.createdAtMs).toLocaleString()}
-                  </span>
-                </div>
-                <div style={{ fontSize: 13, marginBottom: "var(--space-1)" }}>
-                  <span style={{ opacity: 0.7 }}>Submission endpoint: </span>
-                  <code style={{ fontSize: 12 }}>{p.submissionEndpoint || "—"}</code>
-                </div>
-                <div style={{ fontSize: 13, marginBottom: "var(--space-1-5)" }}>
-                  <span style={{ opacity: 0.7 }}>Submitted post URL: </span>
-                  {p.postUrl ? (
-                    <a
-                      href={p.postUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: "var(--color-primary)", textDecoration: "underline" }}
-                    >
-                      {p.postUrl}
-                    </a>
-                  ) : (
-                    <span style={{ opacity: 0.7, fontSize: 12 }}>
-                      {isDryRun ? "Dry run (simulated — not submitted to live platform)" : "Pending submission"}
+          <Tabs
+            tabs={SOCIAL_TABS}
+            value={activeTab}
+            onChange={handleTabChange}
+            idBase="social"
+            ariaLabel="Social posting sections"
+          />
+          {visitedTabs.has("brief") && (
+            <TabPanel idBase="social" tabId="brief" active={activeTab === "brief"} retain>
+              <div className="ui-stack ui-narrow">
+                <TextInput
+                  multiline
+                  rows={6}
+                  placeholder="Write today's post here…"
+                  value={briefText}
+                  onChange={(e) => {
+                    setBriefText(e.target.value);
+                    setSavedNote("");
+                  }}
+                />
+                <div className="ui-meta">
+                  {briefText.length} / {SOCIAL_BRIEF_MAX_CHARS} characters
+                  {overCap && (
+                    <span className="ui-danger ui-ml-3">
+                      Over the {SOCIAL_BRIEF_MAX_CHARS}-character cap — shorten the text to save.
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 13, marginTop: "var(--space-1)" }}>{p.text}</div>
-              </Card>
-            );
-          })}
-          </div>
-
-          </PageSection>
-          <PageSection title="Token health">
-          {SOCIAL_CHANNEL_ORDER.filter((id) => tokenChannels[id]).map((id) => {
-            const channel = tokenChannels[id];
-            return (
-              <div key={id} style={{ fontSize: 13, marginBottom: "var(--space-1-5)" }}>
-                <strong>{CHANNEL_LABELS[id] ?? id}</strong> —{" "}
-                {channel.presence === "configured" ? "Configured" : "Not configured"} · validity{" "}
-                {channel.validity === "valid"
-                  ? "Valid"
-                  : channel.validity === "invalid"
-                    ? "Invalid"
-                    : "Unknown"}
+                <div>
+                  <Button variant="primary" disabled={!canSave} onClick={() => void handleSave()}>
+                    {busy === "save" ? "Saving…" : "Save brief"}
+                  </Button>
+                  {savedNote && <span className="ui-meta ui-success ui-ml-3">{savedNote}</span>}
+                </div>
               </div>
-            );
-          })}
-          <div style={{ fontSize: 12, opacity: 0.7, marginTop: "var(--space-1)" }}>
-            Validity reads Unknown in production by design: no live probe is wired, so validity is
-            never assumed — only a real post proves a token works.
-          </div>
-          </PageSection>
+            </TabPanel>
+          )}
+          {visitedTabs.has("goal") && (
+            <TabPanel idBase="social" tabId="goal" active={activeTab === "goal"} retain>
+              {goalMissing && (
+                <div className="ui-meta">
+                  The {DAILY_SOCIAL_POST_GOAL_ID} goal is not in the store yet.
+                </div>
+              )}
+              {goal && (
+                <div className="ui-narrow">
+                  <Card>
+                    <div className="ui-row">
+                      <strong>{goal.name}</strong>
+                      <code className="ui-meta-sm">{goal.id}</code>
+                      <span className="ui-meta-sm">{goal.cron}</span>
+                      <span className="ui-push">
+                        <Badge tone={goal.enabled ? "success" : "neutral"} size="sm">
+                          {goal.enabled ? "ENABLED" : "DISABLED"}
+                        </Badge>
+                      </span>
+                    </div>
+                    <div className="ui-meta ui-mt-1">
+                      operation <code>{goal.operation}</code> · budget ${(goal.budgetCents / 100).toFixed(2)} · last
+                      run {goal.lastRun ? new Date(goal.lastRun).toLocaleString() : "never"}
+                    </div>
+                    <div className="ui-row ui-mt-2">
+                      <Button variant="primary" disabled={!!busy} onClick={() => void handleTrigger()}>
+                        Run now
+                      </Button>
+                    </div>
+                    {lastTick && (
+                      <div className="ui-meta ui-mt-2">
+                        Last manual run: {new Date(lastTick.timestamp).toLocaleString()} — evaluated{" "}
+                        {lastTick.goalsEvaluated}, created {lastTick.jobsCreated}, skipped {lastTick.jobsSkipped}
+                        {lastTick.errors.length > 0 && (
+                          <div className="ui-danger ui-mt-1">
+                            {lastTick.errors.map((e, i) => (
+                              <div key={i}>{e}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </Card>
+                </div>
+              )}
+            </TabPanel>
+          )}
+          {visitedTabs.has("approvals") && (
+            <TabPanel idBase="social" tabId="approvals" active={activeTab === "approvals"} retain>
+              {approvals.length === 0 && (
+                <div className="ui-meta">No pending approvals for {date}.</div>
+              )}
+              <div className="ui-stack-lg ui-narrow">
+                {approvals.map((a) => (
+                  <Card key={a.draftId}>
+                    <div className="ui-row">
+                      <strong>{CHANNEL_LABELS[a.channel] ?? a.channel}</strong>
+                      <span className="ui-meta-sm">{a.status}</span>
+                      <span className="ui-meta-sm ui-push">
+                        {new Date(a.requestedAtMs).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="ui-meta ui-mt-1">{a.text}</div>
+                  </Card>
+                ))}
+              </div>
+            </TabPanel>
+          )}
+          {visitedTabs.has("posts") && (
+            <TabPanel idBase="social" tabId="posts" active={activeTab === "posts"} retain>
+              {posts.length === 0 && (
+                <div className="ui-meta">No submitted posts or drafts for {date}.</div>
+              )}
+              <div className="ui-stack-lg ui-narrow">
+                {posts.map((p) => {
+                  const label = CHANNEL_LABELS[p.channel] ?? p.channel;
+                  const isPosted = p.status === "posted";
+                  const isDryRun = p.status === "dry-run-posted";
+                  return (
+                    <Card key={p.draftId}>
+                      <div className="ui-row ui-mb-1-5">
+                        <strong>{label}</strong>
+                        <Badge tone={isPosted ? "success" : isDryRun ? "accent" : "neutral"} size="sm">
+                          {p.status.toUpperCase()}
+                        </Badge>
+                        {p.platformPostId && (
+                          <code className="ui-meta-sm">ID: {p.platformPostId}</code>
+                        )}
+                        <span className="ui-meta-sm ui-push">
+                          {new Date(p.createdAtMs).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="ui-meta ui-mb-1">
+                        <span>Submission endpoint: </span>
+                        <code>{p.submissionEndpoint || "—"}</code>
+                      </div>
+                      <div className="ui-meta ui-mb-1-5">
+                        <span>Submitted post URL: </span>
+                        {p.postUrl ? (
+                          <a
+                            href={p.postUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ui-link"
+                          >
+                            {p.postUrl}
+                          </a>
+                        ) : (
+                          <span className="ui-meta-sm">
+                            {isDryRun ? "Dry run (simulated — not submitted to live platform)" : "Pending submission"}
+                          </span>
+                        )}
+                      </div>
+                      <div className="ui-meta ui-mt-1">{p.text}</div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </TabPanel>
+          )}
+          {visitedTabs.has("tokens") && (
+            <TabPanel idBase="social" tabId="tokens" active={activeTab === "tokens"} retain>
+              {SOCIAL_CHANNEL_ORDER.filter((id) => tokenChannels[id]).map((id) => {
+                const channel = tokenChannels[id];
+                return (
+                  <div key={id} className="ui-meta ui-mb-1-5">
+                    <strong>{CHANNEL_LABELS[id] ?? id}</strong> —{" "}
+                    {channel.presence === "configured" ? "Configured" : "Not configured"} · validity{" "}
+                    {channel.validity === "valid"
+                      ? "Valid"
+                      : channel.validity === "invalid"
+                        ? "Invalid"
+                        : "Unknown"}
+                  </div>
+                );
+              })}
+              <div className="ui-meta-sm ui-mt-1">
+                Validity reads Unknown in production by design: no live probe is wired, so validity is
+                never assumed — only a real post proves a token works.
+              </div>
+            </TabPanel>
+          )}
         </>
       )}
     </PageShell>

@@ -235,6 +235,10 @@ function buttonByText(text: string): HTMLButtonElement {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // #2149: sections are URL-synced tabs (?view=); reset the URL so each
+  // test starts on the default Brief tab instead of inheriting a prior
+  // test's visited tab.
+  window.history.pushState(null, "", "/");
 });
 
 afterEach(async () => {
@@ -297,20 +301,27 @@ describe("SocialPostingPanel", () => {
     await renderPanel();
     const textarea = container.querySelector("textarea");
     expect(textarea?.value).toBe("Stored brief text");
+    // #2149: goal, token, and approval content live behind tabs — navigate
+    // to each before asserting (visited panels stay mounted, so later
+    // assertions still see earlier tabs' content).
+    clickButton(buttonByText("Goals"));
     expect(container.textContent).toContain("Daily social post");
     expect(container.textContent).toContain("DISABLED");
+    clickButton(buttonByText("Token health"));
     // Verify all 5 channels render when server returns array format (#1391)
     expect(container.textContent).toContain("Threads — Configured · validity Unknown");
     expect(container.textContent).toContain("X — Not configured · validity Unknown");
     expect(container.textContent).toContain("Facebook — Not configured · validity Unknown");
     expect(container.textContent).toContain("Instagram — Not configured · validity Unknown");
     expect(container.textContent).toContain("LinkedIn — Not configured · validity Unknown");
+    clickButton(buttonByText("Approvals"));
     expect(container.textContent).toContain("Pending approval draft");
   });
 
   it("renders token health rows when server returns record format for backward compatibility", async () => {
     installFetch({ tokenChannels: TOKEN_CHANNELS }, []);
     await renderPanel();
+    clickButton(buttonByText("Token health"));
     expect(container.textContent).toContain("Threads — Configured · validity Unknown");
     expect(container.textContent).toContain("X — Not configured · validity Unknown");
   });
@@ -353,6 +364,7 @@ describe("SocialPostingPanel", () => {
     const calls: FetchCall[] = [];
     installFetch({ brief: "Ready post", approvals: [] }, calls);
     await renderPanel();
+    clickButton(buttonByText("Goals"));
     clickButton(buttonByText("Run now"));
     await flush();
     const trigger = calls.find((c) => c.method === "POST" && c.url === "/api/schedule/goals/daily-social-post/trigger");
@@ -407,7 +419,9 @@ describe("SocialPostingPanel", () => {
     }, []);
     await renderPanel();
 
-    expect(container.textContent).toContain("Submitted posts");
+    // #2149: posts live behind the Posts tab (the tab label replaces the
+    // old "Submitted posts" section title).
+    clickButton(buttonByText("Posts"));
     expect(container.textContent).toContain("Threads");
     expect(container.textContent).toContain("POSTED");
     expect(container.textContent).toContain("https://graph.threads.net/v1.0/me/threads_publish");
@@ -437,6 +451,7 @@ describe("SocialPostingPanel", () => {
     }, []);
     await renderPanel();
 
+    clickButton(buttonByText("Posts"));
     expect(container.textContent).toContain("X");
     expect(container.textContent).toContain("DRY-RUN-POSTED");
     expect(container.textContent).toContain("Dry run (simulated — not submitted to live platform)");

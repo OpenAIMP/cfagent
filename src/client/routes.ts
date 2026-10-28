@@ -52,6 +52,14 @@ export interface RouteDef {
    * sub-tab mapping; the table is the single source of truth for the set.
    */
   retain?: boolean;
+  /**
+   * Retained shell page (#2149): rendered from SHELL_CONTENT mounted-hidden
+   * when inactive, instead of a TAB_CONTENT entry. Deliberately NOT `retain`:
+   * TRADING_TABS derives from `retain`, so a `retain` flag here would route
+   * the page to the trading hub. Shell retention is the same mounted-hidden
+   * idea, applied to standalone pages.
+   */
+  shellRetain?: boolean;
   /** Nav entry highlighted when this tab is active. */
   navGroup: string;
   /** Breadcrumb label. */
@@ -277,6 +285,7 @@ export const ROUTES = [
   },
   {
     id: "payments",
+    shellRetain: true,
     navGroup: "payments",
     crumb: "Payments",
     category: "Platform",
@@ -401,6 +410,7 @@ export const ROUTES = [
   },
   {
     id: "social",
+    shellRetain: true,
     navGroup: "social",
     crumb: "Social",
     category: "Platform",
