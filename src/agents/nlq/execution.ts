@@ -93,20 +93,24 @@ function persistNlqOptionsScreenReport(
     totalContractsEvaluated: number;
     matchedCount: number;
   },
-  generatedAt: string
+  generatedAt: string,
+  env?: Env
 ): void {
   try {
     const generationId = `options_scanner:nlq:${generatedAt}`;
-    orm.storeCanonicalReport({
-      runId: generationId,
-      generationId,
-      title: `Options contract screen — ${(filter.underlyingSymbols || []).join(", ") || "selected underlyings"}`,
-      source: "options_scanner",
-      summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
-      body: { generatedAt, filter, result, trigger: "nlq" },
-      userLogin,
-      createdAt: generatedAt,
-    });
+    orm.storeCanonicalReport(
+      {
+        runId: generationId,
+        generationId,
+        title: `Options contract screen — ${(filter.underlyingSymbols || []).join(", ") || "selected underlyings"}`,
+        source: "options_scanner",
+        summary: `${result.totalUnderlyingsScanned} underlyings scanned, ${result.totalContractsEvaluated} contracts evaluated, ${result.matchedCount} matched.`,
+        body: { generatedAt, filter, result, trigger: "nlq" },
+        userLogin,
+        createdAt: generatedAt,
+      },
+      env
+    );
   } catch {
     // Non-critical: persistence failure must not break the screen
     // (the same rule the REST route and premium endpoints follow).
@@ -124,19 +128,21 @@ function persistNlqOptionsScreenReport(
 function persistNlqStockScreenReport(
   orm: DatabaseORM,
   userLogin: string,
-  run: NLQStockScreenRunResult
+  run: NLQStockScreenRunResult,
+  env?: Env
 ): void {
   try {
     const generationId = `screener:${run.timestamp}`;
-    orm.storeCanonicalReport({
-      runId: generationId,
-      generationId,
-      title: `Market screen — ${String(run.universe ?? run.sector ?? "ALL")} (nlq)`,
-      source: "screener",
-      summary: run.success
-        ? `Scanned ${run.totalScanned} symbols, ${run.matchedCount} matched, ${run.opportunities.length} opportunities.`
-        : `Screen failed: ${run.error ?? "unknown error"}.`,
-      userLogin,
+    orm.storeCanonicalReport(
+      {
+        runId: generationId,
+        generationId,
+        title: `Market screen — ${String(run.universe ?? run.sector ?? "ALL")} (nlq)`,
+        source: "screener",
+        summary: run.success
+          ? `Scanned ${run.totalScanned} symbols, ${run.matchedCount} matched, ${run.opportunities.length} opportunities.`
+          : `Screen failed: ${run.error ?? "unknown error"}.`,
+        userLogin,
       body: {
         timestamp: run.timestamp,
         universe: run.universe,
@@ -154,7 +160,9 @@ function persistNlqStockScreenReport(
         error: run.error,
       },
       createdAt: run.timestamp,
-    });
+      },
+      env
+    );
   } catch {
     // Non-critical: persistence failure must not break the screen.
   }
@@ -1457,7 +1465,7 @@ async function executeNLQQueryAsyncCore(
       if (deps?.stockScreenPort) {
         try {
           const run = await deps.stockScreenPort.runScreen({ filters: screenFilters, userLogin: login });
-          persistNlqStockScreenReport(orm, login, run);
+          persistNlqStockScreenReport(orm, login, run, env);
           return stockScreenEnvelopeFromServiceRun(plan, run, screenFilters, executedAt);
         } catch (err) {
           return {
@@ -1827,7 +1835,7 @@ async function executeNLQQueryAsyncCore(
         limit: parsedFilters.value.limit,
       });
       const res = serviceResponse.data as OptionScreenResult;
-      persistNlqOptionsScreenReport(orm, login, parsedFilters.value, res, executedAt);
+      persistNlqOptionsScreenReport(orm, login, parsedFilters.value, res, executedAt, env);
       const freshnessNote = res.quoteQuality?.staleContractsReturned || res.quoteQuality?.unknownFreshnessContracts
         ? ` Freshness: ${res.quoteQuality.staleContractsReturned} returned contracts are stale and ${res.quoteQuality.unknownFreshnessContracts} have unknown timestamps; freshest stale quote was ${Math.round(res.quoteQuality.freshestStaleQuoteAgeSeconds || 0)}s old (freshness reference ${res.quoteQuality.referenceAgeSeconds ?? res.quoteQuality.maxAgeSeconds ?? 60}s).`
         : "";
