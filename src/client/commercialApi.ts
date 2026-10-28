@@ -1,0 +1,224 @@
+/**
+ * Issue #2137: checkout UI API client (commercial routes).
+ *
+ * The browser calls /api/... with the session cookie; the worker
+ * injects x-user-login from the session before forwarding to the
+ * orchestrator. This module NEVER sends an identity header and NEVER
+ * reads tier or tenant from a header or localStorage claim — identity
+ * is the session, and the server is the authority on tier, tenant,
+ * prices, and whether charging is on.
+ *
+ * Error contract: every failure surfaces as CommercialApiError with
+ * the HTTP status. errorMessageForStatus maps statuses to FIXED
+ * caller-facing strings (the #2060 CodeQL precedent: generic text to
+ * the caller, detail server-side only). Server error bodies are never
+ * rendered — they can carry internal detail.
+ */
+
+const BASE = "/api/payments/agentic/commercial";
+
+export class CommercialApiError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(errorMessageForStatus(status));
+    this.status = status;
+  }
+}
+
+/** Fixed caller-facing message per HTTP status. No server detail leaks. */
+export function errorMessageForStatus(status: number): string {
+  switch (status) {
+    case 0:
+      return "The service could not be reached. Check your connection and try again.";
+    case 400:
+      return "Some values are missing or invalid. Check the form and try again.";
+    case 401:
+      return "Sign in again to continue.";
+    case 402:
+      return "The checkout is not paid yet. Complete the payment, then try again.";
+    case 403:
+      return "Payments are currently off, or you do not have access to this. No charge was made.";
+    case 404:
+      return "This service is not deployed yet. Try again after the next release.";
+    case 409:
+      return "This payment was already used, or the plan is no longer active.";
+    case 503:
+      return "The payment service is temporarily unavailable. Try again later.";
+    default:
+      return "Something went wrong. Try again later.";
+  }
+}
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...init,
+      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    });
+  } catch {
+    throw new CommercialApiError(0);
+  }
+  if (!res.ok) throw new CommercialApiError(res.status);
+  return (await res.json()) as T;
+}
+
+const get = <T>(path: string): Promise<T> => call<T>(path);
+const post = <T>(path: string, body: unknown): Promise<T> =>
+  call<T>(path, { method: "POST", body: JSON.stringify(body) });
+
+export type ScreenerFamily = "stock" | "goal" | "options" | "strategy";
+
+export interface Pricing {
+  monetizationEnabled: boolean;
+  prices: Record<ScreenerFamily, number>;
+  testnetOnly: boolean;
+  failurePolicy: string;
+}
+
+export interface CommercialAccountView {
+  id?: string;
+  tenantId?: string;
+  tier?: string;
+  creditsUSD?: number;
+  includedRunsRemaining?: number;
+}
+
+export interface PlanView {
+  id: string;
+  name: string;
+  priceUSD: number;
+  periodDays: number;
+  includedRuns: number;
+  active?: boolean;
+}
+
+export interface SubscriptionView {
+  id: string;
+  planId: string;
+  status: string;
+  periodStartMs: number;
+  periodEndMs: number;
+  canceledAtMs?: number | null;
+}
+
+export interface SubscriptionStatusView {
+  userId: string;
+  effectiveTier: string;
+  current: SubscriptionView | null;
+  subscriptions: SubscriptionView[];
+}
+
+export interface SubmitResult {
+  runRequestId: string;
+  workflowId?: string;
+  status: string;
+  creditRunId?: string;
+}
+
+export interface CheckPaymentResult {
+  runRequestId: string;
+  paid: boolean;
+  delivered?: boolean;
+  state?: string;
+  paymentUrl?: string | null;
+}
+
+export interface FeaturesResponse {
+  features?: Record<string, boolean>;
+}
+
+export const getPricing = (): Promise<Pricing> => get<Pricing>("/pricing");
+export const getFeatures = async (): Promise<FeaturesResponse> => {
+  let res: Response;
+  try {
+    res = await fetch("/api/features");
+  } catch {
+    throw new CommercialApiError(0);
+  }
+  if (!res.ok) throw new CommercialApiError(res.status);
+  return (await res.json()) as FeaturesResponse;
+};
+export const getAccount = (userId: string): Promise<CommercialAccountView> =>
+  get<CommercialAccountView>(`/account?userId=${encodeURIComponent(userId)}`);
+export const listPlans = (): Promise<{ plans: PlanView[] }> => get<{ plans: PlanView[] }>("/plans");
+export const getSubscriptionStatus = (userId: string): Promise<SubscriptionStatusView> =>
+  get<SubscriptionStatusView>(`/subscription?userId=${encodeURIComponent(userId)}`);
+export const getSubmissionStatus = (workflowId: string): Promise<{ workflowId: string; status: string }> =>
+  get<{ workflowId: string; status: string }>(`/submission-status?workflowId=${encodeURIComponent(workflowId)}`);
+
+export interface SubmitBody {
+  family: ScreenerFamily;
+  tenantId: string;
+  email: string;
+  trigger?: "manual" | "scheduled";
+  scheduleKind?: "one_off";
+  authorizedAtSubmission?: boolean;
+  screenerCommand: Record<string, unknown>;
+}
+
+export const submitRun = (body: SubmitBody): Promise<SubmitResult> => post<SubmitResult>("/submit", body);
+export const checkPayment = (runRequestId: string): Promise<CheckPaymentResult> =>
+  post<CheckPaymentResult>("/submission/check-payment", { runRequestId });
+export const buildGoalCommand = (body: {
+  jobId: string;
+  goalKind: string;
+  direction: string;
+  symbols?: string[];
+  tenantId?: string;
+}): Promise<{ screenerCommand: Record<string, unknown> }> => post("/goal-command", body);
+export const subscriptionCheckout = (body: {
+  planId: string;
+  tenantId: string;
+  email: string;
+}): Promise<{ checkoutRequestId: string; checkout: unknown; plan: PlanView }> =>
+  post("/subscription/checkout", body);
+export const subscriptionPurchase = (body: {
+  planId: string;
+  tenantId: string;
+  checkoutRequestId: string;
+}): Promise<{ subscription: SubscriptionView; account: CommercialAccountView; effectiveTier: string }> =>
+  post("/subscription/purchase", body);
+export const subscriptionCancel = (): Promise<{ userId: string; canceled: SubscriptionView[]; accessThroughMs: number | null }> =>
+  post("/subscription/cancel", {});
+
+/** Split a comma-separated symbols field into a clean list. */
+export function parseSymbols(input: string): string[] {
+  return input
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Build a non-goal screener command. The server stamps userLogin from
+ * the verified session on submit, so the client command carries no
+ * identity claim — the session header is the authority, not this
+ * object. Goal commands MUST come from the server goal-command route
+ * (a goal screen requires a server-built scenario).
+ */
+export function buildNonGoalCommand(
+  jobId: string,
+  family: Exclude<ScreenerFamily, "goal">,
+  symbols: string[]
+): Record<string, unknown> {
+  return {
+    jobId,
+    type: "run-screen",
+    source: "manual",
+    trigger: "manual",
+    role: "parent",
+    shards: [{ shardId: family, symbols }],
+  };
+}
+
+/** Format a USD amount with exactly two decimals. */
+export function formatUSD(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+/** Format a period-end timestamp for display. */
+export function formatPeriodEnd(ms: number | null | undefined): string {
+  if (!ms) return "—";
+  return new Date(ms).toLocaleString();
+}
