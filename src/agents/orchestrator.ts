@@ -2252,10 +2252,14 @@ export class OrchestratorAgent extends PortThink {
     // matched. The verified login (set by src/server.ts from the
     // session) gates ingestion; the corpus itself is not partitioned
     // by login (see knowledgeCorpus.ts header).
+    // Issue #1169 (S4-4): the mount additionally passes the report
+    // store (sql) so the weekly corpus-sync branch can read/write
+    // its mas_settings marker and run the index backfill.
     const knowledgeCorpusResponse = await handleKnowledgeCorpusRoutes(request, url, path, sessionId, {
       env: this.env,
       storage: this.ctx.storage,
       userLogin: request.headers.get("x-user-login") || "",
+      sql: this.ctx.storage.sql,
     });
     if (knowledgeCorpusResponse) return knowledgeCorpusResponse;
 
