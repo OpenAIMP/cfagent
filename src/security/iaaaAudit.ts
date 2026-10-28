@@ -106,10 +106,31 @@ export type CreateIaaaAuditEventInput = Omit<
   "id" | "previousEventHash" | "eventHash"
 >;
 
-/** Append-only: deliberately no update, delete, or remove operation. */
+/**
+ * Append-only: deliberately no update, delete, or remove operation.
+ *
+ * #1760 — transactional append: a backend that can chain and store
+ * an event atomically exposes `appendAtomic`, and recordAuditEvent
+ * prefers it over the list-then-link-then-append path. The legacy
+ * path (list + append) stays for backends without an atomic op
+ * (the in-memory store, the Kv store), but it is NOT safe under
+ * concurrency: two parallel recordAuditEvent calls can read the
+ * same tail and fork the chain or lose an event. Production wiring
+ * (createWiredAuditStore) is atomic; an atomic backend's append()
+ * throws, because storing a caller-chained event verbatim would
+ * bypass the atomic chaining — append through recordAuditEvent.
+ */
 export interface AuditStore {
   append(event: IaaaAuditEvent): Promise<void>;
   list(): Promise<IaaaAuditEvent[]>;
+  /**
+   * Atomically chain (assign id, previousEventHash, eventHash) and
+   * store one validated event input. The whole step is one backend
+   * operation on atomic backends (one SessionStore DO request), so
+   * parallel appends cannot interleave between the tail read and
+   * the write. Absent on legacy backends.
+   */
+  appendAtomic?(input: CreateIaaaAuditEventInput): Promise<AuditResult>;
 }
 
 export function createMemoryAuditStore(): AuditStore {
@@ -213,6 +234,7 @@ export type AuditErrorCode =
   | "INVALID_OUTCOME"
   | "INVALID_TIMESTAMP"
   | "FIELD_TOO_LONG"
+  | "AUDIT_STORE_FULL"
   | "AUDIT_WRITE_FAILED";
 
 export type AuditResult =
@@ -314,6 +336,21 @@ export async function recordAuditEvent(
 ): Promise<AuditResult> {
   const validation = validateInput(input);
   if (!validation.ok) return validation;
+  // #1760 — atomic path: the backend chains and stores in one
+  // operation. No list-then-link step runs here, so no second
+  // appender can observe the same tail. A throwing backend reads
+  // as AUDIT_WRITE_FAILED, exactly like the legacy path below.
+  if (typeof store.appendAtomic === "function") {
+    try {
+      return await store.appendAtomic(input);
+    } catch {
+      return {
+        ok: false,
+        code: "AUDIT_WRITE_FAILED",
+        error: "audit event could not be recorded; the action must not be reported as audited",
+      };
+    }
+  }
   const existing = await store.list();
   const previousEventHash =
     existing.length > 0 ? existing[existing.length - 1].eventHash : null;

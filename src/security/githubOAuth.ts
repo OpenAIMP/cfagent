@@ -13,6 +13,7 @@ import { clearSessionCookie, getSessionId, isSessionIdFormat, getSession, delete
 import { invalidateSessionCache } from "./sessionCache";
 import {
   buildLogoutAuditEventInput,
+  buildLogoutAuditSkippedEventInput,
   recordWiredAuthAudit,
 } from "./iaaaAuthAudit";
 import type { AuditStore } from "./iaaaAudit";
@@ -58,19 +59,42 @@ export async function handleLogout(env: Env, request: Request, options?: LogoutA
       // and a failed write never changes the logout outcome.
       const tenantId = logoutAuditTenant({
         wiringEnabled: options?.wiringEnabled ?? false,
-        internalUserId: session?.internalUserId,
         tenantId: options?.tenantId,
       });
-      if (tenantId && options?.auditStore && session?.internalUserId) {
-        await recordWiredAuthAudit(
-          options.auditStore,
-          buildLogoutAuditEventInput({
-            internalUserId: session.internalUserId,
-            tenantId,
-            timestamp: Date.now(),
-            correlationId: sessionId,
-          }),
-        );
+      if (tenantId && options?.auditStore) {
+        // #1760 — the skip stops being silent: a legacy session
+        // record (no internalUserId) gets a logout_audit_skipped
+        // event instead of nothing. A missing session record gets
+        // no event: no session ended, so there is nothing to
+        // audit, and emitting for unknown cookies would spam the
+        // log. A failed write is fail-visible (warned) and never
+        // fail-blocking: logout proceeds regardless (D-2).
+        const auditResult = session?.internalUserId
+          ? await recordWiredAuthAudit(
+              options.auditStore,
+              buildLogoutAuditEventInput({
+                internalUserId: session.internalUserId,
+                tenantId,
+                timestamp: Date.now(),
+                correlationId: sessionId,
+              }),
+            )
+          : session
+            ? await recordWiredAuthAudit(
+                options.auditStore,
+                buildLogoutAuditSkippedEventInput({
+                  tenantId,
+                  timestamp: Date.now(),
+                  correlationId: sessionId,
+                  reason: "LEGACY_SESSION_NO_INTERNAL_USER_ID",
+                }),
+              )
+            : null;
+        if (auditResult && !auditResult.ok) {
+          console.warn(
+            `[logout-audit] audit write failed (${auditResult.code}); logout proceeded unaudited`,
+          );
+        }
       }
       invalidateSessionCache(sessionId);
       await deleteSession(env, sessionId);
