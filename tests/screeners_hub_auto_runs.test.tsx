@@ -292,3 +292,87 @@ describe("ScreenersHub autonomous run history (#125)", () => {
     expect(items[2].getAttribute("aria-pressed")).toBe("true");
   });
 });
+
+// Truth in the panel (#2075) ------------------------------------------------
+// The panel used to claim a "5 min" cadence it cannot prove and to hide the
+// one field that tells a manual run from a scheduled one: the trigger.
+// Regression pins for the observed case (TECH card whose latest — and only
+// retained — run was manual): the card must carry the run's true trigger,
+// the panel must state no cadence it cannot prove, and the counts must be
+// defined where they are printed.
+
+const RUN_MANUAL_TECH = {
+  timestamp: "2026-10-27T23:11:17.000Z",
+  trigger: "manual",
+  universe: "TECH",
+  sector: "Technology",
+  success: true,
+  totalScanned: 50,
+  matchedCount: 50,
+  opportunities: [opp("NVDA", 91), opp("PLTR", 88), opp("MSFT", 84), opp("AAPL", 82), opp("AMD", 80)],
+  allStocks: [
+    { ...opp("NVDA", 91), rsi14: 62, source: "E*TRADE live" },
+    { ...opp("PLTR", 88), rsi14: 58, source: "E*TRADE live" },
+  ],
+  discoveryMessage: "",
+  pdfKey: "screener:pdf:manual-tech.pdf",
+};
+
+function stubRuns(runs: unknown[]) {
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/screener/latest")) {
+      return Response.json({ count: runs.length, runs, latest: runs[0] ?? null });
+    }
+    return Response.json({ error: "not found" }, { status: 404 });
+  }) as typeof fetch;
+}
+
+function panelEl(): HTMLElement {
+  const el = container.querySelector(".screener-feed-callout");
+  if (!el) throw new Error("autonomous panel not rendered");
+  return el as HTMLElement;
+}
+
+function universeCard(universe: string): HTMLElement {
+  const btn = Array.from(panelEl().querySelectorAll("button")).find((b) =>
+    (b.textContent || "").includes(universe.toUpperCase()),
+  );
+  if (!btn) throw new Error(`no universe card for ${universe}`);
+  return btn as HTMLElement;
+}
+
+describe("ScreenersHub autonomous panel truth (#2075)", () => {
+  it("labels a manual latest run's card Manual, never as a scheduled run", async () => {
+    stubRuns([RUN_MANUAL_TECH]);
+    await renderHub();
+    const card = universeCard("TECH");
+    expect(card.textContent).toContain("Manual");
+    expect(card.textContent).not.toContain("Scheduled");
+  });
+
+  it("labels a scheduled latest run's card Scheduled", async () => {
+    stubRuns([RUN_LATEST]);
+    await renderHub();
+    const card = universeCard("TECH");
+    expect(card.textContent).toContain("Scheduled");
+  });
+
+  it("states no false cadence, states the retention cap and refresh, and defines the counts", async () => {
+    stubRuns([RUN_MANUAL_TECH]);
+    await renderHub();
+    const text = panelEl().textContent || "";
+    expect(text).not.toMatch(/5 min|5-minute/);
+    expect(text).toContain("up to 20 runs");
+    expect(text).toContain("60 seconds");
+    expect(text).toContain("passed the screen's filters");
+  });
+
+  it("empty state makes no tick claim", async () => {
+    stubRuns([]);
+    await renderHub();
+    const text = panelEl().textContent || "";
+    expect(text).not.toMatch(/5 min|5-minute|tick/);
+    expect(text).toContain("No screener runs recorded yet");
+  });
+});
