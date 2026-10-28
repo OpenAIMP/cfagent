@@ -332,6 +332,9 @@ async function executeOptionsSymbol(
         maxPlannedLoss: 1000,
         minRewardRisk: 1.5,
         allowedStrategies: request.allowedStrategies?.length ? request.allowedStrategies as any : ["all"],
+        // Issue #2091: the chain's scheduled scope rides into the
+        // per-symbol template; manual chains omit it (thesis default).
+        ...(request.evaluateAllStrategies === true ? { evaluateAllStrategies: true } : {}),
       },
       {
         riskProfile: request.riskProfile,
