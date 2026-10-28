@@ -38,17 +38,26 @@ describe("aggregateCfpayRevenue (#2022)", () => {
     expect(report.charges).toEqual({ count: 2, totalUSD: 0.15 });
     expect(report.credits).toEqual({ count: 1, totalUSD: 0.1 });
     expect(report.netUSD).toBe(0.05);
+    // Owner-directed cost assumption: 1/5 of revenue, not measured.
+    expect(report.assumedCostUSD).toBe(0.03);
+    expect(report.grossProfitUSD).toBe(0.12);
+    expect(report.netProfitUSD).toBe(0.02);
+    expect(report.costAssumption).toBe("cost assumed at 1/5 of revenue (owner-directed, not measured)");
     expect(report.byFamily["goal"]).toEqual({
       charges: 1,
       chargeTotalUSD: 0.1,
       credits: 1,
       creditTotalUSD: 0.1,
+      assumedCostUSD: 0.02,
+      profitUSD: -0.02,
     });
     expect(report.byFamily["options"]).toEqual({
       charges: 1,
       chargeTotalUSD: 0.05,
       credits: 0,
       creditTotalUSD: 0,
+      assumedCostUSD: 0.01,
+      profitUSD: 0.04,
     });
     expect(report.coveredByPaidVia).toEqual({ subscription_included: 1 });
     expect(report.chargesWithoutFamily).toBe(0);
@@ -66,11 +75,18 @@ describe("aggregateCfpayRevenue (#2022)", () => {
     expect(report.charges).toEqual({ count: 1, totalUSD: 0.1 });
     expect(report.credits).toEqual({ count: 1, totalUSD: 0.1 });
     expect(report.netUSD).toBe(0);
+    // The unknown bucket carries assumed cost too: cost applies to
+    // revenue regardless of attribution.
+    expect(report.assumedCostUSD).toBe(0.02);
+    expect(report.grossProfitUSD).toBe(0.08);
+    expect(report.netProfitUSD).toBe(-0.02);
     expect(report.byFamily["unknown"]).toEqual({
       charges: 1,
       chargeTotalUSD: 0.1,
       credits: 1,
       creditTotalUSD: 0.1,
+      assumedCostUSD: 0.02,
+      profitUSD: -0.02,
     });
     expect(report.chargesWithoutFamily).toBe(1);
     expect(report.creditsWithoutFamily).toBe(1);
@@ -82,6 +98,10 @@ describe("aggregateCfpayRevenue (#2022)", () => {
     const report = aggregateCfpayRevenue([], [], [], [], []);
     expect(report.charges).toEqual({ count: 0, totalUSD: 0 });
     expect(report.netUSD).toBe(0);
+    expect(report.assumedCostUSD).toBe(0);
+    expect(report.grossProfitUSD).toBe(0);
+    expect(report.netProfitUSD).toBe(0);
+    expect(report.costAssumption).toBe("cost assumed at 1/5 of revenue (owner-directed, not measured)");
     expect(report.byFamily).toEqual({});
     expect(report.coveredByPaidVia).toEqual({});
   });
@@ -124,8 +144,16 @@ describe("cfpay revenue endpoint (#2022)", () => {
     const body = (await res?.json()) as ReturnType<typeof aggregateCfpayRevenue>;
     expect(body.charges).toEqual({ count: 2, totalUSD: 0.15 });
     expect(body.credits).toEqual({ count: 1, totalUSD: 0.1 });
+    expect(body.assumedCostUSD).toBe(0.03);
+    expect(body.grossProfitUSD).toBe(0.12);
+    expect(body.netProfitUSD).toBe(0.02);
+    expect(body.costAssumption).toBe("cost assumed at 1/5 of revenue (owner-directed, not measured)");
     expect(body.byFamily["goal"]?.charges).toBe(1);
+    expect(body.byFamily["goal"]?.assumedCostUSD).toBe(0.02);
+    expect(body.byFamily["goal"]?.profitUSD).toBe(-0.02);
     expect(body.byFamily["options"]?.charges).toBe(1);
+    expect(body.byFamily["options"]?.assumedCostUSD).toBe(0.01);
+    expect(body.byFamily["options"]?.profitUSD).toBe(0.04);
     expect(body.coveredByPaidVia).toEqual({ credits: 1 });
     expect(body.chargesWithoutFamily).toBe(0);
   });
