@@ -32,10 +32,16 @@ export class CfFlagshipAdapter implements FeatureFlagPort {
       return false;
     }
 
+    // Issue #2054: per-flag provider defaults. Only payment_assurance
+    // defaults ON: the assurance page is visible unless a dashboard
+    // flag explicitly turns it off. Every other flag keeps the
+    // historic default (false). A provider error still fails closed
+    // to false below, including for payment_assurance.
+    const defaultValue = flag === "payment_assurance";
     try {
       const result = await this.flags.getBooleanValue(
         flag,
-        false,
+        defaultValue,
         context as Record<string, unknown> | undefined
       );
       if (typeof result === "boolean") {

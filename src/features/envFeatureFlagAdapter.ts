@@ -87,14 +87,14 @@ export class EnvFeatureFlagAdapter implements FeatureFlagPort {
       return false;
     }
 
-    // Issue #2049: payment_assurance is ALWAYS default-closed (OFF),
-    // like screener and goal_workflow. It gates the assurance page;
-    // the bare-env default-TRUE below would otherwise silently
-    // expose a test-only page in any environment with zero feature
-    // configuration. Explicit enablement only: FEATURE_FLAGS bulk
-    // JSON or FEATURE_PAYMENT_ASSURANCE above.
+    // Issue #2054: payment_assurance is default-ON (owner direction).
+    // Bulk JSON and the direct var above already returned for an
+    // explicit enable or disable, so reaching here means no explicit
+    // setting: the page is visible. Rollback is an explicit disable
+    // (FEATURE_FLAGS bulk false, or FEATURE_PAYMENT_ASSURANCE=0) +
+    // redeploy. This replaces the #2049 always-closed rule.
     if (flag === "payment_assurance") {
-      return false;
+      return true;
     }
 
     // 5. For other registered features:

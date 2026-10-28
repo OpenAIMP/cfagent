@@ -85,11 +85,11 @@ describe("Cloudflare Feature Flags (Issue #1806)", () => {
       expect(enabled).toBe(false);
     });
 
-    it("defaults to closed (false) for all flags when feature configuration is set", async () => {
+    it("defaults to closed (false) for all flags when feature configuration is set, except payment_assurance (issue #2054)", async () => {
       const env = { FEATURE_SCREENER: "0" };
       for (const flag of ALL_FEATURE_FLAGS) {
         const enabled = await isFeatureEnabled(env, flag);
-        expect(enabled).toBe(false);
+        expect(enabled).toBe(flag === "payment_assurance");
       }
     });
 

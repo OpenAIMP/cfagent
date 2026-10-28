@@ -41,10 +41,10 @@ describe("FeatureFlagPort Conformance Suite (Issue #1815)", () => {
   });
 
   describe("InMemoryFeatureFlagAdapter", () => {
-    it("defaults to closed (false) for all registered flags", async () => {
+    it("defaults to closed (false) for all registered flags except payment_assurance (issue #2054)", async () => {
       const port: FeatureFlagPort = new InMemoryFeatureFlagAdapter();
       for (const flag of ALL_FEATURE_FLAGS) {
-        expect(await port.isEnabled(flag)).toBe(false);
+        expect(await port.isEnabled(flag)).toBe(flag === "payment_assurance");
       }
       expect(await port.isEnabled("unknown_feature")).toBe(false);
     });
@@ -112,18 +112,23 @@ describe("FeatureFlagPort Conformance Suite (Issue #1815)", () => {
       expect(await port.isEnabled("random_flag")).toBe(false);
     });
 
-    it("keeps payment_assurance strictly closed in a bare env (issue #2049)", async () => {
-      // Like goal_workflow: the bare-env default-TRUE rule must never
-      // silently expose a test-only page in an environment with zero
-      // feature configuration. Explicit enablement only.
+    it("payment_assurance is ON by default, OFF only on explicit disable (issue #2054)", async () => {
+      // Reverses the #2049 always-closed rule: no explicit setting
+      // means the page is visible. Explicit disable still wins.
       const bare = new EnvFeatureFlagAdapter({});
-      expect(await bare.isEnabled("payment_assurance")).toBe(false);
+      expect(await bare.isEnabled("payment_assurance")).toBe(true);
       const enabled = new EnvFeatureFlagAdapter({
         FEATURE_FLAGS: JSON.stringify({ payment_assurance: true }),
       });
       expect(await enabled.isEnabled("payment_assurance")).toBe(true);
       const direct = new EnvFeatureFlagAdapter({ FEATURE_PAYMENT_ASSURANCE: "1" });
       expect(await direct.isEnabled("payment_assurance")).toBe(true);
+      const bulkDisabled = new EnvFeatureFlagAdapter({
+        FEATURE_FLAGS: JSON.stringify({ payment_assurance: false }),
+      });
+      expect(await bulkDisabled.isEnabled("payment_assurance")).toBe(false);
+      const directDisabled = new EnvFeatureFlagAdapter({ FEATURE_PAYMENT_ASSURANCE: "0" });
+      expect(await directDisabled.isEnabled("payment_assurance")).toBe(false);
     });
 
     it("keeps goal_workflow strictly closed in a bare env (issue #1997)", async () => {
@@ -155,6 +160,19 @@ describe("FeatureFlagPort Conformance Suite (Issue #1815)", () => {
       expect(await port.isEnabled("screener", ctx)).toBe(true);
       expect(await port.isEnabled("autopilot", ctx)).toBe(false);
       expect(getBooleanValue).toHaveBeenCalledWith("screener", false, ctx);
+    });
+
+    it("uses the provider default for payment_assurance (issue #2054)", async () => {
+      // The binding returns whatever default it is given: the
+      // adapter must pass true for payment_assurance and false for
+      // other flags, so a missing dashboard flag evaluates ON for
+      // the assurance page and OFF for everything else.
+      const getBooleanValue = vi.fn().mockImplementation((flag: string, defaultVal: boolean) => Promise.resolve(defaultVal));
+      const binding: FlagshipBindingLike = { getBooleanValue };
+      const port: FeatureFlagPort = new CfFlagshipAdapter(binding);
+      expect(await port.isEnabled("payment_assurance")).toBe(true);
+      expect(await port.isEnabled("screener")).toBe(false);
+      expect(getBooleanValue).toHaveBeenCalledWith("payment_assurance", true, undefined);
     });
 
     it("fails closed when Flagship throws an error", async () => {
