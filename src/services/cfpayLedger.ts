@@ -346,6 +346,13 @@ export interface CfpayRevenueByFamily {
   chargeTotalUSD: number;
   credits: number;
   creditTotalUSD: number;
+  /**
+   * OWNER-DIRECTED ASSUMPTION, not measured cost: 1/5 of this
+   * family's charge total. No per-run cost accounting exists yet.
+   */
+  assumedCostUSD: number;
+  /** Charge total minus credit total minus assumed cost. */
+  profitUSD: number;
 }
 
 export interface CfpayRevenueReport {
@@ -353,6 +360,17 @@ export interface CfpayRevenueReport {
   credits: { count: number; totalUSD: number };
   /** Charge total minus credit total: net value retained. */
   netUSD: number;
+  /**
+   * OWNER-DIRECTED ASSUMPTION, not measured cost: 1/5 of charge
+   * total. No per-run cost accounting exists yet.
+   */
+  assumedCostUSD: number;
+  /** Charge total minus assumed cost. */
+  grossProfitUSD: number;
+  /** Net value retained minus assumed cost. */
+  netProfitUSD: number;
+  /** States the cost assumption in plain language for API consumers. */
+  costAssumption: string;
   byFamily: Record<string, CfpayRevenueByFamily>;
   coveredByPaidVia: Record<string, number>;
   /** Charges with no matching payment.confirmed audit row (audit writes are best-effort). */
@@ -384,7 +402,9 @@ function payloadFamily(payload: Record<string, unknown>): string | null {
  * the ledger rows; family and coverage attribution come from the
  * audit payloads joined on run id, with explicit "unknown" buckets
  * where an audit row is missing. Totals never depend on audit
- * completeness — only the breakdown does.
+ * completeness — only the breakdown does. Cost is an
+ * OWNER-DIRECTED ASSUMPTION (1/5 of revenue), not measured cost:
+ * no per-run cost accounting exists yet.
  */
 export function aggregateCfpayRevenue(
   chargeRows: TransactionRecord[],
@@ -410,7 +430,7 @@ export function aggregateCfpayRevenue(
   const bucket = (family: string): CfpayRevenueByFamily => {
     let b = byFamily[family];
     if (!b) {
-      b = { charges: 0, chargeTotalUSD: 0, credits: 0, creditTotalUSD: 0 };
+      b = { charges: 0, chargeTotalUSD: 0, credits: 0, creditTotalUSD: 0, assumedCostUSD: 0, profitUSD: 0 };
       byFamily[family] = b;
     }
     return b;
@@ -454,10 +474,25 @@ export function aggregateCfpayRevenue(
     coveredByPaidVia[paidVia] = (coveredByPaidVia[paidVia] ?? 0) + 1;
   }
 
+  // Owner-directed cost assumption (NOT measured cost): cost is 1/5
+  // of revenue. Applied per family on charge totals and in total on
+  // the charge total, so the "unknown" bucket carries cost too —
+  // cost applies to revenue regardless of attribution.
+  for (const b of Object.values(byFamily)) {
+    b.assumedCostUSD = round2(b.chargeTotalUSD / 5);
+    b.profitUSD = round2(b.chargeTotalUSD - b.creditTotalUSD - b.assumedCostUSD);
+  }
+  const assumedCostUSD = round2(chargeTotal / 5);
+  const netUSD = round2(chargeTotal - creditTotal);
+
   return {
     charges: { count: chargeRows.length, totalUSD: round2(chargeTotal) },
     credits: { count: creditRows.length, totalUSD: round2(creditTotal) },
-    netUSD: round2(chargeTotal - creditTotal),
+    netUSD,
+    assumedCostUSD,
+    grossProfitUSD: round2(chargeTotal - assumedCostUSD),
+    netProfitUSD: round2(netUSD - assumedCostUSD),
+    costAssumption: "cost assumed at 1/5 of revenue (owner-directed, not measured)",
     byFamily,
     coveredByPaidVia,
     chargesWithoutFamily,
