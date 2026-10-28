@@ -13,6 +13,12 @@
 
 const BASE_URL = (process.env.BASE_URL || "https://agent.openaimp.com").replace(/\/$/, "");
 const API_KEY = process.env.DASHBOARD_API_KEY || "";
+// #1754: POST /api/qa/investigate requires a session or the dedicated
+// QA_INVESTIGATE_TOKEN service token. The smoke script has no session,
+// so it presents the token when the workflow provides it; without it
+// the endpoint answers 401 and postInvestigationComment logs [WARN]
+// (the smoke still passes — only the AI-diagnosis comment is lost).
+const QA_INVESTIGATE_TOKEN = process.env.QA_INVESTIGATE_TOKEN || "";
 
 const results = [];
 let failed = 0;
@@ -192,7 +198,10 @@ async function postInvestigationComment(token, issueNumber, failure) {
   try {
     const invRes = await fetch(`${BASE_URL}/api/qa/investigate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(QA_INVESTIGATE_TOKEN ? { Authorization: `Bearer ${QA_INVESTIGATE_TOKEN}` } : {}),
+      },
       body: JSON.stringify({
         operation: failure.name,
         errorClass: failure.errorClass || "check_failed",

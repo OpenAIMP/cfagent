@@ -1,0 +1,3 @@
+### Security
+
+- **IAAA gate-coverage audit (#1754):** every Worker route inventoried surface-by-surface (gated / deliberately ungated with reason / gap closed) in `docs/architecture/security/gate-coverage-inventory-1754.md` and reflected in authz.md §7; three previously unauthenticated routes are now gated — `POST /api/qa/investigate` (session or dedicated `QA_INVESTIGATE_TOKEN` service token, fail-closed when unset), `POST /api/memory/search` (session), and `/api/options/flows/*` (session). F-44 verdict: not a verified live bypass — `iaaaGates.ts` holds predicates, not middleware, and every route's gate is named in the inventory.

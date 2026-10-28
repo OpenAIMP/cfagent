@@ -28,6 +28,7 @@ vi.mock("agents/x402", () => {
   return { withX402: (cls: any) => cls };
 });
 
+import { makeFakeSessionStore } from "./fake-session-store";
 import {
   FLOW_PROVENANCE_LABELS,
   getDynamicLiveFlowItems,
@@ -51,6 +52,21 @@ import worker from "../src/server";
  */
 
 const ENV_KEY = "CFAGENT_DEMO_CALIBRATED_CHAINS";
+
+// #1754: /api/options/flows/* is session-gated. These envelope pins
+// keep every assertion and only gain a session: the envelope behavior
+// under test is unchanged, the caller is now authenticated.
+const FLOWS_SESSION_ID = "0d9a1754-1c2b-4e3f-8a5b-925000000001";
+function authedFlowsRequest(path: string) {
+  const { namespace: sessionStoreNs, seed: seedSession } = makeFakeSessionStore();
+  seedSession("sessions", FLOWS_SESSION_ID, { githubLogin: "octocat-925", userLogin: "octocat-925" });
+  return {
+    request: new Request(`https://agent.test${path}`, {
+      headers: { Cookie: `session_id=${FLOWS_SESSION_ID}` },
+    }),
+    env: { SESSION_STORE: sessionStoreNs } as any,
+  };
+}
 
 describe("Issue #925 — no generated universe in PROD", () => {
   // Issue #404: this suite must never make live network calls. Stub global
@@ -215,10 +231,8 @@ describe("Issue #925 — /api/options/flows envelopes carry the explicit unavail
 
   it("GET /live with all sources failing returns empty flows + dataUnavailable, no substitute numbers", async () => {
     delete process.env[ENV_KEY];
-    const res = await worker.fetch(
-      new Request("https://agent.test/api/options/flows/live?tickers=ZZZUNKNOWN"),
-      {} as any
-    );
+    const { request, env } = authedFlowsRequest("/api/options/flows/live?tickers=ZZZUNKNOWN");
+    const res = await worker.fetch(request, env);
     expect(res.status).toBe(200);
     const body: any = await res.json();
     expect(body.flows).toEqual([]);
@@ -236,10 +250,8 @@ describe("Issue #925 — /api/options/flows envelopes carry the explicit unavail
 
   it("GET /summary with all sources failing returns zero totals + dataUnavailable", async () => {
     delete process.env[ENV_KEY];
-    const res = await worker.fetch(
-      new Request("https://agent.test/api/options/flows/summary?tickers=ZZZUNKNOWN"),
-      {} as any
-    );
+    const { request, env } = authedFlowsRequest("/api/options/flows/summary?tickers=ZZZUNKNOWN");
+    const res = await worker.fetch(request, env);
     expect(res.status).toBe(200);
     const body: any = await res.json();
     expect(body.summary.totalTrades).toBe(0);
