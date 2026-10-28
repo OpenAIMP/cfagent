@@ -578,9 +578,9 @@ the read-back #1996 deferred. Flag: `goal_workflow`, strictly default-closed in 
 default-TRUE rule would otherwise silently enable a new execution path in any environment with zero feature
 configuration). Flag OFF → manual and scheduled goal runs go direct, exactly as before #1996's opt-in (the
 #1996 scheduled workflow-first default is gated, so scheduled runs return to direct until the flag is enabled;
-reversible by enabling the flag). Flag ON → the workflow is REQUIRED on both entries: a null start answers a
-coded 500 on the route (`goal_workflow_start_failed`) and throws on the scheduled tick (failure result +
-`run_failed` audit) — a flagged run fails loudly at its stage, never by silent fallback to direct. Chain-mode
+reversible by enabling the flag). Flag ON → the workflow is REQUIRED on both entries: a start failure answers a
+coded 500 on the route (`goal_workflow_start_failed` + stable code + reason naming the missing dependency) and throws on the scheduled tick (failure result +
+`run_failed` audit carrying the code) — a flagged run fails loudly at its stage, never by silent fallback to direct. Since #2065 the start attempt is wrapped in the `withObservability` aspect (one sink event per attempt, code + binding facts, never the raw message), and long job ids derive a bounded hash-form instance id instead of refusing (short ids keep their readable form; this complements the adapter-level fallback-id retry that landed first on the same issue, which cannot preserve duplicate-start adoption for long ids). Chain-mode
 scheduled runs stay direct (they need the completed result for the chain bridge, as #1996 established), and
 Yahoo-fallback scheduled runs ride the workflow with their provider markers when the flag is ON (the #1996
 command carries provider/providerFallback through). Report-id surfacing: the goal door returns the canonical

@@ -9,8 +9,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   buildGoalScreenCommand,
-  tryStartGoalScreenWorkflow,
+  startGoalScreenWorkflow,
 } from "../src/services/goalScreenWorkflowSubmission";
+import { WorkflowError } from "../src/workflows/workflowPorts";
 import {
   handleScreenerResearchRoutes,
   type ScreenerResearchRouteContext,
@@ -24,11 +25,11 @@ import { STOCK_SCREENING_PROVIDER_ID } from "../src/trading/screeningProvider";
 
 vi.mock("../src/services/goalScreenWorkflowSubmission", () => ({
   buildGoalScreenCommand: vi.fn(() => ({ __cannedGoalCommand: true })),
-  tryStartGoalScreenWorkflow: vi.fn(),
+  startGoalScreenWorkflow: vi.fn(),
 }));
 
 const mockedBuild = vi.mocked(buildGoalScreenCommand);
-const mockedStart = vi.mocked(tryStartGoalScreenWorkflow);
+const mockedStart = vi.mocked(startGoalScreenWorkflow);
 
 const HANDLE = {
   workflowId: "screen-goal-screen-manual-alice-income-2026-10-27T12-00-00-000Z",
@@ -133,8 +134,8 @@ describe("POST /screening/goal-screen async flag (#1996)", () => {
     expect(mockedStart).toHaveBeenCalledTimes(1);
   });
 
-  it("flag ON: a null workflow start fails loudly instead of falling back to direct (#1997)", async () => {
-    mockedStart.mockResolvedValue(null as never);
+  it("flag ON: a start failure fails loudly instead of falling back to direct (#1997, #2065)", async () => {
+    mockedStart.mockRejectedValue(new WorkflowError("start_failed", "binding boom"));
     const agent = {
       runGoalScreen: vi.fn(async () => ({
         task: { id: "task-9", status: "completed" },
@@ -154,6 +155,7 @@ describe("POST /screening/goal-screen async flag (#1996)", () => {
     expect(res!.status).toBe(500);
     const body = (await res!.json()) as Record<string, unknown>;
     expect(body.error).toBe("goal_workflow_start_failed");
+    expect(body.code).toBe("start_failed");
     expect(agent.runGoalScreen).not.toHaveBeenCalled();
   });
 
@@ -254,8 +256,8 @@ describe("autonomousGoalScreen workflow submission (#1996)", () => {
     expect(audit.mock.calls.find((c) => c[0] === "goal_screen.workflow_submitted")).toBeDefined();
   });
 
-  it("flag ON: a null workflow start fails the tick instead of falling back to direct (#1997)", async () => {
-    mockedStart.mockResolvedValue(null as never);
+  it("flag ON: a start failure fails the tick instead of falling back to direct (#1997, #2065)", async () => {
+    mockedStart.mockRejectedValue(new WorkflowError("start_failed", "binding boom"));
     const { service, audit, runGoalScreen } = goalService();
     const result = await service.autonomousGoalScreen({ goalKind: "income" });
     expect(result.success).toBe(false);

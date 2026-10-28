@@ -13,6 +13,9 @@
  *  - the composition root names the missing dependency;
  *  - a rejected derived id is retried once with a short provider-safe id,
  *    with the job id still carried in params;
+ *  - an over-long job id derives a bounded hash id up front (#2065
+ *    remainder), so the fallback fires only when the provider rejects
+ *    an id — the long-id case no longer reaches it;
  *  - an existing instance is still adopted instead of duplicated;
  *  - a genuine failure preserves the original provider error.
  */
@@ -126,8 +129,7 @@ describe("startWorkflowInstance repair (#2065)", () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it("repairs a job id whose derived instance id exceeds the provider ceiling", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("derives a bounded hash id for a job id over the provider ceiling (#2065 remainder)", async () => {
     const longCommand = { ...COMMAND, jobId: "x".repeat(120) } as WorkflowJobCommand;
     const binding: WorkflowBindingLike = {
       create: async ({ id }) => ({ id }),
@@ -138,8 +140,11 @@ describe("startWorkflowInstance repair (#2065)", () => {
 
     const out = await startWorkflowInstance(binding, longCommand);
 
-    expect(out.adoptedFallbackId).toBe(true);
-    expect(out.workflowId).toMatch(/^screen-[0-9a-f]{40}$/);
+    // The remainder's deterministic derivation handles over-long ids
+    // before create is attempted, so no fallback fires here; the
+    // fallback pin below covers provider-rejected ids.
+    expect(out.adoptedFallbackId).toBeUndefined();
+    expect(out.workflowId).toMatch(/^screen-h-[0-9a-f]{32}$/);
   });
 
   it("preserves the provider error when every attempt fails", async () => {
