@@ -399,7 +399,7 @@ export const agentJournalEntries = sqliteTable("agent_journal_entries", {
  * Per-run price catalogue (#2185, sub-issue of #2012) on D1.
  * One row per family; operator data, never code. This schema MAPS
  * the table; it does not create it — DDL authority lives in
- * migration 0010 (src/data/migrationRunner.ts), and a test pins
+ * migration 0011 (src/data/migrationRunner.ts), and a test pins
  * that this mapping and that DDL agree on columns.
  */
 export const agentPriceCatalogue = sqliteTable("agent_price_catalogue", {

@@ -152,7 +152,7 @@ export class PaymentWorkflow extends ThinkWorkflow<
     }
     // Issue #2185: prices come from the operator catalogue port,
     // never from a code constant. When AGENT_DB is bound the
-    // schema is ensured first (migration 0010 seeds the proposed
+    // schema is ensured first (migration 0011 seeds the proposed
     // defaults on a fresh store, INSERT OR IGNORE so operator
     // edits survive). When it is unbound the catalogue is null
     // and the gate fails closed on price resolution — a money
