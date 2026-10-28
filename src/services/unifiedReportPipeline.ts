@@ -29,6 +29,8 @@
  * callers of runReportPipeline are unchanged.
  */
 
+import type { ScreenerPdfOptions } from "../trading";
+
 export interface UnifiedReportInput {
   /** "screener" for stock, "options" for options screener, "research" for research runs (#1641) */
   type: "screener" | "options" | "research";
@@ -44,6 +46,8 @@ export interface UnifiedReportInput {
   summary: string;
   /** Timestamp ISO string */
   timestamp: string;
+  /** Issue #2088: PDF section config, threaded to the screener generator. */
+  pdfOptions?: ScreenerPdfOptions;
 }
 
 export interface UnifiedReportOutput {
@@ -78,11 +82,12 @@ export type ReportAssetKind = "screener" | "options" | "research";
  */
 export async function generateReportPdf(
   type: ReportAssetKind,
-  result: unknown
+  result: unknown,
+  pdfOptions?: ScreenerPdfOptions
 ): Promise<Uint8Array> {
   if (type === "screener") {
     const { generateScreenerPdf } = await import("../trading");
-    return generateScreenerPdf(result as any);
+    return generateScreenerPdf(result as any, pdfOptions);
   } else if (type === "research") {
     const { generateResearchPdf } = await import("../trading");
     return generateResearchPdf(result as any);
@@ -153,7 +158,7 @@ export async function generateReportStage(
     const policy = resolvePipelinePolicy(env as Record<string, unknown>);
     const asset = await withRetry(
       async () => {
-        const generated = await generatePdfAsset(env as any, input.userLogin, assetType as any, input.result);
+        const generated = await generatePdfAsset(env as any, input.userLogin, assetType as any, input.result, input.pdfOptions);
         if (!generated) {
           throw new Error("generatePdfAsset returned null");
         }
