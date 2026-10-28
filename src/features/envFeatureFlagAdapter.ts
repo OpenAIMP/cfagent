@@ -102,6 +102,16 @@ export class EnvFeatureFlagAdapter implements FeatureFlagPort {
       return false;
     }
 
+    // Issue #2049: payment_assurance is ALWAYS default-closed (OFF),
+    // like screener and goal_workflow. It gates the assurance page;
+    // the bare-env default-TRUE below would otherwise silently
+    // expose a test-only page in any environment with zero feature
+    // configuration. Explicit enablement only: FEATURE_FLAGS bulk
+    // JSON or FEATURE_PAYMENT_ASSURANCE above.
+    if (flag === "payment_assurance") {
+      return false;
+    }
+
     // Issue #2043: monetization is ALWAYS default-closed (OFF),
     // like screener and goal_workflow. It gates charging: the
     // bare-env default-TRUE below would otherwise silently enable
