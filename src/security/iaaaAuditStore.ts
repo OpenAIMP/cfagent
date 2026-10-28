@@ -1,50 +1,106 @@
 /**
  * #945 Wiring Phase 2b-part1 — Kv-backed IAAA audit store.
+ * #1760 — transactional append + enforced bound (this slice).
  *
- * Slice 5 (iaaaAudit.ts) defined the append-only AuditStore
- * interface and a memory implementation only; this module is the
- * first durable backend, used by the logout audit hook. Events
- * live in the SessionStore Durable Object (the same store as
- * sessions and bindings) under keys prefixed "iaaa-audit:", with
- * NO expiry — audit evidence must outlive any one session. The
- * single log key cannot collide with session keys (bare UUIDs)
- * or binding keys ("iaaa-binding:").
+ * Two backends live here, and the distinction matters:
  *
- * Append-only at the API level: this store exposes append and
- * list only. There is no update, delete, or prune operation.
- * Retention (how long events are kept) remains an open CISO/CDO
- * decision; nothing here prunes, and the log grows without bound
- * until that decision lands. At auth-event volume that is
- * acceptable; this store must NOT be used for per-request audit
- * until a bounded backend exists.
+ * - `createAtomicAuditStore` (PRODUCTION WIRING): appends go through
+ *   the SessionStore DO's `audit-append` op. One DO request reads
+ *   the tail, chains the event, rotates, and writes back, and a DO
+ *   handles one request at a time — so concurrent appends cannot
+ *   lose events or fork the chain. This is what
+ *   `createWiredAuditStore` returns, and what recordAuditEvent
+ *   uses when the store exposes `appendAtomic`. The live key is
+ *   bounded (see the caps below) and the whole store is bounded
+ *   by a total cap; reaching the cap fails visible
+ *   (AUDIT_STORE_FULL), never by deleting evidence.
+ * - `createKvAuditStore` (LEGACY, retained): the original
+ *   read-modify-write single-key store. It is kept for backends
+ *   without a Durable Object (tests, in-memory Kv) and for reads
+ *   of logs written before #1760 — it is NOT production wiring
+ *   anymore, and its race (F-18) is still real on this path: two
+ *   concurrent appends can lose an event or fork the chain, and
+ *   verifyChain() only DETECTS that. Do not wire it into a live
+ *   write path. Superseded by createAtomicAuditStore in this file.
  *
- * Honest limitations (read before using this store elsewhere):
- * - Read-modify-write race: recordAuditEvent lists, then this
- *   append re-reads and rewrites the whole log. Two concurrent
- *   appends can interleave so that one event is lost or the
- *   hash chain forks. verifyChain() DETECTS a fork; it does not
- *   repair one. Auth-event volume is low, so the window is
- *   small, but a production-grade backend needs a transactional
- *   append (a later phase), not this log key.
- * - O(n) per append: the whole log is read and rewritten on
- *   every event. Again acceptable for auth events only.
- * - Corruption is loud, never silent: a log value that is not
- *   a JSON array throws on both append and list, so
- *   recordWiredAuthAudit reports AUDIT_WRITE_FAILED and the
- *   corrupt bytes are left untouched for investigation — never
- *   overwritten with a fresh log.
+ * Bound (capacity, NOT retention): the live key holds at most
+ * `liveMax` events (default 2000); when it overflows, the oldest
+ * `segmentSize` events rotate into a new archive segment key
+ * (`iaaa-audit:archive:NNNNNN`), oldest first, chain order
+ * preserved — so `list()` over archives + live still verifies
+ * end to end. At most `maxArchiveSegments` archive segments exist
+ * (default 10), so the whole store caps at
+ * liveMax + maxArchiveSegments * segmentSize events (default
+ * 22,000). These numbers bound BYTES/ROWS, not time: no retention
+ * period is asserted anywhere here. Retention itself is CARRIED
+ * to adoption question Q7 (deciding owner Mubasher, on a CISO +
+ * CDO recommendation — #1757 D-3); until Q7 answers, nothing in
+ * this module deletes an audit event for age, and hitting the cap
+ * fails new appends visibly instead of destroying evidence.
+ * Unbounded growth after this bound has a named owner + trigger:
+ * owner Mubasher, trigger = the Q7 retention answer, or a
+ * production AUDIT_STORE_FULL observation forcing the question
+ * early. A caller may request SMALLER caps only; the DO clamps
+ * larger requests to its hard ceilings, so no caller can widen
+ * or disable its own bound.
+ *
+ * Reads: `list()` returns the full chain (archives in key order,
+ * then live) so chain verification stays meaningful. It is an
+ * admin/integrity read, bounded by the total cap — it must NOT
+ * become a per-request audit path. New audit consumers append
+ * through recordAuditEvent on the wired (atomic) store; they do
+ * not list-and-filter the tenant-mixed log per request. The
+ * admin overview's existing tenant filter over list() stays an
+ * admin-only read (capped at 100 newest by the route builder),
+ * not a per-request path.
+ *
+ * Corruption is loud, never silent: a log or segment value that
+ * is not a JSON array fails the append/read, and the corrupt
+ * bytes are left untouched for investigation — never overwritten
+ * with a fresh log.
+ *
+ * Events live in the SessionStore Durable Object (the same store
+ * as sessions and bindings) under keys prefixed "iaaa-audit:",
+ * with NO expiry — audit evidence must outlive any one session.
+ * The single log key cannot collide with session keys (bare
+ * UUIDs) or binding keys ("iaaa-binding:").
  */
 
 import type { Env } from "../types";
-import type { AuditStore, IaaaAuditEvent } from "./iaaaAudit";
+import type {
+  AuditResult,
+  AuditStore,
+  CreateIaaaAuditEventInput,
+  IaaaAuditEvent,
+} from "./iaaaAudit";
 import type { KvLike } from "./kvResilience";
-import { sessionStore } from "./session";
+import {
+  createStoreSender,
+  listStoreEntries,
+  type DoNamespaceLike,
+} from "./durableKv";
 
 /** Prefix for every IAAA audit key in the SessionStore DO. */
 export const IAAA_AUDIT_KEY_PREFIX = "iaaa-audit:";
 
-/** The single log key holding the JSON array of audit events. */
+/** The live log key holding the JSON array of newest audit events. */
 export const IAAA_AUDIT_LOG_KEY = `${IAAA_AUDIT_KEY_PREFIX}events`;
+
+/** Prefix for rotated archive segment keys (`iaaa-audit:archive:NNNNNN`). */
+export const IAAA_AUDIT_ARCHIVE_KEY_PREFIX = `${IAAA_AUDIT_KEY_PREFIX}archive:`;
+
+/** Default bound: live key size, segment size, archive segment count. */
+export const IAAA_AUDIT_DEFAULT_LIVE_MAX = 2000;
+export const IAAA_AUDIT_DEFAULT_SEGMENT_SIZE = 2000;
+export const IAAA_AUDIT_DEFAULT_MAX_ARCHIVE_SEGMENTS = 10;
+
+export interface AtomicAuditStoreOptions {
+  liveMax?: number;
+  segmentSize?: number;
+  maxArchiveSegments?: number;
+  /** DO instance name; one instance holds every bucket. */
+  instanceName?: string;
+}
 
 function corruptError(): Error {
   return new Error(
@@ -65,7 +121,11 @@ async function readLog(kv: KvLike): Promise<IaaaAuditEvent[]> {
   return parsed as IaaaAuditEvent[];
 }
 
-/** Durable AuditStore backed by a KvLike store (production: SessionStore DO). */
+/**
+ * Legacy append-only store (see the header: retained, NOT
+ * production wiring). Superseded by createAtomicAuditStore in
+ * this file.
+ */
 export function createKvAuditStore(kv: KvLike): AuditStore {
   return {
     async append(event: IaaaAuditEvent): Promise<void> {
@@ -80,7 +140,125 @@ export function createKvAuditStore(kv: KvLike): AuditStore {
   };
 }
 
-/** Production audit store: SessionStore DO, iaaa-audit: keys, no expiry. */
+/**
+ * Transactional AuditStore over a SessionStore DO namespace. The
+ * store speaks the DO's `audit-append` op for writes (atomic
+ * chaining + rotation + cap, server-side) and the DO's `list` op
+ * for reads (archives in key order, then the live key).
+ *
+ * append() throws by design: a caller-chained event cannot be
+ * stored verbatim without bypassing the atomic chaining. Append
+ * through recordAuditEvent, which uses appendAtomic.
+ */
+export function createAtomicAuditStore(
+  namespace: DoNamespaceLike | null | undefined,
+  options: AtomicAuditStoreOptions = {},
+): AuditStore {
+  const send = createStoreSender(
+    namespace,
+    "sessions",
+    options.instanceName ?? "kv",
+  );
+  const liveMax = options.liveMax ?? IAAA_AUDIT_DEFAULT_LIVE_MAX;
+  const segmentSize = options.segmentSize ?? IAAA_AUDIT_DEFAULT_SEGMENT_SIZE;
+  const maxArchiveSegments =
+    options.maxArchiveSegments ?? IAAA_AUDIT_DEFAULT_MAX_ARCHIVE_SEGMENTS;
+
+  return {
+    async append(): Promise<void> {
+      throw new Error(
+        "atomic audit store: append through recordAuditEvent (appendAtomic), not append(); " +
+          "a caller-chained event cannot be stored verbatim on this backend",
+      );
+    },
+
+    async appendAtomic(
+      input: CreateIaaaAuditEventInput,
+    ): Promise<AuditResult> {
+      if (!namespace) {
+        return {
+          ok: false,
+          code: "AUDIT_WRITE_FAILED",
+          error: "audit event could not be recorded: no audit backend is configured",
+        };
+      }
+      const reply = await send({
+        op: "audit-append",
+        ns: "sessions",
+        key: IAAA_AUDIT_LOG_KEY,
+        value: JSON.stringify(input),
+        liveMax,
+        segmentSize,
+        maxArchiveSegments,
+      });
+      if (!reply || reply.error) {
+        return {
+          ok: false,
+          code: "AUDIT_WRITE_FAILED",
+          error: "audit event could not be recorded; the action must not be reported as audited",
+        };
+      }
+      if (reply.storeFull === true) {
+        return {
+          ok: false,
+          code: "AUDIT_STORE_FULL",
+          error:
+            "audit store is at its enforced capacity cap; the event was not recorded and no evidence was deleted",
+        };
+      }
+      const event = reply.event as IaaaAuditEvent | undefined;
+      if (!event || typeof event.eventHash !== "string") {
+        return {
+          ok: false,
+          code: "AUDIT_WRITE_FAILED",
+          error: "audit event could not be recorded; the action must not be reported as audited",
+        };
+      }
+      return { ok: true, event };
+    },
+
+    async list(): Promise<IaaaAuditEvent[]> {
+      if (!namespace) return [];
+      const entries = await listStoreEntries({
+        namespace,
+        namespaceName: "sessions",
+        prefix: IAAA_AUDIT_KEY_PREFIX,
+        instanceName: options.instanceName ?? "kv",
+      });
+      if (entries === null) {
+        throw new Error(
+          "iaaa audit log could not be read; refusing to return partial evidence",
+        );
+      }
+      // Entries arrive sorted by key: archive segments first
+      // ("archive:" < "events"), then the live key — chain order.
+      const events: IaaaAuditEvent[] = [];
+      for (const entry of entries) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(entry.value);
+        } catch {
+          throw corruptError();
+        }
+        if (!Array.isArray(parsed)) throw corruptError();
+        for (const event of parsed as IaaaAuditEvent[]) {
+          events.push({ ...event });
+        }
+      }
+      return events;
+    },
+  };
+}
+
+/**
+ * Production audit store: the atomic backend over the SessionStore
+ * DO. When the DO namespace is absent, appends fail visible
+ * (AUDIT_WRITE_FAILED) instead of vanishing silently, and list()
+ * reads empty — the pre-#1760 Kv wiring silently dropped writes
+ * in that case, which is exactly the failure mode this slice ends.
+ */
 export function createWiredAuditStore(env: Env): AuditStore {
-  return createKvAuditStore(sessionStore(env));
+  return createAtomicAuditStore(
+    env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+  );
 }
