@@ -331,16 +331,18 @@ describe("quotes route readers (#1356)", () => {
     ).toThrow(DataProviderNotFoundError);
   });
 
-  it("quotesProvidersFromRoute returns primary + gap-fill when both are servable", () => {
+  it("quotesProvidersFromRoute returns primary only — quotes never gap-fill (issue #2144)", () => {
     const etrade = stubEtrade({ NVDA: etradeQuote("NVDA") });
     const yahoo = stubYahoo({ NVDA: yahooQuote("NVDA") });
     const registry = new DataProviderRegistry();
     registry.register(etrade.provider);
     registry.register(yahoo.provider);
 
+    // Yahoo is servable and the route declares it as gap-fill — the
+    // owner ruling still suppresses it for quotes.
     const resolved = quotesProvidersFromRoute(registry, configRecords(), routeRecords("yahoo"));
     expect(resolved.primary).toBe(etrade.provider);
-    expect(resolved.gapFill).toBe(yahoo.provider);
+    expect(resolved.gapFill).toBeUndefined();
   });
 
   it("quotesProvidersFromRoute omits (never fatals on) an unservable gap-fill", () => {

@@ -591,15 +591,19 @@ async function resolveUniverseListings(
 
 /**
  * Issue #1317: resolve the yahoo-mode quote provider from the
- * platform route table — the quotes route's gap-fill assignment
- * (seeded: etrade primary, yahoo gap-fill). The full resolveRoute
- * cannot serve yahoo mode: it throws when the route's etrade primary
- * is unservable, and a Yahoo-provider run must never construct the
- * broker service (#1007). So this helper reads the same route table
- * directly: the route must name yahoo as gap-fill, yahoo's config
- * must be enabled (state and flag), and the registry must hold a
- * quotes-capable yahoo adapter. Anything else throws — no silent
- * substitution, no fallback to another provider.
+ * platform route table. The full resolveRoute cannot serve yahoo
+ * mode: it throws when the route's etrade primary is unservable,
+ * and a Yahoo-provider run must never construct the broker service
+ * (#1007). So this helper reads the same route table directly: the
+ * quotes route must exist, yahoo's config must be enabled (state
+ * and flag), and the registry must hold a quotes-capable yahoo
+ * adapter. Anything else throws — no silent substitution, no
+ * fallback to another provider.
+ * Issue #2144: the route no longer needs to name yahoo as gap-fill
+ * — the seed names no quotes gap-fill, and a live quote row is
+ * never gap-filled. Yahoo mode is a caller-selected uniform mode
+ * (provider "yahoo"), so it resolves on yahoo being enabled and
+ * registered, not on the gap-fill field.
  */
 export function yahooQuoteProviderFromRoute(
   registry: DataProviderRegistry,
@@ -607,9 +611,9 @@ export function yahooQuoteProviderFromRoute(
   routes: readonly CapabilityRouteRecord[]
 ): DataProvider {
   const route = routes.find((r) => r.capability === "quotes");
-  if (!route || route.gapFillProviderId !== "yahoo") {
+  if (!route) {
     throw new Error(
-      "Yahoo-mode quote resolution failed: the quotes route does not name yahoo as gap-fill."
+      "Yahoo-mode quote resolution failed: no quotes route exists."
     );
   }
   const config = configs.find((c) => c.id === "yahoo");
@@ -685,13 +689,13 @@ export function etradeQuoteProviderFromRoute(
 
 /**
  * Issue #1356: resolve the live-quotes quote providers from the
- * platform route table — the quotes route's primary + declared
- * gap-fill (seeded: etrade primary, yahoo gap-fill, freemium).
- * The primary must resolve exactly as etradeQuoteProviderFromRoute
- * resolves it: an unservable primary throws DataProviderNotFoundError
- * even when the gap-fill could serve — gap-fill is never silently
- * promoted to primary. An unservable gap-fill is omitted, not fatal:
- * the composer then serves primary-only.
+ * platform route table. Issue #2144 (owner ruling): the quotes
+ * route never yields a gap-fill — live quote rows are never filled
+ * by another provider, even when the route declares one — so this
+ * helper returns the primary only. The primary must resolve exactly
+ * as etradeQuoteProviderFromRoute resolves it: an unservable primary
+ * throws DataProviderNotFoundError even when Yahoo could serve —
+ * gap-fill is never silently promoted to primary.
  */
 export function quotesProvidersFromRoute(
   registry: DataProviderRegistry,
@@ -699,22 +703,7 @@ export function quotesProvidersFromRoute(
   routes: readonly CapabilityRouteRecord[]
 ): { primary: DataProvider; gapFill?: DataProvider } {
   const primary = etradeQuoteProviderFromRoute(registry, configs, routes);
-  const route = routes.find((r) => r.capability === "quotes")!;
-  let gapFill: DataProvider | undefined;
-  if (route.gapFillProviderId === "yahoo") {
-    const config = configs.find((c) => c.id === "yahoo");
-    const provider = registry.get("yahoo");
-    if (
-      config &&
-      config.lifecycleState === "enabled" &&
-      config.enabled &&
-      provider &&
-      provider.capabilities.includes("quotes")
-    ) {
-      gapFill = provider;
-    }
-  }
-  return gapFill ? { primary, gapFill } : { primary };
+  return { primary };
 }
 
 /**
@@ -739,45 +728,6 @@ export function bindEtradeQuoteDeps(
       ? {
           fetchQuotes: async (symbols: string[]) =>
             (await provider.getQuotesBatch!(symbols, runContext)).result as ETradeQuote[],
-        }
-      : {}),
-  };
-}
-
-/**
- * Issue #2056: bind a Yahoo-only quote seam — the mirror of
- * bindEtradeQuoteDeps, with Yahoo rows adapted through
- * yahooQuoteToPipelineQuote (non-live or non-positive rows are
- * refused, never re-stamped). The gather path fetches live and
- * Yahoo separately and intersects on symbols, so it needs Yahoo
- * membership proven independently — the combined seam's gap-fill
- * alone cannot prove it (gap-fill only touches live-missed
- * symbols). fetchQuote throws on failure, per the QuoteScreenerDeps
- * contract; fetchQuotes returns only adapted rows.
- */
-export function bindYahooQuoteDeps(
-  provider: DataProvider,
-  runContext: DataRunContext
-): QuoteScreenerDeps {
-  return {
-    fetchQuote: async (symbol: string) => {
-      const row = (await provider.getQuote!(symbol, runContext)).result as MarketDataResearchQuote;
-      const quote = yahooQuoteToPipelineQuote(row);
-      if (!quote) throw new Error(`Yahoo Finance returned no live quote for ${symbol}`);
-      return quote;
-    },
-    ...(typeof provider.getQuotesBatch === "function"
-      ? {
-          fetchQuotes: async (symbols: string[]) => {
-            const rows = (await provider.getQuotesBatch!(symbols, runContext))
-              .result as MarketDataResearchQuote[];
-            const out: ETradeQuote[] = [];
-            for (const row of rows) {
-              const quote = yahooQuoteToPipelineQuote(row);
-              if (quote) out.push(quote);
-            }
-            return out;
-          },
         }
       : {}),
   };
