@@ -158,6 +158,16 @@ export interface StrategyScreenRecordInput {
   dataSource?: string;
   asyncJobId?: string;
   createdAt?: string;
+  /** Strategy report artifacts (pdf/xlsx/csv), when generated. */
+  pdfKey?: string;
+  pdfStatus?: "generated" | "failed";
+  pdfError?: string;
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed";
+  xlsxError?: string;
+  csvKey?: string;
+  csvStatus?: "generated" | "failed";
+  csvError?: string;
 }
 
 export function recordStrategyScreenRun(
@@ -192,6 +202,15 @@ export function recordStrategyScreenRun(
       riskReports: input.riskReports ?? [],
       screenedOut: input.screenedOut ?? [],
       screen: input.screen,
+      ...(input.pdfKey ? { pdfKey: input.pdfKey } : {}),
+      ...(input.pdfStatus ? { pdfStatus: input.pdfStatus } : {}),
+      ...(input.pdfError ? { pdfError: input.pdfError } : {}),
+      ...(input.xlsxKey ? { xlsxKey: input.xlsxKey } : {}),
+      ...(input.xlsxStatus ? { xlsxStatus: input.xlsxStatus } : {}),
+      ...(input.xlsxError ? { xlsxError: input.xlsxError } : {}),
+      ...(input.csvKey ? { csvKey: input.csvKey } : {}),
+      ...(input.csvStatus ? { csvStatus: input.csvStatus } : {}),
+      ...(input.csvError ? { csvError: input.csvError } : {}),
     },
     createdAt,
     userLogin: input.userLogin,
@@ -205,6 +224,9 @@ export function recordStrategyScreenRun(
     status: "completed",
     scanned: input.contracts?.length,
     matched,
+    pdfKey: input.pdfKey,
+    xlsxKey: input.xlsxKey,
+    csvKey: input.csvKey,
     origin: "options-strategy-screener",
     createdAt,
   });

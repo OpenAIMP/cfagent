@@ -176,7 +176,8 @@ const RUN_SOURCE_BY_KIND: Record<string, string> = {
 
 function xlsxUrlForSource(source: string, key: string): string | null {
   if (source === "screener") return `/api/screener/report.xlsx?key=${encodeURIComponent(key)}`;
-  if (source === "options_scanner" || source === "options_screen")
+  // Issue #2162: strategy runs store their workbook in the options family.
+  if (source === "options_scanner" || source === "options_screen" || source === "options_strategy")
     return `/api/options/report.xlsx?key=${encodeURIComponent(key)}`;
   if (source === "goal_screen")
     return `/api/screening/goal-screen/report.xlsx?key=${encodeURIComponent(key)}`;
@@ -186,7 +187,8 @@ function xlsxUrlForSource(source: string, key: string): string | null {
 /** Issue #1346: mirrors xlsxUrlForSource for the stored CSV artifact. */
 function csvUrlForSource(source: string, key: string): string | null {
   if (source === "screener") return `/api/screener/report.csv?key=${encodeURIComponent(key)}`;
-  if (source === "options_scanner" || source === "options_screen")
+  // Issue #2162: strategy runs store their CSV in the options family.
+  if (source === "options_scanner" || source === "options_screen" || source === "options_strategy")
     return `/api/options/report.csv?key=${encodeURIComponent(key)}`;
   if (source === "goal_screen")
     return `/api/screening/goal-screen/report.csv?key=${encodeURIComponent(key)}`;

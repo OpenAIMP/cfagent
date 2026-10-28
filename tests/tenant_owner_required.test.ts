@@ -138,6 +138,48 @@ describe("strategy screener run record", () => {
 
     expect(listJobOutcomes(sql as any, 5)[0].id).toBe("job-123");
   });
+
+  it("carries the strategy report artifact keys on the record (#2162)", () => {
+    const sql = new MockSqlStorage();
+    const orm = {
+      storeCanonicalReport: vi.fn(() => ({ reportId: "strategy-3", created: true })),
+      getSql: () => sql,
+    };
+
+    recordStrategyScreenRun(orm as any, {
+      userLogin: OWNER,
+      symbol: "NVDA",
+      trigger: "manual",
+      mode: "strategies",
+      ranked: [{ candidate: { type: "long_call" } }],
+      pdfKey: "options:pdf:strategy:1",
+      pdfStatus: "generated",
+      xlsxKey: "options:xlsx:strategy:1",
+      xlsxStatus: "generated",
+      csvKey: "options:csv:strategy:1",
+      csvStatus: "failed",
+      csvError: "blob store down",
+      createdAt: "2026-10-28T14:10:00.000Z",
+    });
+
+    expect(orm.storeCanonicalReport.mock.calls[0][0]).toMatchObject({
+      source: "options_strategy",
+      body: {
+        pdfKey: "options:pdf:strategy:1",
+        pdfStatus: "generated",
+        xlsxKey: "options:xlsx:strategy:1",
+        csvStatus: "failed",
+        csvError: "blob store down",
+      },
+    });
+
+    const outcomes = listJobOutcomes(sql as any, 5);
+    expect(outcomes[0]).toMatchObject({
+      pdfKey: "options:pdf:strategy:1",
+      xlsxKey: "options:xlsx:strategy:1",
+      csvKey: "options:csv:strategy:1",
+    });
+  });
 });
 
 describe("goal screen canonical owner", () => {
