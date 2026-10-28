@@ -47,6 +47,7 @@ export * from "./screenerConfig";
 export * from "./screenerPipeline";
 export * from "./screeningSchemas";
 export * from "./screenerReportPdf";
+export * from "./screenerReportTemplate";
 export * from "./screenerReportXlsx";
 export * from "./screenerReportCsv";
 export * from "./optionsReportPdf";
