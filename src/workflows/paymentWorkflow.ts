@@ -76,7 +76,10 @@ import {
 } from "./paymentWorkflowFlow";
 import { getCfpayConfig, cfpayA2AOperation } from "../services/cfpayA2A";
 import { createFeatureFlagPort } from "../features/createFeatureFlagPort";
-import { consumeStoreCoverage } from "../services/commercialAccounts";
+import {
+  createCommercialAdapter,
+  ensureCommercialSchema,
+} from "../data/createCommercialPorts";
 import { createWorkflowPorts, type WorkflowEnv } from "./createWorkflowPorts";
 import type { WorkflowJobCommand } from "./workflowPorts";
 
@@ -192,22 +195,58 @@ export class PaymentWorkflow extends ThinkWorkflow<
         // as mas_transactions.
         console.log(`[payment-workflow] ${e.type} run=${e.runRequestId} tenant=${e.tenantId}`);
       },
-      issueFailureCredit: async (runRequestId: string) => {
-        // Draft: failure-credit issuance is Phase 4 (#2019). Until then
-        // this throws, so a screener failure after payment is visible
-        // instead of silently claiming a credit that was never issued.
-        throw new Error(`Failure credit not yet implemented for run ${runRequestId} (Phase 4, #2019).`);
+      issueFailureCredit: async (runRequestId: string, priceUSD: number) => {
+        // Issue #2019/#2015: record the redeemable claim in D1.
+        // The DO ledger credit row (the financial audit record)
+        // arrives with PR #2089; until then this claim plus the
+        // flow's payment.failure_credit_issued event are the record.
+        // Best-effort with loud logging: a store failure must not
+        // turn a failed paid run into a workflow error with no
+        // credit at all. An invalid price is a programming error
+        // and still throws.
+        if (!Number.isFinite(priceUSD) || priceUSD <= 0) {
+          throw new Error(`Cannot issue a failure credit without a positive price for run ${runRequestId}.`);
+        }
+        try {
+          const adapter = createCommercialAdapter(this.env as { AGENT_DB?: unknown });
+          if (!adapter) {
+            console.error(
+              `[payment-workflow] D1 credit-claim write skipped for run ${runRequestId} (AGENT_DB unbound); no redeemable claim recorded.`,
+            );
+            return;
+          }
+          await ensureCommercialSchema(adapter.db);
+          await adapter.recordCreditClaim({
+            creditRunId: runRequestId,
+            userId: p.userId,
+            family: p.family,
+            amountUSD: priceUSD,
+          });
+        } catch (err) {
+          console.error(
+            `[payment-workflow] D1 credit-claim write failed for run ${runRequestId} — claim missing, operator must re-issue from the payment record:`,
+            err,
+          );
+        }
       },
       consumeCoverage: async (use: { userId: string; paidVia: string; priceUSD: number }) => {
-        // Issue #2015: consume the coverage in the account store.
+        // Issue #2015: consume the coverage in the D1 account store.
         // Best-effort with loud logging (see the flow dep doc): a
         // store blip must not deny a run the user already covered.
         // free_flag_off / already_paid consume nothing.
         try {
+          const adapter = createCommercialAdapter(this.env as { AGENT_DB?: unknown });
+          if (!adapter) {
+            console.error(
+              `[payment-workflow] coverage consumption skipped for user ${use.userId} (AGENT_DB unbound); balance must be reconciled by an operator.`,
+            );
+            return;
+          }
+          await ensureCommercialSchema(adapter.db);
           if (use.paidVia === "subscription_included") {
-            await consumeStoreCoverage(this.env, use.userId, "included");
+            await adapter.consumeIncludedRun(use.userId);
           } else if (use.paidVia === "credits") {
-            await consumeStoreCoverage(this.env, use.userId, "credits", use.priceUSD);
+            await adapter.consumeCredits(use.userId, use.priceUSD);
           }
         } catch (err) {
           console.error(

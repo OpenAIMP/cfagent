@@ -61,22 +61,11 @@ import {
   type PaymentWorkflowBinding,
 } from "../../services/paymentWorkflowSubmission";
 import {
-  adjustCommercialCredits,
-  canAccessAccount,
-  consumeCredits,
-  consumeIncludedRun,
-  findUnredeemedCredit,
-  getTenantAdsEnabled,
-  isStoreOperator,
-  redeemCredit,
-  setTenantAdsEnabled,
-  toCommercialAccount,
-  upsertCommercialAccount,
-  fetchStoreAccount,
-  fetchStoreUnredeemedCredit,
-  redeemStoreCredit,
-} from "../../services/commercialAccounts";
-import { getServiceUserLogin } from "../../security/serviceIdentity";
+  createCommercialAdapter,
+  ensureCommercialSchema,
+} from "../../data/createCommercialPorts";
+import type { D1CommercialAdapter } from "../../data/d1CommercialAdapter";
+import { toCommercialAccount } from "../../data/commercialPorts";
 import { createWorkflowPorts, type WorkflowEnv } from "../../workflows/createWorkflowPorts";
 import { tryStartScreenerWorkflow } from "../../workflows/screenerWorkflowRoutes";
 import type { WorkflowJobCommand } from "../../workflows/workflowPorts";
@@ -240,10 +229,10 @@ export async function handleAgenticPaymentsRoutes(
   }
 
   // ================================================================
-  // Issue #2015/#2020: minimal commercial account store, tenant
-  // settings (#2022), credit redemption (#2019), and the dedicated
-  // paid-submission route (no CTO collision: this route never
-  // touches ScheduledTasksService or the #1997-2000 unified
+  // Issues #2015/#2020/#2022: commercial account store on Drizzle
+  // D1, tenant settings, credit redemption (#2019), and the
+  // dedicated paid-submission route (no CTO collision: this route
+  // never touches ScheduledTasksService or the #1997-2000 unified
   // run-request path; CTO wires into it later).
   //
   // Trust model, stated once for the whole block:
@@ -251,25 +240,36 @@ export async function handleAgenticPaymentsRoutes(
   //   (server.ts sets it from the session for /api/*, 401 without
   //   a session). Identity is that login; nothing here trusts a
   //   body-supplied userId.
-  // - The store's source of truth is the canonical orchestrator
-  //   instance. Server-side callers (the submission route, the
-  //   payment workflow adapter, the ads handler) reach it through
-  //   the commercialAccounts client with the service identity, and
-  //   those calls are trusted. Direct user calls on any other
-  //   instance see that instance's store only and are NOT
-  //   authoritative — the endpoints below enforce self-or-operator
-  //   (or operator/service-only) so a direct call cannot touch
-  //   another user's account.
+  // - D1 is SHARED across instances, so there is no canonical-
+  //   instance hop: the handler builds the store adapter straight
+  //   from env.AGENT_DB. An unbound AGENT_DB fails closed on money
+  //   paths (503) — the store cannot be verified, so no run starts
+  //   and no balance is read as Free.
   // - Operator writes require COMMERCIAL_STORE_OPERATORS (empty =
-  //   deny all). Service-identity calls require SERVICE_USER_LOGIN,
-  //   the same requirement as the ledger client.
+  //   deny all). The consume/redeem/unredeemed-credit HTTP endpoints
+  //   from the earlier DO-store draft are gone: with D1, the
+  //   payment adapter and the submit route call the port directly,
+  //   so no hop-only endpoint needs to exist.
   // ================================================================
   const commercialLogin = (): string | null => {
     const login = request.headers.get("x-user-login");
     return login && login.trim() ? login.trim() : null;
   };
-  const isServiceCaller = (login: string | null): boolean =>
-    !!login && getServiceUserLogin(ctx.env) === login;
+  const isStoreOperator = (login: string | null): boolean => {
+    if (!login) return false;
+    const raw = (ctx.env as unknown as Record<string, unknown>)["COMMERCIAL_STORE_OPERATORS"];
+    if (typeof raw !== "string" || !raw.trim()) return false;
+    return raw.split(",").map((s) => s.trim()).includes(login);
+  };
+  const canAccessAccount = (login: string | null, userId: string): boolean =>
+    login !== null && (login === userId || isStoreOperator(login));
+  const requireStore = (): D1CommercialAdapter | Response => {
+    const adapter = createCommercialAdapter(ctx.env as { AGENT_DB?: unknown });
+    if (!adapter) {
+      return Response.json({ error: "Commercial store unavailable: AGENT_DB is not bound." }, { status: 503 });
+    }
+    return adapter;
+  };
 
   // GET /payments/agentic/commercial/account?userId=
   if (path.endsWith("/payments/agentic/commercial/account") && request.method === "GET") {
@@ -278,10 +278,12 @@ export async function handleAgenticPaymentsRoutes(
       const userId = url.searchParams.get("userId") ?? "";
       if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
       if (!userId) return Response.json({ error: "userId is required." }, { status: 400 });
-      if (!isServiceCaller(login) && !canAccessAccount(ctx.env, login, userId)) {
+      if (!canAccessAccount(login, userId)) {
         return Response.json({ error: "Forbidden: only the account owner or a store operator may read an account." }, { status: 403 });
       }
-      const record = ctx.getOrm().commercialAccounts.findOne({ id: userId });
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const record = await store.getAccount(userId);
       return Response.json({ record });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to read commercial account" }, { status: 500 });
@@ -292,13 +294,15 @@ export async function handleAgenticPaymentsRoutes(
   if (path.endsWith("/payments/agentic/commercial/account") && request.method === "POST") {
     try {
       const login = commercialLogin();
-      if (!login || !isStoreOperator(ctx.env, login)) {
+      if (!isStoreOperator(login)) {
         return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
       }
       const body = (await request.json().catch(() => ({}))) as {
         userId?: unknown; tenantId?: unknown; tier?: unknown; creditsUSD?: unknown; includedRuns?: unknown;
       };
-      const record = upsertCommercialAccount(ctx.getOrm(), {
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const record = await store.upsertAccount({
         userId: typeof body.userId === "string" ? body.userId : "",
         tenantId: typeof body.tenantId === "string" ? body.tenantId : "",
         tier: body.tier,
@@ -317,7 +321,7 @@ export async function handleAgenticPaymentsRoutes(
   if (path.endsWith("/payments/agentic/commercial/account/credits") && request.method === "POST") {
     try {
       const login = commercialLogin();
-      if (!login || !isStoreOperator(ctx.env, login)) {
+      if (!isStoreOperator(login)) {
         return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
       }
       const body = (await request.json().catch(() => ({}))) as { userId?: unknown; deltaUSD?: unknown };
@@ -326,7 +330,9 @@ export async function handleAgenticPaymentsRoutes(
       if (!userId || !Number.isFinite(deltaUSD)) {
         return Response.json({ error: "userId and a finite deltaUSD are required." }, { status: 400 });
       }
-      const record = adjustCommercialCredits(ctx.getOrm(), userId, deltaUSD);
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const record = await store.adjustCredits(userId, deltaUSD);
       ctx.audit("commercial.account.credits_adjusted", "payments", { userId, deltaUSD });
       return Response.json({ record });
     } catch (err: any) {
@@ -335,42 +341,19 @@ export async function handleAgenticPaymentsRoutes(
     }
   }
 
-  // POST /payments/agentic/commercial/account/consume (service identity only:
-  // the payment workflow adapter consuming coverage — never a direct user call)
-  if (path.endsWith("/payments/agentic/commercial/account/consume") && request.method === "POST") {
-    try {
-      const login = commercialLogin();
-      if (!isServiceCaller(login)) {
-        return Response.json({ error: "Forbidden: service identity required." }, { status: 403 });
-      }
-      const body = (await request.json().catch(() => ({}))) as { userId?: unknown; kind?: unknown; amountUSD?: unknown };
-      const userId = typeof body.userId === "string" ? body.userId : "";
-      const kind = body.kind;
-      if (!userId || (kind !== "included" && kind !== "credits")) {
-        return Response.json({ error: "userId and kind (included or credits) are required." }, { status: 400 });
-      }
-      const record =
-        kind === "included"
-          ? consumeIncludedRun(ctx.getOrm(), userId)
-          : consumeCredits(ctx.getOrm(), userId, Number(body.amountUSD));
-      return Response.json({ record });
-    } catch (err: any) {
-      const message = err.message || "Failed to consume coverage";
-      return Response.json({ error: message }, { status: /No commercial account|No included runs|Insufficient credits/.test(message) ? 400 : 500 });
-    }
-  }
-
-  // GET /payments/agentic/commercial/tenant-settings?tenantId= (service or operator)
+  // GET /payments/agentic/commercial/tenant-settings?tenantId= (operator only)
   if (path.endsWith("/payments/agentic/commercial/tenant-settings") && request.method === "GET") {
     try {
       const login = commercialLogin();
       const tenantId = url.searchParams.get("tenantId") ?? "";
       if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
       if (!tenantId) return Response.json({ error: "tenantId is required." }, { status: 400 });
-      if (!isServiceCaller(login) && !isStoreOperator(ctx.env, login)) {
-        return Response.json({ error: "Forbidden: only the service or a store operator may read tenant settings." }, { status: 403 });
+      if (!isStoreOperator(login)) {
+        return Response.json({ error: "Forbidden: only a store operator may read tenant settings." }, { status: 403 });
       }
-      return Response.json({ tenantId, adsEnabled: getTenantAdsEnabled(ctx.getOrm(), tenantId) });
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      return Response.json({ tenantId, adsEnabled: await store.getTenantAdsEnabled(tenantId) });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to read tenant settings" }, { status: 500 });
     }
@@ -380,7 +363,7 @@ export async function handleAgenticPaymentsRoutes(
   if (path.endsWith("/payments/agentic/commercial/tenant-settings") && request.method === "POST") {
     try {
       const login = commercialLogin();
-      if (!login || !isStoreOperator(ctx.env, login)) {
+      if (!isStoreOperator(login)) {
         return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
       }
       const body = (await request.json().catch(() => ({}))) as { tenantId?: unknown; adsEnabled?: unknown };
@@ -388,52 +371,13 @@ export async function handleAgenticPaymentsRoutes(
       if (!tenantId || typeof body.adsEnabled !== "boolean") {
         return Response.json({ error: "tenantId and a boolean adsEnabled are required." }, { status: 400 });
       }
-      const record = setTenantAdsEnabled(ctx.getOrm(), tenantId, body.adsEnabled);
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const record = await store.setTenantAdsEnabled(tenantId, body.adsEnabled);
       ctx.audit("commercial.tenant_settings.set", "payments", { tenantId, adsEnabled: body.adsEnabled });
       return Response.json({ record });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to set tenant settings" }, { status: 500 });
-    }
-  }
-
-  // GET /payments/agentic/commercial/unredeemed-credit?userId=&family=
-  if (path.endsWith("/payments/agentic/commercial/unredeemed-credit") && request.method === "GET") {
-    try {
-      const login = commercialLogin();
-      const userId = url.searchParams.get("userId") ?? "";
-      const family = url.searchParams.get("family") ?? "";
-      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
-      if (!userId || !family) return Response.json({ error: "userId and family are required." }, { status: 400 });
-      if (!isServiceCaller(login) && !canAccessAccount(ctx.env, login, userId)) {
-        return Response.json({ error: "Forbidden: only the account owner or a store operator may read credits." }, { status: 403 });
-      }
-      const credit = findUnredeemedCredit(ctx.getOrm(), userId, family);
-      return Response.json({ credit });
-    } catch (err: any) {
-      return Response.json({ error: err.message || "Failed to find unredeemed credit" }, { status: 500 });
-    }
-  }
-
-  // POST /payments/agentic/commercial/redeem-credit (service identity only:
-  // the submission route redeeming server-side — never a direct user call)
-  if (path.endsWith("/payments/agentic/commercial/redeem-credit") && request.method === "POST") {
-    try {
-      const login = commercialLogin();
-      if (!isServiceCaller(login)) {
-        return Response.json({ error: "Forbidden: service identity required." }, { status: 403 });
-      }
-      const body = (await request.json().catch(() => ({}))) as { creditRunId?: unknown; redeemedByRunId?: unknown };
-      const creditRunId = typeof body.creditRunId === "string" ? body.creditRunId : "";
-      const redeemedByRunId = typeof body.redeemedByRunId === "string" ? body.redeemedByRunId : "";
-      if (!creditRunId || !redeemedByRunId) {
-        return Response.json({ error: "creditRunId and redeemedByRunId are required." }, { status: 400 });
-      }
-      const redemption = redeemCredit(ctx.getOrm(), creditRunId, redeemedByRunId);
-      ctx.audit("commercial.credit.redeemed", "payments", { creditRunId, redeemedByRunId });
-      return Response.json({ redemption });
-    } catch (err: any) {
-      const message = err.message || "Failed to redeem credit";
-      return Response.json({ error: message }, { status: /already redeemed/.test(message) ? 409 : 500 });
     }
   }
 
@@ -443,7 +387,7 @@ export async function handleAgenticPaymentsRoutes(
   // the schedule service, not here — no CTO collision). The route
   // never starts a screener for free: a new run goes through the
   // payment workflow (which enforces the gate), and a redeemed run
-  // starts only after its credit row is atomically claimed.
+  // starts only after its credit claim is atomically redeemed.
   // Email is the caller's checkout contact, supplied by the caller
   // — it is NOT an identity proof. Identity is the verified
   // x-user-login; no verified email exists in the session.
@@ -479,29 +423,25 @@ export async function handleAgenticPaymentsRoutes(
       }
       const runRequestId = `run-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
-      // Store account from the canonical instance. A store failure
-      // fails closed: without the account, coverage cannot be
-      // verified, so no run starts.
-      let stored;
+      // D1 store, schema ensured. A store failure fails closed:
+      // without the account, coverage cannot be verified, so no
+      // run starts — and without the claims table, a credit cannot
+      // be checked, so no run is charged either.
+      const store = requireStore();
+      if (store instanceof Response) return store;
       try {
-        stored = await fetchStoreAccount(ctx.env, login);
+        await ensureCommercialSchema(store.db);
       } catch (err: any) {
         return Response.json({ error: `Commercial store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
       }
+      const stored = await store.getAccount(login);
       if (stored && stored.tenantId !== tenantId) {
         return Response.json({ error: "Tenant mismatch: run tenant must equal the verified account tenant." }, { status: 403 });
       }
       const account = toCommercialAccount(login, stored, email, tenantId);
 
       // Failure-credit redemption, if one exists for this family.
-      // A store failure here also fails closed: proceeding to
-      // charge a user who holds a credit would double-charge them.
-      let credit = null;
-      try {
-        credit = await fetchStoreUnredeemedCredit(ctx.env, login, family);
-      } catch (err: any) {
-        return Response.json({ error: `Commercial store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
-      }
+      const credit = await store.findUnredeemedCredit(login, family);
       if (credit) {
         // Pre-check the screener port before claiming: claiming
         // first and then failing to start would burn the credit.
@@ -513,7 +453,7 @@ export async function handleAgenticPaymentsRoutes(
         }
         let redeemed = false;
         try {
-          await redeemStoreCredit(ctx.env, credit.creditRunId, runRequestId);
+          await store.redeemCredit(credit.creditRunId, runRequestId);
           redeemed = true;
         } catch (err: any) {
           if (!/already redeemed/.test(err.message || "")) {

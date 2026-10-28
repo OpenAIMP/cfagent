@@ -108,7 +108,7 @@ export interface PaymentWorkflowDeps {
   account: CommercialAccount;
   startScreener: (params: PaymentWorkflowParams) => Promise<{ workflowId: string }>;
   recordEvent: (event: { runRequestId: string; tenantId: string; type: string }) => Promise<void>;
-  issueFailureCredit: (runRequestId: string) => Promise<void>;
+  issueFailureCredit: (runRequestId: string, priceUSD: number) => Promise<void>;
   /**
    * Issue #2015: consume the coverage a covered run used, in the
    * account store (one included run, or priceUSD of credits).
@@ -226,7 +226,7 @@ export async function runPaymentWorkflowFlow(
     await step.do("record-payment", () =>
       deps.recordEvent({ runRequestId: params.runRequestId, tenantId: params.tenantId, type: "payment.confirmed" }),
     );
-    return startScreenerOrCredit(params, deps, step, confirmed.paidVia ?? "cfpay_checkout");
+    return startScreenerOrCredit(params, deps, step, confirmed.paidVia ?? "cfpay_checkout", gateDecision.priceUSD);
   }
 
   // Covered, already paid, or free (flag OFF): no wait, no new charge.
@@ -246,7 +246,7 @@ export async function runPaymentWorkflowFlow(
       }),
     );
   }
-  return startScreenerOrCredit(params, deps, step, gateDecision.paidVia ?? gateDecision.status);
+  return startScreenerOrCredit(params, deps, step, gateDecision.paidVia ?? gateDecision.status, gateDecision.priceUSD);
 }
 
 async function startScreenerOrCredit(
@@ -254,6 +254,7 @@ async function startScreenerOrCredit(
   deps: PaymentWorkflowDeps,
   step: PaymentWorkflowStep,
   paidVia: string,
+  priceUSD: number,
 ): Promise<PaymentWorkflowOutcome> {
   try {
     const started = await step.do("start-screener", () => deps.startScreener(params));
@@ -266,7 +267,7 @@ async function startScreenerOrCredit(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await step.do("issue-failure-credit", async () => {
-      await deps.issueFailureCredit(params.runRequestId);
+      await deps.issueFailureCredit(params.runRequestId, priceUSD);
       await deps.recordEvent({
         runRequestId: params.runRequestId,
         tenantId: params.tenantId,

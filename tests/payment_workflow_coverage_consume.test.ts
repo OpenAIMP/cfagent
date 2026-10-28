@@ -136,4 +136,19 @@ describe("coverage consumption (#2015)", () => {
     const out = await runPaymentWorkflowFlow(baseParams, deps, fakeStep());
     expect(out.status).toBe("started");
   });
+
+  it("a failed screener issues the failure credit at the run price", async () => {
+    const issueFailureCredit = vi.fn(async () => {});
+    const deps = depsFor(
+      { userId: "u1", email: "u1@example.com", tenantId: "t1", tier: "Subscribed", creditsUSD: 0, includedRunsRemaining: 1 },
+      vi.fn(async () => {}),
+    );
+    deps.issueFailureCredit = issueFailureCredit;
+    deps.startScreener = vi.fn(async () => {
+      throw new Error("screener boom");
+    });
+    const out = await runPaymentWorkflowFlow(baseParams, deps, fakeStep());
+    expect(out.status).toBe("screener_failed_credit_issued");
+    expect(issueFailureCredit).toHaveBeenCalledWith("run-1", 0.1);
+  });
 });

@@ -1,9 +1,14 @@
 /**
- * Issue #2022 — ads suppression resolved from the commercial account
+ * Issue #2022 — ads suppression resolved from the D1 commercial
  * store: Subscribed tier or a tenant with ads off is served nothing
  * and counted nothing; everything else serves; any store failure
  * fails open to serve (never blank Free users' ads on a blip).
+ *
+ * The handler builds the store adapter straight from
+ * ctx.env.AGENT_DB; tests supply a MockD1Database (node:sqlite,
+ * the slice0 pattern) seeded through the real Drizzle adapter.
  */
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import {
   handleAdsRevenueReferralsRoutes,
@@ -11,51 +16,43 @@ import {
   type AdsRevenueReferralsRouteContext,
 } from "../src/agents/routes/adsRevenueReferrals";
 import {
-  handleAgenticPaymentsRoutes,
-  type AgenticPaymentsRouteContext,
-} from "../src/agents/routes/agenticPayments";
-import type { DatabaseORM } from "../src/orm";
-import type {
-  CommercialAccountRecord,
-  CreditRedemptionRecord,
-  TenantSettingsRecord,
-  TransactionRecord,
-} from "../src/types";
+  createD1CommercialDb,
+  D1CommercialAdapter,
+  ensureCommercialSchema,
+} from "../src/data/d1CommercialAdapter";
 
-function makeRepo<T extends Record<string, unknown>>(key: keyof T) {
-  const map = new Map<string, T>();
-  return {
-    map,
-    findOne: (where: Record<string, unknown>) => {
-      for (const row of map.values()) {
-        if (Object.entries(where).every(([k, v]) => row[k] === v)) return row;
-      }
-      return null;
-    },
-    findById: (id: string) => map.get(id) ?? null,
-    findMany: (opts: { where?: Record<string, unknown> } = {}) => {
-      const rows = [...map.values()];
-      if (!opts.where) return rows;
-      return rows.filter((row) =>
-        Object.entries(opts.where as Record<string, unknown>).every(([k, v]) => row[k] === v),
-      );
-    },
-    create: (record: T) => {
-      map.set(String(record[key]), record);
-      return record;
-    },
-    update: (id: string, patch: Partial<T>) => {
-      const row = map.get(id);
-      if (!row) return null;
-      const next = { ...row, ...patch };
-      map.set(id, next);
-      return next;
-    },
-    upsert: (record: T) => {
-      map.set(String(record[key]), record);
-      return record;
-    },
-  };
+/** Minimal D1Database stand-in over node:sqlite (test-only, mirrors slice0). */
+class MockD1Database {
+  readonly sqlite = new DatabaseSync(":memory:");
+  prepare(sql: string) {
+    const db = this.sqlite;
+    return {
+      bind(...params: unknown[]) {
+        return {
+          async run() {
+            const info = db.prepare(sql).run(...(params as any[]));
+            return {
+              success: true,
+              meta: { changes: info.changes, last_row_id: info.lastInsertRowid },
+              results: [],
+            };
+          },
+          async all() {
+            return { results: db.prepare(sql).all(...(params as any[])) };
+          },
+          async first() {
+            return db.prepare(sql).get(...(params as any[])) ?? null;
+          },
+          async raw() {
+            return db
+              .prepare(sql)
+              .all(...(params as any[]))
+              .map((row: any) => Object.values(row));
+          },
+        };
+      },
+    };
+  }
 }
 
 const seedRow = {
@@ -72,36 +69,15 @@ const seedRow = {
   created_at: "2026-10-28T00:00:00Z",
 };
 
-function setup(account: CommercialAccountRecord | null, tenantAdsEnabled: boolean | null) {
-  const storeOrm = {
-    commercialAccounts: makeRepo<CommercialAccountRecord>("id"),
-    tenantSettings: makeRepo<TenantSettingsRecord>("tenantId"),
-    creditRedemptions: makeRepo<CreditRedemptionRecord>("creditRunId"),
-    transactions: makeRepo<TransactionRecord>("id"),
-    events: makeRepo<Record<string, unknown>>("id"),
-  };
-  if (account) (storeOrm.commercialAccounts as unknown as { map: Map<string, CommercialAccountRecord> }).map.set(account.id, account);
-  if (tenantAdsEnabled !== null && account) {
-    (storeOrm.tenantSettings as unknown as { map: Map<string, TenantSettingsRecord> }).map.set(account.tenantId, {
-      tenantId: account.tenantId,
-      adsEnabled: tenantAdsEnabled,
-      updatedAt: "2026-10-28T00:00:00Z",
-    });
+async function setup(tier: "Free" | "Subscribed" | null, tenantAdsEnabled: boolean | null) {
+  const mock = new MockD1Database();
+  const db = createD1CommercialDb(mock as unknown as D1Database);
+  await ensureCommercialSchema(db);
+  const store = new D1CommercialAdapter(db);
+  if (tier !== null) {
+    await store.upsertAccount({ userId: "u1", tenantId: "t1", tier, creditsUSD: 0, includedRuns: 0 });
+    if (tenantAdsEnabled !== null) await store.setTenantAdsEnabled("t1", tenantAdsEnabled);
   }
-  const canonicalEnv = { SERVICE_USER_LOGIN: "svc", COMMERCIAL_STORE_OPERATORS: "op1" };
-  const canonicalCtx = {
-    env: canonicalEnv,
-    getOrm: () => storeOrm,
-    audit: vi.fn(),
-  } as unknown as AgenticPaymentsRouteContext;
-  const canonicalFetch = async (req: Request) => {
-    const url = new URL(req.url);
-    return handleAgenticPaymentsRoutes(req, url, url.pathname, "sess-canonical", canonicalCtx);
-  };
-  const adsEnv = {
-    SERVICE_USER_LOGIN: "svc",
-    SEARCH_AGENT: { idFromName: () => "canonical", get: () => ({ fetch: canonicalFetch }) },
-  };
   const adsSql = {
     exec: vi.fn((query: string) => {
       if (query.startsWith("SELECT COUNT")) return [{ count: 1 }];
@@ -120,7 +96,7 @@ function setup(account: CommercialAccountRecord | null, tenantAdsEnabled: boolea
     getOrm: () => adsOrm,
     ensureTables: () => adsSql,
     audit: vi.fn(),
-    env: adsEnv,
+    env: { AGENT_DB: mock },
   } as unknown as AdsRevenueReferralsRouteContext;
   return { adsCtx, adsSql, adsOrm };
 }
@@ -145,18 +121,9 @@ const callB = (ctx: AdsRevenueReferralsRouteContext, method: string, path: strin
   return handleReferralsAdsRoutes(req(method, path, login, body), url, path, "sess-1", ctx);
 };
 
-const freeAccount = (tier: "Free" | "Subscribed"): CommercialAccountRecord => ({
-  id: "u1",
-  tenantId: "t1",
-  tier,
-  creditsUSD: 0,
-  includedRuns: 0,
-  updatedAt: "2026-10-28T00:00:00Z",
-});
-
 describe("ads suppression from the store (#2022)", () => {
   it("serves Free users with the impression increment", async () => {
-    const { adsCtx, adsSql } = setup(freeAccount("Free"), true);
+    const { adsCtx, adsSql } = await setup("Free", true);
     const res = await callB(adsCtx, "GET", "/ads", "u1");
     const body = (await res?.json()) as { count: number; ads: Array<{ id: string }> };
     expect(body.count).toBe(1);
@@ -165,7 +132,7 @@ describe("ads suppression from the store (#2022)", () => {
   });
 
   it("suppresses Subscribed users with no write and no read", async () => {
-    const { adsCtx, adsSql, adsOrm } = setup(freeAccount("Subscribed"), true);
+    const { adsCtx, adsSql, adsOrm } = await setup("Subscribed", true);
     const res = await callB(adsCtx, "GET", "/ads", "u1");
     expect(await res?.json()).toEqual({ count: 0, ads: [] });
     expect(adsSql.exec).not.toHaveBeenCalled();
@@ -178,17 +145,17 @@ describe("ads suppression from the store (#2022)", () => {
   });
 
   it("suppresses every user of a tenant with ads off, regardless of tier", async () => {
-    const { adsCtx, adsSql } = setup(freeAccount("Free"), false);
+    const { adsCtx, adsSql } = await setup("Free", false);
     const res = await callB(adsCtx, "GET", "/ads", "u1");
     expect(await res?.json()).toEqual({ count: 0, ads: [] });
     expect(adsSql.exec).not.toHaveBeenCalled();
   });
 
   it("fails open to serve when the store is unreachable or the caller is anonymous", async () => {
-    const { adsCtx, adsSql } = setup(freeAccount("Subscribed"), true);
+    const { adsCtx, adsSql } = await setup("Subscribed", true);
     const noStoreCtx = {
       ...adsCtx,
-      env: { SERVICE_USER_LOGIN: "svc" },
+      env: {},
     } as unknown as AdsRevenueReferralsRouteContext;
     const res = await callB(noStoreCtx, "GET", "/ads", "u1");
     expect(((await res?.json()) as { count: number }).count).toBe(1);
@@ -198,7 +165,7 @@ describe("ads suppression from the store (#2022)", () => {
   });
 
   it("a populated Subscribed ctx tier still suppresses on store failure", async () => {
-    const { adsCtx } = setup(null, null);
+    const { adsCtx } = await setup(null, null);
     const ctx = { ...adsCtx, viewerTier: "Subscribed" } as AdsRevenueReferralsRouteContext;
     const res = await callB(ctx, "GET", "/ads", "u1");
     expect(await res?.json()).toEqual({ count: 0, ads: [] });

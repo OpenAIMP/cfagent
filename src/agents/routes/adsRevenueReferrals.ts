@@ -21,13 +21,10 @@
  * new globals and no back-references into the class.
  */
 
-import type { AgentName, CategoryRecord, Env, ExternalAdRecord } from "../../types";
+import type { AgentName, CategoryRecord, ExternalAdRecord } from "../../types";
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import { runRestTool } from "./restToolBridge";
-import {
-  fetchStoreAccount,
-  fetchStoreTenantAdsEnabled,
-} from "../../services/commercialAccounts";
+import { createCommercialAdapter } from "../../data/createCommercialPorts";
 import {
   ADS_REVENUE_SWITCHES,
   adsRevenueConfigErrorEvent,
@@ -156,15 +153,23 @@ async function resolveAdsViewer(
   const login = (request.headers.get("x-user-login") ?? "").trim() || null;
   // The ctx env type is narrowed for #1721, but the orchestrator
   // passes the full Worker env at runtime — the cast recovers it.
-  const env = ctx.env as unknown as Env | undefined;
+  // D1 is shared across instances, so the handler reads it
+  // directly: no canonical-instance hop. Ads reads never ensure
+  // the schema — any store error (including missing tables) falls
+  // through to serve, the documented ads fail direction.
+  const env = ctx.env as unknown as { AGENT_DB?: unknown } | undefined;
   if (!login || !env) {
     return ctxSubscribed ? { tier: "Subscribed", tenantAdsEnabled: true } : serve;
   }
+  const adapter = createCommercialAdapter(env);
+  if (!adapter) {
+    return ctxSubscribed ? { tier: "Subscribed", tenantAdsEnabled: true } : serve;
+  }
   try {
-    const account = await fetchStoreAccount(env, login);
+    const account = await adapter.getAccount(login);
     const tier = account?.tier === "Subscribed" ? "Subscribed" : ctxSubscribed ? "Subscribed" : "Free";
     const tenantAdsEnabled = account?.tenantId
-      ? await fetchStoreTenantAdsEnabled(env, account.tenantId)
+      ? await adapter.getTenantAdsEnabled(account.tenantId)
       : true;
     return { tier, tenantAdsEnabled };
   } catch {

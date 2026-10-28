@@ -318,6 +318,46 @@ CREATE INDEX IF NOT EXISTS agent_calibration_decisions_tenant_actor_prompt_idx O
 `,
 };
 
+/**
+ * Migration 0007 — commercial account store (#2015/#2020/#2022).
+ * Portable subset (same rules as migrations 0001-0006): `?` params
+ * only where params exist (DDL has none), epoch-ms integers, no
+ * dialect date functions, no RETURNING. The claims index serves
+ * the oldest-unredeemed lookup (user + family, FIFO by created).
+ */
+export const MIGRATION_0007_COMMERCIAL_STORE: DataMigration = {
+  version: 7,
+  name: "0007_commercial_store",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_commercial_accounts (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  tier TEXT NOT NULL,
+  credits_usd REAL NOT NULL,
+  included_runs INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_tenant_settings (
+  tenant_id TEXT PRIMARY KEY,
+  ads_enabled INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_credit_claims (
+  credit_run_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  family TEXT NOT NULL,
+  amount_usd REAL NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_credit_claims_user_family_created_idx ON agent_credit_claims (user_id, family, created_at_ms);
+CREATE TABLE IF NOT EXISTS agent_credit_redemptions (
+  credit_run_id TEXT PRIMARY KEY,
+  redeemed_by_run_id TEXT NOT NULL,
+  redeemed_at_ms INTEGER NOT NULL
+);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -325,6 +365,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0004_AGENT_AUDIT_REPORTS,
   MIGRATION_0005_AGENT_MARKET_GRAPH,
   MIGRATION_0006_AGENT_TELEMETRY_CALIBRATION,
+  MIGRATION_0007_COMMERCIAL_STORE,
 ];
 
 function splitStatements(sqlText: string): string[] {
