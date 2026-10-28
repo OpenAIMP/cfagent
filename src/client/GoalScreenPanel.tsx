@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { Button, Checkbox, Select, Table, TextInput } from "./components/ui";
 
@@ -13,6 +13,23 @@ import { Button, Checkbox, Select, Table, TextInput } from "./components/ui";
  * classes and their reasons; it is never dressed up as complete.
  * Stock hits can be backtested in place (backtest-on-screen,
  * POST /api/screening/backtest) with provenance + limitations shown.
+ *
+ * Issue #1997 (rebased onto #1996): the POST sends
+ * async:true. When the goal_workflow flag is ON, the route
+ * starts the #1996 goal workflow (one "goal" shard) and
+ * answers 202 with a workflow acceptance ({workflowId,
+ * statusUrl}). The panel then tracks the staged run: it
+ * polls the job-history statusUrl for live stage rows,
+ * keeps the previous result visible until the new one
+ * lands, and fetches the stored run from /api/reports/:id
+ * once the shard's analysis row carries a report id
+ * (surfaced by the goal door through the shard row
+ * result). Leg failures stay visible through the stored
+ * result's PARTIAL rendering (failed classes + reasons),
+ * never dressed up as complete. On tracking timeout the
+ * previous result stays and the job link + Reports
+ * guidance is the way back. Flag OFF → the POST returns
+ * the direct result as before.
  *
  * The goal-kind list below is presentational: the server validates
  * goalKind against the canonical GOAL_KINDS and 400s anything else.
@@ -73,6 +90,20 @@ interface BacktestResult {
   limitations: string[];
 }
 
+interface StageRow {
+  stage: string;
+  status: string;
+  detail: string;
+  updatedAtMs: number;
+}
+
+interface Tracking {
+  jobId: string;
+  statusUrl: string;
+  stages: StageRow[];
+  timedOut: boolean;
+}
+
 interface GoalScreenPanelProps {
   activeEnv: "TEST" | "PROD";
   userLogin?: string;
@@ -98,6 +129,16 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
   const [backtest, setBacktest] = useState<BacktestResult | null>(null);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState("");
+  const [tracking, setTracking] = useState<Tracking | null>(null);
+  // Generation guard: a new submit (or unmount) cancels any
+  // in-flight tracking loop — its late setStates are dropped.
+  const trackGen = useRef(0);
+  useEffect(
+    () => () => {
+      trackGen.current += 1;
+    },
+    [],
+  );
 
   const stockHits = useMemo(
     () =>
@@ -106,6 +147,131 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
         : [],
     [result]
   );
+
+  const trackStagedRun = async (jobId: string, statusUrl: string) => {
+    const gen = trackGen.current;
+    const deadline = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < deadline) {
+      if (trackGen.current !== gen) return;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (trackGen.current !== gen) return;
+      let history: { jobs?: Array<{ stage?: string; status?: string; detail?: string; updatedAtMs?: number; resultJson?: string }> };
+      try {
+        const res = await globalThis.fetch(statusUrl, {
+          headers: {
+            Accept: "application/json",
+            ...(userLogin ? { "x-user-login": userLogin } : {}),
+          },
+        });
+        if (!res.ok) {
+          setError(
+            `Could not track the staged run (HTTP ${res.status}). Your previous result is kept — find the run in Screening → Reports once it lands.`,
+          );
+          setTracking(null);
+          return;
+        }
+        history = (await res.json()) as typeof history;
+      } catch {
+        setError(
+          "Could not track the staged run. Your previous result is kept — find the run in Screening → Reports once it lands.",
+        );
+        setTracking(null);
+        return;
+      }
+      const stages: StageRow[] = (history.jobs ?? [])
+        .map((row) => ({
+          stage: row.stage ?? "",
+          status: row.status ?? "",
+          detail: row.detail ?? "",
+          updatedAtMs: row.updatedAtMs ?? 0,
+        }))
+        .sort((a, b) => a.updatedAtMs - b.updatedAtMs);
+      if (trackGen.current !== gen) return;
+      setTracking({ jobId, statusUrl, stages, timedOut: false });
+      // Issue #1997 (rebased onto #1996): a goal run is ONE
+      // "goal" shard, so there is no separate store row — the
+      // shard's analysis row carries the store outcome in its
+      // result ({shardJobIds, result: {stored, reportId?,
+      // storeError?}}). The shard row is the one whose inner
+      // result has a boolean `stored` (parent collation rows
+      // carry different shapes).
+      const shardRow = (history.jobs ?? []).find((row) => {
+        try {
+          const parsed = JSON.parse(row.resultJson ?? "{}") as {
+            result?: { stored?: unknown };
+          };
+          return typeof parsed.result?.stored === "boolean";
+        } catch {
+          return false;
+        }
+      });
+      if (shardRow) {
+        if (shardRow.status !== "completed") {
+          setError(
+            `Staged run failed at the analysis stage: ${shardRow.detail ?? "screen failed"}. Your previous result is kept.`,
+          );
+          setTracking(null);
+          return;
+        }
+        let inner: { stored?: boolean; reportId?: string; storeError?: string } = {};
+        try {
+          const parsed = JSON.parse(shardRow.resultJson ?? "{}") as {
+            result?: typeof inner;
+          };
+          inner = parsed.result ?? {};
+        } catch {
+          inner = {};
+        }
+        if (inner.stored !== true) {
+          setError(
+            `Staged run could not be stored: ${inner.storeError ?? "store failed"}. Your previous result is kept.`,
+          );
+          setTracking(null);
+          return;
+        }
+        const reportId = inner.reportId;
+        if (!reportId) {
+          setError(
+            "Run stored but the report could not be located — find it in Screening → Reports.",
+          );
+          setTracking(null);
+          return;
+        }
+        try {
+          const res = await globalThis.fetch(`/api/reports/${encodeURIComponent(reportId)}`, {
+            headers: {
+              Accept: "application/json",
+              ...(userLogin ? { "x-user-login": userLogin } : {}),
+            },
+          });
+          if (!res.ok) throw new Error(`Report fetch failed [HTTP ${res.status}].`);
+          const data = (await res.json()) as { body?: { result?: GoalScreenResult } };
+          if (!data.body?.result) throw new Error("Stored run has no result.");
+          if (trackGen.current !== gen) return;
+          setResult(data.body.result);
+          setBacktest(null);
+          setBacktestError("");
+          setTracking(null);
+          const deliverRow = (history.jobs ?? []).find((row) => row.stage === "deliver");
+          if (deliverRow && deliverRow.status === "failed") {
+            setError(`Run complete and stored, but delivery failed: ${deliverRow.detail ?? "deliver failed"}`);
+          }
+        } catch (err) {
+          if (trackGen.current !== gen) return;
+          setError(
+            err instanceof Error ? err.message : "Stored run could not be loaded.",
+          );
+          setTracking(null);
+        }
+        return;
+      }
+    }
+    if (trackGen.current !== gen) return;
+    setTracking((t) => (t ? { ...t, timedOut: true } : t));
+    setError(
+      "The staged run is still processing. Your previous result is kept — track it via the job link below, or find the run in Screening → Reports once it lands.",
+    );
+  };
 
   const runScreen = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -124,9 +290,11 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
       .filter(Boolean);
     setLoading(true);
     setError("");
-    setResult(null);
-    setBacktest(null);
-    setBacktestError("");
+    // Issue #1997: the previous result stays visible until the
+    // new one lands (never cleared on submit); the backtest
+    // clears only when the new result arrives.
+    setTracking(null);
+    trackGen.current += 1;
     try {
       const res = await fetch("/api/screening/goal-screen", {
         method: "POST",
@@ -140,17 +308,41 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
           ...(direction ? { direction } : {}),
           ...(symbols.length > 0 ? { symbols } : {}),
           assetClasses,
+          // Issue #1997: request the staged path. The route
+          // enforces the goal_workflow flag (flag OFF → direct
+          // result, flag ON → 202 workflow acceptance tracked
+          // below), so sending async is safe in both states.
+          async: true,
         }),
       });
       const data = (await res.json()) as {
         error?: string;
         result?: GoalScreenResult;
+        workflowId?: string;
+        jobId?: string;
+        statusUrl?: string;
       };
+      // Issue #1997: a staged run answers 202 with a workflow
+      // acceptance — track it (live stage progress) instead of
+      // treating the missing result as an error.
+      if (typeof data.workflowId === "string" && typeof data.statusUrl === "string") {
+        setLoading(false);
+        setTracking({
+          jobId: data.jobId ?? "",
+          statusUrl: data.statusUrl,
+          stages: [],
+          timedOut: false,
+        });
+        void trackStagedRun(data.jobId ?? "", data.statusUrl);
+        return;
+      }
       // A failed run (every asset class down) answers 502 WITH the
       // labeled result — render it; only a body without a result is
       // a plain error.
       if (data.result) {
         setResult(data.result);
+        setBacktest(null);
+        setBacktestError("");
         if (!res.ok) setError(data.error || "The goal screen failed on every requested asset class.");
       } else {
         throw new Error(data.error || `Goal screen request failed [HTTP ${res.status}].`);
@@ -240,6 +432,34 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
       </form>
 
       {error && <div className="options-error" role="alert">{error}</div>}
+
+      {tracking && (
+        <div style={{ marginTop: "1rem", fontSize: "0.9rem" }} role="status">
+          <p style={{ margin: "0 0 0.5rem", fontWeight: 600 }}>
+            Staged run in progress{tracking.timedOut ? " — still processing" : ""} — live stage progress
+          </p>
+          {tracking.stages.length > 0 ? (
+            <ul style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)" }}>
+              {tracking.stages.map((row, i) => (
+                <li key={`${row.stage}-${i}`}>
+                  {row.stage}: {row.status}
+                  {row.detail ? ` — ${row.detail}` : ""}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)" }}>
+              Waiting for the first stage row…
+            </p>
+          )}
+          <p style={{ margin: 0, color: "var(--color-text-muted)" }}>
+            <a href={tracking.statusUrl}>Track this run (job history)</a>
+            {tracking.timedOut
+              ? " — or find the run in Screening → Reports once it lands. Your previous result is kept."
+              : " — your previous result stays visible until the new one lands."}
+          </p>
+        </div>
+      )}
 
       {result && (
         <div style={{ marginTop: "1rem" }}>

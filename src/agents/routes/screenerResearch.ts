@@ -1325,7 +1325,18 @@ export async function handleScreenerResearchRoutes(
       // unchanged — the direct path stays byte-identical
       // when async is not requested, and is the fallback
       // when it is.
-      if (body.async === true) {
+      // Issue #1997: the opt-in path above is flag-gated.
+      // Flag OFF → the async request falls through to direct
+      // unchanged (the #1996 fallback behavior is preserved
+      // only behind the flag). Flag ON → the workflow is
+      // REQUIRED: a null start answers a coded 500, never a
+      // silent fallback to direct.
+      const goalWorkflowOn =
+        body.async === true &&
+        (await (
+          await import("../../features/createFeatureFlagPort")
+        ).createFeatureFlagPort(ctx.env).isEnabled("goal_workflow"));
+      if (goalWorkflowOn) {
         const { buildGoalScreenCommand, tryStartGoalScreenWorkflow } =
           await import("../../services/goalScreenWorkflowSubmission");
         const { workflowAcceptedResponse, workflowTenantId } =
@@ -1355,6 +1366,14 @@ export async function handleScreenerResearchRoutes(
           }),
         );
         if (handle) return workflowAcceptedResponse(handle);
+        return Response.json(
+          {
+            error: "goal_workflow_start_failed",
+            detail: "Goal workflow could not be started in this environment.",
+            jobId: idempotencyKey,
+          },
+          { status: 500 },
+        );
       }
       const out = await runtime.executeGoalScreenRun({
         agent: ctx.getScreenerAgent(userLogin),
