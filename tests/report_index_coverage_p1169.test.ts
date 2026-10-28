@@ -56,6 +56,9 @@ function screenerInput(generationId: string) {
     generationId,
     title: `Market screen — ALL (${generationId})`,
     source: "screener",
+    // Tenant rule (main's #183/#584 programme): the store refuses a row
+    // without an owner, so fixtures carry one.
+    userLogin: "tester",
     summary: "Scanned 10 symbols, 2 matched, 2 opportunities.",
     body: {
       timestamp: generationId,
@@ -82,6 +85,7 @@ describe("#1169 S4-1 report index coverage", () => {
         matchedCount: 2,
         opportunities: [{ symbol: "AAPL", structure: "call spread" }],
         allStocks: [],
+        userLogin: "tester",
       }
     );
     await flush();
@@ -100,7 +104,7 @@ describe("#1169 S4-1 report index coverage", () => {
     const stored = await storeResearchReportCanonicalAsync(
       { ensureTables: () => sql, env } as any,
       JSON.stringify({ symbol: "AAPL", sections: [{ heading: "Thesis", text: "Strong demand." }] }),
-      { title: "Market research — AAPL", summary: "Equity research report for AAPL." }
+      { title: "Market research — AAPL", summary: "Equity research report for AAPL.", userLogin: "tester" }
     );
     expect(stored).not.toBeNull();
     await flush();
@@ -120,6 +124,7 @@ describe("#1169 S4-1 report index coverage", () => {
         generationId: "goal-screen:task-1",
         title: "Goal screen — growth (bullish)",
         source: "goal_screen",
+        userLogin: "tester",
         summary: "Goal screen (growth/bullish) done: 3 hit(s) from 10 stocks + 2 option underlyings.",
         body: {
           taskId: "task-1",
@@ -142,6 +147,7 @@ describe("#1169 S4-1 report index coverage", () => {
         generationId: "options_scanner:2026-10-28T00:00:00Z",
         title: "Options scan — AAPL,NVDA (BOTH)",
         source: "options_scanner",
+        userLogin: "tester",
         summary: "Options scan completed for AAPL,NVDA (thesis: BOTH).",
         body: { symbols: ["AAPL", "NVDA"], thesis: "BOTH", matchedCount: 4 },
       } as any,
@@ -166,6 +172,7 @@ describe("#1169 S4-1 report index coverage", () => {
         generationId: "retention:2026-10-28",
         title: "Storage pruning — 2026-10-28",
         source: "retention",
+        userLogin: "tester",
         summary: "Pruned 5 stale rows.",
         body: { pruned: 5 },
       } as any,
@@ -273,6 +280,7 @@ describe("#1169 S4-1 report index coverage", () => {
           source: s.source,
           summary: `Summary for ${s.title}.`,
           body: { seed: s.generationId },
+          userLogin: "tester",
         } as any
       );
       expect(stored).not.toBeNull();
