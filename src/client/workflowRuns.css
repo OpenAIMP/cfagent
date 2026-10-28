@@ -75,10 +75,7 @@
 }
 
 .workflow-runs-table-container {
-  /* Keep the run list bounded so the selected run's detail stays near
-     the table instead of far below a long list. */
-  max-height: 52vh;
-  overflow: auto;
+  overflow-x: auto;
 }
 
 .workflow-runs-when,
