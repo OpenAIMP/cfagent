@@ -588,7 +588,7 @@ report id (throwing when the store returns null, making #1996's "store failure t
 flow surfaces it on the shard row result, and the panel fetches the stored run by that id. Panel: the UX rules
 above hold, but the progress source is the job-history route (`/api/jobs/history?chainId=`), polled directly
 with a small stage list — AsyncJobsPanel reads `mas_async_jobs` and RunDetailView renders reports, neither
-reads D1 stage rows, so reuse there would have been the wrong source. Leg visibility in Phase 2 is the stored
+reads D1 stage rows, so reuse there would have been the wrong source. Since #2129 the panel persists its tracking handle in sessionStorage and resumes it on mount with the original submit deadline, and with no handle it loads the newest stored goal run as the previous result — a reload never shows a bare form for a run that already exists; a projection that lands nowhere now warns with chain, stage, and cause instead of silently no-op'ing. Leg visibility in Phase 2 is the stored
 result's PARTIAL rendering (failed classes + reasons, per #1963), read from the fetched report body — per-leg
 D1 stage rows are deferred to a follow-up, not dropped: the shard row carries one whole-run outcome, and
 splitting it into leg rows needs a projection step the market flow does not have. Per-leg EXECUTION
