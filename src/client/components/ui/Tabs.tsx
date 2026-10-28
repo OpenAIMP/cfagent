@@ -89,16 +89,24 @@ export interface TabPanelProps {
   idBase: string;
   tabId: string;
   active: boolean;
+  /**
+   * Retain mode (#1804 S2, issue #2027): an inactive retained panel stays
+   * mounted-hidden (the #1379 pattern) so in-flight and finished work
+   * survives tab switches. Default off — inactive panels render nothing,
+   * preserving the mount/unmount behavior surfaces already use.
+   */
+  retain?: boolean;
   className?: string;
   children: React.ReactNode;
 }
 
 /**
  * TabPanel — the panel half of the Tabs pattern. Renders nothing while
- * inactive (preserving the mount/unmount behavior surfaces already use).
+ * inactive (preserving the mount/unmount behavior surfaces already use),
+ * unless `retain` keeps it mounted-hidden.
  */
-export function TabPanel({ idBase, tabId, active, className = "", children }: TabPanelProps) {
-  if (!active) return null;
+export function TabPanel({ idBase, tabId, active, retain = false, className = "", children }: TabPanelProps) {
+  if (!active && !retain) return null;
   return (
     <div
       role="tabpanel"
@@ -106,6 +114,8 @@ export function TabPanel({ idBase, tabId, active, className = "", children }: Ta
       aria-labelledby={`${idBase}-tab-${tabId}`}
       tabIndex={0}
       className={className}
+      hidden={!active}
+      style={!active ? { display: "none" } : undefined}
     >
       {children}
     </div>
