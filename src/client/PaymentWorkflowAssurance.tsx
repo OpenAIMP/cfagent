@@ -38,6 +38,15 @@
  * no raw color literals (note: an issue number written as "#2024"
  * in rendered text would itself scan as a hex literal, so rendered
  * text never uses the "#NNNN" form).
+ *
+ * LIVE mode (issue 2059) sits next to the simulation below. It
+ * calls the server routes in src/agents/routes/paymentAssuranceLive.ts
+ * and runs the REAL PaymentWorkflow instance on Cloudflare with
+ * test inputs (live-test run id, TEST goal screener command, test
+ * account). Coverage mode needs no cfpay key; checkout mode
+ * requires MONETIZATION_ENABLED and a cfpay key in the deployed
+ * env, plus a test wallet payment on testnet. Live endpoints are
+ * additionally restricted to PAYMENT_ASSURANCE_LIVE_LOGINS.
  */
 import React, { useState } from "react";
 import {
@@ -251,11 +260,110 @@ function resultLabel(r: ScenarioResult): string {
   return `${r.outcome.status}${paid}${credit}`;
 }
 
-export function PaymentWorkflowAssurance() {
+export function PaymentWorkflowAssurance({ userLogin }: { userLogin?: string }) {
   const [cfg, setCfg] = useState<FakeConfig>({ ...DEFAULT_FAKE_CONFIG });
   const [running, setRunning] = useState(false);
   const [last, setLast] = useState<ScenarioResult | null>(null);
   const [suite, setSuite] = useState<Array<{ preset: Preset; result: ScenarioResult; pass: boolean }> | null>(null);
+
+  // Live mode (issue 2059): real workflow instance on Cloudflare.
+  const [liveMode, setLiveMode] = useState<"coverage" | "checkout">("coverage");
+  const [liveScheduleKind, setLiveScheduleKind] = useState<ScheduleKind>("one_off");
+  const [liveAuthorized, setLiveAuthorized] = useState(false);
+  const [liveBusy, setLiveBusy] = useState(false);
+  const [liveStart, setLiveStart] = useState<Record<string, unknown> | null>(null);
+  const [liveStatus, setLiveStatus] = useState<unknown>(null);
+  const [liveMessage, setLiveMessage] = useState<string | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
+
+  const liveHeaders = (): Record<string, string> => ({
+    "content-type": "application/json",
+    ...(userLogin ? { "x-user-login": userLogin } : {}),
+  });
+
+  const liveCall = async (path: string, init?: RequestInit): Promise<unknown> => {
+    const res = await globalThis.fetch(path, init);
+    const data: unknown = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = data && typeof data === "object" && typeof (data as { error?: unknown }).error === "string"
+        ? (data as { error: string }).error
+        : `Request failed (${res.status})`;
+      throw new Error(message);
+    }
+    return data;
+  };
+
+  const startLive = async () => {
+    setLiveBusy(true);
+    setLiveError(null);
+    try {
+      const data = await liveCall("/api/assurance/payment-workflow/start", {
+        method: "POST",
+        headers: liveHeaders(),
+        body: JSON.stringify({ mode: liveMode, scheduleKind: liveScheduleKind, authorizedAtSubmission: liveAuthorized }),
+      });
+      setLiveStart(data as Record<string, unknown>);
+      setLiveStatus(null);
+      setLiveMessage("Live workflow instance created on Cloudflare. Refresh status to follow it.");
+    } catch (e) {
+      setLiveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLiveBusy(false);
+    }
+  };
+
+  const refreshLive = async () => {
+    if (!liveStart || typeof liveStart.workflowId !== "string") return;
+    setLiveBusy(true);
+    setLiveError(null);
+    try {
+      setLiveStatus(await liveCall(`/api/assurance/payment-workflow/status?workflowId=${encodeURIComponent(liveStart.workflowId)}`, { headers: liveHeaders() }));
+    } catch (e) {
+      setLiveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLiveBusy(false);
+    }
+  };
+
+  const sendLiveEvent = async (type: "approval" | "payment_verified", extra: Record<string, unknown>) => {
+    if (!liveStart || typeof liveStart.workflowId !== "string") return;
+    setLiveBusy(true);
+    setLiveError(null);
+    try {
+      const data = await liveCall("/api/assurance/payment-workflow/event", {
+        method: "POST",
+        headers: liveHeaders(),
+        body: JSON.stringify({ workflowId: liveStart.workflowId, type, ...extra }),
+      });
+      setLiveMessage(`Event delivered: ${type} — ${(data as { delivered?: boolean }).delivered ? "accepted" : "see status"}.`);
+      await refreshLive();
+    } catch (e) {
+      setLiveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLiveBusy(false);
+    }
+  };
+
+  const checkLivePayment = async () => {
+    if (!liveStart || typeof liveStart.workflowId !== "string") return;
+    setLiveBusy(true);
+    setLiveError(null);
+    try {
+      const data = await liveCall("/api/assurance/payment-workflow/check-payment", {
+        method: "POST",
+        headers: liveHeaders(),
+        body: JSON.stringify({ workflowId: liveStart.workflowId }),
+      });
+      setLiveMessage((data as { delivered?: boolean }).delivered
+        ? "Checkout is fulfilled — payment_verified event delivered to the live workflow."
+        : "Checkout is not fulfilled — no event delivered. Pay the test checkout on testnet first, then check again.");
+      await refreshLive();
+    } catch (e) {
+      setLiveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLiveBusy(false);
+    }
+  };
 
   const set = <K extends keyof FakeConfig>(key: K, value: FakeConfig[K]) =>
     setCfg((c) => ({ ...c, [key]: value }));
@@ -290,15 +398,16 @@ export function PaymentWorkflowAssurance() {
   return (
     <PageShell
       title="Payment Workflow Assurance"
-      scopeNote="Permanent assurance capability for PaymentWorkflow: the real flow and gate, run behind fake seams. TEST ONLY — fake cfpay, fake screener, no charge, no mainnet, no real screener run."
+      scopeNote="Permanent assurance capability for PaymentWorkflow. Live mode runs the real workflow on Cloudflare with test inputs; the simulation below runs the real flow and gate behind fake seams. TEST ONLY — no real-user runs, no mainnet."
     >
       <PageSection title="What this page is (and is not)">
         <Notice tone="warning" title="Test only — not a payment surface">
-          Nothing here charges anyone or runs a real screener. The cfpay
-          checkout is a stub, the screener starter returns a fake workflow
-          id (or throws, on purpose), and the gate is testnet-only. The
-          toggle below simulates the monetization gate flag for the run
-          being tested; it is not the Flagship flag that gates this page.
+          Live mode starts real workflow instances, but only with test
+          inputs (live-test run ids, TEST screener command, test
+          account) — never a real-user run. The simulation below it
+          charges nobody and runs no real screener: its cfpay checkout
+          is a stub, its screener starter returns a fake workflow id
+          (or throws, on purpose), and the gate is testnet-only.
         </Notice>
         <p style={{ margin: "var(--space-3) 0 0", color: "var(--color-text-muted)" }}>
           Price for the selected family (proposed, not approved):{" "}
@@ -308,6 +417,66 @@ export function PaymentWorkflowAssurance() {
           never a cash refund (cfpay cannot refund; refund capability is
           deferred, see issue 2024).
         </p>
+      </PageSection>
+
+      <PageSection title="Live mode — real workflow on Cloudflare (issue 2059)">
+        <p style={{ margin: "0 0 var(--space-3)", color: "var(--color-text-muted)" }}>
+          Starts a real PaymentWorkflow instance through the live
+          deployed binding, with test inputs only. Coverage mode needs
+          no cfpay key: the test account covers the run and the
+          workflow starts the real screener. Checkout mode needs
+          MONETIZATION_ENABLED and a cfpay key in the deployed env,
+          plus a test wallet payment on testnet — until those are in
+          place it refuses with the missing piece named, instead of
+          silently running free. Live endpoints also require your login
+          to be listed in PAYMENT_ASSURANCE_LIVE_LOGINS.
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-3)" }}>
+          <Select label="Live mode" value={liveMode} onChange={(e) => setLiveMode(e.target.value as "coverage" | "checkout")}>
+            <option value="coverage">coverage — test account covers the run</option>
+            <option value="checkout">checkout — real cfpay checkout (testnet)</option>
+          </Select>
+          <Select label="Schedule kind" value={liveScheduleKind} onChange={(e) => setLiveScheduleKind(e.target.value as ScheduleKind)}>
+            <option value="one_off">one_off</option>
+            <option value="recurring">recurring</option>
+          </Select>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
+          <Checkbox checked={liveAuthorized} onChange={(e) => setLiveAuthorized(e.target.checked)} />
+          Authorized at submission (one-off only — skips the second approval wait)
+        </label>
+        <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-4)", flexWrap: "wrap" }}>
+          <Button variant="primary" onClick={startLive} disabled={liveBusy}>{liveBusy ? "Working…" : "Start live run"}</Button>
+          <Button variant="secondary" onClick={refreshLive} disabled={liveBusy || !liveStart}>Refresh status</Button>
+          <Button variant="secondary" onClick={() => sendLiveEvent("approval", { approved: true })} disabled={liveBusy || !liveStart}>Approve</Button>
+          <Button variant="secondary" onClick={() => sendLiveEvent("approval", { approved: false })} disabled={liveBusy || !liveStart}>Reject</Button>
+          <Button variant="secondary" onClick={checkLivePayment} disabled={liveBusy || !liveStart}>Check payment and deliver verified</Button>
+        </div>
+        {liveError && (
+          <Notice tone="danger" title="Live run error">
+            {liveError}
+          </Notice>
+        )}
+        {liveMessage && (
+          <p style={{ margin: "var(--space-3) 0 0", color: "var(--color-text-muted)" }}>{liveMessage}</p>
+        )}
+        {liveStart && (
+          <Card>
+            <p style={{ margin: 0, fontFamily: "var(--font-code)", fontSize: "var(--font-size-body-sm)" }}>
+              workflow: {String(liveStart.workflowId)}
+            </p>
+            <p style={{ margin: "var(--space-2) 0 0", fontFamily: "var(--font-code)", fontSize: "var(--font-size-body-sm)" }}>
+              run: {String(liveStart.runRequestId)} · screener job: {String(liveStart.screenerJobId)} · mode: {String(liveStart.mode)}
+            </p>
+          </Card>
+        )}
+        {liveStatus !== null && (
+          <Card>
+            <pre style={{ margin: 0, fontFamily: "var(--font-code)", fontSize: "var(--font-size-body-sm)", whiteSpace: "pre-wrap" }}>
+              {JSON.stringify(liveStatus, null, 2)}
+            </pre>
+          </Card>
+        )}
       </PageSection>
 
       <PageSection title="Tunable fakes">

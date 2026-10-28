@@ -156,9 +156,15 @@ const ORCH = "agents/orchestrator.ts";
  *  deliverWorkflowGoalScreenOutcome) + their imports
  *  (execution in orchestrator/goalScreenDispatch.ts) — measured
  *  2,547 lines / 116,920 B after the addition, so budget lines
- *  rise to 2560 and bytes rise to 117_500. */
-const BUDGET_LINES = 2560;
-const BUDGET_BYTES = 117_500;
+ *  rise to 2560 and bytes rise to 117_500.
+ *  Live PaymentWorkflow assurance (#2059) mounts the new route
+ *  module (one import + one call site between the payments and
+ *  agentic-payments handlers; the route logic itself lives in
+ *  routes/paymentAssuranceLive.ts, the class gains no logic) —
+ *  measured 2,571 lines / 117,949 B after the addition, so
+ *  budget lines rise to 2580 and bytes rise to 118_500. */
+const BUDGET_LINES = 2580;
+const BUDGET_BYTES = 118_500;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;
