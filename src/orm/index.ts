@@ -24,6 +24,7 @@ import {
   ensureScheduledReportsTable,
   type ScheduledReportInput,
 } from "../services/scheduledReports";
+import type { IndexEnv } from "../services/reportSemanticIndex";
 import { ensureSharedTable } from "./schema";
 
 export interface SqlStorage {
@@ -999,10 +1000,14 @@ export class DatabaseORM {
    * Issue #308: single generate→store seam for reports, reached through
    * the ORM. Idempotent on input.generationId — one canonical row per
    * generation, no matter how many channels deliver it. Never throws.
+   * Issue #1169 S4-1: the optional env threads the AI/Vectorize
+   * bindings to the index hook; callers without bindings omit it and
+   * their rows are covered by the backfill route instead.
    */
   storeCanonicalReport(
-    input: ScheduledReportInput
+    input: ScheduledReportInput,
+    env?: IndexEnv
   ): { reportId: string; created: boolean } | null {
-    return storeReportAtGeneration(this.sql, input);
+    return storeReportAtGeneration(this.sql, input, env);
   }
 }
