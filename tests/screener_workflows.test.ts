@@ -199,8 +199,21 @@ describe("workflowIdForJob", () => {
     expect(workflowIdForJob("job-1")).toBe(workflowIdForJob("job-1"));
   });
 
-  it("refuses ids over 100 chars rather than truncating into a collision", () => {
-    expect(() => workflowIdForJob("x".repeat(200))).toThrow(WorkflowError);
+  it("keeps the readable short form at exactly 100 chars", () => {
+    const jobId = "j".repeat(93); // screen- (7) + 93 = 100
+    expect(workflowIdForJob(jobId)).toBe(`screen-${jobId}`);
+  });
+
+  it("hashes long ids instead of refusing or truncating (#2065)", () => {
+    const longA = `goal-screen:manual:${"u".repeat(64)}:income:2026-10-27T23:12:16.000Z`;
+    const longB = `${longA}X`;
+    const idA = workflowIdForJob(longA);
+    const idB = workflowIdForJob(longB);
+    expect(idA).toMatch(/^screen-h-[0-9a-f]{32}$/);
+    expect(idA.length).toBeLessThanOrEqual(100);
+    expect(workflowIdForJob(longA)).toBe(idA); // deterministic
+    expect(idB).not.toBe(idA); // distinct jobs stay distinct
+    expect(idA).not.toBe(workflowIdForJob("job-1"));
   });
 });
 

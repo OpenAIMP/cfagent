@@ -1329,7 +1329,7 @@ export async function handleScreenerResearchRoutes(
       // Flag OFF → the async request falls through to direct
       // unchanged (the #1996 fallback behavior is preserved
       // only behind the flag). Flag ON → the workflow is
-      // REQUIRED: a null start answers a coded 500, never a
+      // REQUIRED: a failed start answers a coded 500, never a
       // silent fallback to direct.
       const goalWorkflowOn =
         body.async === true &&
@@ -1337,51 +1337,66 @@ export async function handleScreenerResearchRoutes(
           await import("../../features/createFeatureFlagPort")
         ).createFeatureFlagPort(ctx.env).isEnabled("goal_workflow"));
       if (goalWorkflowOn) {
-        const { buildGoalScreenCommand, tryStartGoalScreenWorkflow } =
+        const { buildGoalScreenCommand, startGoalScreenWorkflow } =
           await import("../../services/goalScreenWorkflowSubmission");
         const { workflowAcceptedResponse, workflowTenantId } =
           await import("../../workflows/screenerWorkflowRoutes");
+        const { createObservabilitySink } =
+          await import("../../observability/createObservabilityPorts");
+        const { WorkflowError } =
+          await import("../../workflows/workflowPorts");
         const idempotencyKey = `goal-screen:manual:${userLogin}:${scenario.goalKind}:${new Date().toISOString()}`;
-        const handle = await tryStartGoalScreenWorkflow(
-          ctx.env,
-          buildGoalScreenCommand({
-            jobId: idempotencyKey,
-            source: "manual",
-            trigger: "manual",
-            userLogin,
-            tenantId: workflowTenantId(ctx.env),
-            scenario,
-            scenarioSource,
-            ...(body.assetClasses
-              ? { assetClasses: body.assetClasses as ("stocks" | "options")[] }
-              : {}),
-            ...(body.symbols ? { symbols: body.symbols } : {}),
-            ...(body.deliver
-              ? { deliverChannels: body.deliver as ("slack" | "email" | "webhook" | "voice")[] }
-              : {}),
-            ...(body.emailTo ? { emailTo: body.emailTo } : {}),
-            ...(body.environment === "TEST" || body.environment === "PROD"
-              ? { environment: body.environment }
-              : {}),
-          }),
-        );
-        if (handle) return workflowAcceptedResponse(handle);
-        // Issue #2065: name the failing dependency (or the rejected start)
-        // in the coded response, so the failure is diagnosable without
-        // worker-log access. The detail stays generic on purpose.
-        const { workflowPortsUnavailableReason } = await import(
-          "../../workflows/createWorkflowPorts"
-        );
-        const reason = workflowPortsUnavailableReason(ctx.env) ?? "start_failed";
-        return Response.json(
-          {
-            error: "goal_workflow_start_failed",
-            reason,
-            detail: "Goal workflow could not be started in this environment.",
-            jobId: idempotencyKey,
-          },
-          { status: 500 },
-        );
+        try {
+          const handle = await startGoalScreenWorkflow(
+            ctx.env,
+            buildGoalScreenCommand({
+              jobId: idempotencyKey,
+              source: "manual",
+              trigger: "manual",
+              userLogin,
+              tenantId: workflowTenantId(ctx.env),
+              scenario,
+              scenarioSource,
+              ...(body.assetClasses
+                ? { assetClasses: body.assetClasses as ("stocks" | "options")[] }
+                : {}),
+              ...(body.symbols ? { symbols: body.symbols } : {}),
+              ...(body.deliver
+                ? { deliverChannels: body.deliver as ("slack" | "email" | "webhook" | "voice")[] }
+                : {}),
+              ...(body.emailTo ? { emailTo: body.emailTo } : {}),
+              ...(body.environment === "TEST" || body.environment === "PROD"
+                ? { environment: body.environment }
+                : {}),
+            }),
+            createObservabilitySink(ctx.env),
+          );
+          return workflowAcceptedResponse(handle);
+        } catch (err) {
+          // Issue #2065 (remainder): the typed failure replaces the
+          // null-swallow. The coded response keeps ddd019a9's reason
+          // + generic detail and adds the failure code, so the failure
+          // is diagnosable without worker-log access. The panel reads
+          // only data.error; the raw message stays in the server log.
+          const { workflowPortsUnavailableReason } = await import(
+            "../../workflows/createWorkflowPorts"
+          );
+          const reason = workflowPortsUnavailableReason(ctx.env) ?? "start_failed";
+          const code = err instanceof WorkflowError ? err.code : "start_failed";
+          console.warn(
+            `[goal-screen-workflow] Async start failed (${code}) for job ${idempotencyKey}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return Response.json(
+            {
+              error: "goal_workflow_start_failed",
+              code,
+              reason,
+              detail: "Goal workflow could not be started in this environment.",
+              jobId: idempotencyKey,
+            },
+            { status: 500 },
+          );
+        }
       }
       const out = await runtime.executeGoalScreenRun({
         agent: ctx.getScreenerAgent(userLogin),

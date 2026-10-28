@@ -7,7 +7,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   buildGoalScreenCommand,
-  tryStartGoalScreenWorkflow,
+  startGoalScreenWorkflow,
 } from "../src/services/goalScreenWorkflowSubmission";
 import {
   deliverWorkflowGoalScreenOutcome,
@@ -137,10 +137,10 @@ describe("buildGoalScreenCommand (#1996)", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Best-effort start                                                   */
+/* Typed start (#2065)                                                   */
 /* ------------------------------------------------------------------ */
 
-describe("tryStartGoalScreenWorkflow (#1996)", () => {
+describe("startGoalScreenWorkflow (#2065: throws with codes, never null)", () => {
   const cmd = buildGoalScreenCommand({
     jobId: "goal-screen:manual:alice:income:2026-10-27T12:00:00.000Z",
     source: "manual",
@@ -149,19 +149,24 @@ describe("tryStartGoalScreenWorkflow (#1996)", () => {
     scenario: scenario(),
     scenarioSource: "built",
   });
+  const sink = { write: async () => {} } as never;
 
-  it("returns null when the workflow binding is absent (legacy fallback)", async () => {
-    await expect(tryStartGoalScreenWorkflow({}, cmd)).resolves.toBeNull();
+  it("throws workflow_binding_absent when the workflow binding is absent", async () => {
+    await expect(startGoalScreenWorkflow({}, cmd, sink)).rejects.toMatchObject({
+      code: "workflow_binding_absent",
+    });
   });
 
-  it("returns null when the projection store is unbound (never runs blind)", async () => {
+  it("throws projection_store_unbound when the projection store is unbound (never runs blind)", async () => {
     const env = {
       SCREENER_WORKFLOW: {
         create: async ({ id }: { id: string }) => ({ id }),
         get: async (id: string) => ({ id, status: async () => ({ status: "queued" }) }),
       },
     };
-    await expect(tryStartGoalScreenWorkflow(env, cmd)).resolves.toBeNull();
+    await expect(startGoalScreenWorkflow(env, cmd, sink)).rejects.toMatchObject({
+      code: "projection_store_unbound",
+    });
   });
 
   it("returns the handle when the binding + store are present", async () => {
@@ -176,17 +181,16 @@ describe("tryStartGoalScreenWorkflow (#1996)", () => {
       },
       AGENT_DB: {},
     };
-    const handle = await tryStartGoalScreenWorkflow(env, cmd);
-    expect(handle).not.toBeNull();
-    expect(handle!.jobId).toBe(cmd.jobId);
-    expect(handle!.status).toBe("queued");
-    expect(handle!.existing).toBe(false);
-    expect(handle!.statusUrl).toBe(`/api/jobs/history?chainId=${encodeURIComponent(cmd.jobId)}`);
+    const handle = await startGoalScreenWorkflow(env, cmd, sink);
+    expect(handle.jobId).toBe(cmd.jobId);
+    expect(handle.status).toBe("queued");
+    expect(handle.existing).toBe(false);
+    expect(handle.statusUrl).toBe(`/api/jobs/history?chainId=${encodeURIComponent(cmd.jobId)}`);
     expect(created).toHaveLength(1);
     expect((created[0].params as { jobId: string }).jobId).toBe(cmd.jobId);
   });
 
-  it("returns null (never throws) when start fails", async () => {
+  it("throws start_failed (never null) when start fails", async () => {
     const env = {
       SCREENER_WORKFLOW: {
         create: async () => {
@@ -198,7 +202,9 @@ describe("tryStartGoalScreenWorkflow (#1996)", () => {
       },
       AGENT_DB: {},
     };
-    await expect(tryStartGoalScreenWorkflow(env, cmd)).resolves.toBeNull();
+    await expect(startGoalScreenWorkflow(env, cmd, sink)).rejects.toMatchObject({
+      code: "start_failed",
+    });
   });
 });
 
