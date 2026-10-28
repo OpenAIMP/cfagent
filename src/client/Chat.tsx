@@ -2142,7 +2142,13 @@ export function Chat({ user }: { user: User }) {
           />
         ) : (
           <>
-            {TAB_CONTENT[tab] ?? null}
+            {TAB_CONTENT[tab] ??
+              (isTradingTab(tab) ? null : (
+                <Notice tone="warning" title="Missing tab content">
+                  No content is wired for tab &ldquo;{tab}&rdquo; yet. This is a
+                  wiring gap, not an empty tab.
+                </Notice>
+              ))}
 
         {/* E*TRADE Agentic Trading Hub */}
         {/* Kept mounted (hidden) so in-flight and finished requests survive tab switches */}
