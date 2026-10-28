@@ -26,6 +26,11 @@ import {
 /** The subset of OrchestratorAgent surface the reports/HITL handlers need. */
 export interface ReportsRouteContext {
   ensureTables(): SqlStorage;
+  /** Worker bindings for the semantic-search handler (#2120 slice 0):
+   *  AI + Vectorize arrive via the orchestrator mount ctx. Optional so
+   *  older callers without bindings keep working; the handler falls
+   *  back to lexical-only when they are absent. */
+  env?: { AI?: any; VECTOR_MEMORY?: any };
   /** ScreenerAgent accessor (owner: OrchestratorAgent.getScreenerAgent) —
    *  the #1057 Runs merge reads the agent's latest/history feed via it. */
   getScreenerAgent(userLogin?: string): ScreenerAgent;
@@ -702,7 +707,10 @@ export async function handleReportsRoutes(
   // view needs metadata, not a base64 PDF. Owner scoping matches the
   // list (#584 EP-003).
   const reportDetailMatch = path.match(/\/api\/reports\/([^/]+)$/);
-  if (reportDetailMatch && request.method === "GET") {
+  // #2120 slice 0: "semantic-search" is a route, not a report id. Without
+  // this exclusion the detail regex matches it first and 404s, so the
+  // semantic-search branch below never runs.
+  if (reportDetailMatch && reportDetailMatch[1] !== "semantic-search" && request.method === "GET") {
     try {
       const { getScheduledReportById, scheduledReportPdfUrl, resolveCanonicalReportBodyWithBackfill } = await import("../../services/scheduledReports");
       const headerLogin = request.headers.get("x-user-login");
@@ -801,8 +809,11 @@ export async function handleReportsRoutes(
   }
 
   // Issue #649: semantic search over reports (Vectorize).
-  // Note: the route context doesn't expose env, so semantic search degrades
-  // to lexical-only when the bindings are unavailable.
+  // Reachability (#2120 slice 0): the /api/reports/<id> detail branch
+  // above explicitly skips id "semantic-search", so this branch runs
+  // for the panel's semantic-search path. env arrives via
+  // ReportsRouteContext from the orchestrator mount; the {} fallback
+  // keeps lexical-only when the bindings are absent.
   if (path.endsWith("/reports/semantic-search") && request.method === "GET") {
     try {
       const { semanticSearchReports, mergeSearchHits } = await import("../../services/reportSemanticIndex");
@@ -811,7 +822,7 @@ export async function handleReportsRoutes(
       if (!query.trim()) {
         return Response.json({ hits: [], semantic: false });
       }
-      const env = (ctx as any).env || {};
+      const env = ctx.env || {};
       const semantic = await semanticSearchReports(env, query, 8);
       // Merge with lexical for the hybrid ranking.
       const lexical = searchScheduledReports(ctx.ensureTables(), query, 20).map((r: any) => String(r.id));
