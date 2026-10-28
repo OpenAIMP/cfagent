@@ -26,17 +26,30 @@
  *   - Thin adapter: run() validates the payload, builds deps from env,
  *     and delegates to runPaymentWorkflowFlow in paymentWorkflowFlow.ts
  *
- * DRAFT LIMITS — read before wiring:
- *   - No wrangler binding is added in this draft, no route calls this
- *     workflow, and no flag enables it. Adding it to wrangler.toml and
- *     calling it from a route is a separate, reviewed wiring step.
- *   - The account here is a snapshot carried in the payload for this
- *     draft only. A real account store (subscription/credits, #2015/#1623)
- *     must replace it before any production use; a snapshot must never
- *     be trusted after a 24h payment wait without re-reading the store.
- *   - The gate ledger in this draft is in-memory (cfpayMonetization.ts).
- *     Durable ledger persistence to mas_transactions is Phase 4 (#2019).
- *     Do not rely on this draft for production money records.
+ * OPERATIONAL STATUS (2026-10-27, #2014 wiring):
+ *   - Wrangler binding PAYMENT_WORKFLOW + Env type are added in this
+ *     PR (wrangler.jsonc, src/types.ts). No route calls this workflow
+ *     yet by default: the caller seam is paymentWorkflowSubmission.ts,
+ *     and the route that adopts it is a reviewed wiring step — a
+ *     route must NOT start a screener for free when monetization is
+ *     on and the payment workflow cannot start.
+ *   - Flag: MONETIZATION_ENABLED env var in this draft, default OFF
+ *     (unset = false = free, no checkout, as designed for Phase 2).
+ *     Production wiring must evaluate it through FeatureFlagPort
+ *     (src/features/, fail-closed on unknown flags) instead of a raw
+ *     env read, and staging-only enablement must be explicit.
+ *     Flag OFF in PROD would mean free runs at scale — a revenue
+ *     risk, not a charge risk — so PROD enablement needs COO/CTO
+ *     sign-off, not just an env change.
+ *   - Account: caller-supplied pay-per-use identity until the
+ *     subscription/credits store exists (#2015/#1623). Recurring
+ *     runs stay coverage_required until that store exists.
+ *   - Ledger: gate ledger is in-memory in this draft; durable cfpay
+ *     ledger rows in mas_transactions are Phase 4 (#2019) — see
+ *     recordEvent above for why recordLedgerPayment is NOT reused
+ *     (it builds x402 PaymentsAgent-origin rows only).
+ *   - Failure credit: still throws (Phase 4). A screener failure
+ *     after payment is loud, never a silent credit claim.
  *   - Params carry ids only — never credentials, never secrets, never
  *     a card, never a cfpay key. The cfpay key is read from env here,
  *     never from params, never logged.
@@ -59,12 +72,27 @@ import {
   type PaymentWorkflowStep,
 } from "./paymentWorkflowFlow";
 import { getCfpayConfig, cfpayA2AOperation } from "../services/cfpayA2A";
+import { createWorkflowPorts, type WorkflowEnv } from "./createWorkflowPorts";
+import type { WorkflowJobCommand } from "./workflowPorts";
 
 export type { PaymentWorkflowParams, PaymentWorkflowOutcome };
 
-/** Payload for the workflow: ids + a draft-only account snapshot. */
+/** Binding name for the payment workflow (wrangler.jsonc). */
+export const PAYMENT_WORKFLOW_BINDING = "PAYMENT_WORKFLOW" as const;
+
+/**
+ * Payload for the workflow: ids + caller-supplied account + the
+ * caller-built screener command. The account is the caller's verified
+ * identity for pay-per-use (tier PayPerUse, 0 credits, 0 included
+ * runs) until the subscription/credits store exists (#2015/#1623);
+ * a Subscribed account must come from that store, not from a caller
+ * snapshot, and recurring runs stay coverage_required until it does.
+ * The screener command is built by the caller (route / schedule
+ * service, e.g. buildGoalScreenCommand) — never invented here.
+ */
 export interface PaymentWorkflowEventParams extends PaymentWorkflowParams {
   account: CommercialAccount;
+  screenerCommand: WorkflowJobCommand;
 }
 
 export class PaymentWorkflow extends ThinkWorkflow<
@@ -121,22 +149,36 @@ export class PaymentWorkflow extends ThinkWorkflow<
       gate,
       account: p.account,
       startScreener: async (params: PaymentWorkflowParams) => {
-        // Draft, deliberately NOT a fake screener start: the
-        // OrchestratorAgent (caller) owns screener start through the
-        // existing screener workflow port (WorkflowJobCommand, idempotent
-        // start via cfWorkflowAdapter). Inventing a command shape here
-        // would be a wiring lie. The wiring step replaces this dep with
-        // the orchestrator's real start, and until then a paid run
-        // fails loudly here instead of claiming a screener started.
-        throw new Error(
-          `Screener start not yet wired for run ${params.runRequestId}: OrchestratorAgent start via the screener workflow port is the wiring step, not this draft.`,
-        );
+        // Operational: the caller-supplied screener command goes,
+        // unchanged, through the existing screener workflow port
+        // (CfWorkflowAdapter, idempotent start by jobId). If the port
+        // is unavailable (SCREENER_WORKFLOW or AGENT_DB unbound),
+        // fail LOUD — never fall back to a direct screen after
+        // payment, which would lose the workflow audit trail.
+        // The OrchestratorAgent remains the caller that built this
+        // command and owns the store/deliver seams downstream.
+        const ports = createWorkflowPorts(this.env as unknown as WorkflowEnv);
+        if (!ports) {
+          throw new Error(
+            `Screener workflow port unavailable for run ${params.runRequestId}: SCREENER_WORKFLOW or AGENT_DB is unbound.`,
+          );
+        }
+        const handle = await ports.start(p.screenerCommand);
+        return { workflowId: handle.workflowId };
       },
       recordEvent: async (e: { runRequestId: string; tenantId: string; type: string }) => {
-        // Draft: audit persistence is Phase 4 (#2019, mas_events). Until
-        // then, events are carried on the outcome only — never claimed
-        // as a durable audit record.
-        void e;
+        // Operational audit, honestly scoped: Workers Logs (the
+        // repo's observability pipeline, enabled in wrangler.jsonc),
+        // NOT mas_events and NOT mas_transactions. A durable cfpay
+        // ledger row (gateway stripe, action charge, session
+        // screener-payment:<runId>) is Phase 4 (#2019): the existing
+        // recordLedgerPayment route builds PaymentsAgent-origin
+        // x402 rows only, and reusing it for cfpay would mislabel
+        // gateway and session. Until Phase 4 lands, the cfpay
+        // dashboard ledger is the cross-check, and this log + the
+        // workflow outcome are the in-repo record — never claimed
+        // as mas_transactions.
+        console.log(`[payment-workflow] ${e.type} run=${e.runRequestId} tenant=${e.tenantId}`);
       },
       issueFailureCredit: async (runRequestId: string) => {
         // Draft: failure-credit issuance is Phase 4 (#2019). Until then
@@ -145,6 +187,10 @@ export class PaymentWorkflow extends ThinkWorkflow<
         throw new Error(`Failure credit not yet implemented for run ${runRequestId} (Phase 4, #2019).`);
       },
     };
+
+    if (!p.screenerCommand || typeof p.screenerCommand.jobId !== "string") {
+      throw new Error("Payment workflow payload is missing a valid screenerCommand (jobId required).");
+    }
 
     return runPaymentWorkflowFlow(
       {
@@ -156,6 +202,7 @@ export class PaymentWorkflow extends ThinkWorkflow<
         tenantId: p.tenantId,
         userId: p.userId,
         email: p.email,
+        screenerCommand: p.screenerCommand,
       },
       deps,
       step as unknown as PaymentWorkflowStep,
