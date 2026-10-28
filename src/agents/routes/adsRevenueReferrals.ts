@@ -26,6 +26,7 @@ import type { AgentName, CategoryRecord, ExternalAdRecord } from "../../types";
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import { runRestTool } from "./restToolBridge";
 import { resolveAdsTier, resolveServerAdsConfig } from "../../services/adsTier";
+import { createCommercialAdapter } from "../../data/createCommercialPorts";
 import {
   ADS_REVENUE_SWITCHES,
   adsRevenueConfigErrorEvent,
@@ -128,6 +129,65 @@ function runModeOf(body: unknown, url: URL): unknown {
  * Invoked from routeRequest at the position between the /schema/query block
  * and the /audit block.
  */
+/**
+ * Issue #2022 (reconciled #2118 + #2121): resolve the ads viewer
+ * from the account store layered over #2118's verified tier
+ * attribute.
+ *
+ * - tier: the store record's tier when one exists for the verified
+ *   login (the store is the record; ctx is a claim, so the store
+ *   wins on disagreement), otherwise ctx.viewerTier via
+ *   resolveAdsTier. Only the exact value "Subscribed" suppresses.
+ * - tenantAdsEnabled: the tenant's system-wide ads flag (tenant off
+ *   beats tier — no ads for anyone in that tenant). Absent = true.
+ *
+ * Fail direction is SERVE: no verified login, no env, or any store
+ * failure returns the ctx tier + enabled (the server lists are the
+ * enforcement boundary, and a store blip must not blank ads for
+ * every Free user — nor invent a tier nobody holds). A populated
+ * Subscribed ctx tier still suppresses on store failure, since
+ * that claim comes from trusted server code, not the caller.
+ * Ads reads never ensure the schema.
+ */
+async function resolveAdsViewer(
+  request: Request,
+  ctx: AdsRevenueReferralsRouteContext,
+): Promise<{ tier: "Free" | "Subscribed"; tenantAdsEnabled: boolean }> {
+  const ctxTier = resolveAdsTier(ctx.viewerTier);
+  const serve = { tier: ctxTier, tenantAdsEnabled: true };
+  const login = (request.headers.get("x-user-login") ?? "").trim() || null;
+  // The ctx env type is narrowed for #1721, but the orchestrator
+  // passes the full Worker env at runtime — the cast recovers it.
+  // D1 is shared across instances, so the handler reads it
+  // directly: no canonical-instance hop.
+  const env = ctx.env as unknown as { AGENT_DB?: unknown } | undefined;
+  if (!login || !env) {
+    return serve;
+  }
+  const adapter = createCommercialAdapter(env);
+  if (!adapter) {
+    return serve;
+  }
+  try {
+    const account = await adapter.getAccount(login);
+    const tier = account ? resolveAdsTier(account.tier) : ctxTier;
+    const tenantAdsEnabled = account?.tenantId
+      ? await adapter.getTenantAdsEnabled(account.tenantId)
+      : true;
+    return { tier, tenantAdsEnabled };
+  } catch {
+    return serve;
+  }
+}
+
+async function isAdsSuppressed(
+  request: Request,
+  ctx: AdsRevenueReferralsRouteContext,
+): Promise<boolean> {
+  const viewer = await resolveAdsViewer(request, ctx);
+  return !viewer.tenantAdsEnabled || viewer.tier === "Subscribed";
+}
+
 export async function handleAdsRevenueReferralsRoutes(
   request: Request,
   url: URL,
@@ -240,7 +300,7 @@ export async function handleAdsRevenueReferralsRoutes(
       // Issue #2022: a Subscribed caller is served nothing — the
       // list is the enforcement boundary, so no read and no count
       // happens for that caller. Free callers are unaffected.
-      if (resolveAdsTier(ctx.viewerTier) === "Subscribed") {
+      if (await isAdsSuppressed(request, ctx)) {
         return Response.json({ count: 0, ads: [] });
       }
       try {
@@ -302,7 +362,7 @@ export async function handleAdsRevenueReferralsRoutes(
   if (path.endsWith("/external-ads/impression") && request.method === "POST") {
     // Issue #2022: no impression is ever recorded for a Subscribed
     // caller — nothing was served to them, so nothing counts.
-    if (resolveAdsTier(ctx.viewerTier) === "Subscribed") {
+    if (await isAdsSuppressed(request, ctx)) {
       return Response.json({ success: false });
     }
     try {
@@ -336,7 +396,7 @@ export async function handleAdsRevenueReferralsRoutes(
 
   if (path.endsWith("/external-ads/click") && request.method === "POST") {
     // Issue #2022: no click is ever recorded for a Subscribed caller.
-    if (resolveAdsTier(ctx.viewerTier) === "Subscribed") {
+    if (await isAdsSuppressed(request, ctx)) {
       return Response.json({ success: false });
     }
     try {
@@ -579,7 +639,15 @@ export async function handleReferralsAdsRoutes(
   // Subscribed allows nothing. The client ANDs this with local
   // preference; the server lists remain the enforcement boundary.
   if (path.endsWith("/ads/banner-config") && request.method === "GET") {
-    return Response.json(resolveServerAdsConfig(ctx.viewerTier));
+    const viewer = await resolveAdsViewer(request, ctx);
+    const config = resolveServerAdsConfig(viewer.tier);
+    return Response.json({
+      ...config,
+      adsAllowed: config.adsAllowed && viewer.tenantAdsEnabled,
+      googleUnitsAllowed: config.googleUnitsAllowed && viewer.tenantAdsEnabled,
+      sponsorSpotlightAllowed: config.sponsorSpotlightAllowed && viewer.tenantAdsEnabled,
+      adNetworkStripAllowed: config.adNetworkStripAllowed && viewer.tenantAdsEnabled,
+    });
   }
 
   if (path.endsWith("/ads")) {
@@ -587,7 +655,7 @@ export async function handleReferralsAdsRoutes(
       // Issue #2022: a Subscribed caller is served nothing — before
       // seeding and before the fetch impression increment, so no
       // write and no count happens for that caller.
-      if (resolveAdsTier(ctx.viewerTier) === "Subscribed") {
+      if (await isAdsSuppressed(request, ctx)) {
         return Response.json({ count: 0, ads: [] });
       }
       try {
@@ -666,7 +734,7 @@ export async function handleReferralsAdsRoutes(
 
   if (path.endsWith("/ads/click") && request.method === "POST") {
     // Issue #2022: no click is ever recorded for a Subscribed caller.
-    if (resolveAdsTier(ctx.viewerTier) === "Subscribed") {
+    if (await isAdsSuppressed(request, ctx)) {
       return Response.json({ success: false });
     }
     try {

@@ -294,3 +294,48 @@ export const dataMigrations = sqliteTable("_migrations", {
   name: text("name").notNull(),
   appliedAtMs: integer("applied_at_ms").notNull(),
 });
+
+/**
+ * Minimal commercial account store (#2015/#2020) on D1. One row per
+ * user (id = userId), operator-managed in v1. This schema MAPS
+ * tables; it does not create them — DDL authority lives in
+ * migration 0007 (src/data/migrationRunner.ts), and a test pins
+ * that this mapping and that DDL agree on columns.
+ */
+export const agentCommercialAccounts = sqliteTable("agent_commercial_accounts", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  tier: text("tier").notNull(),
+  creditsUSD: real("credits_usd").notNull(),
+  includedRuns: integer("included_runs").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+/** Per-tenant system settings (#2022): the ads flag. Absent = ads enabled. */
+export const agentTenantSettings = sqliteTable("agent_tenant_settings", {
+  tenantId: text("tenant_id").primaryKey(),
+  adsEnabled: integer("ads_enabled").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+/**
+ * Redeemable failure-credit claims (#2019). One row per failed paid
+ * run, written by the payment adapter alongside the DO ledger
+ * credit row (the ledger row is the financial audit record; this
+ * row is the redeemable claim and carries family natively, so
+ * redemption never needs an audit-payload family join).
+ */
+export const agentCreditClaims = sqliteTable("agent_credit_claims", {
+  creditRunId: text("credit_run_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  family: text("family").notNull(),
+  amountUSD: real("amount_usd").notNull(),
+  createdAtMs: integer("created_at_ms").notNull(),
+});
+
+/** One-time redemption of a credit claim: the PK makes a second redemption impossible. */
+export const agentCreditRedemptions = sqliteTable("agent_credit_redemptions", {
+  creditRunId: text("credit_run_id").primaryKey(),
+  redeemedByRunId: text("redeemed_by_run_id").notNull(),
+  redeemedAtMs: integer("redeemed_at_ms").notNull(),
+});
