@@ -2749,6 +2749,7 @@ export class ScheduledTasksService {
             : {}),
         },
         createdAt: args.timestamp,
+        userLogin: this.userLogin,
       },
       // Issue #1169 S4-1: thread this.env so the seam indexes this
       // discovery row at write time.
@@ -3804,6 +3805,7 @@ export class ScheduledTasksService {
             summary: `📈 Daily IV collection [${report.date}]: ${report.recorded} recorded, ${report.alreadyRecorded} already recorded, ${report.failed} failed across ${report.outcomes.length} tracked names.`,
             body: { ...report, trackedCount: report.outcomes.length },
             createdAt: timestamp,
+            userLogin: this.userLogin,
           },
           // Issue #1169 S4-1: thread this.env so the seam indexes this
           // iv_collection row at write time.
