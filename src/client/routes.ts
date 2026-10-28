@@ -75,7 +75,7 @@ export const ROUTES = [
     category: "Platform",
     icon: "Ads",
     description: "Curated partner marketplace, developer sponsorships, and deal feed",
-    navEntry: { label: "Sponsored Marketplace", shortLabel: "Deals", navOrder: 17, defaultVisible: true },
+    navEntry: { label: "Sponsored Marketplace", shortLabel: "Deals", navOrder: 18, defaultVisible: true },
   },
   {
     id: "approvals",
@@ -94,7 +94,7 @@ export const ROUTES = [
     category: "Platform",
     icon: "Audit",
     description: "W3C Agent DID verification, memory vault, and immutable audit logs",
-    navEntry: { label: "AI Transparency", shortLabel: "Audit Log", navOrder: 14, defaultVisible: true },
+    navEntry: { label: "AI Transparency", shortLabel: "Audit Log", navOrder: 15, defaultVisible: true },
   },
   {
     id: "autopilot",
@@ -140,7 +140,7 @@ export const ROUTES = [
     navEntry: {
       label: "Docs and Reports",
       shortLabel: "Docs",
-      navOrder: 21,
+      navOrder: 22,
       defaultVisible: true,
     },
   },
@@ -154,7 +154,7 @@ export const ROUTES = [
     navEntry: {
       label: "Developer & MCP",
       shortLabel: "Endpoints",
-      navOrder: 12,
+      navOrder: 13,
       defaultVisible: true,
       badge: "MCP",
       badgeType: "mcp",
@@ -187,7 +187,7 @@ export const ROUTES = [
     navEntry: {
       label: "Records & Ledger Explorer",
       shortLabel: "Records",
-      navOrder: 13,
+      navOrder: 14,
       defaultVisible: true,
       badge: "Ledger",
     },
@@ -270,7 +270,7 @@ export const ROUTES = [
     navEntry: {
       label: "Payment Assurance",
       shortLabel: "Assurance",
-      navOrder: 20,
+      navOrder: 21,
       defaultVisible: true,
       badge: "Test",
     },
@@ -285,7 +285,7 @@ export const ROUTES = [
     navEntry: {
       label: "Billing & Accounts",
       shortLabel: "Billing",
-      navOrder: 15,
+      navOrder: 16,
       defaultVisible: true,
       badge: "x402",
     },
@@ -314,7 +314,7 @@ export const ROUTES = [
     category: "Platform",
     icon: "Referrals",
     description: "Community referral engine, reward tracking, and social share links",
-    navEntry: { label: "Referrals & Earn", shortLabel: "Referrals", navOrder: 16, defaultVisible: true },
+    navEntry: { label: "Referrals & Earn", shortLabel: "Referrals", navOrder: 17, defaultVisible: true },
   },
   {
     id: "reports",
@@ -347,7 +347,7 @@ export const ROUTES = [
     category: "Platform",
     icon: "Revenue",
     description: "Platform monetization engine, ad network yield, CPM/CPC metrics, and ledger",
-    navEntry: { label: "Revenue Analytics", shortLabel: "Revenue", navOrder: 18, defaultVisible: true },
+    navEntry: { label: "Revenue Analytics", shortLabel: "Revenue", navOrder: 19, defaultVisible: true },
   },
   {
     id: "scanner",
@@ -394,7 +394,7 @@ export const ROUTES = [
     navEntry: {
       label: "Social Posting",
       shortLabel: "Social",
-      navOrder: 19,
+      navOrder: 20,
       defaultVisible: true,
       badge: "New",
       badgeType: "new",
@@ -424,6 +424,22 @@ export const ROUTES = [
       defaultVisible: true,
       badge: "Audio",
       badgeType: "ai",
+    },
+  },
+  {
+    id: "workflow-runs",
+    navGroup: "workflow-runs",
+    crumb: "Workflow Runs",
+    category: "Playbooks",
+    icon: "Workflows",
+    description:
+      "Every recorded workflow run with its stages, inputs, outputs, failures, artifacts, and how it was triggered",
+    navEntry: {
+      label: "Workflow Runs",
+      shortLabel: "Runs",
+      navOrder: 12,
+      defaultVisible: true,
+      badge: "Ledger",
     },
   },
   {
