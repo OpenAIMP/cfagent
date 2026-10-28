@@ -188,4 +188,25 @@ describe("payment assurance live routes (issue #2059)", () => {
     );
     expect(res).toBeNull();
   });
+
+  it("never leaks exception details to the caller (CodeQL information exposure)", async () => {
+    const throwing = {
+      create: async () => {
+        throw new Error("SECRET-INTERNAL-DETAIL");
+      },
+      get: async () => ({
+        sendEvent: async () => {},
+        status: async () => "running",
+      }),
+    };
+    const res = await call(
+      handlePaymentAssuranceLiveRoutes,
+      request("/api/assurance/payment-workflow/start", "POST", { mode: "coverage", scheduleKind: "one_off", authorizedAtSubmission: false }),
+      envWith({}, throwing),
+    );
+    expect(res?.status).toBe(500);
+    const text = await res?.text();
+    expect(text).not.toContain("SECRET-INTERNAL-DETAIL");
+    expect(text).toContain("Internal error.");
+  });
 });

@@ -71,6 +71,13 @@ function envRecord(ctx: PaymentAssuranceLiveContext): EnvRecord {
   return (ctx.env ?? {}) as EnvRecord;
 }
 
+// CodeQL information-exposure follow-up: exception details never
+// reach the caller. The real error is logged server-side (Workers
+// Logs); responses carry a generic message only.
+function logError(err: unknown): void {
+  console.log("[payment-assurance-live] error", err instanceof Error ? err.message : String(err));
+}
+
 function callerLogin(request: Request, ctx: PaymentAssuranceLiveContext): string | null {
   const login = request.headers.get("x-user-login")?.trim() || ctx.getUserLogin?.()?.trim() || "";
   return login ? login : null;
@@ -218,7 +225,8 @@ async function handleStart(request: Request, ctx: PaymentAssuranceLiveContext, l
       testAccountTier: account.tier,
     });
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    logError(err);
+    return json({ error: "Internal error." }, 500);
   }
 }
 
@@ -252,7 +260,8 @@ async function handleEvent(request: Request, ctx: PaymentAssuranceLiveContext, l
     console.log(`[payment-assurance-live] event type=${body.type} workflow=${body.workflowId} login=${login}`);
     return json({ delivered: true, workflowId: body.workflowId, type: body.type });
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    logError(err);
+    return json({ error: "Internal error." }, 500);
   }
 }
 
@@ -288,7 +297,8 @@ async function handleStatus(_request: Request, url: URL, ctx: PaymentAssuranceLi
       const res = await cfpayA2AOperation(cfpay, "/a2a/payments", "checkout.status", { requestId: workflowId });
       checkout = res.ok ? res.data : { error: res.error ?? "checkout.status failed" };
     } catch (err) {
-      checkout = { error: err instanceof Error ? err.message : String(err) };
+      logError(err);
+      checkout = { error: "checkout.status failed" };
     }
   }
   return json({ workflowId, instanceStatus, checkout });
@@ -313,7 +323,8 @@ async function handleCheckPayment(request: Request, ctx: PaymentAssuranceLiveCon
     if (!res.ok) return json({ delivered: false, checkout: { error: res.error ?? "checkout.status failed" } });
     checkoutRecord = (res.data ?? {}) as Record<string, unknown>;
   } catch (err) {
-    return json({ delivered: false, checkout: { error: err instanceof Error ? err.message : String(err) } });
+    logError(err);
+    return json({ delivered: false, checkout: { error: "checkout.status failed" } });
   }
   // Mirror the gate's fulfilled test (confirmPaid): fulfilled, paid,
   // or paid === true. Anything else delivers nothing — the wake-up
@@ -330,7 +341,8 @@ async function handleCheckPayment(request: Request, ctx: PaymentAssuranceLiveCon
     });
     return json({ delivered: true, workflowId: body.workflowId, checkout: checkoutRecord });
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    logError(err);
+    return json({ error: "Internal error." }, 500);
   }
 }
 
