@@ -81,9 +81,10 @@ afterEach(async () => {
 });
 
 describe("IAAA admin tabs", () => {
-  it("renders five tabs and starts on Overview with the v1 content intact", async () => {
+  it("renders six tabs and starts on Overview with the v1 content intact", async () => {
     await renderPanel();
-    expect(tabLabels()).toEqual(["Overview", "API", "MCP", "IAAA", "Correlations"]);
+    // #1758 pin update (§7): the Members tab joins the five v1/v2 tabs.
+    expect(tabLabels()).toEqual(["Overview", "Members", "API", "MCP", "IAAA", "Correlations"]);
     expect(container.textContent).toContain("primary");
     expect(container.textContent).toContain("platform-admin (platform)");
     expect(container.textContent).toContain("Completed");
@@ -92,7 +93,8 @@ describe("IAAA admin tabs", () => {
 
   it("switching to API shows the endpoint table, and back to Overview restores v1", async () => {
     await renderPanel();
-    const api = tabButtons()[1];
+    // #1758 pin update (§7): Members is now index 1, so API moves to 2.
+    const api = tabButtons()[2];
     await act(async () => {
       api.click();
     });
@@ -108,17 +110,18 @@ describe("IAAA admin tabs", () => {
 
   it("MCP tab lists catalog tools, IAAA tab lists events and gaps, Correlations shows UNMAPPED rows", async () => {
     await renderPanel();
+    // #1758 pin update (§7): tab indices shift by one after Members.
     await act(async () => {
-      tabButtons()[2].click();
+      tabButtons()[3].click();
     });
     expect(container.textContent).toContain("knowledge_search");
     await act(async () => {
-      tabButtons()[3].click();
+      tabButtons()[4].click();
     });
     expect(container.textContent).toContain("auth.logout");
     expect(container.textContent).toContain("PDP denial");
     await act(async () => {
-      tabButtons()[4].click();
+      tabButtons()[5].click();
     });
     expect(container.textContent).toContain("UNMAPPED");
   });

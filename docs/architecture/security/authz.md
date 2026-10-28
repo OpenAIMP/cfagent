@@ -288,10 +288,13 @@ passing target:
   membership/admin revocation does not deny those routes at all.
   Gate coverage is #1754's audit (scan F-06), not this slice.
 - **Sessions the store cannot see cannot be revoked by id.**
-  Bulk revocation / offboarding requires caller-supplied session
-  ids — there is no session listing — so an offboarding that does
-  not know all of a principal's session ids misses the unknown
-  ones (scan F-16, #1758 lifecycle wiring).
+  Closed by #1758: the SessionStore DO list op now covers the
+  sessions namespace and the IAAA lifecycle routes offboard
+  through the session registry (iaaaSessionRegistry.ts), so bulk
+  revocation discovers a principal's sessions instead of requiring
+  caller-supplied ids. The remaining edge is a legacy session
+  whose login was transferred to a different person after the
+  session was created (see the slice doc for the bound).
 - **Admin removal does not terminate the removed admin's session.**
   The removed admin stays authenticated for session-gated routes
   until session revocation or expiry; only admin gates deny
