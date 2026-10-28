@@ -11,7 +11,7 @@ import {
   handleMarketQuotesWebSocket,
   liveMarketCache,
 } from "../src/services/marketStream";
-import { POPULAR_TICKERS } from "../src/client/components/StockSearchBar";
+import { SEARCH_SYMBOLS } from "../src/client/quotes/symbolSets";
 
 // Mock WebSocket implementation for unit testing
 class MockDuplexWebSocket {
@@ -361,9 +361,9 @@ describe("Real-Time Market Data WebSocket Streaming (Issue #21)", () => {
     });
   });
 
-  describe("POPULAR_TICKERS Preset Coverage", () => {
+  describe("SEARCH_SYMBOLS Preset Coverage (moved from POPULAR_TICKERS, #2100)", () => {
     it("includes all required benchmark equities and crypto pairs in search bar", () => {
-      const symbols = POPULAR_TICKERS.map((t) => t.symbol);
+      const symbols = SEARCH_SYMBOLS.map((t) => t.symbol);
       expect(symbols).toContain("NVDA");
       expect(symbols).toContain("AAPL");
       expect(symbols).toContain("MSFT");
@@ -376,7 +376,7 @@ describe("Real-Time Market Data WebSocket Streaming (Issue #21)", () => {
     });
 
     it("verifies every ticker has valid initial pricing and classification", () => {
-      for (const ticker of POPULAR_TICKERS) {
+      for (const ticker of SEARCH_SYMBOLS) {
         expect(ticker.symbol).toBeTruthy();
         expect(ticker.name).toBeTruthy();
         expect(ticker.price).toMatch(/^\$[0-9,]+\.[0-9]{2}$/);
