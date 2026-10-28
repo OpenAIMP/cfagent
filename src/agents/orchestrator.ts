@@ -2119,6 +2119,7 @@ export class OrchestratorAgent extends PortThink {
     // src/agents/routes/reports.ts. Invoked at this exact position in the
     // sequential path.endsWith matching sequence; a non-null return matched.
     const reportsResponse = await handleReportsRoutes(request, url, path, sessionId, {
+      env: this.env,
       ensureTables: () => this.ensureTables(),
       getScreenerAgent: (userLogin?: string) => this.getScreenerAgent(userLogin),
       getScreenerExecutionContext: () => this.getScreenerExecutionContext(),
