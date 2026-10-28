@@ -20,6 +20,7 @@ export const TAB_TO_FEATURE_MAP: Partial<Record<NavTabId, FeatureFlag>> = {
   screeners: "screener",
   scanner: "screener",
   reports: "screener",
+  docs: "screener",
   schedules: "schedules",
   options: "screener",
   "options-flows": "options_research",
