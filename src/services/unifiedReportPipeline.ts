@@ -228,6 +228,8 @@ export interface CanonicalReportInput {
   summary: string;
   body: unknown;
   createdAt: string;
+  /** Owning tenant login — required (multi-tenant SaaS; no "default"). */
+  userLogin: string;
 }
 
 /**
