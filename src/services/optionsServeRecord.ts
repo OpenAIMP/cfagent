@@ -40,7 +40,12 @@ export interface OptionsServeRecordDeps {
 export interface OptionsCanonicalStore {
   // `any` keeps DatabaseORM's stricter ScheduledReportInput signature
   // assignable while the helper still spreads a plain record into it.
-  storeCanonicalReport: (input: any) => { reportId: string; created: boolean } | null;
+  // Issue #1169 S4-1: the optional env threads the AI/Vectorize
+  // bindings to the index hook.
+  storeCanonicalReport: (
+    input: any,
+    env?: { AI?: any; VECTOR_MEMORY?: any }
+  ) => { reportId: string; created: boolean } | null;
 }
 
 /**
@@ -59,14 +64,18 @@ export interface OptionsCanonicalStore {
 export function storeOptionsCanonicalReport(
   orm: OptionsCanonicalStore | null | undefined,
   input: Record<string, unknown>,
+  env?: { AI?: any; VECTOR_MEMORY?: any },
 ): { reportId: string; created: boolean } | null {
   if (!orm || typeof orm.storeCanonicalReport !== "function") return null;
   const { userLogin, ...rest } = input as Record<string, unknown> & { userLogin?: unknown };
   try {
-    return orm.storeCanonicalReport({
-      ...rest,
-      ...(typeof userLogin === "string" && userLogin ? { userLogin } : {}),
-    });
+    return orm.storeCanonicalReport(
+      {
+        ...rest,
+        ...(typeof userLogin === "string" && userLogin ? { userLogin } : {}),
+      },
+      env
+    );
   } catch (err) {
     console.warn(
       `[optionsServeRecord] canonical write failed for run ${String((input as { runId?: unknown }).runId ?? "?")}: ${err instanceof Error ? err.message : String(err)}`,
