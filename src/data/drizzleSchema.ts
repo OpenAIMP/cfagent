@@ -306,6 +306,7 @@ export const agentCommercialAccounts = sqliteTable("agent_commercial_accounts", 
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").notNull(),
   tier: text("tier").notNull(),
+  tierSource: text("tier_source"),
   creditsUSD: real("credits_usd").notNull(),
   includedRuns: integer("included_runs").notNull(),
   updatedAtMs: integer("updated_at_ms").notNull(),
@@ -338,4 +339,47 @@ export const agentCreditRedemptions = sqliteTable("agent_credit_redemptions", {
   creditRunId: text("credit_run_id").primaryKey(),
   redeemedByRunId: text("redeemed_by_run_id").notNull(),
   redeemedAtMs: integer("redeemed_at_ms").notNull(),
+});
+
+/**
+ * Subscription object (#2020/#2127) on D1. One row per purchase:
+ * a paid-through period, not a provider-managed recurring
+ * billing object (cfpay is one-time-only; renewal is repurchase).
+ * The UNIQUE index on provider_payment_ref is the replay guard:
+ * one verified checkout activates at most one subscription.
+ * This schema MAPS tables; it does not create them — DDL
+ * authority lives in migration 0008
+ * (src/data/migrationRunner.ts).
+ */
+export const agentSubscriptions = sqliteTable("agent_subscriptions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  planId: text("plan_id").notNull(),
+  provider: text("provider").notNull(),
+  providerPaymentRef: text("provider_payment_ref").notNull(),
+  status: text("status").notNull(),
+  periodStartMs: integer("period_start_ms").notNull(),
+  periodEndMs: integer("period_end_ms").notNull(),
+  canceledAtMs: integer("canceled_at_ms"),
+  createdAtMs: integer("created_at_ms").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+/**
+ * Subscription plans (#2020/#2127) as OPERATOR DATA, not code:
+ * operators create plans; no price is hardcoded anywhere, because
+ * no subscription price is owner-approved. Active plans are what
+ * users can buy; deactivation stops new purchases without
+ * touching existing subscriptions.
+ */
+export const agentSubscriptionPlans = sqliteTable("agent_subscription_plans", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  priceUSD: real("price_usd").notNull(),
+  periodDays: integer("period_days").notNull(),
+  includedRuns: integer("included_runs").notNull(),
+  active: integer("active").notNull(),
+  createdAtMs: integer("created_at_ms").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
 });

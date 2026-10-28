@@ -36,6 +36,13 @@
  *                                                  credit redemption, and the
  *                                                  dedicated paid-submission
  *                                                  route)
+ *   GET|POST /payments/agentic/commercial/plans   (issues #2020/#2127:
+ *                                                  subscription plans as
+ *                                                  operator data)
+ *   GET|POST /payments/agentic/commercial/subscription/*
+ *                                                  (issues #2020/#2127:
+ *                                                  subscription checkout,
+ *                                                  purchase, cancel, status)
  *
  * Each route constructs the ETradeAgenticPaymentService per request,
  * exactly as the inline block did. The handler ends with an explicit
@@ -84,6 +91,15 @@ import {
 } from "../../data/createCommercialPorts";
 import type { D1CommercialAdapter } from "../../data/d1CommercialAdapter";
 import { toCommercialAccount } from "../../data/commercialPorts";
+import {
+  createSubscriptionAdapter,
+  ensureSubscriptionSchema,
+} from "../../data/createSubscriptionPorts";
+import type { D1SubscriptionAdapter } from "../../data/d1SubscriptionAdapter";
+import { resolveEffectiveTier } from "../../data/subscriptionPorts";
+import { createFeatureFlagPort } from "../../features/createFeatureFlagPort";
+import { cfpayA2AOperation, getCfpayConfig } from "../../services/cfpayA2A";
+import { activateSubscription } from "../../services/subscriptionActivation";
 import { createWorkflowPorts, type WorkflowEnv } from "../../workflows/createWorkflowPorts";
 import { tryStartScreenerWorkflow } from "../../workflows/screenerWorkflowRoutes";
 import type { WorkflowJobCommand } from "../../workflows/workflowPorts";
@@ -411,6 +427,39 @@ export async function handleAgenticPaymentsRoutes(
     }
     return adapter;
   };
+  const requireSubs = (): D1SubscriptionAdapter | Response => {
+    const adapter = createSubscriptionAdapter(ctx.env as { AGENT_DB?: unknown });
+    if (!adapter) {
+      return Response.json({ error: "Subscription store unavailable: AGENT_DB is not bound." }, { status: 503 });
+    }
+    return adapter;
+  };
+  // Money paths fail CLOSED when the monetization flag is OFF:
+  // no checkout is minted and no purchase activates. This mirrors
+  // the live-assurance guard (flag OFF → 403).
+  const requireMonetization = async (): Promise<Response | null> => {
+    const flagOn = await createFeatureFlagPort(ctx.env).isEnabled("monetization");
+    if (!flagOn) {
+      return Response.json({ error: "monetization flag is OFF; subscription purchase is disabled." }, { status: 403 });
+    }
+    return null;
+  };
+  // Both stores, schema ensured. Money routes call this before
+  // any read or write: the account upsert writes tier_source
+  // (migration 0008), so the commercial write path needs 0008
+  // applied too, not just 0007.
+  const ensureStores = async (
+    store: D1CommercialAdapter,
+    subs: D1SubscriptionAdapter,
+  ): Promise<Response | null> => {
+    try {
+      await ensureCommercialSchema(store.db);
+      await ensureSubscriptionSchema(subs.db);
+    } catch (err: any) {
+      return Response.json({ error: `Commercial store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+    }
+    return null;
+  };
 
   // GET /payments/agentic/commercial/account?userId=
   if (path.endsWith("/payments/agentic/commercial/account") && request.method === "GET") {
@@ -424,8 +473,24 @@ export async function handleAgenticPaymentsRoutes(
       }
       const store = requireStore();
       if (store instanceof Response) return store;
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
       const record = await store.getAccount(userId);
-      return Response.json({ record });
+      // Effective tier, not just the stored baseline: a lapsed
+      // subscription stops conferring Subscribed, while an
+      // operator grant survives. A subscription-read failure
+      // degrades to the stored tier (display value only — the
+      // money paths below fail closed instead).
+      let subscriptions: Array<{ periodEndMs: number }> = [];
+      try {
+        subscriptions = await subs.listSubscriptions(userId);
+      } catch {
+        subscriptions = [];
+      }
+      const effectiveTier = resolveEffectiveTier(record, subscriptions, Date.now());
+      return Response.json({ record, effectiveTier });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to read commercial account" }, { status: 500 });
     }
@@ -443,10 +508,17 @@ export async function handleAgenticPaymentsRoutes(
       };
       const store = requireStore();
       if (store instanceof Response) return store;
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
       const record = await store.upsertAccount({
         userId: typeof body.userId === "string" ? body.userId : "",
         tenantId: typeof body.tenantId === "string" ? body.tenantId : "",
         tier: body.tier,
+        // An operator write is an operator grant: it survives a
+        // lapsed subscription (see resolveEffectiveTier).
+        tierSource: "operator",
         creditsUSD: body.creditsUSD,
         includedRuns: body.includedRuns,
       });
@@ -570,16 +642,26 @@ export async function handleAgenticPaymentsRoutes(
       // be checked, so no run is charged either.
       const store = requireStore();
       if (store instanceof Response) return store;
-      try {
-        await ensureCommercialSchema(store.db);
-      } catch (err: any) {
-        return Response.json({ error: `Commercial store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
-      }
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
       const stored = await store.getAccount(login);
       if (stored && stored.tenantId !== tenantId) {
         return Response.json({ error: "Tenant mismatch: run tenant must equal the verified account tenant." }, { status: 403 });
       }
-      const account = toCommercialAccount(login, stored, email, tenantId);
+      // Effective tier at submission time: a lapsed subscription
+      // stops covering runs even though the stored tier may still
+      // read Subscribed. A subscription-read failure fails CLOSED
+      // here (money path) — no run starts on unverified coverage.
+      let subscriptions: Array<{ periodEndMs: number }>;
+      try {
+        subscriptions = await subs.listSubscriptions(login);
+      } catch (err: any) {
+        return Response.json({ error: `Subscription state unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      const effectiveTier = resolveEffectiveTier(stored, subscriptions, Date.now());
+      const account = { ...toCommercialAccount(login, stored, email, tenantId), tier: effectiveTier };
 
       // Failure-credit redemption, if one exists for this family.
       const credit = await store.findUnredeemedCredit(login, family);
@@ -670,6 +752,281 @@ export async function handleAgenticPaymentsRoutes(
       return Response.json({ workflowId, status });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to read submission status" }, { status: 500 });
+    }
+  }
+
+  // ================================================================
+  // Subscriptions (#2020/#2127): plans as operator data, a
+  // route-owned cfpay checkout, purchase activation on verified
+  // payment, cancel-at-period-end, and the effective-tier status
+  // read. No provider auto-renewal exists here: cfpay is
+  // one-time-only, so renewal is repurchase before expiry
+  // (stacked from the latest periodEnd). No cash refunds in this
+  // slice (deferred #2024). Money paths fail closed; the
+  // monetization flag must be ON for checkout and purchase.
+  // ================================================================
+
+  // GET /payments/agentic/commercial/plans — active plans any verified login may buy.
+  if (path.endsWith("/payments/agentic/commercial/plans") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
+      return Response.json({ plans: await subs.listPlans(true) });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to list plans" }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/plans (operator only) — plans are data, never code: no price is hardcoded anywhere.
+  if (path.endsWith("/payments/agentic/commercial/plans") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!isStoreOperator(login)) {
+        return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => ({}))) as {
+        id?: unknown; name?: unknown; priceUSD?: unknown; periodDays?: unknown; includedRuns?: unknown;
+      };
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
+      const plan = await subs.createPlan({
+        id: body.id,
+        name: body.name,
+        priceUSD: body.priceUSD,
+        periodDays: body.periodDays,
+        includedRuns: body.includedRuns,
+      });
+      ctx.audit("commercial.plan.created", "payments", { planId: plan.id, priceUSD: plan.priceUSD, periodDays: plan.periodDays, includedRuns: plan.includedRuns });
+      return Response.json({ plan });
+    } catch (err: any) {
+      const message = err.message || "Failed to create plan";
+      return Response.json({ error: message }, { status: /required|must be|already exists/.test(message) ? 400 : 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/plans/deactivate (operator only) — stops new purchases; existing subscriptions run to periodEnd.
+  if (path.endsWith("/payments/agentic/commercial/plans/deactivate") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!isStoreOperator(login)) {
+        return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => ({}))) as { planId?: unknown };
+      const planId = typeof body.planId === "string" ? body.planId : "";
+      if (!planId) return Response.json({ error: "planId is required." }, { status: 400 });
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
+      const plan = await subs.deactivatePlan(planId);
+      ctx.audit("commercial.plan.deactivated", "payments", { planId: plan.id });
+      return Response.json({ plan });
+    } catch (err: any) {
+      const message = err.message || "Failed to deactivate plan";
+      return Response.json({ error: message }, { status: /No plan/.test(message) ? 404 : 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/subscription/checkout — route-owned cfpay checkout for a plan.
+  // The route mints the checkout (requestId prefixed "sub-") so purchase can bind fulfillment to a
+  // checkout WE created for this plan. Email is the checkout contact, supplied by the caller — it is
+  // NOT an identity proof. Identity is the verified x-user-login.
+  if (path.endsWith("/payments/agentic/commercial/subscription/checkout") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const flag = await requireMonetization();
+      if (flag) return flag;
+      const body = (await request.json().catch(() => ({}))) as { planId?: unknown; tenantId?: unknown; email?: unknown };
+      const planId = typeof body.planId === "string" ? body.planId : "";
+      const tenantId = typeof body.tenantId === "string" ? body.tenantId : "";
+      const email = typeof body.email === "string" ? body.email.trim() : "";
+      if (!planId) return Response.json({ error: "planId is required." }, { status: 400 });
+      if (!tenantId) return Response.json({ error: "tenantId is required." }, { status: 400 });
+      if (!email) return Response.json({ error: "email (checkout contact) is required." }, { status: 400 });
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
+      const plan = await subs.getPlan(planId);
+      if (!plan) return Response.json({ error: `No plan ${planId}.` }, { status: 404 });
+      if (!plan.active) return Response.json({ error: `Plan ${planId} is not active.` }, { status: 409 });
+      const stored = await store.getAccount(login);
+      if (stored && stored.tenantId !== tenantId) {
+        return Response.json({ error: "Tenant mismatch: subscription tenant must equal the verified account tenant." }, { status: 403 });
+      }
+      const config = getCfpayConfig(ctx.env);
+      if (!config) {
+        return Response.json({ error: "cfpay is not configured." }, { status: 503 });
+      }
+      const checkoutRequestId = `sub-${crypto.randomUUID()}`;
+      const res = await cfpayA2AOperation(config, "/a2a/payments", "checkout.create", {
+        requestId: checkoutRequestId,
+        email,
+        request: `subscription ${plan.id} ${plan.priceUSD}`,
+      });
+      if (!res.ok) {
+        return Response.json({ error: "cfpay checkout could not be created." }, { status: 503 });
+      }
+      ctx.audit("commercial.subscription.checkout_created", "payments", { userId: login, tenantId, planId: plan.id, checkoutRequestId });
+      return Response.json({
+        checkoutRequestId,
+        checkout: res.data ?? null,
+        plan: { id: plan.id, name: plan.name, priceUSD: plan.priceUSD, periodDays: plan.periodDays, includedRuns: plan.includedRuns },
+      });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to create subscription checkout" }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/subscription/purchase — activate on VERIFIED payment only.
+  // Fulfillment is re-read from cfpay checkout.status (fulfilled/paid), never a return page, exactly
+  // like the payment workflow's confirm step. The checkout reference must come from the checkout
+  // route above ("sub-" prefix) and activates at most one subscription (replay → 409). Amount
+  // matching is NOT independently re-checked: the cfpay status shape the gate consumes carries no
+  // amount field, so the binding is route-owned creation + fulfilled status; a route-owned
+  // checkout for a plan is only fulfilled when cfpay accepts payment for it.
+  if (path.endsWith("/payments/agentic/commercial/subscription/purchase") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const flag = await requireMonetization();
+      if (flag) return flag;
+      const body = (await request.json().catch(() => ({}))) as { planId?: unknown; tenantId?: unknown; checkoutRequestId?: unknown };
+      const planId = typeof body.planId === "string" ? body.planId : "";
+      const tenantId = typeof body.tenantId === "string" ? body.tenantId : "";
+      const checkoutRequestId = typeof body.checkoutRequestId === "string" ? body.checkoutRequestId : "";
+      if (!planId) return Response.json({ error: "planId is required." }, { status: 400 });
+      if (!tenantId) return Response.json({ error: "tenantId is required." }, { status: 400 });
+      if (!checkoutRequestId) return Response.json({ error: "checkoutRequestId is required." }, { status: 400 });
+      if (!checkoutRequestId.startsWith("sub-")) {
+        return Response.json({ error: "checkoutRequestId must come from the subscription checkout route." }, { status: 400 });
+      }
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
+      const plan = await subs.getPlan(planId);
+      if (!plan) return Response.json({ error: `No plan ${planId}.` }, { status: 404 });
+      if (!plan.active) return Response.json({ error: `Plan ${planId} is not active.` }, { status: 409 });
+      const config = getCfpayConfig(ctx.env);
+      if (!config) {
+        return Response.json({ error: "cfpay is not configured." }, { status: 503 });
+      }
+      const statusRes = await cfpayA2AOperation(config, "/a2a/payments", "checkout.status", { requestId: checkoutRequestId });
+      if (!statusRes.ok) {
+        return Response.json({ error: "Payment verification unavailable." }, { status: 503 });
+      }
+      const statusData = statusRes.data as { status?: string; state?: string; paid?: boolean } | undefined;
+      const state = String(statusData?.status ?? statusData?.state ?? "").toLowerCase();
+      if (!(state === "fulfilled" || state === "paid" || statusData?.paid === true)) {
+        return Response.json({ error: "Checkout is not fulfilled; no subscription activated." }, { status: 402 });
+      }
+      const { subscription, account } = await activateSubscription({
+        subs,
+        store,
+        userId: login,
+        tenantId,
+        plan,
+        providerPaymentRef: checkoutRequestId,
+      });
+      ctx.audit("commercial.subscription.activated", "payments", {
+        userId: login,
+        tenantId,
+        planId: plan.id,
+        subscriptionId: subscription.id,
+        providerPaymentRef: checkoutRequestId,
+        periodEndMs: subscription.periodEndMs,
+      });
+      const effectiveTier = resolveEffectiveTier(account, [subscription], Date.now());
+      return Response.json({ subscription, account, effectiveTier });
+    } catch (err: any) {
+      const message = err.message || "Failed to activate subscription";
+      const status = /Tenant mismatch/.test(message)
+        ? 403
+        : /already activated/.test(message)
+          ? 409
+          : /required|must be|not active/.test(message)
+            ? 400
+            : 500;
+      return Response.json({ error: message }, { status });
+    }
+  }
+
+  // POST /payments/agentic/commercial/subscription/cancel — cancel-at-period-end.
+  // Sets every unexpired row canceled; access continues to periodEnd, then stops. No cash refund
+  // (deferred #2024). Self-service, or an operator on a user's behalf (body.userId).
+  if (path.endsWith("/payments/agentic/commercial/subscription/cancel") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as { userId?: unknown };
+      const targetUser = typeof body.userId === "string" && body.userId ? body.userId : login;
+      if (targetUser !== login && !isStoreOperator(login)) {
+        return Response.json({ error: "Forbidden: only the subscriber or a store operator may cancel." }, { status: 403 });
+      }
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
+      const canceled = await subs.cancelUnexpiredSubscriptions(targetUser, Date.now());
+      const accessThroughMs = canceled.length > 0 ? Math.max(...canceled.map((s) => s.periodEndMs)) : null;
+      ctx.audit("commercial.subscription.canceled", "payments", {
+        userId: targetUser,
+        subscriptionIds: canceled.map((s) => s.id),
+        accessThroughMs,
+      });
+      return Response.json({ userId: targetUser, canceled, accessThroughMs });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to cancel subscription" }, { status: 500 });
+    }
+  }
+
+  // GET /payments/agentic/commercial/subscription?userId= — self or operator. Effective tier included:
+  // the stored account tier alone does not say whether the user is Subscribed right now.
+  if (path.endsWith("/payments/agentic/commercial/subscription") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      const userId = url.searchParams.get("userId") ?? "";
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      if (!userId) return Response.json({ error: "userId is required." }, { status: 400 });
+      if (!canAccessAccount(login, userId)) {
+        return Response.json({ error: "Forbidden: only the subscriber or a store operator may read a subscription." }, { status: 403 });
+      }
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
+      const account = await store.getAccount(userId);
+      const subscriptions = await subs.listSubscriptions(userId);
+      const effectiveTier = resolveEffectiveTier(account, subscriptions, Date.now());
+      const current =
+        subscriptions.length > 0
+          ? subscriptions.reduce((a, b) => (b.periodEndMs > a.periodEndMs ? b : a))
+          : null;
+      return Response.json({ userId, effectiveTier, current, subscriptions });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to read subscription" }, { status: 500 });
     }
   }
 
