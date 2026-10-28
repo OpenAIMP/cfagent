@@ -94,8 +94,12 @@ describe("bespoke-styling ceiling (issue #2177)", () => {
     }
     // Baselines are occurrence counts measured by this test on main
     // 8414089 (the earlier 839 figure was a grep line count; four lines
-    // hold two style props each, hence 843 occurrences).
+    // hold two style props each, hence 843 occurrences). The label
+    // baseline is 223, not 222: the c66332c advance (checkout UI
+    // rebuild, the branch base) added one raw <label> in
+    // CheckoutPanel.tsx after the 8414089 measurement. That label is
+    // pre-existing on the base, not growth from this change.
     expect(inlineStyles).toBeLessThanOrEqual(843);
-    expect(rawLabels).toBeLessThanOrEqual(222);
+    expect(rawLabels).toBeLessThanOrEqual(223);
   });
 });
