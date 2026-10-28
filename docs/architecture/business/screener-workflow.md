@@ -632,11 +632,16 @@ hook on its seam (`NasdaqUniverseSeam.enrichment`, interface in
 The ScreenerAgent attaches it only when it resolves `goal_workflow` ON
 from its own env (ON by default since #2051; direct + workflow-child goal runs alike; Yahoo-fallback
 runs keep their Yahoo engine; flag OFF or any binding failure = no hook
-= refusal exactly as before). The hook (`services/goalGather.ts`) runs
-batch live quotes (E*TRADE-primary + Yahoo gap-fill via the platform
-quote seam) for week52High/averageVolume plus `fetchPlatformTechnicalsBatch`
+= refusal exactly as before). #2056 dataset rule (refined): rows come from the live source
+alone; Yahoo complements columns on those rows (live wins on shared
+columns) and never adds or vetoes rows — gap-fill membership is
+retired; a Yahoo-only symbol is never stored, and a live-only symbol
+is stored with live columns and reported honestly, never zero-filled. The hook (`services/goalGather.ts`) runs
+separate live and Yahoo quote fetches — rows come from the live side
+alone, Yahoo complements columns where present (never adds rows,
+never vetoes them) — plus `fetchPlatformTechnicalsBatch`
 over the run's history deps for real RSI, persists one
-`mas_data_captures` row per served, attributable symbol (capability
+`mas_data_captures` row per live symbol (capability
 `"quotes"` — no vocabulary extension, no new store, no `gather.ts`
 schema; `runId` = the caller run id per D2, the idempotency key), then
 reads the rows BACK (digest-verified, latest-write dedup, a corrupt
@@ -645,8 +650,8 @@ input. Screen-side, a stored row lacking a field the filter needs is
 excluded and ledger-rejected with the honest missing-data reason
 (a missing 52-week high is not "not breaking out"); nothing evaluable
 at all is a failed leg (the #1963 contract), never an empty success.
-Per-field coverage is the honest shape: Yahoo-filled symbols carry RSI
-but not week52High/averageVolume. Provenance: the canonical report body
+Per-field coverage is the honest shape: a stored row's columns are the
+live ∪ Yahoo union, so a field either source carries is present. Provenance: the canonical report body
 gains `idempotencyKey` on both paths (direct body; workflow envelope +
 door body), so a staged run's record alone resolves to its captures;
 the route "version" is the content hash of the quotes + historicalBars

@@ -100,15 +100,32 @@ const ROUTES = [
   },
 ] as any;
 
-function quoteDeps() {
+function liveDeps() {
   return {
     fetchQuotes: vi.fn(async (symbols: string[]) =>
       symbols
         .map((s) => {
           if (s === "AAPL")
-            return served("AAPL", "E*TRADE live", { week52High: 200, week52Low: 100, averageVolume: 50_000_000 });
-          if (s === "MSFT") return served("MSFT", "Yahoo Finance");
-          if (s === "ODD") return served("ODD", "Mystery Feed", { week52High: 90, averageVolume: 9 });
+            return served("AAPL", "E*TRADE live", { week52High: 200, week52Low: 100 });
+          if (s === "ODD") return served("ODD", "E*TRADE live", { week52High: 90, averageVolume: 9 });
+          return null;
+        })
+        .filter(Boolean)
+    ),
+    fetchQuote: vi.fn(async () => {
+      throw new Error("unused");
+    }),
+  } as any;
+}
+
+function yahooDeps() {
+  return {
+    fetchQuotes: vi.fn(async (symbols: string[]) =>
+      symbols
+        .map((s) => {
+          if (s === "AAPL")
+            return served("AAPL", "Yahoo Finance", { week52High: 999, week52Low: 50, averageVolume: 50_000_000 });
+          if (s === "MSFT") return served("MSFT", "Yahoo Finance", { week52High: 300, averageVolume: 30_000_000 });
           return null;
         })
         .filter(Boolean)
@@ -135,7 +152,8 @@ describe("goal gather (#1998)", () => {
       tenantId: "default",
       userLogin: "tester",
       runId: "goal-run-1",
-      quoteDeps: quoteDeps(),
+      liveQuoteDeps: liveDeps(),
+      yahooQuoteDeps: yahooDeps(),
       historyDeps: historyDeps(),
       routes: ROUTES,
       sink: sink as never,
@@ -143,30 +161,35 @@ describe("goal gather (#1998)", () => {
 
     const out = await enrich.enrich([listing("AAPL"), listing("MSFT"), listing("NVDA"), listing("ODD")]);
 
-    // Read-back: AAPL + MSFT only, in acquired order.
-    expect(out.enrichedQuotes.map((q) => q.symbol)).toEqual(["AAPL", "MSFT"]);
+    // Read-back: AAPL + ODD — rows come from the live side alone.
+    // MSFT is Yahoo-only: never a row. ODD is live-only: stored with
+    // live columns (#2056 refined: Yahoo complements columns, never rows).
+    expect(out.enrichedQuotes.map((q) => q.symbol)).toEqual(["AAPL", "ODD"]);
     expect(out.runId).toBe("goal-run-1");
-    // NVDA unserved, ODD unattributed source.
-    expect(out.missingSymbols.sort()).toEqual(["NVDA", "ODD"]);
+    // NVDA served by neither, MSFT by Yahoo only.
+    expect(out.missingSymbols.sort()).toEqual(["MSFT", "NVDA"]);
     expect(out.missingFields.NVDA).toEqual(["quote"]);
-    expect(out.missingFields.ODD).toEqual(["provider"]);
-    expect(out.gapFilledCount).toBe(1);
+    expect(out.missingFields.MSFT).toEqual(["quote:live"]);
+    // No gap-filled members: Yahoo never adds rows.
+    expect(out.gapFilledCount).toBe(0);
 
     const rows = listCapturesByRun(sql as never, "default", "goal-run-1");
-    expect(rows.map((r) => r.providerId).sort()).toEqual(["etrade", "yahoo"]);
+    expect(rows.map((r) => r.providerId).sort()).toEqual(["etrade", "etrade"]);
     expect(rows.every((r) => r.capability === "quotes")).toBe(true);
-    const msft = rows.find((r) => (r.requestParams as any).symbol === "MSFT")!;
-    expect((msft.requestParams as any).gapFilled).toBe(true);
-    expect((msft.requestParams as any).routeVersionHash).toBe(out.routeVersionHash);
+    const aaplRow = rows.find((r) => (r.requestParams as any).symbol === "AAPL")!;
+    expect((aaplRow.requestParams as any).gapFilled).toBe(false);
+    expect((aaplRow.requestParams as any).yahooPresent).toBe(true);
+    expect((aaplRow.requestParams as any).routeVersionHash).toBe(out.routeVersionHash);
+    const oddRow = rows.find((r) => (r.requestParams as any).symbol === "ODD")!;
+    expect((oddRow.requestParams as any).yahooPresent).toBe(false);
 
     // Recompute pin: stored RSI equals fresh computeTechnicals on the bars.
     const aapl = out.enrichedQuotes.find((q) => q.symbol === "AAPL")!;
+    // Column union: live week52High wins over Yahoo's 999; Yahoo's
+    // averageVolume fills the live row's gap.
     expect(aapl.week52High).toBe(200);
     expect(aapl.averageVolume).toBe(50_000_000);
     expect(aapl.rsi).toBe(computeTechnicals("AAPL", bars(30, 100)).rsi14);
-
-    // Per-field coverage: Yahoo-filled MSFT lacks 52-week/avg-volume, has RSI.
-    expect(out.missingFields.MSFT).toEqual(["week52High", "averageVolume"]);
 
     // #1743 stage event.
     expect(sink.write).toHaveBeenCalledTimes(1);
@@ -174,6 +197,7 @@ describe("goal gather (#1998)", () => {
     expect(event.type).toBe("goal.gather.stored");
     expect(event.runId).toBe("goal-run-1");
     expect(event.fields.stored).toBe(2);
+    expect(event.fields.yahooComplemented).toBe(1);
   });
 
   it("route version hash is the run-time snapshot hash and changes with the routes", async () => {
@@ -186,7 +210,8 @@ describe("goal gather (#1998)", () => {
         blobEnv: {},
         tenantId: "default",
         runId: "goal-run-2",
-        quoteDeps: quoteDeps(),
+        liveQuoteDeps: liveDeps(),
+        yahooQuoteDeps: yahooDeps(),
         historyDeps: historyDeps(),
         routes,
       });
@@ -220,13 +245,21 @@ describe("goal gather (#1998)", () => {
   it("a corrupt latest blob fails closed to missing, never to a stale row", async () => {
     const sql = new MockSqlStorage();
     const { store, storage } = mapBlobStorage();
+    // This test needs MSFT stored, so both sides serve AAPL + MSFT here.
+    const dual = (fields: Record<string, Partial<ETradeQuote>>) => ({
+      fetchQuotes: vi.fn(async (symbols: string[]) =>
+        symbols.map((s) => (fields[s] ? served(s, "LIVE", fields[s]) : null)).filter(Boolean)
+      ),
+      fetchQuote: vi.fn(async () => { throw new Error("unused"); }),
+    }) as any;
     const enrich = createGoalGatherEnrichment({
       sql: sql as never,
       blobStorage: storage as never,
       blobEnv: {},
       tenantId: "default",
       runId: "goal-run-3",
-      quoteDeps: quoteDeps(),
+      liveQuoteDeps: dual({ AAPL: {}, MSFT: {} }),
+      yahooQuoteDeps: dual({ AAPL: {}, MSFT: {} }),
       historyDeps: historyDeps(),
       routes: ROUTES,
     });
@@ -247,7 +280,7 @@ describe("goal gather (#1998)", () => {
       blobEnv: {},
       tenantId: "default",
       runId: "goal-run-3",
-      quoteDeps: { fetchQuotes: async () => { throw new Error("seam down"); } } as any,
+      liveQuoteDeps: { fetchQuotes: async () => { throw new Error("seam down"); } } as any,
       historyDeps: historyDeps(),
       routes: ROUTES,
     });
@@ -265,7 +298,8 @@ describe("goal gather (#1998)", () => {
       blobEnv: {},
       tenantId: "default",
       runId: "goal-run-4",
-      quoteDeps: quoteDeps(),
+      liveQuoteDeps: liveDeps(),
+      yahooQuoteDeps: yahooDeps(),
       routes: ROUTES,
     });
     const out = await enrich.enrich([listing("AAPL")]);
