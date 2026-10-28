@@ -81,6 +81,10 @@ import {
   recordCfpayLedgerRow,
   reconcileCfpayRun,
 } from "../services/cfpayLedger";
+import {
+  createCommercialAdapter,
+  ensureCommercialSchema,
+} from "../data/createCommercialPorts";
 import { getCfpayConfig, cfpayA2AOperation } from "../services/cfpayA2A";
 import { createFeatureFlagPort } from "../features/createFeatureFlagPort";
 import { createWorkflowPorts, type WorkflowEnv } from "./createWorkflowPorts";
@@ -240,14 +244,17 @@ export class PaymentWorkflow extends ThinkWorkflow<
         await recordCfpayAuditEvent(this.env, { ...e, family: p.family });
       },
       issueFailureCredit: async (runRequestId: string, priceUSD: number) => {
-        // Issue #2019: issuance is real now — one durable credit row
-        // (gateway stripe, action credit, session
-        // screener-payment:<runId>), deduped per run, plus the
-        // payment.failure_credit_issued audit event the flow emits
-        // next. This is ISSUANCE only: redemption — a later run
-        // consuming a stored credit — belongs to the account store
-        // (#2015), which reads these rows. Nothing here claims
-        // redemption works, and no cash moves: cfpay cannot refund.
+        // Issue #2019/#2015, combined: issuance writes BOTH records.
+        // First the durable DO credit row (gateway stripe, action
+        // credit, session screener-payment:<runId>), deduped per
+        // run, FAIL-LOUD — the financial audit record must never
+        // be recorded into the void. Then, best-effort with loud
+        // logging, the D1 redeemable claim (same run id, carrying
+        // family natively so redemption never needs an audit-payload
+        // family join). A D1 failure must not turn a failed paid
+        // run into a workflow error with no credit at all: the DO
+        // row above is the operator's re-issue signal. No cash
+        // moves: cfpay cannot refund.
         if (!Number.isFinite(priceUSD) || priceUSD <= 0) {
           throw new Error(
             `Refusing to issue a failure credit for run ${runRequestId} without a positive price.`,
@@ -259,6 +266,53 @@ export class PaymentWorkflow extends ThinkWorkflow<
           family: p.family,
           priceUSD,
         });
+        try {
+          const adapter = createCommercialAdapter(this.env as { AGENT_DB?: unknown });
+          if (!adapter) {
+            console.error(
+              `[payment-workflow] D1 credit-claim write skipped for run ${runRequestId} (AGENT_DB unbound); no redeemable claim recorded.`,
+            );
+            return;
+          }
+          await ensureCommercialSchema(adapter.db);
+          await adapter.recordCreditClaim({
+            creditRunId: runRequestId,
+            userId: p.userId,
+            family: p.family,
+            amountUSD: priceUSD,
+          });
+        } catch (err) {
+          console.error(
+            `[payment-workflow] D1 credit-claim write failed for run ${runRequestId} — claim missing, operator must re-issue from the payment record:`,
+            err,
+          );
+        }
+      },
+      consumeCoverage: async (use: { userId: string; paidVia: string; priceUSD: number }) => {
+        // Issue #2015: consume the coverage in the D1 account store.
+        // Best-effort with loud logging (see the flow dep doc): a
+        // store blip must not deny a run the user already covered.
+        // free_flag_off / already_paid consume nothing.
+        try {
+          const adapter = createCommercialAdapter(this.env as { AGENT_DB?: unknown });
+          if (!adapter) {
+            console.error(
+              `[payment-workflow] coverage consumption skipped for user ${use.userId} (AGENT_DB unbound); balance must be reconciled by an operator.`,
+            );
+            return;
+          }
+          await ensureCommercialSchema(adapter.db);
+          if (use.paidVia === "subscription_included") {
+            await adapter.consumeIncludedRun(use.userId);
+          } else if (use.paidVia === "credits") {
+            await adapter.consumeCredits(use.userId, use.priceUSD);
+          }
+        } catch (err) {
+          console.error(
+            `[payment-workflow] coverage consumption failed for user ${use.userId} paidVia=${use.paidVia} — run proceeds, balance must be reconciled by an operator:`,
+            err,
+          );
+        }
       },
     };
 
