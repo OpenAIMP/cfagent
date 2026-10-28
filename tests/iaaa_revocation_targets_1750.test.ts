@@ -163,8 +163,8 @@ describe("revocation targets table (#1750)", () => {
       60_000,
     );
     // The token-expiry row reuses SESSION_TTL (7 days) and the idle
-    // default (30 min) — both already enforced, neither settled as
-    // a CISO value by this slice (see #1757 for the open decision).
+    // default (30 min) — both already enforced; idle and step-up are
+    // settled as CISO values by #1757 (values unchanged).
     expect(SESSION_TTL).toBe(7 * 24 * 60 * 60);
     expect(DEFAULT_IDLE_TIMEOUT_MS).toBe(30 * 60 * 1000);
   });
