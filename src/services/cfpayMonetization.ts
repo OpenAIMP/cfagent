@@ -4,7 +4,17 @@
  * This is a standalone service: no route wiring, no flag enablement, no
  * PROD deployment in this file. Wiring it into the unified run-request
  * path is a separate, reviewed step under #2014, behind FeatureFlagPort,
- * default OFF, testnet only.
+ * default OFF.
+ *
+ * Mainnet (Phase 6, #2016) enabled by owner direction 2026-10-28:
+ * the network allowlist below admits Base mainnet alongside the
+ * Sepolia testnets. The default network stays base-sepolia — mainnet
+ * requires an explicit MONETIZATION_NETWORK=base (or eip155:8453).
+ * Ethereum mainnet is NOT admitted: it is not in cfpay's chain map.
+ * Network here is the operator-declared deployment network and a
+ * fail-closed allowlist only — settlement chain follows the cfpay
+ * deployment's own configuration, so the two must be kept in
+ * agreement by the operator.
  *
  * Rules (from the prototype, 16 tests, updated 2026-10-27 for
  * all-runs-scheduled-behind-the-scenes):
@@ -18,7 +28,7 @@
  * - Tenant isolation: run tenant must equal the verified account tenant.
  * - Confirm paid only via cfpay checkout.status == fulfilled.
  *   Stripe return page is never proof. Replay of a tx hash / payment
- *   intent id is rejected. Identity, price, and testnet are fail-closed.
+ *   intent id is rejected. Identity, price, and network are fail-closed.
  * - cfpay cannot refund: a failed paid run gets a one-time replacement
  *   credit, disclosed before payment.
  * - Proposed prices, NOT approved: stock $0.02, goal $0.10,
@@ -36,7 +46,18 @@ export const FAMILY_PRICES: Record<ScreenerFamily, number> = {
   strategy: 0.1,
 };
 
-export const ALLOWED_TEST_NETWORKS = ["base-sepolia", "ethereum-sepolia"] as const;
+/**
+ * Networks the gate accepts when monetization is enabled, as the
+ * operator-declared MONETIZATION_NETWORK value. Testnets first
+ * (the original testnet-only build), then Base mainnet, admitted by
+ * owner direction 2026-10-28 (Phase 6, #2016). Identifiers follow
+ * cfpay's chain map: "base" and "eip155:8453" are Base mainnet;
+ * Ethereum mainnet ("eip155:1") is NOT in cfpay's map and is not
+ * admitted. Anything else is refused fail-closed. The default
+ * network (base-sepolia, in the workflow adapter) is unchanged —
+ * mainnet requires an explicit opt-in value.
+ */
+export const ALLOWED_NETWORKS = ["base-sepolia", "ethereum-sepolia", "base", "eip155:8453"] as const;
 
 export interface CfPayCheckoutClient {
   createCheckout(input: { requestId: string; email: string; request: string }): Promise<unknown>;
@@ -82,8 +103,8 @@ export class CfPayMonetizationGate {
     private cfpay: CfPayCheckoutClient,
     private config: MonetizationConfig,
   ) {
-    if (config.monetizationEnabled && !(ALLOWED_TEST_NETWORKS as readonly string[]).includes(config.network)) {
-      throw new Error(`Refusing monetization on network ${config.network}: testnet-only build.`);
+    if (config.monetizationEnabled && !(ALLOWED_NETWORKS as readonly string[]).includes(config.network)) {
+      throw new Error(`Refusing monetization on network ${config.network}: unknown network (allowed: ${ALLOWED_NETWORKS.join(", ")}).`);
     }
   }
 
@@ -137,7 +158,7 @@ export class CfPayMonetizationGate {
     this.byRun.set(run.id, { runRequestId: run.id, userId: account.userId, tenantId: run.tenantId ?? account.tenantId, family: run.family, trigger: run.trigger, priceUSD, status: "payment_required" });
     return {
       allowed: false, status: "payment_required", httpStatus: 402, runRequestId: run.id, priceUSD, family: run.family, checkout,
-      disclosure: "One charge per run-request. Shards, stages, retries and re-serves are free. Automated refunds are not available in v1; a paid run that fails gets a one-time replacement-run credit. Test-network build: no mainnet payment is accepted.",
+      disclosure: "One charge per run-request. Shards, stages, retries and re-serves are free. Automated refunds are not available in v1; a paid run that fails gets a one-time replacement-run credit. Mainnet payments are accepted on Base (MONETIZATION_NETWORK=base); testnets remain available. Settlement chain follows the cfpay deployment configuration.",
     };
   }
 
