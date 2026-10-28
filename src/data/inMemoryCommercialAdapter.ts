@@ -33,16 +33,23 @@ export class InMemoryCommercialAdapter implements CommercialStore {
     userId: string;
     tenantId: string;
     tier: unknown;
+    tierSource?: unknown;
     creditsUSD?: unknown;
     includedRuns?: unknown;
   }): Promise<CommercialAccountRecord> {
     if (!input.userId || !input.tenantId) {
       throw new Error("userId and tenantId are required.");
     }
+    const existing = this.accounts.get(input.userId);
+    const tierSource =
+      input.tierSource === "operator" || input.tierSource === "subscription"
+        ? input.tierSource
+        : (existing?.tierSource ?? "operator");
     const record: CommercialAccountRecord = {
       id: input.userId,
       tenantId: input.tenantId,
       tier: assertStoreTier(input.tier),
+      tierSource,
       creditsUSD: input.creditsUSD === undefined ? 0 : assertNonNegativeCredits(input.creditsUSD),
       includedRuns: input.includedRuns === undefined ? 0 : assertIncludedRuns(input.includedRuns),
       updatedAtMs: Date.now(),
