@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch as fetch } from "../apiFetch";
-import { Modal, TextInput, Select, Notice, Button } from "../components/ui";
+import { Modal, TextInput, Select, Notice, Button, FieldShell } from "../components/ui";
 import type { EtapiConfig, AiModelDefinition } from "../../config/etapiConfig";
 
 interface EtapiConfigModalProps {
@@ -450,63 +450,55 @@ export function EtapiConfigModal({
           {activeTab === "strategy" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
               <div>
-                <label htmlFor="etapi-risk-free-rate-pct" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Risk-Free Rate (%):
-                </label>
-                <TextInput id="etapi-risk-free-rate-pct"
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="20"
-                  value={riskFreeRatePct}
-                  onChange={(e) => setRiskFreeRatePct(e.target.value)}
+                <FieldShell id="etapi-risk-free-rate-pct" label="Risk-Free Rate (%):" hint="Applied to Black-Scholes pricing &amp; carry cost.">
+                  <TextInput
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="20"
+                    value={riskFreeRatePct}
+                    onChange={(e) => setRiskFreeRatePct(e.target.value)}
 
-                />
-                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Applied to Black-Scholes pricing &amp; carry cost.</span>
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-fee-per-contract" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Fee per Contract ($):
-                </label>
-                <TextInput id="etapi-fee-per-contract"
-                  type="number"
-                  step="0.05"
-                  min="0"
-                  value={feePerContract}
-                  onChange={(e) => setFeePerContract(e.target.value)}
+                <FieldShell id="etapi-fee-per-contract" label="Fee per Contract ($):" hint="Standard brokerage fee (default $0.65).">
+                  <TextInput
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    value={feePerContract}
+                    onChange={(e) => setFeePerContract(e.target.value)}
 
-                />
-                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Standard brokerage fee (default $0.65).</span>
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-max-combinations" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Max Combinations per Run:
-                </label>
-                <TextInput id="etapi-max-combinations"
-                  type="number"
-                  step="50"
-                  min="10"
-                  max="50000"
-                  value={maxCombinations}
-                  onChange={(e) => setMaxCombinations(e.target.value)}
+                <FieldShell id="etapi-max-combinations" label="Max Combinations per Run:" hint="Limits multi-leg combinatorial explosion.">
+                  <TextInput
+                    type="number"
+                    step="50"
+                    min="10"
+                    max="50000"
+                    value={maxCombinations}
+                    onChange={(e) => setMaxCombinations(e.target.value)}
 
-                />
-                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Limits multi-leg combinatorial explosion.</span>
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-detail-limit" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Detail Limit:
-                </label>
-                <TextInput id="etapi-detail-limit"
-                  type="number"
-                  step="50"
-                  min="5"
-                  max="50000"
-                  value={detailLimit}
-                  onChange={(e) => setDetailLimit(e.target.value)}
+                <FieldShell id="etapi-detail-limit" label="Detail Limit:" hint="Number of top strategies enriched with full Greeks.">
+                  <TextInput
+                    type="number"
+                    step="50"
+                    min="5"
+                    max="50000"
+                    value={detailLimit}
+                    onChange={(e) => setDetailLimit(e.target.value)}
 
-                />
-                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Number of top strategies enriched with full Greeks.</span>
+                  />
+                </FieldShell>
               </div>
             </div>
           )}
@@ -514,72 +506,66 @@ export function EtapiConfigModal({
           {activeTab === "screener" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
               <div>
-                <label htmlFor="etapi-default-max-dte" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Default Max DTE (Days):
-                </label>
-                <TextInput id="etapi-default-max-dte"
-                  type="number"
-                  value={defaultMaxDte}
-                  onChange={(e) => setDefaultMaxDte(e.target.value)}
+                <FieldShell id="etapi-default-max-dte" label="Default Max DTE (Days):">
+                  <TextInput
+                    type="number"
+                    value={defaultMaxDte}
+                    onChange={(e) => setDefaultMaxDte(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-default-min-dte" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Default Min DTE (Days):
-                </label>
-                <TextInput id="etapi-default-min-dte"
-                  type="number"
-                  value={defaultMinDte}
-                  onChange={(e) => setDefaultMinDte(e.target.value)}
+                <FieldShell id="etapi-default-min-dte" label="Default Min DTE (Days):">
+                  <TextInput
+                    type="number"
+                    value={defaultMinDte}
+                    onChange={(e) => setDefaultMinDte(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-unusual-vol-oi-ratio" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Unusual Volume / OI Ratio:
-                </label>
-                <TextInput id="etapi-unusual-vol-oi-ratio"
-                  type="number"
-                  step="0.1"
-                  value={unusualVolOiRatio}
-                  onChange={(e) => setUnusualVolOiRatio(e.target.value)}
+                <FieldShell id="etapi-unusual-vol-oi-ratio" label="Unusual Volume / OI Ratio:">
+                  <TextInput
+                    type="number"
+                    step="0.1"
+                    value={unusualVolOiRatio}
+                    onChange={(e) => setUnusualVolOiRatio(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-atm-band-pct" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  ATM Band (% of spot):
-                </label>
-                <TextInput id="etapi-atm-band-pct"
-                  type="number"
-                  step="0.5"
-                  value={atmBandPct}
-                  onChange={(e) => setAtmBandPct(e.target.value)}
+                <FieldShell id="etapi-atm-band-pct" label="ATM Band (% of spot):">
+                  <TextInput
+                    type="number"
+                    step="0.5"
+                    value={atmBandPct}
+                    onChange={(e) => setAtmBandPct(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-max-scan-symbols" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Max Scan Symbols:
-                </label>
-                <TextInput id="etapi-max-scan-symbols"
-                  type="number"
-                  value={maxScanSymbols}
-                  onChange={(e) => setMaxScanSymbols(e.target.value)}
+                <FieldShell id="etapi-max-scan-symbols" label="Max Scan Symbols:">
+                  <TextInput
+                    type="number"
+                    value={maxScanSymbols}
+                    onChange={(e) => setMaxScanSymbols(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-max-returned-contracts" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Max Returned Contracts:
-                </label>
-                <TextInput id="etapi-max-returned-contracts"
-                  type="number"
-                  value={maxReturnedContracts}
-                  onChange={(e) => setMaxReturnedContracts(e.target.value)}
+                <FieldShell id="etapi-max-returned-contracts" label="Max Returned Contracts:">
+                  <TextInput
+                    type="number"
+                    value={maxReturnedContracts}
+                    onChange={(e) => setMaxReturnedContracts(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
             </div>
           )}
@@ -587,70 +573,64 @@ export function EtapiConfigModal({
           {activeTab === "weights" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
               <div>
-                <label htmlFor="etapi-thesis-weight" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Thesis Alignment Weight (%):
-                </label>
-                <TextInput id="etapi-thesis-weight"
-                  type="number"
-                  value={thesisWeight}
-                  onChange={(e) => setThesisWeight(e.target.value)}
+                <FieldShell id="etapi-thesis-weight" label="Thesis Alignment Weight (%):">
+                  <TextInput
+                    type="number"
+                    value={thesisWeight}
+                    onChange={(e) => setThesisWeight(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-reward-risk-weight" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Target Reward / Risk Weight (%):
-                </label>
-                <TextInput id="etapi-reward-risk-weight"
-                  type="number"
-                  value={rewardRiskWeight}
-                  onChange={(e) => setRewardRiskWeight(e.target.value)}
+                <FieldShell id="etapi-reward-risk-weight" label="Target Reward / Risk Weight (%):">
+                  <TextInput
+                    type="number"
+                    value={rewardRiskWeight}
+                    onChange={(e) => setRewardRiskWeight(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-liquidity-weight" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Liquidity &amp; Spread Weight (%):
-                </label>
-                <TextInput id="etapi-liquidity-weight"
-                  type="number"
-                  value={liquidityWeight}
-                  onChange={(e) => setLiquidityWeight(e.target.value)}
+                <FieldShell id="etapi-liquidity-weight" label="Liquidity &amp; Spread Weight (%):">
+                  <TextInput
+                    type="number"
+                    value={liquidityWeight}
+                    onChange={(e) => setLiquidityWeight(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-freshness-weight" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Freshness Weight (%):
-                </label>
-                <TextInput id="etapi-freshness-weight"
-                  type="number"
-                  value={freshnessWeight}
-                  onChange={(e) => setFreshnessWeight(e.target.value)}
+                <FieldShell id="etapi-freshness-weight" label="Freshness Weight (%):">
+                  <TextInput
+                    type="number"
+                    value={freshnessWeight}
+                    onChange={(e) => setFreshnessWeight(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-volatility-weight" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Volatility Alignment Weight (%):
-                </label>
-                <TextInput id="etapi-volatility-weight"
-                  type="number"
-                  value={volatilityWeight}
-                  onChange={(e) => setVolatilityWeight(e.target.value)}
+                <FieldShell id="etapi-volatility-weight" label="Volatility Alignment Weight (%):">
+                  <TextInput
+                    type="number"
+                    value={volatilityWeight}
+                    onChange={(e) => setVolatilityWeight(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-theta-weight" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Theta Burden Weight (%):
-                </label>
-                <TextInput id="etapi-theta-weight"
-                  type="number"
-                  value={thetaWeight}
-                  onChange={(e) => setThetaWeight(e.target.value)}
+                <FieldShell id="etapi-theta-weight" label="Theta Burden Weight (%):">
+                  <TextInput
+                    type="number"
+                    value={thetaWeight}
+                    onChange={(e) => setThetaWeight(e.target.value)}
 
-                />
+                  />
+                </FieldShell>
               </div>
             </div>
           )}
@@ -658,43 +638,37 @@ export function EtapiConfigModal({
           {activeTab === "scanner" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
               <div>
-                <label htmlFor="etapi-bullish-factor" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Bullish Target Multiplier:
-                </label>
-                <TextInput id="etapi-bullish-factor"
-                  type="number"
-                  step="0.01"
-                  value={bullishFactor}
-                  onChange={(e) => setBullishFactor(e.target.value)}
+                <FieldShell id="etapi-bullish-factor" label="Bullish Target Multiplier:" hint="1.05 = +5% upside target assumption">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={bullishFactor}
+                    onChange={(e) => setBullishFactor(e.target.value)}
 
-                />
-                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>1.05 = +5% upside target assumption</span>
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-bearish-factor" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Bearish Target Multiplier:
-                </label>
-                <TextInput id="etapi-bearish-factor"
-                  type="number"
-                  step="0.01"
-                  value={bearishFactor}
-                  onChange={(e) => setBearishFactor(e.target.value)}
+                <FieldShell id="etapi-bearish-factor" label="Bearish Target Multiplier:" hint="0.95 = -5% downside target assumption">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={bearishFactor}
+                    onChange={(e) => setBearishFactor(e.target.value)}
 
-                />
-                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>0.95 = -5% downside target assumption</span>
+                  />
+                </FieldShell>
               </div>
               <div>
-                <label htmlFor="etapi-large-move-factor" style={{ display: "block", fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>
-                  Large Move Target Multiplier:
-                </label>
-                <TextInput id="etapi-large-move-factor"
-                  type="number"
-                  step="0.01"
-                  value={largeMoveFactor}
-                  onChange={(e) => setLargeMoveFactor(e.target.value)}
+                <FieldShell id="etapi-large-move-factor" label="Large Move Target Multiplier:" hint="1.10 = +10% volatility straddle assumption">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={largeMoveFactor}
+                    onChange={(e) => setLargeMoveFactor(e.target.value)}
 
-                />
-                <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>1.10 = +10% volatility straddle assumption</span>
+                  />
+                </FieldShell>
               </div>
             </div>
           )}
@@ -711,71 +685,67 @@ export function EtapiConfigModal({
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
                   <div>
-                    <label htmlFor="etapi-selected-default-model" style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
-                      Default Flagship Model:
-                    </label>
-                    <Select id="etapi-selected-default-model"
-                      value={selectedDefaultModel}
-                      onChange={(e) => setSelectedDefaultModel(e.target.value)}
+                    <FieldShell id="etapi-selected-default-model" label="Default Flagship Model:">
+                      <Select
+                        value={selectedDefaultModel}
+                        onChange={(e) => setSelectedDefaultModel(e.target.value)}
 
-                    >
-                      {availableModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} [{m.category.toUpperCase()}]
-                        </option>
-                      ))}
-                    </Select>
+                      >
+                        {availableModels.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} [{m.category.toUpperCase()}]
+                          </option>
+                        ))}
+                      </Select>
+                    </FieldShell>
                   </div>
 
                   <div>
-                    <label htmlFor="etapi-selected-ideas-model" style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
-                      Options Ideas Evaluator:
-                    </label>
-                    <Select id="etapi-selected-ideas-model"
-                      value={selectedIdeasModel}
-                      onChange={(e) => setSelectedIdeasModel(e.target.value)}
+                    <FieldShell id="etapi-selected-ideas-model" label="Options Ideas Evaluator:">
+                      <Select
+                        value={selectedIdeasModel}
+                        onChange={(e) => setSelectedIdeasModel(e.target.value)}
 
-                    >
-                      {availableModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} [{m.category.toUpperCase()}]
-                        </option>
-                      ))}
-                    </Select>
+                      >
+                        {availableModels.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} [{m.category.toUpperCase()}]
+                          </option>
+                        ))}
+                      </Select>
+                    </FieldShell>
                   </div>
 
                   <div>
-                    <label htmlFor="etapi-selected-comparison-model" style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
-                      Multi-Leg Options Comparator:
-                    </label>
-                    <Select id="etapi-selected-comparison-model"
-                      value={selectedComparisonModel}
-                      onChange={(e) => setSelectedComparisonModel(e.target.value)}
+                    <FieldShell id="etapi-selected-comparison-model" label="Multi-Leg Options Comparator:">
+                      <Select
+                        value={selectedComparisonModel}
+                        onChange={(e) => setSelectedComparisonModel(e.target.value)}
 
-                    >
-                      {availableModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} [{m.category.toUpperCase()}]
-                        </option>
-                      ))}
-                    </Select>
+                      >
+                        {availableModels.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} [{m.category.toUpperCase()}]
+                          </option>
+                        ))}
+                      </Select>
+                    </FieldShell>
                   </div>
 
                   <div style={{ gridColumn: "span 2" }}>
-                    <label htmlFor="etapi-selected-nlq-model" style={{ display: "block", fontSize: "0.78rem", color: "var(--color-text-secondary)", marginBottom: "0.25rem" }}>
-                      NLQ Natural Language Query Validator:
-                    </label>
-                    <Select id="etapi-selected-nlq-model"
-                      value={selectedNlqModel}
-                      onChange={(e) => setSelectedNlqModel(e.target.value)}
+                    <FieldShell id="etapi-selected-nlq-model" label="NLQ Natural Language Query Validator:">
+                      <Select
+                        value={selectedNlqModel}
+                        onChange={(e) => setSelectedNlqModel(e.target.value)}
 
-                    >
-                      {availableModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} [{m.category.toUpperCase()}]
-                        </option>
-                      ))}
-                    </Select>
+                      >
+                        {availableModels.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} [{m.category.toUpperCase()}]
+                          </option>
+                        ))}
+                      </Select>
+                    </FieldShell>
                   </div>
                 </div>
               </div>
@@ -786,46 +756,43 @@ export function EtapiConfigModal({
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--space-3)" }}>
                   <div>
-                    <label htmlFor="etapi-temperature-deterministic" style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
-                      Deterministic (Orders):
-                    </label>
-                    <TextInput id="etapi-temperature-deterministic"
-                      type="number"
-                      step="0.05"
-                      min="0"
-                      max="1"
-                      value={temperatureDeterministic}
-                      onChange={(e) => setTemperatureDeterministic(e.target.value)}
-                      style={{ fontVariantNumeric: "tabular-nums" }}
-                    />
+                    <FieldShell id="etapi-temperature-deterministic" label="Deterministic (Orders):">
+                      <TextInput
+                        type="number"
+                        step="0.05"
+                        min="0"
+                        max="1"
+                        value={temperatureDeterministic}
+                        onChange={(e) => setTemperatureDeterministic(e.target.value)}
+                        style={{ fontVariantNumeric: "tabular-nums" }}
+                      />
+                    </FieldShell>
                   </div>
                   <div>
-                    <label htmlFor="etapi-temperature-analytical" style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
-                      Analytical (Screener):
-                    </label>
-                    <TextInput id="etapi-temperature-analytical"
-                      type="number"
-                      step="0.05"
-                      min="0"
-                      max="1"
-                      value={temperatureAnalytical}
-                      onChange={(e) => setTemperatureAnalytical(e.target.value)}
-                      style={{ fontVariantNumeric: "tabular-nums" }}
-                    />
+                    <FieldShell id="etapi-temperature-analytical" label="Analytical (Screener):">
+                      <TextInput
+                        type="number"
+                        step="0.05"
+                        min="0"
+                        max="1"
+                        value={temperatureAnalytical}
+                        onChange={(e) => setTemperatureAnalytical(e.target.value)}
+                        style={{ fontVariantNumeric: "tabular-nums" }}
+                      />
+                    </FieldShell>
                   </div>
                   <div>
-                    <label htmlFor="etapi-temperature-creative" style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
-                      Creative (Ideas):
-                    </label>
-                    <TextInput id="etapi-temperature-creative"
-                      type="number"
-                      step="0.05"
-                      min="0"
-                      max="1"
-                      value={temperatureCreative}
-                      onChange={(e) => setTemperatureCreative(e.target.value)}
-                      style={{ fontVariantNumeric: "tabular-nums" }}
-                    />
+                    <FieldShell id="etapi-temperature-creative" label="Creative (Ideas):">
+                      <TextInput
+                        type="number"
+                        step="0.05"
+                        min="0"
+                        max="1"
+                        value={temperatureCreative}
+                        onChange={(e) => setTemperatureCreative(e.target.value)}
+                        style={{ fontVariantNumeric: "tabular-nums" }}
+                      />
+                    </FieldShell>
                   </div>
                 </div>
               </div>
@@ -836,37 +803,34 @@ export function EtapiConfigModal({
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--space-3)" }}>
                   <div>
-                    <label htmlFor="etapi-max-order-quantity" style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
-                      Max Order Shares:
-                    </label>
-                    <TextInput id="etapi-max-order-quantity"
-                      type="number"
-                      value={maxOrderQuantity}
-                      onChange={(e) => setMaxOrderQuantity(e.target.value)}
-                      style={{ fontVariantNumeric: "tabular-nums" }}
-                    />
+                    <FieldShell id="etapi-max-order-quantity" label="Max Order Shares:">
+                      <TextInput
+                        type="number"
+                        value={maxOrderQuantity}
+                        onChange={(e) => setMaxOrderQuantity(e.target.value)}
+                        style={{ fontVariantNumeric: "tabular-nums" }}
+                      />
+                    </FieldShell>
                   </div>
                   <div>
-                    <label htmlFor="etapi-max-order-total-usd" style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
-                      Max Total Value ($):
-                    </label>
-                    <TextInput id="etapi-max-order-total-usd"
-                      type="number"
-                      value={maxOrderTotalUsd}
-                      onChange={(e) => setMaxOrderTotalUsd(e.target.value)}
-                      style={{ fontVariantNumeric: "tabular-nums" }}
-                    />
+                    <FieldShell id="etapi-max-order-total-usd" label="Max Total Value ($):">
+                      <TextInput
+                        type="number"
+                        value={maxOrderTotalUsd}
+                        onChange={(e) => setMaxOrderTotalUsd(e.target.value)}
+                        style={{ fontVariantNumeric: "tabular-nums" }}
+                      />
+                    </FieldShell>
                   </div>
                   <div>
-                    <label htmlFor="etapi-max-discount-percent" style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.2rem" }}>
-                      Max Discount Limit (%):
-                    </label>
-                    <TextInput id="etapi-max-discount-percent"
-                      type="number"
-                      value={maxDiscountPercent}
-                      onChange={(e) => setMaxDiscountPercent(e.target.value)}
-                      style={{ fontVariantNumeric: "tabular-nums" }}
-                    />
+                    <FieldShell id="etapi-max-discount-percent" label="Max Discount Limit (%):">
+                      <TextInput
+                        type="number"
+                        value={maxDiscountPercent}
+                        onChange={(e) => setMaxDiscountPercent(e.target.value)}
+                        style={{ fontVariantNumeric: "tabular-nums" }}
+                      />
+                    </FieldShell>
                   </div>
                 </div>
               </div>
