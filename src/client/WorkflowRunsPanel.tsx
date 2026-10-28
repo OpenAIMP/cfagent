@@ -20,13 +20,14 @@
  * stores do not record renders as absent/not recorded — never invented.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import "./workflowRuns.css";
 import {
   Badge,
   Button,
   Card,
   EmptyState,
+  Modal,
   Notice,
   PageSection,
   PageShell,
@@ -191,7 +192,6 @@ export function WorkflowRunsPanel() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
-  const detailRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -214,16 +214,6 @@ export function WorkflowRunsPanel() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  // Selecting a run renders its detail below the run table; bring it
-  // into view so a click on a long list visibly opens the run.
-  useEffect(() => {
-    if (!selectedId) return;
-    const node = detailRef.current;
-    if (node && typeof node.scrollIntoView === "function") {
-      node.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [selectedId]);
 
   const filtered = useMemo(
     () =>
@@ -337,11 +327,11 @@ export function WorkflowRunsPanel() {
         <Button
           variant="secondary"
           size="sm"
-          onClick={() => setSelectedId((current) => (current === run.id ? null : run.id))}
-          aria-expanded={selectedId === run.id}
-          aria-controls="workflow-run-detail"
+          onClick={() => setSelectedId(run.id)}
+          aria-haspopup="dialog"
+          aria-label={`Details for ${run.title}`}
         >
-          {selectedId === run.id ? "Hide details" : "Details"}
+          Details
         </Button>
       ),
     },
@@ -455,20 +445,23 @@ export function WorkflowRunsPanel() {
       </PageSection>
 
       {selected && (
-        <PageSection title="Run detail" description="One run's full recorded story: trigger, stages, inputs, outputs, and failures.">
-          <div id="workflow-run-detail" ref={detailRef}>
-            <RunDetail run={selected} onClose={() => setSelectedId(null)} />
-          </div>
-        </PageSection>
+        <Modal
+          open
+          onClose={() => setSelectedId(null)}
+          title="Workflow run detail"
+          size="xl"
+        >
+          <RunDetail run={selected} />
+        </Modal>
       )}
       </PageShell>
     </div>
   );
 }
 
-function RunDetail({ run, onClose }: { run: WorkflowRun; onClose: () => void }) {
+function RunDetail({ run }: { run: WorkflowRun }) {
   return (
-    <Card padding="md" className="workflow-runs-detail">
+    <div className="workflow-runs-detail">
       <div className="workflow-runs-detail-header">
         <div>
           <h3 className="workflow-runs-detail-title">{run.title}</h3>
@@ -485,9 +478,6 @@ function RunDetail({ run, onClose }: { run: WorkflowRun; onClose: () => void }) 
           <Badge tone={STATUS_TONE[run.status]} size="sm" dot>
             {statusLabel(run.status)}
           </Badge>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Close
-          </Button>
         </div>
       </div>
 
@@ -661,6 +651,6 @@ function RunDetail({ run, onClose }: { run: WorkflowRun; onClose: () => void }) 
             ))}
         </section>
       )}
-    </Card>
+    </div>
   );
 }
