@@ -256,6 +256,15 @@ export async function persistScreenerReportCanonical(ctx: ReportDispatchContext,
   opportunities: unknown[];
   allStocks: unknown[];
   pdfKey?: string;
+  /** Issue #2062: the workbook/CSV artifacts this run recorded. */
+  xlsxKey?: string;
+  xlsxStatus?: unknown;
+  xlsxError?: unknown;
+  csvKey?: string;
+  csvStatus?: unknown;
+  csvError?: unknown;
+  /** Issue #2062: the screener-workflow family that produced the run. */
+  runSource?: unknown;
   error?: string;
   trigger?: unknown;
   userLogin?: string;
@@ -289,6 +298,13 @@ export async function persistScreenerReportCanonical(ctx: ReportDispatchContext,
         opportunities: result.opportunities,
         allStocks: result.allStocks,
         pdfKey: result.pdfKey,
+        xlsxKey: result.xlsxKey,
+        xlsxStatus: result.xlsxStatus,
+        xlsxError: result.xlsxError,
+        csvKey: result.csvKey,
+        csvStatus: result.csvStatus,
+        csvError: result.csvError,
+        runSource: result.runSource ?? "stock",
         reportUrl: result.pdfKey
           ? `${ctx.env.APP_BASE_URL || "https://agent.openaimp.com"}/api/screener/report.pdf?key=${encodeURIComponent(result.pdfKey)}`
           : undefined,

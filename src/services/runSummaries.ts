@@ -105,6 +105,10 @@ export interface RunSummary {
   /** Display source: the mas_reports source for canonical rows;
    *  "options_scanner" / "discovery" / "screener" for detail-only rows. */
   source: string;
+  /** Issue #2062: the screener-workflow family the run recorded
+   *  ("stock" / "options" / "goal" / "strategy"), when the store
+   *  records one. Optional so pre-#2062 rows still typecheck. */
+  runSource?: string | null;
 }
 
 function parseBody(body: unknown): Record<string, any> {
@@ -148,6 +152,15 @@ const KIND_BY_REPORT_SOURCE: Record<string, RunKind> = {
   // shape had no goal kind). The Reports panel filters goal_screen
   // client-side by source, so no client change is needed.
   goal_screen: "goal",
+};
+
+/** Issue #2062: the screener-workflow family a run records (body.runSource),
+ *  falling back to its kind for rows written before the field existed. */
+const RUN_SOURCE_BY_KIND: Record<string, string> = {
+  screener: "stock",
+  options_scanner: "options",
+  goal: "goal",
+  discovery: "strategy",
 };
 
 function xlsxUrlForSource(source: string, key: string): string | null {
@@ -238,6 +251,7 @@ export function runSummaryFromReport(hit: ScheduledReportHit): RunSummary {
     scanRunId: kind === "options_scanner" ? canonicalScanRunId(hit.body) : null,
     discoveryRunId: kind === "discovery" ? canonicalDiscoveryRunId(hit.body) : null,
     source: hit.source,
+    runSource: strOrNull(body?.runSource) ?? RUN_SOURCE_BY_KIND[kind] ?? null,
   };
 }
 
@@ -279,6 +293,7 @@ export function runSummaryFromScanRun(scan: ScanRunSummary): RunSummary {
     reportId: null,
     scanRunId: scan.id,
     source: "options_scanner",
+    runSource: "options",
   };
 }
 
@@ -307,6 +322,7 @@ export function runSummaryFromDiscoveryRun(run: DiscoveryRunSummary): RunSummary
     scanRunId: null,
     discoveryRunId: run.id,
     source: "discovery",
+    runSource: "strategy",
   };
 }
 
@@ -341,6 +357,7 @@ export function runSummaryFromScreenerRun(run: ScreenerRunResult): RunSummary {
     reportId: null,
     scanRunId: null,
     source: "screener",
+    runSource: "stock",
   };
 }
 
