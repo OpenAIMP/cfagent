@@ -142,6 +142,7 @@ describe("Issue #308 — one canonical report copy", () => {
       source: "screener",
       summary: "S",
       body: { a: 1 },
+      userLogin: "tenant@example.com",
     };
     const first = storeReportAtGeneration(sql, input);
     const second = storeReportAtGeneration(sql, input);
@@ -331,6 +332,7 @@ describe("Issue #308 — one canonical report copy", () => {
       summary: "S",
       body: { ok: true },
       createdAt: "2026-10-18T00:00:00.000Z",
+      userLogin: "tenant@example.com",
     };
     const first = orm.storeCanonicalReport(input);
     const second = orm.storeCanonicalReport(input);

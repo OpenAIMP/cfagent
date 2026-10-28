@@ -2746,6 +2746,7 @@ export class ScheduledTasksService {
             : {}),
         },
         createdAt: args.timestamp,
+        userLogin: this.userLogin,
       });
       reportId = stored?.reportId;
     }
@@ -3798,6 +3799,7 @@ export class ScheduledTasksService {
             summary: `📈 Daily IV collection [${report.date}]: ${report.recorded} recorded, ${report.alreadyRecorded} already recorded, ${report.failed} failed across ${report.outcomes.length} tracked names.`,
             body: { ...report, trackedCount: report.outcomes.length },
             createdAt: timestamp,
+            userLogin: this.userLogin,
           });
         } catch {
           // Non-critical report persistence error

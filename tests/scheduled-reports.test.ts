@@ -60,6 +60,7 @@ const report = (over: Partial<Parameters<typeof toScheduledReportRecord>[0]> = {
   summary: "Scanned 500 symbols, 12 matched, 3 opportunities.",
   body: { opportunities: [{ symbol: "NVDA" }] },
   createdAt: "2026-10-18T10:00:00.000Z",
+  userLogin: "tenant@example.com",
   ...over,
 });
 
