@@ -88,5 +88,10 @@
     "path": "src/client/workflowsHub.css",
     "lines": 1188,
     "reason": "grandfathered (#1337)"
+  },
+  {
+    "path": "src/client/workflowRuns.css",
+    "lines": 253,
+    "reason": "Workflow Runs ledger layout (#2082) — page-specific grid/table layout, token values only"
   }
 ]
