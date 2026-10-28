@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../../apiFetch";
 import { Button, TextInput } from "../../components/ui";
+import { buildJson, downloadTextFile } from "../../runExport";
 import type { SearchTabProps } from "../searchTabTypes";
 
 interface AgentResult {
@@ -25,6 +26,9 @@ interface AgentResult {
 export function SearchAgentTab({ pendingQuery, onHealth, onSearch }: SearchTabProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<AgentResult[]>([]);
+  // Issue #1169 S4-4: the last successful raw response, retained
+  // verbatim for the Download button (native shape, no envelope).
+  const [lastResult, setLastResult] = useState<unknown>(null);
   const [provider, setProvider] = useState("");
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -47,6 +51,7 @@ export function SearchAgentTab({ pendingQuery, onHealth, onSearch }: SearchTabPr
       const data = (await res.json()) as any;
       if (!res.ok) throw new Error(data.error || "Agent search failed.");
       setResults(data.results || []);
+      setLastResult(data);
       setProvider(data.provider || "");
       setSearched(true);
       const ms = Date.now() - started;
@@ -88,6 +93,9 @@ export function SearchAgentTab({ pendingQuery, onHealth, onSearch }: SearchTabPr
           {loading ? "Searching…" : "Search"}
         </Button>
       </form>
+      <Button type="button" onClick={() => downloadTextFile("search-agent-results.json", buildJson(lastResult), "application/json")} disabled={!lastResult} title="Download current results as JSON">
+        Download results (JSON)
+      </Button>
       {error && <p role="alert">{error}</p>}
       {searched && (
         <div>
