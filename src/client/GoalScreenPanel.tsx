@@ -172,7 +172,7 @@ const fieldStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-1)",
-  fontSize: "0.85rem",
+  fontSize: "var(--font-size-body)",
   color: "var(--color-text-muted)",
 };
 
@@ -511,7 +511,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
 
   return (
     <div style={{ padding: "var(--space-4) 0" }}>
-      <p style={{ margin: "0 0 1rem", color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
+      <p style={{ margin: "0 0 1rem", color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>
         Run a goal-driven screen through the unified screening stack: the goal&rsquo;s scenario
         drives one screen across stocks and options, executed by the shared provider registry.
         Results are recorded in Reports and the screening activity log.
@@ -549,7 +549,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
       {error && <div className="options-error" role="alert">{error}</div>}
 
       {tracking && (
-        <div style={{ marginTop: "1rem", fontSize: "0.9rem" }} role="status">
+        <div style={{ marginTop: "1rem", fontSize: "var(--font-size-body)" }} role="status">
           <p style={{ margin: "0 0 0.5rem", fontWeight: 600 }}>
             Staged run in progress{tracking.timedOut ? " — still processing" : ""} — live stage progress
           </p>
@@ -579,7 +579,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
       {result && (
         <div style={{ marginTop: "1rem" }}>
           {previousResult && (
-            <p style={{ color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
+            <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>
               Previous stored run — submit a new goal screen to refresh.
             </p>
           )}
@@ -592,7 +592,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
               `PARTIAL — ${result.partial?.failedClasses.join(", ")} failed: ${Object.values(result.partial?.reasons ?? {}).join("; ")}`}
             {result.status === "failed" && "Failed — the screen produced no complete result."}
           </div>
-          <p style={{ color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
+          <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>
             Scanned {result.counts.stocksScanned} stocks ({result.counts.stocksMatched} matched),{" "}
             {result.counts.optionsUnderlyingsScanned} option underlyings ({result.counts.optionsContractsMatched}{" "}
             contracts matched); {result.counts.hits} hit(s).
@@ -630,7 +630,7 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
               </Button>
               {backtestError && <div className="options-error" role="alert">{backtestError}</div>}
               {backtest && (
-                <div style={{ marginTop: "0.75rem", fontSize: "0.9rem" }}>
+                <div style={{ marginTop: "0.75rem", fontSize: "var(--font-size-body)" }}>
                   <p style={{ margin: "0 0 0.5rem" }}>
                     <strong>Backtest (provenance: {backtest.provenance})</strong> — {backtest.aggregate.totalTrades}{" "}
                     trade(s), net ${backtest.aggregate.totalNetPnl.toLocaleString("en-US")} (

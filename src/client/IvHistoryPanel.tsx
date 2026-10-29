@@ -100,10 +100,10 @@ export function IvHistoryPanel() {
 
   return (
     <div>
-      <h2 style={{ fontSize: "1.1rem", marginBottom: "0.25rem" }}>📈 IV History</h2>
-      <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "1rem" }}>
+      <h2 style={{ fontSize: "var(--font-size-title-sm)", marginBottom: "0.25rem" }}>📈 IV History</h2>
+      <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginBottom: "1rem" }}>
         Daily E*TRADE option-chain snapshots · {names.length} symbols · {totalObs} observations ·{" "}
-        <Button onClick={loadCoverage} style={{ fontSize: "0.8rem" }}>↻ Refresh</Button>
+        <Button onClick={loadCoverage} style={{ fontSize: "var(--font-size-body-sm)" }}>↻ Refresh</Button>
       </div>
       {error && <div style={{ color: "var(--color-danger)" }}>{error}</div>}
       {loading && !names.length && <div>Loading…</div>}
@@ -157,14 +157,14 @@ export function IvHistoryPanel() {
           {detail && (
             <div>
               <h3 style={{ fontSize: "1rem" }}>{detail.symbol}</h3>
-              <div style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
+              <div style={{ fontSize: "var(--font-size-body)", marginBottom: "0.5rem" }}>
                 {detail.observations} observations · coverage {detail.coveragePct.toFixed(0)}% ·{" "}
                 {detail.warmingUp ? "warming up" : "active"} ·{" "}
                 IV rank {detail.ivRank == null ? "—" : detail.ivRank.toFixed(0)} ·{" "}
                 IV percentile {detail.ivPercentile == null ? "—" : detail.ivPercentile.toFixed(0)}
               </div>
               {detail.latest && (
-                <div style={{ fontSize: "0.85rem", marginBottom: "0.75rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)", marginBottom: "0.75rem" }}>
                   Latest {detail.latest.date}: ATM IV {(detail.latest.atmIv * 100).toFixed(1)}% ·{" "}
                   spot ${detail.latest.spot.toFixed(2)} · {detail.latest.dte} DTE
                 </div>

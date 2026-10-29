@@ -367,7 +367,7 @@ export function AskAgentWidget({
 
           {/* Quick Prompt Chips */}
           <div className="ask-agent-quick-prompts-wrap" style={{ padding: "var(--space-1-5) var(--space-3) var(--space-1)" }}>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.35rem" }}>
+            <div style={{ fontSize: "var(--font-size-caption)", fontWeight: 700, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.35rem" }}>
               Suggested for {activeTab ? activeTab.replace("-", " ") : "Current Workspace"}:
             </div>
             <div className="ask-agent-quick-prompts">

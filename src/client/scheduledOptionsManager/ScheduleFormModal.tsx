@@ -227,7 +227,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
               {/* Optional Custom Criteria (Market Screen) */}
               {jobType === "marketScreen" && (
                 <details style={{ marginTop: "0.25rem", padding: "var(--space-2) var(--space-3)", background: "var(--color-surface-sunken)", borderRadius: "6px", border: "1px solid var(--color-border-subtle)" }}>
-                  <summary style={{ fontSize: "0.84rem", cursor: "pointer", color: "var(--color-accent)", fontWeight: 600, userSelect: "none" }}>
+                  <summary style={{ fontSize: "var(--font-size-body-sm)", cursor: "pointer", color: "var(--color-accent)", fontWeight: 600, userSelect: "none" }}>
                     ⚙️ Custom Screening Criteria &amp; Filters (Optional)
                   </summary>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)", marginTop: "0.6rem" }}>

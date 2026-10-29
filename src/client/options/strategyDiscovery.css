@@ -123,7 +123,7 @@
 }
 
 .strat-search-icon {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   margin-right: 0.35rem;
   color: var(--color-text-dim);
   line-height: 1;
@@ -134,7 +134,7 @@
   font-variant-numeric: tabular-nums;
   font-weight: 800;
   color: var(--color-text-primary);
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
 }
 
 /* Side-by-Side Controls Row: Sentiment Selector (Left) & Optimization Bias Panel (Right) */
@@ -207,7 +207,7 @@
 
 .strat-opt-title {
   font-family: var(--font-sans);
-  font-size: var(--font-size-caption, 0.72rem);
+  font-size: var(--font-size-caption, 0.75rem);
   font-weight: var(--font-weight-bold, 700);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -217,7 +217,7 @@
 
 .strat-opt-regime-badge {
   font-family: var(--font-sans);
-  font-size: var(--font-size-caption, 0.7rem);
+  font-size: var(--font-size-caption, 0.75rem);
   font-weight: var(--font-weight-bold, 700);
   padding: 1px var(--space-2, 0.5rem);
   border-radius: var(--radius-xs, 4px);
@@ -238,7 +238,7 @@
 
 .strat-opt-bound {
   font-family: var(--font-sans);
-  font-size: var(--font-size-caption, 0.68rem);
+  font-size: var(--font-size-caption, 0.75rem);
   font-weight: var(--font-weight-semibold, 600);
   color: var(--color-text-muted);
   white-space: nowrap;
@@ -262,7 +262,7 @@
 
 .strat-opt-adjacent-factors .strat-factor-chip {
   font-family: var(--font-sans);
-  font-size: var(--font-size-caption, 0.7rem);
+  font-size: var(--font-size-caption, 0.75rem);
   font-weight: var(--font-weight-semibold, 600);
   padding: 2px var(--space-1, 0.25rem);
   border-radius: var(--radius-xs, 4px);
@@ -305,7 +305,7 @@
 }
 
 .strat-opt-bound {
-  font-size: var(--font-size-caption, 0.72rem);
+  font-size: var(--font-size-caption, 0.75rem);
   font-weight: var(--font-weight-semibold, 600);
   color: var(--color-text-dim);
   white-space: nowrap;
@@ -319,7 +319,7 @@
 }
 
 .strat-opt-regime-desc {
-  font-size: var(--font-size-caption, 0.7rem);
+  font-size: var(--font-size-caption, 0.75rem);
   color: var(--color-text-dim);
   line-height: 1.25;
 }
@@ -355,14 +355,14 @@
 }
 
 .strat-factor-title {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   color: var(--color-text-muted);
   font-weight: 600;
   white-space: nowrap;
 }
 
 .strat-factor-weight {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   color: var(--color-accent);
   font-family: var(--font-sans);
@@ -412,7 +412,7 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  font-size: 1.15rem;
+  font-size: var(--font-size-title-sm);
   font-weight: 700;
   width: 100%;
   margin-bottom: 0.25rem;
@@ -430,7 +430,7 @@
 
 .strat-symbol-input-wrap label {
   color: var(--color-text-muted);
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   margin-right: 0.4rem;
   font-weight: 500;
 }
@@ -450,13 +450,13 @@
 
 .strat-price-display {
   color: var(--color-text-primary);
-  font-size: 1.35rem;
+  font-size: var(--font-size-title);
   font-weight: 800;
   letter-spacing: -0.02em;
 }
 
 .strat-change-pill {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
@@ -727,7 +727,7 @@
   border: none;
   color: var(--color-accent);
   font-weight: var(--font-weight-bold, 700);
-  font-size: var(--font-size-body-sm, 0.82rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
   cursor: pointer;
   outline: none;
 }
@@ -740,7 +740,7 @@
 .strat-stat-rr-badge {
   display: inline-flex;
   align-items: center;
-  font-size: var(--font-size-caption, 0.72rem);
+  font-size: var(--font-size-caption, 0.75rem);
   font-weight: var(--font-weight-bold, 700);
   padding: var(--space-0-5, 2px) var(--space-2, 0.5rem);
   border-radius: var(--radius-xs, 4px);
@@ -779,7 +779,7 @@
   border: 1px solid var(--color-border-medium);
   border-radius: 8px;
   padding: 0.45rem 0.65rem;
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -806,7 +806,7 @@
 
 .strat-input-pill label {
   color: var(--color-text-muted);
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -814,7 +814,7 @@
 }
 
 .strat-pill-icon {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   flex-shrink: 0;
   line-height: 1;
 }
@@ -825,7 +825,7 @@
   color: var(--color-text-primary);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
   width: 100%;
   min-width: 2.8rem;
@@ -842,13 +842,13 @@
 .strat-currency-prefix {
   color: var(--color-text-dim);
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   margin-right: -0.2rem;
   flex-shrink: 0;
 }
 
 .strat-pct-tag {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 800;
   padding: 0.12rem 0.38rem;
   border-radius: 4px;
@@ -879,7 +879,7 @@
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
   font-weight: 800;
-  font-size: 0.84rem;
+  font-size: var(--font-size-body-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -887,7 +887,7 @@
 
 .strat-implied-pct {
   color: var(--color-accent);
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   margin-left: 0.25rem;
   opacity: 0.9;
@@ -919,7 +919,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 1.35rem;
+  font-size: var(--font-size-title);
   line-height: 1;
   flex-shrink: 0;
   transition: all 0.15s ease;
@@ -1014,7 +1014,7 @@
 }
 
 .strat-chip-month {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -1028,7 +1028,7 @@
 }
 
 .strat-chip-day {
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   font-weight: 800;
   color: var(--color-text-primary);
   line-height: 1.1;
@@ -1051,7 +1051,7 @@
 }
 
 .strat-builder-exp-title {
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
   color: var(--color-text-muted);
   letter-spacing: 0.04em;
@@ -1072,7 +1072,7 @@
   box-sizing: border-box;
   margin: 0.15rem auto;
   color: var(--color-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
 }
 
@@ -1154,7 +1154,7 @@
 .strat-card-name,
 .strat-card-title {
   color: var(--color-text-primary);
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
   font-weight: 700;
   margin: 0;
   line-height: 1.25;
@@ -1162,7 +1162,7 @@
 
 .strat-card-subtitle {
   color: var(--color-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   margin: 0;
   line-height: 1.25;
   word-break: break-word;
@@ -1185,7 +1185,7 @@
 
 .strat-stat-return {
   color: var(--color-accent);
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
 }
 
@@ -1202,25 +1202,25 @@
 
 .strat-stat-highlight {
   color: var(--color-warning);
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
 }
 
 .strat-stat-profit {
   color: var(--color-text-primary);
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
 }
 
 .strat-stat-risk {
   color: var(--color-text-secondary);
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   font-weight: 600;
 }
 
 .strat-stat-chance {
   color: var(--color-text-muted);
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
 }
 
@@ -1240,7 +1240,7 @@
   border: none;
   border-radius: 5px;
   font-weight: 700;
-  font-size: 0.84rem;
+  font-size: var(--font-size-body-sm);
   padding: 0.5rem 1rem;
   width: 65%;
   margin: 0.3rem auto 0;
@@ -1317,7 +1317,7 @@
 
 .strat-builder-title-group h2 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: var(--font-size-title);
   font-weight: 800;
   color: var(--color-text-primary);
 }
@@ -1433,7 +1433,7 @@
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
   font-weight: 800;
-  font-size: 0.92rem;
+  font-size: var(--font-size-body);
   letter-spacing: 0.03em;
   padding: 0.25rem 0.65rem;
   background: var(--color-accent-subtle);
@@ -1448,7 +1448,7 @@
   color: var(--color-text-secondary);
   padding: 0.25rem 0.65rem;
   border-radius: 6px;
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -1464,14 +1464,14 @@
 }
 
 .strat-quote-name {
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   color: var(--color-text-muted);
   font-weight: 500;
   margin-right: 0.2rem;
 }
 
 .strat-quote-price {
-  font-size: 1.15rem;
+  font-size: var(--font-size-title-sm);
   font-weight: 800;
   color: var(--color-text-primary);
   font-family: var(--font-sans);
@@ -1485,7 +1485,7 @@
   gap: 0.25rem;
   padding: 0.2rem 0.6rem;
   border-radius: 5px;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
@@ -1504,7 +1504,7 @@
 }
 
 .strat-delayed-tag {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-dim);
   background: var(--color-muted);
   padding: 0.2rem 0.5rem;
@@ -1521,7 +1521,7 @@
 }
 
 .strat-expiration-label {
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   font-weight: 600;
   text-transform: uppercase;
@@ -1556,7 +1556,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 1.4rem;
+  font-size: var(--font-size-title-lg);
   line-height: 1;
   flex-shrink: 0;
   transition: all 0.15s ease;
@@ -1576,7 +1576,7 @@
 }
 
 .strat-strike-ruler-title {
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 700;
   color: var(--color-text-secondary);
   text-transform: uppercase;
@@ -1638,7 +1638,7 @@
   width: 54px;
   min-width: 54px;
   flex-shrink: 0;
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-dim);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
@@ -1781,7 +1781,7 @@
 }
 
 .strat-metric-label {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1791,7 +1791,7 @@
 }
 
 .strat-metric-val {
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
   font-weight: 800;
   color: var(--color-text-primary);
   font-family: var(--font-sans);
@@ -1861,7 +1861,7 @@
 }
 
 .strat-footer-slider-label {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   color: var(--color-text-secondary);
   white-space: nowrap;
@@ -1882,7 +1882,7 @@
 }
 
 .strat-footer-sub-label {
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -1896,7 +1896,7 @@
 
 .strat-zoom-btn-group.compact .strat-zoom-btn {
   padding: 0.18rem 0.45rem;
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   border-radius: 4px;
   background: var(--color-surface);
   border: 1px solid var(--color-border-subtle);
@@ -1923,7 +1923,7 @@
 
 .strat-iv-btn.mini {
   padding: 0.15rem 0.35rem;
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   border-radius: 4px;
   cursor: pointer;
   background: var(--color-surface);
@@ -1959,7 +1959,7 @@
   background: var(--color-card);
   border: 1px solid var(--color-border-subtle);
   color: var(--color-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   padding: 0.35rem 0.65rem;
   border-radius: 4px;
@@ -1990,7 +1990,7 @@
 }
 
 .strat-positions-title {
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
   color: var(--color-text-primary);
   display: flex;
@@ -2006,7 +2006,7 @@
   background: var(--color-surface-sunken);
   padding: 0.5rem 0.75rem;
   border-radius: 4px;
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
 }
 
 @media (max-width: 768px) {
@@ -2030,7 +2030,7 @@
 .strat-matrix-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
@@ -2096,13 +2096,13 @@
   color: var(--color-accent);
   padding: 0.25rem 0.65rem;
   border-radius: 9999px;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .strat-opt-regime-desc {
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-muted);
   flex: 1;
 }
@@ -2139,7 +2139,7 @@
 }
 
 .strat-factor-title {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   color: var(--color-text-secondary);
   white-space: nowrap;
@@ -2150,7 +2150,7 @@
 }
 
 .strat-factor-weight {
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   color: var(--color-accent);
   font-family: var(--font-sans);
@@ -2189,7 +2189,7 @@
 }
 
 .strat-factor-hint {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   color: var(--color-text-dim);
   line-height: 1.25;
 }
@@ -2204,7 +2204,7 @@
 }
 
 .strat-factor-pill {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   font-weight: 600;
   padding: 0.15rem 0.45rem;
   border-radius: 4px;
@@ -2278,7 +2278,7 @@
 }
 
 .strat-leg-pill {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
@@ -2306,7 +2306,7 @@
 }
 
 .strat-leg-strike-display {
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
   font-weight: 800;
   color: var(--color-text-primary);
   font-family: var(--font-sans);
@@ -2386,7 +2386,7 @@
 }
 
 .strat-card-icon-btn .strat-icon {
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
   line-height: 1;
   transition: transform 0.15s ease;
   pointer-events: none;
@@ -2408,7 +2408,7 @@
   background: var(--color-surface-sunken);
   color: var(--color-text-primary);
   border: 1px solid var(--color-accent-border);
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   font-weight: 700;
   font-family: var(--font-sans);
   padding: 3px 7px;
@@ -2590,12 +2590,12 @@
 }
 
 .options-download-menu-header strong {
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-primary);
 }
 
 .options-download-menu-header span {
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 
@@ -2629,7 +2629,7 @@
 }
 
 .options-download-menu-item .menu-item-icon {
-  font-size: 1.1rem;
+  font-size: var(--font-size-title-sm);
   line-height: 1.2;
 }
 
@@ -2640,18 +2640,18 @@
 }
 
 .options-download-menu-item .menu-item-text strong {
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-surface-hover);
 }
 
 .options-download-menu-item .menu-item-text small {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   color: var(--color-text-muted);
   line-height: 1.25;
 }
 
 .options-download-status {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   padding: 0.4rem 0.6rem;
   border-radius: 4px;
   margin-top: 0.3rem;
@@ -2726,7 +2726,7 @@
 }
 
 .llm-eval-badge {
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   color: var(--color-sentiment-directional);
   text-transform: uppercase;
@@ -2735,7 +2735,7 @@
 
 .llm-eval-title-group h3 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: var(--font-size-title-sm);
   font-weight: 800;
   color: var(--color-text-primary);
 }
@@ -2788,14 +2788,14 @@
 }
 
 .llm-eval-strategy-strip span {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .llm-eval-strategy-strip strong {
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   color: var(--color-surface-hover);
 }
 
@@ -2812,7 +2812,7 @@
 }
 
 .llm-eval-label span {
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   color: var(--color-text-secondary);
 }
@@ -2823,7 +2823,7 @@
   border-radius: 6px;
   color: var(--color-text-primary);
   padding: 0.65rem 0.85rem;
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   line-height: 1.45;
   resize: vertical;
   font-family: inherit;
@@ -2847,7 +2847,7 @@
   background: linear-gradient(135deg, var(--color-sentiment-directional) 0%, var(--color-sentiment-directional) 100%);
   border: none;
   color: var(--color-text-primary);
-  font-size: 0.84rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 700;
   padding: 0.55rem 1.25rem;
   border-radius: 6px;
@@ -2872,7 +2872,7 @@
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success-border);
   color: var(--color-success);
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 700;
   padding: 0.55rem 1rem;
   border-radius: 6px;
@@ -2898,7 +2898,7 @@
   align-items: center;
   gap: 0.6rem;
   flex-wrap: wrap;
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   padding: 0.4rem 0.6rem;
   background: var(--color-surface-sunken);
@@ -2921,12 +2921,12 @@
 
 .llm-eval-synthesis-card h4 {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: var(--font-size-body);
   color: var(--color-sentiment-directional);
 }
 
 .llm-eval-answer-text {
-  font-size: 0.84rem;
+  font-size: var(--font-size-body-sm);
   line-height: 1.55;
   color: var(--color-surface-hover);
   white-space: pre-wrap;
@@ -2944,7 +2944,7 @@
 
 .llm-eval-rankings-list h5 {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -2960,7 +2960,7 @@
 }
 
 .llm-eval-rank-num {
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 800;
   color: var(--color-accent);
   background: var(--color-accent-subtle);
@@ -2975,13 +2975,13 @@
 }
 
 .llm-eval-rank-body strong {
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-primary);
 }
 
 .llm-eval-rank-body p {
   margin: 0;
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   line-height: 1.35;
 }
@@ -3011,12 +3011,12 @@
 }
 
 .llm-eval-group-header strong {
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-accent);
 }
 
 .llm-eval-group-header span {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   color: var(--color-text-dim);
 }
 
@@ -3066,13 +3066,13 @@
 }
 
 .llm-eval-export-title span {
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 700;
   color: var(--color-text-primary);
 }
 
 .llm-eval-export-title small {
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 
@@ -3083,7 +3083,7 @@
 }
 
 .llm-export-btn {
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   padding: 0.45rem 0.85rem;
   border-radius: 5px;
@@ -3134,7 +3134,7 @@
   background: var(--gradient-llm);
   border: 1px solid var(--color-purple-border);
   color: var(--color-text-secondary);
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   padding: 0.35rem 0.7rem;
   border-radius: 4px;
@@ -3165,7 +3165,7 @@
   color: var(--color-text-primary);
   padding: 0.65rem 1.25rem;
   border-radius: 8px;
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   font-weight: 600;
   box-shadow: var(--shadow-lg), var(--shadow-glow-accent);
   z-index: 9999;
@@ -3351,7 +3351,7 @@
   background: transparent;
   border: 0;
   padding: 0.25rem 0.45rem;
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
 }
 
 .strat-action-chip.autorefresh.active {
@@ -3411,7 +3411,7 @@
   color: var(--color-accent);
   border-radius: 5px;
   padding: 0.2rem 0.4rem;
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   cursor: pointer;
   outline: none;
@@ -3462,13 +3462,13 @@
   border-radius: var(--radius-sm);
   color: var(--color-text-primary);
   padding: 0.5rem 0.75rem;
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   margin-bottom: 0.5rem;
   box-sizing: border-box;
 }
 
 .strat-dropdown-header {
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   text-transform: uppercase;
   color: var(--color-text-dim);
@@ -3506,13 +3506,13 @@
 .strat-dropdown-sym {
   font-weight: 700;
   color: var(--color-accent);
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 
 .strat-dropdown-name {
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -3530,13 +3530,13 @@
 .strat-dropdown-price {
   font-weight: 700;
   color: var(--color-text-primary);
-  font-size: 0.86rem;
+  font-size: var(--font-size-body);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 
 .strat-dropdown-pill {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   font-weight: 700;
   padding: 0.08rem 0.32rem;
   border-radius: 3px;
@@ -3566,7 +3566,7 @@
   background: var(--color-info-subtle);
   border: 1px solid var(--color-accent-border);
   color: var(--color-accent);
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
@@ -3598,13 +3598,13 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--color-text-secondary);
 }
 
 .strat-compare-hint {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   font-weight: 400;
 }
@@ -3619,7 +3619,7 @@
   background: var(--color-accent-subtle);
   border: 1px solid var(--color-accent);
   color: var(--color-accent);
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   padding: 0.25rem 0.6rem;
   border-radius: 4px;
@@ -3636,7 +3636,7 @@
   background: transparent;
   border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   padding: 0.25rem 0.55rem;
   border-radius: 4px;
@@ -3659,7 +3659,7 @@
   background: var(--color-muted);
   border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   cursor: pointer;
@@ -3671,7 +3671,7 @@
 }
 
 .strat-quote-name {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   color: var(--color-text-muted);
 }
 
@@ -3692,7 +3692,7 @@
 }
 
 .strat-ruler-legend {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   display: inline-flex;
   align-items: center;
@@ -3723,7 +3723,7 @@
   background: var(--color-card);
   border: 1px solid var(--color-border-medium);
   color: var(--color-text-secondary);
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
@@ -3744,7 +3744,7 @@
 }
 
 .strat-ruler-range-hint {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-dim);
   font-weight: 500;
 }
@@ -3821,7 +3821,7 @@
 }
 
 .strat-legs-hint {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-dim);
   font-weight: 400;
 }
@@ -3844,7 +3844,7 @@
 
 .strat-add-leg-btn,
 .strat-remove-leg-btn {
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   padding: 0.25rem 0.6rem;
   cursor: pointer;
@@ -3952,7 +3952,7 @@
   width: 22px;
   height: 22px;
   border-radius: 4px;
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 700;
   cursor: pointer;
   display: flex;
@@ -3965,14 +3965,14 @@
 }
 
 .strat-leg-qty {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
   min-width: 20px;
   text-align: center;
 }
 
 .strat-side-pill {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   padding: 0.15rem 0.45rem;
   border-radius: 4px;
@@ -3991,7 +3991,7 @@
 }
 
 .strat-type-pill {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   padding: 0.15rem 0.45rem;
   border-radius: 4px;
@@ -4008,7 +4008,7 @@
 }
 
 .strat-leg-strike-label {
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
   color: var(--color-text-primary);
   margin-left: 0.25rem;
@@ -4030,7 +4030,7 @@
   background: var(--color-muted);
   border: 1px solid var(--color-border-medium);
   color: var(--color-text-secondary);
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
@@ -4069,7 +4069,7 @@
   background: var(--color-surface-sunken);
   border: 1px solid var(--color-accent);
   color: var(--color-text-primary);
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   padding: 0.2rem 0.35rem;
   border-radius: var(--radius-xs);
 }
@@ -4101,7 +4101,7 @@
 }
 
 .strat-leg-act-btn {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
@@ -4140,7 +4140,7 @@
 }
 
 .strat-closed-tag {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   color: var(--color-accent);
   background: var(--color-accent-subtle);
@@ -4162,7 +4162,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 0.35rem 0.5rem;
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
@@ -4177,7 +4177,7 @@
   background: var(--color-muted);
   border: 1px solid var(--color-border-subtle);
   color: var(--color-text-secondary);
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 500;
   transition: all var(--transition-fast, 0.15s ease);
   cursor: default;
@@ -4211,7 +4211,7 @@
 
 .strat-spread-txt {
   color: var(--color-text-dim);
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   white-space: nowrap;
 }
 
@@ -4222,7 +4222,7 @@
 }
 
 .strat-warn-badge {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   font-weight: 600;
   color: var(--color-warning);
   background: var(--color-warning-subtle);
@@ -4257,7 +4257,7 @@
   background: transparent;
   border: 1px solid var(--color-border-medium);
   color: var(--color-text-muted);
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   padding: 0.25rem 0.65rem;
   border-radius: 4px;
@@ -4280,7 +4280,7 @@
 .strat-stats-tab.reset-both {
   border: 1px dashed var(--color-accent-border);
   color: var(--color-accent);
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   padding: 0.22rem 0.55rem;
   background: var(--color-accent-subtle);
 }
@@ -4380,14 +4380,14 @@
 }
 
 .strat-metrics-strip.side-by-side .strat-metric-label {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .strat-metrics-strip.side-by-side .strat-metric-val {
-  font-size: clamp(0.85rem, 1vw, 1.05rem);
+  font-size: clamp(var(--font-size-body), 1vw, var(--font-size-title-sm));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4425,13 +4425,13 @@
 }
 
 .strat-matrix-title {
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 700;
   color: var(--color-text-secondary);
 }
 
 .strat-matrix-legend {
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 
@@ -4448,7 +4448,7 @@
 .strat-matrix-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   text-align: center;
 }
 
@@ -4471,7 +4471,7 @@
 }
 
 .strat-th-dte {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   color: var(--color-text-dim);
 }
 
@@ -4500,7 +4500,7 @@
 
 .spot-tag {
   color: var(--color-info);
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   margin-left: 0.35rem;
 }
 
@@ -4531,7 +4531,7 @@
 }
 
 .strat-iv-btn {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   padding: 0.15rem 0.4rem;
   border-radius: 3px;
   cursor: pointer;
@@ -4616,13 +4616,13 @@
 
 .strat-modal-header h3 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: var(--font-size-title-sm);
   color: var(--color-text-primary);
 }
 
 .strat-modal-header-titles span,
 .strat-modal-sub {
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 
@@ -4630,7 +4630,7 @@
   background: transparent;
   border: none;
   color: var(--color-text-muted);
-  font-size: 1.2rem;
+  font-size: var(--font-size-title);
   cursor: pointer;
   padding: 0.2rem 0.5rem;
 }
@@ -4658,7 +4658,7 @@
   border-radius: var(--radius-sm);
   color: var(--color-input-foreground);
   padding: 0.45rem 0.75rem;
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
 }
 
 .strat-library-categories {
@@ -4719,19 +4719,19 @@
 }
 
 .strat-lib-card-name {
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
   color: var(--color-text-primary);
   display: block;
 }
 
 .strat-lib-card-sub {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-accent);
 }
 
 .strat-lib-risk-badge {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   font-weight: 700;
   padding: 0.15rem 0.4rem;
   border-radius: 3px;
@@ -4766,7 +4766,7 @@
 }
 
 .strat-lib-desc {
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   line-height: 1.35;
   margin: 0;
@@ -4782,7 +4782,7 @@
 }
 
 .strat-lib-legs-tag {
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-dim);
   font-weight: 600;
 }
@@ -4819,7 +4819,7 @@
 }
 
 .strat-hstat-cell .label {
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-dim);
 }
 
@@ -4830,7 +4830,7 @@
 }
 
 .strat-history-note {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-dim);
   margin-top: 0.5rem;
 }
@@ -4844,7 +4844,7 @@
 }
 
 .strat-save-form label {
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--color-text-secondary);
 }
@@ -4856,7 +4856,7 @@
   border-radius: var(--radius-sm);
   color: var(--color-input-foreground);
   padding: 0.55rem 0.75rem;
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
 }
 
 .strat-save-actions {
@@ -4917,14 +4917,14 @@
 }
 
 .strat-saved-name {
-  font-size: 0.92rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
   color: var(--color-text-primary);
   display: block;
 }
 
 .strat-saved-meta {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-dim);
 }
 
@@ -4937,7 +4937,7 @@
   background: var(--color-info-subtle);
   border: 1px solid var(--color-accent);
   color: var(--color-accent);
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   padding: 0.25rem 0.6rem;
   border-radius: 4px;
@@ -4953,7 +4953,7 @@
 }
 
 .strat-saved-notes {
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   font-style: italic;
   margin: 0;
@@ -4966,7 +4966,7 @@
 }
 
 .strat-saved-leg-chip {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   background: var(--color-muted);
   padding: 0.15rem 0.4rem;
   border-radius: 3px;
@@ -4982,14 +4982,14 @@
 }
 
 .strat-roll-subtitle {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   color: var(--color-accent);
   font-weight: 600;
   margin: 0;
 }
 
 .strat-roll-field label {
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   color: var(--color-text-muted);
   display: block;
@@ -5056,7 +5056,7 @@
   background: transparent;
   border: none;
   color: var(--color-text-muted);
-  font-size: 1.1rem;
+  font-size: var(--font-size-title-sm);
   cursor: pointer;
 }
 
@@ -5068,7 +5068,7 @@
 
 .strat-drawer-section h5 {
   margin: 0 0 0.5rem 0;
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-dim);
   text-transform: uppercase;
 }
@@ -5083,7 +5083,7 @@
   color: var(--color-text-primary);
   border-radius: var(--radius-sm);
   margin-bottom: 0.35rem;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
 }
 
 .strat-pos-item.closed {
@@ -5094,7 +5094,7 @@
   background: var(--color-danger-subtle);
   border: 1px solid var(--color-danger-border);
   color: var(--color-danger);
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   padding: 0.15rem 0.4rem;
   border-radius: 3px;
   cursor: pointer;
@@ -5118,7 +5118,7 @@
   display: inline-block;
   padding: 0.1rem 0.45rem;
   border-radius: 10px;
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   color: var(--color-text-secondary);
   border: 1px solid var(--color-border-medium);
@@ -5469,7 +5469,7 @@
 .strat-schedule-confirm-summary {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: var(--font-size-body, 0.9rem);
+  font-size: var(--font-size-body, 0.875rem);
 }
 
 .strat-schedule-confirm-controls {
@@ -5483,7 +5483,7 @@
   flex-direction: column;
   gap: var(--space-1, 0.25rem);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-caption, 0.78rem);
+  font-size: var(--font-size-caption, 0.75rem);
   font-weight: var(--font-weight-semibold, 600);
 }
 

@@ -49,7 +49,7 @@ export function MarketDataResearchProvenanceBadge({
         display: "inline-block",
         padding: "var(--space-0-5) var(--space-2)",
         borderRadius: "999px",
-        fontSize: "0.68rem",
+        fontSize: "var(--font-size-micro)",
         fontWeight: 700,
         letterSpacing: "0.01em",
         color: isLive ? "var(--color-success)" : "var(--color-warning)",
@@ -658,7 +658,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   borderRadius: "8px",
                   border: "1px solid var(--color-warning)",
                   color: "var(--color-warning)",
-                  fontSize: "0.78rem",
+                  fontSize: "var(--font-size-caption)",
                   fontWeight: 600,
                 }}
               >
@@ -753,7 +753,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
 
             {/* Quick Action Navigation & Drawer Toggle */}
             <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", alignItems: "center", paddingTop: "var(--space-1)" }}>
-              <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)", fontWeight: 600 }}>Deep-Dive Analysis:</span>
+              <span style={{ fontSize: "var(--font-size-caption)", color: "var(--color-text-muted)", fontWeight: 600 }}>Deep-Dive Analysis:</span>
               <Button variant="accent" tone="subtle" size="sm"
                 type="button"
                 onClick={() => handleTabChange("report")}
@@ -792,16 +792,16 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             {/* Expandable Alpaca Snapshot Drawer right inside the Screener page */}
             {showAlpacaDrawerOnScreener && snapshot && (
               <div style={{ background: "var(--color-surface-sunken)", border: "1px dashed var(--color-warning)", borderRadius: "10px", padding: "var(--space-4)", marginTop: "0.5rem" }}>
-                <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-warning)", fontSize: "0.95rem" }}>
+                <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-warning)", fontSize: "var(--font-size-body)" }}>
                   🦙 Alpaca Market Snapshot {snapshot.provenance === "live" ? "Live" : "Market Data Profile"} Inspection — {activeSymbol}
                 </h4>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-3)", fontSize: "0.8rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-3)", fontSize: "var(--font-size-body-sm)" }}>
                   <div style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", padding: "var(--space-2-5)", borderRadius: "6px" }}>
                     <div style={{ color: "var(--color-text-muted)" }}>Latest Execution Trade</div>
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)", fontSize: "1rem" }}>
                       ${snapshot.latestTrade?.price || "N/A"}
                     </div>
-                    <div style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
+                    <div style={{ fontSize: "var(--font-size-caption)", color: "var(--color-text-dim)" }}>
                       Size: {snapshot.latestTrade?.size || 0} • {snapshot.latestTrade?.timestamp || "live"}
                     </div>
                   </div>
@@ -810,7 +810,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       Close: ${snapshot.minuteBar?.close || "N/A"}
                     </div>
-                    <div style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
+                    <div style={{ fontSize: "var(--font-size-caption)", color: "var(--color-text-dim)" }}>
                       O: {snapshot.minuteBar?.open} H: {snapshot.minuteBar?.high} L: {snapshot.minuteBar?.low}
                     </div>
                   </div>
@@ -819,7 +819,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       VWAP: ${snapshot.dailyBar?.vwap ? Number(snapshot.dailyBar.vwap).toFixed(2) : "N/A"}
                     </div>
-                    <div style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
+                    <div style={{ fontSize: "var(--font-size-caption)", color: "var(--color-text-dim)" }}>
                       Volume: {snapshot.dailyBar?.volume?.toLocaleString() || 0}
                     </div>
                   </div>
@@ -828,7 +828,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                     <div style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>
                       Close: ${snapshot.prevDailyBar?.close || "N/A"}
                     </div>
-                    <div style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
+                    <div style={{ fontSize: "var(--font-size-caption)", color: "var(--color-text-dim)" }}>
                       H: {snapshot.prevDailyBar?.high} L: {snapshot.prevDailyBar?.low}
                     </div>
                   </div>
@@ -959,7 +959,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                     key: "sector",
                     header: "Sector",
                     render: (stock) => (
-                      <span style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)" }}>{stock.sector}</span>
+                      <span style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-secondary)" }}>{stock.sector}</span>
                     ),
                   },
                   {
@@ -1017,10 +1017,10 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                     header: "Momentum Signal",
                     render: (stock) => (
                       <div style={{ display: "flex", flexDirection: "column" }}>
-                        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: stock.changePercent > 0 ? "var(--color-success)" : "var(--color-warning)" }}>
+                        <span style={{ fontSize: "var(--font-size-caption)", fontWeight: 600, color: stock.changePercent > 0 ? "var(--color-success)" : "var(--color-warning)" }}>
                           {stock.signal || "RANGE_BOUND"}
                         </span>
-                        <span style={{ fontSize: "0.72rem", color: "var(--color-text-dim)" }}>
+                        <span style={{ fontSize: "var(--font-size-caption)", color: "var(--color-text-dim)" }}>
                           Score: {stock.momentumScore || 50}/100
                         </span>
                       </div>
@@ -1154,7 +1154,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                       borderRadius: "8px",
                       border: "1px solid var(--color-warning)",
                       color: "var(--color-warning)",
-                      fontSize: "0.82rem",
+                      fontSize: "var(--font-size-body-sm)",
                       fontWeight: 600,
                     }}
                   >
@@ -1454,7 +1454,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
               <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: "0.5rem" }}>
                 <MarketDataResearchProvenanceBadge provenance={fundamentals.provenance} note={fundamentals.note} />
                 {fundamentals.provenance !== "live" && (
-                  <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                  <span style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
                     {fundamentals.note || "Fundamentals below are not live provider data."}
                   </span>
                 )}
@@ -1616,7 +1616,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
           </div>
 
           {barsMeta && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0.5rem 0.25rem 0.75rem 0.25rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0.5rem 0.25rem 0.75rem 0.25rem", fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
               <span style={{ display: "inline-flex", gap: "var(--space-2)", alignItems: "center" }}>
                 <span>
                   📡 Source: <strong style={{ color: "var(--color-accent)" }}>{barsMeta.source || (barProvider === "alpaca" ? "Alpaca Market Data v2" : "Yahoo Finance Chart API")}</strong>
@@ -1741,13 +1741,13 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             </p>
 
             {alpacaTraces.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "var(--space-4)", color: "var(--color-text-dim)", fontSize: "0.85rem", background: "var(--color-surface-sunken)", borderRadius: "8px" }}>
+              <div style={{ textAlign: "center", padding: "var(--space-4)", color: "var(--color-text-dim)", fontSize: "var(--font-size-body)", background: "var(--color-surface-sunken)", borderRadius: "8px" }}>
                 {tracesLoading ? "Querying audit ledger…" : "No Alpaca traces recorded in this session yet. Run a snapshot or quote query above to generate trace telemetry."}
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2-5)", maxHeight: "320px", overflowY: "auto" }}>
                 {alpacaTraces.map((tr, idx) => (
-                  <div key={tr.id || idx} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "var(--space-3)", fontSize: "0.85rem" }}>
+                  <div key={tr.id || idx} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "var(--space-3)", fontSize: "var(--font-size-body)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", flexWrap: "wrap", gap: "var(--space-1)" }}>
                       <span className="pill-badge" style={{ background: "var(--color-accent-subtle)", color: "var(--color-accent)", borderColor: "var(--color-border-focus)" }}>
                         {tr.type}
@@ -1756,7 +1756,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                         {new Date(tr.created_at).toLocaleTimeString()} ({new Date(tr.created_at).toLocaleDateString()})
                       </span>
                     </div>
-                    <div style={{ color: "var(--color-text-secondary)", fontSize: "0.8rem", wordBreak: "break-all", background: "var(--color-surface)", padding: "var(--space-1-5)", borderRadius: "4px" }}>
+                    <div style={{ color: "var(--color-text-secondary)", fontSize: "var(--font-size-body-sm)", wordBreak: "break-all", background: "var(--color-surface)", padding: "var(--space-1-5)", borderRadius: "4px" }}>
                       {typeof tr.payload === "string" ? tr.payload : JSON.stringify(tr.payload)}
                     </div>
                   </div>
@@ -1767,7 +1767,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             {/* Antigravity MCP Integration Guide */}
             <div style={{ marginTop: "1.25rem", borderTop: "1px solid var(--color-border-subtle)", paddingTop: "var(--space-4)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--color-text-primary)" }}>
+                <span style={{ fontSize: "var(--font-size-body)", fontWeight: 700, color: "var(--color-text-primary)" }}>
                   ⚡ Antigravity &amp; Agent MCP Server Config (Alpaca)
                 </span>
                 <Button variant="accent"
@@ -1793,7 +1793,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                   {copiedMcpConfig ? "✓ Copied Config!" : "📋 Copy MCP Config"}
                 </Button>
               </div>
-              <pre style={{ margin: 0, background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "6px", padding: "var(--space-3)", fontSize: "0.78rem", color: "var(--color-text-primary)", overflowX: "auto" }}>
+              <pre style={{ margin: 0, background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "6px", padding: "var(--space-3)", fontSize: "var(--font-size-caption)", color: "var(--color-text-primary)", overflowX: "auto" }}>
 {`{
   "mcpServers": {
     "alpaca": {

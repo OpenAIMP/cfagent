@@ -159,7 +159,7 @@ export function CopilotTriggerButton({
       }}
       title={`Open ${BRAND.copilotName} with contextual prompts`}
     >
-      <span style={{ fontSize: "0.85rem" }}>🤖</span>
+      <span style={{ fontSize: "var(--font-size-body)" }}>🤖</span>
       <span>{label}</span>
     </Button>
   );

@@ -325,12 +325,12 @@ export function EtapiConfigModal({
       size="lg"
       title={
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-          <span style={{ fontSize: "1.35rem" }}>⚙️</span>
+          <span style={{ fontSize: "var(--font-size-title)" }}>⚙️</span>
           <div>
-            <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--color-text-primary)" }}>
+            <h3 style={{ margin: 0, fontSize: "var(--font-size-title-sm)", fontWeight: 700, color: "var(--color-text-primary)" }}>
               ETAPI Engine Configuration &amp; Tuning
             </h3>
-            <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+            <p style={{ margin: 0, fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
               Externalized defaults • Zero hardcoding • Cascading overrides for active env [{activeEnv}]
             </p>
           </div>
@@ -375,7 +375,7 @@ export function EtapiConfigModal({
             className="subnav-btn"
             style={{
               padding: "var(--space-1-5) var(--space-3)",
-              fontSize: "0.82rem",
+              fontSize: "var(--font-size-body-sm)",
               background: activeTab === "strategy" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
               color: activeTab === "strategy" ? "var(--color-accent)" : "var(--color-text-muted)",
               borderColor: activeTab === "strategy" ? "var(--color-border-focus)" : "var(--color-border-subtle)",
@@ -388,7 +388,7 @@ export function EtapiConfigModal({
             className="subnav-btn"
             style={{
               padding: "var(--space-1-5) var(--space-3)",
-              fontSize: "0.82rem",
+              fontSize: "var(--font-size-body-sm)",
               background: activeTab === "screener" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
               color: activeTab === "screener" ? "var(--color-accent)" : "var(--color-text-muted)",
               borderColor: activeTab === "screener" ? "var(--color-border-focus)" : "var(--color-border-subtle)",
@@ -401,7 +401,7 @@ export function EtapiConfigModal({
             className="subnav-btn"
             style={{
               padding: "var(--space-1-5) var(--space-3)",
-              fontSize: "0.82rem",
+              fontSize: "var(--font-size-body-sm)",
               background: activeTab === "weights" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
               color: activeTab === "weights" ? "var(--color-accent)" : "var(--color-text-muted)",
               borderColor: activeTab === "weights" ? "var(--color-border-focus)" : "var(--color-border-subtle)",
@@ -414,7 +414,7 @@ export function EtapiConfigModal({
             className="subnav-btn"
             style={{
               padding: "var(--space-1-5) var(--space-3)",
-              fontSize: "0.82rem",
+              fontSize: "var(--font-size-body-sm)",
               background: activeTab === "scanner" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
               color: activeTab === "scanner" ? "var(--color-accent)" : "var(--color-text-muted)",
               borderColor: activeTab === "scanner" ? "var(--color-border-focus)" : "var(--color-border-subtle)",
@@ -427,7 +427,7 @@ export function EtapiConfigModal({
             className="subnav-btn"
             style={{
               padding: "var(--space-1-5) var(--space-3)",
-              fontSize: "0.82rem",
+              fontSize: "var(--font-size-body-sm)",
               background: activeTab === "ai" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
               color: activeTab === "ai" ? "var(--color-accent)" : "var(--color-text-muted)",
               borderColor: activeTab === "ai" ? "var(--color-border-focus)" : "var(--color-border-subtle)",
@@ -638,10 +638,10 @@ export function EtapiConfigModal({
           {activeTab === "ai" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
               <div style={{ padding: "var(--space-3)", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", borderRadius: "var(--radius-md, 8px)" }}>
-                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "var(--font-size-body)", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                   <span>🧠</span> Workflow Model Selection
                 </h4>
-                <p style={{ margin: "0 0 0.85rem", fontSize: "0.76rem", color: "var(--color-text-muted)" }}>
+                <p style={{ margin: "0 0 0.85rem", fontSize: "var(--font-size-caption)", color: "var(--color-text-muted)" }}>
                   Configure which neural AI model is assigned to each specific trading and intelligence workflow.
                 </p>
 
@@ -705,7 +705,7 @@ export function EtapiConfigModal({
               </div>
 
               <div style={{ padding: "var(--space-3)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
-                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-text-primary)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "var(--font-size-body)", color: "var(--color-text-primary)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                   <span>🌡️</span> Sampling Temperatures
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--space-3)" }}>
@@ -746,7 +746,7 @@ export function EtapiConfigModal({
               </div>
 
               <div style={{ padding: "var(--space-3)", background: "var(--color-danger-subtle)", border: "1px solid var(--color-danger)", borderRadius: "var(--radius-md, 8px)" }}>
-                <h4 style={{ margin: "0 0 0.4rem", fontSize: "0.9rem", color: "var(--color-danger)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                <h4 style={{ margin: "0 0 0.4rem", fontSize: "var(--font-size-body)", color: "var(--color-danger)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                   <span>🛡️</span> Trading Safety Limits &amp; Constraints
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--space-3)" }}>

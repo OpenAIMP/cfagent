@@ -958,7 +958,7 @@ code:not(.did-pill code) {
 
 .section-intro-title {
   margin: 0;
-  font-size: var(--font-size-title-sm, 1.15rem);
+  font-size: var(--font-size-title-sm, 1.125rem);
   font-weight: var(--font-weight-bold, 700);
   color: var(--color-accent);
 }
@@ -966,7 +966,7 @@ code:not(.did-pill code) {
 .section-intro-desc {
   margin: var(--space-1, 0.25rem) 0 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-body-sm, 0.85rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
   line-height: 1.45;
 }
 
@@ -1112,7 +1112,7 @@ code:not(.did-pill code) {
 .modal-header h4,
 .modal-ticker {
   margin: 0;
-  font-size: var(--font-size-title-sm, 1.15rem);
+  font-size: var(--font-size-title-sm, 1.125rem);
   font-weight: var(--font-weight-bold, 700);
   color: var(--color-accent);
 }
@@ -1181,7 +1181,7 @@ code:not(.did-pill code) {
   align-items: center;
   gap: var(--space-3, 0.75rem);
   margin: var(--space-3, 0.75rem) 0 var(--space-2, 0.5rem);
-  font-size: var(--font-size-body-sm, 0.88rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
   color: var(--color-text-secondary);
 }
 
@@ -1206,7 +1206,7 @@ code:not(.did-pill code) {
 }
 
 .diagnostics-modal .diag-gateway-text {
-  font-size: var(--font-size-caption, 0.78rem);
+  font-size: var(--font-size-caption, 0.75rem);
   color: var(--color-text-muted);
 }
 
@@ -1217,7 +1217,7 @@ code:not(.did-pill code) {
   padding: 0.35rem 0.75rem;
   border-radius: var(--radius-sm, 6px);
   font-weight: 700;
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -1252,7 +1252,7 @@ code:not(.did-pill code) {
   padding: var(--space-3, 0.75rem);
   margin-bottom: var(--space-4, 1rem);
   color: var(--color-danger);
-  font-size: var(--font-size-body-sm, 0.82rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
 }
 
 
@@ -1268,7 +1268,7 @@ code:not(.did-pill code) {
   margin-top: var(--space-1-5, 0.35rem);
   word-break: break-all;
   font-family: var(--font-mono, monospace);
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
 }
 
 
@@ -1289,7 +1289,7 @@ code:not(.did-pill code) {
 .diagnostics-modal .diag-sandbox-hint {
   color: var(--color-warning);
   font-weight: 600;
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
 }
 
 
@@ -1313,7 +1313,7 @@ code:not(.did-pill code) {
 
 
 .diagnostics-modal .diag-label {
-  font-size: var(--font-size-caption, 0.72rem);
+  font-size: var(--font-size-caption, 0.75rem);
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1323,7 +1323,7 @@ code:not(.did-pill code) {
 
 
 .diagnostics-modal .diag-val {
-  font-size: var(--font-size-body-sm, 0.88rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
   font-weight: var(--font-weight-semibold, 600);
   color: var(--color-text-primary);
   margin-top: var(--space-1, 0.25rem);
@@ -1356,7 +1356,7 @@ code:not(.did-pill code) {
 
 .diagnostics-modal .diag-account-title {
   color: var(--color-success);
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   display: block;
   margin-bottom: 0.35rem;
 }
@@ -1364,7 +1364,7 @@ code:not(.did-pill code) {
 
 
 .diagnostics-modal .diag-account-row {
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-secondary);
 }
 
@@ -1374,7 +1374,7 @@ code:not(.did-pill code) {
   margin-top: 0.5rem;
   padding-top: 0.5rem;
   border-top: 1px solid var(--color-border-subtle);
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-primary);
 }
 
@@ -1395,7 +1395,7 @@ code:not(.did-pill code) {
 .diagnostics-modal .diagnostics-summary {
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: var(--font-size-caption, 0.78rem);
+  font-size: var(--font-size-caption, 0.75rem);
   font-weight: var(--font-weight-semibold, 600);
 }
 
@@ -1405,7 +1405,7 @@ code:not(.did-pill code) {
   margin-top: var(--space-2, 0.5rem);
   display: grid;
   gap: var(--space-1-5, 0.4rem);
-  font-size: var(--font-size-caption, 0.8rem);
+  font-size: var(--font-size-caption, 0.75rem);
   color: var(--color-text-secondary);
 }
 
@@ -1434,7 +1434,7 @@ code:not(.did-pill code) {
 .diagnostics-modal .diag-raw-summary {
   cursor: pointer;
   color: var(--color-text-muted);
-  font-size: var(--font-size-caption, 0.78rem);
+  font-size: var(--font-size-caption, 0.75rem);
   font-weight: 600;
 }
 
@@ -1466,7 +1466,7 @@ code:not(.did-pill code) {
 .diagnostics-modal .btn-sync-diagnostics,
 .diagnostics-modal .btn-cancel-modal {
   padding: 0.55rem 1rem !important;
-  font-size: 0.82rem !important;
+  font-size: var(--font-size-body-sm) !important;
 }
 
 /* Light theme quote modal details */
@@ -1567,7 +1567,7 @@ code:not(.did-pill code) {
   color: var(--color-text-secondary);
   padding: 0.55rem 1.15rem;
   border-radius: var(--radius-md, 8px);
-  font-size: var(--font-size-body-sm, 0.88rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
   font-weight: var(--font-weight-semibold, 600);
   cursor: pointer;
   transition: all var(--transition-fast, 150ms) ease;
@@ -1596,7 +1596,7 @@ code:not(.did-pill code) {
   color: var(--color-text-secondary);
   padding: 0.35rem 0.75rem;
   border-radius: var(--radius-full, 999px);
-  font-size: var(--font-size-caption, 0.78rem);
+  font-size: var(--font-size-caption, 0.75rem);
   font-weight: var(--font-weight-semibold, 600);
   cursor: pointer;
   transition: all var(--transition-fast, 150ms) ease;

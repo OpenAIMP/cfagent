@@ -490,7 +490,7 @@ export function AgentChatTabContent({
           alignItems: "center",
         }}
       >
-        <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--color-text-muted)", display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
+        <span style={{ fontSize: "var(--font-size-micro)", fontWeight: 700, color: "var(--color-text-muted)", display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
           💡 Guides:
         </span>
         <Button

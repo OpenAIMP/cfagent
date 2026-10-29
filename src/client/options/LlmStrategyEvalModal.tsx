@@ -277,7 +277,7 @@ export function LlmStrategyEvalModal({
                 title="Force refresh live E*TRADE option chains into persistent cache"
                 style={{
                   padding: "var(--space-2) var(--space-4)",
-                  fontSize: "0.82rem",
+                  fontSize: "var(--font-size-body-sm)",
                   background: "var(--color-surface-sunken)",
                   border: "1px solid var(--color-border-subtle)",
                   color: "var(--color-accent)",
