@@ -8,8 +8,8 @@
  * fetchGithubProfile) together with the exact /auth/login +
  * /auth/callback routes that reached it.
  */
-import type { Env } from "../types";
-import { clearSessionCookie, getSessionId, isSessionIdFormat, getSession, deleteSession } from "./session";
+import type { Env, SessionData } from "../types";
+import { clearSessionCookie, getSessionIdCandidates, getSession, deleteSession } from "./session";
 import { invalidateSessionCache } from "./sessionCache";
 import {
   buildLogoutAuditEventInput,
@@ -39,16 +39,27 @@ export interface LogoutAuditOptions {
 }
 
 export async function handleLogout(env: Env, request: Request, options?: LogoutAuditOptions): Promise<Response> {
-  const sessionId = getSessionId(request);
-
   // Issue #329: only a UUID-shaped cookie can name a session; skipping the
   // read (and the delete) for anything else keeps junk cookies off the
-  // session store.
-  if (isSessionIdFormat(sessionId)) {
+  // session store. A browser can send more than one `session_id` (a stale
+  // Domain/Path variant first) — deleting only the first candidate would
+  // leave the live session alive, so every candidate is deleted and the
+  // revocation/audit describe the one that actually resolves.
+  const sessionIds = getSessionIdCandidates(request);
+
+  if (sessionIds.length > 0) {
+    let sessionId = sessionIds[0];
     try {
       // Authoritative read from the session store (not KV): logout must see the
       // real record even if a cache layer still holds a copy.
-      const session = await getSession(env, sessionId);
+      let session: SessionData | null = null;
+      for (const candidate of sessionIds) {
+        session = await getSession(env, candidate);
+        if (session) {
+          sessionId = candidate;
+          break;
+        }
+      }
       if (session?.githubLogin) {
         await revokeStoredTokens(env, session.githubLogin);
       }
@@ -96,10 +107,16 @@ export async function handleLogout(env: Env, request: Request, options?: LogoutA
           );
         }
       }
-      invalidateSessionCache(sessionId);
-      await deleteSession(env, sessionId);
     } catch {
       // Logout must never fail the request; the cookie is cleared regardless.
+    }
+    for (const candidate of sessionIds) {
+      try {
+        invalidateSessionCache(candidate);
+        await deleteSession(env, candidate);
+      } catch {
+        // Same rule per candidate: one failed delete never blocks the rest.
+      }
     }
   }
 
