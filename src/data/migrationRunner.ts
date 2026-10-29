@@ -760,6 +760,61 @@ CREATE INDEX IF NOT EXISTS agent_work_item_events_kind_idx ON agent_work_item_ev
 `,
 };
 
+/**
+ * Migration 0018 — refund records + externalized refund policy
+ * (#2204, sub-issue of #2012, implementation of #2147). Numbered
+ * 0018: main already carries a different 0017 (intelligence
+ * substrate, #2288), and 0014 is claimed by a sibling in flight,
+ * so this slice takes max(registered)+1 at build time.
+ * Portable subset (same
+ * rules as migrations 0001-0013): DDL only, no params, no dialect
+ * date functions, no RETURNING. Policy seeding is data, not
+ * schema: the proposed policy row is written by
+ * ensureRefundSchema (INSERT OR IGNORE), not by DDL, so an
+ * operator-edited policy survives re-ensure. The Drizzle mapping
+ * in drizzleSchema.ts must agree with this DDL.
+ */
+export const MIGRATION_0018_REFUNDS: DataMigration = {
+  version: 18,
+  name: "0018_refunds",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_refund_policy (
+  id TEXT PRIMARY KEY,
+  window_days INTEGER NOT NULL,
+  approver TEXT NOT NULL,
+  allow_partial INTEGER NOT NULL,
+  subscription_full_effect TEXT NOT NULL,
+  subscription_partial_effect TEXT NOT NULL,
+  pay_per_run_effect TEXT NOT NULL,
+  credit_effect TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_refunds (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  rail TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  original_payment_ref TEXT NOT NULL,
+  subscription_id TEXT,
+  payment_intent_id TEXT,
+  family TEXT,
+  original_amount_usd REAL NOT NULL,
+  amount_usd REAL NOT NULL,
+  original_paid_at_ms INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL,
+  approver_login TEXT,
+  decision_note TEXT,
+  gateway_refund_id TEXT,
+  executed_at_ms INTEGER,
+  entitlement_consequence TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -777,6 +832,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0015_LIFECYCLE_REFERRAL,
   MIGRATION_0016_AUDIT_POLICY,
   MIGRATION_0017_INTELLIGENCE_SUBSTRATE,
+  MIGRATION_0018_REFUNDS,
 ];
 
 function splitStatements(sqlText: string): string[] {
