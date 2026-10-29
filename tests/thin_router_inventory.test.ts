@@ -199,6 +199,14 @@
  * pinned array to 275 entries; the delegation sequence is unchanged
  * (same handler, same position).
  *
+ * Issue #2208 adds seven — the referral balance and
+ * record-earn endpoints plus the lifecycle preferences
+ * (GET + POST), welcome, digest send, and unsubscribe
+ * endpoints (in handleAgenticPaymentsRoutes, after the
+ * auto-approve-limit block) — bringing the pinned array to
+ * 282 entries; the delegation sequence is unchanged (same
+ * handler, same position).
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -373,6 +381,13 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/payments\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/auto-approve-limit\")",
   "handleAgenticPaymentsRoutes :: includes(\"/payments/agentic/auto-approve-limit\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/referral/balance\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/referral/record-earn\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/lifecycle/preferences\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/lifecycle/preferences\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/lifecycle/welcome\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/lifecycle/digest/send\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/lifecycle/unsubscribe\")",
   "handlePremiumRoutes :: includes(\"/premium/options-scan\")",
   "handlePremiumRoutes :: includes(\"/premium/market-research\")",
   "handlePremiumRoutes :: includes(\"/premium/stock-signals\")",

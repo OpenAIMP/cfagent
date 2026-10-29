@@ -1,0 +1,5 @@
+### Lifecycle email + referral credits (#2208)
+
+- **Referral credits, as operator data:** earn/vest/redeem rules live in a D1 operator table (migration 0015), seeded with PROPOSED values pending owner approval — earn $0.50 on a referred user's first paid run, 7-day vesting, pay-per-run redemption only — and changeable without a code deploy. Referral balances are separate from failure-credit claims and tenant-isolated; redemption converts exactly the run price into commercial credit so the run still goes through the existing gate + coverage path (no new paidVia, no gate change).
+- **Lifecycle email:** best-effort welcome on provisioning (a send failure never blocks the caller), opt-in daily digest (default off, one per user per day, skipped when empty), per-user notification preferences with same-day digest opt-out, and a signed one-click unsubscribe token valid for digest mail only — security mail stays non-suppressible.
+- **Not built here:** limited-candidate email, which #1076 orders after subscription + referral credits exist; it is the explicit follow-up. The monetization flag stays OFF; no live price activation, no mainnet charge.
