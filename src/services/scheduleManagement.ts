@@ -13,39 +13,30 @@
  * hood: resolveScheduleUpdate (pure) validates the requested timing /
  * payload against the current definition, and the route performs the
  * swap. Paused jobs update in place inside the store.
+ *
+ * Issue #2337 (#1976 step 2): the paused-schedule STORE moved behind
+ * its port in the data layer (src/data/pausedSchedulePorts.ts +
+ * src/data/doSqlitePausedScheduleAdapter.ts +
+ * src/data/inMemoryPausedScheduleAdapter.ts) and is re-exported below
+ * so every existing import path is preserved. This module keeps the
+ * pure domain code: the record/list-item projections and
+ * resolveScheduleUpdate.
  */
 
 import type { Schedule } from "agents";
-import type { SqlStorage } from "../orm";
 import { buildSchedulePayload, SCREENING_SCHEDULE_CALLBACKS } from "../trading";
+import type {
+  PausedScheduleRecord,
+  ScheduleDefinitionLike,
+} from "../data/pausedSchedulePorts";
 
-export const PAUSED_SCHEDULES_TABLE = "paused_schedules";
-
-/** A paused job's full definition, exactly as needed to re-arm it. */
-export interface PausedScheduleRecord {
-  id: string;
-  callback: string;
-  payload: unknown;
-  type: "cron" | "interval" | "delayed" | "scheduled";
-  cron?: string;
-  intervalSeconds?: number;
-  /** Unix seconds — the SDK schedule's next/former run time. */
-  time?: number;
-  delayInSeconds?: number;
-  /** ISO timestamp of when the job was paused. */
-  pausedAt: string;
-}
-
-/** The definition shape updates resolve against (SDK schedule or paused record). */
-export interface ScheduleDefinitionLike {
-  type: "cron" | "interval" | "delayed" | "scheduled";
-  callback: string;
-  payload?: unknown;
-  cron?: string;
-  intervalSeconds?: number;
-  time?: number;
-  delayInSeconds?: number;
-}
+export {
+  PAUSED_SCHEDULES_TABLE,
+  type PausedScheduleRecord,
+  type PausedScheduleStore,
+  type ScheduleDefinitionLike,
+} from "../data/pausedSchedulePorts";
+export { SqlPausedScheduleStore } from "../data/doSqlitePausedScheduleAdapter";
 
 export function scheduleToPausedRecord(
   schedule: Schedule<unknown>,
@@ -83,89 +74,6 @@ export function pausedRecordToListItem(record: PausedScheduleRecord) {
     ...(record.delayInSeconds !== undefined ? { delayInSeconds: record.delayInSeconds } : {}),
     paused: true,
     pausedAt: record.pausedAt,
-  };
-}
-
-export class SqlPausedScheduleStore {
-  constructor(private sql: SqlStorage) {}
-
-  private ensure(): void {
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS ${PAUSED_SCHEDULES_TABLE} (
-      id TEXT PRIMARY KEY,
-      callback TEXT NOT NULL,
-      payload_json TEXT,
-      sched_type TEXT NOT NULL,
-      cron TEXT,
-      interval_seconds INTEGER,
-      time INTEGER,
-      delay_seconds INTEGER,
-      paused_at TEXT NOT NULL
-    )`);
-  }
-
-  save(record: PausedScheduleRecord): void {
-    this.ensure();
-    // Upsert as delete + insert: portable across SQLite and the test
-    // mock, and the table is single-row-per-job so the cost is trivial.
-    this.sql.exec(`DELETE FROM ${PAUSED_SCHEDULES_TABLE} WHERE id = ?`, record.id);
-    this.sql.exec(
-      `INSERT INTO ${PAUSED_SCHEDULES_TABLE}
-         (id, callback, payload_json, sched_type, cron, interval_seconds, time, delay_seconds, paused_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      record.id,
-      record.callback,
-      record.payload === undefined ? null : JSON.stringify(record.payload),
-      record.type,
-      record.cron ?? null,
-      record.intervalSeconds ?? null,
-      record.time ?? null,
-      record.delayInSeconds ?? null,
-      record.pausedAt
-    );
-  }
-
-  get(id: string): PausedScheduleRecord | undefined {
-    this.ensure();
-    const rows = Array.from(
-      this.sql.exec(`SELECT * FROM ${PAUSED_SCHEDULES_TABLE} WHERE id = ?`, id)
-    ) as Array<Record<string, unknown>>;
-    return rows.length ? rowToRecord(rows[0]) : undefined;
-  }
-
-  list(): PausedScheduleRecord[] {
-    this.ensure();
-    const rows = Array.from(
-      this.sql.exec(`SELECT * FROM ${PAUSED_SCHEDULES_TABLE} ORDER BY paused_at ASC`)
-    ) as Array<Record<string, unknown>>;
-    return rows.map(rowToRecord);
-  }
-
-  remove(id: string): boolean {
-    this.ensure();
-    const existing = this.get(id);
-    if (!existing) return false;
-    this.sql.exec(`DELETE FROM ${PAUSED_SCHEDULES_TABLE} WHERE id = ?`, id);
-    return true;
-  }
-}
-
-function rowToRecord(row: Record<string, unknown>): PausedScheduleRecord {
-  let payload: unknown;
-  try {
-    payload = row.payload_json != null ? JSON.parse(String(row.payload_json)) : undefined;
-  } catch {
-    payload = undefined;
-  }
-  return {
-    id: String(row.id),
-    callback: String(row.callback),
-    payload,
-    type: String(row.sched_type) as PausedScheduleRecord["type"],
-    ...(row.cron != null ? { cron: String(row.cron) } : {}),
-    ...(row.interval_seconds != null ? { intervalSeconds: Number(row.interval_seconds) } : {}),
-    ...(row.time != null ? { time: Number(row.time) } : {}),
-    ...(row.delay_seconds != null ? { delayInSeconds: Number(row.delay_seconds) } : {}),
-    pausedAt: String(row.paused_at),
   };
 }
 

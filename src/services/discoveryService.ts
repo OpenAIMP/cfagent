@@ -60,7 +60,7 @@ import {
   type FlowItemLike,
 } from "../trading";
 import { fetchRealMarketFlowsForSymbol } from "../trading";
-import { SqlDiscoveryAlertStore, type DiscoveryAlertStore } from "../trading";
+import type { DiscoveryAlertStore } from "../data/discoveryAlertPorts";
 import {
   dispatchDiscoveryAlerts,
   signedWebhookAlertSender,
@@ -81,15 +81,15 @@ import { OptionsDataAgent, type OptionsDataSnapshot } from "../trading";
 import { DynamicOptionsScreener } from "../trading";
 import {
   computeIvStats,
-  SqlIvHistoryStore,
   type IvStats,
 } from "../trading";
 import {
-  SqlDiscoverySetupStore,
   type DiscoverySetupItem,
   type DiscoverySetupStore,
   type StoredDiscoverySetupRun,
 } from "../trading";
+import { createOptionsDiscoveryPorts } from "../data/createOptionsDiscoveryPorts";
+import type { DoTransactionStorage } from "../aspects/transactionAspect";
 import {
   classifyDiscoveryDeltas,
   type DiscoveryDelta,
@@ -370,7 +370,22 @@ export function createDiscoveryService(args: {
     : new ETradeService(args.env, undefined, args.userLogin, args.overrideEnv);
   const screener = new DynamicOptionsScreener(etrade.client);
   const dataAgent = new OptionsDataAgent(screener);
-  const ivStore = new SqlIvHistoryStore(args.sql);
+  // #2337 (#1976 step 2): the family stores come from the data
+  // layer's composition root. The transaction-capable storage
+  // is the blobStorage handle when it carries one — every
+  // production caller passes the Durable Object storage object
+  // there (ctx.storage); a blob handle without transactionSync
+  // composes sequentially, exactly the legacy behaviour.
+  const txStorage =
+    args.blobStorage &&
+    typeof (args.blobStorage as { transactionSync?: unknown }).transactionSync === "function"
+      ? (args.blobStorage as unknown as DoTransactionStorage)
+      : undefined;
+  const ports = createOptionsDiscoveryPorts({
+    sql: args.sql,
+    ...(txStorage ? { storage: txStorage } : {}),
+  });
+  const ivStore = ports.ivHistory;
   // Referenced so the config load (and its env validation) happens
   // at construction, like the unified service's constructor.
   void getEtapiConfig(args.env, args.overrideEnv);
@@ -419,11 +434,11 @@ export function createDiscoveryService(args: {
     calendarFor: (symbol) => getSymbolEventCalendar(symbol),
     flowFor: (symbol) => fetchRealMarketFlowsForSymbol(symbol),
     runPipeline: (request) => runPanelPipeline(screener, request),
-    store: new SqlDiscoverySetupStore(args.sql),
+    store: ports.discoverySetupRuns,
     ...(args.alerts
       ? {
           alerts: {
-            store: new SqlDiscoveryAlertStore(args.sql),
+            store: ports.discoveryAlerts,
             senders: buildAlertSenders(args.env),
           },
         }

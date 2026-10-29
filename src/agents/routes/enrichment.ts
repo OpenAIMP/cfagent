@@ -40,7 +40,7 @@ import {
 import {
   SqlEnrichmentStore,
   type EnrichmentSqlExecutor,
-} from "../../enrichment/enrichmentStore";
+} from "../../data/doSqliteEnrichmentAdapter";
 import type { EnrichmentRunRecord } from "../../enrichment/enrichmentPorts";
 import { defaultBreakerRegistry } from "../../breakers/createBreakerPorts";
 import { createObservabilitySink } from "../../observability/createObservabilityPorts";

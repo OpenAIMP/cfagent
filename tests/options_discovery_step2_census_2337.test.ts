@@ -1,0 +1,95 @@
+/**
+ * Issue #2337 (#1976 step 2, ADR 0022 D-D) — the no-naked-SQL
+ * census pin, family entries for the options/discovery stores.
+ *
+ * ADR D-D: no SQL above the data layer. The step-2 audit found
+ * the census pin the ADR mandates was never landed; this file
+ * carries the family's entries in shrink-only form: each of
+ * the nine legacy family modules must hold ZERO statement
+ * executions on storage-shaped receivers, forever — a future
+ * change that re-introduces a direct exec in one of these
+ * modules fails here, and the only way to make it pass is to
+ * move the statement behind the port (the count can only
+ * shrink, and it is already zero).
+ *
+ * The scan counts receivers, not one literal spelling: the
+ * family's statements historically appeared as `sql.exec(`,
+ * `this.sql.exec(`, `storage.sql.exec(` and (the step-1
+ * adapters' shape) a bare executor variable — the receiver
+ * pattern below covers the storage-shaped forms, and a second
+ * assertion pins the broader `.exec(` count at zero for these
+ * nine files as they stand today.
+ *
+ * The companion assertion keeps the pin honest: the family's
+ * statements live in the data layer's adapters (69 sites at
+ * the step-2 base, per the audit §1 census) — the pin cannot
+ * be satisfied by deleting SQL.
+ */
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+/** Statement executions on storage-shaped receivers. */
+const STORAGE_EXEC_PATTERN =
+  /(?:\bsql|\bstorage|this\.sql|ctx\.storage(?:\.sql)?|\.sql)\s*\.\s*exec\s*\(/g;
+
+const FAMILY_FILES = [
+  "src/trading/options/scanRunStore.ts",
+  "src/trading/options/discoveryRunStore.ts",
+  "src/trading/options/discoverySetupStore.ts",
+  "src/trading/options/discoveryAlertStore.ts",
+  "src/trading/options/ivHistoryStore.ts",
+  "src/trading/options/strategyProfileStore.ts",
+  "src/services/feedSnapshotStore.ts",
+  "src/services/scheduleManagement.ts",
+  "src/enrichment/enrichmentStore.ts",
+] as const;
+
+const ADAPTER_FILES: Array<[string, number]> = [
+  // [file, exec sites at the step-2 landing — the audit's 69]
+  ["src/data/doSqliteScanRunAdapter.ts", 12],
+  ["src/data/doSqliteDiscoveryRunAdapter.ts", 8],
+  ["src/data/doSqliteDiscoverySetupAdapter.ts", 9],
+  ["src/data/doSqliteDiscoveryAlertAdapter.ts", 4],
+  ["src/data/doSqliteIvHistoryAdapter.ts", 8],
+  ["src/data/doSqliteStrategyProfileAdapter.ts", 7],
+  ["src/data/doSqliteFeedSnapshotAdapter.ts", 7],
+  ["src/data/doSqlitePausedScheduleAdapter.ts", 6],
+  ["src/data/doSqliteEnrichmentAdapter.ts", 8],
+];
+
+function countMatches(text: string, pattern: RegExp): number {
+  return [...text.matchAll(pattern)].length;
+}
+
+describe("#2337 D-D census — options/discovery family entries (shrink-only)", () => {
+  it("the nine legacy family modules hold zero storage-shaped exec sites", () => {
+    for (const file of FAMILY_FILES) {
+      const text = readFileSync(file, "utf8");
+      expect(
+        countMatches(text, STORAGE_EXEC_PATTERN),
+        `${file} must not execute SQL above the data layer (ADR D-D)`,
+      ).toBe(0);
+    }
+  });
+
+  it("the nine legacy family modules hold zero .exec( sites at all", () => {
+    for (const file of FAMILY_FILES) {
+      const text = readFileSync(file, "utf8");
+      expect(
+        countMatches(text, /\.exec\(/g),
+        `${file} must not execute statements above the data layer (ADR D-D)`,
+      ).toBe(0);
+    }
+  });
+
+  it("the family's statements live in the data layer's adapters (69 sites)", () => {
+    let total = 0;
+    for (const [file, expected] of ADAPTER_FILES) {
+      const text = readFileSync(file, "utf8");
+      const count = countMatches(text, /\.exec\(/g);
+      expect(count, `${file} holds the family's statements`).toBe(expected);
+      total += count;
+    }
+    expect(total).toBe(69);
+  });
+});

@@ -14,13 +14,7 @@ import {
   ScheduledTasksService,
   type AutonomousStrategyDiscoveryOptions,
 } from "../../services/scheduledTasks";
-import { SqlFeedSnapshotStore } from "../../services/feedSnapshotStore";
-import {
-  SqlDiscoveryRunStore,
-  SqlIvHistoryStore,
-  SqlScanRunStore,
-  SqlStrategyProfileStore,
-} from "../../trading";
+import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 import { resolveScheduledLogin, type ScreenerExecutionContext } from "./scheduleMaintenance";
 
 type ETradeEnvironment = "TEST" | "PROD";
@@ -69,7 +63,7 @@ export async function autoRenewETradeTokens(ctx: ScheduledCallbacksContext, payl
     return;
   }
   const environment = context?.environment || payload?.env;
-  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), user, new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
+  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), user, createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
   const res = await service.autoRenewETradeTokens(user, environment);
   if (!res.success) {
     console.warn("[OrchestratorAgent] autoRenewETradeTokens error:", res.error);
@@ -162,7 +156,7 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
     const orm = ctx.getOrm();
     // Scheduled callbacks have no authenticated HTTP headers. Use the
     // identity and environment saved from the user's schedules requests.
-    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env },
+    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env },
       // Issue #1355: shard submission rides the agent's private
       // submitAsyncJob via the same (ctx.self as any) escape hatch
       // this file already uses for broadcast/keepAliveWhile.
@@ -336,7 +330,7 @@ export async function autonomousGoalScreen(ctx: ScheduledCallbacksContext, paylo
       console.warn("[OrchestratorAgent] Skipping unowned scheduled goal screen.");
       return;
     }
-    const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin || "", new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env });
+    const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin || "", createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env });
     const res = await service.autonomousGoalScreen({ ...payload, userLogin, environment, trigger });
     if ((res as any).skipped) return;
     if (typeof (ctx.self as any).broadcast === "function") {
@@ -454,14 +448,14 @@ export async function autonomousStrategyDiscovery(ctx: ScheduledCallbacksContext
       ctx.env,
       ctx.getOrm(),
       userLogin,
-      new SqlScanRunStore(ctx.agentCtx.storage.sql),
+      createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns,
       undefined,
-      new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
-      new SqlStrategyProfileStore(ctx.agentCtx.storage.sql),
+      createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).discoveryRuns,
+      createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).strategyProfiles,
       ctx.scheduleScreenerFollowups,
       { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env },
       undefined,
-      new SqlFeedSnapshotStore(ctx.agentCtx.storage.sql)
+      createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).feedSnapshots
     );
     const res = await service.autonomousStrategyDiscovery({ ...payload, userLogin, environment });
     if ((res as any).skipped) return;
@@ -534,8 +528,8 @@ export async function collectIvHistory(ctx: ScheduledCallbacksContext, payload?:
       ctx.env,
       ctx.getOrm(),
       userLogin,
-      new SqlScanRunStore(ctx.agentCtx.storage.sql),
-      new SqlIvHistoryStore(ctx.agentCtx.storage.sql),
+      createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns,
+      createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).ivHistory,
       undefined,
       undefined,
       ctx.scheduleScreenerFollowups
@@ -575,7 +569,7 @@ export async function collectIvHistory(ctx: ScheduledCallbacksContext, payload?:
  */
 export async function expireStaleOrderDraft(ctx: ScheduledCallbacksContext, payload: { orderId: string; userLogin?: string }): Promise<void> {
   if (!payload?.orderId) return;
-  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), payload.userLogin || ctx.sessionKey(), new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
+  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), payload.userLogin || ctx.sessionKey(), createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
   await service.expireStaleOrderDraft(payload.orderId);
 }
 
@@ -584,7 +578,7 @@ export async function expireStaleOrderDraft(ctx: ScheduledCallbacksContext, payl
  */
 export async function sendScheduledReminder(ctx: ScheduledCallbacksContext, payload: { reminderId: string; message: string; userLogin?: string }): Promise<void> {
   if (!payload?.reminderId) return;
-  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), payload.userLogin || ctx.sessionKey(), new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
+  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), payload.userLogin || ctx.sessionKey(), createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
   const res = await service.dispatchReminder(payload.reminderId, payload.message);
   if (typeof (ctx.self as any).broadcast === "function") {
     try {

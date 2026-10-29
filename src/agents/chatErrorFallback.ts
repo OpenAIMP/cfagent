@@ -13,7 +13,8 @@ import { executeNaturalLanguageQuery, formatMarketCap, type NLQSchedulingPort, t
 import { resolveErrorAspect } from "../aspects/errorCodes";
 import { logAspectEvent } from "../aspects/loggingAspect";
 import type { DatabaseORM } from "../orm";
-import type { SqlScanRunStore, SqlStrategyProfileStore } from "../trading";
+import type { ScanRunStore } from "../data/scanRunPorts";
+import type { StrategyProfileStore } from "../data/strategyProfilePorts";
 import type { Env } from "../types";
 
 export interface ChatErrorFallbackContext {
@@ -22,8 +23,8 @@ export interface ChatErrorFallbackContext {
   sessionId: string;
   /** Audit sink; the agent attribution is the caller's orchestrator. */
   audit: (type: string, payload: Record<string, unknown>) => void;
-  scanRunStore: SqlScanRunStore;
-  profileStore: SqlStrategyProfileStore;
+  scanRunStore: ScanRunStore;
+  profileStore: StrategyProfileStore;
   schedulingPort: NLQSchedulingPort;
   stockScreenPort: NLQStockScreenPort;
 }
