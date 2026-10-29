@@ -1,0 +1,3 @@
+### Changed
+
+- **Corrected the DO rows-read RCA ranking:** the daily average (~2,432 rows/request) mixes two readers. Steady hours run ~45 requests at ~13.5k rows each (~600k rows/hour); the 04:00 hour runs 1,149 requests at ~772 rows each. A 13.5k-row scan fits `mas_events` / `mas_messages` better than the outcome feed, so the #2294 index is necessary but not sufficient. §8 now lists the two questions the record cannot yet answer (exact statement, per-table split).

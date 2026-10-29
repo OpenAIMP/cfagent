@@ -83,7 +83,9 @@ const MAS_EVENTS_DDL = `
         type TEXT NOT NULL,
         agent TEXT NOT NULL,
         payload TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        previous_event_hash TEXT,
+        event_hash TEXT
       )
     `;
 
@@ -173,6 +175,24 @@ export const SHARED_TABLE_DDL: Readonly<Record<SharedMasTable, string>> = {
 /** Create one shared table (IF NOT EXISTS) from the canonical DDL. */
 export function ensureSharedTable(sql: SqlStorage, table: SharedMasTable): void {
   sql.exec(SHARED_TABLE_DDL[table]);
+}
+
+/**
+ * Issue #2178 (Q7 S1): chain columns for mas_events on tables created
+ * before the columns existed. CREATE TABLE IF NOT EXISTS never
+ * migrates, so each missing column is added explicitly (the
+ * orchestrator.ts:1115 PRAGMA-check pattern). Idempotent: a table
+ * that already has the columns is untouched.
+ */
+export function ensureAuditChainColumns(sql: SqlStorage): void {
+  const info = Array.from(sql.exec(`PRAGMA table_info(mas_events)`)) as Array<{ name: string }>;
+  const names = new Set(info.map((c) => c.name));
+  if (!names.has("previous_event_hash")) {
+    sql.exec(`ALTER TABLE mas_events ADD COLUMN previous_event_hash TEXT`);
+  }
+  if (!names.has("event_hash")) {
+    sql.exec(`ALTER TABLE mas_events ADD COLUMN event_hash TEXT`);
+  }
 }
 
 /** Create every shared table, in SHARED_MAS_TABLES order. */

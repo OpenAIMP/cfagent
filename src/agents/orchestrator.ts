@@ -54,7 +54,6 @@ import { SqlScanRunStore, diffScanRuns } from "../trading";
 import { SqlStrategyProfileStore } from "../trading";
 import { createDidAttestation, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
-import { dispatchOrchestratorA2A, orchestratorA2AOutcome, type OrchestratorA2AOutcome } from "./orchestrator/a2aDispatch";
 import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErrorFallback";
 import { getScreenerExecutionContext, migrateLegacyScreenSchedules, removeUnownedBaselineSchedules, ensureStrategyScanSchedule, resolveScheduledLogin, type ScheduleMaintenanceContext } from "./orchestrator/scheduleMaintenance";
 import { autoRenewETradeTokens, autonomousGoalScreen, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
@@ -663,36 +662,6 @@ export class OrchestratorAgent extends PortThink {
       setBy,
       nowMs: Date.now(),
     });
-  }
-
-  /**
-   * Issue #2223 (slice 1): A2A door, cfpay signature — the edge
-   * dispatcher (src/a2a) resolves the orchestrator-family names to
-   * this class on the SHARED_ORCHESTRATOR_INSTANCE instance and
-   * calls this with the parsed body + origin (a Request cannot
-   * cross the DO RPC boundary). Thin delegation to the dispatch
-   * module (./orchestrator/a2aDispatch), which serves the MAS tools;
-   * the NLQ executor is injected here because its ports are
-   * class-bound. Returns the collected { text, data } outcome.
-   */
-  async handleA2A(body: unknown, origin: string): Promise<OrchestratorA2AOutcome> {
-    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
-    this.ensureTables();
-    const sessionId = this.sessionKey();
-    const data = await dispatchOrchestratorA2A(this.env, body, {
-      sessionId,
-      sql: this.ctx.storage.sql,
-      audit: (type, agent, payload) => this.audit(type, agent, payload),
-      nlqExecute: async (query: string) => {
-        const plan = await planNLQ(this.env, query);
-        return executeNLQQueryAsync(this.getOrm(), sessionId, plan, this.env, undefined, undefined, {
-          schedulingPort: this.nlqSchedulingPort(),
-          stockScreenPort: this.nlqStockScreenPort(),
-          socialBriefPort: this.nlqSocialBriefPort() ?? undefined,
-        });
-      },
-    });
-    return orchestratorA2AOutcome(data);
   }
   /** Cloudflare Agents lifecycle: initialize SQLite and recover durable work. */
   async onStart(props?: Record<string, unknown>): Promise<void> {
@@ -1327,24 +1296,24 @@ export class OrchestratorAgent extends PortThink {
    * Inserts one audit row into mas_events and returns the stored record.
    * Single owner of audit-row inserts (issue #270): this.audit() and the
    * POST /audit/event route both funnel through here.
+   * Issue #2178 (Q7 S1): via the chained events Repository, not raw SQL.
    */
   private recordAudit(
     type: string,
     agent: string,
     payload: Record<string, unknown>
   ): { id: string; type: string; agent: string; payload: Record<string, unknown>; created_at: string } {
-    const sql = this.ensureTables();
+    const orm = this.getOrm();
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    sql.exec(
-      "INSERT INTO mas_events (id, session_id, type, agent, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    orm.events.create({
       id,
-      this.sessionKey(),
+      sessionId: this.sessionKey(),
       type,
-      agent,
-      JSON.stringify(payload),
-      now
-    );
+      agent: agent as AuditEvent["agent"],
+      payload,
+      createdAt: now,
+    });
     return { id, type, agent, payload, created_at: now };
   }
 

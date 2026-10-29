@@ -1,0 +1,3 @@
+### Added
+
+- **Reads-vs-writes section in the DO rows-read RCA** (`docs/architecture/security/do-rows-read-rca-2280.md` §4.1): rows are written once per run, but the cap is spent re-reading the same history per request — 1,685 requests × ~2,432 rows = 4.1M, with zero new runs. Schedules change growth, not per-request cost; manual screener use is irrelevant to the read cost; feed/gather writes through the same `recordJobOutcome` path.

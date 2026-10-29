@@ -558,3 +558,106 @@ export class KnowledgeError extends Error {
     };
   }
 }
+
+/**
+ * Issue #2288 (#1976 step 0, ADR 0022) — Externalized Data
+ * Foundation outcome + error codes.
+ *
+ * Mirrors the Knowledge pattern above (enum + metadata + catalog +
+ * typed error class) for the data-foundation area. Per the #1969
+ * rule the catalog carries OUTCOMES as well as failures: the
+ * transaction aspect (src/aspects/transactionAspect.ts) emits
+ * TX_COMMITTED / TX_ROLLED_BACK / TX_CANNOT_HONOUR from HERE,
+ * never as inline strings at call sites, and the substrate ports
+ * throw / record the proposal-gate and trace codes from HERE.
+ * Outcome codes (TX_COMMITTED) are not errors; they exist in the
+ * catalog so every surface that renders or logs a transaction
+ * result carries the SAME code and message.
+ */
+export enum DataFoundationCode {
+  TX_COMMITTED = "DATA_TX_COMMITTED",
+  TX_ROLLED_BACK = "DATA_TX_ROLLED_BACK",
+  TX_CANNOT_HONOUR = "DATA_TX_CANNOT_HONOUR",
+  PROPOSAL_GATE_MISSING = "DATA_PROPOSAL_GATE_MISSING",
+  PROPOSAL_ILLEGAL_TRANSITION = "DATA_PROPOSAL_ILLEGAL_TRANSITION",
+  TRACE_APPEND_FAILED = "DATA_TRACE_APPEND_FAILED",
+}
+
+export interface DataFoundationMetadata {
+  code: DataFoundationCode;
+  httpStatus: number;
+  defaultMessage: string;
+  remediation: string;
+}
+
+export const DATA_FOUNDATION_CATALOG: Record<
+  DataFoundationCode,
+  DataFoundationMetadata
+> = {
+  [DataFoundationCode.TX_COMMITTED]: {
+    code: DataFoundationCode.TX_COMMITTED,
+    httpStatus: 200,
+    defaultMessage: "Unit of work committed: every write in the wrapped call was applied.",
+    remediation: "No action required; this is the success outcome recorded for the transaction aspect.",
+  },
+  [DataFoundationCode.TX_ROLLED_BACK]: {
+    code: DataFoundationCode.TX_ROLLED_BACK,
+    httpStatus: 500,
+    defaultMessage: "Unit of work rolled back: the wrapped call threw and none of its writes were applied.",
+    remediation: "Inspect the original error thrown by the wrapped call; the store was left exactly as it was before the unit opened.",
+  },
+  [DataFoundationCode.TX_CANNOT_HONOUR]: {
+    code: DataFoundationCode.TX_CANNOT_HONOUR,
+    httpStatus: 500,
+    defaultMessage: "The store cannot honour the declared transaction scope; the unit of work was refused before any write ran.",
+    remediation: "Check that the store's atomic primitive is available (DO storage transactionSync, D1 batch) and that the wrapped call honours the leg's contract (synchronous on the DO leg, write-only on the D1 leg). Never degrade to unprotected writes.",
+  },
+  [DataFoundationCode.PROPOSAL_GATE_MISSING]: {
+    code: DataFoundationCode.PROPOSAL_GATE_MISSING,
+    httpStatus: 422,
+    defaultMessage: "Proposal transition refused: the gate (approving actor + issue/PR reference) was not recorded.",
+    remediation: "Supply the approving actor and the gate reference (issue or PR) for the transition; a transition without a recorded gate does not exist in the ledger.",
+  },
+  [DataFoundationCode.PROPOSAL_ILLEGAL_TRANSITION]: {
+    code: DataFoundationCode.PROPOSAL_ILLEGAL_TRANSITION,
+    httpStatus: 422,
+    defaultMessage: "Proposal transition refused: the requested state change is not a step of the proposed → approved → applied → verified machine.",
+    remediation: "Advance the proposal one recorded step at a time through the ledger port; skipped or backwards steps are not representable.",
+  },
+  [DataFoundationCode.TRACE_APPEND_FAILED]: {
+    code: DataFoundationCode.TRACE_APPEND_FAILED,
+    httpStatus: 500,
+    defaultMessage: "Trace record was not appended; the failure is recorded with this code instead of being thrown into the caller's path.",
+    remediation: "Check the trace store's availability; the caller's operation is unaffected, but the substrate has a gap at this record until appends succeed again.",
+  },
+};
+
+export class DataFoundationError extends Error {
+  public readonly code: DataFoundationCode;
+  public readonly httpStatus: number;
+  public readonly remediation: string;
+  public readonly details?: unknown;
+
+  constructor(code: DataFoundationCode, customMessage?: string, details?: unknown) {
+    const meta =
+      DATA_FOUNDATION_CATALOG[code] ||
+      DATA_FOUNDATION_CATALOG[DataFoundationCode.TX_CANNOT_HONOUR];
+    super(customMessage || meta.defaultMessage);
+    this.name = "DataFoundationError";
+    this.code = code;
+    this.httpStatus = meta.httpStatus;
+    this.remediation = meta.remediation;
+    this.details = details;
+  }
+
+  toJSON() {
+    return {
+      success: false,
+      error: this.message,
+      code: this.code,
+      httpStatus: this.httpStatus,
+      remediation: this.remediation,
+      details: this.details,
+    };
+  }
+}

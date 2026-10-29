@@ -64,7 +64,11 @@ vi.mock("../src/client/commercialApi", () => ({
   getPricing: async () => ({
     monetizationEnabled: apiState.monetizationEnabled,
     prices: { stock: 0.1, goal: 0.1, options: 0.1, strategy: 0.1 },
-    testnetOnly: true,
+    // Reconciliation for the #2196 slice (stacked rebuild): the Pricing
+    // shape no longer carries testnetOnly; the panel reads the derived
+    // network marker. Testnet semantics preserved: sandbox, no mainnet.
+    network: { stripeMode: "sandbox", x402Network: "base-sepolia", acceptsMainnet: false },
+    browserPaymentScope: "card-only",
     failurePolicy: FAILURE_POLICY,
   }),
   getSubmissionStatus: async (workflowId: string) => ({ workflowId, status: "running" }),

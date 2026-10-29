@@ -67,6 +67,17 @@
  *   admin-managed catalog/inventory, bounded by content count.
  * - mas_options_chain_cache — KEEP (inert). No writer exists in src/
  *   today; the table is created empty and stays empty.
+ * - mas_job_outcomes — PRUNE, 90d + 500-row cap (issue #2294). The decision
+ *   is recorded here; enforcement lives in pruneJobOutcomes
+ *   (services/jobOutcomes.ts) at TWO call sites, because this nightly route
+ *   runs only on the shared Orchestrator instance:
+ *     1. this nightly pass, for the shared instance;
+ *     2. listJobOutcomes itself, for every per-user agent — at most once per
+ *        24h, guarded by the durable mas_job_outcomes_meta.pruned_at row.
+ *   Not governed by the message-window master switch. The autopilot feed
+ *   reads the newest 50 and the writer point-reads by id, so older rows have
+ *   no reader; the table had no recorded decision before #2294 and its
+ *   unindexed list scan is what exhausted the DO rows-read cap (#2280).
  * - mas_async_jobs — PRUNED at source (existing): terminal rows older
  *   than 30d plus a 500-row terminal cap per session, on job submit
  *   (OrchestratorAgent.submitAsyncJob).
