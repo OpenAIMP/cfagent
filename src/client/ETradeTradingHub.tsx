@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
 import { getDisplayUserDid } from "../agents/did";
-import { Card, Badge, TextInput, Button, EmptyState, Select, Table, Modal, PageShell } from "./components/ui";
+import { Card, Badge, TextInput, Button, EmptyState, Select, Table, Modal, PageShell, FieldShell } from "./components/ui";
 import { getRoute } from "./routes";
 import {
   ETradeQuote,
@@ -1670,27 +1670,17 @@ export function ETradeTradingHub({
                       {orderLegs.map((leg, index) => (
                         <div className="options-leg-row" key={`option-leg-${index}`}>
                           <div className="options-leg-title"><strong>Leg {index + 1}</strong><span>{leg.securityType === "OPTN" ? "OPTION" : "STOCK"}</span></div>
-                          <label>Side
-                            <Select value={leg.side} onChange={(event) => updateOptionLeg(index, { side: event.target.value as "BUY" | "SELL" })}>
-                              <option value="BUY">Buy</option><option value="SELL">Sell</option>
-                            </Select>
-                          </label>
+                          <Select label="Side" value={leg.side} onChange={(event) => updateOptionLeg(index, { side: event.target.value as "BUY" | "SELL" })}>
+                            <option value="BUY">Buy</option><option value="SELL">Sell</option>
+                          </Select>
                           {leg.securityType === "OPTN" && <>
-                            <label>Type
-                              <Select value={leg.optionType || "CALL"} onChange={(event) => updateOptionLeg(index, { optionType: event.target.value as "CALL" | "PUT" })}>
-                                <option value="CALL">Call</option><option value="PUT">Put</option>
-                              </Select>
-                            </label>
-                            <label>Strike ($)
-                              <TextInput type="number" min="0.01" step="0.5" value={leg.strike ?? ""} onChange={(event) => updateOptionLeg(index, { strike: Number(event.target.value) })} />
-                            </label>
-                            <label>Expiration
-                              <TextInput type="date" value={leg.expirationDate || ""} onChange={(event) => updateOptionLeg(index, { expirationDate: event.target.value })} />
-                            </label>
+                            <Select label="Type" value={leg.optionType || "CALL"} onChange={(event) => updateOptionLeg(index, { optionType: event.target.value as "CALL" | "PUT" })}>
+                              <option value="CALL">Call</option><option value="PUT">Put</option>
+                            </Select>
+                            <TextInput label="Strike ($)" type="number" min="0.01" step="0.5" value={leg.strike ?? ""} onChange={(event) => updateOptionLeg(index, { strike: Number(event.target.value) })} />
+                            <TextInput label="Expiration" type="date" value={leg.expirationDate || ""} onChange={(event) => updateOptionLeg(index, { expirationDate: event.target.value })} />
                           </>}
-                          <label>{leg.securityType === "OPTN" ? "Contracts" : "Shares"}
-                            <TextInput type="number" min="1" step="1" value={leg.quantity} onChange={(event) => updateOptionLeg(index, { quantity: Math.max(1, Number.parseInt(event.target.value, 10) || 1) })} />
-                          </label>
+                          <TextInput label={leg.securityType === "OPTN" ? "Contracts" : "Shares"} type="number" min="1" step="1" value={leg.quantity} onChange={(event) => updateOptionLeg(index, { quantity: Math.max(1, Number.parseInt(event.target.value, 10) || 1) })} />
                           <Button type="button" variant="danger" tone="subtle" size="sm" className="options-leg-remove" onClick={() => removeOptionLeg(index)} aria-label={`Remove leg ${index + 1}`} disabled={(orderContext.optionLegs?.length ?? 0) <= 1}>Remove</Button>
                         </div>
                       ))}
@@ -1705,34 +1695,35 @@ export function ETradeTradingHub({
               <form onSubmit={handlePreviewOrder} className="order-ticket-form">
                 {/* Symbol and Instant Quote */}
                 <div className="form-group">
-                  <label>{orderAssetClass === "options" ? "Underlying Symbol" : "Ticker Symbol"}</label>
-                  <div className="symbol-input-row">
-                    <TextInput
-                      type="text"
-                      className="ticker-input"
-                      placeholder="e.g. NVDA, AAPL"
-                      value={orderSymbol}
-                      readOnly={orderAssetClass === "options"}
-                      onChange={(e) => {
-                        const s = e.target.value.toUpperCase();
-                        setOrderSymbol(s);
-                        setOrderContext(null);
-                        setActiveDraft(null);
-                        setLastExecutionResult(null);
-                      }}
-                      onBlur={() => fetchSymbolQuote(orderSymbol)}
-                    />
-                    <Button
-                      className="btn-peek-quote"
-                      variant="secondary"
-                      size="sm"
-                      disabled={quoteLoading}
-                      onClick={() => fetchSymbolQuote(orderSymbol)}
-                      title="Fetch live quote from E*TRADE"
-                    >
-                      {quoteLoading ? "Fetching…" : "🔍 Get Live Quote"}
-                    </Button>
-                  </div>
+                  <FieldShell id="etrade-order-symbol" label={orderAssetClass === "options" ? "Underlying Symbol" : "Ticker Symbol"}>
+                    <div className="symbol-input-row">
+                      <TextInput
+                        type="text"
+                        className="ticker-input"
+                        placeholder="e.g. NVDA, AAPL"
+                        value={orderSymbol}
+                        readOnly={orderAssetClass === "options"}
+                        onChange={(e) => {
+                          const s = e.target.value.toUpperCase();
+                          setOrderSymbol(s);
+                          setOrderContext(null);
+                          setActiveDraft(null);
+                          setLastExecutionResult(null);
+                        }}
+                        onBlur={() => fetchSymbolQuote(orderSymbol)}
+                      />
+                      <Button
+                        className="btn-peek-quote"
+                        variant="secondary"
+                        size="sm"
+                        disabled={quoteLoading}
+                        onClick={() => fetchSymbolQuote(orderSymbol)}
+                        title="Fetch live quote from E*TRADE"
+                      >
+                        {quoteLoading ? "Fetching…" : "🔍 Get Live Quote"}
+                      </Button>
+                    </div>
+                  </FieldShell>
                   {!oauthStatus?.authenticated && (
                     <div className="order-auth-notice">
                       <span>🔒 Connect your E*TRADE account to fetch authenticated live market quotes.</span>
@@ -1767,69 +1758,70 @@ export function ETradeTradingHub({
 
                 {/* Action Toggle (BUY / SELL) */}
                 {!orderContext?.optionLegs?.length && <div className="form-group">
-                  <label>Order Action</label>
-                  <div className="action-toggle-grid">
-                    <Button
-                      type="button"
-                      variant={orderAction === "BUY" ? "primary" : "secondary"} tone={orderAction === "BUY" ? "solid" : "subtle"}
-                      onClick={() => {
-                        setOrderAction("BUY");
-                        setActiveDraft(null);
-                        setLastExecutionResult(null);
-                        if (orderQuote && orderType === "LIMIT") {
-                          const askP = orderQuote.ask > 0 ? orderQuote.ask : orderQuote.lastPrice;
-                          if (askP > 0) setOrderLimitPrice(askP.toFixed(2));
-                        }
-                      }}
-                    >
-                      BUY
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={orderAction === "SELL" ? "danger" : "secondary"} tone={orderAction === "SELL" ? "solid" : "subtle"}
-                      onClick={() => {
-                        setOrderAction("SELL");
-                        setActiveDraft(null);
-                        setLastExecutionResult(null);
-                        if (orderQuote && orderType === "LIMIT") {
-                          const bidP = orderQuote.bid > 0 ? orderQuote.bid : orderQuote.lastPrice;
-                          if (bidP > 0) setOrderLimitPrice(bidP.toFixed(2));
-                        }
-                      }}
-                    >
-                      SELL
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={orderAction === "SELL_SHORT" ? "danger" : "secondary"} tone={orderAction === "SELL_SHORT" ? "solid" : "subtle"}
-                      onClick={() => {
-                        setOrderAction("SELL_SHORT");
-                        setActiveDraft(null);
-                        setLastExecutionResult(null);
-                        if (orderQuote && orderType === "LIMIT") {
-                          const bidP = orderQuote.bid > 0 ? orderQuote.bid : orderQuote.lastPrice;
-                          if (bidP > 0) setOrderLimitPrice(bidP.toFixed(2));
-                        }
-                      }}
-                    >
-                      SHORT
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={orderAction === "BUY_TO_COVER" ? "primary" : "secondary"} tone={orderAction === "BUY_TO_COVER" ? "solid" : "subtle"}
-                      onClick={() => {
-                        setOrderAction("BUY_TO_COVER");
-                        setActiveDraft(null);
-                        setLastExecutionResult(null);
-                        if (orderQuote && orderType === "LIMIT") {
-                          const askP = orderQuote.ask > 0 ? orderQuote.ask : orderQuote.lastPrice;
-                          if (askP > 0) setOrderLimitPrice(askP.toFixed(2));
-                        }
-                      }}
-                    >
-                      COVER
-                    </Button>
-                  </div>
+                  <FieldShell id="etrade-order-action" label="Order Action">
+                    <div className="action-toggle-grid">
+                      <Button
+                        type="button"
+                        variant={orderAction === "BUY" ? "primary" : "secondary"} tone={orderAction === "BUY" ? "solid" : "subtle"}
+                        onClick={() => {
+                          setOrderAction("BUY");
+                          setActiveDraft(null);
+                          setLastExecutionResult(null);
+                          if (orderQuote && orderType === "LIMIT") {
+                            const askP = orderQuote.ask > 0 ? orderQuote.ask : orderQuote.lastPrice;
+                            if (askP > 0) setOrderLimitPrice(askP.toFixed(2));
+                          }
+                        }}
+                      >
+                        BUY
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={orderAction === "SELL" ? "danger" : "secondary"} tone={orderAction === "SELL" ? "solid" : "subtle"}
+                        onClick={() => {
+                          setOrderAction("SELL");
+                          setActiveDraft(null);
+                          setLastExecutionResult(null);
+                          if (orderQuote && orderType === "LIMIT") {
+                            const bidP = orderQuote.bid > 0 ? orderQuote.bid : orderQuote.lastPrice;
+                            if (bidP > 0) setOrderLimitPrice(bidP.toFixed(2));
+                          }
+                        }}
+                      >
+                        SELL
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={orderAction === "SELL_SHORT" ? "danger" : "secondary"} tone={orderAction === "SELL_SHORT" ? "solid" : "subtle"}
+                        onClick={() => {
+                          setOrderAction("SELL_SHORT");
+                          setActiveDraft(null);
+                          setLastExecutionResult(null);
+                          if (orderQuote && orderType === "LIMIT") {
+                            const bidP = orderQuote.bid > 0 ? orderQuote.bid : orderQuote.lastPrice;
+                            if (bidP > 0) setOrderLimitPrice(bidP.toFixed(2));
+                          }
+                        }}
+                      >
+                        SHORT
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={orderAction === "BUY_TO_COVER" ? "primary" : "secondary"} tone={orderAction === "BUY_TO_COVER" ? "solid" : "subtle"}
+                        onClick={() => {
+                          setOrderAction("BUY_TO_COVER");
+                          setActiveDraft(null);
+                          setLastExecutionResult(null);
+                          if (orderQuote && orderType === "LIMIT") {
+                            const askP = orderQuote.ask > 0 ? orderQuote.ask : orderQuote.lastPrice;
+                            if (askP > 0) setOrderLimitPrice(askP.toFixed(2));
+                          }
+                        }}
+                      >
+                        COVER
+                      </Button>
+                    </div>
+                  </FieldShell>
                 </div>}
 
                 {/* Order Type and Pricing */}
@@ -1842,8 +1834,7 @@ export function ETradeTradingHub({
                 )}
                 <div className="form-row-2">
                   <div className="form-group">
-                    <label>Order Type</label>
-                    <Select
+                    <Select label="Order Type"
                       value={orderType}
                       disabled={Boolean(orderContext?.optionLegs?.length)}
                       onChange={(e) => {
@@ -1860,8 +1851,7 @@ export function ETradeTradingHub({
                   </div>
 
                   <div className="form-group">
-                    <label>{orderContext?.optionLegs?.length ? "Net Limit Price per Strategy Unit ($)" : orderType === "LIMIT" ? "Limit Price ($)" : "Stop Price ($)"}</label>
-                    <TextInput
+                    <TextInput label={orderContext?.optionLegs?.length ? "Net Limit Price per Strategy Unit ($)" : orderType === "LIMIT" ? "Limit Price ($)" : "Stop Price ($)"}
                       type="number"
                       step="0.01"
                       disabled={orderType === "MARKET"}
@@ -1916,44 +1906,45 @@ export function ETradeTradingHub({
 
                 {/* Quantity and Quick Stepper */}
                 <div className="form-group">
-                  <label>{orderContext?.optionLegs?.length ? "Strategy Units" : "Quantity (Shares)"}</label>
-                  <div className="quantity-stepper-row">
-                    <Button
-                      className="qty-btn"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setOrderQuantity(Math.max(1, orderQuantity - (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? 1 : 5)));
-                        setActiveDraft(null);
-                        setLastExecutionResult(null);
-                      }}
-                    >
-                      {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "−1" : "−5"}
-                    </Button>
-                    <TextInput
-                      type="number"
-                      min="1"
-                      className="qty-input"
-                      value={orderQuantity}
-                      onChange={(e) => {
-                        setOrderQuantity(Math.max(1, parseInt(e.target.value) || 1));
-                        setActiveDraft(null);
-                        setLastExecutionResult(null);
-                      }}
-                    />
-                    <Button
-                      className="qty-btn"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setOrderQuantity(orderQuantity + (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? 1 : 5));
-                        setActiveDraft(null);
-                        setLastExecutionResult(null);
-                      }}
-                    >
-                      {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "+1" : "+5"}
-                    </Button>
-                  </div>
+                  <FieldShell id="etrade-order-quantity" label={orderContext?.optionLegs?.length ? "Strategy Units" : "Quantity (Shares)"}>
+                    <div className="quantity-stepper-row">
+                      <Button
+                        className="qty-btn"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setOrderQuantity(Math.max(1, orderQuantity - (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? 1 : 5)));
+                          setActiveDraft(null);
+                          setLastExecutionResult(null);
+                        }}
+                      >
+                        {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "−1" : "−5"}
+                      </Button>
+                      <TextInput
+                        type="number"
+                        min="1"
+                        className="qty-input"
+                        value={orderQuantity}
+                        onChange={(e) => {
+                          setOrderQuantity(Math.max(1, parseInt(e.target.value) || 1));
+                          setActiveDraft(null);
+                          setLastExecutionResult(null);
+                        }}
+                      />
+                      <Button
+                        className="qty-btn"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setOrderQuantity(orderQuantity + (orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? 1 : 5));
+                          setActiveDraft(null);
+                          setLastExecutionResult(null);
+                        }}
+                      >
+                        {orderContext?.optionLegs?.some((leg) => leg.securityType === "OPTN") ? "+1" : "+5"}
+                      </Button>
+                    </div>
+                  </FieldShell>
                   <div className="qty-preset-chips">
                     {(orderAssetClass === "options" ? [1, 2, 5, 10, 25] : [5, 10, 25, 50, 100]).map((q) => (
                       <Button
@@ -2566,24 +2557,21 @@ export function ETradeTradingHub({
                 </h5>
                 <div className="omnichannel-form-group">
                   <div>
-                    <label htmlFor="omni-email-from" className="omnichannel-form-label">From (Sender Email):</label>
-                    <TextInput id="omni-email-from"
+                    <TextInput label="From (Sender Email):" id="omni-email-from"
                       type="email"
                       value={emailFrom}
                       onChange={(e) => setEmailFrom(e.target.value)}
                     />
                   </div>
                   <div>
-                    <label htmlFor="omni-email-subject" className="omnichannel-form-label">Subject:</label>
-                    <TextInput id="omni-email-subject"
+                    <TextInput label="Subject:" id="omni-email-subject"
                       type="text"
                       value={emailSubject}
                       onChange={(e) => setEmailSubject(e.target.value)}
                     />
                   </div>
                   <div>
-                    <label htmlFor="omni-email-body" className="omnichannel-form-label">Email Body:</label>
-                    <TextInput id="omni-email-body"
+                    <TextInput label="Email Body:" id="omni-email-body"
                       multiline
                       rows={2}
                       value={emailBody}
@@ -2695,8 +2683,7 @@ export function ETradeTradingHub({
                 </h5>
                 <div className="omnichannel-form-group">
                   <div>
-                    <label htmlFor="omni-slack-message" className="omnichannel-form-label">Slack Message / Mention:</label>
-                    <TextInput id="omni-slack-message"
+                    <TextInput label="Slack Message / Mention:" id="omni-slack-message"
                       type="text"
                       value={slackPrompt}
                       onChange={(e) => setSlackPrompt(e.target.value)}
