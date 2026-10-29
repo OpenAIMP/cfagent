@@ -17,8 +17,6 @@ import {
   DynamicOptionsScreener,
   UnifiedOptionsService,
   adaptOpportunityScanToOptionScreenResult,
-  SqlScanRunStore,
-  SqlStrategyProfileStore,
   buildCalibratedOptionChains,
   createOptionsScreeningProvider,
   OPTIONS_SCREENING_PROVIDER_ID,
@@ -26,6 +24,7 @@ import {
   buildStrategyReportInput,
   strategyReportArtifactLinks,
 } from "../../trading";
+import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
 import { buildDataProviderPorts } from "../../data/buildDataProviderPorts";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
@@ -346,7 +345,7 @@ export async function executeUnifiedOptions(args: {
   // #2303: the platform ports for the service's platform block
   // (built from env; nulls when AGENT_DB is unbound).
   const dpPorts = await buildDataProviderPorts(ctx.env);
-  const service = new UnifiedOptionsService(ctx.env, userLogin, ctx.requestedEnv, ctx.getOrm(), new SqlScanRunStore(ctx.agentCtx.storage.sql), new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), ctx.agentCtx.storage.sql, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env }, undefined, dpPorts);
+  const service = new UnifiedOptionsService(ctx.env, userLogin, ctx.requestedEnv, ctx.getOrm(), createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).strategyProfiles, ctx.agentCtx.storage.sql, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env }, undefined, dpPorts);
   // Issue #16: event calendars are server-side facts — strip any
   // client-supplied calendar, then fetch coverage for the
   // actions that run the strategy engine. The calendar service
@@ -427,7 +426,7 @@ export async function executeUnifiedOptions(args: {
       try {
         const scanRunId = (result.data as { scanRunId?: unknown } | null)?.scanRunId;
         if (typeof scanRunId === "string" && scanRunId) {
-          const scanStore = new SqlScanRunStore(ctx.agentCtx.storage.sql);
+          const scanStore = createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns;
           await scanStore.updatePdfKey(scanRunId, pdfKey, { userLogin });
         }
       } catch (stampErr) {
