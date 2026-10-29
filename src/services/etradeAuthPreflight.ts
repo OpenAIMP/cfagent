@@ -36,6 +36,10 @@ import {
 import { codedMessage } from "../errors/errorAspects";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
 import type { ScreenerRunOutcome } from "./screenerFollowups";
+import {
+  formatTraceBlock,
+  type ScreenerTrace,
+} from "./screenerTrace";
 
 /** Minimal key-value seam (Durable Object storage satisfies it). */
 export interface AuthEpisodeStore {
@@ -210,6 +214,9 @@ export interface GuardScheduledETradeAuthOptions {
   kind: "stock" | "options";
   /** Human label for the alert text, e.g. "SP100 stock screen". */
   label: string;
+  /** Issue #2216: the run's trace, rendered onto the alert and carried
+   *  on the bridged outcome so every leg of the run shares it. */
+  trace?: ScreenerTrace;
   /** Test seam: preflight deps (default: bound to the real store). */
   deps?: ETradeAuthPreflightDeps;
   /** Test seam: Slack alert transport. */
@@ -237,15 +244,21 @@ export async function guardScheduledETradeAuth(
         : authBlockedMessage(alerted);
 
     const fire = async (): Promise<void> => {
+      // Issue #2216 (#1969 P1): the alert renders FROM the catalog
+      // (the run record already did) instead of duplicating the
+      // catalog text by hand, and appends the run's trace block so
+      // the alert attributes its run without an audit lookup.
+      const traceBlock = formatTraceBlock(opts.trace);
       const text =
         pre.reason === "no-session"
-          ? `⚠️ [AUTH_003] E*TRADE connection missing — scheduled ${opts.label} is blocked. ` +
-            "No stored E*TRADE session exists for this account in PROD mode. " +
-            "Connect your E*TRADE account in Settings to resume scheduled runs. " +
-            "Runs stay blocked (quietly) until you connect."
-          : `⚠️ [AUTH_002] E*TRADE connection expired — scheduled ${opts.label} is blocked. ` +
-            "Reconnect your account in Settings to resume scheduled runs. " +
-            "Runs stay blocked (quietly) until you reconnect.";
+          ? `⚠️ ${codedMessage(
+              "AUTH_003",
+              `scheduled ${opts.label} is blocked. Runs stay blocked (quietly) until you connect.`
+            )}${traceBlock ? `\n${traceBlock}` : ""}`
+          : `⚠️ ${codedMessage(
+              "AUTH_002",
+              `scheduled ${opts.label} is blocked. Runs stay blocked (quietly) until you reconnect.`
+            )}${traceBlock ? `\n${traceBlock}` : ""}`;
       const sends: Array<Promise<unknown>> = [];
       if (opts.sendSlackAlert) {
         sends.push(opts.sendSlackAlert(text));
@@ -265,6 +278,7 @@ export async function guardScheduledETradeAuth(
           success: false,
           pdfKeys: [],
           error: blockedMessage(true),
+          trace: opts.trace,
         };
         sends.push(opts.bridge(outcome, opts.userLogin, false));
       }
