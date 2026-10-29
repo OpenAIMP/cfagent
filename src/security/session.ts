@@ -7,6 +7,15 @@ import type {
 } from "../telemetry/resourceUsagePorts";
 
 export const SESSION_TTL = 60 * 60 * 24 * 7; // 7 days in seconds
+/**
+ * Hard cap on a session's total life, even when activity keeps renewing
+ * the 7-day window. Renewal stops here; the session then expires normally.
+ * 30 days balances "an active user is not asked to sign in weekly" against
+ * a stolen cookie that stays usable forever.
+ */
+export const SESSION_MAX_TTL = 60 * 60 * 24 * 30; // 30 days in seconds
+/** Renew the absolute window when this little of it remains (2 days). */
+export const SESSION_RENEW_WINDOW = 60 * 60 * 24 * 2; // 2 days in seconds
 export const COOKIE_NAME = "session_id";
 const STATE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -161,6 +170,61 @@ export async function updateSession(
 
 export async function deleteSession(env: Env, sessionId: string): Promise<void> {
   await sessionStore(env).delete(sessionId);
+}
+
+/**
+ * True when a page navigation should slide the absolute window: the
+ * session is inside its last two days and has not reached the 30-day
+ * lifetime cap. Expired sessions are not renewed (the user signs in again).
+ */
+export function sessionRenewalDue(session: SessionData, nowMs: number): boolean {
+  if (typeof session.createdAt !== "number" || !Number.isFinite(session.createdAt)) return false;
+  const firstCreatedAt =
+    typeof session.firstCreatedAt === "number" && Number.isFinite(session.firstCreatedAt)
+      ? session.firstCreatedAt
+      : session.createdAt;
+  if (nowMs >= firstCreatedAt + SESSION_MAX_TTL * 1000) return false;
+  const remainingMs = session.createdAt + SESSION_TTL * 1000 - nowMs;
+  return remainingMs > 0 && remainingMs <= SESSION_RENEW_WINDOW * 1000;
+}
+
+/**
+ * Slide the absolute 7-day window on an authenticated document navigation.
+ * The session id is preserved, so every other open tab keeps working; the
+ * browser cookie is re-issued by the caller with a fresh Max-Age. Returns
+ * false when no renewal was due (or the lifetime cap is reached).
+ */
+export async function renewSessionWithStore(
+  store: KvLike,
+  sessionId: string,
+  session: SessionData,
+  nowMs: number = Date.now()
+): Promise<boolean> {
+  if (!sessionRenewalDue(session, nowMs)) return false;
+  const firstCreatedAt =
+    typeof session.firstCreatedAt === "number" && Number.isFinite(session.firstCreatedAt)
+      ? session.firstCreatedAt
+      : session.createdAt;
+  const renewed: SessionData = {
+    ...session,
+    createdAt: nowMs,
+    firstCreatedAt,
+    lastActivityMs: nowMs,
+  };
+  await store.put(sessionId, JSON.stringify(renewed), {
+    expirationTtl: SESSION_TTL,
+  });
+  return true;
+}
+
+/** Production wrapper: the store is the SessionStore DO. */
+export async function renewSession(
+  env: Env,
+  sessionId: string,
+  session: SessionData,
+  nowMs: number = Date.now()
+): Promise<boolean> {
+  return renewSessionWithStore(sessionStore(env), sessionId, session, nowMs);
 }
 
 async function hmacSign(secret: string, message: string): Promise<string> {

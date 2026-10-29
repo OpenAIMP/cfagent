@@ -220,6 +220,20 @@ export interface SessionPolicy {
   stepUpFreshnessMs: number;
 }
 
+/**
+ * Resolve the idle window from an owner override (ms as a string) with the
+ * settled 30-minute default. Values under 5 minutes are clamped up (a typo
+ * like "3000" must not mean 3 seconds), and
+ * values above the absolute TTL are clamped down: idle can never exceed the
+ * session's own lifetime.
+ */
+export const MIN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+export function resolveIdleTimeoutMs(raw: string | number | undefined | null): number {
+  const value = typeof raw === "number" ? raw : raw == null ? Number.NaN : Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_IDLE_TIMEOUT_MS;
+  return Math.min(Math.max(value, MIN_IDLE_TIMEOUT_MS), SESSION_ABSOLUTE_TTL_MS);
+}
+
 export const DEFAULT_SESSION_POLICY: SessionPolicy = {
   absoluteTtlMs: SESSION_ABSOLUTE_TTL_MS,
   idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,

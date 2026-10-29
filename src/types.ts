@@ -27,6 +27,8 @@ export interface Env {
   // (legacy KV fallback removed in #604; the leftover KV bindings in
   // wrangler.jsonc are #606).
   SESSION_STORE?: DurableObjectNamespace;
+  /** Owner override for the idle window in ms (default 30 min; production 8h). */
+  SESSION_IDLE_TIMEOUT_MS?: string;
   // Issue #1806: Cloudflare Flagship native feature flags binding.
   // Conforms to OpenFeature boolean/value evaluation. Optional so code
   // is safe before the flagship binding is provisioned in wrangler.jsonc.
@@ -564,6 +566,12 @@ export interface SessionData {
   githubAvatar: string;
   githubName: string;
   createdAt: number;
+  /**
+   * First creation time, preserved across sliding renewals; the session's
+   * hard 30-day lifetime cap is measured from here. Absent on legacy
+   * sessions, where createdAt is the first creation time.
+   */
+  firstCreatedAt?: number;
   // #945 Wiring Phase 1 — optional extensions, added only when IAAA wiring
   // is on. Old sessions without them keep working exactly as before.
   // internalUserId is the stable Slice 1 identity, never derived from a
