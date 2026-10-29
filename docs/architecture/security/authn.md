@@ -83,6 +83,15 @@ CISO 30-minute default (D-1 in
 [iaaa-decisions-1757.md](iaaa-decisions-1757.md)); the refresh path also
 preserves the page being refreshed (`auth:next` in sessionStorage) and
 returns to it after login.
+**Duplicate cookies (2026-10-29, #2271).** A browser can hold more than
+one `session_id` when an older cookie differs by Domain/Path, and sends
+every match. The auth path tries each UUID-shaped candidate in header
+order — deduplicated and capped at `MAX_SESSION_COOKIE_CANDIDATES` (8),
+so a request-controlled `Cookie` header cannot fan out SessionStore
+reads — and re-issues the id that actually resolved the session. Logout
+deletes every candidate. Landing, login and app-shell HTML are served
+`Cache-Control: no-store`: a cached signed-out document replayed on
+refresh reads as a sign-out even while the cookie is still valid.
 - **Rotation and revocation:** sessions rotate, and revocation is stored
   so a revoked session stays revoked.
 - **Step-up:** sensitive operations (API-key mint is the live example)

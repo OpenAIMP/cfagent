@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { getSessionId, isSessionIdFormat } from "../src/security/session";
+import {
+  MAX_SESSION_COOKIE_CANDIDATES,
+  getSessionId,
+  getSessionIdCandidates,
+  getSessionIds,
+  isSessionIdFormat,
+} from "../src/security/session";
 
 /**
  * Issue #329: `requireAuth` used to hand any `session_id` cookie value straight
@@ -36,6 +42,36 @@ describe("session id shape gate (#329)", () => {
   it("rejects a missing cookie", () => {
     expect(isSessionIdFormat(null)).toBe(false);
     expect(isSessionIdFormat(undefined)).toBe(false);
+  });
+
+  it("tries every session_id cookie and prefers a UUID-shaped value", () => {
+    const req = new Request("https://agent.openaimp.com/", {
+      headers: { Cookie: `session_id=stale-legacy; session_id=${SESSION_UUID}; theme=dark` },
+    });
+    expect(getSessionIds(req)).toEqual(["stale-legacy", SESSION_UUID]);
+    expect(getSessionId(req)).toBe(SESSION_UUID);
+  });
+
+  it("returns the first cookie when no candidate is UUID-shaped", () => {
+    const req = new Request("https://agent.openaimp.com/", {
+      headers: { Cookie: "session_id=old-one; session_id=old-two" },
+    });
+    expect(getSessionId(req)).toBe("old-one");
+  });
+
+  it("deduplicates repeated values", () => {
+    const req = new Request("https://agent.openaimp.com/", {
+      headers: { Cookie: `session_id=${SESSION_UUID}; session_id=${SESSION_UUID}` },
+    });
+    expect(getSessionIds(req)).toEqual([SESSION_UUID]);
+  });
+
+  it("hands the auth path only UUID-shaped candidates, in header order and capped", () => {
+    const uuids = Array.from({ length: MAX_SESSION_COOKIE_CANDIDATES + 2 }, () => crypto.randomUUID());
+    const req = new Request("https://agent.openaimp.com/", {
+      headers: { Cookie: `session_id=junk; ${uuids.map((id) => `session_id=${id}`).join("; ")}` },
+    });
+    expect(getSessionIdCandidates(req)).toEqual(uuids.slice(0, MAX_SESSION_COOKIE_CANDIDATES));
   });
 
   it("gates exactly the value the Worker reads from the cookie", () => {
