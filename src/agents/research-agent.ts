@@ -17,6 +17,11 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
+import {
+  dispatchResearchA2A,
+  researchA2AOutcome,
+  type ResearchA2AOutcome,
+} from "./researchA2aDispatch";
 import type { ActorTurnHooks } from "../actors/actorPorts";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
@@ -422,6 +427,34 @@ export class ResearchAgent extends PortThink {
     patch: Partial<ResearchConfig>
   ): Promise<{ config: ResearchConfig; errors: string[] }> {
     return this.configService().save(patch);
+  }
+
+  /**
+   * Issue #2223 (final slice): A2A door, cfpay signature — the edge
+   * dispatcher (src/a2a) resolves the "research" name to this class
+   * on the service identity's research:<login> instance (fail-closed
+   * when none is configured) and calls this with the parsed body +
+   * origin (a Request cannot cross the DO RPC boundary). Thin
+   * delegation to the dispatch module (./researchA2aDispatch),
+   * which threads the service identity into run requests explicitly
+   * — the run methods' literal "default" login fallback is never
+   * inherited through this door. Returns the collected
+   * { text, data } outcome.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<ResearchA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
+    const data = await dispatchResearchA2A(this.env, body, {
+      executor: {
+        runResearch: (req) => this.runResearch(req),
+        runDiscovery: (req) => this.runDiscovery(req),
+        getLatest: () => this.getLatest(),
+        getHistory: () => this.getHistory(),
+        getTrackRecord: () => this.getTrackRecord(),
+        evaluateRun: (runId, userLogin) => this.evaluateRun(runId, userLogin),
+        getResearchConfig: () => this.getResearchConfig(),
+      },
+    });
+    return researchA2AOutcome(data);
   }
 
   /**
