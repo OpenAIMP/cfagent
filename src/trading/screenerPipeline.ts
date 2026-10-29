@@ -51,7 +51,13 @@ import {
   type CapabilityRouteRecord,
   type ProviderConfigRecord,
 } from "./dataProviders/providerConfigStore";
-import { transitionProvider } from "./dataProviders/lifecycle";
+import {
+  transitionProvider,
+  transitionProviderViaPort,
+} from "./dataProviders/lifecycle";
+import type { ProviderConfigStore } from "../data/providerConfigPorts";
+import type { ProviderCaptureStore } from "../data/providerCapturePorts";
+import type { DataProviderPorts } from "../data/buildDataProviderPorts";
 import {
   createNasdaqDataProvider,
   verifyNasdaqDataProvider,
@@ -446,36 +452,69 @@ export interface NasdaqUniverseRouteBundleInput {
   tenantId?: string;
   /** Override fetcher (tests); omitted → the adapter's live feed fetcher. */
   fetchListings?: () => Promise<NasdaqStockListing[]>;
+  /**
+   * #2303 (#1976 step 1): the data-layer ports. When the caller
+   * supplies them, bootstrap/transitions/route reads run on D1
+   * through the config port and captures/outcomes land through
+   * the capture port; otherwise the sql path above runs.
+   */
+  configPort?: ProviderConfigStore | null;
+  capturePort?: ProviderCaptureStore | null;
 }
 
 export async function nasdaqUniverseRouteBundle(
   input: NasdaqUniverseRouteBundleInput
 ): Promise<NasdaqUniverseRouteBundle> {
   const { sql, storage, env, userLogin, runId } = input;
-  bootstrapDataProviders(sql);
-  const config = getProviderConfig(sql, "nasdaq");
+  const configPort = input.configPort ?? null;
+  if (configPort) await configPort.bootstrapDataProviders();
+  else bootstrapDataProviders(sql);
+  const config = configPort
+    ? await configPort.getProviderConfig("nasdaq")
+    : getProviderConfig(sql, "nasdaq");
   if (!config || config.lifecycleState !== "enabled" || !config.enabled) {
-    await transitionProvider(sql, "nasdaq", "verify", userLogin, {
+    const verifyDeps = {
       verifier: async () =>
         verifyNasdaqDataProvider(
           input.fetchListings ? { fetchListings: input.fetchListings } : {}
         ),
-    });
-    await transitionProvider(sql, "nasdaq", "enable", userLogin, {});
+    };
+    if (configPort) {
+      await transitionProviderViaPort(configPort, "nasdaq", "verify", userLogin, verifyDeps);
+      await transitionProviderViaPort(configPort, "nasdaq", "enable", userLogin, {});
+    } else {
+      await transitionProvider(sql, "nasdaq", "verify", userLogin, verifyDeps);
+      await transitionProvider(sql, "nasdaq", "enable", userLogin, {});
+    }
   }
   const registry = new DataProviderRegistry();
   registry.register(
     createNasdaqDataProvider(
       input.fetchListings,
       storage
-        ? { capture: { sql, blobStorage: storage as never, env } }
-        : { outcomeRecorder: createCaptureFetchOutcomeRecorder(sql) }
+        ? {
+            capture: {
+              sql,
+              blobStorage: storage as never,
+              env,
+              ...(input.capturePort ? { capturePort: input.capturePort } : {}),
+            },
+          }
+        : {
+            outcomeRecorder: input.capturePort
+              ? input.capturePort.createFetchOutcomeRecorder()
+              : createCaptureFetchOutcomeRecorder(sql),
+          }
     )
   );
   return {
     registry,
-    configs: listProviderConfigs(sql),
-    routes: listCapabilityRoutes(sql),
+    configs: configPort
+      ? await configPort.listProviderConfigs()
+      : listProviderConfigs(sql),
+    routes: configPort
+      ? await configPort.listCapabilityRoutes()
+      : listCapabilityRoutes(sql),
     runContext: {
       runId,
       tenantId: input.tenantId ?? "default",
@@ -515,7 +554,8 @@ export async function nasdaqUniverseSeamFromSql(
   sql: SqlStorage | undefined,
   env: Env,
   userLogin: string,
-  storage?: NasdaqUniverseRouteBundleInput["storage"]
+  storage?: NasdaqUniverseRouteBundleInput["storage"],
+  ports?: DataProviderPorts
 ): Promise<NasdaqUniverseSeam | undefined> {
   if (!sql) return undefined;
   try {
@@ -525,6 +565,8 @@ export async function nasdaqUniverseSeamFromSql(
       userLogin,
       runId: crypto.randomUUID(),
       ...(storage ? { storage } : {}),
+      ...(ports?.config ? { configPort: ports.config } : {}),
+      ...(ports?.captures ? { capturePort: ports.captures } : {}),
     });
     return { universeRoute: bundle };
   } catch (err) {
