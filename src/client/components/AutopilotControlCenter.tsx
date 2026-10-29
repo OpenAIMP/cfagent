@@ -575,9 +575,14 @@ export function AutopilotControlCenter({
       void fetchJobOutcomes();
       void fetchAutopilotState();
     };
-    window.addEventListener("nextgen:refresh-all", handleGlobalRefresh);
+    // #2283 stream 3: the top-bar Refresh dispatches "app-refresh"
+    // (Chat.tsx) and only OptionsResearch/StrategyDiscovery listened.
+    // Autopilot listened to "nextgen:refresh-all", which nothing in the
+    // client ever dispatched — its global refresh was a no-op. It now
+    // listens to the one live broadcast.
+    window.addEventListener("app-refresh", handleGlobalRefresh);
     return () => {
-      window.removeEventListener("nextgen:refresh-all", handleGlobalRefresh);
+      window.removeEventListener("app-refresh", handleGlobalRefresh);
     };
   }, [fetchLiveAutonomousActions, fetchJobOutcomes, fetchAutopilotState]);
 

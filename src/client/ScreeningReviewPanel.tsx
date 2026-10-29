@@ -367,7 +367,14 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
             Generate challengers from proposals
           </Button>
         </div>
-        {candidatesError && <p style={muted}>{candidatesError}</p>}
+        {candidatesError && (
+          <p style={muted}>
+            {candidatesError}{" "}
+            <Button variant="secondary" size="sm" onClick={() => void loadCandidates()}>
+              Retry
+            </Button>
+          </p>
+        )}
         {candidates !== null && candidates.length === 0 && !candidatesError && (
           <p style={muted}>No challengers are waiting for review.</p>
         )}
@@ -550,7 +557,14 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
           goal-driven screens; dismissing archives it. Only proposed goals can be decided, and the
           decision is written to the screening activity log.
         </p>
-        {goalsError && <p style={muted}>{goalsError}</p>}
+        {goalsError && (
+          <p style={muted}>
+            {goalsError}{" "}
+            <Button variant="secondary" size="sm" onClick={() => void loadGoals()}>
+              Retry
+            </Button>
+          </p>
+        )}
         {goals !== null && goals.length === 0 && !goalsError && (
           <p style={muted}>No proposed goals are waiting.</p>
         )}
@@ -605,7 +619,14 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
           run; promotion happens only through the champion/challenger gate above. There is
           deliberately no action on this list.
         </p>
-        {reselectionError && <p style={muted}>{reselectionError}</p>}
+        {reselectionError && (
+          <p style={muted}>
+            {reselectionError}{" "}
+            <Button variant="secondary" size="sm" onClick={() => void loadReselection()}>
+              Retry
+            </Button>
+          </p>
+        )}
         {reselection !== null && reselection.length === 0 && !reselectionError && (
           <p style={muted}>No re-selection proposals recorded yet.</p>
         )}
@@ -630,7 +651,12 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
           Strategy weights
         </h4>
         {weightsError && (
-          <p style={muted}>Strategy weights are unavailable right now (the research agent read path did not answer).</p>
+          <>
+            <p style={muted}>Strategy weights are unavailable right now (the research agent read path did not answer).</p>
+            <Button variant="secondary" size="sm" onClick={() => void loadWeights()}>
+              Retry
+            </Button>
+          </>
         )}
         {weights && (
           <>

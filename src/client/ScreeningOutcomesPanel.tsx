@@ -18,6 +18,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./apiFetch";
+import { Button } from "./components/ui";
 
 export interface ScreeningOutcomeView {
   recommendationRef: string;
@@ -82,9 +83,14 @@ export function ScreeningOutcomesPanel({ userLogin }: ScreeningOutcomesPanelProp
         borderRadius: "8px",
       }}
     >
-      <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "var(--font-size-title-sm)" }}>
-        📈 Recommendation Track Record
-      </h4>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)" }}>
+        <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "var(--font-size-title-sm)" }}>
+          📈 Recommendation Track Record
+        </h4>
+        <Button variant="secondary" size="sm" onClick={() => void load()}>
+          ↻ Refresh
+        </Button>
+      </div>
       <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)", lineHeight: 1.5 }}>
         What actually happened to the screening system's recommendations after they were issued,
         from the outcome ledger. A recommendation is <strong>Verified</strong> only when its
@@ -94,7 +100,12 @@ export function ScreeningOutcomesPanel({ userLogin }: ScreeningOutcomesPanelProp
       </p>
 
       {loadError && (
-        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>{loadError}</p>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>
+          {loadError}{" "}
+          <Button variant="secondary" size="sm" onClick={() => void load()}>
+            Retry
+          </Button>
+        </p>
       )}
 
       {!loadError && outcomes.length === 0 && (

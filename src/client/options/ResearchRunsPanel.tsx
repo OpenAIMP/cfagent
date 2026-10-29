@@ -358,6 +358,16 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
         <Button onClick={() => void runNow()} disabled={running}>
           {running ? "Running…" : "Run research now"}
         </Button>
+        <Button
+          variant="secondary"
+          onClick={() => {
+            void loadConfig();
+            void loadLatest();
+            void loadHistory();
+          }}
+        >
+          ↻ Refresh
+        </Button>
         <Button onClick={() => setShowFilters(!showFilters)}>{showFilters ? "Hide filters" : "Edit filters"}</Button>
         {report && <Button onClick={() => void evaluate(report.runId)}>Evaluate this run (§9)</Button>}
         {onSendPrompt && (

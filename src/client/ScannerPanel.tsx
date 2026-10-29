@@ -1434,7 +1434,14 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         Strategy Profiles
         <Button variant="secondary" size="sm" className="scp-mini-btn" onClick={openCreateForm}>+ New profile</Button>
       </div>
-      {profilesError && <div className="scp-error" role="alert">{profilesError}</div>}
+      {profilesError && (
+        <div className="scp-error" role="alert">
+          {profilesError}{" "}
+          <Button variant="secondary" size="sm" onClick={() => void loadProfiles()}>
+            Retry
+          </Button>
+        </div>
+      )}
       {savedNote && <div className="scp-note">{savedNote}</div>}
       {!profilesLoaded && <div className="scp-muted">Loading strategy profiles…</div>}
       {profilesLoaded && profiles.length === 0 && !profilesError && (
@@ -1568,7 +1575,14 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
       {/* Scan history (surface 5, issue #27) */}
       <div className="scp-history">
         <div className="scp-subhead">Scan history</div>
-        {historyError && <div className="scp-error" role="alert">{historyError}</div>}
+        {historyError && (
+          <div className="scp-error" role="alert">
+            {historyError}{" "}
+            <Button variant="secondary" size="sm" onClick={() => void loadHistory()}>
+              Retry
+            </Button>
+          </div>
+        )}
         {!historyLoaded && <div className="scp-muted">Loading scan history…</div>}
         {historyLoaded && history.length === 0 && !historyError && (
           <div className="scp-muted">
