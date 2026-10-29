@@ -1,8 +1,7 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
 import {
   clearSessionCookie,
-  getSessionId,
-  isSessionIdFormat,
+  getSessionIdCandidates,
   renewSession,
   setSessionCookie,
 } from "./session";
@@ -519,7 +518,10 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         .filter((p): p is NonNullable<typeof p> => p !== null)
         .map((p) => ({ id: p.providerId, displayName: p.displayName ?? p.providerId }));
       return new Response(renderLoginPage(env, enabled.length > 0 ? enabled : undefined), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
       });
     }
     // #945 Google-as-plugin — generic provider routes: the only
@@ -3670,11 +3672,19 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     }
 
     // --- Serve App or Login Page ---
-    const session = await requireAuth(request, env);
+    // The root route needs both halves of the auth result: the session renders
+    // the shell, and the id that actually resolved it re-issues the cookie.
+    const auth = await authenticateRequest(request, env);
+    const session = auth?.session ?? null;
     if (path === "/" || path === "/index.html") {
       if (!session) {
         return new Response(renderLandingPage(env.APP_NAME), {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            // Auth HTML must never be replayed from a cache: a stale landing
+            // page on refresh looks like a sign-out even with a live cookie.
+            "Cache-Control": "no-store",
+          },
         });
       }
 
@@ -3703,7 +3713,10 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
         const userScript = `<script>window.__USER__=${safeUser};window.__FEATURES__=${safeFeatures};</script>`;
         const modified = html.replace("</head>", `${userScript}</head>`);
-        const sessionId = getSessionId(request)!;
+        // Re-issue the id that actually authenticated this request. With a
+        // stale duplicate cookie in the header, the first value is not
+        // necessarily the live one.
+        const sessionId = auth!.sessionId;
 
         // Sliding session (#2215 follow-up): an active user should not be
         // forced to sign in every 7 days. When the absolute window is
@@ -3721,6 +3734,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         return new Response(modified, {
           headers: {
             "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-store",
             "Set-Cookie": setSessionCookie(sessionId),
           },
         });
@@ -3963,11 +3977,24 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function requireAuth(request: Request, env: Env): Promise<SessionData | null> {
-  const sessionId = getSessionId(request);
+  return (await authenticateRequest(request, env))?.session ?? null;
+}
+
+/**
+ * Resolve the request's session across every `session_id` cookie the browser
+ * sent. A stale duplicate (older Domain/Path variant) must not shadow the
+ * live one: candidates are tried in header order, and the id that actually
+ * produces a session is returned so the caller re-issues THAT cookie.
+ */
+async function authenticateRequest(
+  request: Request,
+  env: Env,
+): Promise<{ session: SessionData; sessionId: string } | null> {
   // Issue #329: a value that isn't a UUID cannot name a session, so reject it
-  // before the cache and before the session store — junk cookies cost a
-  // regex, not a read.
-  if (!isSessionIdFormat(sessionId)) return null;
+  // before the cache and before the session store. The candidate list is
+  // deduplicated and capped, so a hostile Cookie header cannot fan out reads.
+  const sessionIds = getSessionIdCandidates(request);
+  if (sessionIds.length === 0) return null;
   // #1819: the auth path is the top SessionStore source, so its backing
   // reads are attributed (caller requireAuth / validateAndTouchWiredSession,
   // trigger user) and forwarded to the resource sink when one is durably
@@ -3982,34 +4009,41 @@ async function requireAuth(request: Request, env: Env): Promise<SessionData | nu
   const authResource = resourceSink
     ? { resourceSink, attribution: { caller: "requireAuth", trigger: "user" } as ResourceAttribution }
     : undefined;
-  const cached = await getSessionCached(env, sessionId, authResource);
-  // #945 Phase 2b-part1: when wiring is ON, a session that already
-  // carries an internalUserId (a wired session) is validated through
-  // the wired path — fresh read, absolute + idle expiry, touch +
-  // persist + cache invalidation (see iaaaEnforcement.ts). Every
-  // other case returns the cached session exactly as before:
-  // wiring OFF is the original single line, and non-wired sessions
-  // under wiring ON stay on the legacy cached path, idle-exempt.
-  if (isWiringEnabled(env) && cached?.internalUserId) {
-    const wiredResource = resourceSink
-      ? {
-          resourceSink,
-          attribution: { caller: "validateAndTouchWiredSession", trigger: "user" } as ResourceAttribution,
-        }
-      : undefined;
-    const result = await validateAndTouchWiredSession(
-      {
-        freshRead: (id) => getSession(env, id, wiredResource),
-        persist: (id, data, nowMs) => updateSession(env, id, data, nowMs, wiredResource),
-        invalidate: (id) => invalidateSessionCache(id),
-      },
-      cached,
-      sessionId,
-      Date.now(),
-      { idleTimeoutMs: resolveIdleTimeoutMs(env.SESSION_IDLE_TIMEOUT_MS) },
-    );
-    if (result.wired) return result.session;
+  const idleTimeoutMs = resolveIdleTimeoutMs(env.SESSION_IDLE_TIMEOUT_MS);
+
+  for (const sessionId of sessionIds) {
+    const cached = await getSessionCached(env, sessionId, authResource);
+    if (!cached) continue;
+    // #945 Phase 2b-part1: when wiring is ON, a session that already
+    // carries an internalUserId (a wired session) is validated through
+    // the wired path — fresh read, absolute + idle expiry, touch +
+    // persist + cache invalidation. Every other case returns the cached
+    // session exactly as before.
+    if (isWiringEnabled(env) && cached.internalUserId) {
+      const wiredResource = resourceSink
+        ? {
+            resourceSink,
+            attribution: { caller: "validateAndTouchWiredSession", trigger: "user" } as ResourceAttribution,
+          }
+        : undefined;
+      const result = await validateAndTouchWiredSession(
+        {
+          freshRead: (id) => getSession(env, id, wiredResource),
+          persist: (id, data, nowMs) => updateSession(env, id, data, nowMs, wiredResource),
+          invalidate: (id) => invalidateSessionCache(id),
+        },
+        cached,
+        sessionId,
+        Date.now(),
+        { idleTimeoutMs },
+      );
+      if (result.wired) {
+        if (!result.session) continue;
+        return { session: result.session, sessionId };
+      }
+    }
+    return { session: cached, sessionId };
   }
-  return cached;
+  return null;
 }
 
