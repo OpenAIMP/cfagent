@@ -27,6 +27,7 @@ import {
   strategyReportArtifactLinks,
 } from "../../trading";
 import { isDemoCalibratedChainsEnabled } from "../../config/demoMode";
+import { buildDataProviderPorts } from "../../data/buildDataProviderPorts";
 import { deliverScreenerToSlackA2A } from "../../services/screenerSlackDelivery";
 import { screenerOutcomeFromRunResult } from "../../services/screenerFollowups";
 import { recordJobOutcome } from "../../services/jobOutcomes";
@@ -342,7 +343,10 @@ export async function executeUnifiedOptions(args: {
   const { request, sessionId, ctx, reqData } = args;
   const userLogin = request.headers.get("x-user-login");
   if (!userLogin) return unauthenticatedResponse();
-  const service = new UnifiedOptionsService(ctx.env, userLogin, ctx.requestedEnv, ctx.getOrm(), new SqlScanRunStore(ctx.agentCtx.storage.sql), new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), ctx.agentCtx.storage.sql, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env });
+  // #2303: the platform ports for the service's platform block
+  // (built from env; nulls when AGENT_DB is unbound).
+  const dpPorts = await buildDataProviderPorts(ctx.env);
+  const service = new UnifiedOptionsService(ctx.env, userLogin, ctx.requestedEnv, ctx.getOrm(), new SqlScanRunStore(ctx.agentCtx.storage.sql), new SqlStrategyProfileStore(ctx.agentCtx.storage.sql), ctx.agentCtx.storage.sql, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env }, undefined, dpPorts);
   // Issue #16: event calendars are server-side facts — strip any
   // client-supplied calendar, then fetch coverage for the
   // actions that run the strategy engine. The calendar service
