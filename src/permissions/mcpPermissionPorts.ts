@@ -166,6 +166,7 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   foss_alpaca_orders: "mcp:read",
   browser_inspect_page: "mcp:read",
   ai_search_financial_docs: "mcp:read",
+  ai_search_agent_search: "mcp:read",
   "agentdb.chain.status": "mcp:read",
   "agentdb.jobs.history": "mcp:read",
   "agentdb.audit.history": "mcp:read",

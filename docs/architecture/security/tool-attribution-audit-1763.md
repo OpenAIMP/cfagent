@@ -11,7 +11,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
 ## Method and scope
 
 - Inventory source: `src/permissions/mcpPermissionPorts.ts`
-  `MCP_TOOL_SCOPES` (60 tools: 51 canonical + 9 deprecated #1906
+  `MCP_TOOL_SCOPES` (61 tools: 52 canonical + 9 deprecated #1906
   aliases, completeness-pinned against the live
   factory registry in both directions by #1843's tests) plus the
   scanner surface (`src/services/cloudflareWalletsScanner.ts`) and
@@ -58,7 +58,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
    authenticated the request is the identity, not the tool call
    itself. See gap G-AUD-3.
 
-## The 60 factory tools — verdict per tool
+## The 61 factory tools — verdict per tool
 
 Verdict key: **L** = login-attributable via door 1 (session /
 API-key); **I** = instance-attributable only via door 2 (gap
@@ -68,7 +68,7 @@ the verdict of the door used; the table lists the strongest
 attribution available (door 1) and the gaps that apply on the
 other doors. Scope column is #1843's declaration, consumed here.
 
-### mcp:read (31)
+### mcp:read (32)
 
 | Tool | Scope | /mcp verdict |
 |---|---|---|
@@ -99,6 +99,7 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `foss_alpaca_orders` (deprecated #1906 alias of `alpaca_orders`, same scope) | mcp:read | L (I / R on other doors) |
 | `browser_inspect_page` | mcp:read | L (I / R on other doors) |
 | `ai_search_financial_docs` | mcp:read | L (I / R on other doors) |
+| `ai_search_agent_search` | mcp:read | L (I / R on other doors) |
 | `agentdb.chain.status` | mcp:read | L (I / R on other doors) |
 | `agentdb.jobs.history` | mcp:read | L (I / R on other doors) |
 | `agentdb.audit.history` | mcp:read | L (I / R on other doors) |
