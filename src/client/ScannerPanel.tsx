@@ -61,7 +61,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import "./scannerPanel.css";
-import { Button, Card, Checkbox, PillGroup, Select, Table, TextInput } from "./components/ui";
+import { Button, Card, Checkbox, FieldShell, PillGroup, Select, Table, TextInput } from "./components/ui";
 import { StrategyLibraryModal } from "./options/StrategyLibraryModal";
 import { resolveCatalogStrategyLabels } from "./options/strategyLibrary";
 import { parseSymbolList } from "./accountApi";
@@ -1328,8 +1328,7 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
 
       <form className="scp-form" onSubmit={runScan}>
         <div className="scp-field scp-field-wide">
-          <label htmlFor="scp-symbols">Symbols</label>
-          <TextInput
+          <TextInput label="Symbols"
             id="scp-symbols"
             type="text"
             value={symbolsText}
@@ -1338,30 +1337,30 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
           />
         </div>
         <div className="scp-field">
-          <label htmlFor="scp-thesis">Thesis</label>
-          <Select id="scp-thesis" value={thesis} onChange={(e) => setThesis(e.target.value as OptionThesis)}>
+          <Select label="Thesis" id="scp-thesis" value={thesis} onChange={(e) => setThesis(e.target.value as OptionThesis)}>
             {THESIS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </Select>
         </div>
         <div className="scp-field scp-field-strategies">
           {/* Issue #450: one shared StrategyLibraryModal (multi-select).
               Names, descriptions and thesis tags preserved from the catalog. */}
-          <label>Strategies <span className="scp-hint">(empty = all)</span></label>
-          <Button
-          variant="secondary"
-            className="scp-strategy-picker-btn"
-            onClick={() => setStrategyModalOpen(true)}
-            disabled={strategyCatalog.length === 0}
-          >
-            {strategyCatalog.length === 0
-              ? "Loading strategies…"
-              : selectedStrategies.length === 0
-                ? "Select strategies…"
-                : `${selectedStrategies.length} selected: ${selectedStrategies
-                    .map((id) => strategyCatalog.find((s) => s.id === id)?.label || id)
-                    .slice(0, 3)
-                    .join(", ")}${selectedStrategies.length > 3 ? "…" : ""}`}
-          </Button>
+          <FieldShell id="scp-strategies" label="Strategies" hint="(empty = all)">
+            <Button
+            variant="secondary"
+              className="scp-strategy-picker-btn"
+              onClick={() => setStrategyModalOpen(true)}
+              disabled={strategyCatalog.length === 0}
+            >
+              {strategyCatalog.length === 0
+                ? "Loading strategies…"
+                : selectedStrategies.length === 0
+                  ? "Select strategies…"
+                  : `${selectedStrategies.length} selected: ${selectedStrategies
+                      .map((id) => strategyCatalog.find((s) => s.id === id)?.label || id)
+                      .slice(0, 3)
+                      .join(", ")}${selectedStrategies.length > 3 ? "…" : ""}`}
+            </Button>
+          </FieldShell>
           {selectedStrategies.length > 0 && (
             <Button
             variant="secondary"
@@ -1382,14 +1381,12 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
           />
         </div>
         <div className="scp-field">
-          <label htmlFor="scp-risk">Risk profile</label>
-          <Select id="scp-risk" value={riskProfile} onChange={(e) => setRiskProfile(e.target.value as RiskProfileValue)}>
+          <Select label="Risk profile" id="scp-risk" value={riskProfile} onChange={(e) => setRiskProfile(e.target.value as RiskProfileValue)}>
             {RISK_PROFILE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
           </Select>
         </div>
         <div className="scp-field">
-          <label htmlFor="scp-profile">Strategy profile</label>
-          <Select id="scp-profile" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
+          <Select label="Strategy profile" id="scp-profile" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
             <option value="">No profile</option>
             {profiles.map((p) => (
               <option key={p.id} value={p.id}>{p.name} (v{p.version})</option>
@@ -1398,14 +1395,12 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
         </div>
         {mode === "strategy_fit" && (
           <div className="scp-field">
-            <label htmlFor="scp-fit-limit">Show fits up to</label>
-            <Select id="scp-fit-limit" value={fitLimit} onChange={(e) => setFitLimit(Number(e.target.value))}>
+            <Select label="Show fits up to" id="scp-fit-limit" value={fitLimit} onChange={(e) => setFitLimit(Number(e.target.value))}>
               {[10, 25, 50].map((n) => <option key={n} value={n}>{n}</option>)}
             </Select>
           </div>
         )}
         <div className="scp-field scp-field-btn">
-          <label>&nbsp;</label>
           <Button type="submit" className="scp-run" disabled={scanning}>
           variant="primary"
             {scanning ? "Running scan…" : "Run scan"}
@@ -1470,47 +1465,38 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
           {formError && <div className="scp-error" role="alert">{formError}</div>}
           <div className="scp-form-grid">
             <div className="scp-field scp-field-wide">
-              <label htmlFor="scp-pf-name">Name *</label>
-              <TextInput id="scp-pf-name" type="text" value={form.name} onChange={setField("name")} placeholder="Income" />
+              <TextInput label="Name *" id="scp-pf-name" type="text" value={form.name} onChange={setField("name")} placeholder="Income" />
             </div>
             <div className="scp-field">
-              <label htmlFor="scp-pf-thesis">Thesis</label>
-              <Select id="scp-pf-thesis" value={form.thesis} onChange={setField("thesis")}>
+              <Select label="Thesis" id="scp-pf-thesis" value={form.thesis} onChange={setField("thesis")}>
                 <option value="">(unset)</option>
                 {THESIS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </Select>
             </div>
             <div className="scp-field scp-field-wide">
-              <label htmlFor="scp-pf-types">Allowed strategy types (comma-separated ids)</label>
-              <TextInput id="scp-pf-types" type="text" value={form.allowedStrategies} onChange={setField("allowedStrategies")} placeholder="put_credit_spread, iron_condor" />
+              <TextInput label="Allowed strategy types (comma-separated ids)" id="scp-pf-types" type="text" value={form.allowedStrategies} onChange={setField("allowedStrategies")} placeholder="put_credit_spread, iron_condor" />
             </div>
             <div className="scp-field">
-              <label htmlFor="scp-pf-maxloss">Max planned loss ($)</label>
-              <TextInput id="scp-pf-maxloss" type="number" min="0" step="any" value={form.maxPlannedLoss} onChange={setField("maxPlannedLoss")} />
+              <TextInput label="Max planned loss ($)" id="scp-pf-maxloss" type="number" min="0" step="any" value={form.maxPlannedLoss} onChange={setField("maxPlannedLoss")} />
             </div>
             <div className="scp-field">
-              <label htmlFor="scp-pf-minrr">Min reward / risk</label>
-              <TextInput id="scp-pf-minrr" type="number" min="0" step="any" value={form.minRewardRisk} onChange={setField("minRewardRisk")} />
+              <TextInput label="Min reward / risk" id="scp-pf-minrr" type="number" min="0" step="any" value={form.minRewardRisk} onChange={setField("minRewardRisk")} />
             </div>
             <div className="scp-field">
-              <label htmlFor="scp-pf-mindte">Min DTE</label>
-              <TextInput id="scp-pf-mindte" type="number" min="0" step="1" value={form.minDte} onChange={setField("minDte")} />
+              <TextInput label="Min DTE" id="scp-pf-mindte" type="number" min="0" step="1" value={form.minDte} onChange={setField("minDte")} />
             </div>
             <div className="scp-field">
-              <label htmlFor="scp-pf-maxdte">Max DTE</label>
-              <TextInput id="scp-pf-maxdte" type="number" min="0" step="1" value={form.maxDte} onChange={setField("maxDte")} />
+              <TextInput label="Max DTE" id="scp-pf-maxdte" type="number" min="0" step="1" value={form.maxDte} onChange={setField("maxDte")} />
             </div>
             <div className="scp-field">
-              <label htmlFor="scp-pf-events">Event policy</label>
-              <Select id="scp-pf-events" value={form.eventPolicy} onChange={setField("eventPolicy")}>
+              <Select label="Event policy" id="scp-pf-events" value={form.eventPolicy} onChange={setField("eventPolicy")}>
                 <option value="">(unset)</option>
                 <option value="warn">warn</option>
                 <option value="exclude">exclude</option>
               </Select>
             </div>
             <div className="scp-field">
-              <label htmlFor="scp-pf-iv">Expected IV direction</label>
-              <Select id="scp-pf-iv" value={form.expectedIvDirection} onChange={setField("expectedIvDirection")}>
+              <Select label="Expected IV direction" id="scp-pf-iv" value={form.expectedIvDirection} onChange={setField("expectedIvDirection")}>
                 <option value="">(unset)</option>
                 <option value="rise">rise</option>
                 <option value="unchanged">unchanged</option>
@@ -1518,19 +1504,16 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
               </Select>
             </div>
             <div className="scp-field">
-              <label htmlFor="scp-pf-bias">Optimization bias (0–100)</label>
-              <TextInput id="scp-pf-bias" type="number" min="0" max="100" step="1" value={form.optimizationBias} onChange={setField("optimizationBias")} />
+              <TextInput label="Optimization bias (0–100)" id="scp-pf-bias" type="number" min="0" max="100" step="1" value={form.optimizationBias} onChange={setField("optimizationBias")} />
             </div>
             <div className="scp-field">
-              <label htmlFor="scp-pf-risk">Risk profile posture</label>
-              <Select id="scp-pf-risk" value={form.riskProfile} onChange={setField("riskProfile")}>
+              <Select label="Risk profile posture" id="scp-pf-risk" value={form.riskProfile} onChange={setField("riskProfile")}>
                 <option value="">(unset)</option>
                 {RISK_PROFILE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </Select>
             </div>
             <div className="scp-field">
-              <label htmlFor="scp-pf-mode">Default scan mode</label>
-              <Select id="scp-pf-mode" value={form.mode} onChange={setField("mode")}>
+              <Select label="Default scan mode" id="scp-pf-mode" value={form.mode} onChange={setField("mode")}>
                 <option value="">(unset)</option>
                 {(Object.keys(MODE_LABELS) as ScanMode[]).map((value) => (
                   <option key={value} value={value}>{MODE_LABELS[value]}</option>
@@ -1546,16 +1529,13 @@ export function ScannerPanel({ activeEnv, userLogin, onPreviewTrade }: ScannerPa
           {form.gateEnabled && (
             <div className="scp-form-grid">
               <div className="scp-field">
-                <label htmlFor="scp-pf-gate-score">Gate min score (0–100)</label>
-                <TextInput id="scp-pf-gate-score" type="number" min="0" max="100" step="any" value={form.gateMinCompositeScore} onChange={setField("gateMinCompositeScore")} />
+                <TextInput label="Gate min score (0–100)" id="scp-pf-gate-score" type="number" min="0" max="100" step="any" value={form.gateMinCompositeScore} onChange={setField("gateMinCompositeScore")} />
               </div>
               <div className="scp-field">
-                <label htmlFor="scp-pf-gate-pop">Gate min POP (0–1)</label>
-                <TextInput id="scp-pf-gate-pop" type="number" min="0" max="1" step="0.05" value={form.gateMinProbabilityOfProfit} onChange={setField("gateMinProbabilityOfProfit")} />
+                <TextInput label="Gate min POP (0–1)" id="scp-pf-gate-pop" type="number" min="0" max="1" step="0.05" value={form.gateMinProbabilityOfProfit} onChange={setField("gateMinProbabilityOfProfit")} />
               </div>
               <div className="scp-field">
-                <label htmlFor="scp-pf-gate-conf">Gate min confidence</label>
-                <Select id="scp-pf-gate-conf" value={form.gateMinConfidence} onChange={setField("gateMinConfidence")}>
+                <Select label="Gate min confidence" id="scp-pf-gate-conf" value={form.gateMinConfidence} onChange={setField("gateMinConfidence")}>
                   <option value="">(unset)</option>
                   <option value="LOW">LOW</option>
                   <option value="MEDIUM">MEDIUM</option>

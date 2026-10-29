@@ -1,0 +1,2 @@
+### Changed
+- UX sweep (#2177, chunk 2): the four highest-count files' raw `<label>` elements convert to the system field pattern — EtapiConfigModal (29), OptionsResearchPanel (25), ScannerPanel (22), DiscoveryFormSections (26); raw labels fall 223 → 121. Field labels now render in the system label style (semibold secondary, not uppercase muted); the ScannerPanel Run-button spacer label is removed (vestigial under the form's bottom alignment).

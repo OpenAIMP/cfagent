@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useState, createContext, useRef } from "react";
-import { Button, Checkbox, Select, Table, TextInput } from "../components/ui";
+import { Button, Checkbox, FieldShell, Select, Table, TextInput } from "../components/ui";
 import { apiFetch as fetch } from "../apiFetch";
 import type {
   ExpectedIvDirection,
@@ -489,10 +489,7 @@ function PayoffGraph({ candidate }: { candidate: StrategyCandidate }) {
         height={280}
         ariaLabel={`${candidate.label} profit and loss at expiration`}
       />
-      <label className="options-range-control">
-        <span>Range ±{rangePct}%</span>
-        <TextInput type="range" min={2} max={50} step={1} value={rangePct} onChange={(event) => setRangePct(Number(event.target.value))} />
-      </label>
+      <TextInput label={`Range ±${rangePct}%`} type="range" min={2} max={50} step={1} value={rangePct} onChange={(event) => setRangePct(Number(event.target.value))} />
     </div>
   );
 }
@@ -543,24 +540,18 @@ function LegEditor({ legs, original, contracts, onChange }: {
         return (
           <div className="options-leg-edit" key={`${index}:${leg.optionType}:${leg.side}`}>
             <strong>{leg.side} {leg.quantity} {leg.optionType}</strong>
-            <label>
-              <span>Expiry</span>
-              <Select value={leg.expirationDate} onChange={(event) => pick(event.target.value, leg.strike)}>
-                {expiries.map((expiry) => <option key={expiry} value={expiry}>{expiry}</option>)}
-              </Select>
-            </label>
-            <label className="options-leg-strike">
-              <span>Strike ${leg.strike}</span>
-              <TextInput
-                type="range"
-                min={0}
-                max={Math.max(0, strikes.length - 1)}
-                step={1}
-                value={Math.max(0, position)}
-                disabled={strikes.length < 2}
-                onChange={(event) => pick(leg.expirationDate, strikes[Number(event.target.value)])}
-              />
-            </label>
+            <Select label="Expiry" value={leg.expirationDate} onChange={(event) => pick(event.target.value, leg.strike)}>
+              {expiries.map((expiry) => <option key={expiry} value={expiry}>{expiry}</option>)}
+            </Select>
+            <TextInput label={`Strike $${leg.strike}`}
+              type="range"
+              min={0}
+              max={Math.max(0, strikes.length - 1)}
+              step={1}
+              value={Math.max(0, position)}
+              disabled={strikes.length < 2}
+              onChange={(event) => pick(leg.expirationDate, strikes[Number(event.target.value)])}
+            />
             <span>Entry ${leg.entryPrice.toFixed(2)} <small>({leg.side === "BUY" ? "ask" : "bid"} {leg.bid.toFixed(2)} / {leg.ask.toFixed(2)})</small></span>
           </div>
         );
@@ -1258,39 +1249,30 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
         </div>
       </details>
       <form className="options-nlq-form" onSubmit={submitNaturalLanguage}>
-        <label className="options-field">
-          <span>Natural-language options screen</span>
-          <TextInput
-            value={nlqQuery}
-            onChange={(event) => setNlqQuery(event.target.value)}
-            placeholder="Screen call options with 20 to 45 DTE"
-            list="options-nlq-examples"
-          />
-          <datalist id="options-nlq-examples">{nlqExamples.map((example) => <option key={example} value={example} />)}</datalist>
-        </label>
-        <label className="options-field">
-          <span>Maximum underlyings to scan</span>
-          <TextInput
-            type="number"
-            min="1"
-            step="1"
-            value={nlqMaxUnderlyings}
-            onChange={(event) => setNlqMaxUnderlyings(event.target.value)}
-            placeholder="No cap"
-          />
-        </label>
-        <label className="options-field">
-          <span>Quote-age reference (seconds; older quotes are marked stale)</span>
-          <TextInput
-            type="number"
-            min="0"
-            step="1"
-            required
-            value={nlqQuoteAgeSeconds}
-            onChange={(event) => setNlqQuoteAgeSeconds(event.target.value)}
-            placeholder="No limit"
-          />
-        </label>
+        <TextInput label="Natural-language options screen"
+          value={nlqQuery}
+          onChange={(event) => setNlqQuery(event.target.value)}
+          placeholder="Screen call options with 20 to 45 DTE"
+          list="options-nlq-examples"
+        />
+        <datalist id="options-nlq-examples">{nlqExamples.map((example) => <option key={example} value={example} />)}</datalist>
+        <TextInput label="Maximum underlyings to scan"
+          type="number"
+          min="1"
+          step="1"
+          value={nlqMaxUnderlyings}
+          onChange={(event) => setNlqMaxUnderlyings(event.target.value)}
+          placeholder="No cap"
+        />
+        <TextInput label="Quote-age reference (seconds; older quotes are marked stale)"
+          type="number"
+          min="0"
+          step="1"
+          required
+          value={nlqQuoteAgeSeconds}
+          onChange={(event) => setNlqQuoteAgeSeconds(event.target.value)}
+          placeholder="No limit"
+        />
         <Button type="submit" disabled={!nlqQuery.trim() || nlqLoading}>
           {nlqLoading ? "Running…" : "Run options screen"}
         </Button>
@@ -1392,101 +1374,49 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
       {researchMode === "custom" && (
         <>
       <form className="options-request-form" onSubmit={submit}>
-        <label className="options-field">
-          <span>Underlying</span>
-          <TextInput required maxLength={10} value={symbol} onChange={(event) => setSymbol(event.target.value)} placeholder="Ticker" />
-        </label>
-        <label className="options-field">
-          <span>Thesis</span>
-          <Select value={thesis} onChange={(event) => setThesis(event.target.value as OptionThesis)}>
-            <option value="bullish">Bullish</option>
-            <option value="bearish">Bearish</option>
-            <option value="range_bound">Range-bound</option>
-            <option value="large_move">Large move, direction unknown</option>
-          </Select>
-        </label>
-        <label className="options-field">
-          <span>Target price</span>
-          <TextInput required type="number" min="0.01" step="0.01" value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} placeholder="Price at target date" />
-        </label>
-        <label className="options-field">
-          <span>Target date (type YYYY-MM-DD or pick)</span>
-          <div className="options-date-row">
-            <TextInput
-              required
-              type="text"
-              inputMode="numeric"
-              pattern="\d{4}-\d{2}-\d{2}"
-              placeholder="YYYY-MM-DD"
-              value={targetDate}
-              onChange={(event) => setTargetDate(event.target.value)}
-            />
-            <TextInput type="date" aria-label="Pick target date" value={/^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? targetDate : ""} onChange={(event) => event.target.value && setTargetDate(event.target.value)} />
-          </div>
-        </label>
-        <label className="options-field">
-          <span>Expected IV</span>
-          <Select value={expectedIvDirection} onChange={(event) => setExpectedIvDirection(event.target.value as ExpectedIvDirection)}>
-            <option value="rise">Rise</option>
-            <option value="unchanged">Unchanged</option>
-            <option value="fall">Fall</option>
-          </Select>
-        </label>
-        <label className="options-field">
-          <span>Maximum planned loss ($)</span>
-          <TextInput required type="number" min="1" step="1" value={maxPlannedLoss} onChange={(event) => setMaxPlannedLoss(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Minimum target reward/risk</span>
-          <TextInput required type="number" min="0" step="0.1" value={minRewardRisk} onChange={(event) => setMinRewardRisk(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Minimum DTE</span>
-          <TextInput required type="number" min="1" step="1" value={minDte} onChange={(event) => setMinDte(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Maximum DTE</span>
-          <TextInput required type="number" min={minDte || 1} step="1" value={maxDte} onChange={(event) => setMaxDte(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Minimum contract volume</span>
-          <TextInput type="number" min="0" step="1" value={minVolume} onChange={(event) => setMinVolume(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Minimum open interest</span>
-          <TextInput type="number" min="0" step="1" value={minOpenInterest} onChange={(event) => setMinOpenInterest(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Maximum bid/ask spread (%)</span>
-          <TextInput type="number" min="0" step="0.1" value={maxSpreadPct} onChange={(event) => setMaxSpreadPct(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Quote-age reference (seconds)</span>
-          <TextInput required type="number" min="0" step="1" value={maxQuoteAgeSeconds} onChange={(event) => setMaxQuoteAgeSeconds(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Contracts to evaluate</span>
-          <TextInput type="number" min="1" step="1" value={contractLimit} onChange={(event) => setContractLimit(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Ranked candidates to show</span>
-          <TextInput type="number" min="1" step="1" value={candidateLimit} onChange={(event) => setCandidateLimit(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Strike candidates per side</span>
-          <TextInput type="number" min="1" step="1" value={maxStrikesPerSide} onChange={(event) => setMaxStrikesPerSide(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Iron condor combinations</span>
-          <TextInput type="number" min="0" step="1" value={maxIronCondors} onChange={(event) => setMaxIronCondors(event.target.value)} />
-        </label>
-        <label className="options-field">
-          <span>Earnings/dividend policy</span>
-          <Select value={eventPolicy} onChange={(event) => setEventPolicy(event.target.value as "warn" | "exclude")}>
-            <option value="warn">Warn if event data unavailable</option>
-            <option value="exclude">Exclude until event data can be checked</option>
-          </Select>
-        </label>
+        <TextInput label="Underlying" required maxLength={10} value={symbol} onChange={(event) => setSymbol(event.target.value)} placeholder="Ticker" />
+        <Select label="Thesis" value={thesis} onChange={(event) => setThesis(event.target.value as OptionThesis)}>
+          <option value="bullish">Bullish</option>
+          <option value="bearish">Bearish</option>
+          <option value="range_bound">Range-bound</option>
+          <option value="large_move">Large move, direction unknown</option>
+        </Select>
+        <TextInput label="Target price" required type="number" min="0.01" step="0.01" value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} placeholder="Price at target date" />
+        <FieldShell id="options-target-date" label="Target date (type YYYY-MM-DD or pick)">
+        <div className="options-date-row">
+          <TextInput
+            required
+            type="text"
+            inputMode="numeric"
+            pattern="\d{4}-\d{2}-\d{2}"
+            placeholder="YYYY-MM-DD"
+            value={targetDate}
+            onChange={(event) => setTargetDate(event.target.value)}
+          />
+          <TextInput type="date" aria-label="Pick target date" value={/^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? targetDate : ""} onChange={(event) => event.target.value && setTargetDate(event.target.value)} />
+        </div>
+        </FieldShell>
+        <Select label="Expected IV" value={expectedIvDirection} onChange={(event) => setExpectedIvDirection(event.target.value as ExpectedIvDirection)}>
+          <option value="rise">Rise</option>
+          <option value="unchanged">Unchanged</option>
+          <option value="fall">Fall</option>
+        </Select>
+        <TextInput label="Maximum planned loss ($)" required type="number" min="1" step="1" value={maxPlannedLoss} onChange={(event) => setMaxPlannedLoss(event.target.value)} />
+        <TextInput label="Minimum target reward/risk" required type="number" min="0" step="0.1" value={minRewardRisk} onChange={(event) => setMinRewardRisk(event.target.value)} />
+        <TextInput label="Minimum DTE" required type="number" min="1" step="1" value={minDte} onChange={(event) => setMinDte(event.target.value)} />
+        <TextInput label="Maximum DTE" required type="number" min={minDte || 1} step="1" value={maxDte} onChange={(event) => setMaxDte(event.target.value)} />
+        <TextInput label="Minimum contract volume" type="number" min="0" step="1" value={minVolume} onChange={(event) => setMinVolume(event.target.value)} />
+        <TextInput label="Minimum open interest" type="number" min="0" step="1" value={minOpenInterest} onChange={(event) => setMinOpenInterest(event.target.value)} />
+        <TextInput label="Maximum bid/ask spread (%)" type="number" min="0" step="0.1" value={maxSpreadPct} onChange={(event) => setMaxSpreadPct(event.target.value)} />
+        <TextInput label="Quote-age reference (seconds)" required type="number" min="0" step="1" value={maxQuoteAgeSeconds} onChange={(event) => setMaxQuoteAgeSeconds(event.target.value)} />
+        <TextInput label="Contracts to evaluate" type="number" min="1" step="1" value={contractLimit} onChange={(event) => setContractLimit(event.target.value)} />
+        <TextInput label="Ranked candidates to show" type="number" min="1" step="1" value={candidateLimit} onChange={(event) => setCandidateLimit(event.target.value)} />
+        <TextInput label="Strike candidates per side" type="number" min="1" step="1" value={maxStrikesPerSide} onChange={(event) => setMaxStrikesPerSide(event.target.value)} />
+        <TextInput label="Iron condor combinations" type="number" min="0" step="1" value={maxIronCondors} onChange={(event) => setMaxIronCondors(event.target.value)} />
+        <Select label="Earnings/dividend policy" value={eventPolicy} onChange={(event) => setEventPolicy(event.target.value as "warn" | "exclude")}>
+          <option value="warn">Warn if event data unavailable</option>
+          <option value="exclude">Exclude until event data can be checked</option>
+        </Select>
 
         <fieldset className="options-strategy-picker">
           <legend>Allowed strategy templates</legend>
@@ -1509,14 +1439,11 @@ export function OptionsResearchPanel({ activeEnv, userLogin, onPreviewTrade, onJ
           ))}
         </fieldset>
 
-        <label className="options-field">
-          <span>Best-trade risk profile</span>
-          <Select value={riskProfile} onChange={(event) => setRiskProfile(event.target.value as RiskProfile)}>
-            <option value="conservative">Conservative (favor probability and capital safety)</option>
-            <option value="balanced">Balanced</option>
-            <option value="aggressive">Aggressive (favor reward/risk)</option>
-          </Select>
-        </label>
+        <Select label="Best-trade risk profile" value={riskProfile} onChange={(event) => setRiskProfile(event.target.value as RiskProfile)}>
+          <option value="conservative">Conservative (favor probability and capital safety)</option>
+          <option value="balanced">Balanced</option>
+          <option value="aggressive">Aggressive (favor reward/risk)</option>
+        </Select>
 
         <div className="options-form-footer">
           <p>All thresholds and search/result limits are set above. Stale/unknown quote ages are labeled and scored, not excluded on age alone. Zero-bid, crossed, and adjusted contracts are excluded as invalid/non-standard instruments.</p>
