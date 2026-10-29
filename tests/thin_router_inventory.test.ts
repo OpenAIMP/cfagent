@@ -226,6 +226,10 @@
  * (same handler, same position). (Main-based rebuild superseding
  * #2298: main's EXPECTED_INVENTORY was measured at 283 entries on
  * current main, so the rebuild's count is 289, not the old PR's 291.)
+ * Issue #2219 added one — GET /payments/agentic/commercial/identity (in
+ * handleAgenticPaymentsRoutes, after the commercial account GET) —
+ * bringing the pinned array to 294 entries; the delegation sequence
+ * is unchanged (same handler, same position).
  *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
@@ -383,6 +387,7 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/cfpay\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/cfpay-revenue\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/identity\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/account/credits\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/tenant-settings\")",

@@ -224,6 +224,9 @@ describe("subscription checkout + purchase", () => {
   it("native card unconfigured fails closed with 503", async () => {
     const { ctx } = await setup({ monetization: true });
     const plan = await createPlan(ctx, { name: "P", priceUSD: 5, periodDays: 30, includedRuns: 0 });
+    // #2219: checkout/purchase derive the tenant from the resolved
+    // account, so an account row must exist before the card port check.
+    await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", { userId: "u1", tenantId: "t1", tier: "Free" });
     expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }))?.status).toBe(503);
     expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: plan.id, tenantId: "t1", checkoutRequestId: "sub-x", checkoutSessionId: "cs_test_1" }))?.status).toBe(503);
   });
@@ -232,6 +235,9 @@ describe("subscription checkout + purchase", () => {
     const { ctx } = await setup({ monetization: true, stripe: true });
     const plan = await createPlan(ctx, { name: "Pro", priceUSD: 20, periodDays: 30, includedRuns: 10 });
     const stripe = stubStripe({ status: "open", payment_status: "unpaid" });
+    // #2219: checkout/purchase derive the tenant from the resolved account,
+    // so the account row must exist before the mint.
+    await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", { userId: "u1", tenantId: "t1", tier: "Free" });
     const checkout = await bodyOf(
       await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
     );
@@ -305,7 +311,7 @@ describe("subscription checkout + purchase", () => {
     expect(bought.subscription.stripePaymentIntentId).toBe("pi_test_9");
   });
 
-  it("rejects foreign checkout ids, inactive plans, and tenant mismatch", async () => {
+  it("rejects foreign checkout ids and inactive plans; the resolved tenant wins over a mismatched client tenant (#2219)", async () => {
     const { ctx } = await setup({ monetization: true, stripe: true });
     stubStripe();
     const plan = await createPlan(ctx, { name: "P", priceUSD: 5, periodDays: 30, includedRuns: 0 });
@@ -317,7 +323,14 @@ describe("subscription checkout + purchase", () => {
     const checkout = await bodyOf(
       await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: live.id, tenantId: "t1", email: "u1@example.com" }),
     );
-    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: live.id, tenantId: "t2", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId }))?.status).toBe(403);
+    // #2219: the client-supplied t2 is ignored; the purchase activates
+    // under the resolved account tenant t1 instead of refusing.
+    const bought = await bodyOf(
+      await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
+        planId: live.id, tenantId: "t2", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
+      }),
+    );
+    expect(bought.subscription.tenantId).toBe("t1");
   });
 });
 
@@ -326,6 +339,8 @@ describe("subscription cancel + status", () => {
     const { ctx } = await setup({ monetization: true, stripe: true });
     stubStripe();
     const plan = await createPlan(ctx, { name: "P", priceUSD: 5, periodDays: 30, includedRuns: 0 });
+    // #2219: checkout/purchase derive the tenant from the resolved account.
+    await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", { userId: "u1", tenantId: "t1", tier: "Free" });
     const checkout = await bodyOf(
       await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
     );

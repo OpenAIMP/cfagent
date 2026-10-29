@@ -8,10 +8,13 @@
  * (coverage balances, the ads flag, redeemable claims).
  *
  * Tenancy is enforced here, not by callers: accounts carry the
- * tenant, and a run whose tenant differs from the stored tenant is
- * refused by the caller (the port returns the record; the caller
- * compares). Credits, subscriptions, and claims never cross
- * tenants because every read is scoped by userId.
+ * tenant, and every read is scoped by userId, so credits,
+ * subscriptions, and claims never cross tenants. Since #2219 the
+ * paid routes derive the run tenant from the stored record for
+ * the verified login (platform identity) and ignore any
+ * client-supplied tenantId, even on mismatch — resolved identity
+ * wins, so there is no mismatch refusal anymore; the port returns
+ * the record and the caller uses its tenant.
  *
  * Money rules shared by both adapters (Drizzle + in-memory) live
  * in the pure helpers below so the two implementations cannot

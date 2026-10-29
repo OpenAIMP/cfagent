@@ -60,6 +60,15 @@ vi.mock("../src/client/commercialApi", () => ({
   formatPeriodEnd: (ms: number | null | undefined) => (ms ? String(ms) : "—"),
   formatUSD: (value: number) => `$${value.toFixed(2)}`,
   getAccount: async () => ({ tenantId: "t1", tier: "Free", creditsUSD: 0, includedRunsRemaining: 0 }),
+  // #2219: the panel displays the resolved identity read-only.
+  getIdentity: async () => ({
+    userLogin: "u1",
+    tenantId: "t1",
+    hasAccount: true,
+    tier: "Free",
+    creditsUSD: 0,
+    includedRunsRemaining: 0,
+  }),
   getFeatures: async () => ({ features: { monetization: apiState.flagOn } }),
   getPricing: async () => ({
     monetizationEnabled: apiState.monetizationEnabled,
@@ -201,10 +210,12 @@ describe("checkout panel render (#2137)", () => {
     act(() => buttonWith("Pay $0.10 and run").click());
     await flush();
     expect(apiState.submitBody).toMatchObject({
-      tenantId: "t1",
       email: "u1@example.com",
       authorizedAtSubmission: true,
     });
+    // #2219: the client sends no tenantId; the server derives the tenant
+    // from the resolved identity (a client value is never trusted).
+    expect(apiState.submitBody).not.toHaveProperty("tenantId");
     expect(el.textContent).toContain("A failure credit covered this run — no charge.");
     expect(el.textContent).toContain("Credit run: run-8");
     expect(el.textContent).not.toContain("Payment workflow started");

@@ -175,6 +175,25 @@ export const getFeatures = async (): Promise<FeaturesResponse> => {
 };
 export const getAccount = (userId: string): Promise<CommercialAccountView> =>
   get<CommercialAccountView>(`/account?userId=${encodeURIComponent(userId)}`);
+
+/**
+ * Issue #2219: the platform identity for the verified session
+ * login — the payment screen's read-only display. There is no
+ * userId parameter: the server resolves the session login, so
+ * this can never return another user's data. tenantId is null
+ * when no commercial account row exists (hasAccount false);
+ * tier is the effective tier at read time.
+ */
+export interface PlatformIdentityView {
+  userLogin: string;
+  tenantId: string | null;
+  hasAccount: boolean;
+  tier: string;
+  creditsUSD: number;
+  includedRunsRemaining: number;
+}
+
+export const getIdentity = (): Promise<PlatformIdentityView> => get<PlatformIdentityView>("/identity");
 export const listPlans = (): Promise<{ plans: PlanView[] }> => get<{ plans: PlanView[] }>("/plans");
 export const getSubscriptionStatus = (userId: string): Promise<SubscriptionStatusView> =>
   get<SubscriptionStatusView>(`/subscription?userId=${encodeURIComponent(userId)}`);
@@ -183,7 +202,14 @@ export const getSubmissionStatus = (workflowId: string): Promise<{ workflowId: s
 
 export interface SubmitBody {
   family: ScreenerFamily;
-  tenantId: string;
+  /**
+   * Issue #2219: legacy/optional only. The server derives the
+   * run tenant from the resolved platform identity and ignores
+   * any client-supplied tenantId, even on mismatch. The panel
+   * never sends one; the free path (flag OFF) with no resolved
+   * account falls back server-side to the verified-login scope.
+   */
+  tenantId?: string;
   email: string;
   trigger?: "manual" | "scheduled";
   scheduleKind?: "one_off";
@@ -206,13 +232,15 @@ export const buildGoalCommand = (body: {
 }): Promise<{ screenerCommand: Record<string, unknown> }> => post("/goal-command", body);
 export const subscriptionCheckout = (body: {
   planId: string;
-  tenantId: string;
+  /** Issue #2219: legacy/optional only — the server derives the tenant from the resolved identity. */
+  tenantId?: string;
   email: string;
 }): Promise<{ checkoutRequestId: string; checkoutUrl: string; checkoutSessionId: string; plan: PlanView }> =>
   post("/subscription/checkout", body);
 export const subscriptionPurchase = (body: {
   planId: string;
-  tenantId: string;
+  /** Issue #2219: legacy/optional only — the server derives the tenant from the resolved identity. */
+  tenantId?: string;
   checkoutRequestId: string;
   checkoutSessionId: string;
 }): Promise<{ subscription: SubscriptionView; account: CommercialAccountView; effectiveTier: string }> =>
