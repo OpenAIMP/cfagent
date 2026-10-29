@@ -131,6 +131,32 @@ Consequences:
 - With a 50-row table, the same 1,685 requests cost ~84k rows instead of 4.1M. That is the whole
   effect of the index in P0 item 1.
 
+## 4.2 Measured write volume (how much data arrives per day)
+
+Rows written, account total and top objects (`durableObjectsPeriodicGroups`, `sum.rowsWritten`):
+
+| Day (UTC) | rows written | rows read | read:write |
+|---|---:|---:|---:|
+| 2026-10-25 | 28,193 | 2,512,521 | ~89× |
+| 2026-10-26 | 29,883 | 5,520,010 | ~185× |
+| 2026-10-27 | 30,222 | 5,162,815 | ~171× |
+| 2026-10-28 | 43,834 | 5,418,014 | ~124× |
+| 2026-10-29 (to ~12:00) | 27,973 | 5,147,030 | ~184× |
+
+Top writers on 2026-10-28: `dhmprstw@gmail.com` 20,588; `screener:OpenAIMP` 6,374;
+`screener:dhmprstw@gmail.com` 6,373; `OpenAIMP` 5,225.
+
+Hourly shape for `dhmprstw@gmail.com` on 2026-10-29, 03:00-09:00 UTC, is **flat**, not bursty:
+567k-887k rows read and 1.1k-5.0k rows written per hour. A person clicking a panel does not
+produce that shape; a clock-driven job plus client polling does.
+
+`rowsWritten` counts every row write, inserts and updates alike: a run that updates its status
+three times counts three. ~28-44k writes/day is therefore an upper bound on records created,
+and it is 100-190× smaller than the rows read.
+
+That ratio is the reason writes are not the problem: the cap is on **rows read**. 28k writes
+cannot exhaust a 5M read budget; 5M reads exhaust it.
+
 ## 5. Why nothing warned
 
 The #1819 cap alert is explicitly session-scoped: *"Scope: SessionStore projection only — a breach
@@ -147,8 +173,11 @@ all, and no query in the repo is checked with `EXPLAIN QUERY PLAN`.
    `mas_events(created_at)`, `mas_messages(created_at)`, `mas_memory(updated_at)`.
 2. Replace `WHERE status NOT IN ('completed','failed')` with an index-usable predicate
    (`status IN ('queued','running',…)`) and return only the fields the gate needs.
-3. Retention for `mas_job_outcomes`, same shape as the existing `asyncJobs` pruning
-   (age and count bound).
+3. Retention for `mas_job_outcomes` (age and count bound), enforced **inside each instance**.
+   The nightly `0 4 * * *` dispatch reaches only the shared Orchestrator instance, so
+   `listJobOutcomes` bounds its own instance at most once per 24h (durable
+   `mas_job_outcomes_meta.pruned_at` marker); the nightly route remains the shared-instance
+   sweep. Both call `pruneJobOutcomes`.
 4. Keyset pagination (`WHERE created_at > ? ORDER BY created_at LIMIT ?`) for `mas_reports`
    sweeps, so one sweep is `O(N)` instead of `O(N²/limit)`.
 5. Wrap the Orchestrator's `sql.exec` in the `execCounted` helper `SessionStore` already uses and

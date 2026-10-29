@@ -1,0 +1,3 @@
+### Added
+
+- **Measured write volume in the DO rows-read RCA:** 28-44k rows written/day account-wide against 2.5-5.5M rows read (read:write 89-185x), with the flat hourly shape that identifies clock-driven work plus client polling rather than human clicking. Also corrects the `mas_job_outcomes` retention entry in `storageRetention.ts`: the nightly `0 4 * * *` dispatch reaches only the shared Orchestrator instance, so `listJobOutcomes` self-bounds each per-user instance once per 24h via `mas_job_outcomes_meta.pruned_at`.
