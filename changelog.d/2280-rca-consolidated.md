@@ -1,0 +1,3 @@
+### Changed
+
+- **Consolidated the Durable Object rows-read RCA on #2280**: per-object reads (10-28 and 10-29), daily writes and the 89-185x read:write ratio, hourly request shape, the http/alarm split (1,352 / 331), and the framework `cf_agents_jobs` mechanism — an unindexed `time` column scanned four times per alarm, 331 x 4 x ~3k ~= 4M rows/day. Superseded rankings are named as superseded; remediation carries a status per item; open questions list the one query that would prove the queue size. The document now lives on the incident issue rather than a second one.
