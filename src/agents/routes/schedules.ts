@@ -45,16 +45,12 @@ import { runStorageRetention } from "../../security/storageRetention";
 import { pruneJobOutcomes } from "../../services/jobOutcomes";
 import {
   buildSchedulePayload,
-  SqlDiscoveryRunStore,
-  SqlIvHistoryStore,
-  SqlScanRunStore,
-  SqlStrategyProfileStore,
   validateStrategyRequest,
 } from "../../trading";
+import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 import { ScheduledTasksService } from "../../services/scheduledTasks";
-import { SqlFeedSnapshotStore, pickFeedLoadParams } from "../../services/feedSnapshotStore";
+import { pickFeedLoadParams } from "../../services/feedSnapshotStore";
 import {
-  SqlPausedScheduleStore,
   pausedRecordToListItem,
   resolveScheduleUpdate,
   scheduleToPausedRecord,
@@ -190,7 +186,7 @@ export async function handleSchedulesRoutes(
     // SQLite (see services/scheduleManagement.ts); subpath ids come from
     // the /schedules/<id>/<action> shape via regex (not a counted
     // route condition).
-    const pausedStore = () => new SqlPausedScheduleStore(ctx.agentCtx.storage.sql);
+    const pausedStore = () => createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).pausedSchedulesSync;
     const subpathId = (p: string): string => {
       const m = p.match(/\/schedules\/([^/]+)\//);
       if (!m) return "";
@@ -701,7 +697,7 @@ export async function handleSchedulesRoutes(
         const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD"
           ? rawEnvironment
           : context?.environment;
-        const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin, new SqlScanRunStore(ctx.agentCtx.storage.sql), undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env }, ctx.submitShardJob);
+        const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin, createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env }, ctx.submitShardJob);
         // Issue #959: validate through the shared schedule builder.
         const { userLogin: _bodyLogin, environment: _bodyEnv, ...triggerCriteria } = body ?? {};
         const built = buildSchedulePayload("autonomousOptionsAnalysis", triggerCriteria, { userLogin: userLogin || undefined, environment, trigger: "manual" }, { applyCreationDefaults: false });
@@ -768,8 +764,8 @@ export async function handleSchedulesRoutes(
           ctx.env,
           ctx.getOrm(),
           userLogin,
-          new SqlScanRunStore(ctx.agentCtx.storage.sql),
-          new SqlIvHistoryStore(ctx.agentCtx.storage.sql),
+          createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns,
+          createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).ivHistory,
           undefined,
           undefined,
           ctx.scheduleScreenerFollowups
@@ -810,14 +806,14 @@ export async function handleSchedulesRoutes(
           ctx.env,
           ctx.getOrm(),
           userLogin,
-          new SqlScanRunStore(ctx.agentCtx.storage.sql),
+          createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns,
           undefined,
-          new SqlDiscoveryRunStore(ctx.agentCtx.storage.sql),
-          new SqlStrategyProfileStore(ctx.agentCtx.storage.sql),
+          createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).discoveryRuns,
+          createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).strategyProfiles,
           ctx.scheduleScreenerFollowups,
           { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage, env: ctx.env },
           undefined,
-          new SqlFeedSnapshotStore(ctx.agentCtx.storage.sql)
+          createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).feedSnapshots
         );
         // Issue #959: validate through the shared schedule builder
         // (the service's own derivation validation still runs inside).
