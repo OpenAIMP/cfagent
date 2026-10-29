@@ -48,11 +48,32 @@
  *   matcher), they are surfaced as DEGRADED and withheld from
  *   `results`: this agent does not launder the fallback #1169 S3
  *   exists to remove.
+ * - Report-type results (issue #2246: items this fleet uploads with
+ *   document ids `report:<reportId>` and metadata kind "report")
+ *   are served ONLY to their owner's login: the search must carry
+ *   a callerLogin equal to the item's ownerLogin metadata, or the
+ *   item is withheld and the withholding is recorded in the
+ *   result's `degraded` note. No login context, a mismatched
+ *   login, or an unproven owner (the REST mapping drops chunk
+ *   metadata, so only the key survives there) all withhold — the
+ *   safe default wins over recall.
  * - This module never throws.
  *
- * OUT of scope (the #1169 S4-5 bridge, dashboard-gated): runtime
- * provisioning — no namespace create call, no items.upload. This
- * module only ever reads.
+ * Issue #2246 adds the module's ONE write: an indexing executor
+ * (runAiSearchIndexUpload) that pushes a document to the instance
+ * via the namespace binding's items API — the upload half of the
+ * agents-sdk guide pattern. It exists so generated reports can be
+ * indexed into the instance at store time (the pipeline hook lives
+ * in src/services/reportAiSearchIndex.ts, flag-gated by
+ * AI_SEARCH_REPORT_INDEXING_ENABLED, default OFF). The executor is
+ * namespace-only (uploads have no MCP/REST equivalent here),
+ * config-gated exactly like the search paths, and returns typed
+ * outcomes — never a fabricated success.
+ *
+ * OUT of scope (still the #1169 S4-5 bridge, dashboard-gated):
+ * runtime provisioning (no namespace create call) and the
+ * knowledge-corpus items.upload bridge — the only uploads this
+ * module performs are report documents via the executor above.
  */
 import {
   ETradeAISearchService,
@@ -143,6 +164,15 @@ export interface AiSearchAgentSearchResult {
 export interface AiSearchAgentSearchOptions {
   /** Max results to return (default 5, mirroring the service default). */
   limit?: number;
+  /**
+   * Issue #2246: the login the search is performed for, when the
+   * caller has one. Report-type results are served only when this
+   * equals the item's ownerLogin metadata; absent (the A2A door and
+   * the turn tool carry no login today) report-type results are
+   * withheld. Threading a session login into those callers is the
+   * recorded follow-up — until then the safe default applies.
+   */
+  callerLogin?: string;
 }
 
 /**
@@ -261,23 +291,109 @@ function toAgentItems(items: readonly AISearchResultItem[]): AiSearchAgentResult
 }
 
 /**
- * Map a chunk payload from the namespace or MCP path through the
- * shared S2 mapping. Throws when the payload carries no chunk array
- * (an unrecognized shape is a path failure, not an empty success)
- * and propagates the mapper's AiSearchMappingError on malformed
- * chunks — the visible-failure behaviour the service itself has.
+ * Issue #2246: the document-id prefix for report documents in the
+ * instance (`report:<reportId>` — the same document-id convention
+ * the Vectorize leg uses in reportSemanticIndex.ts). The item key
+ * is the one identification signal that survives EVERY serving
+ * path's chunk mapping (as bucketKey, or as the item url when the
+ * chunk carries no url), so the login discipline keys off it, with
+ * chunk metadata as the owner-carrying refinement where it
+ * survives (namespace/MCP chunks; the REST mapping drops it).
  */
-function mapChunkPayload(env: Env, payload: unknown): AiSearchAgentResultItem[] {
+export const AI_SEARCH_REPORT_DOCUMENT_PREFIX = "report:";
+
+/** Mapped items after the report login discipline, plus the withheld count. */
+interface MappedWithDiscipline {
+  items: AiSearchAgentResultItem[];
+  withheld: number;
+}
+
+/**
+ * Issue #2246: is this (adapted) chunk a report-type item, and what
+ * owner does its metadata prove? Report-type = chunk metadata
+ * kind "report" (what the indexing executor writes) OR the item
+ * key carrying the report document prefix. Anything else is not a
+ * report and is never disciplined.
+ */
+function reportChunkVerdict(chunk: unknown): { report: boolean; ownerLogin?: string } {
+  if (chunk === null || typeof chunk !== "object" || Array.isArray(chunk)) {
+    return { report: false };
+  }
+  const c = chunk as Record<string, unknown>;
+  const item =
+    c.item !== null && typeof c.item === "object" && !Array.isArray(c.item)
+      ? (c.item as Record<string, unknown>)
+      : undefined;
+  const rawMeta = item ? item.metadata : undefined;
+  const meta =
+    rawMeta !== null && typeof rawMeta === "object" && !Array.isArray(rawMeta)
+      ? (rawMeta as Record<string, unknown>)
+      : undefined;
+  const key =
+    typeof c.key === "string"
+      ? c.key
+      : typeof item?.key === "string"
+        ? item.key
+        : undefined;
+  const byKind = meta?.kind === "report";
+  const byKey = key !== undefined && key.startsWith(AI_SEARCH_REPORT_DOCUMENT_PREFIX);
+  if (!byKind && !byKey) return { report: false };
+  return {
+    report: true,
+    ownerLogin: typeof meta?.ownerLogin === "string" ? meta.ownerLogin : undefined,
+  };
+}
+
+/**
+ * Issue #2246: apply the report login discipline to mapped items.
+ * `verdicts` is parallel to `items` (one per source chunk/item). A
+ * report-type item is kept ONLY when a callerLogin is present AND
+ * equals the item's proven ownerLogin; every other report-type
+ * item is withheld and counted (the caller surfaces the count in
+ * the result's degraded note). Non-report items always pass.
+ */
+function applyReportDiscipline(
+  items: AiSearchAgentResultItem[],
+  verdicts: Array<{ report: boolean; ownerLogin?: string }>,
+  callerLogin: string | undefined,
+): MappedWithDiscipline {
+  let withheld = 0;
+  const kept = items.filter((_, idx) => {
+    const v = verdicts[idx];
+    if (!v?.report) return true;
+    if (callerLogin && v.ownerLogin && v.ownerLogin === callerLogin) return true;
+    withheld += 1;
+    return false;
+  });
+  return { items: kept, withheld };
+}
+
+/**
+ * Map a chunk payload from the namespace or MCP path through the
+ * shared S2 mapping, then apply the #2246 report login discipline
+ * (the mapper is 1:1, so chunk verdicts stay parallel to items).
+ * Throws when the payload carries no chunk array (an unrecognized
+ * shape is a path failure, not an empty success) and propagates
+ * the mapper's AiSearchMappingError on malformed chunks — the
+ * visible-failure behaviour the service itself has.
+ */
+function mapChunkPayload(
+  env: Env,
+  payload: unknown,
+  callerLogin: string | undefined,
+): MappedWithDiscipline {
   const chunks = adaptAiSearchChunks(payload);
   if (chunks === null) {
     throw new Error("AI Search response carried no recognizable chunks array.");
   }
-  return toAgentItems(mapAiSearchChunks(chunks, isKnowledgeServingEnabled(env)));
+  const items = toAgentItems(mapAiSearchChunks(chunks, isKnowledgeServingEnabled(env)));
+  const verdicts = chunks.map((chunk) => reportChunkVerdict(chunk));
+  return applyReportDiscipline(items, verdicts, callerLogin);
 }
 
 interface PathAttempt {
   path: AiSearchPath;
-  run: () => Promise<AiSearchAgentResultItem[]>;
+  run: () => Promise<MappedWithDiscipline>;
 }
 
 /**
@@ -306,6 +422,7 @@ export async function runAiSearchPaths(
     typeof opts.limit === "number" && Number.isFinite(opts.limit) && opts.limit > 0
       ? Math.floor(opts.limit)
       : 5;
+  const callerLogin = nonEmptyString(opts.callerLogin) ?? undefined;
 
   const attempts: PathAttempt[] = [];
 
@@ -323,7 +440,7 @@ export async function runAiSearchPaths(
             `AI Search namespace binding resolved no searchable instance for "${instanceName}".`,
           );
         }
-        return mapChunkPayload(env, await namespaceSearch(instance, cleanQuery));
+        return mapChunkPayload(env, await namespaceSearch(instance, cleanQuery), callerLogin);
       },
     });
   }
@@ -334,7 +451,7 @@ export async function runAiSearchPaths(
     const mcpSearch = deps.mcpSearch ?? defaultMcpSearch;
     attempts.push({
       path: "mcp",
-      run: async () => mapChunkPayload(env, await mcpSearch(mcpEndpoint, cleanQuery)),
+      run: async () => mapChunkPayload(env, await mcpSearch(mcpEndpoint, cleanQuery), callerLogin),
     });
   }
 
@@ -350,7 +467,21 @@ export async function runAiSearchPaths(
       path: "rest",
       run: async () => {
         restResponse = await restSearch(env, cleanQuery, limit);
-        return toAgentItems(restResponse.results);
+        const items = toAgentItems(restResponse.results);
+        // #2246 discipline on the REST path: chunk metadata does
+        // not survive the service's mapping, so a report-type item
+        // is identifiable only by its key and its owner is
+        // unprovable here — report-type items are withheld on this
+        // path even when a callerLogin is present (safe default).
+        const verdicts = items.map((item) => {
+          const key = item.bucketKey ?? item.source;
+          return {
+            report:
+              typeof key === "string" &&
+              key.startsWith(AI_SEARCH_REPORT_DOCUMENT_PREFIX),
+          };
+        });
+        return applyReportDiscipline(items, verdicts, callerLogin);
       },
     });
   }
@@ -371,7 +502,7 @@ export async function runAiSearchPaths(
   const failures: string[] = [];
   for (const attempt of attempts) {
     try {
-      const items = await attempt.run();
+      const { items, withheld } = await attempt.run();
       if (attempt.path === "rest" && restResponse !== null) {
         const provider = (restResponse as AISearchQueryResponse).provider;
         if (provider === "semantic_cache") {
@@ -392,16 +523,23 @@ export async function runAiSearchPaths(
         }
       }
       const sliced = items.slice(0, limit);
+      const notes: string[] = [];
+      if (failures.length > 0) {
+        notes.push(
+          `Served by the ${attempt.path} path after earlier configured path(s) failed: ${failures.join("; ")}.`,
+        );
+      }
+      if (withheld > 0) {
+        notes.push(
+          `${withheld} report-type result(s) withheld under the report login discipline: report results are served only to the report owner's login (#2246).`,
+        );
+      }
       return {
         ok: true,
         path: attempt.path,
         correlationId,
         results: sliced,
-        ...(failures.length > 0
-          ? {
-              degraded: `Served by the ${attempt.path} path after earlier configured path(s) failed: ${failures.join("; ")}.`,
-            }
-          : {}),
+        ...(notes.length > 0 ? { degraded: notes.join(" ") } : {}),
       };
     } catch (err) {
       failures.push(
@@ -418,4 +556,166 @@ export async function runAiSearchPaths(
     correlationId,
     error: `Every configured AI Search path failed: ${failures.join("; ")}.`,
   };
+}
+
+// =====================================================================
+// Issue #2246 — report indexing: the flag + the upload executor.
+// =====================================================================
+
+/**
+ * Issue #2246: is report indexing into the AI Search instance
+ * enabled? Follows the S2 precedent (isKnowledgeServingEnabled):
+ * the env var is a plain string, "1"/"true"/"on" (case-insensitive,
+ * trimmed) means ON, and ABSENCE means OFF. The var is deliberately
+ * NOT in wrangler.jsonc — the capability ships default-off, and
+ * enablement is a config change after the #1169 probe, never a
+ * code change. When OFF, the pipeline hook in
+ * src/services/reportAiSearchIndex.ts is a silent no-op and report
+ * storage behaves exactly as before #2246 (Vectorize leg only).
+ */
+export function isAiSearchReportIndexingEnabled(
+  env?: { AI_SEARCH_REPORT_INDEXING_ENABLED?: string } | null,
+): boolean {
+  const v = env?.AI_SEARCH_REPORT_INDEXING_ENABLED;
+  if (typeof v !== "string") return false;
+  const norm = v.trim().toLowerCase();
+  return norm === "1" || norm === "true" || norm === "on";
+}
+
+/** A document to index into the instance: id, text content, metadata. */
+export interface AiSearchIndexDocument {
+  /** The item key the upload is stored under (the document id). */
+  id: string;
+  /** The document's text content (the instance chunks/embeds it). */
+  content: string;
+  /** Item metadata, carried verbatim (provenance lives here). */
+  metadata: Record<string, unknown>;
+}
+
+/** Stable local outcome tokens for the indexing executor. */
+export type AiSearchIndexErrorToken =
+  | "invalid_input"
+  | "not_configured"
+  | "upload_failed";
+
+const AISEARCH_INDEX_CATALOG_CODES: Record<AiSearchIndexErrorToken, AgentErrorCode> = {
+  invalid_input: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+  not_configured: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+  upload_failed: AgentErrorCode.TOOL_EXECUTION_FAILED,
+};
+
+function aiSearchIndexCatalogCode(token: AiSearchIndexErrorToken): AgentErrorCode {
+  const code = AISEARCH_INDEX_CATALOG_CODES[token] ?? AgentErrorCode.UNKNOWN_AGENT_ERROR;
+  return AGENT_ERROR_CATALOG[code] ? code : AgentErrorCode.UNKNOWN_AGENT_ERROR;
+}
+
+/** The typed outcome of one indexing attempt. Never a fabricated success. */
+export interface AiSearchIndexOutcome {
+  ok: boolean;
+  /** The path that performed the upload (only "namespace" exists). */
+  path?: "namespace";
+  /** Stable local outcome token when ok is false. */
+  code?: AiSearchIndexErrorToken;
+  /** Stable AGENT_ERROR_CATALOG token when ok is false. */
+  errorToken?: AgentErrorCode;
+  /** Human-readable failure detail when ok is false. */
+  error?: string;
+  correlationId: string;
+}
+
+/** The env subset the indexing executor reads (the namespace door's config). */
+export interface AiSearchIndexEnv {
+  AI_SEARCH?: AiSearchNamespace;
+  AI_SEARCH_INSTANCE?: string;
+}
+
+/**
+ * Structural minimum of the binding instance's items API this
+ * executor uses (the ambient AiSearchInstance satisfies it: items
+ * .upload(name, content, { metadata }) is an upsert by item key).
+ */
+export interface AiSearchNamespaceInstanceUploadLike {
+  items: {
+    upload(
+      name: string,
+      content: string,
+      options?: { metadata?: Record<string, unknown> },
+    ): Promise<unknown>;
+  };
+}
+
+/** Injectable upload executor. The default is the real binding call. */
+export interface AiSearchIndexDeps {
+  namespaceUpload?: (
+    instance: AiSearchNamespaceInstanceUploadLike,
+    doc: AiSearchIndexDocument,
+  ) => Promise<unknown>;
+}
+
+const defaultNamespaceUpload: NonNullable<AiSearchIndexDeps["namespaceUpload"]> = (
+  instance,
+  doc,
+) => instance.items.upload(doc.id, doc.content, { metadata: doc.metadata });
+
+/**
+ * Upload one document into the AI Search instance via the
+ * namespace binding's items API (the agents-sdk guide pattern:
+ * env.AI_SEARCH.get(AI_SEARCH_INSTANCE).items.upload(...)).
+ * Namespace-only: uploads have no MCP/REST equivalent in this
+ * layer. Config-gated exactly like the search paths — the binding
+ * plus AI_SEARCH_INSTANCE must both be present, else a typed
+ * not_configured outcome. Never throws; a failed or impossible
+ * upload is an honest upload_failed outcome, never a fabricated
+ * success.
+ */
+export async function runAiSearchIndexUpload(
+  env: AiSearchIndexEnv,
+  doc: AiSearchIndexDocument,
+  deps: AiSearchIndexDeps = {},
+): Promise<AiSearchIndexOutcome> {
+  const correlationId = crypto.randomUUID();
+  const id = typeof doc?.id === "string" ? doc.id.trim() : "";
+  const content = typeof doc?.content === "string" ? doc.content : "";
+  if (!id || !content) {
+    return {
+      ok: false,
+      code: "invalid_input",
+      errorToken: aiSearchIndexCatalogCode("invalid_input"),
+      correlationId,
+      error: "AiSearch index upload requires a non-empty document id and content.",
+    };
+  }
+  const instanceName = nonEmptyString(env?.AI_SEARCH_INSTANCE);
+  if (!env?.AI_SEARCH || !instanceName) {
+    const error =
+      "AI Search indexing is not configured: the namespace path needs the ai_search_namespaces binding (env.AI_SEARCH) plus AI_SEARCH_INSTANCE.";
+    return {
+      ok: false,
+      code: "not_configured",
+      errorToken: aiSearchIndexCatalogCode("not_configured"),
+      correlationId,
+      error,
+    };
+  }
+  try {
+    const instance = env.AI_SEARCH.get(instanceName);
+    const uploadFn = (instance as AiSearchNamespaceInstanceUploadLike | null)?.items
+      ?.upload;
+    if (!instance || typeof uploadFn !== "function") {
+      throw new Error(
+        `AI Search namespace binding resolved no item-uploadable instance for "${instanceName}".`,
+      );
+    }
+    const upload = deps.namespaceUpload ?? defaultNamespaceUpload;
+    await upload(instance as AiSearchNamespaceInstanceUploadLike, { ...doc, id });
+    return { ok: true, path: "namespace", correlationId };
+  } catch (err) {
+    return {
+      ok: false,
+      code: "upload_failed",
+      errorToken: aiSearchIndexCatalogCode("upload_failed"),
+      correlationId,
+      error: `AI Search index upload failed for document "${id}": ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
