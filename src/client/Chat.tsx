@@ -1024,7 +1024,7 @@ export function Chat({ user }: { user: User }) {
           />
     ),
     docs: (
-      <ErrorBoundary label="Docs and Reports">
+      <ErrorBoundary label="Docs & Reports">
         <DocsAndReportsPanel />
       </ErrorBoundary>
     ),

@@ -276,7 +276,7 @@ describe("C2 nav collapse", () => {
     const present = NAVIGATION_ITEMS.filter((i) => screeningIds.includes(i.id)).map((i) => i.id);
     expect(present).toEqual(["screeners"]);
     const entry = NAVIGATION_ITEMS.find((i) => i.id === "screeners")!;
-    expect(entry.label).toBe("Screening");
+    expect(entry.label).toBe("Screeners");
   });
 
   it("legacy screening tab ids still read as active on the one entry (deep links)", () => {

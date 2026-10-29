@@ -72,7 +72,7 @@ describe("Chat docs tab (#2078)", () => {
     });
 
     const text = container.textContent ?? "";
-    expect(text).toContain("Docs and Reports");
+    expect(text).toContain("Docs & Reports");
     expect(text).toContain("Every document set produced by a screener-workflow run");
     expect(container.querySelector(".docs-report-page")).not.toBeNull();
     expect(

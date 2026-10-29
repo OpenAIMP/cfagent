@@ -41,7 +41,7 @@ const NAV_SHORTCUTS: NavShortcut[] = [
   { id: "omnichannel", label: "Email & Slack Agents", category: "Intelligence", icon: "✉️" },
   { id: "workflows", label: "Workflows Hub (Playbooks A1..E6)", category: "Playbooks", icon: "🔄" },
   { id: "endpoints", label: "MCP Agent Endpoints & Tools", category: "Playbooks", icon: "🔌" },
-  { id: "nlq", label: "Records & Ledger Explorer", category: "Playbooks", icon: "🗄️" },
+  { id: "nlq", label: "Records NLQ", category: "Playbooks", icon: "🗄️" },
   { id: "audit", label: "Audit Trail & Attestation Logs", category: "Platform", icon: "🛡️" },
   { id: "payments", label: "x402 Agent Payments & Balances", category: "Platform", icon: "💳" },
   { id: "referrals", label: "Referrals & Rewards", category: "Platform", icon: "🎁" },
