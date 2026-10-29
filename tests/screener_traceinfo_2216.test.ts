@@ -155,12 +155,12 @@ describe("#2216 failure leg appends the trace block", () => {
         trace: fullTrace,
       } as never,
     );
-    expect(text).toContain("❌ [SCREEN_001] Options screen — bullish failed");
+    expect(text).toContain("❌ [SCREEN_001] The screen run failed. — Options screen — bullish");
     expect(text).toContain("Run: options_scanner:2026-10-29T04:35:02.787Z:bullish");
     expect(text).toContain("Schedule: hourly options NASDAQ100 (_D6hWyU_S)");
   });
 
-  it("renders byte-identical to before when no trace is carried", () => {
+  it("renders from the catalog when no trace is carried (#2248; supersedes the #2216 byte-identical pin for this leg)", () => {
     const text = formatLifecycleNotification("failed", {
       kind: "options",
       trigger: "scheduled",
@@ -170,7 +170,7 @@ describe("#2216 failure leg appends the trace block", () => {
       error: "[AUTH_003] No E*TRADE session is stored for this account.",
     } as never);
     expect(text).toBe(
-      "❌ [SCREEN_001] Options screen — bullish failed\nError: [AUTH_003] No E*TRADE session is stored for this account."
+      "❌ [SCREEN_001] The screen run failed. — Options screen — bullish — [AUTH_003] No E*TRADE session is stored for this account."
     );
   });
 });
