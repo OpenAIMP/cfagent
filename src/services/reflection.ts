@@ -1,5 +1,23 @@
 import { getActiveLearnings, recordLearning } from "./learnings";
-import { listStrategyReviews, recordStrategyCandidates } from "./strategyReviews";
+import { createEvidenceSatellitePorts } from "../data/createEvidenceSatellitePorts";
+import type { StrategyCandidateReview } from "../data/strategyReviewPorts";
+
+/** Step 4c (#2356): reflection's strategy-review reads/writes go
+ *  through the evidence-satellite port (composition root), not
+ *  the legacy store functions. Its learnings calls are NOT
+ *  ported — mas_learnings is gated on audit R-1 and stays on
+ *  the legacy seam until that question is answered. */
+function listStrategyReviews(sql: any, decision?: string): StrategyCandidateReview[] {
+  return createEvidenceSatellitePorts(sql).strategyReviews.list(decision);
+}
+
+function recordStrategyCandidates(
+  sql: any,
+  symbol: string,
+  candidates: Array<{ id: string; label: string; rank: number; rationale: string; quantStatus: string }>,
+): void {
+  createEvidenceSatellitePorts(sql).strategyReviews.recordCandidates(symbol, candidates);
+}
 
 /**
  * Issue #705: scheduled reflection job — the agent reads its own track record.
