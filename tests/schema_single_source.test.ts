@@ -11,7 +11,8 @@
  *
  * These pins hold the single-source contract:
  *
- *  - The shared DDL lives in exactly ONE file (src/orm/schema.ts) and
+ *  - The shared DDL lives in exactly ONE file (src/data/ormSchema.ts
+ *    since #2345 — src/orm/schema.ts is a §22 re-export shim) and
  *    both initialization paths consume it (source pins).
  *  - Both paths produce the IDENTICAL effective schema for every shared
  *    table: the DDL each path actually executes is captured at the
@@ -208,11 +209,12 @@ function walkSrc(dir: string, out: string[] = []): string[] {
 }
 
 describe("issue #782: single-source shared mas_* schema", () => {
-  it("canonical module: src/orm/schema.ts exports the seven shared tables and their DDL", async () => {
+  it("canonical module: src/data/ormSchema.ts exports the seven shared tables and their DDL", async () => {
     // Dynamic import so this suite still loads against pre-change code,
     // where the module does not exist yet (the test then fails as a
-    // test, not as a module load error).
-    const schema = (await import("../src/orm/schema")) as any;
+    // test, not as a module load error). #2345 retarget (disclosed
+    // §7 pin update): the canonical module moved to the data layer.
+    const schema = (await import("../src/data/ormSchema")) as any;
     expect(Array.isArray(schema.SHARED_MAS_TABLES)).toBe(true);
     expect([...schema.SHARED_MAS_TABLES].sort()).toEqual([...SHARED_TABLES].sort());
     expect(typeof schema.ensureSharedTable).toBe("function");
@@ -233,18 +235,22 @@ describe("issue #782: single-source shared mas_* schema", () => {
     const offenders = walkSrc(srcRoot)
       .filter((file) => pattern.test(readFileSync(file, "utf-8")))
       .map((file) => path.relative(srcRoot, file).replace(/\\/g, "/"));
-    expect(offenders).toEqual(["orm/schema.ts"]);
+    expect(offenders).toEqual(["data/ormSchema.ts"]);
   });
 
   it("source pin: both initialization paths consume the canonical module", () => {
     const srcRoot = fileURLToPath(new URL("../src", import.meta.url));
-    const ormIndex = readFileSync(path.join(srcRoot, "orm/index.ts"), "utf-8");
+    // #2345 retarget (disclosed §7 pin update): the ORM path is the
+    // data-layer facade importing ./ormSchema directly; the
+    // orchestrator still imports ../orm/schema, which is now the
+    // §22 re-export shim over the same canonical module.
+    const ormFacade = readFileSync(path.join(srcRoot, "data/ormFacade.ts"), "utf-8");
     const orchestrator = readFileSync(
       path.join(srcRoot, "agents/orchestrator.ts"),
       "utf-8"
     );
-    expect(ormIndex).toMatch(/from\s+["']\.\/schema["']/);
-    expect(ormIndex).toContain("ensureSharedTable");
+    expect(ormFacade).toMatch(/from\s+["']\.\/ormSchema["']/);
+    expect(ormFacade).toContain("ensureSharedTable");
     expect(orchestrator).toMatch(/from\s+["']\.\.\/orm\/schema["']/);
     expect(orchestrator).toContain("ensureSharedTable");
   });
