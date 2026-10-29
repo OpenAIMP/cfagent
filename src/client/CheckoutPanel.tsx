@@ -14,11 +14,16 @@
  * The server gate does. When the monetization flag is OFF the panel
  * says runs are free and never presents a charge. Prices come from
  * the server pricing route (PROPOSED until owner approval), never
- * from client constants. A payment URL is shown only when cfpay
- * provides one in the check-payment response; otherwise the panel
- * explains the request is tied to the checkout email and offers the
- * verify step. Renewal is repurchase before expiry — subscriptions
- * do not auto-renew, and the copy says so.
+ * from client constants. The network marker and the browser payment
+ * scope come from the same route, never from client constants: the
+ * panel renders the server-derived marker (testnet presentation
+ * while no rail accepts mainnet) and offers card only in the browser
+ * by default. A payment URL is shown only when the server provides
+ * the native Stripe checkoutUrl in the check-payment response;
+ * x402 has no URL, so the panel presents the 402 challenge flow
+ * (network, amount, recipient) instead of inventing a link.
+ * Renewal is repurchase before expiry — subscriptions do not
+ * auto-renew, and the copy says so.
  *
  * Dependency: the subscription endpoints are on main (PR #2142,
  * merged). If the deployed backend does not serve them yet, those
@@ -58,6 +63,7 @@ import {
   subscriptionCancel,
   subscriptionCheckout,
   subscriptionPurchase,
+  type ChallengeFlow,
   type CommercialAccountView,
   type PlanView,
   type Pricing,
@@ -115,11 +121,13 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
   const [polling, setPolling] = React.useState(false);
   const [checkResult, setCheckResult] = React.useState<string | null>(null);
   const [checkPaymentUrl, setCheckPaymentUrl] = React.useState<string | null>(null);
+  const [checkChallenge, setCheckChallenge] = React.useState<ChallengeFlow | null>(null);
   const [checking, setChecking] = React.useState(false);
 
   // Subscription buy form
   const [buyPlan, setBuyPlan] = React.useState<PlanView | null>(null);
   const [buyCheckoutId, setBuyCheckoutId] = React.useState<string | null>(null);
+  const [buyCheckoutUrl, setBuyCheckoutUrl] = React.useState<string | null>(null);
   const [buying, setBuying] = React.useState(false);
   const [buyError, setBuyError] = React.useState<string | null>(null);
   const [buyDone, setBuyDone] = React.useState<string | null>(null);
@@ -262,9 +270,11 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
     setChecking(true);
     setCheckResult(null);
     setCheckPaymentUrl(null);
+    setCheckChallenge(null);
     try {
       const res = await checkPayment(submitResult.runRequestId);
       setCheckPaymentUrl(res.paymentUrl ?? null);
+      setCheckChallenge(res.challengeFlow ?? null);
       if (res.paid && res.delivered) {
         setCheckResult("Payment verified — the run is starting. Keep watching its status below.");
       } else if (res.paid && !res.delivered) {
@@ -287,6 +297,7 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
     setBuyError(null);
     setBuyDone(null);
     setBuyCheckoutId(null);
+    setBuyCheckoutUrl(null);
     if (!email.trim()) {
       setBuyError("Enter the checkout contact email.");
       return;
@@ -300,6 +311,11 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
       const res = await subscriptionCheckout({ planId: plan.id, tenantId: tenantId.trim(), email: email.trim() });
       setBuyPlan(plan);
       setBuyCheckoutId(res.checkoutRequestId);
+      // The native subscription checkout always returns a URL (slice
+      // 2); the legacy cfpay checkout carried none. Present the link
+      // only when the server provides one — never invent one.
+      const checkout = res.checkout as { checkoutUrl?: unknown } | null | undefined;
+      setBuyCheckoutUrl(typeof checkout?.checkoutUrl === "string" ? checkout.checkoutUrl : null);
     } catch (err) {
       setBuyError(errText(err));
     } finally {
@@ -321,6 +337,7 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
         `Subscription active through ${formatPeriodEnd(res.subscription.periodEndMs)}. Effective tier: ${res.effectiveTier}.`
       );
       setBuyCheckoutId(null);
+      setBuyCheckoutUrl(null);
       await refreshSubscription();
     } catch (err) {
       setBuyError(errText(err));
@@ -352,7 +369,7 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
     <PageShell
       title="Checkout"
       scopeNote={
-        pricing?.testnetOnly === false
+        pricing?.network.acceptsMainnet
           ? "Pay for a screener run or manage a subscription. Prices shown are proposed until owner approval."
           : "Pay for a screener run or manage a subscription. Test-network build: no mainnet payment is accepted. Prices shown are proposed until owner approval."
       }
@@ -422,7 +439,7 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
           )}
           <TextInput
             label="Checkout contact email"
-            hint="Used only as the cfpay checkout contact. Identity comes from your signed-in session."
+            hint="Used only as the checkout contact. Identity comes from your signed-in session."
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -444,6 +461,13 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
             )}
           </p>
           {pricing?.failurePolicy && <Notice tone="info">{pricing.failurePolicy}</Notice>}
+          {pricing && (
+            <p>
+              {pricing.browserPaymentScope === "card-only"
+                ? "Card is the browser payment rail."
+                : "Crypto (x402) is enabled for API/agent callers; card remains the payment rail in this panel."}
+            </p>
+          )}
           {pricing?.monetizationEnabled && (
             <label>
               <Checkbox checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} /> I authorize this
@@ -486,8 +510,22 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
                       <a href={checkPaymentUrl} target="_blank" rel="noreferrer">
                         Complete payment
                       </a>{" "}
-                      (link provided by cfpay for this checkout)
+                      (native checkout link for this checkout)
                     </p>
+                  )}
+                  {checkChallenge && (
+                    <Notice tone="info">
+                      <p>
+                        Crypto (x402) payment for this run — no payment link exists for crypto. Complete the 402
+                        payment with your wallet or agent, then verify below.
+                      </p>
+                      <p>
+                        Network: {checkChallenge.network ?? "—"}
+                        {checkChallenge.amountUSD !== undefined && <> — amount: {formatUSD(checkChallenge.amountUSD)} USDC</>}
+                        {checkChallenge.recipient && <> — recipient: {checkChallenge.recipient}</>}
+                      </p>
+                      <p>{checkChallenge.note}</p>
+                    </Notice>
                   )}
                 </>
               )}
@@ -563,7 +601,7 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
               )}
               <TextInput
                 label="Checkout contact email"
-                hint="Used only as the cfpay checkout contact."
+                hint="Used only as the checkout contact."
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -573,6 +611,14 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
                 <Notice tone="info">
                   Checkout created for {buyPlan.name} ({formatUSD(buyPlan.priceUSD)}). Complete the payment for
                   checkout {buyCheckoutId}, then confirm below.
+                  {buyCheckoutUrl && (
+                    <p>
+                      <a href={buyCheckoutUrl} target="_blank" rel="noreferrer">
+                        Complete payment
+                      </a>{" "}
+                      (native checkout link for this subscription checkout)
+                    </p>
+                  )}
                   <div>
                     <Button variant="primary" loading={buying} onClick={handleBuyPurchase}>
                       I have paid — activate subscription
@@ -600,7 +646,7 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
                 />
               )}
               <p>
-                {pricing?.testnetOnly ? (
+                {pricing && !pricing.network.acceptsMainnet ? (
                   <>
                     <Badge tone="neutral">Testnet only</Badge> No mainnet payment is accepted by this build.
                   </>

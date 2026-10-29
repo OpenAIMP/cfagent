@@ -165,6 +165,7 @@ export class PaymentGatewayService {
     amount_total: number;
     client_reference_id: string;
     payment_intent?: string;
+    url?: string;
   }> {
     const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
     return stripeStrategy.retrieveCheckoutSession(this.env, sessionId);
