@@ -1,0 +1,6 @@
+### Fixed
+
+- **Refresh no longer loses a live session to a stale duplicate cookie:** browsers can send more than one `session_id` (an older Domain/Path variant before the current one). The server now tries every UUID-shaped candidate in header order — deduplicated and capped at 8 so a hostile `Cookie` header cannot fan out session-store reads — authenticates with the one that resolves, and re-issues that id, instead of binding auth to whichever cookie sorted first.
+- **Sign-out ends every candidate:** logout now deletes each UUID-shaped `session_id` candidate, so a stale-first duplicate can no longer leave the live session record alive. Token revocation and the logout audit still describe the session that actually resolved.
+- **Auth HTML is never cached:** the landing page, login page and authenticated app shell now send `Cache-Control: no-store`. A refresh can no longer replay a stale signed-out document (no `window.__USER__`) and bounce the client to `/auth/login/github` while the session cookie is still valid.
+- Pinned by `tests/session_id_format.test.ts` (multi-cookie parsing, dedupe, candidate cap) and `tests/session_root_refresh.test.ts` (stale+live duplicate, repeated refresh, landing/login `no-store`, candidate order, cap, logout).
