@@ -247,6 +247,10 @@ describe("DocsAndReportsPanel scroll + sort", () => {
     }
     expect(headerByText("Date-Time").getAttribute("aria-sort")).toBe("descending");
     expect(headerByText("Run Source").hasAttribute("aria-sort")).toBe(false);
+    // The header stays visible while the table scrolls inside its frame.
+    expect(container.querySelector("th.sticky-head")).not.toBeNull();
+    // The header stays visible while the table scrolls inside its frame.
+    expect(container.querySelector("th.sticky-head")).not.toBeNull();
   });
 
   it("sorts by run source on click and toggles direction", async () => {

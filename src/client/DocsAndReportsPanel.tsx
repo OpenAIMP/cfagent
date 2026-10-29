@@ -139,13 +139,13 @@ function SortHeader({
     <Button
       variant="ghost"
       size="sm"
-      className={`docs-sort-btn${active ? " active" : ""}`}
+      className={`ui-table-sort${active ? " active" : ""}`}
       onClick={() => onSort(sortKey)}
       title={active ? `Sorted ${direction} — click to reverse` : `Sort by ${label}`}
       aria-label={active ? `${label}, sorted ${direction}. Reverse order` : `Sort by ${label}`}
     >
       <span className="docs-sort-label">{label}</span>
-      <span className="docs-sort-indicator" aria-hidden="true">
+      <span className="ui-table-sort-indicator" aria-hidden="true">
         {active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
       </span>
     </Button>
@@ -334,6 +334,7 @@ export function DocsAndReportsPanel() {
             rows={sortedRows}
             rowKey={(row) => `${row.runSource}:${row.id}`}
             containerClassName="docs-table-container"
+            stickyHeader
             empty={
               <EmptyState
                 icon="🗂"
