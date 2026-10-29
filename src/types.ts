@@ -45,6 +45,8 @@ export interface Env {
   FEATURE_SCHEDULES?: string;
   FEATURE_FLAGS?: string;
   SEARCH_AGENT: DurableObjectNamespace;
+  // Issue #2230 — TickerAgent DO (market quotes WebSocket, PortThink)
+  TICKER_AGENT: DurableObjectNamespace;
   // Issue #1387 — OrchestratorAgent root namespace for sub-agent
   // bootstrap (agents SDK resolves ctx.exports by constructor.name).
   // Optional: the SDK resolves via ctx.exports, not env, so no code

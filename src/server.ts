@@ -135,6 +135,7 @@ import {
   resolveLoginProvider,
 } from "./security/providers";
 import { renderLandingPage } from "./landing";
+import { TICKER_INSTANCE_NAME } from "./agents/ticker-agent";
 import { SERVER_PALETTE } from "./theme/serverPalette";
 import { routeAgentRequest } from "agents";
 import {
@@ -183,7 +184,7 @@ import {
 import { handleVoiceWebSocketConnection, ETradeVoiceTradingService, createOrchestratorVoiceTurnForwarder } from "./trading";
 import { ETradeWebhookService } from "./services/tradingWebhooks";
 import { ETradeBrowserService } from "./services/browserAgent";
-import { handleMarketQuotesWebSocket, handleMarketQuotesHttp } from "./services/marketStream";
+import { handleMarketQuotesHttp } from "./services/marketStream";
 import {
   getQuoteSource,
   setQuoteSource,
@@ -220,6 +221,9 @@ export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 // satisfy the root-namespace lookup). The alias stays: it is the live
 // orchestrator address and its stored state must not move.
 export { OrchestratorAgent } from "./agents/orchestrator";
+// Issue #2230 — wrangler requires every bound DO class to be exported from
+// the entrypoint, otherwise `wrangler deploy` fails.
+export { TickerAgent, TICKER_INSTANCE_NAME } from "./agents/ticker-agent";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
 export { BrowserAgent } from "./agents/browserAgent";
 export { SlackAgent } from "./agents/slackAgent";
@@ -3075,22 +3079,17 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return new Response(null, { status: 101, webSocket: clientWs });
     }
 
-    // --- Real-Time Market Data Quotes WebSocket Session (Issue #21) ---
+    // --- Real-Time Market Data Quotes WebSocket Session (Issue #2230) ---
+    // Served by TickerAgent (a PortThink agent), addressed directly so
+    // the no-auth, no-audit surface (M10) is preserved: routing through
+    // routeAgentRequest onBeforeConnect would 401 unauthenticated
+    // callers and break the public landing page tape. The SDK's stub
+    // fetch performs the upgrade and drives the agent's onConnect,
+    // which reads the #1725 header carriers (x-quote-expiry-mode /
+    // x-quote-stream-provenance) from the upgrade request.
     if ((path === "/api/market-data/quotes/ws" || path === "/api/market/quotes/ws" || path === "/api/foss/quotes/ws") && request.headers.get("Upgrade") === "websocket") {
-      const pair = new WebSocketPair();
-      const [clientWs, serverWs] = Object.values(pair);
-      serverWs.accept();
-
-      // #1725: WS run carriers are the x-quote-expiry-mode /
-      // x-quote-stream-provenance headers; the WS branch always
-      // passes env (Alpaca possible), unlike the HTTP branch below.
-      // No auth and no audit on this surface, in every mode (M10).
-      handleMarketQuotesWebSocket(serverWs, env, {
-        expiryMode: request.headers.get("x-quote-expiry-mode") ?? undefined,
-        streamProvenance: request.headers.get("x-quote-stream-provenance") ?? undefined,
-      }).catch(console.warn);
-
-      return new Response(null, { status: 101, webSocket: clientWs });
+      const tickerId = env.TICKER_AGENT.idFromName(TICKER_INSTANCE_NAME);
+      return env.TICKER_AGENT.get(tickerId).fetch(request);
     }
 
     // --- Batch Market Quotes HTTP Endpoint (Fallback for non-WebSocket clients) ---
