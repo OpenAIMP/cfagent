@@ -866,7 +866,8 @@ describe("Options Scanner & Watchlist Capability Suite", () => {
       // Verify audit event recorded
       const events = orm.events.findMany({ where: { type: "WATCHLIST_SAVED" } });
       expect(events.length).toBeGreaterThan(0);
-      expect((events[0].payload as any).name).toBe("Tech Momentum");
+      // #2178 S1: stored payload is JSON text — parse the stored form.
+      expect((JSON.parse(events[0].payload as unknown as string) as any).name).toBe("Tech Momentum");
     });
 
     it("merges remote E*TRADE watchlists and local SQLite watchlists seamlessly", async () => {

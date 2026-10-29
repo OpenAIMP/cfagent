@@ -255,7 +255,8 @@ describe("MPP receipts bind to the verified payer (#700 point 3)", () => {
     const events = orm.events.findMany({ where: { type: "AGENTIC_PAYMENT_COLLECTED" } });
     expect(events).toHaveLength(1);
     expect((events[0] as any).sessionId).toBe(`x402:${MPP_PAYER}`);
-    expect((events[0] as any).payload.payer).toBe(MPP_PAYER);
+    // #2178 S1: stored payload is JSON text — parse the stored form.
+    expect((JSON.parse((events[0] as any).payload as string) as any).payer).toBe(MPP_PAYER);
   });
 
   it("two MPP payers sharing one store land in distinct scopes — nothing pools", async () => {

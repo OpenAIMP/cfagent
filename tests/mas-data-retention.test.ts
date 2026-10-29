@@ -219,7 +219,8 @@ describe("pass-level behaviour (issue #786)", () => {
 
     const audits = orm.events.findMany({ where: { type: "STORAGE_RETENTION" } });
     expect(audits).toHaveLength(1);
-    const payload = audits[0].payload as Record<string, unknown>;
+    // #2178 S1: stored payload is JSON text — parse the stored form.
+    const payload = JSON.parse(audits[0].payload as unknown as string) as Record<string, unknown>;
     expect(payload.eventsPruned).toBe(res.eventsPruned);
     expect(payload.eventsPruned).toBe(2);
     expect(payload.eventsWindowDays).toBe(365);

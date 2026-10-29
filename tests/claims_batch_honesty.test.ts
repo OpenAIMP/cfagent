@@ -153,7 +153,8 @@ describe("F19 — dispatchReminder failure propagation", () => {
     expect(orm.events.findMany({ where: { type: "reminder.dispatched" } }).length).toBe(0);
     const failed = orm.events.findMany({ where: { type: "reminder.dispatch_failed" } });
     expect(failed.length).toBe(1);
-    expect((failed[0].payload as any)?.error).toContain("sqlite locked");
+    // #2178 S1: stored payload is JSON text — parse the stored form.
+    expect((JSON.parse(failed[0].payload as unknown as string) as any)?.error).toContain("sqlite locked");
   });
 
   it("with no message store attached, the dispatch fails honestly instead of claiming success", async () => {

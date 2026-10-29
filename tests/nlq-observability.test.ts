@@ -36,12 +36,14 @@ describe("NLQ execution observability (Assessment P1 #143, issue #257)", () => {
     const [ev] = events;
     expect(ev.agent).toBe("nlq");
     expect(ev.sessionId).toBe("obs_session");
-    expect(ev.payload.domain).toBe("tables");
-    expect(typeof ev.payload.count).toBe("number");
-    expect(typeof ev.payload.durationMs).toBe("number");
+    // #2178 S1: stored payload is JSON text — parse the stored form.
+    const payload = JSON.parse(ev.payload as unknown as string) as Record<string, unknown>;
+    expect(payload.domain).toBe("tables");
+    expect(typeof payload.count).toBe("number");
+    expect(typeof payload.durationMs).toBe("number");
     // Redaction: the raw query must never be logged.
-    expect("query" in ev.payload).toBe(false);
-    expect("terms" in ev.payload).toBe(false);
+    expect("query" in payload).toBe(false);
+    expect("terms" in payload).toBe(false);
   });
 
   it("writes exactly one nlq.executed row for the async entry (no double audit)", async () => {
@@ -68,8 +70,10 @@ describe("NLQ execution observability (Assessment P1 #143, issue #257)", () => {
     expect(events).toHaveLength(1);
     const [ev] = events;
     expect(ev.agent).toBe("nlq");
-    expect(ev.payload.error).toContain("listTables exploded");
-    expect("query" in ev.payload).toBe(false);
+    // #2178 S1: stored payload is JSON text — parse the stored form.
+    const payload = JSON.parse(ev.payload as unknown as string) as Record<string, unknown>;
+    expect(payload.error).toContain("listTables exploded");
+    expect("query" in payload).toBe(false);
   });
 
   it("executes normally when no events repository exists (audit is best-effort)", () => {
