@@ -63,6 +63,8 @@
  *   stated — not hidden inside a looser gate bound.
  */
 
+import { SESSION_LIMITS } from "../config/sessionLimits";
+
 export type RevocationTrigger =
   | "membership-revocation"
   | "session-revocation"
@@ -93,7 +95,7 @@ export const SESSION_REVOCATION_SAME_ISOLATE_BOUND_MS = 0;
  * lapses. MUST equal SESSION_CACHE_POSITIVE_TTL_MS (sessionCache.ts);
  * the proving tests assert equality so the two cannot drift apart.
  */
-export const SESSION_REVOCATION_CROSS_ISOLATE_BOUND_MS = 60_000;
+export const SESSION_REVOCATION_CROSS_ISOLATE_BOUND_MS = SESSION_LIMITS.cachePositiveTtlMs;
 
 const membershipRevocation: RevocationTarget = Object.freeze({
   trigger: "membership-revocation" as const,

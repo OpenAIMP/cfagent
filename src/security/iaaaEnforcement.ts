@@ -84,11 +84,17 @@ export type WiredSessionValidation =
  * Only its internalUserId is consulted, and only to decide whether
  * this session is wired at all. All enforcement uses the fresh read.
  */
+export interface WiredSessionValidationOptions {
+  /** Owner override for the idle window (default 30 minutes). */
+  idleTimeoutMs?: number;
+}
+
 export async function validateAndTouchWiredSession(
   deps: WiredSessionStoreDeps,
   cached: SessionData | null,
   sessionId: string,
   nowMs: number,
+  options?: WiredSessionValidationOptions,
 ): Promise<WiredSessionValidation> {
   if (!cached?.internalUserId) {
     return { wired: false };
@@ -106,7 +112,7 @@ export async function validateAndTouchWiredSession(
     // and is returned under legacy semantics.
     return { wired: true, session: fresh };
   }
-  const validated = getValidatedSession(fresh, nowMs);
+  const validated = getValidatedSession(fresh, nowMs, options);
   if (!validated.ok) {
     deps.invalidate(sessionId);
     return { wired: true, session: null };
