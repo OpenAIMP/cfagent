@@ -27,7 +27,7 @@ export const AGENT_CARDS: AgentCard[] = [
     endpoint: "/a2a/orchestrator",
     cardPath: "/a2a/orchestrator/agent-card.json",
     capabilities: ["planning", "supervision", "parallel-execution"],
-    operations: ["search.query", "payments.draft", "tasks.create", "memory.remember", "nlq.execute"],
+    operations: ["search.query", "payments.draft", "payments.confirm", "tasks.create", "memory.remember", "memory.recall", "nlq.execute"],
   },
   {
     name: "search",
@@ -44,8 +44,8 @@ export const AGENT_CARDS: AgentCard[] = [
     version: "1.0.0",
     endpoint: "/a2a/payments",
     cardPath: "/a2a/payments/agent-card.json",
-    capabilities: ["payment-draft", "payment-process", "budget-check"],
-    operations: ["payments.draft"],
+    capabilities: ["budget-check", "payment-process", "payment-list"],
+    operations: ["payments.budget_check", "payments.today_spent", "payments.list", "payments.process"],
   },
   {
     name: "tasks",
@@ -63,7 +63,7 @@ export const AGENT_CARDS: AgentCard[] = [
     endpoint: "/a2a/memory",
     cardPath: "/a2a/memory/agent-card.json",
     capabilities: ["remember", "recall"],
-    operations: ["memory.remember"],
+    operations: ["memory.remember", "memory.recall"],
   },
   {
     name: "trading",

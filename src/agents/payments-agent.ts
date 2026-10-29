@@ -29,6 +29,11 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
+import {
+  dispatchPaymentsA2A,
+  paymentsA2AOutcome,
+  type PaymentsA2AOutcome,
+} from "./payments/a2aDispatch";
 import { BudgetGuard, type BudgetGuardState } from "../payments/budget-guard";
 import {
   fetchLedgerBudgetState,
@@ -222,6 +227,32 @@ export class PaymentsAgent extends PortThink {
   /** List recent payments (for UX ledger view) — read from the ledger of record. */
   async listPayments(limit: number = 50): Promise<PaymentRecord[]> {
     return listLedgerPayments(this.env, limit);
+  }
+
+  /**
+   * Issue #2223 (payments slice): A2A door, cfpay signature — the
+   * edge dispatcher (src/a2a) resolves the "payments" name to this
+   * class on the URL-name instance and calls this with the parsed
+   * body + origin (a Request cannot cross the DO RPC boundary).
+   * Thin delegation to the dispatch module
+   * (./payments/a2aDispatch), which serves this class's four real
+   * operations; the bound methods are injected here because they
+   * are class-bound. This class is instance-agnostic (all live
+   * state derives from the ledger of record), so the URL-name
+   * instance serves real data. Returns the collected { text, data }
+   * outcome.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<PaymentsA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
+    const data = await dispatchPaymentsA2A(this.env, body, {
+      executor: {
+        budgetCheck: (req) => this.budgetCheck(req),
+        todaySpent: () => this.todaySpent(),
+        listPayments: (limit) => this.listPayments(limit),
+        processPaidRequest: (req) => this.processPaidRequest(req),
+      },
+    });
+    return paymentsA2AOutcome(data);
   }
 
   /**
