@@ -194,6 +194,11 @@
  * /reports/research/browse) — bringing the pinned array to 263 entries; the
  * delegation sequence is unchanged (same handler, same position).
  *
+ * Issue #2185 added one — POST /payments/agentic/commercial/prices (in
+ * handleAgenticPaymentsRoutes, after the pricing route) — bringing the
+ * pinned array to 275 entries; the delegation sequence is unchanged
+ * (same handler, same position).
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -361,6 +366,7 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription/cancel\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/pricing\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/prices\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submission/check-payment\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/goal-command\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/budget-state\")",

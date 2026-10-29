@@ -396,6 +396,19 @@ export const agentJournalEntries = sqliteTable("agent_journal_entries", {
 });
 
 /**
+ * Per-run price catalogue (#2185, sub-issue of #2012) on D1.
+ * One row per family; operator data, never code. This schema MAPS
+ * the table; it does not create it — DDL authority lives in
+ * migration 0011 (src/data/migrationRunner.ts), and a test pins
+ * that this mapping and that DDL agree on columns.
+ */
+export const agentPriceCatalogue = sqliteTable("agent_price_catalogue", {
+  family: text("family").primaryKey(),
+  priceUSD: real("price_usd").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+/**
  * Subscription plans (#2020/#2127) as OPERATOR DATA, not code:
  * operators create plans; no price is hardcoded anywhere, because
  * no subscription price is owner-approved. Active plans are what
